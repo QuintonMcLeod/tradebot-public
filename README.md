@@ -1,4 +1,6 @@
-# Tradebot-Sci
+# Tradebot SCI Enterprise - AI Trading Assistant
+
+![Tradebot Dashboard](docs/images/dashboard_main.png)
 
 > **Looking for the Manual?**
 > Stop reading this boring file.
@@ -117,6 +119,10 @@ In practical terms, that means:
    ```bash
    ./scripts/tradebot.sh --gui
    ```
+   *(Or run just the settings window for quick edits: `./scripts/tradebot.sh --settings`)*
+
+   ![Settings Window](docs/images/settings_window.png)
+
 4. Configure inside the GUI:
    - Settings → AI for provider + API key
    - Settings → Time for timezone + sabbath automation
