@@ -1,25 +1,24 @@
-
 # 1. The Philosophy (Or: Why We Build Tools)
-> *"The economy is in shambles. The rent is too damn high. And I am tired of eating ramen."*
+> *"The economy is in shambles. The rent is too damn high. And I am tired of paying bills that I don't want to pay."*
 
-Welcome to the **TradeBot**. It has no fancy marketing name. It has no singular author. It is a tool, forged in the fires of late-stage capitalism, designed with one singular, ruthless purpose: **To Make Money.**
+Welcome to **TradeBot SCI Enterprise**. It has no fancy marketing name. It has no singular author. It is a tool, forged in the fires of late-stage capitalism, designed with one singular, ruthless purpose: **To Make Money.**
 
 ## The Origin Story
-I built this because I was struggling. My co-workers were getting laid off. My family was stressed about bills. The news was an endless parade of companies firing millions of people while executives hoarded wealth like dragons sitting on gold.
+I built this not because I was struggling—I am rich, my money comes from The Most High—but because I was tired of the inefficiencies. My co-workers were stressed about bills. The news was an endless parade of companies firing millions while executives hoarded wealth.
 
-It’s not fair. It’s not fair that the system is rigged to keep you poor while a few rich mongrels at the top play 4D chess with the global economy.
+It’s not fair. It’s not fair that the system is rigged to keep the masses poor while a few rich mongrels at the top play 4D chess with the global economy.
 
 So, I decided to rig it back. This bot is the equalizer. It is the digital brick thrown through the window of the establishment. It is designed to claw back dignity (and liquidity) from the markets and put it where it belongs: in your wallet.
 
 ## What It Actually Does
 This isn't just a "Crypto Bot." That's thinking too small.
 The TradeBot is a multi-market, multi-asset predator.
-*   **Crypto?** Yes. Use the **CCXT** engine (the Default). It eats volatility for breakfast.
-*   **Stocks?** Yes. NASDAQ, NYSE.
+*   **Crypto?** Yes. Use the **CCXT** engine. It eats volatility for breakfast.
+*   **Stocks?** Yes. NASDAQ, NYSE via IBKR.
 *   **Forex?** Yes.
 *   **Futures?** Yes.
 
-It supports **IBKR** (Interactive Brokers) because some of us need to trade boomer stocks, but let's be real: **CCXT** is the beating heart of this machine. It connects to everything, trades everything, and doesn't ask for permission.
+It supports **IBKR** (Interactive Brokers) because some of us need to trade boomer stocks, and **CCXT** for everything else. It connects to everything, trades everything, and doesn't ask for permission.
 
 ## How It Works (The "Easy" Button)
 I'm not going to lie to you: This tool looks like the cockpit of a 747. There are levers, dials, switches, and config files everywhere. It’s blinding.
