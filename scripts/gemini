@@ -1,0 +1,15 @@
+#!/bin/bash
+# Gemini CLI Wrapper for AI-to-AI communication via letsgo.txt
+# Usage: ./scripts/gemini "Message"
+
+if [ -z "$1" ]; then
+    echo "Usage: ./scripts/gemini 'Message to Antigravity'"
+    exit 1
+fi
+
+MSG="$*"
+TARGET="$HOME/Scripts/letsgo.txt"
+
+# Atomic append (mostly)
+printf "\n[CLAUDE/AI-2]: %s\n" "$MSG" >> "$TARGET"
+echo "Message sent to Antigravity via letsgo.txt"

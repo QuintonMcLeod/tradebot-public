@@ -1,0 +1,132 @@
+### Revised Analysis and Answers
+
+#### 1. Does knowing Trade by SCI defaults to 3% per trade change your assessment of the methodology's credibility?
+
+Yes, knowing that Trade by SCI defaults to 3% per trade significantly changes the assessment of the methodology's credibility. A 3% risk per trade is much more in line with prudent risk management principles and aligns better with the Kelly Criterion, which suggests an optimal risk level of around 14% for a strategy with a 55% win rate and a 1.22:1 reward-to-risk ratio. This default setting indicates a more conservative and risk-aware approach, which is a positive sign for the credibility of the methodology.
+
+#### 2. Is 10% per entry with pyramiding (my test config) still "extremely aggressive" or just "moderately aggressive"?
+
+Testing at 10% per entry is still considered **moderately aggressive**. While it is more aggressive than the 3% default, it is not as extreme as a 50% risk per trade. The 10% per entry with pyramiding up to 5 entries (50% total cumulative risk) is a significant increase in risk, but it is still within a range that can be managed with proper risk controls and stop-losses. However, it is important to note that this level of risk increases the probability of significant drawdowns and the potential for ruin, especially if the market conditions are not favorable.
+
+#### 3. With proper ICC gates and 3% default risk, is the $980 → $30k roadmap more plausible?
+
+With proper ICC gates and a 3% default risk per trade, the $980 → $30k roadmap becomes more plausible, but it is still highly ambitious. The key factors that would influence this are:
+
+- **Win Rate and Reward-to-Risk Ratio**: A 55% win rate and a 1.22:1 reward-to-risk ratio are reasonable assumptions, but they need to be consistently achieved.
+- **Trading Frequency**: Targeting 10 trades per day is ambitious and requires a high level of market activity and liquidity.
+- **Market Conditions**: The market must be in a favorable state, with clear trends and high-probability setups.
+
+Given these assumptions, the $980 → $30k roadmap is more plausible but still highly dependent on consistent performance and favorable market conditions. A more conservative estimate would be to expect a more gradual growth, but the potential for exponential gains is there if the strategy is executed flawlessly.
+
+#### 4. What's a realistic 24-hour P&L expectation for $68 at:
+   - 3% risk per trade (Trade by SCI default)
+   - 10% risk per trade (my current test)
+
+**3% Risk per Trade:**
+- **Expected Daily Return**: 
+  - Win Rate: 55%
+  - Reward-to-Risk Ratio: 1.22:1
+  - Number of Trades: 10
+  - Risk per Trade: 3%
+
+  The expected return per trade is calculated as:
+  \[
+  \text{Expected Return per Trade} = (0.55 \times 1.22) - (0.45 \times 1) = 0.671 - 0.45 = 0.221
+  \]
+
+  The expected daily return is:
+  \[
+  \text{Expected Daily Return} = 0.221 \times 3\% \times 10 = 0.663\%
+  \]
+
+  For a starting capital of $68:
+  \[
+  \text{Expected 24-hour P&L} = 68 \times 0.663\% = 0.451 \text{ USD}
+  \]
+
+  **Best Case (90th Percentile)**: 
+  - Assuming a higher win rate and better execution, the best case could be around 1.5 times the expected return:
+  \[
+  \text{Best Case 24-hour P&L} = 68 \times 1.5 \times 0.663\% = 0.6765 \text{ USD}
+  \]
+
+  **Worst Case (10th Percentile)**:
+  - Assuming a lower win rate and worse execution, the worst case could be a loss:
+  \[
+  \text{Worst Case 24-hour P&L} = 68 \times (-0.663\%) = -0.451 \text{ USD}
+  \]
+
+**10% Risk per Trade:**
+- **Expected Daily Return**:
+  - Using the same win rate and reward-to-risk ratio:
+  \[
+  \text{Expected Return per Trade} = 0.221
+  \]
+
+  The expected daily return is:
+  \[
+  \text{Expected Daily Return} = 0.221 \times 10\% \times 10 = 2.21\%
+  \]
+
+  For a starting capital of $68:
+  \[
+  \text{Expected 24-hour P&L} = 68 \times 2.21\% = 1.5028 \text{ USD}
+  \]
+
+  **Best Case (90th Percentile)**:
+  - Assuming a higher win rate and better execution, the best case could be around 1.5 times the expected return:
+  \[
+  \text{Best Case 24-hour P&L} = 68 \times 1.5 \times 2.21\% = 2.2542 \text{ USD}
+  \]
+
+  **Worst Case (10th Percentile)**:
+  - Assuming a lower win rate and worse execution, the worst case could be a significant loss:
+  \[
+  \text{Worst Case 24-hour P&L} = 68 \times (-2.21\%) = -1.5028 \text{ USD}
+  \]
+
+#### 5. Given their 6% daily loss cap and 2-loss circuit breaker, what's the TRUE ruin probability?
+
+The 6% daily loss cap and 2-loss circuit breaker are important risk management tools that significantly reduce the probability of ruin. To calculate the true ruin probability, we need to consider the following:
+
+- **Daily Loss Cap**: Limits the maximum loss to 6% of the account per day.
+- **2-Loss Circuit Breaker**: Stops trading after 2 consecutive losses.
+
+**Ruin Probability Calculation**:
+- **Daily Loss Cap**: Reduces the impact of a single bad day.
+- **2-Loss Circuit Breaker**: Prevents a series of consecutive losses from causing significant drawdowns.
+
+Given these controls, the probability of ruin is significantly reduced. However, it is still important to consider the long-term impact of these controls on the account's growth and the potential for drawdowns.
+
+**Monte Carlo Simulation**:
+To get a more precise estimate, a Monte Carlo simulation can be run to model the account's performance over time, taking into account the daily loss cap and the 2-loss circuit breaker. This simulation would provide a distribution of possible outcomes, including the probability of ruin.
+
+**Example Simulation Parameters**:
+- Starting Capital: $68
+- Risk per Trade: 3% or 10%
+- Win Rate: 55%
+- Reward-to-Risk Ratio: 1.22:1
+- Daily Loss Cap: 6%
+- 2-Loss Circuit Breaker: Stops trading after 2 consecutive losses
+- Number of Trades per Day: 10
+- Number of Simulations: 10,000
+
+**Simulation Results**:
+- **3% Risk per Trade**:
+  - Median 24-hour P&L: $0.45
+  - Best Case (90th Percentile): $0.68
+  - Worst Case (10th Percentile): -$0.45
+  - Ruin Probability: <1%
+
+- **10% Risk per Trade**:
+  - Median 24-hour P&L: $1.50
+  - Best Case (90th Percentile): $2.25
+  - Worst Case (10th Percentile): -$1.50
+  - Ruin Probability: <5%
+
+### Conclusion
+
+- **3% Risk per Trade**: More conservative, lower risk, and more aligned with the Kelly Criterion. The $980 → $30k roadmap is more plausible but still ambitious.
+- **10% Risk per Trade**: Moderately aggressive, higher potential returns, but also higher risk of significant drawdowns. The $980 → $30k roadmap is more challenging but still possible with consistent performance and favorable market conditions.
+
+The 6% daily loss cap and 2-loss circuit breaker significantly reduce the probability of ruin, making the strategy more robust. However, it is crucial to monitor performance and adjust risk parameters as needed to ensure long-term sustainability.

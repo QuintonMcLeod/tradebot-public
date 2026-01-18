@@ -1,0 +1,1089 @@
+====================================================================================================
+10-ROUND 3-WAY DEBATE: Coinbase Futures PERMISSION_DENIED
+====================================================================================================
+Claude (Moderator) vs Qwen (Quant Analyst) vs Gemini (Engineering Pragmatist)
+Goal: Identify root cause(s), propose fixes, and prioritize verification steps.
+====================================================================================================
+
+
+====================================================================================================
+ROUND 1
+====================================================================================================
+
+🔵 CLAUDE:
+Let me help structure this systematically.
+
+Top 5 Most Likely Causes (Based on error patterns):
+1. Futures-specific permission flag missing despite general trade permissions
+2. Portfolio access level mismatch (retail vs futures portfolio ID)
+3. API key scope limited to spot markets only
+4. Account tier insufficient for futures trading
+5. Regional restrictions on futures trading
+
+Testable Hypothesis: The core issue is a portfolio access mismatch, as check_portfolios.py only returned retail_portfolio_id.
+
+Verification Steps:
+1. Check account tier level (Advanced Trader required)
+2. Verify region eligibility 
+3. Compare API key scopes against futures-specific requirements
+4. Test portfolio ID mapping
+5. Validate futures account activation status
+
+Moderator Prompt:
+"Please analyze the PERMISSION_DENIED error for Coinbase futures trading. Focus on concrete, testable solutions based on:
+- Portfolio ID mismatch (retail vs futures)
+- Account tier requirements
+- API permission scope differences
+- Regional eligibility
+Keep responses under 100 words and include specific API endpoints or commands to test each hypothesis."
+
+🟡 QWEN:
+1. **Incorrect Portfolio ID**: The bot might be using a portfolio ID that does not have futures trading permissions.
+   - **Verification Step**: Use `diagnose_coinbase_balances_v2.py` to list all portfolio IDs and confirm if the futures portfolio ID is present. If not, create a new futures portfolio and update the bot configuration.
+
+2. **API Key Scope Limitations**: The API key might have restricted scopes that do not include futures trading, despite showing trade permissions in the UI.
+   - **Verification Step**: Re-generate the API key with explicit futures trading permissions and update the bot configuration.
+
+3. **Account Type Mismatch**: The account type (e.g., consumer vs. institutional) might not support futures trading.
+   - **Verification Step**: Verify the account type in the Coinbase UI and ensure it supports futures trading. If not, upgrade or change the account type.
+
+4. **Insufficient Balance**: The futures account might have insufficient balance to place trades.
+   - **Verification Step**: Use `diagnose_coinbase_balances_v2.py` to check the futures balance. If the balance is zero, transfer funds to the futures account.
+
+5. **API Rate Limits or IP Restrictions**: The API might be rate-limited or restricted by IP address.
+   - **Verification Step**: Check the API rate limits and IP restrictions in the Coinbase API documentation. Ensure the bot's IP address is whitelisted and the request rate is within limits.
+
+🟢 GEMINI:
+This situation strongly suggests an account eligibility or API permission scope mismatch, despite UI indications.
+
+**Top 5 Likely Causes & Pragmatic Fixes:**
+
+1.  **Account Eligibility (Futures Portfolio Missing):** Coinbase futures often require a specific account type or approval (e.g., Coinbase International Exchange access).
+    *   **Pragmatic Check:** Verify if the linked account is approved for futures trading. Can the user manually see a dedicated "Futures" or "International Exchange" portfolio in the Coinbase web UI?
+    *   **Actionable Fix:** The `check_portfolios.py` result (only `retail_portfolio_id`) is the primary indicator. The user must complete the necessary steps (KYC, approval) to provision the required futures trading account.
+
+2.  **API Key Scope Mismatch (Missing Brokerage/Futures Permission):** Even if "Trade" is enabled, specific brokerage or futures permissions might be required for the API key, especially if using the newer institutional endpoints.
+    *   **Pragmatic Check:** Regenerate the API key, explicitly ensuring all relevant "Futures Trading" or "Brokerage" permissions are checked, not just generic "Trade" permissions.
+
+3.  **Endpoint Authentication Failure (401 on `transaction_summary`):** The 401 error on `/transaction_summary` suggests the key might not be valid for certain required private endpoints, possibly due to a region lock or institutional access requirement.
+    *   **Pragmatic Check:** Confirm the API key is being used against the correct base URL (e.g., International vs. standard Coinbase) and that headers (timestamp, signature) are correctly formatted for the specific futures endpoints.
+
+4.  **Portfolio Targeting Error:** The bot might be attempting to place the order against the default (retail) portfolio ID, which does not support futures.
+    *   **Pragmatic Fix:** Once a futures portfolio is provisioned (Cause 1), ensure the bot explicitly targets the correct `futures_portfolio_id` when placing orders.
+
+5.  **Jurisdictional/Geographic Restriction:** Futures are highly regulated. The user's location might prevent account provisioning or access to specific futures products.
+    *   **Pragmatic Check:** Review Coinbase's documentation regarding jurisdictional requirements for futures trading eligibility.
+
+====================================================================================================
+ROUND 2
+====================================================================================================
+
+🔵 CLAUDE:
+Let me analyze the portfolio access issue specifically.
+
+Portfolio Access Analysis:
+1. Symptoms point to portfolio mismatch:
+- Only retail_portfolio_id visible
+- 0.0 futures balance
+- 401 on transaction summary
+
+Verification Process:
+1. Call GET /api/v3/brokerage/portfolios to list all accessible portfolios
+2. Compare portfolio_id in trade requests against returned IDs
+3. Check if futures portfolio needs explicit activation
+4. Verify portfolio_type field matches 'FUTURE'
+
+Test Script Outline:
+```python
+async def verify_portfolio_access():
+    portfolios = await client.get_portfolios()
+    futures_portfolio = next((p for p in portfolios if p['type'] == 'FUTURE'), None)
+    return {
+        'has_futures_portfolio': bool(futures_portfolio),
+        'portfolio_id': futures_portfolio['id'] if futures_portfolio else None
+    }
+```
+
+Moderator Prompt:
+"Analyze how portfolio configuration affects PERMISSION_DENIED. Provide specific API calls to:
+1. List available portfolios
+2. Check portfolio types
+3. Verify futures portfolio activation
+4. Test portfolio ID mapping
+Include exact endpoint paths and expected response formats. Keep under 100 words."
+
+🟡 QWEN:
+### Explanation of Portfolio Scoping or Account Selection Issues
+
+**Portfolio Scoping**:
+- **Issue**: The bot might be configured to use a portfolio that does not have futures trading permissions. Coinbase differentiates between various types of portfolios (e.g., spot, futures, margin), and each has its own set of permissions and balances.
+- **Impact**: If the bot is using a spot portfolio to attempt futures trades, it will receive a `PERMISSION_DENIED` error because the spot portfolio does not have the necessary permissions for futures trading.
+
+**Account Selection**:
+- **Issue**: The account type (e.g., consumer vs. institutional) might not support futures trading. Consumer accounts may have more restrictions compared to institutional accounts.
+- **Impact**: If the bot is using a consumer account that does not support futures trading, it will also receive a `PERMISSION_DENIED` error.
+
+### Verification Steps
+
+1. **Check Portfolio IDs**:
+   - **Step**: Run `check_portfolios.py` to list all available portfolios.
+   - **Expected Output**: Ensure that a futures portfolio ID is listed. If not, proceed to the next step.
+   - **Action**: If no futures portfolio is listed, create a new futures portfolio in the Coinbase UI and note the new portfolio ID.
+
+2. **Verify Portfolio ID in Bot Configuration**:
+   - **Step**: Check the bot configuration to ensure it is using the correct futures portfolio ID.
+   - **Expected Output**: The configuration should point to the futures portfolio ID.
+   - **Action**: If the configuration is incorrect, update it to use the futures portfolio ID.
+
+3. **Test Portfolio Access**:
+   - **Step**: Use `test_coinbase_connection.py` with the futures portfolio ID.
+   - **Expected Output**: The script should successfully access the futures portfolio and not return a `401 Unauthorized` error.
+   - **Action**: If the test fails, ensure the API key has the necessary permissions for the futures portfolio.
+
+4. **Check Account Type**:
+   - **Step**: Verify the account type in the Coinbase UI.
+   - **Expected Output**: Ensure the account type supports futures trading (e.g., institutional account).
+   - **Action**: If the account type does not support futures trading, consider upgrading or changing the account type.
+
+5. **Verify Futures Balance**:
+   - **Step**: Run `diagnose_coinbase_balances_v2.py` to check the balance in the futures portfolio.
+   - **Expected Output**: The futures balance should be non-zero if funds have been transferred.
+   - **Action**: If the balance is zero, transfer funds to the futures portfolio.
+
+By following these steps, you can ensure that the bot is correctly configured to use the appropriate futures portfolio and account, thereby resolving the `PERMISSION_DENIED` issue.
+
+🟢 GEMINI:
+The core issue is the absence of a dedicated futures portfolio, as indicated by `check_portfolios.py` returning only the `retail_portfolio_id`.
+
+**How Portfolio Scoping Causes PERMISSION\_DENIED:**
+
+Coinbase uses portfolio IDs to segregate assets, permissions, and regulatory compliance. Futures trading often requires a distinct, specially approved portfolio (e.g., linked to Coinbase International Exchange or a specific Brokerage account).
+
+When your bot attempts to place a futures order:
+1.  It defaults to the only available ID: `retail_portfolio_id`.
+2.  The Coinbase API receives the request targeting the retail portfolio.
+3.  The API backend checks the capabilities of that portfolio ID. Since the retail portfolio is not authorized or provisioned for futures trading, the API returns `PERMISSION_DENIED`, even if the API key itself has general trading scope. The permission is denied *for that specific portfolio*.
+
+**Verifying Portfolio Alignment (Testable Check):**
+
+1.  **Direct API Call:** Use the Coinbase API endpoint for listing portfolios (e.g., `/api/v3/brokerage/accounts`).
+2.  **Test:** Verify if the response contains an entry where the `type` or `trading_product_type` is clearly designated for "Futures," "Derivatives," or "Brokerage." If only `RETAIL` or `SPOT` types are listed, the account is not eligible.
+
+**Pragmatic Fixes and Checks:**
+
+1.  **Provision the Account (Primary Fix):** The user must complete the necessary steps (likely KYC/onboarding for futures) via the Coinbase web interface to provision the required futures portfolio. This is the only way to resolve the missing portfolio ID.
+2.  **Targeting Verification (Post-Provisioning Check):** Once a futures portfolio is created, the bot must be updated to explicitly use that new `futures_portfolio_id` when constructing order placement requests.
+    *   **Test:** Attempt to fetch balances using the newly acquired futures portfolio ID. If this succeeds, the portfolio is active.
+3.  **Endpoint Alignment Check:** The 401 error on `/transaction_summary` suggests the account might not be fully linked to the necessary brokerage endpoints. Ensure the account provisioning process is complete, as this often resolves underlying authorization issues related to brokerage access.
+
+====================================================================================================
+ROUND 3
+====================================================================================================
+
+🔵 CLAUDE:
+Let me break down the futures onboarding verification.
+
+Required Checks:
+1. Account Tier Status:
+- Endpoint: GET /api/v3/brokerage/account_summary
+- Verify "Advanced Trader" status
+- Check futures_enabled flag
+
+2. Suitability Requirements:
+- Complete futures trading quiz
+- Acknowledge risk disclosures
+- Verify trading experience level
+
+Test Script:
+```python
+def verify_futures_eligibility():
+    checks = {
+        'account_tier': '/brokerage/account_summary',
+        'futures_quiz': '/brokerage/user/futures_onboarding_status',
+        'risk_acceptance': '/brokerage/user/futures_agreements'
+    }
+    return {endpoint: check_status(endpoint) for endpoint in checks}
+```
+
+UI Verification Path:
+1. Settings > Trading Access
+2. Futures Trading section
+3. Onboarding completion status
+
+Moderator Prompt:
+"Detail the exact steps to verify Coinbase futures account activation. Include:
+1. Required account tier checks
+2. Specific onboarding requirements
+3. UI navigation paths
+4. API endpoints to verify status
+Provide response codes that indicate proper activation. Keep under 100 words."
+
+🟡 QWEN:
+### Onboarding and Suitability Requirements for Coinbase Futures
+
+To ensure that your account is properly set up for futures trading on Coinbase, you need to verify that you have completed the necessary onboarding and suitability requirements. Here are the concrete steps and account flags to check:
+
+### Verification Steps
+
+1. **Check Account Type**:
+   - **Step**: Log in to your Coinbase account and navigate to the account settings.
+   - **Expected Output**: Ensure your account type is either "Institutional" or a "Pro" account, as consumer accounts may have more restrictions.
+   - **Action**: If your account is a consumer account, consider upgrading to a Pro or Institutional account.
+
+2. **Verify Futures Trading Eligibility**:
+   - **Step**: Navigate to the "Futures" section in the Coinbase Pro or Institutional account dashboard.
+   - **Expected Output**: Ensure that futures trading is enabled and that you have completed the necessary onboarding steps.
+   - **Action**: If futures trading is not enabled, complete the onboarding process, which may include:
+     - Providing personal or business information.
+     - Verifying your identity.
+     - Completing a risk assessment questionnaire.
+
+3. **Check Portfolio Setup**:
+   - **Step**: Navigate to the "Portfolios" section in the Coinbase Pro or Institutional account dashboard.
+   - **Expected Output**: Ensure that a futures portfolio is listed and active.
+   - **Action**: If no futures portfolio is listed, create a new futures portfolio:
+     - Click on "Create Portfolio."
+     - Select "Futures" as the portfolio type.
+     - Follow the prompts to complete the setup.
+
+4. **Verify API Key Permissions**:
+   - **Step**: Navigate to the "API Keys" section in the Coinbase Pro or Institutional account dashboard.
+   - **Expected Output**: Ensure that the API key has the necessary permissions for futures trading.
+   - **Action**: If the API key does not have futures trading permissions, regenerate the API key with the required permissions:
+     - Click on "Create API Key."
+     - Select the "Futures Trading" permission.
+     - Save the new API key and update your bot configuration.
+
+5. **Check Futures Balance**:
+   - **Step**: Use the `diagnose_coinbase_balances_v2.py` script to check the balance in the futures portfolio.
+   - **Expected Output**: Ensure that the futures balance is non-zero.
+   - **Action**: If the balance is zero, transfer funds from your spot or derivatives portfolio to the futures portfolio:
+     - Navigate to the "Transfer" section in the Coinbase Pro or Institutional account dashboard.
+     - Select the source portfolio (e.g., spot) and the destination portfolio (futures).
+     - Enter the amount to transfer and confirm the transfer.
+
+6. **Test API Connection**:
+   - **Step**: Run the `test_coinbase_connection.py` script with `defaultType='future'`.
+   - **
+
+🟢 GEMINI:
+The core issue is account eligibility. Coinbase futures trading, particularly via the API, often requires explicit onboarding and suitability checks distinct from standard spot trading.
+
+**Onboarding/Suitability Requirements to Verify:**
+
+1.  **Coinbase International Exchange (CIE) Access:** Coinbase often routes futures through its International Exchange platform (or equivalent brokerage service).
+    *   **UI Check:** The user must log into the Coinbase web interface and confirm they have completed the separate application/onboarding process for futures or derivatives trading. Look for a dedicated "Futures" or "International Exchange" section in the account dashboard.
+    *   **Flag Verification:** The account must display a status indicating "Approved" or "Active" for futures trading.
+
+2.  **Suitability Assessment Completion:** Regulatory compliance mandates suitability questionnaires (KYC/financial profile) before futures access is granted.
+    *   **UI Check:** Ensure all required suitability forms (e.g., risk tolerance, trading experience) have been submitted and accepted by Coinbase.
+
+3.  **Futures Portfolio Provisioning:** Successful onboarding results in the creation of the required portfolio ID.
+    *   **UI Check:** Look for a new, non-retail portfolio listed under "Accounts" or "Assets" specifically designated for futures/derivatives.
+
+**Pragmatic Fixes and Checks:**
+
+1.  **Testable Fix (Provisioning):** The primary fix is manual intervention. The user must log into Coinbase and navigate to the Futures trading section to complete the sign-up process. This action triggers the creation of the necessary portfolio ID and updates the underlying account flags.
+
+2.  **API Check Post-Onboarding:** After completing the UI steps, re-run `check_portfolios.py`.
+    *   **Expected Result:** The script should now return a new portfolio ID (e.g., `futures_portfolio_id`) alongside the existing `retail_portfolio_id`.
+
+3.  **Re-Test Brokerage Access:** Re-run `test_coinbase_connection.py` targeting `/api/v3/brokerage/transaction_summary`.
+    *   **Expected Result:** If provisioning was successful, the 401 error should resolve, confirming the account is now authorized for brokerage-level endpoints required for futures.
+
+====================================================================================================
+ROUND 4
+====================================================================================================
+
+🔵 CLAUDE:
+Let me analyze the product category specification issue.
+
+Container Type Analysis:
+1. Known variations:
+- 'future' (CCXT standard)
+- 'futures' (Coinbase native)
+- 'derivatives' (legacy reference)
+
+Expected Error Patterns:
+- Wrong category → INVALID_PRODUCT_ID
+- Permission issue → PERMISSION_DENIED
+- Container mismatch → 400 Bad Request
+
+Test Script:
+```python
+async def verify_product_types():
+    test_cases = {
+        'future': client.get_products(type='future'),
+        'futures': client.get_products(type='futures'),
+        'derivatives': client.get_products(type='derivatives')
+    }
+    return {k: await v for k,v in test_cases.items()}
+```
+
+Moderator Prompt:
+"Analyze how product category specification affects API errors. For each variation ('future', 'futures', 'derivatives'):
+1. Expected error codes
+2. Correct category for order placement
+3. Test endpoints to verify
+Provide exact API parameters and error codes. Keep under 100 words."
+
+🟡 QWEN:
+### Clarifying 'futures' vs 'future' Container Mismatches in API Calls
+
+The issue of using the wrong product category in API calls can indeed lead to `PERMISSION_DENIED` errors, but it can also result in other errors such as `404 Not Found` or `400 Bad Request`. Here's a detailed explanation and verification steps to ensure the correct product category is used:
+
+### Explanation
+
+1. **Product Category Mismatch**:
+   - **'futures' vs 'future'**: Coinbase API endpoints are case-sensitive and may have specific naming conventions. Using the wrong term (e.g., 'future' instead of 'futures') can lead to errors.
+   - **Impact**: If the bot is using the wrong product category, it might not be able to find the correct endpoint, leading to `404 Not Found` or `400 Bad Request` errors. However, if the endpoint exists but the permissions are not aligned, it can result in `PERMISSION_DENIED`.
+
+2. **API Endpoint Verification**:
+   - **Correct Endpoint**: Ensure that the API endpoint for futures trading is correctly specified. For example, the correct endpoint for fetching futures products might be `/api/v3/brokerage/products/futures` rather than `/api/v3/brokerage/products/future`.
+
+### Verification Steps
+
+1. **Check API Documentation**:
+   - **Step**: Review the official Coinbase API documentation to confirm the correct endpoint for futures trading.
+   - **Expected Output**: The documentation should specify the exact endpoint and the required parameters.
+   - **Action**: Update the bot's API calls to use the correct endpoint.
+
+2. **Test API Endpoint**:
+   - **Step**: Use a tool like `curl` or Postman to manually test the API endpoint for futures products.
+   - **Example**:
+     ```sh
+     curl -X GET "https://api.coinbase.com/api/v3/brokerage/products/futures" -H "Authorization: Bearer YOUR_API_KEY"
+     ```
+   - **Expected Output**: A successful response with a list of futures products.
+   - **Action**: If the test fails, check the error message and adjust the endpoint accordingly.
+
+3. **Update Bot Configuration**:
+   - **Step**: Ensure that the bot's configuration uses the correct product category.
+   - **Example**:
+     ```python
+     import ccxt
+
+     exchange = ccxt.coinbase({
+         'apiKey': 'YOUR_API_KEY',
+         'secret': 'YOUR_API_SECRET',
+         'options': {
+             'defaultType': 'futures',  # Ensure 'futures' is used
+         }
+     })
+
+     # Fetch futures products
+     futures_products = exchange.fetch_markets(params={'type': 'futures'})
+     print(futures_products)
+     ```
+   - **Expected Output**: A list of futures products.
+   - **Action**: If the bot still fails, check
+
+🟢 GEMINI:
+The distinction between 'futures' (the product category) and 'future' (a potential container or parameter value) is critical for API interaction, but a mismatch typically triggers a different error than `PERMISSION_DENIED`.
+
+**Error Expectations for Mismatches:**
+
+1.  **Wrong Product ID/Symbol:** If the bot tries to trade a futures product that doesn't exist or is misspelled (e.g., `BTC-PERP` vs. `BTC-PERP-FUTURE`), the API would likely return a **`PRODUCT_NOT_FOUND`** or **`INVALID_ARGUMENT`** error.
+2.  **Wrong Order Type Parameter:** If the order type parameter (`type='future'` when it should be `product_type='PERPETUAL_FUTURE'`) is incorrect, it often results in an **`INVALID_PARAMETER`** error.
+
+**Why PERMISSION\_DENIED is More Likely:**
+
+`PERMISSION_DENIED` strongly indicates that the *actor* (the API key accessing the account) or the *target* (the portfolio ID) lacks the necessary authorization to perform the requested action, regardless of the specific product being traded.
+
+In this context, the `PERMISSION_DENIED` is almost certainly due to **Account Eligibility (Missing Futures Portfolio)** or **API Key Scope** failure, not a product naming convention error.
+
+**Pragmatic Fixes and Checks (Focusing on the Core Issue):**
+
+1.  **Focus on Eligibility (Reiteration):** Stop troubleshooting product names for now. The primary fix remains provisioning the futures account via the Coinbase UI, which creates the required portfolio ID.
+    *   **Test:** Re-run `check_portfolios.py` after provisioning.
+
+2.  **Verify Endpoint Authorization (401 Resolution):** The 401 on `/transaction_summary` suggests the key is not authorized for the brokerage endpoints.
+    *   **Actionable Fix:** Ensure the API key has the necessary `Brokerage` or `Futures` permissions explicitly enabled in the UI and is using the correct base URL for the futures environment.
+
+3.  **Code Check (Targeting):** Once the portfolio is provisioned, ensure the bot explicitly sets the correct `portfolio_id` parameter in the order request payload, preventing it from defaulting to the unauthorized `retail_portfolio_id`.
+
+====================================================================================================
+ROUND 5
+====================================================================================================
+
+🔵 CLAUDE:
+Let me analyze API key compatibility.
+
+Key Type Verification:
+1. API Key Indicators:
+- Legacy keys: Start with specific prefix
+- CDP keys: Include brokerage scope
+- Different endpoint base paths
+
+Test Script:
+```python
+def verify_key_type():
+    tests = {
+        'brokerage_access': '/api/v3/brokerage/accounts',
+        'legacy_access': '/api/v2/accounts',
+        'futures_specific': '/api/v3/brokerage/futures/accounts'
+    }
+    results = {}
+    for test, endpoint in tests.items():
+        response = make_request(endpoint)
+        results[test] = {
+            'status': response.status_code,
+            'is_authorized': response.status_code != 401
+        }
+    return results
+```
+
+Key Requirements:
+- CDP key needed for futures
+- Must include 'futures:trade' scope
+- Brokerage API endpoints required
+
+Moderator Prompt:
+"Analyze API key compatibility for futures trading. Detail:
+1. How to identify legacy vs CDP keys
+2. Required API scopes for futures
+3. Test endpoints to verify key type
+4. Expected authorization patterns
+Include specific HTTP response codes and header patterns. Keep under 100 words."
+
+🟡 QWEN:
+### Legacy vs CDP API Keys in Coinbase
+
+Coinbase has different types of API keys, including legacy API keys and CDP (Coinbase Derivatives Platform) API keys. The type of API key you use can significantly impact your ability to trade futures. Here’s how to verify and test whether the key type is incompatible with futures trading:
+
+### Explanation
+
+1. **Legacy API Keys**:
+   - **Usage**: These keys are typically used for accessing the Coinbase Pro (now known as Coinbase Advanced) and other older services.
+   - **Limitations**: Legacy API keys might not have the necessary permissions or support for futures trading on the Coinbase Derivatives Platform.
+
+2. **CDP API Keys**:
+   - **Usage**: These keys are specifically designed for accessing the Coinbase Derivatives Platform, which includes futures trading.
+   - **Permissions**: CDP API keys are required to place futures orders and access futures-related endpoints.
+
+### Verification Steps
+
+1. **Check API Key Type**:
+   - **Step**: Log in to your Coinbase account and navigate to the API keys section.
+   - **Expected Output**: Identify whether the API key is a legacy key or a CDP key.
+   - **Action**: If you are using a legacy key, you will need to create a new CDP key.
+
+2. **Create a CDP API Key**:
+   - **Step**: Navigate to the API keys section and create a new API key.
+   - **Expected Output**: Ensure that the key is created with the "Futures Trading" permission.
+   - **Action**: Follow the prompts to create a new CDP API key with the necessary permissions.
+
+3. **Test the CDP API Key**:
+   - **Step**: Use the new CDP API key to test the connection and place a futures order.
+   - **Example**:
+     ```python
+     import ccxt
+
+     exchange = ccxt.coinbase({
+         'apiKey': 'YOUR_CDP_API_KEY',
+         'secret': 'YOUR_CDP_API_SECRET',
+         'options': {
+             'defaultType': 'futures',
+         }
+     })
+
+     # Fetch futures products
+     futures_products = exchange.fetch_markets(params={'type': 'futures'})
+     print(futures_products)
+
+     # Place a futures order
+     try:
+         order = exchange.create_order(
+             symbol='BTC-USD-PERP',
+             type='limit',
+             side='buy',
+             amount=0.1,
+             price=20000,
+             params={'type': 'futures'}
+         )
+         print(order)
+     except Exception as e:
+         print(f"Error: {e}")
+     ```
+   - **Expected Output**: The script should successfully fetch futures products and place a futures order.
+   - **Action**: If the test fails, check the error message for specific issues and adjust the parameters or permissions accordingly.
+
+4. **Verify Portfolio and Balance**:
+  
+
+🟢 GEMINI:
+Coinbase has transitioned from legacy (GDAX/V2) APIs to the newer **Brokerage API (V3)**, often referred to as the Unified or Institutional API, which handles futures and advanced trading features.
+
+**API Key Type Incompatibility:**
+
+If the bot is using a legacy key (often tied only to the retail spot market), it will fail when attempting to access the modern futures endpoints (`/api/v3/brokerage/...`).
+
+*   **Error Manifestation:** A legacy key attempting V3 endpoints is highly likely to result in the observed **`401 Unauthorized`** (on endpoints like `/transaction_summary`) or **`PERMISSION_DENIED`** (on order placement), as the key scope does not cover the V3 brokerage domain.
+
+**Testing Key Compatibility (Testable Fixes):**
+
+1.  **Key Format and Source Check:**
+    *   **Check:** Verify where the API key was generated. Keys generated specifically for the newer "Advanced Trade" or "Brokerage" sections are typically V3 compliant. Legacy keys are often tied to the classic spot exchange.
+    *   **Fix:** Generate a **new API key** explicitly selecting the permissions required for the **Brokerage API** and ensuring it includes "Futures Trading" scope.
+
+2.  **Endpoint Authentication Test:**
+    *   **Test:** Attempt a known simple V3 Brokerage endpoint call (e.g., fetching a list of products using the new key).
+    *   **Expected Success:** If the key is V3 compliant, this call should succeed (assuming the account is provisioned).
+    *   **Failure Indication:** If the call returns 401 or 403, the key itself is incompatible with the V3 domain.
+
+3.  **Code Library Check:**
+    *   **Check:** Confirm the CCXT library version is recent and configured to use the modern Coinbase Pro/Advanced Trade connector, which supports V3 endpoints. Older CCXT configurations might default to legacy API paths.
+
+**Summary:** The combination of `PERMISSION_DENIED` on trade and `401 Unauthorized` on a V3 brokerage endpoint strongly suggests the API key lacks the necessary V3 authorization scope, reinforcing the need for a newly generated V3-scoped key *after* the futures account is provisioned.
+
+====================================================================================================
+ROUND 6
+====================================================================================================
+
+🔵 CLAUDE:
+Let me analyze regional eligibility verification.
+
+Geographic Checks:
+1. API Endpoints:
+- GET /api/v3/brokerage/user/eligibility
+- GET /api/v3/brokerage/futures/jurisdiction
+
+Test Script:
+```python
+def verify_regional_access():
+    checks = {
+        'jurisdiction': {
+            'endpoint': '/brokerage/futures/jurisdiction',
+            'expected': ['US', 'INTL']
+        },
+        'cfm_status': {
+            'endpoint': '/brokerage/user/cfm_status',
+            'required_fields': ['onboarding_complete', 'region_supported']
+        }
+    }
+    return {
+        test: run_eligibility_check(params)
+        for test, params in checks.items()
+    }
+```
+
+Required Verifications:
+1. Region supported flag
+2. CFM registration status
+3. Jurisdiction-specific limits
+4. KYC level verification
+
+Moderator Prompt:
+"Analyze geographic eligibility for futures trading. Detail:
+1. API calls to check jurisdiction
+2. CFM onboarding requirements
+3. Regional restriction indicators
+4. Required documentation by region
+Include specific response fields that indicate eligibility. Keep under 100 words."
+
+🟡 QWEN:
+### Considering Regional Restrictions and CFM Onboarding for Coinbase Futures
+
+Coinbase Futures (CFM) has specific eligibility criteria, including regional restrictions and onboarding requirements. Here are the concrete steps to verify and ensure your account meets these criteria:
+
+### Verification Steps
+
+1. **Check Regional Eligibility**:
+   - **Step**: Log in to your Coinbase account and navigate to the "Futures" section.
+   - **Expected Output**: Ensure that futures trading is available in your region.
+   - **Action**: If futures trading is not available, check the Coinbase support documentation for a list of supported regions. If you are in an unsupported region, you may need to use a different trading platform.
+
+2. **Verify Account Type**:
+   - **Step**: Navigate to the account settings in your Coinbase account.
+   - **Expected Output**: Ensure your account type is either "Pro" or "Institutional," as consumer accounts may have more restrictions.
+   - **Action**: If your account is a consumer account, consider upgrading to a Pro or Institutional account.
+
+3. **Complete CFM Onboarding**:
+   - **Step**: Navigate to the "Futures" section in the Coinbase Pro or Institutional account dashboard.
+   - **Expected Output**: Ensure that you have completed the CFM onboarding process.
+   - **Action**: If the onboarding process is not complete, follow these steps:
+     - Provide personal or business information.
+     - Verify your identity.
+     - Complete a risk assessment questionnaire.
+     - Agree to the terms and conditions.
+
+4. **Check Futures Portfolio**:
+   - **Step**: Navigate to the "Portfolios" section in the Coinbase Pro or Institutional account dashboard.
+   - **Expected Output**: Ensure that a futures portfolio is listed and active.
+   - **Action**: If no futures portfolio is listed, create a new futures portfolio:
+     - Click on "Create Portfolio."
+     - Select "Futures" as the portfolio type.
+     - Follow the prompts to complete the setup.
+
+5. **Verify Futures Balance**:
+   - **Step**: Use the `diagnose_coinbase_balances_v2.py` script to check the balance in the futures portfolio.
+   - **Expected Output**: Ensure that the futures balance is non-zero.
+   - **Action**: If the balance is zero, transfer funds from your spot or derivatives portfolio to the futures portfolio:
+     - Navigate to the "Transfer" section in the Coinbase Pro or Institutional account dashboard.
+     - Select the source portfolio (e.g., spot) and the destination portfolio (futures).
+     - Enter the amount to transfer and confirm the transfer.
+
+6. **Test API Key Permissions**:
+   - **Step**: Navigate to the "API Keys" section in the Coinbase Pro or Institutional account dashboard.
+   - **Expected Output**: Ensure that the API key has the necessary permissions for futures trading.
+   - **Action**: If the API key does not have futures trading permissions, regenerate
+
+🟢 GEMINI:
+Coinbase futures trading is heavily segmented by geography, primarily between the US-regulated market (Coinbase Financial Markets - CFM) and the International Exchange (CIE).
+
+**Regional Restrictions and CFM/CIE Onboarding:**
+
+The key to eligibility is confirming the user has completed the onboarding process specific to their jurisdiction.
+
+1.  **Jurisdictional Confirmation:**
+    *   **Check:** Determine the user's registered country. This dictates which set of rules (CFM or CIE) applies.
+    *   **CFM (US):** Requires specific regulatory sign-offs and suitability checks.
+    *   **CIE (International):** Requires separate account creation and potentially different KYC.
+
+2.  **CFM/CIE Account Status Check:**
+    *   **UI Check (Actionable):** Log into the Coinbase web platform. Look for explicit confirmation that the user has successfully onboarded to the relevant futures entity (CFM or CIE). This usually involves a dedicated application or agreement acceptance.
+    *   **Testable Fix:** If not onboarded, the user must complete the sign-up process for CFM/CIE via the web UI. This is the only way to trigger the creation of the necessary **futures portfolio ID**.
+
+3.  **API Endpoint Alignment:**
+    *   **Check:** Verify the base URL the bot is using. CFM and CIE often use slightly different API domains or require specific headers to route requests correctly.
+    *   **Pragmatic Fix:** Consult the official Coinbase API documentation for the user's specific region (CFM or CIE) to ensure the correct base URL and authentication methods are employed.
+
+**Conclusion:**
+
+The persistent `PERMISSION_DENIED` and missing portfolio ID stem from a failure to satisfy the regional onboarding requirements. Until the user completes the CFM/CIE suitability process, the necessary futures portfolio will not be provisioned, and all trade attempts will fail authorization checks.
+
+====================================================================================================
+ROUND 7
+====================================================================================================
+
+🔵 CLAUDE:
+Let me outline the minimal successful API sequence.
+
+Required API Call Chain:
+1. Authentication Check
+- GET /api/v3/brokerage/accounts
+- Expected: 200 OK, portfolio list
+
+2. Futures Access Check
+- GET /api/v3/brokerage/futures/accounts
+- Expected: futures_portfolio_id present
+
+3. Market Data Access
+- GET /api/v3/brokerage/products?product_type=FUTURE
+- Expected: active futures products
+
+4. Balance Check
+- GET /api/v3/brokerage/futures/balance
+- Expected: non-zero available balance
+
+5. Order Placement Test
+- POST /api/v3/brokerage/futures/orders with minimal size
+- Expected: valid order_id response
+
+Validation Checklist:
+□ All endpoints return 200
+□ Futures portfolio visible
+□ Balance accessible
+□ Test order accepts
+□ No permission errors
+
+Moderator Prompt:
+"List the minimal sequence of API calls that must succeed for futures trading. For each call:
+1. Exact endpoint
+2. Expected response code
+3. Critical response fields
+4. Failure indicators
+Keep focused on sequential validation. No code examples needed. Under 100 words."
+
+🟡 QWEN:
+### Minimal API Call Sequence for Valid Futures Trader
+
+To ensure that your bot is correctly set up to trade futures on Coinbase, you can follow a minimal sequence of API calls to verify each step. This sequence will help you identify and resolve any issues. Here is a concrete test checklist:
+
+### Test Checklist
+
+1. **Fetch Futures Products**:
+   - **API Call**: `GET /api/v3/brokerage/products/futures`
+   - **Expected Output**: A list of available futures products.
+   - **Verification Step**: Use a tool like `curl` or Postman to make the API call and ensure you receive a list of futures products.
+   - **Example**:
+     ```sh
+     curl -X GET "https://api.coinbase.com/api/v3/brokerage/products/futures" -H "Authorization: Bearer YOUR_API_KEY"
+     ```
+
+2. **Check Futures Portfolio**:
+   - **API Call**: `GET /api/v3/brokerage/portfolios`
+   - **Expected Output**: A list of portfolios, including a futures portfolio.
+   - **Verification Step**: Use the `check_portfolios.py` script to ensure a futures portfolio is listed.
+   - **Example**:
+     ```python
+     # check_portfolios.py
+     import requests
+
+     url = "https://api.coinbase.com/api/v3/brokerage/portfolios"
+     headers = {
+         "Authorization": "Bearer YOUR_API_KEY"
+     }
+
+     response = requests.get(url, headers=headers)
+     print(response.json())
+     ```
+
+3. **Check Futures Balance**:
+   - **API Call**: `GET /api/v3/brokerage/accounts/{portfolio_id}/balance`
+   - **Expected Output**: The balance of the futures portfolio should be non-zero.
+   - **Verification Step**: Use the `diagnose_coinbase_balances_v2.py` script to check the balance of the futures portfolio.
+   - **Example**:
+     ```python
+     # diagnose_coinbase_balances_v2.py
+     import requests
+
+     portfolio_id = "YOUR_FUTURES_PORTFOLIO_ID"
+     url = f"https://api.coinbase.com/api/v3/brokerage/accounts/{portfolio_id}/balance"
+     headers = {
+         "Authorization": "Bearer YOUR_API_KEY"
+     }
+
+     response = requests.get(url, headers=headers)
+     print(response.json())
+     ```
+
+4. **Test API Key Permissions**:
+   - **API Call**: `GET /api/v3/brokerage/transaction_summary`
+   - **Expected Output**: A summary of recent transactions, indicating that the API key has the necessary permissions.
+   - **Verification Step**: Use the `test_coinbase_connection.py` script with `defaultType='futures'` to ensure the API key has the correct permissions.
+   - **Example**:
+     ```python
+     # test_coinbase_connection.py
+     import requests
+
+     url
+
+🟢 GEMINI:
+The minimal API call sequence must validate (1) account eligibility, (2) key authorization, and (3) product availability, all targeting the futures environment.
+
+**Minimal Test Checklist for a Valid Futures Trader (No Code Changes Required in Bot Logic):**
+
+| Step | API Endpoint/Function | Expected Success Result | Failure Indication & Primary Fix |
+| :--- | :--- | :--- | :--- |
+| **1. Account Eligibility** | `/api/v3/brokerage/accounts` (Portfolios) | A portfolio object with `type: 'FUTURE'` (or similar derivatives designation) is returned, alongside the `retail_portfolio_id`. | Only `retail_portfolio_id` returned. **Fix:** User must complete futures onboarding (CFM/CIE) via the Coinbase UI. |
+| **2. Key Authorization** | `/api/v3/brokerage/transaction_summary` | HTTP 200 OK (Successful connection and authorization to V3 brokerage endpoints). | HTTP 401 Unauthorized. **Fix:** Regenerate API key ensuring V3 Brokerage/Futures scopes are selected. |
+| **3. Balance Availability** | `/api/v3/brokerage/accounts/{futures_portfolio_id}/balances` | Returns a non-zero balance or at least the structure for the futures collateral currency (e.g., USD or USDC). | Returns `balance: 0.0` or fails if portfolio ID is invalid. **Fix:** Fund the newly provisioned futures portfolio. |
+| **4. Product Discovery** | `/api/v3/brokerage/products` (Filtered for futures) | Returns a list of futures contracts (e.g., BTC-PERP-FUTURE). | Fails (e.g., 403 or empty list). **Fix:** Confirm correct base URL and regional access (CFM/CIE). |
+| **5. Order Placement** | `/api/v3/brokerage/orders` (Test Limit Order) | HTTP 200/201 OK, order ID returned. | `PERMISSION_DENIED`. **Fix:** Ensure the order request explicitly targets the `futures_portfolio_id` identified in Step 1. |
+
+====================================================================================================
+ROUND 8
+====================================================================================================
+
+🔵 CLAUDE:
+Let me outline the escalation process.
+
+Diagnostic Evidence Required:
+1. Account Status Documentation
+- Screenshot of permissions page
+- API key configuration
+- Error logs with timestamps
+- Portfolio ID list response
+
+Support Path:
+1. First-Line Support
+- Submit ticket via /support/trading/futures
+- Reference "Futures Permission Mismatch"
+- Include diagnostic evidence
+
+2. Technical Escalation
+- Request review of:
+  * Account tier status
+  * Futures activation state
+  * API key scope audit
+  * Portfolio access flags
+
+3. Resolution Timeline
+- Expected response: 1-2 business days
+- Escalation trigger: 48 hours without response
+
+Moderator Prompt:
+"Detail the support escalation process for futures trading permission issues. Include:
+1. Required documentation
+2. Support ticket categories
+3. Escalation triggers
+4. Expected resolution steps
+Focus on actionable steps, not general advice. Keep under 100 words."
+
+🟡 QWEN:
+### Escalation Path and Account Actions for Coinbase Futures Trading Issues
+
+If your bot can fetch futures market data but receives `PERMISSION_DENIED` when attempting to place trades, and you have verified that the API key has the necessary permissions, the issue might be related to account settings or exchange-specific restrictions. Here is a concrete escalation path and set of verification steps to resolve the issue:
+
+### Escalation Path
+
+1. **Contact Coinbase Support**:
+   - **Step**: Reach out to Coinbase support to report the issue.
+   - **Expected Output**: Support should provide guidance on why the trades are being denied and what steps are needed to resolve the issue.
+   - **Action**: Use the Coinbase support portal or contact them via email or phone. Provide them with the following details:
+     - Your account ID.
+     - The API key ID.
+     - Logs showing the `PERMISSION_DENIED` error.
+     - Details of the failed trade attempts.
+
+2. **Review Account Status**:
+   - **Step**: Log in to your Coinbase account and navigate to the "Account" or "Settings" section.
+   - **Expected Output**: Ensure that your account is in good standing and not restricted.
+   - **Action**: Check for any account holds, restrictions, or pending verifications that might be preventing futures trading.
+
+3. **Verify KYC and Verification Levels**:
+   - **Step**: Ensure that your account has completed the necessary Know Your Customer (KYC) and verification levels.
+   - **Expected Output**: Your account should be fully verified to the level required for futures trading.
+   - **Action**: Complete any pending verification steps or upgrade your verification level if necessary.
+
+### Verification Steps
+
+1. **Check Futures Trading Eligibility**:
+   - **Step**: Navigate to the "Futures" section in the Coinbase Pro or Institutional account dashboard.
+   - **Expected Output**: Ensure that futures trading is enabled and that you have completed the necessary onboarding steps.
+   - **Action**: If futures trading is not enabled, complete the onboarding process, which may include:
+     - Providing personal or business information.
+     - Verifying your identity.
+     - Completing a risk assessment questionnaire.
+
+2. **Verify Portfolio Setup**:
+   - **Step**: Navigate to the "Portfolios" section in the Coinbase Pro or Institutional account dashboard.
+   - **Expected Output**: Ensure that a futures portfolio is listed and active.
+   - **Action**: If no futures portfolio is listed, create a new futures portfolio:
+     - Click on "Create Portfolio."
+     - Select "Futures" as the portfolio type.
+     - Follow the prompts to complete the setup.
+
+3. **Check Futures Balance**:
+   - **Step**: Use the `diagnose_coinbase_balances_v2.py` script to check the balance in the futures portfolio.
+   - **Expected Output**: Ensure that the futures balance is non-zero.
+   - **Action**: If the balance is zero
+
+🟢 GEMINI:
+The ability to view market data but inability to trade is the classic signature of an account provisioned for **public data access** but lacking **private trading authorization**.
+
+**Escalation Path and Account Action:**
+
+The primary issue is the missing private trading authorization linked to the futures environment. This requires direct intervention with Coinbase support and internal account review.
+
+1.  **Immediate Action (User Side):**
+    *   **Verify Onboarding Completion:** Re-check the Coinbase web UI (CFM/CIE section) to ensure *all* suitability forms, disclosures, and agreements were fully submitted, accepted, and are currently active. A pending status can cause this denial.
+    *   **Fund Transfer:** Attempt to transfer a minimal amount of collateral (e.g., $1 USD) into the spot/derivatives balance that is intended for futures margin. While the balance shows $0.0 for `future` type, attempting a transfer might trigger an internal account update or reveal an error message specific to the futures wallet.
+
+2.  **Escalation to Coinbase Support:**
+    *   **Provide Evidence:** Open a support ticket, clearly stating the following evidence points:
+        *   API Key has trade permissions enabled.
+        *   Market data fetch succeeds (proof of connection).
+        *   Order placement fails with specific `PERMISSION_DENIED` error.
+        *   `check_portfolios.py` confirms the absence of a dedicated futures portfolio ID.
+        *   `test_coinbase_connection.py` fails with `401 Unauthorized` on the V3 brokerage endpoint (`transaction_summary`).
+    *   **Request Specific Review:** Ask support to verify the internal status of the account's **Futures Trading Eligibility Flag** and confirm that the required **Futures Portfolio ID** has been successfully provisioned and linked to the API key's scope.
+
+**Pragmatic Fixes and Checks:**
+
+*   **Final API Key Check:** Generate one last, brand-new API key, ensuring *every* available permission related to Brokerage and Futures is selected, just in case a scope was missed during the initial creation.
+*   **Targeting Confirmation:** If support confirms the account *is* eligible, the problem reverts to the bot's code. The check must then focus exclusively on confirming the order request is correctly formatted, signed, and targets the specific endpoint and **portfolio ID** mandated for futures trading.
+
+====================================================================================================
+ROUND 9
+====================================================================================================
+
+🔵 CLAUDE:
+Let me prioritize fixes based on error patterns and diagnostic results.
+
+Fix Priority Sequence:
+1. Portfolio ID Mismatch (Highest Confidence)
+- Symptom: Only retail_portfolio_id visible
+- Fix: Request futures portfolio activation
+- Why First: Most direct correlation with error pattern
+
+2. API Key Scope Update
+- Symptom: 401 on transaction summary
+- Fix: Generate new CDP key with futures:trade scope
+- Why Second: Access pattern suggests scope issue
+
+3. Account Tier Verification
+- Symptom: 0.0 futures balance
+- Fix: Upgrade to Advanced Trader
+- Why Third: Required for portfolio activation
+
+4. Regional/CFM Check
+- Symptom: publicGetBrokerageProducts failure
+- Fix: Complete jurisdiction verification
+- Why Last: Less likely given market data access
+
+Moderator Prompt:
+"List the recommended fix sequence in priority order. For each step:
+1. Evidence supporting priority
+2. Exact action required
+3. Expected verification result
+4. Why this ordering matters
+Keep focused on testable outcomes. Under 100 words."
+
+🟡 QWEN:
+### Highest-Confidence Fix Order for Coinbase Futures Trading Issues
+
+Given the context and the tests already run, the following stepwise approach is proposed to resolve the `PERMISSION_DENIED` issue. Each step is prioritized based on the likelihood of addressing the root cause and the ease of verification.
+
+### Stepwise Fix Order
+
+1. **Verify and Create Futures Portfolio**:
+   - **Rationale**: The absence of a futures portfolio is a critical issue that can prevent trading.
+   - **Verification Step**:
+     - **Step**: Run `check_portfolios.py` to list all portfolios.
+     - **Expected Output**: Ensure a futures portfolio is listed.
+     - **Action**: If no futures portfolio is listed, create a new futures portfolio:
+       - Log in to your Coinbase account.
+       - Navigate to the "Portfolios" section.
+       - Click on "Create Portfolio."
+       - Select "Futures" as the portfolio type.
+       - Follow the prompts to complete the setup.
+
+2. **Check Futures Trading Eligibility**:
+   - **Rationale**: Ensure that your account is eligible for futures trading.
+   - **Verification Step**:
+     - **Step**: Navigate to the "Futures" section in the Coinbase Pro or Institutional account dashboard.
+     - **Expected Output**: Ensure that futures trading is enabled and that you have completed the necessary onboarding steps.
+     - **Action**: If futures trading is not enabled, complete the onboarding process, which may include:
+       - Providing personal or business information.
+       - Verifying your identity.
+       - Completing a risk assessment questionnaire.
+
+3. **Verify API Key Permissions**:
+   - **Rationale**: Ensure the API key has the necessary permissions for futures trading.
+   - **Verification Step**:
+     - **Step**: Navigate to the "API Keys" section in the Coinbase Pro or Institutional account dashboard.
+     - **Expected Output**: Ensure the API key has the "Futures Trading" permission.
+     - **Action**: If the API key does not have futures trading permissions, regenerate the API key with the required permissions:
+       - Click on "Create API Key."
+       - Select the "Futures Trading" permission.
+       - Save the new API key and update your bot configuration.
+
+4. **Check Futures Balance**:
+   - **Rationale**: Ensure that the futures portfolio has a non-zero balance.
+   - **Verification Step**:
+     - **Step**: Use the `diagnose_coinbase_balances_v2.py` script to check the balance in the futures portfolio.
+     - **Expected Output**: Ensure that the futures balance is non-zero.
+     - **Action**: If the balance is zero, transfer funds from your spot or derivatives portfolio to the futures portfolio:
+       - Navigate to the "Transfer" section in the Coinbase Pro or Institutional account dashboard.
+       - Select the source portfolio (e.g., spot) and the destination portfolio (futures).
+       - Enter the
+
+🟢 GEMINI:
+The highest-confidence fixes prioritize resolving the fundamental account eligibility and API authorization gaps identified by the test failures.
+
+**Highest-Confidence Fix Order (Stepwise):**
+
+| Step | Action (Fix) | Justification (Why Priority) | Test/Check |
+| :--- | :--- | :--- | :--- |
+| **1** | **Complete Futures Onboarding (UI)** | **Highest Priority.** The missing futures portfolio (`retail_portfolio_id` only) is the root cause of `PERMISSION_DENIED`. This step provisions the necessary account structure. | Re-run `check_portfolios.py`. Must return a new `futures_portfolio_id`. |
+| **2** | **Generate New V3 API Key** | `401 Unauthorized` on V3 brokerage endpoint confirms the existing key lacks required scope/type. A new key ensures compatibility with the V3 futures domain. | Re-run `test_coinbase_connection.py` against `/transaction_summary`. Must return 200 OK. |
+| **3** | **Fund Futures Portfolio** | `balance 0.0` for future type means no margin is available. Even if eligible, the trade will fail without collateral. | Attempt a small internal transfer to the futures portfolio. Re-run balance check; must show non-zero balance. |
+| **4** | **Target New Portfolio ID** | Once the ID exists (Step 1), the bot *must* be configured to use it, preventing orders from defaulting to the unauthorized `retail_portfolio_id`. | Attempt a minimal limit order, explicitly setting the `futures_portfolio_id` in the payload. |
+
+**Justification:**
+
+Steps 1 and 2 address the two critical failures identified: **Account Eligibility** (missing portfolio) and **API Authorization** (401 on V3 endpoints). Without a dedicated futures portfolio (Step 1), no trade can ever be authorized. Without a V3-scoped key (Step 2), the account cannot authenticate to the necessary brokerage services required for futures trading. Steps 3 and 4 are prerequisites for a successful order execution once eligibility is confirmed.
+
+====================================================================================================
+ROUND 10
+====================================================================================================
+
+🔵 CLAUDE:
+Let me outline the final action plan with verification steps.
+
+Implementation Plan:
+
+1. Portfolio Activation (Day 1)
+- Action: Enable futures portfolio via UI
+- Verify: GET /api/v3/brokerage/portfolios returns futures_portfolio_id
+- Expected: New portfolio ID visible
+
+2. API Key Regeneration (Day 1)
+- Action: Create new CDP key with futures:trade scope
+- Verify: GET /api/v3/brokerage/futures/accounts succeeds
+- Expected: 200 OK response
+
+3. Account Verification (Day 1-2)
+- Action: Complete Advanced Trader upgrade
+- Verify: GET /api/v3/brokerage/account_summary
+- Expected: futures_enabled: true
+
+Success Criteria:
+- Futures portfolio visible
+- Non-zero futures balance
+- Test order accepts
+- No permission errors
+
+Fallback:
+If steps 1-3 complete but errors persist, escalate to support with documentation.
+
+Moderator Prompt:
+"Present the final implementation plan. For each step include:
+1. Exact action
+2. Verification endpoint
+3. Expected response
+4. Timeline
+Must include specific API responses indicating success. Keep under 100 words."
+
+🟡 QWEN:
+### Final Consensus Plan for Resolving Coinbase Futures Trading Issues
+
+Given the context and the tests already run, the following final consensus plan is proposed to resolve the `PERMISSION_DENIED` issue. Each step includes concrete verification steps and expected outcomes.
+
+### Step-by-Step Plan
+
+1. **Verify and Create Futures Portfolio**:
+   - **Rationale**: The absence of a futures portfolio is a critical issue that can prevent trading.
+   - **Verification Step**:
+     - **Step**: Run `check_portfolios.py` to list all portfolios.
+     - **Expected Output**: Ensure a futures portfolio is listed.
+     - **Action**: If no futures portfolio is listed, create a new futures portfolio:
+       - Log in to your Coinbase account.
+       - Navigate to the "Portfolios" section.
+       - Click on "Create Portfolio."
+       - Select "Futures" as the portfolio type.
+       - Follow the prompts to complete the setup.
+     - **Verification**: Run `check_portfolios.py` again to confirm the futures portfolio is listed.
+
+2. **Check Futures Trading Eligibility**:
+   - **Rationale**: Ensure that your account is eligible for futures trading.
+   - **Verification Step**:
+     - **Step**: Navigate to the "Futures" section in the Coinbase Pro or Institutional account dashboard.
+     - **Expected Output**: Ensure that futures trading is enabled and that you have completed the necessary onboarding steps.
+     - **Action**: If futures trading is not enabled, complete the onboarding process, which may include:
+       - Providing personal or business information.
+       - Verifying your identity.
+       - Completing a risk assessment questionnaire.
+     - **Verification**: Check the "Futures" section again to confirm that futures trading is enabled.
+
+3. **Verify API Key Permissions**:
+   - **Rationale**: Ensure the API key has the necessary permissions for futures trading.
+   - **Verification Step**:
+     - **Step**: Navigate to the "API Keys" section in the Coinbase Pro or Institutional account dashboard.
+     - **Expected Output**: Ensure the API key has the "Futures Trading" permission.
+     - **Action**: If the API key does not have futures trading permissions, regenerate the API key with the required permissions:
+       - Click on "Create API Key."
+       - Select the "Futures Trading" permission.
+       - Save the new API key and update your bot configuration.
+     - **Verification**: Use `test_coinbase_connection.py` with `defaultType='futures'` to ensure the API key has the correct permissions.
+
+4. **Check Futures Balance**:
+   - **Rationale**: Ensure that the futures portfolio has a non-zero balance.
+   - **Verification Step**:
+     - **Step**: Use the `diagnose_coinbase_balances_v2.py` script to check the balance in the futures portfolio.
+     - **Expected Output**: Ensure that the futures balance is non-zero.
+    
+
+🟢 GEMINI:
+**Consensus Plan: Resolving Futures PERMISSION\_DENIED**
+
+The consensus is that the issue is a combination of missing account eligibility (no futures portfolio) and insufficient API key authorization (401 on V3 endpoints).
+
+| Phase | Action (Fix) | Verification Step (Testable Check) | Expected Outcome |
+| :--- | :--- | :--- | :--- |
+| **I. Eligibility** | **Complete Futures Onboarding (UI):** User must log into Coinbase and finalize the CFM/CIE application/suitability process. | Re-run `check_portfolios.py`. | **Must** return a new `futures_portfolio_id` alongside the retail IDs. |
+| **II. Authorization** | **Generate New V3-Scoped API Key:** Create a new key ensuring all Brokerage/Futures permissions are explicitly selected. | Re-run `test_coinbase_connection.py` targeting `/api/v3/brokerage/transaction_summary`. | **Must** succeed with HTTP 200 OK (resolving the 401 error). |
+| **III. Configuration** | **Fund & Target Portfolio:** Transfer minimal collateral to the new futures portfolio. Update bot logic to explicitly use the `futures_portfolio_id` for all order requests. | Re-run balance check for the new portfolio ID. Attempt a minimal limit order using the new ID. | Balance check succeeds (> 0.0). Order attempt succeeds (HTTP 200/201), resolving the `PERMISSION_DENIED` error. |
+| **IV. Validation** | **Re-run Full Test Suite:** Execute all original diagnostic scripts (`check_portfolios`, `test_coinbase_connection`, `diagnose_balances`). | All scripts must run without errors and reflect the new futures account structure. | Full validation confirms account eligibility, V3 authorization, and correct portfolio targeting. |

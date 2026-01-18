@@ -1,0 +1,510 @@
+profiles:
+  # Forex Intraday - IBKR Forex with Graduated Entry + Smart Exits
+  # Backtested: +116% return over 3 months (Oct 2025 - Jan 2026)
+  forex_intraday:
+    candle_timeframe: 15m  # Use 15m for less noisy HTF
+    market_poll_interval_seconds: 10
+    ai_decision_interval_seconds: 60
+    htf_timeframe: 1h      # HTF = 1 hour for trend direction
+    ltf_timeframe: 15m     # LTF = 15min for entries
+    trend_window: 12
+    ltf_trend_window: 8
+    trend_swing_lookback: 2
+    trend_min_swings: 2
+    trend_strength_floor: 0.25  # Low bar for directional bias
+    structure_score_threshold: 0.05
+    auto_flatten_on_close: false
+    pdt_guard_enabled: false  # Forex has no PDT
+    
+    # [RISK MANAGEMENT] - Hybrid Flip (1% -> 30% -> 10%)
+    # Longs: 1% init, Shorts: 1% init. 
+    # Pyramid #1 (Load): 30% Risk. Pyramid #2+ (Scale): 10% Risk.
+    risk_per_trade_pct: 0.01  # 1% Initial Probe
+    short_risk_pct: 0.01      # 1% Initial Probe
+    max_loss_per_trade_dollars: 50.0 # Safety Cap (Lowered for probe) - Wait, Load is big? 
+    # Actually, let's keep max loss high enough to allow the 30% load risk.
+    # If account is $500, 30% is $150. Max loss must be > $150.
+    # Let's up it to $500 (100% of acct) to allow the strategy to run.
+    max_loss_per_trade_dollars: 500.0  
+    
+    max_concurrent_positions: 1
+    max_pyramid_entries: 6    # 1 Load + 5 Scale
+    pyramid_profit_buffer_pct: 0.0015  # 0.15% profit (Relaxed Buffer)
+    
+    # [HYBRID FLIP PARAMS]
+    pyramid_risk_load: 0.30   # 30% Risk for First Add
+    pyramid_risk_scale: 0.10  # 10% Risk for Subsequent Adds
+    stop_atr_multiplier: 1.5  # Tighter stop (not 2.0)
+    
+    # [SMART EXIT] - Only exit on HTF flip if in loss
+    exit_on_htf_flip_only_if_losing: true
+    
+    # [ICC SCORING]
+    icc_entry_score_threshold: 35.0
+    icc_score_continuation_points: 60.0
+    icc_score_sweep_points: 25.0
+    icc_score_htf_ltf_align_points: 20.0
+    icc_score_strong_htf_points: 15.0
+    icc_score_phase_points: 5.0
+    icc_auto_entry_require_sweep: false
+    icc_auto_entry_min_htf_strength: 0.25  # Low bar - just need direction
+    icc_auto_entry_enabled: true
+    icc_confirmation_bars: 2
+    
+    icc_strict_mode: true # Enforce No Trade Zone logic
+    icc_require_liquidity_grab: true # Prefer corrections that sweep liquidity
+    
+    symbols:
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+    - AUDUSD
+    - USDCAD
+    - USDCHF
+    - NZDUSD
+    # [ANTIGRAVITY ADD] Commodities
+    - XAUUSD # Gold
+    - XAGUSD # Silver
+    - XPTUSD # Platinum
+    - XPDUSD # Palladium
+    - USO    # Oil Interest
+    # [ANTIGRAVITY ADD] Crypto (Live Management)
+    - BTCUSD
+    - ETHUSD
+    - SOLUSD
+
+    # [IBKR CRYPTO CONFIG]
+    crypto_qty_steps:
+      BTCUSD: 0.0001
+      ETHUSD: 0.001
+      SOLUSD: 0.01
+
+  scalp:
+    candle_timeframe: 1m
+    market_poll_interval_seconds: 2
+    ai_decision_interval_seconds: 2
+  intraday:
+    candle_timeframe: 5m
+    market_poll_interval_seconds: 10
+    ai_decision_interval_seconds: 60
+    htf_timeframe: 15m
+    ltf_timeframe: 5m
+    trend_window: 12
+    ltf_trend_window: 12
+    trend_swing_lookback: 3   # [ANTIGRAVITY FIX] Sensitized
+    trend_min_swings: 2
+    trend_strength_floor: 0.3
+    structure_score_threshold: 0.05
+    icc_entry_score_threshold: 60.0 # [ANTIGRAVITY FIX] Standardized
+    icc_auto_entry_enabled: true
+    icc_auto_entry_min_htf_strength: 0.0
+    icc_auto_entry_require_sweep: true
+    auto_flatten_on_close: false
+    pdt_guard_enabled: true
+    cooldown_enabled: true
+    cooldown_cycles_after_block: 3
+    cooldown_cycles_after_success: 0
+    cooldown_scope: symbol
+    stick_to_active_symbol_until: cycle_end
+    crypto_fractional_enabled: false
+    crypto_min_notional_usd: 20.0
+    crypto_max_notional_usd: 250.0
+    synthetic_stop_persistence_enabled: true
+    synthetic_stop_store_path: data/synthetic_stops.json
+    startup_crypto_unprotected_policy: FLATTEN
+    rearm_stop_distance_pct: 0.02
+    synthetic_stop_integrity_interval: 10
+    multi_position_enabled: false
+    icc_high_score_override_threshold: 30.0
+    icc_score_continuation_points: 60.0 # [ANTIGRAVITY FIX] Boosted
+  swing:
+    candle_timeframe: 1h
+    market_poll_interval_seconds: 120
+    ai_decision_interval_seconds: 300
+    htf_timeframe: 1h
+    ltf_timeframe: 15m
+    trend_window: 18
+    ltf_trend_window: 12
+  coinbase_futures:
+    candle_timeframe: 5m
+    market_poll_interval_seconds: 15
+    ai_decision_interval_seconds: 60
+    htf_timeframe: 15m  # Intraday Signal Timeframe (Indication/Correction/Continuation)
+    ltf_timeframe: 5m  # Execution Timeframe
+    trend_window: 12  # Faster trend detection
+    ltf_trend_window: 8  # Faster LTF signals
+    trend_swing_lookback: 2  # More sensitive swing detection
+    trend_min_swings: 2  # Minimum swings for trend confirmation
+    trend_strength_floor: 0.25  # Reasonable floor for trend detection
+    structure_score_threshold: 0.05
+    auto_flatten_on_close: false
+    crypto_only: true  # Enable 24/7 trading for crypto backtest
+
+    # [RISK MANAGEMENT] - ICC Standard (aggressive + compounding)
+    risk_per_trade_pct: 0.012  # 1.2% Risk ("Feet Wet" Initial Entry)
+    aggressive_risk_per_trade_pct: 0.10  # 10% Risk per Pyramid (3x = 30% Total)
+    max_loss_per_trade_dollars: 100.0  # Safety Cap
+    max_concurrent_positions: 1
+    max_pyramid_entries: 3  # Allow 3 aggressive adds
+
+    # [HIGH FREQUENCY ICC] - Target 2-5 trades per day
+    # Key: 1-bar confirmation + wider sweep window
+    icc_confirmation_bars: 1  # 1-bar confirmation (faster entries)
+    icc_max_bars_after_sweep: 30  # Wide window to catch setups
+
+    # [ICC SCORING] Entry threshold and points
+    icc_entry_score_threshold: 35.0  # Balanced threshold
+    icc_score_continuation_points: 60.0  # Continuation auto-passes threshold
+    icc_score_sweep_points: 25.0  # Good sweep bonus
+    icc_score_htf_ltf_align_points: 20.0  # Trend alignment matters
+    icc_score_strong_htf_points: 15.0  # Strong HTF trend bonus
+    icc_score_phase_points: 5.0  # Phase bonus
+    icc_auto_entry_require_sweep: false  # Continuation alone is enough
+    icc_auto_entry_min_htf_strength: 0.3  # Require HTF alignment (filters trades against HTF)
+    icc_auto_entry_enabled: true  # Auto-entry on continuation
+    icc_two_signal_override_enabled: true  # Fast entry on sweep+continuation
+
+    symbols:
+    - AVAX/USD
+    - SHIB/USD
+    - ETH/USD
+    - ADA/USD
+    - SOL/USD
+    - DOGE/USD
+    - LINK/USD
+    - LTC/USD
+    - BTC/USD
+  crypto_247:
+    candle_timeframe: 5m
+    market_poll_interval_seconds: 15
+    ai_decision_interval_seconds: 60
+    htf_timeframe: 15m
+    ltf_timeframe: 5m
+    trend_window: 18
+    ltf_trend_window: 12
+    trend_swing_lookback: 3 # [ANTIGRAVITY FIX] Added
+    structure_score_threshold: 0.05
+    auto_flatten_on_close: false
+    symbols:
+    - BTCUSD
+    - ETHUSD
+    - SOLUSD
+    icc_entry_score_threshold: 60.0
+    icc_score_continuation_points: 60.0 # [ANTIGRAVITY FIX] Added
+    icc_auto_entry_min_htf_strength: 0.1
+    pair_selector_enabled: true
+    pair_selector_refresh_seconds: 300
+    pair_selector_min_volume_usd_24h: 1000000.0
+    pair_selector_max_spread_bps: 25.0
+    pair_selector_min_depth_usd: 10000.0
+    pair_selector_max_pairs: 3
+    maker_first_enabled: true
+    maker_first_offset_bps: 0.0
+    taker_max_slippage_bps: 30.0
+    order_timeout_seconds: 30
+    pdt_guard_enabled: false
+    max_equity_roundtrips_per_day: 99
+    continuous_mode: true
+    cooldown_enabled: true
+    cooldown_cycles_after_block: 3
+    cooldown_cycles_after_success: 1
+    cooldown_scope: symbol
+    stick_to_active_symbol_until: cycle_end
+    crypto_fractional_enabled: true
+    crypto_min_notional_usd: 20.0
+    crypto_max_notional_usd: 1000000.0
+    crypto_qty_steps:
+      BTCUSD: 0.0001
+      ETHUSD: 0.001
+      SOLUSD: 0.01
+    synthetic_stop_persistence_enabled: true
+    synthetic_stop_store_path: data/synthetic_stops.json
+    startup_crypto_unprotected_policy: FLATTEN
+    rearm_stop_distance_pct: 0.02
+    synthetic_stop_integrity_interval: 10
+    runtime_overrides:
+      flatten_on_exit: false
+      intraday_flatten: false
+      cancel_orders_on_start: false
+    crypto_only: true
+    multi_position_enabled: true
+    icc_high_score_override_threshold: 30.0
+  all_247:
+    candle_timeframe: 5m
+    market_poll_interval_seconds: 15
+    ai_decision_interval_seconds: 60
+    htf_timeframe: 15m
+    ltf_timeframe: 5m
+    trend_window: 18
+    ltf_trend_window: 12
+    trend_swing_lookback: 3 # [ANTIGRAVITY FIX] Added
+    structure_score_threshold: 0.05
+    icc_entry_score_threshold: 60.0 # [ANTIGRAVITY FIX] Added
+    icc_score_continuation_points: 60.0 # [ANTIGRAVITY FIX] Added
+    auto_flatten_on_close: false
+    pdt_guard_enabled: true
+    max_equity_roundtrips_per_day: 1
+    continuous_mode: true
+    symbols:
+    - SPY
+    - QQQ
+    - DIA
+    - IWM
+    - VTI
+    - XLK
+    - XLF
+    - XLE
+    - XLY
+    - XLP
+    - XLI
+    - XLU
+    - SMH
+    - XLB
+    - XOP
+    - XME
+    - ARKK
+    - ARKF
+    - SOXX
+    - GLD
+    - SLV
+    - GDX
+    - USO
+    - UNG
+    - EWU
+    - EWG
+    - EWQ
+    - EWT
+    - EWJ
+    - EWS
+    - FXI
+    - BTCUSD
+    - ETHUSD
+    - SOLUSD
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+    - AUDUSD
+    - NZDUSD
+    - USDCAD
+    - USDCHF
+    - XAUUSD
+    - XAGUSD
+    - MES
+    - MNQ
+    - M2K
+    - MGC
+    - CL
+    cooldown_enabled: true
+    cooldown_cycles_after_block: 3
+    cooldown_cycles_after_success: 1
+    cooldown_scope: symbol
+    stick_to_active_symbol_until: cycle_end
+    crypto_fractional_enabled: true
+    crypto_min_notional_usd: 20.0
+    crypto_max_notional_usd: 200.0
+    crypto_qty_steps:
+      BTCUSD: 0.0001
+      ETHUSD: 0.001
+      SOLUSD: 0.01
+    synthetic_stop_persistence_enabled: true
+    synthetic_stop_store_path: data/synthetic_stops.json
+    startup_crypto_unprotected_policy: FLATTEN
+    rearm_stop_distance_pct: 0.02
+    synthetic_stop_integrity_interval: 10
+    runtime_overrides:
+      flatten_on_exit: false
+      intraday_flatten: false
+      cancel_orders_on_start: false
+  auto_schedule:
+    candle_timeframe: 5m
+    market_poll_interval_seconds: 15
+    ai_decision_interval_seconds: 60
+    ai_enabled: true
+    htf_timeframe: 15m
+    ltf_timeframe: 5m
+    trend_window: 18
+    ltf_trend_window: 12
+    trend_swing_lookback: 3
+    trend_min_swings: 2
+    structure_score_threshold: 0.020
+    icc_auto_entry_min_htf_strength: 0.1
+    icc_auto_entry_require_sweep: true
+    icc_auto_entry_enabled: true
+    icc_entry_score_threshold: 60.0
+    icc_score_htf_ltf_align_points: 20.0
+    icc_score_sweep_points: 20.0
+    icc_score_continuation_points: 60.0
+    icc_score_strong_htf_points: 25.0
+    icc_score_phase_points: 10.0
+    icc_score_htf_strength_threshold: 0.65
+    icc_high_score_override_threshold: 70.0
+    icc_aggressive_mode: true
+    aggressive_risk_per_trade_pct: 0.10
+    max_concurrent_positions: 1
+    max_pyramid_entries: 5
+    pyramid_score_threshold: 50.0
+    pyramid_min_score_threshold: 50.0
+    pyramid_allow_chop: false
+    htf_neutral_exit_bars: 48
+    min_hold_hours: 0.0
+    allow_loss_exit_after_hold: true
+    max_hold_hours: 120.0
+    trailing_stop_enabled: true
+    trailing_stop_min_profit_pct: 1.0
+    backtest_disable_stops: false
+    profit_exit_after_hold: false
+    auto_flatten_on_close: false
+    auto_schedule_enabled: true
+    sabbath_enabled: true
+    sabbath_timezone: America/New_York
+    sabbath_start_local: '18:00'
+    sabbath_end_local: '18:00'
+    session_gate_enabled: false
+    multi_position_enabled: false
+    pair_selector_enabled: true
+    pair_selector_refresh_seconds: 300
+    pair_selector_min_volume_usd_24h: 25000.0
+    pair_selector_max_spread_bps: 25.0
+    pair_selector_min_depth_usd: 10000.0
+    pair_selector_max_pairs: 20
+    icc_auto_entry_min_score: 0.02
+    maker_first_enabled: true
+    maker_first_offset_bps: 0.0
+    taker_max_slippage_bps: 30.0
+    order_timeout_seconds: 30
+    pdt_guard_enabled: false
+    max_equity_roundtrips_per_day: 99
+    continuous_mode: true
+    cooldown_enabled: true
+    cooldown_cycles_after_block: 3
+    icc_auto_entry_cooldown_minutes: 3
+    cooldown_cycles_after_success: 0
+    cooldown_scope: symbol
+    stick_to_active_symbol_until: cycle_end
+    crypto_only: true
+    crypto_fractional_enabled: true
+    crypto_min_notional_usd: 20.0
+    crypto_max_notional_usd: 200.0
+    crypto_qty_steps:
+      BTCUSD: 0.0001
+      ETHUSD: 0.001
+      SOLUSD: 0.01
+      LTCUSD: 0.01
+      BTCUSDT: 0.0001
+      ETHUSDT: 0.001
+      SOLUSDT: 0.01
+      DOGEUSDT: 10.0
+      XRPUSDT: 1.0
+      ADAUSDT: 1.0
+      LINKUSDT: 0.1
+      POLUSD: 0.01
+      AVAXUSDT: 0.1
+      SHIBUSDT: 1000.0
+      NEARUSDT: 0.1
+      DOTUSDT: 0.1
+      ATOMUSDT: 0.1
+    synthetic_stop_persistence_enabled: true
+    synthetic_stop_store_path: data/synthetic_stops.json
+    startup_crypto_unprotected_policy: FLATTEN
+    rearm_stop_distance_pct: 0.02
+    synthetic_stop_integrity_interval: 10
+    runtime_overrides:
+      flatten_on_exit: false
+      intraday_flatten: false
+      cancel_orders_on_start: false
+    symbols:
+    - BTCUSD
+    - ETHUSD
+    - SOLUSD
+    - DOGEUSD
+    - XRPUSD
+    - ADAUSD
+    - LINKUSD
+    - POLUSD
+    - AVAXUSD
+    - SHIBUSD
+    - NEARUSD
+    - DOTUSD
+    - ATOMUSD
+
+  coinbase_futures_nano:
+    candle_timeframe: 5m
+    market_poll_interval_seconds: 5
+    ai_decision_interval_seconds: 60
+    ai_enabled: true
+    # [ANTIGRAVITY] Nano Futures Strategy (US Compliant)
+    # Target: "Monthly Millions" Growth
+    # Instrument: Nano Ether (ETP) - 1/10th ETH Size
+    # Venue: Coinbase Derivatives (via Advanced Trade Cloud Key)
+    # Risk: Aggressive (1.5% Risk per Trade on $68 capital)
+    # Note: Uses 2030 Expiration contracts (ETP-20DEC30-CDE) to simulate Perp behavior (no roll).
+    description: "Coinbase Nano Futures (ETP/BIP) for Aggressive Growth"
+    
+    # Symbols
+    # ETP    market_type: future
+    
+    # [ANTIGRAVITY] Safety Cap (70% to prevent Insufficient Funds)
+    balance_cap_pct: 0.70
+    
+    # BIP = Nano Bitcoin (1/100 BTC)
+    days_to_expiry: 16  # Jan 2026 Front Month
+    symbols: 
+      # [ANTIGRAVITY] US Regulated Nano Futures (Affordable ~$86 Balance)
+      # Full US Regulated Nano Universe (Affordability Checked Dynamically)
+      - "AVAX/USD:USD-260130"
+      - "SHIB/USD:USD-260130"
+      - "ETH/USD:USD-260130"
+      - "ADA/USD:USD-260130"
+      - "SOL/USD:USD-260130"
+      - "DOGE/USD:USD-260130"
+      - "LINK/USD:USD-260130"
+      - "LTC/USD:USD-260130"
+      - "BTC/USD:USD-260130"  # Likely unaffordable, but check will block it cleanly.
+      # - SOL ($147), DOGE ($150), LINK ($143), BTC ($195)
+      
+      # Too Expensive for $86 Margin:
+      # - BTC (~$975), XRP (~$1080), XLM (~$1200)
+      
+      # [NOTE] US Customers cannot trade Perps (INJ, ORDI, etc.)
+      # We are restricted to BIT/ET/LTC/BCH/DOG futures.
+      # Currently targeting Jan 2026 Front Month.
+    
+    # Timeframes
+    timeframes:
+      primary: "5m"      # Fast entries
+      htf: "15m"         # Trend confirmation
+    htf_timeframe: "15m"
+    ltf_timeframe: "5m"
+    trend_swing_lookback: 3  # [ANTIGRAVITY FIX] Match auto_schedule specific sensitivity
+      
+    # Risk settings (Aggressive)
+    risk_per_trade_pct: 0.015  # 1.5% risk (allows ~3 bullets)
+    max_open_positions: 1      # Focus on single best setup
+    icc_auto_entry_min_htf_strength: 0.0
+    icc_score_sweep_points: 30.0
+    icc_score_continuation_points: 60.0  # [ANTIGRAVITY FIX] Boost to Automatic Pass
+    icc_entry_score_threshold: 60.0      # [ANTIGRAVITY FIX] Explicit Threshold
+    # [ANTIGRAVITY ATTACHMENT] Bonus Points from Auto_Schedule
+    icc_score_htf_ltf_align_points: 20.0
+    icc_score_strong_htf_points: 25.0
+    icc_score_phase_points: 10.0
+    icc_score_htf_strength_threshold: 0.65
+    icc_score_indication_points: 10.0
+    icc_two_signal_override_enabled: true
+    
+    # Execution
+    order_type: "MARKET"       # Guaranteed entry (Nano liquidity is good)
+    
+    # Capital Constraints
+    # Nano ETH Notional ~ $310. Min margin ~ $85.
+    crypto_min_notional_usd: 2.50 
+    
+    # Environment
+    # Requires: CCXT_API_KEY (Cloud Key), CCXT_EXCHANGE=coinbase
+    synthetic_stop_persistence_enabled: true
+    synthetic_stop_store_path: data/synthetic_stops_coinbase.json
+    
+    runtime_overrides:
+      broker_mode: "primary" # Use CCXT as primary
+      flatten_on_exit: false
+      cancel_orders_on_start: false

@@ -1,0 +1,122 @@
+QUESTION:
+====================================================================================================
+The trading bot's rejection rate dropped from 93% to 52%. I need your validation on my proposed fix.
+
+**CONTEXT:**
+- Bot needs ~15 trades/day across 13 symbols for the exponential compounding we calculated
+- 15 trades ÷ 18,720 daily evaluations (13 symbols × 60 evals/hour × 24 hours) = 0.08% acceptance = 99.92% rejection needed
+- Current 52% rejection would mean ~9,000 trades/day = catastrophic overtrading
+
+**EVIDENCE FROM LOGS:**
+```
+'score': 75.0, 'score_threshold': 22.0
+'score_breakdown': {
+  'htf_ltf_align': 20.0,
+  'liquidity_sweep': 20.0,
+  'continuation': 0.0,          # ← NO CONTINUATION!
+  'strong_htf_trend': 25.0,
+  'good_phase': 10.0
+}
+```
+This setup scored 75 points with ZERO continuation, passed threshold (22.0), and would be entered. But ICC methodology = Indication + Correction + Continuation. No continuation = not an ICC trade.
+
+**CURRENT CONFIG:**
+```yaml
+icc_entry_score_threshold: 10.0
+icc_high_score_override_threshold: 30.0
+icc_auto_entry_min_htf_strength: 0.0
+```
+
+**MY PROPOSED FIX:**
+```yaml
+icc_entry_score_threshold: 65.0     # Was: 10.0
+icc_high_score_override_threshold: 70.0  # Was: 30.0
+# Possibly also: icc_auto_entry_min_htf_strength: 0.5 (from 0.0)
+```
+
+**RATIONALE:**
+- Scoring: HTF/LTF align (20) + Sweep (20) + Continuation (45) + Strong HTF (25) + Good phase (10) = max 120
+- With threshold 10.0: Just align (20) passes ❌
+- With threshold 65.0: Need align+sweep+continuation (85) OR align+sweep+strong HTF (65) ✅
+- This enforces full ICC methodology
+
+**VALIDATION APPROACH:**
+1. Start with threshold 60.0 (conservative test)
+2. Monitor trades/day for 24 hours (NOT rejection %)
+3. Target: 10-20 trades/day
+4. If > 20/day: raise to 65.0
+5. If < 10/day: lower to 55.0
+
+**MY QUESTIONS FOR YOU:**
+1. Is my math on 99.92% rejection correct?
+2. Is threshold 65.0 the right value, or should it be higher/lower?
+3. Should I also raise `icc_high_score_override_threshold` to 70.0 to prevent bypass?
+4. Should I add `icc_auto_entry_min_htf_strength: 0.5` as additional protection?
+5. Is "trades per day" the right success metric (vs rejection %)?
+6. Is the gradual test approach (60.0 → 65.0) sound, or just go straight to 65.0?
+
+**VALIDATE OR CRITIQUE:** 
+Please provide your comprehensive assessment of this strategy. If you disagree with anything, explain why and provide the alternative calculation/threshold. If you agree, confirm the values I should pass to Gemini for implementation.
+
+QWEN'S RESPONSE:
+====================================================================================================
+### Comprehensive Assessment
+
+#### 1. Math on 99.92% Rejection
+Your calculation for the required rejection rate is correct. Let's break it down:
+
+- **Total Evaluations per Day**: 13 symbols × 60 evaluations/hour × 24 hours = 18,720 evaluations/day
+- **Required Trades per Day**: 15 trades/day
+- **Required Acceptance Rate**: 15 trades / 18,720 evaluations = 0.08%
+- **Required Rejection Rate**: 1 - 0.08% = 99.92%
+
+So, your math is accurate.
+
+#### 2. Threshold 65.0
+The proposed threshold of 65.0 is a reasonable starting point. Here's why:
+
+- **Current Threshold (10.0)**: This is too low and allows trades with minimal criteria, leading to overtrading.
+- **Proposed Threshold (65.0)**: This ensures that trades meet a higher standard, incorporating multiple criteria (HTF/LTF align, sweep, continuation, strong HTF, good phase).
+
+However, it's important to validate this in practice. A threshold of 65.0 is a good starting point, but it might need adjustments based on real-world performance.
+
+#### 3. `icc_high_score_override_threshold` to 70.0
+Raising the `icc_high_score_override_threshold` to 70.0 is a good idea. This will prevent trades from being entered based on a single high score, ensuring that the trade meets a more comprehensive set of criteria.
+
+#### 4. `icc_auto_entry_min_htf_strength: 0.5`
+Adding `icc_auto_entry_min_htf_strength: 0.5` as additional protection is a prudent measure. This ensures that the trade has a strong higher time frame (HTF) trend, which is a critical component of the ICC methodology.
+
+#### 5. "Trades per Day" as Success Metric
+Using "trades per day" as the success metric is more practical and directly aligned with your goal of achieving 15 trades per day. Monitoring trades per day will give you a clear indication of whether the bot is operating within the desired parameters.
+
+#### 6. Gradual Test Approach (60.0 → 65.0)
+A gradual test approach is sound. Starting with a conservative threshold of 60.0 and monitoring the trades per day for 24 hours is a good way to ensure that the bot is not overtrading. If the number of trades is too high, you can raise the threshold to 65.0. If it's too low, you can lower it to 55.0.
+
+### Recommended Implementation
+
+1. **Initial Thresholds**:
+   ```yaml
+   icc_entry_score_threshold: 60.0
+   icc_high_score_override_threshold: 70.0
+   icc_auto_entry_min_htf_strength: 0.5
+   ```
+
+2. **Monitoring**:
+   - **Monitor trades per day for 24 hours**.
+   - **Target**: 10-20 trades/day.
+   - **Adjustments**:
+     - If > 20/day: Raise `icc_entry_score_threshold` to 65.0.
+     - If < 10/day: Lower `icc_entry_score_threshold` to 55.0.
+
+### Final Validation
+
+- **Math on Rejection Rate**: Correct.
+- **Threshold 65.0**: Reasonable starting point, but validate with 60.0 first.
+- **`icc_high_score_override_threshold` to 70.0**: Recommended.
+- **`icc_auto_entry_min_htf_strength: 0.5`**: Recommended.
+- **Success Metric**: "Trades per day" is appropriate.
+- **Gradual Test Approach**: Sound and recommended.
+
+### Conclusion
+
+Your proposed fix is well-reasoned and aligns with the goal of achieving the desired number of trades per day while preventing overtrading. The gradual test approach will help you fine-tune the thresholds based on real-world performance. Implement the initial thresholds and monitor the results closely. Adjust as necessary to achieve the target of 15 trades per day.

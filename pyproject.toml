@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "tradebot-sci-enterprise"
+version = "0.1.0"
+description = "Enterprise-grade AI-assisted trading simulator powered by Trade by SCI ICC-style logic"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+license = "MIT"
+packages = [{ include = "tradebot_sci", from = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+pydantic = "^2.4.2"
+httpx = "^0.25.2"
+python-dotenv = "^1.0.0"
+PyYAML = "^6.0.1"
+tenacity = "^8.2.3"
+ib-insync = "^0.9.86"
+ccxt = "^4.5.27"
+rich = "13.9.4"
+astral = "^3.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.3"
+pytest-asyncio = "^0.21.1"
+ruff = "^0.1.9"
+
+[tool.poetry.group.gui]
+optional = true
+
+[tool.poetry.group.gui.dependencies]
+PySide6 = { version = "^6.10.1", python = "<3.15" }
+timezonefinder = "^6.5.2"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "I", "N", "W", "B", "UP", "DTZ"]
+ignore = ["E203", "W503"]
+
+[build-system]
+requires = ["poetry-core>=1.7.0"]
+build-backend = "poetry.core.masonry.api"
