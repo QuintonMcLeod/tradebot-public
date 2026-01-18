@@ -145,8 +145,9 @@ The GUI launches the same engine and can keep the bot running even if the window
 
 1. Clone repo and enter directory:
    ```bash
-   git clone ... tradebot-sci-enterprise
-   cd tradebot-sci-enterprise
+   ```bash
+   git clone https://gitlab.com/ultraedge/tradebot-public.git
+   cd tradebot-public
    ```
 2. Create & activate virtual env:
    ```bash
