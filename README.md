@@ -98,7 +98,7 @@ We do not chase candles. We wait for Structure.
 
 > **Result:** We take many small "papercut" losses ($5) to catch the one violence run that pays $800+.
 
-*See [Documentation/STRATEGY_ADVISORY.md](Documentation/STRATEGY_ADVISORY.md) for deep dives on the math.*
+*See [Documentation/RTFM/09_FEET_WET_STRATEGY.md](Documentation/RTFM/09_FEET_WET_STRATEGY.md) for details on the Risk Management model.*
 
 ---
 
@@ -112,7 +112,7 @@ This README is just the lobby. The real knowledge is in the **RTFM (Read The Man
 | **How?** | [02_SKELETON_ARCH.md](Documentation/RTFM/02_SKELETON_ARCH.md) - How the code works. |
 | **Controls** | [07_COCKPIT_CONTROLS.md](Documentation/RTFM/07_COCKPIT_CONTROLS.md) - How to fly the plane. |
 | **Config** | [13_ENV_VARS.md](Documentation/RTFM/13_ENV_VARS.md) - **The Reference Table** (Env Vars). |
-| **Testing** | [09_TIME_MACHINE.md](Documentation/RTFM/09_TIME_MACHINE.md) - Historical Backtesting Guide. |
+| **Testing** | [12_TIME_MACHINE.md](Documentation/RTFM/12_TIME_MACHINE.md) - Historical Backtesting Guide. |
 
 ---
 
