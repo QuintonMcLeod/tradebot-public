@@ -4,11 +4,37 @@
 Welcome to **TradeBot SCI Enterprise**. It has no fancy marketing name. It has no singular author. It is a tool, forged in the fires of late-stage capitalism, designed with one singular, ruthless purpose: **To Make Money.**
 
 ## The Origin Story
-I built this not because I was struggling—I am rich, my money comes from The Most High—but because I was tired of the inefficiencies. My co-workers were stressed about bills. The news was an endless parade of companies firing millions while executives hoarded wealth.
 
-It’s not fair. It’s not fair that the system is rigged to keep the masses poor while a few rich mongrels at the top play 4D chess with the global economy.
+I'm tired of feeling broke.
 
-So, I decided to rig it back. This bot is the equalizer. It is the digital brick thrown through the window of the establishment. It is designed to claw back dignity (and liquidity) from the markets and put it where it belongs: in your wallet.
+Okay, let's be clear: **I am actually rich.** (See: *Romans 2:9*). My money comes from The Most High.
+
+But looking outside? It's a disaster movie. Food prices are climbing faster than a crypto shitcoin. Insurance premiums are ridiculous. Companies are firing millions of people while the executives buy another yacht to park inside their bigger yacht.
+
+I see friends working three jobs just to maintain the lifestyle they had with one job in 2018. Rent is soaring. Escrows are skyrocketing. Innocent people are being priced out of their homes. This is not sustainable. Eventually, the bubble bursts.
+
+### A Momentary Solution
+I created this bot to help. It can't solve everyone's problems, but it can help somewhat.
+
+**However, we need to have a serious talk:**
+I am not asking you to jump into this if you are actively being evicted.
+I am not asking you to start trading if the repo man is currently hooking up your car.
+I am not asking you to gamble your foreclosure payment.
+
+Jump into this when things are relatively stable—at least for a month or so.
+
+### The "Ideal Scenario" Clause
+This bot will not work for everyone. It is a high-maintenance employee.
+*   It needs to run **24/7** (or 24/5).
+*   It needs an account in **good standing**.
+*   It needs to be configured **properly**.
+
+If you have a chaotic life and can't keep a computer on, this bot can't help you. But for those of you who *can* provide the ideal scenario: **This bot will make YOU money.**
+
+**The 1-Week Rule**
+Do not expect profits in a single day. Do not expect them in 3 days.
+**Give the bot one week.**
+That is the bare minimum to see results. If you get chopped up for 7 days across 11 assets with no results, *then* we talk. But until then? Patience is the currency.
 
 ## What It Actually Does
 This isn't just a "Crypto Bot." That's thinking too small.
