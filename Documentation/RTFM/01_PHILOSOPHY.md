@@ -56,3 +56,28 @@ Before you touch a single line of code, you must understand: **Certain things ar
 See Chapter 10: **The Ancient Oaths** for the full ritualistic detail required to avoid being purged from the memory bank.
 
 Proceed to chapter 2 to see the Bones of the beast. But never forget why you are here. You are here to pay the bills.
+
+## Trade By SCI Alignment (The Mechanics)
+
+Trade By SCI is about structure-first patience, not constant action. This bot is built to:
+
+- **Wait for the model** (HTF alignment → correction/sweep → continuation) instead of early reaction entries.
+- **Say “no” loudly and clearly** via gates + reason codes (`NO_SWEEP`, `NO_CONTINUATION`), so discipline is enforced without guesswork.
+- **Stay tradable in real venues** by enforcing constraints (no fake shorts on long-only spot).
+- **Be auditable** so execution is repeatable. Every "no trade" is logged with a reason.
+
+### How it behaves like an ICC Trader
+If you are learning ICC and you want to trade like an A-student from the 12-day course:
+1.  **AI-powered ICC decisioning**: The prompt thinks and evaluates like a structural trader.
+2.  **“Stand aside” is the default**: It will not manufacture trades.
+3.  **Selection vs Readiness**: Separates "Which chart to watch?" (Selection) from "Is it time?" (Readiness).
+4.  **Deterministic Gates**: The AI suggests, but the Code enforces. Hard gates (Range, Volume, Structure) must pass.
+5.  **Commitment Mode**: Once in, it manages. It does not re-guess every candle.
+
+### The "Hybrid Flip" Philosophy
+We don't aim for smooth lines. We aim for **Lumpy Expansion Capture**:
+> long periods of nothing → short bursts of violent continuation → repeat
+
+The question isn't "what did I make today?"
+The question is: **"How many A+ continuation windows did I capture this week?"**
+
