@@ -1,4 +1,4 @@
-# Tradebot-SCI Enterprise
+# Tradebot-Sci
 
 > **Looking for the Manual?**
 > Stop reading this boring file.
@@ -14,7 +14,7 @@
 > 
 > **You have been warned.** Test thoroughly on paper/sim before risking a Single. Cent.
 
-Trade-by-SCI ICC automation for IBKR. This repo scans a symbol universe (equities, ETFs, forex, crypto) every cycle, finds the cleanest structure, feeds it into the ICC prompt, enforces hard gates, and (if you allow it) executes live IBKR orders with real-world safeguards (local stops, crypto routing, strike tracker cooldowns).
+Tradebot-Sci is an automated ICC trading system for IBKR, Crypto (via CCXT), and Futures. This repo scans a symbol universe (equities, ETFs, forex, crypto) every cycle, finds the cleanest structure, feeds it into the ICC prompt, enforces hard gates, and (if you allow it) executes live orders with real-world safeguards (local stops, crypto routing, strike tracker cooldowns).
 
 ## What this does for you (ICC trader, plain English)
 
