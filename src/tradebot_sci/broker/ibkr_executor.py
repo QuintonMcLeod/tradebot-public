@@ -165,6 +165,10 @@ class IbkrExecutor:
             "consecutive_losses": 0,
         }
 
+    @property
+    def position_hold_store(self):
+        return self._position_hold_store
+
     @staticmethod
     def _effective_tif(asset_class: AssetClass | None, exchange: str | None, default: str) -> str:
         """Return a venue-safe time-in-force.
