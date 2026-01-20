@@ -69,7 +69,7 @@ I am running the engine on **15-minute (15m)** candle data. The focus is exclusi
 The data used for this specific run covers **January 2, 2026, to January 19, 2026**.
 
 ### 2. The Mathematics: "Combat Mode" Logic
-The core signal is the **ICC (Institutional Convergence Confirmation)**. In standard mode, the system is defensive. In **Combat Mode**, I’ve lowered the drawbridge:
+The core signal is the **ICC (Indication, Correction, Continuation)**. In standard mode, the system is defensive. In **Combat Mode**, I’ve lowered the drawbridge:
 
 - **Scoring Threshold**: Reduced to **50.0** (from 60.0). This allows the bot to enter positions as soon as the mathematical probability crosses the median, rather than waiting for "perfect" alignment.
 - **Naked Continuation Boost**: I’ve boosted the weight of `continuation_points` to **50.0**. This allows the bot to trade "Naked Continuations"—entries that occur mid-trend without requiring a fresh HTF (High Time Frame) crossover. This single change accounted for over 60% of the total PnL.
