@@ -48,7 +48,7 @@ class ParsedDecisionPayload(BaseModel):
     symbol: str
     timeframe: str  # execution timeframe like 1m/5m/15m
     bias: Literal["long", "short", "neutral"]
-    phase: Literal["trend", "correction", "continuation", "chop"]
+    phase: Literal["trend", "indication", "correction", "continuation", "chop"]
     action: Literal[
         "enter_long",
         "enter_short",

@@ -801,11 +801,12 @@ class CCXTExchangeBroker:
             # [ANTIGRAVITY FIX] Risk-Based Sizing
             # 1. Determine Risk Amount from AI pct
             risk_pct = getattr(decision, "risk_per_trade_pct", 1.0) or 1.0
+            fixed_risk = float(getattr(self.profile, "risk_per_trade_dollars", 0.0) or 0.0)
 
             # [ANTIGRAVITY FEATURE] "YOLO Ratchet": Multi-Tier Capital Scale
             # 100% (<$500), 50% (<$2k), 30% (<$100k), 10% (<$200k), 5% (>$200k)
             ratchet_enabled = getattr(self.profile, "ratchet_risk_enabled", True)
-            if risk_pct >= 0.99 and ratchet_enabled:
+            if fixed_risk <= 0 and risk_pct >= 0.99 and ratchet_enabled:
                 try:
                     old_risk = risk_pct
                     if liq_cap < 500.0:
@@ -825,7 +826,11 @@ class CCXTExchangeBroker:
                     logger.warning(f"[RISK RATCHET] Tier logic failed: {e}. Defaulting to {risk_pct:.0%}")
 
             # 1. Determine Risk Amount
-            risk_amount = liq_cap * risk_pct
+            if fixed_risk > 0:
+                risk_amount = min(fixed_risk, liq_cap)
+                risk_pct = (risk_amount / liq_cap) if liq_cap > 0 else 0.0
+            else:
+                risk_amount = liq_cap * risk_pct
             
             # 2. Get Price Data
             ticker = self._safe_fetch_ticker(sym)

@@ -117,6 +117,7 @@ Options:
   -G, --stop-gui                Stop the running desktop GUI wrapper (if any)
 
   -g, --gui                   Launch the desktop GUI wrapper (Qt). Opens/controls tmux dashboard.
+  -D, --daemon                Start the bot in background (daemon) without any GUI.
   -s, --settings              Launch only the settings dialog (for debugging GUI settings)
   -k, --exit-all              Kill the tmux session and exit
   -h, --help                  Show help
@@ -189,6 +190,7 @@ GUI="false"
 SETTINGS="false"
 EXIT_ALL="false"
 STOP_GUI="false"
+DAEMON="false"
 
 EXTRA_ENVS=()
 EXECUTE_TRADES_SET="false"
@@ -224,6 +226,7 @@ esac
 	    -r|--restart) RESTART="true"; shift ;;
 	    -G|--stop-gui) STOP_GUI="true"; shift ;;
 	    -g|--gui) GUI="true"; shift ;;
+	    -D|--daemon) DAEMON="true"; shift ;;
 	    -s|--settings) SETTINGS="true"; shift ;;
 	    -k|--exit-all) EXIT_ALL="true"; shift ;;
 	    -h|--help) usage; exit 0 ;;
@@ -489,17 +492,83 @@ if [[ "$DRY_RUN" == "true" ]]; then
   exit 0
 fi
 
-if [[ "$GUI" == "true" ]]; then
-  # Desktop wrapper around the existing tmux dashboard (keeps the tmux workflow intact).
-  # Note: Qt environment variables (QT_QPA_PLATFORM, etc.) are configured by tradebot_gui.py
-  export SESSION_NAME
-  if command -v poetry >/dev/null 2>&1; then
-    env PYTHONPATH=src poetry run python scripts/tradebot_gui.py
-    exit $?
+
+if [[ "$GUI" == "true" ]] || [[ "$DAEMON" == "true" ]]; then
+  # Desktop GUI Mode or Daemon Mode (No Tmux)
+  if [[ "$DAEMON" == "true" ]]; then
+       echo "Starting in Daemon Mode..."
+  else
+       echo "Starting in GUI mode (Client Only / Daemon Backend)..."
   fi
-  echo "ERROR: poetry not found; cannot launch GUI wrapper." >&2
-  echo "Install deps with: poetry install --with gui" >&2
-  exit 2
+
+  # 1. Kill existing bot if requested by --restart, or just warn?
+  # Let's check if running.
+  EXISTING_PID=$(pgrep -f "run_dev_bot\.py" | grep -v "$$" || true)
+  if [[ -n "$EXISTING_PID" ]]; then
+      if [[ "$RESTART" == "true" ]]; then
+          echo "Stopping existing bot (PID $EXISTING_PID)..."
+          kill "$EXISTING_PID" 2>/dev/null || true
+          sleep 2
+      else
+          echo "Bot is already running (PID $EXISTING_PID). Using existing instance."
+      fi
+  fi
+
+  # 2. Start Bot if not running
+  EXISTING_PID=$(pgrep -f "run_dev_bot\.py" | grep -v "$$" || true)
+  if [[ -z "$EXISTING_PID" ]]; then
+      echo "Launching Backend Bot..."
+      
+      # Ensure LOG_FILE dir exists
+      mkdir -p "$(dirname "$LOG_FILE")"
+      
+      # Prepare Environment
+      export EXCHANGE_PROVIDER="${EXCHANGE_PROVIDER:-}"
+      export ALTERNATIVE_MARKET_DATA="${ALTERNATIVE_MARKET_DATA:-}"
+      export ALTERNATIVE_BROKER="${ALTERNATIVE_BROKER:-}"
+      
+      # Run in background, redirect output to a separate debug log if needed, 
+      # but the bot's internal logging handles the main log file.
+      # We use nohup to ensure it persists after script exit if needed.
+      nohup bash -c "$BOT_CMD" > "$(dirname "$LOG_FILE")/bot_stdout.log" 2>&1 &
+      B_PID=$!
+      echo "Bot started (PID $B_PID)."
+      echo "Logs: $LOG_FILE"
+      
+      if [[ "$DAEMON" == "true" ]]; then
+          echo "Daemon mode active. Bot is running in background. Exiting script."
+          exit 0
+      fi
+
+      # Wait briefly for startup
+      sleep 2
+  fi
+
+  if [[ "$DAEMON" == "true" ]]; then
+      echo "Bot is already running. Daemon mode exiting."
+      exit 0
+  fi
+
+  # 3. Launch Electron (Only if GUI is true, which is implicit here if DAEMON is false due to the OR condition above)
+
+  # 3. Launch Electron
+  echo "Launching Electron GUI..."
+  cd src/tradebot_sci/electron_gui
+  
+  if command -v npm >/dev/null 2>&1; then
+      npm start -- --no-sandbox
+      
+      echo "Electron GUI closed."
+      EXISTING_PID=$(pgrep -f "run_dev_bot\.py" | grep -v "$$" || true)
+      if [[ -n "$EXISTING_PID" ]]; then
+          echo "The backend bot (PID $EXISTING_PID) is still running."
+          echo "To stop it: kill $EXISTING_PID"
+      fi
+      exit 0
+  else
+      echo "ERROR: npm not found; cannot launch Electron GUI." >&2
+      exit 2
+  fi
 fi
 
 if [[ "$SETTINGS" == "true" ]]; then

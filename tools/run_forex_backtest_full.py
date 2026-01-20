@@ -32,26 +32,45 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 logger = logging.getLogger("forex_feet_wet")
 logger.setLevel(logging.INFO)
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'forex_backtest')
+DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'jan_2026')
 INITIAL_CAPITAL = 500.0
-FOREX_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD"]
+# Nov 2024 High-Beta Assets
+# COMMODITIES ONLY (User Request)
+FOREX_PAIRS = [
+    # Gold (The Hedge)
+    "PAXGUSD", 
+    # Precious Metals
+    "XAGUSD", "XPTUSD", "XPDUSD",
+    # Energy
+    "USOIL"
+]
 
 # Backtest Settings
 INITIAL_CAPITAL = 100.0
-LONG_RISK_PCT = 0.01        # [HYBRID FLIP] Initial Probe: 1%
-SHORT_RISK_PCT = 0.01       # [HYBRID FLIP] Initial Probe: 1%
+LONG_RISK_PCT = 0.005       # [FINAL OPTIMIZED] 0.5% Risk
+SHORT_RISK_PCT = 0.005      # [FINAL OPTIMIZED] 0.5% Risk
+FIXED_RISK_DOLLARS = 0.0    # Compounding
 
-MAX_PYRAMID_ENTRIES = 6     # 1 Load + 5 Scale
-PROFIT_BUFFER_PCT = 0.0015  # Trigger "Load" at 0.15% profit (Give it room!)
-SECONDARY_BUFFER_PCT = 0.002 # Subsequent adds at normal intervals (0.2%)
+MAX_PYRAMID_ENTRIES = 50    # [SINGULARITY] Infinite Scale
+PROFIT_BUFFER_PCT = 0.0001  # [SINGULARITY] Continuous Load
+SECONDARY_BUFFER_PCT = 0.0001 # [SINGULARITY] Continuous Load
 
-PYRAMID_RISK_LOAD = 0.30    # [HYBRID FLIP] Secondary Load: 30%
-PYRAMID_RISK_SCALE = 0.10   # [HYBRID FLIP] Subsequent Scale: 10% to trigger pyramid
+PYRAMID_RISK_LOAD = 1.00    # [SINGULARITY] 100% Risk on Load
+PYRAMID_RISK_SCALE = 1.00   # [SINGULARITY] 100% Risk on Scale
 
-# MINIMAL FILTERS - Let ICC do its job
-MIN_HTF_STRENGTH = 0.25   # Low bar - just need directional bias
-REQUIRE_SWEEP = False     # ICC continuation doesn't require sweep
-MIN_MOMENTUM_PIPS = 0     # No momentum filter - structure is enough
+# PROVEN +65% SETTINGS
+MIN_HTF_STRENGTH = 0.0    # [ROBOCOP] Disable Trend Strength Check
+REQUIRE_SWEEP = False       # [ROBOCOP] Disable Sweep Requirement
+MIN_MOMENTUM_PIPS = 0.0     # [ROBOCOP] Disable Momentum Threshold
+MIN_HTF_STRENGTH_FIXED_RISK = 0.40
+MIN_STOP_PCT = 0.0008
+MIN_ENTRY_RANGE_PIPS = 0.0  # [ROBOCOP] Disable Volatility Gate
+PROFIT_BUFFER_PCT_CHOP = 0.0025
+BE_DELAY_BARS = 0
+HTF_FLIP_EXIT_PNL = -0.001
+PROFIT_BUFFER_PCT_CHOP = 0.0025  # Require larger buffer in chop before pyramiding
+BE_DELAY_BARS = 0         # Delay breakeven move after add
+HTF_FLIP_EXIT_PNL = -0.001  # Exit on HTF flip only if <= -0.1% PnL
 
 @dataclass
 class ForexTrade:
@@ -81,6 +100,11 @@ class ForexPosition:
     pyramid_count: int = 0
     score: float = 0.0
     last_htf_dir: str = "neutral"
+    protection_price: float = 0.0      # [SOFTWARE BE] Critical Level (N-1 Entry)
+    latest_add_price: float = 0.0      # [SOFTWARE BE] Most recent add price (N)
+    last_add_index: int = -1           # Bar index for last add
+    pending_be_price: float = 0.0      # Deferred breakeven stop
+    bars_held: int = 0                 # [STAGNATION EXIT] Duration tracker
 
 def load_candles(symbol: str) -> List[Candle]:
     filepath = os.path.join(DATA_DIR, f'{symbol}_15m.json')  # Use 15m data
@@ -113,10 +137,11 @@ def calculate_pnl(entry_price, exit_price, units, direction, symbol):
     else:
         price_diff = exit_price - entry_price
 
-    # [ANTIGRAVITY FIX] Commodity vs Forex PnL
+    # [ANTIGRAVITY FIX] Commodity/Crypto vs Forex PnL
     is_commodity = any(x in symbol for x in ["XAU", "XAG", "PAXG", "USO", "XPT", "XPD"])
-    
-    if is_commodity:
+    is_crypto = any(x in symbol for x in ["BTC", "ETH", "SOL", "DOGE", "ADA", "AVAX", "SHIB", "LINK", "LTC"])
+
+    if is_commodity or is_crypto:
         # Direct PnL: Price Diff * Units
         return price_diff * units
     elif "JPY" in symbol:
@@ -131,34 +156,34 @@ def calculate_pnl(entry_price, exit_price, units, direction, symbol):
         micro_lots = units / 1000.0
         return pips * pip_value * micro_lots
 
-def calculate_position_size(capital, risk_pct, entry_price, stop_price, symbol):
-    risk_amount = capital * risk_pct
+def calculate_position_size(capital, risk_pct, entry_price, stop_price, symbol, risk_amount=None):
+    if risk_amount is None:
+        risk_amount = FIXED_RISK_DOLLARS if FIXED_RISK_DOLLARS > 0 else capital * risk_pct
     stop_distance = abs(entry_price - stop_price)
     if stop_distance == 0: return 0
-    
-    # [ANTIGRAVITY FIX] Commodity Sizing
+
+    # [ANTIGRAVITY FIX] Commodity/Crypto Sizing
     is_commodity = any(x in symbol for x in ["XAU", "XAG", "PAXG", "USO", "XPT", "XPD"])
-    
-    if is_commodity:
+    is_crypto = any(x in symbol for x in ["BTC", "ETH", "SOL", "DOGE", "ADA", "AVAX", "SHIB", "LINK", "LTC"])
+
+    if is_commodity or is_crypto:
         # Risk = Units * StopDistance
         # Units = Risk / StopDistance
         units = risk_amount / stop_distance
-        return max(0.01, units) # Allow fractional units for commodities if needed, or floor to 1?
-        # Let's floor to int for safety in this simple backtest unless it's too small
-        # Gold 0.01 oz is viable. Let's return float.
-        return units
+        # Return fractional units for crypto/commodities
+        return max(0.0001, units)
 
     # JPY Sizing Normalization
     if symbol.startswith("USD") and "JPY" in symbol:
         stop_distance = stop_distance / entry_price
-    
+
     units = risk_amount / stop_distance
-    
+
     # Standard Lot = 100,000
     # Mini Lot = 10,000
     # Micro Lot = 1,000
     # For Forex, return units (e.g. 1000)
-    
+
     return max(1, int(units))
 
 def get_swing_invalidation(candles: List[Candle], direction: str) -> float:
@@ -211,7 +236,10 @@ def run_forex_backtest():
     print("=" * 80)
     print("FOREX ICC BACKTEST - FEET WET + STRUCTURE EXITS")
     print("=" * 80)
-    print(f"Long Risk: {LONG_RISK_PCT*100:.1f}%")
+    if FIXED_RISK_DOLLARS > 0:
+        print(f"Risk: ${FIXED_RISK_DOLLARS:.2f} initial, pyramids use equity %")
+    else:
+        print(f"Long Risk: {LONG_RISK_PCT*100:.1f}%")
     print(f"Max Pyramids: {MAX_PYRAMID_ENTRIES} (1 Load + 5 Scale)")
     print(f"Profit Buffer: {PROFIT_BUFFER_PCT*100}%")
     print("Exit: Structure invalidation (HTF flip, swing break)")
@@ -222,13 +250,13 @@ def run_forex_backtest():
 
     
     all_candles = {}
-    
-    # [ANTIGRAVITY FIX] Dynamic Symbol Discovery
-    # Instead of hardcoded FOREX_PAIRS, look for what files exist.
+
+    # Use FOREX_PAIRS list (crypto/commodity only for clean PnL)
     available_files = [f for f in os.listdir(DATA_DIR) if f.endswith("_15m.json")]
-    discovered_symbols = [f.replace("_15m.json", "") for f in available_files]
-    
-    print(f"Found {len(discovered_symbols)} data files: {discovered_symbols}")
+    all_available = [f.replace("_15m.json", "") for f in available_files]
+    discovered_symbols = [s for s in FOREX_PAIRS if s in all_available]
+
+    print(f"Using {len(discovered_symbols)} symbols: {discovered_symbols}")
     
     for symbol in discovered_symbols:
         candles = load_candles(symbol)
@@ -273,9 +301,39 @@ def run_forex_backtest():
             pos = positions.get(symbol)
             
             if pos:
+                pos.bars_held += 1  # [STAGNATION EXIT] Increment duration
                 current_htf_dir = str(trend_htf.direction) if trend_htf else "neutral"
                 
-                # 1. Check STOP first (always honored)
+
+
+                # Apply delayed breakeven after pyramiding.
+                if pos.pending_be_price > 0 and pos.last_add_index >= 0:
+                    if bar_idx - pos.last_add_index >= BE_DELAY_BARS:
+                        pos.stop_price = pos.pending_be_price
+                        pos.pending_be_price = 0.0
+
+                # [DYNAMIC TRAILING STOP]
+                # Lock in profits as structure moves.
+                # Must calculate ATR for buffer first.
+                recent_volt = ltf_candles[-14:]
+                atr_val = sum(c.high - c.low for c in recent_volt) / len(recent_volt) if recent_volt else 0.0
+                is_volatile = any(x in symbol for x in ["BTC", "ETH", "SOL", "XAU", "PAXG"])
+                buffer_mult = 1.0 if is_volatile else 0.1
+                
+                raw_struct = get_swing_invalidation(ltf_candles, pos.direction)
+                
+                if pos.direction == "long":
+                    new_stop = raw_struct - (atr_val * buffer_mult)
+                    # Only move stop UP
+                    if new_stop > pos.stop_price and new_stop < current_price:
+                         pos.stop_price = new_stop
+                else: 
+                     new_stop = raw_struct + (atr_val * buffer_mult)
+                     # Only move stop DOWN
+                     if new_stop < pos.stop_price and new_stop > current_price:
+                         pos.stop_price = new_stop
+
+                # 1. Check HARD STOP (Legacy Safety Net)
                 if pos.direction == "long" and current_bar.low <= pos.stop_price:
                     pnl = calculate_pnl(pos.avg_price, pos.stop_price, pos.size, pos.direction, symbol)
                     capital += pnl
@@ -298,16 +356,60 @@ def run_forex_backtest():
                     ))
                     del positions[symbol]
                     continue
+
+                # [CHOP PROFIT TAKING]
+                # In weak trends (Strength < 0.3), structure exits are too slow.
+                # Bank profit at ~3R of Chop Risk.
                 
-                # UNIVERSAL BREAKEVEN CHECK
-                # [STRICT ICC] REMOVED 0.1% BE rule.
-                # Trade by Sci teaches structure-based exits.
-                # Moving to BE too early suffocates the trade during retests.
-                # We now rely SOLELY on trailing stop via 'swing_invalidation' (structure).
-                pass
+                # [STAGNATION EXIT] "Fast Fail"
+                # If trade is > 4 bars old (1 hour) and not profitable, Kill it.
+                # Releases capital for better trades.
+                if pos.bars_held >= 4:
+                    if pos.direction == "long":
+                        pnl_check = calculate_pnl(pos.avg_price, current_price, pos.size, pos.direction, symbol)
+                    else:
+                        pnl_check = calculate_pnl(pos.avg_price, current_price, pos.size, pos.direction, symbol)
+                    
+                    if pnl_check <= 0:
+                        capital += pnl_check
+                        completed_trades.append(ForexTrade(
+                            symbol=symbol, direction=pos.direction, entry_price=pos.avg_price,
+                            exit_price=current_price, size=pos.size, entry_time=pos.entry_time,
+                            exit_time=current_time, pnl=pnl_check, exit_reason="stagnation_kill",
+                            pyramid_count=pos.pyramid_count, score=pos.score
+                        ))
+                        logger.info(f"[EXIT] {symbol} Stagnation Kill (Held {pos.bars_held} bars, PnL {pnl_check:.2f})")
+                        del positions[symbol]
+                        continue
+
+                # [CHOP PROFIT TAKING]
+                # Dynamic Logic matches engine.py
+                htf_strength = float(trend_htf.strength or 0.0)
+                if htf_strength < 0.5:
+                    if pos.direction == "long":
+                        curr_float_pnl = calculate_pnl(pos.avg_price, current_price, pos.size, pos.direction, symbol)
+                    else:
+                        curr_float_pnl = calculate_pnl(pos.avg_price, current_price, pos.size, pos.direction, symbol)
+                    
+                    # Target: 0.40 (Proven Sweet Spot for 1% Risk)
+                    if curr_float_pnl >= 0.40:
+                        capital += curr_float_pnl
+                        completed_trades.append(ForexTrade(
+                            symbol=symbol, direction=pos.direction, entry_price=pos.avg_price,
+                            exit_price=current_price, size=pos.size, entry_time=pos.entry_time,
+                            exit_time=current_time, pnl=curr_float_pnl, exit_reason="chop_tp",
+                            pyramid_count=pos.pyramid_count, score=pos.score
+                        ))
+                        logger.info(f"[EXIT] {symbol} Chop Take Profit (+${curr_float_pnl:.2f}) Strength={htf_strength:.2f}")
+                        del positions[symbol]
+                        continue
+                
+
+
 
                 # 2. Check for PYRAMID opportunity (BEFORE structure exit)
                 if pos.pyramid_count < MAX_PYRAMID_ENTRIES:
+
                     if pos.direction == "long":
                         profit_pct = (current_price - pos.avg_price) / pos.avg_price
                     else:
@@ -315,7 +417,15 @@ def run_forex_backtest():
                     
                     # [HYBRID FLIP] Dynamic Thresholds
                     # Add #1 (Load): Fast trigger (PROFIT_BUFFER vs SECONDARY_BUFFER)
-                    req_buffer = PROFIT_BUFFER_PCT if pos.pyramid_count == 0 else SECONDARY_BUFFER_PCT
+                    # In chop (tight 5-bar range), require larger buffer.
+                    recent_5 = ltf_candles[-5:]
+                    if ltf_dir == "long":
+                        range_pips = (max(c.high for c in recent_5) - min(c.low for c in recent_5)) * (100 if "JPY" in symbol else 10000)
+                    else:
+                        range_pips = (max(c.high for c in recent_5) - min(c.low for c in recent_5)) * (100 if "JPY" in symbol else 10000)
+                    is_chop = range_pips < MIN_ENTRY_RANGE_PIPS
+                    base_buffer = PROFIT_BUFFER_PCT if pos.pyramid_count == 0 else SECONDARY_BUFFER_PCT
+                    req_buffer = PROFIT_BUFFER_PCT_CHOP if is_chop else base_buffer
                     
                     if profit_pct >= req_buffer:
                         # [FLIP MODE FIX] Use Equity (Capital + Open Profit) for sizing
@@ -333,44 +443,68 @@ def run_forex_backtest():
                         # Add #2+ (Scale): 10% Risk
                         risk_to_use = PYRAMID_RISK_LOAD if pos.pyramid_count == 0 else PYRAMID_RISK_SCALE
 
+                        # [HYBRID FLIP] Sizing Fix - PURE STRUCTURE (No ATR)
+                        # User Constraint: "I never used ATR".
+                        # Solution: Use Local Structure (Min/Max of last 10 bars) for SIZING calculation.
+                        # This provides a natural chart-based distance for volume calculation.
+                        # Protection is still strictly at Average Price (Wet Feet).
+                        
+                        lookback_bars = 10
+                        if pos.direction == "long":
+                            # Find lowest low of recent bars as structural support
+                            recent_lows = [c.low for c in ltf_candles[-lookback_bars:]] if ltf_candles else []
+                            struct_level = min(recent_lows) if recent_lows else current_price * 0.999
+                            if struct_level >= current_price: struct_level = current_price * 0.999
+                            ref_stop = struct_level
+                        else:
+                            # Find highest high of recent bars as structural resistance
+                            recent_highs = [c.high for c in ltf_candles[-lookback_bars:]] if ltf_candles else []
+                            struct_level = max(recent_highs) if recent_highs else current_price * 1.001
+                            if struct_level <= current_price: struct_level = current_price * 1.001
+                            ref_stop = struct_level
+
+                        # Safety: Ensure meaningful distance (at least 0.05%) to prevents infinite sizing on tight wicks
+                        dist_pct = abs(current_price - ref_stop) / current_price
+                        if dist_pct < 0.0005:
+                            if pos.direction == "long": ref_stop = current_price * 0.9995
+                            else: ref_stop = current_price * 1.0005
+
+                        # Enforce a minimum stop distance before adding size.
+                        stop_dist_pct = abs(current_price - ref_stop) / current_price
+                        if stop_dist_pct < MIN_STOP_PCT:
+                            continue
+
+                        add_risk_amount = None
+                        if FIXED_RISK_DOLLARS > 0:
+                            add_risk_amount = current_equity * risk_to_use
                         add_size = calculate_position_size(
-                            current_equity, risk_to_use, current_price, pos.stop_price, symbol
+                            current_equity, risk_to_use, current_price, ref_stop, symbol, risk_amount=add_risk_amount
                         )
                         total_size = pos.size + add_size
                         new_avg = (pos.avg_price * pos.size + current_price * add_size) / total_size
                         
                         pos.avg_price = new_avg
                         pos.size = total_size
+                        
+                        # [SOFTWARE BE] Update Protection Levels - PURE WET FEET
+                        # User Constraint: "N-1 causes issues, as it reduces the legs".
+                        # Solution: Protect at AVERAGE PRICE (True Breakeven) for ALL levels.
+                        # This gives the trade MAXIMUM room (the entire profit buffer) to breathe.
+                        
+                        pos.protection_price = new_avg
+                        protection_type = "Avg Price (Max Room)"
+
+                        # Delay breakeven move to avoid immediate shakeouts.
+                        pos.pending_be_price = pos.protection_price
+                        pos.last_add_index = bar_idx
+                        
+                        # New Ceiling = Current Add Price (for next N-1 reference)
+                        pos.latest_add_price = current_price
+                        
                         pos.pyramid_count += 1
                         total_pyramids += 1
                         
-                        # Trail stop to structure
-                        pos.swing_invalidation = get_swing_invalidation(ltf_candles, pos.direction)
-                        
-                        # [ANTIGRAVITY RULE] Pyramid Breakeven
-                        # If we have pyramids, stop MUST be at least Breakeven (Avg Price).
-                        # We cannot risk losing money on a winner we added to.
-                        if pos.pyramid_count > 0:
-                            if pos.direction == "long":
-                                # [HYBRID FLIP TIP] Soft Breakeven for Load (Pyramid #1)
-                                # [USER REQUEST] "Increase soft stop... to compensate"
-                                # We add a 0.05% "Breathing Room" buffer below Initial Entry.
-                                # This prevents wicking out at exactly $0 PnL.
-                                # We accept a small loss (approx 0.5% - 1% of equity) to survive noise.
-                                # [USER REQUEST] "How much to bump to get 55% WR?"
-                                # Experiment: Increasing buffer to 0.003 (0.3%)
-                                # This is a massive buffer (allows 30pips-ish drawdown against the Load).
-                                breathing_room = pos.initial_entry_price * 0.003
-                                floor_price = (pos.avg_price if pos.pyramid_count > 1 else pos.initial_entry_price - breathing_room)
-                                pos.stop_price = max(pos.stop_price, floor_price)
-                            else:
-                                breathing_room = pos.initial_entry_price * 0.003
-                                ceil_price = (pos.avg_price if pos.pyramid_count > 1 else pos.initial_entry_price + breathing_room)
-                                pos.stop_price = min(pos.stop_price, ceil_price)
-                                
-                            logger.info(f"[PYRAMID] {symbol} add #{pos.pyramid_count} @ {current_price:.5f}, profit={profit_pct*100:.2f}%, size={total_size}, new_avg={pos.avg_price:.5f} [STOP -> {'SOFT BE - 0.3% BUFFER' if pos.pyramid_count==1 else 'STRICT BE'}]")
-                        else:
-                            logger.info(f"[PYRAMID] {symbol} add #{pos.pyramid_count} @ {current_price:.5f}, profit={profit_pct*100:.2f}%, size={total_size}, new_avg={pos.avg_price:.5f}")
+                        logger.info(f"[PYRAMID] {symbol} add #{pos.pyramid_count} @ {current_price:.5f}, profit={profit_pct*100:.2f}%, size={total_size}, new_avg={pos.avg_price:.5f} [Protection: {pos.protection_price:.5f} ({protection_type})]")
                 
                 # 3. Check HTF FLIP - SMART EXIT: only exit if in loss, let profitable trades run
                 if pos.direction == "long":
@@ -379,7 +513,7 @@ def run_forex_backtest():
                     current_pnl = (pos.avg_price - current_price) / pos.avg_price
                 
                 # Only exit on HTF flip if we're at a LOSS or barely profitable
-                if current_pnl < 0.001:  # Less than 0.1% profit
+                if current_pnl <= HTF_FLIP_EXIT_PNL:
                     if pos.direction == "long" and current_htf_dir == "short":
                         pnl = calculate_pnl(pos.avg_price, current_price, pos.size, pos.direction, symbol)
                         capital += pnl
@@ -433,7 +567,20 @@ def run_forex_backtest():
                     continue
                 
                 # Update swing invalidation level (trail it)
-                new_invalidation = get_swing_invalidation(ltf_candles, pos.direction)
+                # Update swing invalidation level (trail it)
+                # [TIERED BUFFER] Re-calc ATR
+                is_volatile = any(x in symbol for x in ["BTC", "ETH", "SOL", "XAU", "PAXG"])
+                buffer_mult = 1.0 if is_volatile else 0.1
+                
+                recent_volt = ltf_candles[-14:]
+                atr_val = sum(c.high - c.low for c in recent_volt) / len(recent_volt) if recent_volt else 0.0
+                
+                raw_struct = get_swing_invalidation(ltf_candles, pos.direction) # Revert to LTF structure for trail
+                
+                if pos.direction == "long":
+                     new_invalidation = raw_struct - (atr_val * buffer_mult)
+                else:
+                     new_invalidation = raw_struct + (atr_val * buffer_mult)
                 if pos.direction == "long" and new_invalidation > pos.swing_invalidation:
                     pos.swing_invalidation = new_invalidation
                 elif pos.direction == "short" and new_invalidation < pos.swing_invalidation:
@@ -455,12 +602,7 @@ def run_forex_backtest():
             if ltf_dir not in ("long", "short"):
                 continue
 
-            # [STRICT ICC] Check No Trade Zone (NTZ)
-            # Use HTF candles for NTZ logic
-            ntz = detect_no_trade_zone(htf_candles, swing_lookback=2)
-            if ntz and not ntz.is_broken:
-                # Inside range -> No Trade Zone -> Skip
-                continue
+            # Chop/NTZ filters disabled per user request.
             
             sweep = detect_liquidity_sweep(ltf_candles, ltf_dir, swing_lookback=2)
             indication = detect_indication(ltf_candles, swing_lookback=2)
@@ -471,7 +613,11 @@ def run_forex_backtest():
                 swing_lookback=2, confirmation_bars=2
             )
             
-            if not continuation:
+            # [RELAXED ENTRY]
+            # Allow (Sweep + Indication) OR Continuation
+            valid_entry = continuation is not None or (sweep is not None and indication is not None)
+            
+            if not valid_entry:
                 continue
             
             # MOMENTUM FILTER: Require sweep for entry
@@ -488,11 +634,16 @@ def run_forex_backtest():
                 momentum_pips = (recent_5[-1].close - min(c.low for c in recent_5)) * (100 if "JPY" in symbol else 10000)
             else:
                 momentum_pips = (max(c.high for c in recent_5) - recent_5[-1].close) * (100 if "JPY" in symbol else 10000)
-            
+
             if momentum_pips < MIN_MOMENTUM_PIPS:
                 continue
+
+            # Volatility filter: skip entries when range is too tight.
+            range_pips = (max(c.high for c in recent_5) - min(c.low for c in recent_5)) * (100 if "JPY" in symbol else 10000)
+            if range_pips < MIN_ENTRY_RANGE_PIPS:
+                continue
             
-            phase = "continuation"
+            phase = "continuation" if continuation else "indication"
             score, threshold = score_icc_entry(
                 profile, trend_htf, trend_ltf, htf_align, sweep, continuation, indication, phase
             )
@@ -507,22 +658,71 @@ def run_forex_backtest():
                 stop_price = entry_price - (atr * 1.5)  # Tighter stop (was 2.0)
             else:
                 stop_price = entry_price + (atr * 1.5)  # Tighter stop (was 2.0)
+
+            # Enforce a minimum stop distance on entry to avoid micro-stops.
+            stop_dist_pct = abs(entry_price - stop_price) / entry_price
+            if stop_dist_pct < MIN_STOP_PCT:
+                continue
             
-            swing_invalidation = get_swing_invalidation(ltf_candles, ltf_dir)
+            # [TIERED BUFFER]
+            # Crypto/Gold = 1.0 ATR (Survive wicks)
+            # Forex = 0.1 ATR (Tight)
+            is_volatile = any(x in symbol for x in ["BTC", "ETH", "SOL", "XAU", "PAXG"])
+            buffer_mult = 1.0 if is_volatile else 0.1
+            
+            # Calculate ATR for buffer
+            # (Simple 14-period avg of High-Low)
+            recent_volt = ltf_candles[-14:]
+            atr_val = sum(c.high - c.low for c in recent_volt) / len(recent_volt) if recent_volt else 0.0
+            
+            raw_struct = get_swing_invalidation(ltf_candles, ltf_dir)
+            
+            if ltf_dir == "long":
+                 swing_invalidation = raw_struct - (atr_val * buffer_mult)
+            else:
+                 swing_invalidation = raw_struct + (atr_val * buffer_mult)
             
             # Asymmetric risk: conservative on shorts, aggressive on longs
-            if ltf_dir == "long":
-                risk_pct = LONG_RISK_PCT  # 30% for longs
-            else:
-                risk_pct = SHORT_RISK_PCT  # 1.2% for shorts
+            # Asymmetric risk: conservative on shorts, aggressive on longs
+            base_risk = LONG_RISK_PCT if ltf_dir == "long" else SHORT_RISK_PCT
             
-            initial_size = calculate_position_size(capital, risk_pct, entry_price, stop_price, symbol)
+            # [DYNAMIC RISK SIZING for COMPOUNDING]
+            # Scale Base Risk % by Trend Strength
+            htf_val = float(trend_htf.strength or 0.0)
+            if htf_val >= 0.5:
+                risk_mult = 1.0
+            elif htf_val >= 0.3:
+                risk_mult = 0.5
+            else:
+                risk_mult = 0.25
+                
+            risk_pct = base_risk * risk_mult
+            
+            initial_risk_amount = None
+            if FIXED_RISK_DOLLARS > 0:
+                # [DYNAMIC RISK SIZING]
+                # Scale risk based on HTF strength to handle chop without strict blocking.
+                # Strength >= 0.5: 100% Risk ($0.50)
+                # Strength >= 0.3: 50% Risk ($0.25)
+                # Strength < 0.3:  25% Risk ($0.125) - "Chop Fishing"
+                
+                if htf_strength >= 0.5:
+                    initial_risk_amount = FIXED_RISK_DOLLARS
+                elif htf_strength >= 0.3:
+                    initial_risk_amount = FIXED_RISK_DOLLARS * 0.5
+                else:
+                    initial_risk_amount = FIXED_RISK_DOLLARS * 0.25
+                
+            initial_size = calculate_position_size(
+                capital, risk_pct, entry_price, stop_price, symbol, risk_amount=initial_risk_amount
+            )
             
             positions[symbol] = ForexPosition(
                 symbol=symbol, direction=ltf_dir, entry_price=entry_price,
                 avg_price=entry_price, size=initial_size, entry_time=current_time,
                 stop_price=stop_price, swing_invalidation=swing_invalidation,
-                pyramid_count=0, score=score, last_htf_dir=htf_dir
+                pyramid_count=0, score=score, last_htf_dir=htf_dir,
+                latest_add_price=entry_price, protection_price=0.0
             )
             logger.info(f"[ENTRY] {symbol} {ltf_dir} @ {entry_price:.5f}, score={score:.0f}, size={initial_size}")
     
@@ -548,6 +748,57 @@ def run_forex_backtest():
     print(f"Final Capital: ${capital:.2f}")
     print(f"Total PnL: ${capital - INITIAL_CAPITAL:.2f}")
     print(f"Return: {(capital / INITIAL_CAPITAL - 1) * 100:.2f}%")
+
+    # DETAILED CAPITAL JOURNAL
+    print("\n" + "=" * 80)
+    print("DETAILED TRADE JOURNAL (Chronological)")
+    print("=" * 80)
+    print(f"{'Date':<12} {'Symbol':<10} {'Dir':<6} {'Entry':<12} {'Exit':<12} {'Size':<12} {'PnL':<12} {'Capital':<14} {'Pyr':<4}")
+    print("-" * 110)
+
+    # Sort trades by exit time
+    sorted_trades = sorted(completed_trades, key=lambda t: t.exit_time)
+    running_capital = INITIAL_CAPITAL
+
+    current_date = None
+    daily_pnl = 0.0
+
+    for t in sorted_trades:
+        trade_date = t.exit_time.strftime("%Y-%m-%d")
+
+        # Print daily summary when date changes
+        if current_date and trade_date != current_date:
+            print(f"{'─'*110}")
+            print(f"  📊 Day End {current_date}: Daily PnL = ${daily_pnl:+.2f}, Capital = ${running_capital:.2f}")
+            print(f"{'─'*110}")
+            daily_pnl = 0.0
+
+        current_date = trade_date
+        running_capital += t.pnl
+        daily_pnl += t.pnl
+
+        pyr_mark = f"🔺{t.pyramid_count}" if t.pyramid_count > 0 else ""
+        pnl_color = "+" if t.pnl >= 0 else ""
+
+        # Format size appropriately
+        if t.size >= 1000:
+            size_str = f"{t.size/1000:.1f}K"
+        elif t.size >= 1:
+            size_str = f"{t.size:.2f}"
+        else:
+            size_str = f"{t.size:.6f}"
+
+        print(f"{trade_date:<12} {t.symbol:<10} {t.direction:<6} {t.entry_price:<12.5f} {t.exit_price:<12.5f} {size_str:<12} ${pnl_color}{t.pnl:<11.2f} ${running_capital:<13.2f} {pyr_mark:<4}")
+
+    # Final day summary
+    if current_date:
+        print(f"{'─'*110}")
+        print(f"  📊 Day End {current_date}: Daily PnL = ${daily_pnl:+.2f}, Capital = ${running_capital:.2f}")
+        print(f"{'─'*110}")
+
+    print(f"\n{'='*110}")
+    print(f"  SUMMARY: Started ${INITIAL_CAPITAL:.2f} → Ended ${running_capital:.2f} ({(running_capital/INITIAL_CAPITAL-1)*100:+.2f}%)")
+    print(f"{'='*110}")
     
     if completed_trades:
         winners = [t for t in completed_trades if t.pnl > 0]

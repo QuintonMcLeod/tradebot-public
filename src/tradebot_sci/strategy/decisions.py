@@ -5,7 +5,7 @@ from typing import Literal, Optional, Tuple
 from pydantic import BaseModel, Field
 
 Bias = Literal["long", "short", "neutral"]
-Phase = Literal["trend", "correction", "continuation", "chop"]
+Phase = Literal["trend", "indication", "correction", "continuation", "chop"]
 Action = Literal[
     "enter_long",
     "enter_short",

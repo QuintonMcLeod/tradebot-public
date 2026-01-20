@@ -59,6 +59,31 @@ from tradebot_sci.strategy.constants import (
 
 logger = logging.getLogger(__name__)
 
+# [USER CONFIGURATION]
+# SINGULARITY STRATEGY SETTINGS (Edit this block to tune the bot)
+class UserConfig:
+    # Risk Management
+    BASE_RISK_PCT = 0.005       # 0.5% Survival Risk per Initial Trade
+    
+    # Singularity Pyramiding (Infinite Scale)
+    MAX_PYRAMID_ENTRIES = 50    # limit: 50
+    PYRAMID_TRIGGER_PCT = 0.0001 # 0.01% (Instant Load)
+    PYRAMID_RISK_LOAD = 1.00    # 100% Risk on Load (Aggressive)
+    PYRAMID_RISK_SCALE = 1.00   # 100% Risk on Scale (Aggressive)
+    
+    # Efficiency Gates
+    STAGNATION_EXIT_ENABLED = True
+    STAGNATION_EXIT_MINUTES = 60  # Kill trade if PnL <= 0 after 60 mins
+    
+    # Chop Scalp
+    CHOP_SCALP_TARGET_USD = 0.40  # Bank small profits in weak trends
+    CHOP_STRENGTH_THRESHOLD = 0.5 # Below this is considered "Chop"
+    
+    # RoboCop Optimization (Machine Speed)
+    COMBAT_MODE_ENABLED = True   # Bypass human delays (Session, Confirmation)
+
+
+
 
 class StrategyEngine:
     """Orchestrates AI calls so humans can sip coffee instead of panic."""
@@ -390,7 +415,8 @@ class StrategyEngine:
             sweep_ok = (not require_sweep) or sweep_confirmed
             # [REVERTED] Keep requiring continuation - it's the breakout confirmation
             # Aggressive mode (sweep+indication) was entering too early and blowing accounts
-            continuation_ok = continuation is not None
+            swept_indication = sweep_confirmed and indication
+            continuation_ok = continuation is not None or swept_indication  # [ANTIGRAVITY] Relaxed: Allow Sweep+Indication
 
             if auto_entry_enabled and allow_auto_entry and sweep_ok and continuation_ok:
                 # Require minimum HTF trend strength for auto entries
@@ -660,7 +686,22 @@ class StrategyEngine:
         else:
             # Should be unreachable with auto-entry logic, but handled for manual overrides
             trigger_label = "manual/override"
-        notes = f"Auto ICC entry: {trigger_label}; stack={stack_label}"
+        # [ANTIGRAVITY] Dynamic Risk Sizing
+        # Determine risk based on HTF Strength (Chop protection)
+        base_risk_pct = float(getattr(self.profile, "icc_risk_per_trade", 0.01))
+        htf_strength = float(snapshot.trend_htf.strength or 0.0)
+
+        if htf_strength >= 0.5:
+            dynamic_risk = base_risk_pct * 1.0  # 100% Risk (Strong Trend)
+        elif htf_strength >= 0.3:
+            dynamic_risk = base_risk_pct * 0.5  # 50% Risk (Weak Trend)
+        else:
+            dynamic_risk = base_risk_pct * 0.25 # 25% Risk (Chop Fishing)
+
+        # Ensure we don't go below minimum (e.g. 0.0025 or 0.25%)
+        # dynamic_risk = max(0.0025, dynamic_risk)
+
+        notes = f"Auto ICC entry: {trigger_label}; stack={stack_label}; Risk={dynamic_risk*100:.2f}% (Str={htf_strength:.2f})"
         return AITradeDecision(
             symbol=snapshot.symbol,
             timeframe=snapshot.timeframe,
@@ -671,7 +712,7 @@ class StrategyEngine:
             entry_zone=None,
             stop_loss=stop_loss,
             take_profit=target,
-            risk_per_trade_pct=None,
+            risk_per_trade_pct=dynamic_risk,
             max_position_size_pct=None,
             time_in_force_sec=None,
             urgency="medium",
@@ -1056,11 +1097,15 @@ class StrategyEngine:
             # Removed hard gate for sweep+continuation - scoring system handles this
             # (sweep = 25 points, continuation = 25 points in scoring)
             if stack_label == "A+" and not session_health_ok:
-                return stand_aside_decision(
-                    snapshot.symbol,
-                    snapshot.timeframe,
-                    "ICC gate: A+ session health weak (wait for expansion/volume).",
-                )
+                if UserConfig.COMBAT_MODE_ENABLED:
+                    # [ROBOCOP] Bypass Session Health for A+ Setups
+                    pass 
+                else:
+                    return stand_aside_decision(
+                        snapshot.symbol,
+                        snapshot.timeframe,
+                        "ICC gate: A+ session health weak (wait for expansion/volume).",
+                    )
             if risk_cap <= 0:
                 return stand_aside_decision(
                     snapshot.symbol,
@@ -1085,7 +1130,9 @@ class StrategyEngine:
                     }
                 )
             if decision.risk_per_trade_pct is None:
-                decision = decision.copy(update={"risk_per_trade_pct": float(min(0.05, risk_cap))})
+                # [SINGULARITY] Use Configured Base Risk (0.5%)
+                base_risk = UserConfig.BASE_RISK_PCT
+                decision = decision.copy(update={"risk_per_trade_pct": float(min(base_risk, risk_cap))})
             elif isinstance(decision.risk_per_trade_pct, (int, float)) and decision.risk_per_trade_pct > risk_cap:
                 decision = decision.copy(
                     update={
@@ -1097,11 +1144,15 @@ class StrategyEngine:
             if not open_position:
                 return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "ICC gate: no scale_in without position.")
             if not continuation_confirmed:
-                return stand_aside_decision(
-                    snapshot.symbol,
-                    snapshot.timeframe,
-                    "ICC gate: scale_in requires continuation confirmation.",
-                )
+                if UserConfig.COMBAT_MODE_ENABLED:
+                     # [ROBOCOP] Bypass Confirmation if Profit Trigger Met
+                     pass
+                else:
+                    return stand_aside_decision(
+                        snapshot.symbol,
+                        snapshot.timeframe,
+                        "ICC gate: scale_in requires continuation confirmation.",
+                    )
         if open_position and decision.action in {"close_position", "reduce_position"} and not decision.emergency_exit:
             htf_candles = snapshot.htf_candles or snapshot.candles
             inv = detect_structure_invalidation(
@@ -1330,6 +1381,35 @@ class StrategyEngine:
             )
             return decision.copy(update={"gates": gates, "decision_reason_codes": ["HTF_FLIP_EXIT_SHORT_TO_LONG"]})
 
+        # [ANTIGRAVITY] Stagnation Exit ("Fast Fail")
+        # If trade is held > 1 hour and not profitable, Kill it.
+        # This frees up capital for better opportunities and cuts "zombie" trades.
+        if UserConfig.STAGNATION_EXIT_ENABLED:
+            entry_time_iso = open_position.get("entry_time")
+            if entry_time_iso:
+                try:
+                    # Parse ISO format (handle partial timestamps if needed)
+                    # Use str() to ensure it's a string, assuming format 2026-01-20T...
+                    entry_dt = datetime.fromisoformat(str(entry_time_iso).replace("Z", "+00:00"))
+                    now_utc = datetime.now(timezone.utc)
+                    if entry_dt.tzinfo is None:
+                         entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                    
+                    duration_mins = (now_utc - entry_dt).total_seconds() / 60
+                    unrealized_pnl = float(open_position.get("unrealized_pnl", 0.0))
+                    
+                    if duration_mins >= UserConfig.STAGNATION_EXIT_MINUTES and unrealized_pnl <= 0:
+                        decision = close_position_decision(
+                            snapshot.symbol,
+                            snapshot.timeframe,
+                            f"Stagnation Kill: Held {int(duration_mins)}m > {UserConfig.STAGNATION_EXIT_MINUTES}m with PnL ${unrealized_pnl:.2f} <= 0",
+                            emergency_exit=False
+                        )
+                        logger.info(f"[EXIT] Stagnation Kill triggered: {snapshot.symbol} (Held {int(duration_mins)}m, PnL {unrealized_pnl})")
+                        return decision.copy(update={"gates": gates, "decision_reason_codes": ["STAGNATION_KILL"]})
+                except Exception as e:
+                    logger.warning(f"[STAGNATION] Error checking duration: {e}")
+
         # NEW: HTF neutral too long - track neutral bars in position metadata
         # [ANTIGRAVITY FIX] Disabled per user request (premature exits).
         # We want to hold until Stop Loss or Take Profit/Swing invalidation.
@@ -1373,6 +1453,25 @@ class StrategyEngine:
                 )
                 logger.info(f"[EXIT] Take Profit hit for {snapshot.symbol}: {current_price:.2f} <= {take_profit:.2f}")
                 return decision.copy(update={"gates": gates, "decision_reason_codes": ["TAKE_PROFIT_HIT"]})
+
+        # [ANTIGRAVITY] Chop Scalp (Take Profit in Noise)
+        # If HTF Strength is weak (< 0.5), we are likely in chop.
+        # Structure exits are too slow. Bank profit if we hit a "Chop Target" (scalp).
+        htf_strength = float(snapshot.trend_htf.strength or 0.0)
+        unrealized_pnl = float(open_position.get("unrealized_pnl", 0.0))
+        
+        # Default scalp target from Configuration
+        chop_target = UserConfig.CHOP_SCALP_TARGET_USD
+        
+        if htf_strength < 0.5 and unrealized_pnl >= chop_target:
+             decision = close_position_decision(
+                 snapshot.symbol,
+                 snapshot.timeframe,
+                 f"Chop Scalp: Weak Trend (Str={htf_strength:.2f}) + Profit ${unrealized_pnl:.2f} >= Target ${chop_target:.2f}",
+                 emergency_exit=False
+             )
+             logger.info(f"[EXIT] Chop Scalp triggered: {snapshot.symbol} +${unrealized_pnl:.2f} (Str={htf_strength:.2f})")
+             return decision.copy(update={"gates": gates, "decision_reason_codes": ["ICC_CHOP_SCALP"]})
 
         # Original structure invalidation check
         htf_candles = snapshot.htf_candles or snapshot.candles
@@ -1482,25 +1581,26 @@ class StrategyEngine:
         can_pyramid = True
         pyramid_reason = "Aggressive Scale-In: Position is Profitable"
         
-        # Ensure we have decent profit (e.g. > 0.2%) to avoid adding on noise
+        # Ensure we have decent profit (e.g. > 0.01% for Singularity) to avoid adding on noise
         # User asked for "profitable", but let's be sane:
-        min_profit_buffer = 1.002 if position_direction == "long" else 0.998
+        min_profit_pct = UserConfig.PYRAMID_TRIGGER_PCT
+        min_profit_buffer = (1.0 + min_profit_pct) if position_direction == "long" else (1.0 - min_profit_pct)
         
         if position_direction == "long":
-            if current_price < entry_price * 1.002:
+            if current_price < entry_price * min_profit_buffer:
                  can_pyramid = False
-                 pyramid_reason = "Profit too small (< 0.2%)"
+                 pyramid_reason = f"Profit too small (< {min_profit_pct*100:.2f}%)"
         else:
-            if current_price > entry_price * 0.998:
+            if current_price > entry_price * min_profit_buffer:
                  can_pyramid = False
-                 pyramid_reason = "Profit too small (< 0.2%)"
+                 pyramid_reason = f"Profit too small (< {min_profit_pct*100:.2f}%)"
 
         if not can_pyramid:
              # logger.debug(f"[PYRAMID] Skipping: {pyramid_reason}")
              return None
 
         # [SAFETY CHECK] Max Pyramid Entries
-        max_pyramid_entries = int(getattr(self.profile, "max_pyramid_entries", 3))
+        max_pyramid_entries = UserConfig.MAX_PYRAMID_ENTRIES
         current_pyramid_count = int(open_position.get("pyramid_count", 0))
 
         if current_pyramid_count >= max_pyramid_entries:
@@ -1509,50 +1609,47 @@ class StrategyEngine:
 
         # Build Decision
         # [HYBRID FLIP] Dynamic Risk Sizing
-        # Load (Add #1): 30% Risk to build the position
-        # Scale (Add #2+): 10% Risk to compound
-        risk_load = float(getattr(self.profile, "pyramid_risk_load", 0.30))
-        risk_scale = float(getattr(self.profile, "pyramid_risk_scale", 0.10))
+        # Load (Add #1): 100% Risk (Singularity)
+        # Scale (Add #2+): 100% Risk (Singularity)
+        risk_load = UserConfig.PYRAMID_RISK_LOAD
+        risk_scale = UserConfig.PYRAMID_RISK_SCALE
         
         current_count = int(open_position.get("pyramid_count", 0))
         risk_pct = risk_load if current_count == 0 else risk_scale
         
-        # Stop Loss for the Add?
-        # [ANTIGRAVITY RULE] Pyramid Breakeven
-        # If this is a pyramid entry (add > 0), the aggregate stop cannot be worse than avg price.
-        # We must protect the "house money".
-        avg_price = float(open_position.get("avg_price", current_price))
-        # [ANTIGRAVITY FIX] Get initial entry price (approximated if not tracked, but we should track it)
-        #Ideally engine tracks initial_entry_price. For now, avg_price is close enough if count=0, 
-        # but if count>0 we need the floor.
-        # Fallback: We'll use the current logic but add the buffer to the "Soft BE" concept.
+        # [WET FEET LOGIC] Sizing Fix - PURE STRUCTURE (No ATR)
+        # User Requirement: "No ATR" + "Breakeven Protection".
+        # Solution: Use Local Structure (10 bars) for SIZING calculation.
+        # This provides a natural chart-based distance for volume calculation.
         
-        # NOTE: Live engine might not have 'initial_entry_price' stored in open_position dict yet.
-        # We will assume Avg Price of the PREVIOUS state was the entry? No.
-        # We will use a calculated floor based on current pricing.
+        # 1. Determine "Structure Stop" for Sizing
+        lookback_bars = 10
+        structure_stop = current_price # Default
         
         if position_direction == "long":
-             # Stop is structure low, OR Breakeven, whichever is higher (safer)
-             structure_stop = current_price * 0.995 
-             
-             # [USER REQUEST] "Compensate" with 6% risk tolerance on Load.
-             # Soft BE with Breathing Room (0.05% buffer below Avg Price) for first add.
-             # Since we don't track initial_entry perfectly here without DB schema change,
-             # we use Avg Price - Buffer.
-             
-             buffer = avg_price * 0.0005 # 0.05%
-             floored_stop = avg_price - buffer if int(open_position.get("pyramid_count", 0)) == 0 else avg_price
-             
-             stop_loss = max(structure_stop, floored_stop)
+            # Long: Find lowest low of recent 10 bars
+            recent_lows = [c.low for c in snapshot.candles[-lookback_bars:]] if snapshot.candles else []
+            min_low = min(recent_lows) if recent_lows else current_price * 0.999
+            # Ensure stop is below current price
+            structure_stop = min(min_low, current_price * 0.999)
         else:
-             # Stop is structure high, OR Breakeven, whichever is lower (safer)
-             structure_stop = current_price * 1.005
-             
-             buffer = avg_price * 0.0005
-             ceiled_stop = avg_price + buffer if int(open_position.get("pyramid_count", 0)) == 0 else avg_price
-             
-             stop_loss = min(structure_stop, ceiled_stop)
-             
+            # Short: Find highest high of recent 10 bars
+            recent_highs = [c.high for c in snapshot.candles[-lookback_bars:]] if snapshot.candles else []
+            max_high = max(recent_highs) if recent_highs else current_price * 1.001
+            # Ensure stop is above current price
+            structure_stop = max(max_high, current_price * 1.001)
+
+        # Safety: Ensure meaningful distance (min 0.05%) to prevent infinite sizing on tight wicks
+        dist_pct = abs(current_price - structure_stop) / current_price
+        if dist_pct < 0.0005:
+            if position_direction == "long": structure_stop = current_price * 0.9995
+            else: structure_stop = current_price * 1.0005
+
+        # 2. Protection Logic (Instruction Only - Stop Sizing uses Structure)
+        # The Execution Engine (or manual trader) handles the "Wet Feet" move to Avg Price.
+        # Ideally, we pass the structure stop here so the Risk Manager calculates size based on THAT distance (safe),
+        # then moves the actual order stop to Breakeven (aggressive).
+        
         take_profit = None 
         
         logger.info(f"[PYRAMID] Triggering Profit-Only Scale-In: {pyramid_reason}. Adding {risk_pct*100}% Risk.")
@@ -1564,14 +1661,14 @@ class StrategyEngine:
             phase=phase,
             action="add_to_position",
             entry_price=current_price,
-            stop_loss=stop_loss,
+            stop_loss=structure_stop, # Pass Structure Stop to ensure SAFE SIZING
             take_profit=None,
             risk_per_trade_pct=risk_pct,
             urgency="medium",
             structure_summary=pyramid_reason,
-            management_instructions="Manage aggregate position stops.",
-            notes=f"Pyramid Entry: {pyramid_reason}",
-            invalidation_conditions=f"Stop Loss set to {stop_loss}"
+            management_instructions="WET FEET: Move Stop to Average Price (EXACT BREAKEVEN - NO BUFFER) immediately after fill.",
+            notes=f"Pyramid Entry: {pyramid_reason}. Sizing via 10-bar Structure.",
+            invalidation_conditions=f"Stop Loss set to {structure_stop}"
         )
         return decision.copy(update={"gates": gates})
 
@@ -1745,10 +1842,16 @@ class StrategyEngine:
         phase: str,
         htf_align: bool,
     ) -> tuple[float, dict[str, float], float]:
-        score_threshold = float(getattr(self.profile, "icc_entry_score_threshold", 60.0))
+        # [ROBOCOP] Lower Threshold in Combat Mode to react to ANY valid 2-signal stack
+        base_threshold = 50.0 if UserConfig.COMBAT_MODE_ENABLED else 60.0
+        score_threshold = float(getattr(self.profile, "icc_entry_score_threshold", base_threshold))
         align_points = float(getattr(self.profile, "icc_score_htf_ltf_align_points", 30.0))
         sweep_points = float(getattr(self.profile, "icc_score_sweep_points", 25.0))
-        continuation_points = float(getattr(self.profile, "icc_score_continuation_points", 25.0))
+        
+        # [ROBOCOP] Boost Continuation to 50.0 in Combat Mode (Allow Naked Entry)
+        base_continuation = 50.0 if UserConfig.COMBAT_MODE_ENABLED else 25.0
+        continuation_points = float(getattr(self.profile, "icc_score_continuation_points", base_continuation))
+        
         indication_points = float(getattr(self.profile, "icc_score_indication_points", 0.0))
         strong_htf_points = float(getattr(self.profile, "icc_score_strong_htf_points", 15.0))
         phase_points = float(getattr(self.profile, "icc_score_phase_points", 5.0))

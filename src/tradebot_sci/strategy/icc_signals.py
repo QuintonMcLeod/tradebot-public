@@ -305,8 +305,19 @@ def detect_continuation(
         )
 
     if trend_direction == "long":
-        # Relax structure requirement if valid correction is present (it already verified HL)
-        min_lows = 1 if correction else 2
+        # [ALGORITHMIC PRECISION]
+        # Check momentum of the recent move to allow V-Bottoms (1 swing)
+        # Calculate ATR-based momentum
+        atr = _atr(recent, period=14) or 0.0001
+        last_move_size = recent[-1].close - recent[0].close
+        momentum_score = last_move_size / (atr * len(recent)) # Pips per bar per ATR? No. 
+        # Simpler: If last candle is huge (> 2 ATR), assume momentum.
+        is_high_momentum = (recent[-1].close - recent[-1].open) > (atr * 2.0)
+        
+        # [SMART OVERRIDE]
+        # If High Momentum, allow 1 swing (catch the rocket).
+        # Else, require 2 swings (ensure structure).
+        min_lows = 1 if is_high_momentum else 2
         
         if len(swing_lows) < min_lows or len(swing_highs) < 1:
             if debug:
@@ -345,8 +356,12 @@ def detect_continuation(
         return ContinuationSignal(direction="long", trigger_level=last_high, index=len(candles) - 1)
 
     elif trend_direction == "short":
-        # Relax structure requirement if valid correction is present (it already verified LH)
-        min_highs = 1 if correction else 2
+        # [ALGORITHMIC PRECISION]
+        atr = _atr(recent, period=14) or 0.0001
+        is_high_momentum = (recent[-1].open - recent[-1].close) > (atr * 2.0)
+        
+        # [SMART OVERRIDE]
+        min_highs = 1 if is_high_momentum else 2
         
         if len(swing_highs) < min_highs or len(swing_lows) < 1:
             if debug:
@@ -467,9 +482,13 @@ def detect_indication(
     if swing_highs:
         for swing_idx in reversed(swing_highs[-max_swings_to_check:]):
             swing_high = recent[swing_idx].close
-            # Check if any candle after this swing closed above it
+            # Check if any candle after this swing closed above it with CONVICTION
+            # [ALGORITHMIC PRECISION] Noise Filter
+            atr = _atr(recent, period=14) or 0.0001
+            conviction_buffer = atr * 0.05
+            
             for i in range(swing_idx + 1, len(recent)):
-                if recent[i].close > swing_high:
+                if recent[i].close > (swing_high + conviction_buffer):
                     bullish_breaks.append((i, swing_high, swing_idx))
                     break  # Found a break for this swing, move to next swing
 
@@ -478,9 +497,13 @@ def detect_indication(
     if swing_lows:
         for swing_idx in reversed(swing_lows[-max_swings_to_check:]):
             swing_low = recent[swing_idx].close
-            # Check if any candle after this swing closed below it
+            # Check if any candle after this swing closed below it with CONVICTION
+            # [ALGORITHMIC PRECISION] Noise Filter
+            atr = _atr(recent, period=14) or 0.0001
+            conviction_buffer = atr * 0.05
+            
             for i in range(swing_idx + 1, len(recent)):
-                if recent[i].close < swing_low:
+                if recent[i].close < (swing_low - conviction_buffer):
                     bearish_breaks.append((i, swing_low, swing_idx))
                     break  # Found a break for this swing, move to next swing
 
@@ -516,8 +539,8 @@ def detect_correction(
     candles: list[Candle],
     indication: IndicationSignal | None,
     *,
-    min_retracement_pct: float = 0.10,  # Lowered to 10% to catch 19.7% pullbacks
-    max_retracement_pct: float = 0.90,  # Raised to 90% to allow deep retracements
+    min_retracement_pct: float = 0.25,  # [HARDENED] 25% minimum validation
+    max_retracement_pct: float = 0.75,  # [HARDENED] 75% maximum validation
     window: int = 80,
     swing_lookback: int = 2,
 ) -> CorrectionSignal | None:
@@ -540,6 +563,8 @@ def detect_correction(
     Returns:
         CorrectionSignal if valid correction detected, None otherwise
     """
+    # [ALGORITHMIC PRECISION] Dynamic Retracement Limits
+    # Will calculate impulse velocity to adjust min_retracement automatically.
     import logging
     import os
     logger = logging.getLogger(__name__)
@@ -592,6 +617,16 @@ def detect_correction(
         if move_size <= 0:
             return None
 
+        # [DYNAMIC LIMITS]
+        # Calculate Impulse Velocity (Pips per Bar of the move)
+        move_bars = max(1, indication_idx_in_window - swing_lows[-1])
+        velocity = move_size / move_bars
+        atr = _atr(recent, period=14) or 0.0001
+        relative_velocity = velocity / atr
+        
+        # If Impulse was > 1.0 ATR per bar (Explosive), allow shallow pullback (15%)
+        effective_min_retracement = 0.15 if relative_velocity > 1.0 else min_retracement_pct
+
         # Find the lowest point after indication (the correction low)
         correction_low = min(float(c.low) for c in post_indication)
 
@@ -599,11 +634,11 @@ def detect_correction(
         retracement_amount = indication_high - correction_low
         retracement_pct = retracement_amount / move_size
 
-        if retracement_pct < min_retracement_pct:
+        if retracement_pct < effective_min_retracement:
             if debug:
                 logger.info(
                     f"[CORRECTION] REJECTED: long retracement too shallow "
-                    f"{retracement_pct:.1%} < {min_retracement_pct:.1%}"
+                    f"{retracement_pct:.1%} < {effective_min_retracement:.1%}"
                 )
             return None
 
@@ -659,6 +694,15 @@ def detect_correction(
 
         if move_size <= 0:
             return None
+            
+        # [DYNAMIC LIMITS]
+        move_bars = max(1, indication_idx_in_window - swing_highs[-1])
+        velocity = move_size / move_bars
+        atr = _atr(recent, period=14) or 0.0001
+        relative_velocity = velocity / atr
+        
+        # If Impulse was > 1.0 ATR per bar (Explosive), allow shallow pullback (15%)
+        effective_min_retracement = 0.15 if relative_velocity > 1.0 else min_retracement_pct
 
         # Find the highest point after indication (the correction high)
         correction_high = max(float(c.high) for c in post_indication)
@@ -667,11 +711,11 @@ def detect_correction(
         retracement_amount = correction_high - indication_low
         retracement_pct = retracement_amount / move_size
 
-        if retracement_pct < min_retracement_pct:
+        if retracement_pct < effective_min_retracement:
             if debug:
                 logger.info(
                     f"[CORRECTION] REJECTED: short retracement too shallow "
-                    f"{retracement_pct:.1%} < {min_retracement_pct:.1%}"
+                    f"{retracement_pct:.1%} < {effective_min_retracement:.1%}"
                 )
             return None
 

@@ -203,6 +203,9 @@ def fetch_account_equity(settings: Settings) -> tuple[float | None, str]:
                 return val, f"CCXT:{key}"
         return None, "CCXT balance missing USD/USDC/USDT"
 
+    if alt_broker == "mock":
+        return 10000.0, "MOCK"
+
     return None, f"Unsupported broker provider: {provider}/{alt_broker}"
 
 

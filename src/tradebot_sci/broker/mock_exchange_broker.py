@@ -41,6 +41,8 @@ class MockExchangeBroker:
         self._next_order_id = 1
         self._positions: dict[str, dict] = {}
         self._scale_in_counts: dict[str, int] = {}
+        self.position_hold_store = None
+        self.profile = profile_settings
 
     def cancel_all_orders_for_symbol(self, symbol: str) -> None:
         symbol_key = symbol.upper()
@@ -262,6 +264,14 @@ class MockExchangeBroker:
 
     def refresh_account_summary(self) -> None:
         return
+
+    def get_liquid_capital(self) -> float:
+        """Mock implementation of liquid capital."""
+        return float(getattr(self.profile_settings, "equity_override", 1000.0))
+
+    def list_open_position_symbols(self) -> list[str]:
+        """List symbols that have an open position in the mock broker."""
+        return [sym for sym, pos in self._positions.items() if abs(float(pos.get("size", 0.0))) > 0]
 
     def evaluate_synthetic_stops(self, market_provider, timeframe: str) -> Iterable[ExecutionResult]:
         # In alternative/mock mode, use this hook to:

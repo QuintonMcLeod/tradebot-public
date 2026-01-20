@@ -174,22 +174,22 @@ class IbkrExecutor:
         """Return a venue-safe time-in-force.
 
         IBKR spot crypto on ZEROHASH rejects GTC/DAY and requires Minutes or IOC.
-        We default to IOC for safety (avoids resting unprotected orders).
+        We default to Minutes to avoid IOC cancellations on crypto.
         """
         if asset_class == AssetClass.CRYPTO and (exchange or "").upper() == "ZEROHASH":
-            override = (os.getenv("IBKR_ZEROHASH_CRYPTO_TIF") or "IOC").strip()
+            override = (os.getenv("IBKR_ZEROHASH_CRYPTO_TIF") or "Minutes").strip()
             if not override:
-                return "IOC"
+                return "Minutes"
             override_l = override.lower()
             if override_l in {"ioc"}:
                 return "IOC"
             if override_l in {"minutes", "minute"}:
                 return "Minutes"
             logger.warning(
-                "[CRYPTO] Unsupported IBKR_ZEROHASH_CRYPTO_TIF=%r (expected IOC/Minutes); forcing IOC",
+                "[CRYPTO] Unsupported IBKR_ZEROHASH_CRYPTO_TIF=%r (expected IOC/Minutes); forcing Minutes",
                 override,
             )
-            return "IOC"
+            return "Minutes"
         return default
 
     @staticmethod
@@ -961,6 +961,9 @@ class IbkrExecutor:
     ) -> tuple[EntryPreparation | None, ExecutionResult | None]:
         aggressive_mode = bool(self.profile_settings and self.profile_settings.icc_aggressive_mode)
         max_risk_dollars = float(getattr(self.settings, "max_dollar_risk_per_symbol", 3.0))
+        fixed_risk = float(
+            getattr(self.profile_settings, "risk_per_trade_dollars", 0.0) or 0.0
+        )
         risk_pct = 0.0
         if aggressive_mode:
             net_liq = self.get_net_liquidation()
@@ -979,7 +982,10 @@ class IbkrExecutor:
             # Per-Slice Risk Redesign:
             # max_risk_dollars is the TOTAL symbol cap (e.g. 6% * 5 = 30%)
             max_pyramid = int(getattr(self.profile_settings, "max_pyramid_entries", 1) or 1)
-            max_risk_dollars = net_liq * risk_pct * max_pyramid
+            base_slice_risk = fixed_risk if fixed_risk > 0 else net_liq * risk_pct
+            max_risk_dollars = base_slice_risk * max_pyramid
+        elif fixed_risk > 0:
+            max_risk_dollars = fixed_risk
             
             start_net = self._daily_risk_state.get("start_net_liq") or net_liq
             max_daily_loss_pct = float(getattr(self.profile_settings, "max_daily_loss_pct", 0.0) or 0.0)
@@ -1056,9 +1062,15 @@ class IbkrExecutor:
         open_same_dir = state["open_parent_shares"].get(ai_dir, 0)
         shares_cap = max(max_shares_cap - (same_dir_pos + open_same_dir), 0.0)
         
-        # Each entry (slice) is capped at risk_pct * net_liq
-        # But we can't exceed the remaining_risk cap (TOTAL symbol cap)
-        slice_risk = min(remaining_risk, net_liq * risk_pct) if (aggressive_mode and risk_pct > 0) else remaining_risk
+        # Each entry (slice) is capped at fixed or pct-based risk.
+        # But we can't exceed the remaining_risk cap (TOTAL symbol cap).
+        if aggressive_mode:
+            if fixed_risk > 0:
+                slice_risk = min(remaining_risk, fixed_risk)
+            else:
+                slice_risk = min(remaining_risk, net_liq * risk_pct) if risk_pct > 0 else remaining_risk
+        else:
+            slice_risk = remaining_risk
         
         # [ANTIGRAVITY FIX] JPY/CAD/CHF Sizing Fix
         # For USD-base pairs (USDJPY), per_share_risk is in Quote Ccy (JPY).
@@ -2016,6 +2028,11 @@ class IbkrExecutor:
         if not self._last_account_summary:
             return None
         return (datetime.now(timezone.utc) - self._last_account_summary).total_seconds()
+
+    def get_liquid_capital(self) -> float:
+        """Alias for get_net_liquidation to satisfy runtime interface."""
+        val = self.get_net_liquidation()
+        return val if val is not None else 0.0
 
     def _check_margin_guard(
         self, symbol: str, metadata: SymbolMetadata, decision: AITradeDecision

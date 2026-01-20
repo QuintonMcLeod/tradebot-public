@@ -183,7 +183,7 @@ def build_decision_messages(context: Dict, model_name: str = "") -> List[ChatMes
         "{"
         "\"symbol\": str, \"timeframe\": str, "
         "\"bias\": \"long\"|\"short\"|\"neutral\", "
-        "\"phase\": \"trend\"|\"correction\"|\"continuation\"|\"chop\", "
+        "\"phase\": \"trend\"|\"indication\"|\"correction\"|\"continuation\"|\"chop\", "
         "\"action\": \"enter_long\"|\"enter_short\"|\"scale_in\"|\"scale_out\"|\"close_position\"|\"hold\"|\"stand_aside\""
         "|\"flip_to_long\"|\"flip_to_short\", "
         "\"entry_price\": number|null, "

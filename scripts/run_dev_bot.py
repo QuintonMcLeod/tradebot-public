@@ -19,6 +19,22 @@ from tradebot_sci.runtime.loop import run_bot
 
 
 def main() -> None:
+    # [ANTIGRAVITY] Prevent multiple instances
+    lock_path = os.path.join(os.path.dirname(__file__), "..", "logs", "tradebot.lock")
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    try:
+        # We keep the file handle open for the duration of the script
+        global _lock_file
+        _lock_file = open(lock_path, "w")
+        import fcntl
+        fcntl.lockf(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, ImportError):
+        # On Windows or if locked, we fail gracefully. 
+        # (Note: fcntl is Unix only, but this repo is indicated as Linux)
+        if os.name != 'nt':
+            print("ERROR: Another instance of Tradebot SCI is already running (logs/tradebot.lock is locked).")
+            sys.exit(1)
+
     parser = argparse.ArgumentParser(description="Run the Trade by SCI dev bot (simulation or scheduled)")
     parser.add_argument(
         "--iterations",

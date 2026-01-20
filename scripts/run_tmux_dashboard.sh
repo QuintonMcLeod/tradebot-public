@@ -20,6 +20,11 @@ BOT_CMD="${BOT_CMD:-PYTHONPATH=src EXECUTE_TRADES=false poetry run python script
 ENV_BOOTSTRAP="source \"$HOME/.bashrc\" >/dev/null 2>&1 || true; set -a; [ -f \"$ROOT_DIR/.env\" ] && source \"$ROOT_DIR/.env\" >/dev/null 2>&1; set +a"
 
 tmux has-session -t "$SESSION_NAME" 2>/dev/null && {
+  echo "Session $SESSION_NAME already exists."
+  if [[ "${TMUX_DETACHED:-false}" == "true" ]]; then
+      echo "TMUX_DETACHED=true: Skipping attach."
+      exit 0
+  fi
   echo "Attaching to existing tmux session: $SESSION_NAME"
   exec tmux attach -t "$SESSION_NAME"
 }
@@ -76,4 +81,10 @@ echo "- Window 0 (view): left-top=log, left-bottom=candles, right=commentary"
 echo "- Window 1 (bot): running BOT_CMD"
 echo "- Window 2 (holdings): open positions + guard timers"
 echo "Tips: Ctrl-b then n/p to switch windows; Ctrl-b then d to detach."
-exec tmux attach -t "$SESSION_NAME"
+
+if [[ "${TMUX_DETACHED:-false}" == "true" ]]; then
+  echo "Session started in detached mode (TMUX_DETACHED=true)."
+  exit 0
+else
+  exec tmux attach -t "$SESSION_NAME"
+fi

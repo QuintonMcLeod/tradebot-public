@@ -46,6 +46,7 @@ rsync -av --delete \
     --exclude='__pycache__' \
     --exclude='.venv' \
     --exclude='.env*' \
+    --exclude='node_modules/' \
     --exclude='config/broker_*.yaml' \
     --exclude='logs/' \
     --exclude='data/' \
@@ -82,8 +83,8 @@ else
     echo "Committing changes..."
     git commit -m "Update public mirror: $(date '+%Y-%m-%d %H:%M:%S')"
     
-    echo "Pushing to public remote..."
-    git push origin "$BRANCH"
+    echo "Pushing to public remote (FORCE)..."
+    git push --force origin "$BRANCH"
 fi
 
 echo "✅ Success! Public mirror updated at $REMOTE_URL"

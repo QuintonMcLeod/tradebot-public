@@ -182,6 +182,11 @@ class TradingProfileSettings(BaseModel):
         default=False,
         description="Enable multi-tier risk ratchet based on account capital.",
     )
+    risk_per_trade_dollars: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Fixed risk per trade in account currency. Overrides risk_per_trade_pct when > 0.",
+    )
     risk_per_trade_pct: float = Field(
         default=0.015,
         ge=0.0,
@@ -348,6 +353,16 @@ class TradingProfileSettings(BaseModel):
         default=48,
         ge=0,
         description="Exit if HTF neutral for this many bars (48 bars = 4h on 5m chart)",
+    )
+    breakeven_trail_after_pyramids: int = Field(
+        default=0,
+        ge=0,
+        description="After this many pyramid entries, move stop to breakeven + trail. 0 disables.",
+    )
+    breakeven_trail_pct: float = Field(
+        default=0.01,
+        ge=0.0,
+        description="Trail percentage above breakeven once activated (0.01 = 1%).",
     )
     auto_flatten_on_close: bool = Field(
         default=False,  # [ANTIGRAVITY] Default OFF - perpetual futures have no EOD settlement

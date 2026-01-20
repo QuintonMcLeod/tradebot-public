@@ -33,6 +33,7 @@ from tradebot_sci.strategy.engine import StrategyEngine
 from tradebot_sci.strategy.decisions import stand_aside_decision
 from tradebot_sci.strategy.profiles import BaseProfile
 from tradebot_sci.market.symbols import AssetClass, MARKET_HOURS, MarketType, SYMBOL_METADATA, is_crypto
+from tradebot_sci.server.ws_server import WebSocketServer
 logger = logging.getLogger(__name__)
 
 
@@ -455,7 +456,7 @@ def _persist_trading_confirmation(expected_confirmation: str) -> None:
             pass
 
 
-def _fetch_snapshot(provider, cache, symbol, timeframe, profile_settings, market_settings):
+def _fetch_snapshot(provider, cache, symbol, timeframe, profile_settings, market_settings, ws_server=None):
     htf_timeframe = getattr(profile_settings, "htf_timeframe", None) or "4h"
     ltf_timeframe = getattr(profile_settings, "ltf_timeframe", None) or timeframe
     trend_window = int(getattr(profile_settings, "trend_window", 24) or 24)
@@ -470,6 +471,20 @@ def _fetch_snapshot(provider, cache, symbol, timeframe, profile_settings, market
     if key not in cache:
         ltf_candles = provider.get_latest_candles(symbol, ltf_timeframe, limit=max_candles)
         htf_candles = provider.get_latest_candles(symbol, htf_timeframe, limit=max_candles)
+        
+        # [ANTIGRAVITY] Broadcast latest LTF candle
+        if ws_server and ltf_candles:
+            latest = ltf_candles[-1]
+            # Convert to dictionary if it's an object, or ensure format
+            c_data = {
+                "time": int(latest.timestamp.timestamp()),
+                "open": latest.open,
+                "high": latest.high,
+                "low": latest.low,
+                "close": latest.close
+            }
+            ws_server.broadcast_candle_sync(symbol, ltf_timeframe, c_data)
+
         trend_htf = infer_trend_from_swings(
             htf_candles,
             swing_lookback=swing_lookback,
@@ -649,6 +664,7 @@ def _build_candidate_list(
     market_settings,
     strike_tracker: StrikeTracker | None,
     now: datetime,
+    ws_server: WebSocketServer | None = None,
     allow_entries: bool = True,
 ) -> tuple[list[tuple[str, object, float, str]], bool]:
     snapshot_cache: dict[tuple[object, ...], object] = {}
@@ -711,7 +727,7 @@ def _build_candidate_list(
                 # Build only the active campaign candidate
                 symbol = active_order_symbols[0]
                 try:
-                    snap = _fetch_snapshot(provider, snapshot_cache, symbol, timeframe, profile_settings, market_settings)
+                    snap = _fetch_snapshot(provider, snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_server=ws_server)
                     return [(symbol, snap, 0.0, "active campaign")], True
                 except Exception:
                     return [], True
@@ -742,6 +758,7 @@ def _build_candidate_list(
                     timeframe,
                     profile_settings,
                     market_settings,
+                    ws_server=ws_server,
                 )
                 position_candidates.append((symbol, snapshot, 0.0, "existing position"))
             except Exception as exc:
@@ -1455,6 +1472,10 @@ def run_bot(
         profile_settings.candle_timeframe,
     )
 
+    # [ANTIGRAVITY] Start WebSocket Server
+    ws_server = WebSocketServer(port=8080)
+    ws_server.start_in_thread()
+
     last_auto_mode: str | None = None
     last_holdings_log_ts = 0.0
     last_capital_check_ts = 0.0
@@ -1463,6 +1484,12 @@ def run_bot(
     start_ts = time.time()
     try:
         for _ in loop_iter:
+            # [ANTIGRAVITY] Check for Halt Signal
+            if ws_server.is_halted():
+                logger.debug("[LOOP] Bot is HALTED via signal. Waiting...")
+                time.sleep(poll_interval)
+                continue
+
             now = datetime.now(ZoneInfo("UTC"))
             if executor:
                 executor.refresh_account_summary()
@@ -1491,8 +1518,11 @@ def run_bot(
                          logger.warning(f"[HEARTBEAT] Failed to check capital: {e}")
                          last_capital_check_ts = now_ts + 60 # Retry sooner on error
             if executor:
-                for result in executor.evaluate_synthetic_stops(provider, profile_settings.candle_timeframe):
-                    _handle_execution_result(result, strike_tracker)
+                try:
+                    for result in executor.evaluate_synthetic_stops(provider, profile_settings.candle_timeframe):
+                        _handle_execution_result(result, strike_tracker)
+                except Exception as e:
+                    logger.error(f"[CRASH_GUARD] Error in evaluate_synthetic_stops: {e}", exc_info=True)
             strike_tracker.advance_cycle()
             sabbath_active, _, _ = sabbath_context.evaluate(now)
             allow_entries = not sabbath_active
@@ -1668,6 +1698,10 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
     execute_trades = os.getenv("EXECUTE_TRADES", "false").lower() == "true"
     _confirm_trading_universe(symbols, profile_name, execute_trades)
 
+    # [ANTIGRAVITY] Start WebSocket Server
+    ws_server = WebSocketServer(port=8080)
+    ws_server.start_in_thread()
+
     shared_ib = _maybe_connect_primary_ib(settings, execute_trades)
     provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib) if execute_trades else MockMarketDataProvider()
     ai_client = TradeSciAIClient(settings.ai)
@@ -1742,6 +1776,12 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         last_holdings_log_ts = 0.0
         consecutive_error_iterations = 0
         while True:
+            # [ANTIGRAVITY] Check for Halt Signal
+            if ws_server.is_halted():
+                logger.debug("[LOOP] Bot is HALTED via signal. Waiting...")
+                time.sleep(poll_interval)
+                continue
+
             now = datetime.now(tz)
             session = _current_session(now, settings.schedule.sessions, tz)
             if session:

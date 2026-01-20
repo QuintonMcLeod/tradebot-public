@@ -69,9 +69,12 @@ class TradeSciAIClient:
         max_attempts = 2
         while attempts < max_attempts:
             content = self.raw_chat(conversation, expect_json=True)
+            logger.info(f"[DEBUG] AI Raw Content (len={len(content)}): {content[:100]}...")
             try:
                 parsed = parse_decision_payload(content)
+                logger.info("[DEBUG] Payload parsed successfully.")
             except ValidationError as exc:
+                logger.warning(f"[DEBUG] Validation Error: {exc}")
                 attempts += 1
                 self._log_json_error(exc, content, attempts, max_attempts)
                 if attempts >= max_attempts:
@@ -83,9 +86,15 @@ class TradeSciAIClient:
                     )
                 conversation.append(self._build_json_retry_message(str(exc)))
                 continue
+            
+            logger.info("[DEBUG] Converting to decision object...")
             decision = self._to_decision(parsed)
+            logger.info("[DEBUG] Decision object created. Validating...")
+            
             caps = getattr(market_context, "execution_capabilities", None)
-            return validate_decision(decision, execution_capabilities=caps)
+            validated = validate_decision(decision, execution_capabilities=caps)
+            logger.info("[DEBUG] Decision validated. Returning.")
+            return validated
         return stand_aside_decision(
             market_context.symbol,
             market_context.timeframe,

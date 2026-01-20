@@ -3,7 +3,7 @@ profiles:
   # Backtested: +116% return over 3 months (Oct 2025 - Jan 2026)
   forex_intraday:
     candle_timeframe: 15m  # Use 15m for less noisy HTF
-    market_poll_interval_seconds: 10
+    market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
     htf_timeframe: 1h      # HTF = 1 hour for trend direction
     ltf_timeframe: 15m     # LTF = 15min for entries
@@ -19,6 +19,7 @@ profiles:
     # [RISK MANAGEMENT] - Hybrid Flip (1% -> 30% -> 10%)
     # Longs: 1% init, Shorts: 1% init. 
     # Pyramid #1 (Load): 30% Risk. Pyramid #2+ (Scale): 10% Risk.
+    risk_per_trade_dollars: 0.50  # Fixed risk per trade (overrides % when > 0)
     risk_per_trade_pct: 0.01  # 1% Initial Probe
     short_risk_pct: 0.01      # 1% Initial Probe
     max_loss_per_trade_dollars: 50.0 # Safety Cap (Lowered for probe) - Wait, Load is big? 
@@ -30,10 +31,14 @@ profiles:
     max_concurrent_positions: 1
     max_pyramid_entries: 6    # 1 Load + 5 Scale
     pyramid_profit_buffer_pct: 0.0015  # 0.15% profit (Relaxed Buffer)
-    
+
     # [HYBRID FLIP PARAMS]
     pyramid_risk_load: 0.30   # 30% Risk for First Add
     pyramid_risk_scale: 0.10  # 10% Risk for Subsequent Adds
+
+    # [BREAKEVEN TRAIL] - Lock in profit from first pyramid entry
+    breakeven_trail_after_pyramids: 1  # After 1st entry, move stop to BE + trail
+    breakeven_trail_pct: 0.003         # 0.3% above breakeven (protects 🔺1 trades)
     stop_atr_multiplier: 1.5  # Tighter stop (not 2.0)
     
     # [SMART EXIT] - Only exit on HTF flip if in loss
@@ -85,7 +90,7 @@ profiles:
     ai_decision_interval_seconds: 2
   intraday:
     candle_timeframe: 5m
-    market_poll_interval_seconds: 10
+    market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
     htf_timeframe: 15m
     ltf_timeframe: 5m
@@ -141,6 +146,7 @@ profiles:
     crypto_only: true  # Enable 24/7 trading for crypto backtest
 
     # [RISK MANAGEMENT] - ICC Standard (aggressive + compounding)
+    risk_per_trade_dollars: 0.50  # Fixed risk per trade (overrides % when > 0)
     risk_per_trade_pct: 0.012  # 1.2% Risk ("Feet Wet" Initial Entry)
     aggressive_risk_per_trade_pct: 0.10  # 10% Risk per Pyramid (3x = 30% Total)
     max_loss_per_trade_dollars: 100.0  # Safety Cap
