@@ -1,6 +1,5 @@
 /**
- * Quantum Harmony Settings v2.0
- * Premium Trading Bot Configuration Interface
+ * Tradebot SCI Settings Interface
  */
 
 // Wait for DOM to be ready
@@ -18,31 +17,136 @@ let localChanges = {};
 let changeCount = 0;
 
 // ═══════════════════════════════════════════════════════════
-// TOOLTIP LIBRARY
+// TOOLTIP LIBRARY - Detailed, layman-friendly explanations
 // ═══════════════════════════════════════════════════════════
 
 const TOOLTIPS = {
-    APP_PROFILE: "Pick a profile that defines symbol universe, cadence, and schedule rules.",
-    BOT_MODE: "continuous: run forever | scheduled: session windows | iterations: fixed loop count",
-    EXECUTE_TRADES: "Master switch for live order placement. Disable for simulation mode.",
-    GUI_AUTOSTART_BOT: "Automatically start the core bot process when the GUI opens.",
-    IBKR_PORT: "Default: 7497 (Paper TWS) or 4001 (Gateway Live).",
-    CCXT_API_KEY: "API key for exchange authentication (e.g. Coinbase).",
-    TRADE_SCI_PROVIDER: "Select AI backend: gemini, openai, claude, deepseek.",
-    SABBATH_ENABLED: "Block new trades during the Friday/Saturday Sabbath window.",
-    SABBATH_ASTRONOMICAL: "Use actual sunset times instead of fixed hours.",
-    RISK_PER_TRADE_PCT: "Risk per trade as a percentage of total equity.",
-    MAX_EXPOSURE_PCT: "Maximum total exposure across all open positions.",
-    COMMENTARY_LLM_POLICY: "When to refresh AI commentary: interval vs A+ setup only.",
-    HTF_TIMEFRAME: "Higher timeframe for trend analysis (e.g., 1h, 4h).",
-    LTF_TIMEFRAME: "Lower timeframe for entry precision (e.g., 5m, 15m).",
-    CANDLE_TIMEFRAME: "Primary candle timeframe for market data.",
-    ICC_ENTRY_SCORE_THRESHOLD: "Minimum score required for ICC auto-entry.",
-    MAX_PYRAMID_ENTRIES: "Maximum pyramid entries per position (1 = no pyramid).",
-    BREAKEVEN_TRAIL_AFTER_PYRAMIDS: "Move stop to BE after N pyramids (0 = disabled).",
-    BREAKEVEN_TRAIL_PCT: "Trail percentage above breakeven (0.003 = 0.3%).",
-    PYRAMID_RISK_LOAD: "Risk % for first pyramid add (Load phase).",
-    PYRAMID_RISK_SCALE: "Risk % for subsequent pyramid adds (Scale phase).",
+    // System Settings
+    APP_PROFILE: "Trading profiles define which markets you trade (stocks, forex, crypto), how often the bot checks for opportunities, and when it's allowed to trade. Think of it like choosing between 'day trader mode' vs '24/7 crypto mode'.",
+    STRATEGY_VARIANT: "The trading strategy determines HOW the bot decides to enter and exit trades. Each strategy has different rules - some are aggressive scalpers, others wait for perfect setups. Choose based on your risk tolerance and market conditions.",
+    BOT_MODE: "Controls how the bot runs: 'Continuous' keeps trading forever until you stop it. 'Scheduled' only trades during specific hours (like market open). 'Iterations' runs a fixed number of trade cycles then stops.",
+    EXECUTE_TRADES: "The master ON/OFF switch for real trading. When OFF, the bot analyzes markets and shows what it WOULD do, but never places actual orders. Perfect for testing strategies without risking real money.",
+    GUI_AUTOSTART_BOT: "When enabled, the trading bot automatically starts running as soon as you open this application. When disabled, you'll need to manually click 'Start' to begin trading.",
+    CONTINUOUS_MODE: "Keeps the bot running indefinitely without stopping between trading sessions. Useful for 24/7 crypto markets. Disable this if you want the bot to pause after each session.",
+
+    // Timeframes
+    CANDLE_TIMEFRAME: "The main chart timeframe the bot watches. '15m' means each candle represents 15 minutes of price action. Shorter timeframes (1m, 5m) = more trades but more noise. Longer (1h, 4h) = fewer but higher-quality signals.",
+    HTF_TIMEFRAME: "Higher TimeFrame - the 'big picture' view. The bot checks this larger timeframe to understand the overall market direction (trending up, down, or sideways) before taking trades on the smaller timeframe.",
+    LTF_TIMEFRAME: "Lower TimeFrame - used for precise entry timing. Once the higher timeframe confirms the trend, the bot watches this smaller timeframe to find the perfect moment to enter a trade.",
+
+    // Trend Detection
+    TREND_WINDOW: "How many candles back the bot looks to determine the trend direction. More candles = smoother, more reliable trend detection but slower to react to changes.",
+    LTF_TREND_WINDOW: "Same as Trend Window but for the lower timeframe. Fewer candles here means faster reaction to short-term price moves.",
+    TREND_SWING_LOOKBACK: "How many candles on each side must be lower/higher to identify a swing point (local high or low). Higher = fewer but more significant swing points identified.",
+    TREND_MIN_SWINGS: "Minimum number of swing highs/lows needed to confirm a trend. More swings required = more confidence the trend is real, but slower to identify new trends.",
+    TREND_STRENGTH_FLOOR: "Minimum trend strength (0-1) before the bot considers it tradeable. 0.25 means the trend must be at least 25% strong - prevents trading in weak, uncertain markets.",
+
+    // Risk Management
+    RISK_PER_TRADE_PCT: "How much of your account you're willing to lose on a single trade. 1% means if you have $10,000, you risk losing $100 max per trade. Higher = bigger profits AND losses. Most professionals use 1-2%.",
+    SHORT_RISK_PCT: "Risk percentage specifically for short (betting price goes down) positions. Some traders use lower risk for shorts since losses are theoretically unlimited.",
+    MAX_EXPOSURE_PCT: "Maximum total risk across ALL open positions combined. If set to 10% with a $10,000 account, total risk across all trades can't exceed $1,000.",
+    MAX_DAILY_LOSS_PCT: "Safety circuit breaker - if you lose this percentage of your account in one day, the bot stops trading to prevent catastrophic losses. Like a daily loss limit at a casino.",
+    RISK_PER_TRADE_DOLLARS: "Fixed dollar amount to risk per trade instead of percentage. Useful if you want consistent $50 or $100 risk regardless of account size.",
+    MAX_LOSS_PER_TRADE_DOLLARS: "Absolute maximum dollars you can lose on any single trade, even if percentage calculation says otherwise. A hard safety cap.",
+
+    // Position Management
+    MULTI_POSITION_ENABLED: "Allow the bot to have multiple trades open at the same time across different symbols. When disabled, it finishes one trade before starting another.",
+    MAX_CONCURRENT_POSITIONS: "Maximum number of trades that can be open simultaneously. More positions = more diversification but also more complexity and capital required.",
+
+    // Pyramiding
+    MAX_PYRAMID_ENTRIES: "Maximum times the bot can add to a winning position. 'Pyramiding' means buying more as a trade goes in your favor. 1 = no adding, just the initial entry.",
+    PYRAMID_PROFIT_BUFFER_PCT: "Minimum profit percentage required before the bot will add to a position. Prevents adding too early before the trade proves itself.",
+    PYRAMID_RISK_LOAD: "Risk percentage for the FIRST add to a winning position. Often set higher since the trade has already proven profitable.",
+    PYRAMID_RISK_SCALE: "Risk percentage for subsequent adds after the first. Usually lower than Load since you're adding to an already-large position.",
+    BREAKEVEN_TRAIL_AFTER_PYRAMIDS: "After this many pyramid adds, move your stop-loss to breakeven (entry price). Protects profits on scaled-up positions. 0 = disabled.",
+    BREAKEVEN_TRAIL_PCT: "How far above breakeven to trail your stop. 0.003 = 0.3%, so if you bought at $100, stop moves to $100.30 instead of exactly $100.",
+
+    // ICC Settings
+    ICC_AUTO_ENTRY_ENABLED: "Enable automatic trade entries based on ICC (Indication-Correction-Continuation) signals. The core pattern recognition system.",
+    ICC_AGGRESSIVE_MODE: "When enabled, the bot uses larger position sizes on high-confidence setups. More aggressive but higher risk/reward.",
+    ICC_AUTO_ENTRY_REQUIRE_SWEEP: "Require a 'liquidity sweep' (price briefly breaks a level then reverses) before entering. These setups have higher win rates but occur less frequently.",
+    ICC_AUTO_ENTRY_MIN_HTF_STRENGTH: "Minimum trend strength on higher timeframe before ICC entries are allowed. Filters out trades against weak or uncertain trends.",
+    ICC_CONFIRMATION_BARS: "Number of candles to wait after a signal before confirming the entry. More bars = more confirmation but potentially worse entry price.",
+    ICC_ENTRY_SCORE_THRESHOLD: "Minimum score (0-100) a setup must achieve before the bot will trade it. Higher = pickier about setups, fewer but better trades.",
+
+    // ICC Scoring
+    ICC_SCORE_CONTINUATION_POINTS: "Points awarded when price shows clear continuation in the trend direction after a correction. Key component of the ICC pattern.",
+    ICC_SCORE_SWEEP_POINTS: "Points awarded for liquidity sweeps - when price briefly breaks support/resistance to trigger stop-losses before reversing. High-probability signal.",
+    ICC_SCORE_HTF_LTF_ALIGN_POINTS: "Points when both higher and lower timeframes agree on direction. Alignment = higher probability trades.",
+    ICC_SCORE_STRONG_HTF_POINTS: "Bonus points when the higher timeframe trend is particularly strong, not just present.",
+    ICC_SCORE_PHASE_POINTS: "Points for favorable market phase - trending markets score higher than choppy/ranging markets.",
+    ICC_SCORE_INDICATION_POINTS: "Points for the initial trend indication signal (break of structure). The first sign a trade setup may be forming.",
+
+    // Exit Settings
+    EXIT_ON_HTF_FLIP_ONLY_IF_LOSING: "Exit when higher timeframe trend flips, but ONLY if the trade is currently losing. Lets winners run if trend temporarily weakens.",
+    AUTO_FLATTEN_ON_CLOSE: "Automatically close all positions at the end of the trading session. Prevents overnight/weekend risk.",
+    TRAILING_STOP_ENABLED: "Enable trailing stops that follow price up (for longs) or down (for shorts), locking in profits as the trade moves in your favor.",
+    TRAILING_STOP_MIN_PROFIT_PCT: "Minimum profit percentage before the trailing stop activates. Prevents premature stop-outs on normal price fluctuations.",
+    STOP_ATR_MULTIPLIER: "Stop distance as multiple of ATR (Average True Range). ATR measures volatility - higher multiplier = wider stops, more room for price to move.",
+    MIN_HOLD_HOURS: "Minimum hours to hold a position before allowing exits. Prevents panic-selling or premature exits. 0 = no minimum.",
+    MAX_HOLD_HOURS: "Maximum hours to hold a position - force exit after this time regardless of profit/loss. 0 = hold forever if needed.",
+    HTF_NEUTRAL_EXIT_BARS: "Exit if higher timeframe stays neutral (no clear trend) for this many bars. Prevents capital from being tied up in directionless markets.",
+
+    // Broker Settings - IBKR
+    IBKR_HOST: "IP address of your Interactive Brokers TWS or Gateway. Usually 127.0.0.1 if running on the same computer.",
+    IBKR_PORT: "Connection port for IBKR. Use 7497 for Paper Trading in TWS, 7496 for Live TWS, 4002 for Paper Gateway, 4001 for Live Gateway.",
+    IBKR_CLIENT_ID: "Unique identifier for this connection. If running multiple bots, each needs a different Client ID.",
+    IBKR_ACCOUNT_ID: "Your IBKR account number. Found in Account Management. Format like DU1234567 (paper) or U1234567 (live).",
+    IBKR_PAPER: "Enable paper trading mode - uses IBKR's simulated trading environment. Always test here before going live!",
+    IBKR_READ_ONLY: "Read-only mode - bot can view positions and data but cannot place orders. Safe for monitoring.",
+    IBKR_DEFAULT_CCY: "Default currency for the account. Usually USD but could be EUR, GBP, etc. for international accounts.",
+
+    // Broker Settings - OANDA
+    OANDA_ACCOUNT_ID: "Your OANDA account ID - found in your OANDA account settings or dashboard. Format like 101-001-1234567-001.",
+    OANDA_API_KEY: "Your OANDA API access token. Generate one in OANDA's hub under 'Manage API Access'. Keep this secret!",
+    OANDA_ENVIRONMENT: "Choose 'practice' for demo trading with fake money, or 'live' for real money trading. Always test in practice first!",
+    OANDA_READ_ONLY: "Read-only mode - bot can fetch prices and positions but cannot place orders. Good for monitoring without trading.",
+
+    // Broker Settings - CCXT/Coinbase
+    CCXT_EXCHANGE: "The cryptocurrency exchange to connect to. Currently supports Coinbase and other CCXT-compatible exchanges.",
+    CCXT_DEFAULT_TYPE: "Market type: 'spot' for regular buying/selling, 'swap' for perpetual futures, 'future' for dated futures contracts.",
+    CCXT_API_KEY: "Your exchange API key - created in your exchange's API settings. Enables the bot to trade on your behalf.",
+    CCXT_SECRET: "Your API secret key - paired with the API key. Never share this! Required to authenticate trades.",
+    CCXT_SANDBOX: "Enable sandbox/testnet mode for the exchange. Trade with fake money to test your setup safely.",
+    CCXT_ENABLE_RATE_LIMIT: "Automatically respect exchange rate limits to avoid getting temporarily banned for too many requests.",
+
+    // Crypto Order Settings
+    CRYPTO_FRACTIONAL_ENABLED: "Allow buying fractional amounts (0.001 BTC instead of whole coins). Required for expensive cryptos with small accounts.",
+    CRYPTO_MIN_NOTIONAL_USD: "Minimum trade size in USD. Exchanges have minimums - trades below this will be rejected.",
+    CRYPTO_MAX_NOTIONAL_USD: "Maximum trade size in USD. Safety limit to prevent accidentally huge orders.",
+    CRYPTO_ORDER_TYPE: "Order execution type: 'LIMIT' places orders at specific prices (may not fill), 'MARKET' fills immediately at current price.",
+
+    // Data Routing
+    MARKET_DATA_MODE: "Where price data comes from: 'primary' (IBKR), 'alternative' (CCXT/Coinbase), 'oanda' for forex, or 'hybrid' for multiple sources.",
+    BROKER_MODE: "Where orders are sent: 'primary' (IBKR), 'alternative' (crypto exchanges), 'oanda' for forex, or 'hybrid' for smart routing.",
+    ALTERNATIVE_MARKET_DATA: "Backup data source if primary fails: 'mock' for testing, 'coinbase'/'ccxt' for crypto, 'oanda' for forex.",
+    ALTERNATIVE_BROKER: "Backup broker if primary is unavailable: 'mock' for simulation, 'ccxt' for crypto, 'oanda' for forex.",
+
+    // AI Settings
+    TRADE_SCI_PROVIDER: "AI service for market analysis: 'gemini' (Google), 'openai' (GPT-4), 'claude' (Anthropic), 'deepseek', or 'openrouter' for multiple models.",
+    TRADE_SCI_MODEL_NAME: "Specific AI model to use. Different models have different capabilities and costs. Default is optimized for trading analysis.",
+    CHATGPT_KEY: "API key for your chosen AI provider. Get this from their developer portal. Required for AI-powered commentary.",
+    AI_TEMPERATURE: "AI creativity level (0-2). Lower = more consistent/predictable responses. Higher = more creative but potentially erratic. 0.2 recommended.",
+    AI_MAX_TOKENS: "Maximum response length from AI. Higher = more detailed analysis but costs more. 2048 is good for trading commentary.",
+    COMMENTARY_LLM_POLICY: "When to request AI analysis: 'a_plus_or_4x' for best setups or 4x daily, 'a_plus_only' for only exceptional setups, 'interval' for fixed schedule.",
+    COMMENTARY_LLM_DAILY_SLOTS: "Specific times to request AI commentary (HH:MM format). Example: 09:00,12:00,18:00 for market open, midday, and close.",
+    COMMENTARY_LLM_MAX_CALLS_PER_DAY: "Maximum AI API calls per day. Prevents runaway costs. Each call provides fresh market analysis.",
+
+    // Sabbath Settings
+    SABBATH_ENABLED: "Block new trade entries during the Jewish Sabbath (Friday sunset to Saturday sunset). Existing positions are managed but no new trades opened.",
+    SABBATH_ASTRONOMICAL: "Calculate Sabbath times using actual sunset based on your location, rather than fixed clock times. More accurate for religious observance.",
+    SABBATH_TIMEZONE: "Your timezone for Sabbath calculations. Use IANA format like 'America/New_York' or 'Europe/London'.",
+    SABBATH_LAT: "Your latitude for astronomical sunset calculations. Positive for North, negative for South. Example: 40.7128 for New York City.",
+    SABBATH_LON: "Your longitude for astronomical calculations. Negative for West, positive for East. Example: -74.0060 for New York City.",
+    SABBATH_START_LOCAL: "Fixed start time if not using astronomical mode. Default 18:00 (6 PM) is typical Friday evening start.",
+    SABBATH_END_LOCAL: "Fixed end time if not using astronomical mode. Default 18:00 Saturday is about an hour after sunset in most locations.",
+
+    // Session Settings
+    SESSION_GATE_ENABLED: "Only allow trading during active market sessions. Prevents trading during low-liquidity periods.",
+    SESSION_OVERLAP_START_HOUR: "Hour when active trading session starts (0-23). 12 = noon. Best to trade when major markets overlap.",
+    SESSION_OVERLAP_END_HOUR: "Hour when active trading session ends (0-23). 16 = 4 PM. Position management continues after this.",
+    SESSION_OVERLAP_TIMEZONE: "Timezone for session hours. UTC is universal, or use your local timezone.",
+    AUTO_SCHEDULE_ENABLED: "Automatically switch between equity hours (9:30-4 ET) and crypto (24/7) based on what you're trading.",
 };
 
 const TABS = {
@@ -305,11 +409,27 @@ function renderSystemTab(container) {
         items: [
             { value: 'auto_schedule', label: 'Auto (Equities/Crypto)' },
             { value: 'forex_intraday', label: 'Forex Intraday' },
+            { value: 'forex_oanda', label: 'OANDA Forex' },
             { value: 'crypto_247', label: 'Crypto 24/7' },
             { value: 'intraday', label: 'Standard Intraday' },
             { value: 'coinbase_futures', label: 'Coinbase Futures' },
             { value: 'coinbase_futures_nano', label: 'Coinbase Nano Futures' }
         ]
+    }));
+
+    section.appendChild(createCard('Strategy Variant', 'Trading strategy algorithm', 'STRATEGY_VARIANT', 'dropdown', {
+        items: [
+            { value: 'rubberband_reaper', label: 'Rubberband Reaper (Anti-Martingale)' },
+            { value: 'robocop', label: 'RoboCop (Aggressive ICC)' },
+            { value: 'evolution', label: 'Robot Evolution (NTZ Scalper)' },
+            { value: 'quantum', label: 'Quantum (Trend Following)' },
+            { value: 'mean_reversion', label: 'Mean Reversion (Bollinger/RSI)' },
+            { value: 'hyper_scalper', label: 'HyperScalper (EMA Crossover)' },
+            { value: 'london_breakout', label: 'London Breakout (Session)' },
+            { value: 'volatility_breakout', label: 'Volatility Breakout' },
+            { value: 'aggregator', label: 'Singularity Aggregator (Multi-Strategy)' }
+        ],
+        default: 'rubberband_reaper'
     }));
 
     section.appendChild(createCard('Execution Mode', 'How the bot cycles through iterations', 'BOT_MODE', 'dropdown', {
@@ -491,6 +611,7 @@ function renderBrokersTab(container) {
     // Sub-navigation
     container.appendChild(createSubNav([
         { id: 'ibkr', label: 'Interactive Brokers' },
+        { id: 'oanda', label: 'OANDA Forex' },
         { id: 'ccxt', label: 'Coinbase / CCXT' },
         { id: 'routing', label: 'Data Routing' }
     ], 'brokers'));
@@ -508,6 +629,39 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('Paper Trading', 'Use paper trading mode', 'IBKR_PAPER', 'toggle', { default: 'true' }));
         section.appendChild(createCard('Read Only', 'Monitor mode only (no orders)', 'IBKR_READ_ONLY', 'toggle'));
         section.appendChild(createCard('Default Currency', 'Base currency for positions', 'IBKR_DEFAULT_CCY', 'input', { default: 'USD' }));
+
+    } else if (subTabs.brokers === 'oanda') {
+        section.appendChild(createSectionHeader('OANDA Forex Connection', 'currency_exchange'));
+
+        section.appendChild(createCard('Account ID', 'Your OANDA account number', 'OANDA_ACCOUNT_ID', 'input', { placeholder: '101-001-1234567-001' }));
+        section.appendChild(createCard('API Key', 'OANDA API access token', 'OANDA_API_KEY', 'input', { password: true }));
+        section.appendChild(createCard('Environment', 'Trading environment', 'OANDA_ENVIRONMENT', 'dropdown', {
+            items: [
+                { value: 'practice', label: 'Practice (Demo)' },
+                { value: 'live', label: 'Live (Real Money)' }
+            ],
+            default: 'practice'
+        }));
+        section.appendChild(createCard('Read Only', 'Monitor only (no trading)', 'OANDA_READ_ONLY', 'toggle', { default: 'true' }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('OANDA Info', 'info'));
+
+        const infoBox = document.createElement('div');
+        infoBox.className = 'warning-box';
+        infoBox.style.borderColor = 'rgba(20, 184, 166, 0.3)';
+        infoBox.innerHTML = `
+            <span class="material-symbols-outlined" style="color: var(--accent);">lightbulb</span>
+            <div class="warning-box-content">
+                <strong>Getting Started with OANDA:</strong><br>
+                1. Create an OANDA account at oanda.com<br>
+                2. Go to "Manage API Access" in your account settings<br>
+                3. Generate a new API token and copy it here<br>
+                4. Your Account ID is shown in your account dashboard<br>
+                5. Always test with Practice mode first!
+            </div>
+        `;
+        section.appendChild(infoBox);
 
     } else if (subTabs.brokers === 'ccxt') {
         section.appendChild(createSectionHeader('Coinbase / CCXT Engine', 'currency_bitcoin'));
@@ -544,6 +698,7 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('Market Data Mode', 'Primary data source', 'MARKET_DATA_MODE', 'dropdown', {
             items: [
                 { value: 'primary', label: 'Primary (IBKR)' },
+                { value: 'oanda', label: 'OANDA Forex' },
                 { value: 'alternative', label: 'Alternative (CCXT)' },
                 { value: 'hybrid', label: 'Hybrid' },
                 { value: 'coinbase_futures', label: 'Coinbase Futures' }
@@ -552,6 +707,7 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('Broker Mode', 'Execution routing', 'BROKER_MODE', 'dropdown', {
             items: [
                 { value: 'primary', label: 'Primary (IBKR)' },
+                { value: 'oanda', label: 'OANDA Forex' },
                 { value: 'alternative', label: 'Alternative (CCXT)' },
                 { value: 'hybrid', label: 'Hybrid' },
                 { value: 'coinbase_futures', label: 'Coinbase Futures' }
@@ -560,6 +716,7 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('Alternative Data', 'Fallback data source', 'ALTERNATIVE_MARKET_DATA', 'dropdown', {
             items: [
                 { value: 'mock', label: 'Mock' },
+                { value: 'oanda', label: 'OANDA' },
                 { value: 'coinbase', label: 'Coinbase' },
                 { value: 'ccxt', label: 'CCXT' }
             ]
@@ -567,6 +724,7 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('Alternative Broker', 'Fallback execution', 'ALTERNATIVE_BROKER', 'dropdown', {
             items: [
                 { value: 'mock', label: 'Mock' },
+                { value: 'oanda', label: 'OANDA' },
                 { value: 'ccxt', label: 'CCXT' },
                 { value: 'coinbase_futures', label: 'Coinbase Futures' }
             ]
