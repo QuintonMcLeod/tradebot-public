@@ -58,7 +58,7 @@ def _resolve_path(path_str: str | None) -> str | None:
 def _apply_env_overrides(base_data: Dict[str, Any]) -> Dict[str, Any]:
     app_overrides = {
         "environment": os.getenv("APP_ENVIRONMENT"),
-        "profile_name": os.getenv("PROFILE_NAME"),
+        "profile_name": os.getenv("APP_PROFILE") or os.getenv("PROFILE_NAME"),
     }
     app = {**base_data.get("app", {}), **{k: v for k, v in app_overrides.items() if v}}
 
@@ -169,14 +169,18 @@ def _apply_profile_runtime_overrides(settings: Settings) -> None:
         return
     overrides = getattr(profile, "runtime_overrides", None) or {}
     for key, value in overrides.items():
-        if not hasattr(settings.runtime, key):
+        if hasattr(settings.runtime, key):
+            setattr(settings.runtime, key, value)
+            logger.debug("Applying runtime override: %s=%s", key, value)
+        elif hasattr(settings.market, key):
+            setattr(settings.market, key, value)
+            logger.debug("Applying market override: %s=%s", key, value)
+        else:
             logger.warning(
-                "Unknown runtime override '%s' in profile '%s'; skipping",
+                "Unknown runtime/market override '%s' in profile '%s'; skipping",
                 key,
                 profile_name,
             )
-            continue
-        setattr(settings.runtime, key, value)
 
     # [ANTIGRAVITY FIX] Propagate direct profile overrides for multi-position mode
     # These fields are often set directly on the profile model, not just in runtime_overrides

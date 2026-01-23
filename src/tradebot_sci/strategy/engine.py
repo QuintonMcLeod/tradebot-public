@@ -63,6 +63,7 @@ logger = logging.getLogger(__name__)
 # [USER CONFIGURATION]
 # SINGULARITY STRATEGY SETTINGS (Edit this block to tune the bot)
 from tradebot_sci.config.models import UserConfig
+from tradebot_sci.broker.trade_result_store import TradeResultStore, TradeResult
 
 
 
@@ -76,6 +77,7 @@ class StrategyEngine:
         market_provider: MarketDataProvider,
         profile: BaseProfile,
         symbol: str,
+        trade_results: Optional[TradeResultStore] = None,
     ) -> None:
         """Stashes the collaborators so decisions can flow like caffeine."""
         self.ai_client = ai_client
@@ -88,6 +90,9 @@ class StrategyEngine:
         # AI decision cache with LRU eviction (max 100 entries)
         self._ai_decision_cache: OrderedDict[str, tuple[float, str, str, datetime, AITradeDecision]] = OrderedDict()
         self._ai_decision_cache_max_size = 100
+        
+        # [ANTIGRAVITY] Trade Results Tracking
+        self.trade_results = TradeResultStore(os.path.join("data", "trade_results.json"))
         
         # Load the selected strategy variant
         self._strategy = self._load_strategy_variant()
@@ -290,18 +295,23 @@ class StrategyEngine:
         # the variant can return SCALE_IN or EXIT decisions.
         if open_position and abs(open_position.get("size", 0.0)) > 0:
             # 1. Check for Exit Signal
-            variant_exit = self._strategy.check_exit_signal(snapshot, open_position, gates)
+            current_capital = getattr(self.market_provider, "current_capital", None)
+            history = [r.to_dict() for r in self.trade_results.results]
+            
+            variant_exit = self._strategy.check_exit_signal(snapshot, open_position, gates, current_capital=current_capital, trade_history=history)
             if variant_exit is not None:
                 logger.info(f"[ENGINE] Variant '{self._strategy.name}' triggered EXIT: {variant_exit.summary()}")
                 return variant_exit
             
             # 2. Check for Entry Signal (Pyramiding)
-            variant_entry = self._strategy.check_entry_signal(snapshot, gates, open_position=open_position)
+            variant_entry = self._strategy.check_entry_signal(snapshot, gates, open_position=open_position, current_capital=current_capital, trade_history=history)
             if variant_entry and variant_entry.action == "scale_in":
                 logger.info(f"[ENGINE] Variant '{self._strategy.name}' triggered SCALE_IN: {variant_entry.summary()}")
                 return validate_decision(variant_entry, execution_capabilities=execution_capabilities)
         else:
-            variant_entry = self._strategy.check_entry_signal(snapshot, gates)
+            current_capital = getattr(self.market_provider, "current_capital", None)
+            history = [r.to_dict() for r in self.trade_results.results]
+            variant_entry = self._strategy.check_entry_signal(snapshot, gates, current_capital=current_capital, trade_history=history)
             if variant_entry is not None:
                 logger.info(f"[ENGINE] Variant '{self._strategy.name}' triggered ENTRY: {variant_entry.summary()}")
                 return validate_decision(variant_entry, execution_capabilities=execution_capabilities)

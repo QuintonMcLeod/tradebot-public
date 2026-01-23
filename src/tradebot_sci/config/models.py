@@ -730,11 +730,11 @@ class UserConfig:
     STRATEGY_VARIANT = 'rubberband_reaper'  # The Rubberband Reaper (+865%, 39% WR, 3.7:1 R:R)
     
     # Extreme Risk Management (Goal: 100%-400% / week) 
-    # VERIFIED: +7,036% PnL with Tiered Risk (20%/10%/1%)
+    # VERIFIED: +7,036% PnL with Tiered Risk (20%/10%/1-5%)
     # Tiered Risk (Anti-Martingale):
     #   - Below $1,000: 20% (aggressive growth)
     #   - $1,000-$5,000: 10% (growth)
-    #   - Above $5,000: 1% (wealth protection)
+    #   - Above $5,000: 1%-5% (adaptive protection/scaling)
     BASE_RISK_PCT = 0.20        # 20% starting risk (tiered down as account grows)
     COMPOUND_PROFITS = True     # Reinvest all gains for exponential growth
     

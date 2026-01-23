@@ -3,11 +3,15 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterable
 
-import oandapyV20
-import oandapyV20.endpoints.accounts as accounts
-import oandapyV20.endpoints.orders as orders
-import oandapyV20.endpoints.positions as oanda_positions
-import oandapyV20.endpoints.trades as trades
+try:
+    import oandapyV20
+    import oandapyV20.endpoints.accounts as accounts
+    import oandapyV20.endpoints.orders as orders
+    import oandapyV20.endpoints.positions as oanda_positions
+    import oandapyV20.endpoints.trades as trades
+    HAS_OANDA = True
+except ImportError:
+    HAS_OANDA = False
 from tradebot_sci.broker.execution import (
     ExecutionOutcome,
     ExecutionOutcomeType,
@@ -31,6 +35,9 @@ class OandaExchangeBroker(IExchangeBroker):
         environment: str = "practice",
         read_only: bool = True
     ):
+        if not HAS_OANDA:
+            raise ImportError("OANDA dependencies missing. Please install oandapyV20.")
+        
         # Suppress noisy library logging (especially the 404 spam)
         logging.getLogger("oandapyV20.oandapyV20").setLevel(logging.CRITICAL)
         

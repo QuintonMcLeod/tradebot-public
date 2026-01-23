@@ -11,18 +11,37 @@ from tradebot_sci.config.models import UserConfig
 logger = logging.getLogger(__name__)
 
 
-def get_tiered_risk(capital: float) -> float:
+def get_tiered_risk(capital: float, trade_history: Optional[list] = None) -> float:
     """
-    Anti-Martingale Tiered Risk:
+    Anti-Martingale Tiered Risk V3:
     - Below $1,000: 20% risk (aggressive growth)
     - $1,000-$5,000: 10% risk (growth phase)
-    - Above $5,000: 1% risk (wealth protection)
+      - CIRCUIT BREAKER: 4 consecutive losses in this tier drops risk to 1%.
+    - Above $5,000: Adaptive 1-5% (stagnation protection)
+      - 5% if last 2 trades were wins.
+      - 1% otherwise.
     """
+    # 1. Check Circuit Breaker for $1k-$5k tier
+    if 1000 <= capital < 5000 and trade_history:
+        recent = [t for t in trade_history if t.get("capital_at_close", 0) >= 1000 and t.get("capital_at_close", 0) < 5000]
+        if len(recent) >= 4:
+            last_4 = recent[-4:]
+            if all(not t.get("is_win", True) for t in last_4):
+                logger.warning(f"[RISK] Circuit Breaker Triggered: 4 consecutive losses in growth tier. Lowering risk to 1%.")
+                return 0.01
+
+    # 2. Tier Logic
     if capital < 1000:
         return 0.20
     elif capital < 5000:
         return 0.10
     else:
+        # Adaptive Scaling for > $5,000
+        if trade_history:
+            recent_5k = [t for t in trade_history if t.get("capital_at_close", 0) >= 5000]
+            if len(recent_5k) >= 2 and all(t.get("is_win", False) for t in recent_5k[-2:]):
+                logger.info(f"[RISK] Performance Adaptive: 2 consecutive wins in wealth tier. Bumping risk to 5%.")
+                return 0.05
         return 0.01
 
 
@@ -34,7 +53,7 @@ class RubberbandReaperStrategy(BaseStrategy):
     Peak: $8,088 | Preserved: 88% (vs 17% with fixed risk)
     
     Features:
-    - Tiered Risk: 20% < $1k, 10% $1k-$5k, 1% > $5k
+    - Tiered Risk: 20% < $1k, 10% $1k-$5k, 1%-5% > $5k
     - Opposite Bollinger Band targeting for 3:1+ R:R
     - RSI exhaustion confirmation
     """
@@ -49,7 +68,11 @@ class RubberbandReaperStrategy(BaseStrategy):
         self.base_risk_pct = base_risk_pct  # Now 20% default for aggressive start
 
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None) -> Optional[AITradeDecision]:
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
+        # Update risk based on capital and history
+        if current_capital is not None:
+             self.base_risk_pct = get_tiered_risk(current_capital, trade_history)
+             
         closes = [c.close for c in snapshot.candles]
         if len(closes) < self.bb_period:
             return None
@@ -152,6 +175,6 @@ class RubberbandReaperStrategy(BaseStrategy):
 
         return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict) -> Optional[AITradeDecision]:
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
         # Most exits are handled by TP/SL, but we could exit if RSI reverses
         return None

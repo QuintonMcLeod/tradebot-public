@@ -4,8 +4,12 @@ import logging
 from datetime import datetime, timezone
 from typing import List
 
-import oandapyV20
-import oandapyV20.endpoints.instruments as instruments
+try:
+    import oandapyV20
+    import oandapyV20.endpoints.instruments as instruments
+    HAS_OANDA = True
+except ImportError:
+    HAS_OANDA = False
 from tradebot_sci.market.models import Candle, MarketSnapshot
 from tradebot_sci.market.trend import infer_trend_from_swings
 
@@ -15,6 +19,8 @@ class OandaMarketDataProvider:
     """Market data provider for OANDA v20 API."""
 
     def __init__(self, account_id: str, api_key: str, environment: str = "practice"):
+        if not HAS_OANDA:
+            raise ImportError("OANDA dependencies missing. Please install oandapyV20.")
         self.client = oandapyV20.API(access_token=api_key, environment=environment)
         self.account_id = account_id
 

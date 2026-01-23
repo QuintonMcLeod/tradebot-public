@@ -68,9 +68,9 @@ def run_tiered_risk_only():
         print("No data found")
         return
     
-    capital = 100.0
-    initial_capital = 100.0
-    peak_capital = 100.0
+    capital = 870.0
+    initial_capital = 870.0
+    peak_capital = 870.0
     positions = {} 
     trades = []
     

@@ -1307,7 +1307,7 @@ class CCXTExchangeBroker:
                     
                     if pos_size > 0 and state.get("working_orders", 0) == 0:
                         if state.get("is_dust", False):
-                            logger.info(f"[CCXT] {sys_sym} position is dust; skipping auto-protection.")
+                            logger.debug(f"[CCXT] {sys_sym} position is dust; skipping auto-protection.")
                             continue
                         # Missing SL!
                         record = self.position_hold_store.get(sys_sym)
@@ -1383,7 +1383,11 @@ class CCXTExchangeBroker:
                                             size=raw_size
                                         )
                                 except Exception as e:
-                                    logger.error(f"[CCXT] Auto-protection failed for {sys_sym}: {e}")
+                                    # Silence dust-related errors (min amount precision)
+                                    if "minimum amount precision" in str(e) or "INSUFFICIENT" in str(e):
+                                        logger.debug(f"[CCXT] Auto-protection skipped for {sys_sym} (dust/min-size): {e}")
+                                    else:
+                                        logger.error(f"[CCXT] Auto-protection failed for {sys_sym}: {e}")
                             else:
                                 logger.warning(f"[CCXT] Could not auto-protect {sys_sym}: No ticker price.")
         except Exception as e:

@@ -32,6 +32,7 @@ from tradebot_sci.strategy.engine import StrategyEngine
 from tradebot_sci.strategy.decisions import stand_aside_decision
 from tradebot_sci.strategy.profiles import BaseProfile
 from tradebot_sci.market.symbols import AssetClass, MARKET_HOURS, MarketType, SYMBOL_METADATA, is_crypto
+from tradebot_sci.broker.trade_result_store import TradeResultStore, TradeResult
 from tradebot_sci.server.ws_server import WebSocketServer
 logger = logging.getLogger(__name__)
 
@@ -967,7 +968,7 @@ def _process_candidate_cycle(
                 
                 # [ANTIGRAVITY FIX] Only count as having a position if shares > 0
                 has_pos = pos_shares > 1e-9  # Use epsilon for float comparison
-                if not has_pos and executor.position_hold_store:
+                if not has_pos and getattr(executor, "position_hold_store", None):
                     record = executor.position_hold_store.get(sym)
                     # Only count hold store entry if it has a non-zero size
                     if record and abs(getattr(record, "size", 0) or 0) > 1e-9:
@@ -1039,6 +1040,7 @@ def _process_candidate_cycle(
         else:
             execution_capabilities = dict(execution_capabilities)
         execution_capabilities["flip_allowed"] = bool(getattr(profile_settings, "flip_actions_enabled", False))
+
         try:
             decision = _engine_decide(
                 engine,
@@ -1125,6 +1127,28 @@ def _process_candidate_cycle(
                     f"{friction_decision.rr:.2f}" if friction_decision.rr is not None else "n/a",
                 )
                 continue
+
+        if action in ("close_position", "flatten") and open_pos:
+            # Capture result before closure
+            pnl_pct = float(open_pos.get("pnl_pct", 0.0))
+            is_win = pnl_pct > 0
+            tier = "unknown"
+            capital = float(getattr(executor, "current_capital", 0.0) or 0.0)
+            if capital < 1000: tier = "20%"
+            elif capital < 5000: tier = "10%"
+            else: tier = "1%-5%"
+            
+            res = TradeResult(
+                symbol=symbol,
+                closed_at=datetime.now(timezone.utc).isoformat(),
+                pnl_pct=pnl_pct,
+                is_win=is_win,
+                tier=tier,
+                capital_at_close=capital
+            )
+            engine.trade_results.add_result(res)
+            logger.info(f"[RISK] Recorded trade result for {symbol}: {pnl_pct:.2f}% (Win={is_win}) Tier={tier}")
+
         execution_result, execution_outcome = executor.execute_decision(decision)
         _handle_execution_result(execution_result, strike_tracker, execution_outcome)
         outcome_status = execution_outcome.status
@@ -1405,12 +1429,14 @@ def run_bot(
         market_poll_interval_seconds=profile_settings.market_poll_interval_seconds,
         ai_decision_interval_seconds=profile_settings.ai_decision_interval_seconds,
     )
+    trade_results = TradeResultStore(os.path.join("data", "trade_results.json"))
     engines = {
         symbol: StrategyEngine(
             ai_client=ai_client,
             market_provider=provider,
             profile=profile_settings,
             symbol=symbol,
+            trade_results=trade_results,
         )
         for symbol in symbols
     }
@@ -1476,6 +1502,9 @@ def run_bot(
     )
     next_decision_in = 0
 
+    # [ANTIGRAVITY] Explicit profile log for UI parsing
+    logger.info(f"[PROFILE] Active profile={profile_name}")
+    
     logger.info(
         "Starting simulation: profile=%s symbols=%s timeframe=%s",
         profile_name,
@@ -1723,12 +1752,14 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         market_poll_interval_seconds=profile_settings.market_poll_interval_seconds,
         ai_decision_interval_seconds=profile_settings.ai_decision_interval_seconds,
     )
+    trade_results = TradeResultStore(os.path.join("data", "trade_results.json"))
     engines = {
         symbol: StrategyEngine(
             ai_client=ai_client,
             market_provider=provider,
             profile=profile_settings,
             symbol=symbol,
+            trade_results=trade_results,
         )
         for symbol in symbols
     }

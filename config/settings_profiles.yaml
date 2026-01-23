@@ -1,4 +1,67 @@
 profiles:
+  # Forex Continuous - 24/7 Trading (Sabbath Excluded)
+  # Based on Rubberband Reaper v2 (+7,036% verified with tiered risk)
+  forex_continuous:
+    strategy_variant: rubberband_reaper
+    candle_timeframe: 15m
+
+    market_poll_interval_seconds: 15
+    ai_decision_interval_seconds: 60
+    htf_timeframe: 15m
+    ltf_timeframe: 5m
+    trend_window: 12
+    ltf_trend_window: 8
+    trend_swing_lookback: 2
+    trend_min_swings: 2
+    trend_strength_floor: 0.25
+    structure_score_threshold: 0.05
+    auto_flatten_on_close: false
+    pdt_guard_enabled: false
+    session_gate_enabled: false  # 24/7 trading (no session gate)
+    
+    # Risk Management - Tiered Anti-Martingale (20%/10%/1%)
+    risk_per_trade_dollars: 0.0
+    risk_per_trade_pct: 0.20  # Starting risk (tiered down by strategy)
+    short_risk_pct: 0.20
+    max_loss_per_trade_dollars: 500.0
+    max_concurrent_positions: 4
+    multi_position_enabled: true
+    max_pyramid_entries: 6
+    pyramid_profit_buffer_pct: 0.0015
+    
+    runtime_overrides:
+      market_data_mode: alternative
+      broker_mode: alternative
+      alternative_market_data: oanda
+      alternative_broker: oanda
+
+    # ICC Scoring
+    icc_entry_score_threshold: 35.0
+    icc_score_continuation_points: 60.0
+    icc_score_sweep_points: 25.0
+    icc_score_htf_ltf_align_points: 20.0
+    icc_score_strong_htf_points: 15.0
+    icc_score_phase_points: 5.0
+    icc_auto_entry_min_htf_strength: 0.0
+    icc_auto_entry_enabled: true
+    icc_aggressive_mode: true
+    icc_confirmation_bars: 2
+    icc_strict_mode: true
+    icc_require_liquidity_grab: true
+    
+    # Pure Forex Symbols Only (OANDA compatible)
+    symbols:
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+    - AUDUSD
+    - USDCAD
+    - USDCHF
+    - NZDUSD
+    - GBPJPY
+    - EURJPY
+    - AUDJPY
+
   # Forex Intraday - IBKR Forex with Graduated Entry + Smart Exits
   # Backtested: +865% return over 17 days (Jan 2026) - "The Rubberband Reaper"
   forex_intraday:
