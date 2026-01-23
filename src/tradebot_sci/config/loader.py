@@ -110,6 +110,9 @@ def _apply_env_overrides(base_data: Dict[str, Any]) -> Dict[str, Any]:
         "max_scale_ins_per_leg": os.getenv("MAX_SCALE_INS_PER_LEG"),
         "multi_position_enabled": os.getenv("MULTI_POSITION_ENABLED"),
         "max_concurrent_positions": os.getenv("MAX_CONCURRENT_POSITIONS"),
+        "min_equity_for_margin": os.getenv("MIN_EQUITY_FOR_MARGIN"),
+        "allow_day_trades": os.getenv("ALLOW_DAY_TRADES"),
+        "min_hold_seconds": os.getenv("MIN_HOLD_SECONDS"),
         "auto_restart_on_error": os.getenv("AUTO_RESTART_ON_ERROR"),
         "auto_restart_stale_seconds": os.getenv("AUTO_RESTART_STALE_SECONDS"),
         "auto_restart_min_uptime_seconds": os.getenv("AUTO_RESTART_MIN_UPTIME_SECONDS"),
@@ -120,12 +123,13 @@ def _apply_env_overrides(base_data: Dict[str, Any]) -> Dict[str, Any]:
         **{
             k: (
                 float(v)
-                if k in {"scale_out_fraction", "min_position_size_to_scale", "emergency_stop_pct"}
+                if k in {"scale_out_fraction", "min_position_size_to_scale", "emergency_stop_pct", "min_equity_for_margin"}
                 else int(v)
                 if k
                 in {
                     "max_scale_ins_per_leg",
                     "max_concurrent_positions",
+                    "min_hold_seconds",
                     "auto_restart_stale_seconds",
                     "auto_restart_min_uptime_seconds",
                     "auto_restart_cooldown_seconds",

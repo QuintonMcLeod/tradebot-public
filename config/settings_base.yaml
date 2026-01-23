@@ -36,7 +36,7 @@ runtime:
   intraday_flatten: false
   allow_day_trades: false
   min_hold_seconds: 300
-  min_equity_for_margin: 2000.0
+  min_equity_for_margin: 0.0
   position_hold_store_path: data/position_holds.json
   scale_out_fraction: 0.5
   emergency_stop_pct: 0.01

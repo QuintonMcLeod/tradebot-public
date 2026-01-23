@@ -22,7 +22,6 @@ from tradebot_sci.config.loader import get_settings
 from tradebot_sci.config.models import Settings
 from tradebot_sci.logging.setup import setup_logging
 from tradebot_sci.market.models import MarketSnapshot
-from tradebot_sci.market.providers import MockMarketDataProvider
 from tradebot_sci.market.trend import infer_trend_from_swings
 from tradebot_sci.runtime.provider_factory import build_exchange_broker, build_market_provider
 from tradebot_sci.runtime.safety import validate_decision
@@ -853,9 +852,10 @@ def _build_candidate_list(
                 timeframe,
                 profile_settings,
                 market_settings,
+                ws_server=ws_server,
             )
         except Exception as exc:
-            logger.info("[STRUCTURE] %s fetch failed; skipping (%s)", symbol, exc)
+            logger.info("[STRUCTURE] %s fetch failed; skipping (%s)", symbol, type(exc).__name__)
             continue
         score, reason = engines[symbol].score_structure(snapshot)
         readiness, readiness_reason = engines[symbol].score_icc_readiness(snapshot)
@@ -938,10 +938,13 @@ def _process_candidate_cycle(
     # [ANTIGRAVITY FIX] Removed global capital_exhausted guard.
     # The broker now handles balance checks per-decision, allowing symbol-specific
     # recovery and avoiding global deadlocks on small accounts.
-    friction = FrictionModel(
-        max_spread_bps=getattr(profile_settings, "pair_selector_max_spread_bps", 25.0),
-        min_rr=0.4,
-    )
+    friction = None
+    friction_disabled = os.getenv("DISABLE_FRICTION_GUARD", "false").lower() == "true"
+    if not friction_disabled:
+        friction = FrictionModel(
+            max_spread_bps=getattr(profile_settings, "pair_selector_max_spread_bps", 25.0),
+            min_rr=0.4,
+        )
     # [ANTIGRAVITY FIX] Unify symbol state scanning to avoid redundant calls and inconsistent results
     pending_entry_symbols: set[str] = set()
     open_position_symbols_list: list[str] = []
@@ -953,39 +956,46 @@ def _process_candidate_cycle(
                 if not state:
                     continue
                 
-                # Check for position (with hold store fallback)
-                pos_shares = abs(state.get("position_shares", 0))
-                has_pos = pos_shares > 0
-                if not has_pos and executor.position_hold_store:
-                    has_pos = executor.position_hold_store.get(sym) is not None
+                # [ANTIGRAVITY FIX] Define is_dust locally if not provided by broker state
+                # We use a $2.50 value threshold or min_qty logic
+                pos_shares = abs(state.get("position_shares", 0.0))
+                is_dust = state.get("is_dust", False)
+                if not is_dust and pos_shares > 0:
+                    snapshot = executor.get_open_position_snapshot(sym)
+                    if snapshot:
+                        is_dust = snapshot.get("is_dust", False)
                 
-                if has_pos:
-                    # Ignore dust positions
-                    if not state.get("is_dust", False):
-                        open_position_symbols_list.append(sym)
+                # [ANTIGRAVITY FIX] Only count as having a position if shares > 0
+                has_pos = pos_shares > 1e-9  # Use epsilon for float comparison
+                if not has_pos and executor.position_hold_store:
+                    record = executor.position_hold_store.get(sym)
+                    # Only count hold store entry if it has a non-zero size
+                    if record and abs(getattr(record, "size", 0) or 0) > 1e-9:
+                        has_pos = True
+                
+                if has_pos and not is_dust:
+                    logger.debug(f"[STATE] Symbol {sym} has non-dust position: {pos_shares}")
+                    open_position_symbols_list.append(sym)
                 elif state.get("working_orders", 0) or state.get("synthetic_stop_armed"):
                     # Only pending entry if NO position
                     pending_entry_symbols.add(sym)
             except Exception as e:
                 logger.error(f"Failed to scan state for {sym}: {e}")
 
+
     open_position_symbols = set(open_position_symbols_list)
     
-    # [ANTIGRAVITY FIX] Robust multi-position check
+    # [ANTIGRAVITY FIX] Robust multi-position check from executor profile
     multi_enabled = False
-    if executor and hasattr(executor, "profile"):
+    max_concurrent = 1
+    if executor and hasattr(executor, "profile") and executor.profile:
         multi_enabled = bool(getattr(executor.profile, "multi_position_enabled", False))
-    if not multi_enabled:
+        max_concurrent = int(getattr(executor.profile, "max_concurrent_positions", 1) or 1)
+    else:
         runtime = getattr(executor, "runtime", None) if executor else None
         multi_enabled = bool(getattr(runtime, "multi_position_enabled", False))
+        max_concurrent = int(getattr(runtime, "max_concurrent_positions", 1) or 1)
     
-    try:
-        if executor and hasattr(executor, "profile"):
-             max_concurrent = int(getattr(executor.profile, "max_concurrent_positions", 1) or 1)
-        else:
-             max_concurrent = int(getattr(runtime, "max_concurrent_positions", 1) or 1)
-    except Exception:
-        max_concurrent = 1
     max_concurrent = max(1, max_concurrent)
     
     # ... position verification already handled in unified scan ...
@@ -1103,7 +1113,7 @@ def _process_candidate_cycle(
         if not executor:
             continue
         market_provider = getattr(engine, "market_provider", None)
-        if market_provider is not None:
+        if market_provider is not None and friction is not None:
             friction_decision = friction.evaluate(market_provider, decision)
             if not friction_decision.allow:
                 blocked += 1
@@ -1157,6 +1167,7 @@ def _resolve_active_symbol(
     market_settings,
     strike_tracker: StrikeTracker | None = None,
     now: datetime | None = None,
+    ws_server: WebSocketServer | None = None,
 ):
     """Returns the symbol that should trade this cycle and its latest snapshot."""
     now = now or datetime.now(ZoneInfo("UTC"))
@@ -1260,7 +1271,7 @@ def _resolve_active_symbol(
                 market_settings,
             )
         except Exception as exc:
-            logger.info("[STRUCTURE] %s fetch failed; skipping (%s)", symbol, exc)
+            logger.info("[STRUCTURE] %s fetch failed; skipping (%s)", symbol, type(exc).__name__)
             continue
         score, reason = engines[symbol].score_structure(snapshot)
         readiness, readiness_reason = engines[symbol].score_icc_readiness(snapshot)
@@ -1386,7 +1397,7 @@ def run_bot(
         return
 
     shared_ib = _maybe_connect_primary_ib(settings, execute_trades)
-    provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib) if execute_trades else MockMarketDataProvider()
+    provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib)
     ai_client = TradeSciAIClient(settings.ai)
     profile = BaseProfile(
         name=profile_name,
@@ -1588,6 +1599,7 @@ def run_bot(
                     settings.market,
                     strike_tracker=strike_tracker,
                     now=now,
+                    ws_server=ws_server,
                     allow_entries=allow_entries,
                 )
                 if not candidates:
@@ -1703,7 +1715,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
     ws_server.start_in_thread()
 
     shared_ib = _maybe_connect_primary_ib(settings, execute_trades)
-    provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib) if execute_trades else MockMarketDataProvider()
+    provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib)
     ai_client = TradeSciAIClient(settings.ai)
     profile = BaseProfile(
         name=profile_name,
@@ -2023,13 +2035,29 @@ def _is_market_open(symbol: str, now: datetime) -> bool:
     if is_crypto(symbol):
         return True
 
-    metadata = SYMBOL_METADATA.get(symbol)
+    metadata = SYMBOL_METADATA.get(symbol.strip().upper())
     if not metadata:
         logger.warning(f"[SCHEDULE-DEBUG] No metadata for {symbol}")
         return False
+    
+    # [ANTIGRAVITY OPTIMIZATION] Skip known problematic metals to avoid timeouts IF using IBKR
+    # If using Kraken (CCXT), we want these!
+    from ..config import loader as config_loader
+    settings = config_loader.get_settings()
+    is_ccxt_data = settings.market.market_data_mode in ("alternative", "hybrid")
+
+    if not is_ccxt_data and symbol in {"XPTUSD", "XPDUSD"}:
+        return False
+
     # logger.info(f"[SCHEDULE-DEBUG] {symbol} Type={metadata.market_type} Asset={metadata.asset_class}")
     if metadata.market_type == MarketType.CRYPTO:
         return True
+        
+    # [ANTIGRAVITY FIX] If using CCXT for Data, treat Forex/Metals as effectively 24/7 (or managed by exchange)
+    # This prevents 'Market Closed' skips when we actually have live crypto-feeds for them.
+    if is_ccxt_data and (metadata.market_type == MarketType.FOREX or metadata.market_type == MarketType.COMMODITY):
+        return True
+
     hours = MARKET_HOURS.get(metadata.market_type)
     if not hours:
         return False

@@ -6393,7 +6393,7 @@ def run_app(*, repo_root: Path) -> int:
                 it_sym = cell(sym)
                 it_side = cell(side)
                 # User requested full decimals ("Show them all") - avoid scientific notation
-                s_size = f"{float(size):.8f}".rstrip("0").rstrip(".") if size is not None else "-"
+                s_size = f"{abs(float(size)):.8f}".rstrip("0").rstrip(".") if size is not None else "-"
                 it_size = cell(s_size, align_right=True)
                 it_avg = cell(f"{float(avg):.4f}" if avg is not None else "-", align_right=True)
                 it_sl = cell(f"{float(sl):.4f}" if sl is not None else "-", align_right=True)

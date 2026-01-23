@@ -37,103 +37,7 @@ class MarketDataProvider(Protocol):
         ...
 
 
-class MockMarketDataProvider:
-    """Generates synthetic OHLCV candles to drive the simulation loop."""
 
-    def __init__(self):
-        self._series: dict[str, List[Candle]] = {}
-
-    def get_latest_candles(self, symbol: str, timeframe: str, limit: int) -> List[Candle]:
-        series = self._series.setdefault(symbol, self._bootstrap_series(timeframe, limit))
-        # extend if needed
-        while len(series) < limit:
-            series.append(self._next_candle(series[-1], timeframe))
-        return series[-limit:]
-
-    def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
-        candles = self.get_latest_candles(symbol, timeframe, limit=200)
-        trend_htf = self._infer_trend(candles[-100:])
-        trend_ltf = self._infer_trend(candles[-20:])
-        return MarketSnapshot(
-            symbol=symbol,
-            timeframe=timeframe,
-            candles=candles,
-            trend_htf=trend_htf,
-            trend_ltf=trend_ltf,
-            htf_candles=candles[-100:],
-            ltf_candles=candles[-20:],
-            htf_timeframe=timeframe,
-            ltf_timeframe=timeframe,
-        )
-
-    def get_ticker(self, symbol: str) -> Ticker | None:
-        candles = self.get_latest_candles(symbol, timeframe="5m", limit=288)
-        if not candles:
-            return Ticker(symbol=symbol, bid=None, ask=None, last=None, volume_24h_quote_usd=None)
-        last = candles[-1].close
-        # Deterministic synthetic spread based on symbol hash (1-20 bps typical).
-        spread_bps = (abs(hash(symbol)) % 20) + 1
-        spread = last * (spread_bps / 10_000.0)
-        bid = max(0.0, last - spread / 2)
-        ask = last + spread / 2
-        volume_usd = sum(c.volume * c.close for c in candles)
-        return Ticker(
-            symbol=symbol,
-            bid=bid,
-            ask=ask,
-            last=last,
-            volume_24h_quote_usd=volume_usd,
-        )
-
-    def get_market_definition(self, symbol: str) -> dict | None:
-        return None
-
-    def get_order_book(self, symbol: str, depth: int = 10) -> OrderBook | None:
-        ticker = self.get_ticker(symbol)
-        if not ticker or not ticker.last:
-            return None
-        mid = ticker.last
-        base_size = max(1.0, (abs(hash(symbol)) % 50) + 10.0)
-        bids = [OrderBookLevel(price=round(mid * (1 - 0.0005 * i), 4), size=base_size / (i + 1)) for i in range(depth)]
-        asks = [OrderBookLevel(price=round(mid * (1 + 0.0005 * i), 4), size=base_size / (i + 1)) for i in range(depth)]
-        return OrderBook(symbol=symbol, bids=bids, asks=asks, timestamp=datetime.utcnow())
-
-    def _bootstrap_series(self, timeframe: str, limit: int) -> List[Candle]:
-        now = datetime.utcnow()
-        start = now - timedelta(seconds=_timeframe_to_seconds(timeframe) * limit)
-        price = 100.0
-        candles: List[Candle] = []
-        timestamp = start
-        for _ in range(limit):
-            candle = self._random_candle(timestamp, price)
-            candles.append(candle)
-            price = candle.close
-            timestamp += timedelta(seconds=_timeframe_to_seconds(timeframe))
-        return candles
-
-    def _next_candle(self, last: Candle, timeframe: str) -> Candle:
-        timestamp = last.timestamp + timedelta(seconds=_timeframe_to_seconds(timeframe))
-        return self._random_candle(timestamp, last.close)
-
-    def _random_candle(self, timestamp: datetime, anchor_price: float) -> Candle:
-        drift = random.uniform(-0.3, 0.3)
-        vol = random.uniform(0.5, 1.5)
-        open_price = anchor_price + drift
-        high = open_price + abs(random.gauss(0.5, 0.3))
-        low = open_price - abs(random.gauss(0.5, 0.3))
-        close = low + (high - low) * random.random()
-        volume = abs(random.gauss(1000, 300)) * vol
-        return Candle(
-            timestamp=timestamp,
-            open=round(open_price, 2),
-            high=round(high, 2),
-            low=round(low, 2),
-            close=round(close, 2),
-            volume=round(volume, 2),
-        )
-
-    def _infer_trend(self, candles: List[Candle]) -> TrendState:
-        return infer_trend_from_swings(candles)
 
 
 def _timeframe_to_seconds(tf: str) -> int:
@@ -165,7 +69,7 @@ class IbkrMarketDataProvider:
         wait=wait_random_exponential(min=2, max=30),
         stop=stop_after_attempt(5),
         retry=retry_if_exception_type((TimeoutError, ConnectionError, ConnectionRefusedError, OSError)),
-        before_sleep=lambda retry_state: logger.warning(
+        before_sleep=lambda retry_state: logger.debug(
             "[RETRY] Retrying IBKR connection for %s: attempt %s, waiting %.1fs...",
             retry_state.args[1],  # symbol
             retry_state.attempt_number,
@@ -180,19 +84,17 @@ class IbkrMarketDataProvider:
             contract = build_contract(symbol)
         except ContractResolutionError as exc:
             self._invalid_symbols.add(symbol)
-            logger.warning(
-                "[STRUCTURE] %s contract build failed; skipping (%s)",
-                symbol,
-                exc,
-            )
-            logger.warning("[GUARD] Disabling %s for this run due to contract resolution failure", symbol)
+            logger.warning("[STRUCTURE] %s contract build failed; skipping", symbol)
             raise ContractResolutionError(symbol) from exc
+        
         metadata = self._metadata_for_symbol(symbol)
         asset_class = metadata.asset_class if metadata else AssetClass.EQUITY
         bar_size = self._ib_bar_size(timeframe, asset_class)
         duration = self._ib_duration(timeframe, limit, asset_class)
         what_to_show = self._what_to_show_for_asset_class(asset_class)
+
         try:
+            # [ANTIGRAVITY] Reverted to standard polling due to subscription requirements for RealTimeBars
             bars = self.ib.reqHistoricalData(
                 contract,
                 endDateTime="",
@@ -201,29 +103,24 @@ class IbkrMarketDataProvider:
                 whatToShow=what_to_show,
                 useRTH=False,
                 formatDate=1,
-                keepUpToDate=False,
+                keepUpToDate=False, 
             )
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc:
             if self._treat_as_no_signal(symbol, asset_class, exc):
                 return []
             reason = self._classify_historical_error(symbol, exc)
             if reason:
                 self._invalid_symbols.add(symbol)
-                logger.warning("[STRUCTURE] %s %s; disabling for this run (%s)", symbol, reason, exc)
+                logger.warning("[STRUCTURE] %s %s; disabling (%s)", symbol, reason, exc)
                 raise ContractResolutionError(symbol) from exc
             raise
-        candles: List[Candle] = []
+
+        candles = []
         for b in bars[-limit:]:
-            candles.append(
-                Candle(
-                    timestamp=b.date if isinstance(b.date, datetime) else datetime.strptime(b.date, "%Y%m%d %H:%M:%S"),
-                    open=float(b.open),
-                    high=float(b.high),
-                    low=float(b.low),
-                    close=float(b.close),
-                    volume=float(b.volume),
-                )
-            )
+            candles.append(Candle(
+                timestamp=b.date if isinstance(b.date, datetime) else datetime.strptime(b.date, "%Y%m%d %H:%M:%S"),
+                open=float(b.open), high=float(b.high), low=float(b.low), close=float(b.close), volume=float(b.volume)
+            ))
         return candles[-limit:]
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
@@ -255,7 +152,7 @@ class IbkrMarketDataProvider:
         return SYMBOL_METADATA.get(symbol.upper())
 
     @staticmethod
-    def _classify_historical_error(*args, **kwargs) -> str | None: # Temporarily modify for debugging
+    def _classify_historical_error(*args, **kwargs) -> str | None:
         symbol = "UNKNOWN_SYMBOL"
         exc = None
 
@@ -265,34 +162,27 @@ class IbkrMarketDataProvider:
             if len(args) > 1 and isinstance(args[1], Exception):
                 exc = args[1]
             elif len(args) == 1 and isinstance(args[0], Exception):
-                exc = args[0] # Handle case where only exception might be passed
+                exc = args[0]
 
         if 'symbol' in kwargs and isinstance(kwargs['symbol'], str):
             symbol = kwargs['symbol']
         if 'exc' in kwargs and isinstance(kwargs['exc'], Exception):
             exc = kwargs['exc']
-        
-        logger.error(
-            "DEBUG: _classify_historical_error received args: %s, kwargs: %s (symbol: %s, exc: %s)",
-            args, kwargs, symbol, exc
-        )
 
         if exc is None:
-            return "unknown error: exception object missing"
+             return None
 
         try:
             text = str(exc)
-        except Exception as e:
-            logger.error(
-                "Error processing exception in _classify_historical_error for symbol %s: %s (type: %s, repr: %s)",
-                symbol,
-                e,
-                type(exc),
-                repr(exc),
-            )
-            return f"failed to classify error due to internal error ({type(exc).__name__}: {repr(exc)})"
+        except Exception:
+            return f"failed to classify error {type(exc).__name__}"
 
-        # ... rest of the method as before ...
+        if "No security definition has been found" in text:
+            return "security definition not found (check symbol/exchange)"
+        if "HMDS query returned no data" in text:
+            return "no data returned for timeframe"
+        
+        return None
 
 
     def _treat_as_no_signal(self, symbol: str, asset_class: AssetClass, exc: Exception) -> bool:
@@ -320,8 +210,6 @@ class IbkrMarketDataProvider:
             "15m": "15 mins",
             "1h": "1 hour",
         }
-        if asset_class == AssetClass.FOREX:
-            return "5 mins"
         return mapping.get(tf.lower(), "5 mins")
 
     def _ib_duration(self, tf: str, limit: int, asset_class: AssetClass) -> str:
@@ -358,8 +246,27 @@ class CCXTMarketDataProvider:
         self._exchange = exchange
         self._symbol_map = symbol_map or {}
 
-    def get_latest_candles(self, symbol: str, timeframe: str, limit: int) -> List[Candle]:
+    def _normalize_ccxt_symbol(self, symbol: str) -> str:
+        """Normalizes symbol for CCXT (e.g. XAUUSD -> XAU/USD) using map and heuristics."""
+        # 0. Handle Metal Proxies (Kraken lacks Spot, use PAXG/Tether Gold)
+        if symbol == "XAUUSD":
+             return "PAXG/USD"
+             
+        # 1. Check explicit map
         sym = self._symbol_map.get(symbol.upper(), symbol)
+        
+        # 2. Heuristic: If 6 chars and no slash, and ends in common quote, split it.
+        if len(symbol) == 6 and "/" not in symbol:
+             base = symbol[:3]
+             quote = symbol[3:]
+             if quote in ["USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF"]:
+                  sym = f"{base}/{quote}"
+        return sym
+
+    def get_latest_candles(self, symbol: str, timeframe: str, limit: int) -> List[Candle]:
+        # [ANTIGRAVITY FIX] Robust Normalization for Kraken/CCXT
+        sym = self._normalize_ccxt_symbol(symbol)
+        
         # Normalize timeframe for CCXT (1m, 5m, 1h, etc.)
         tf = timeframe.lower().strip()
         # [ANTIGRAVITY FIX] Map verbose GUI timeframes to CCXT short codes
@@ -416,7 +323,7 @@ class CCXTMarketDataProvider:
         )
 
     def get_ticker(self, symbol: str) -> Ticker | None:
-        sym = self._symbol_map.get(symbol.upper(), symbol)
+        sym = self._normalize_ccxt_symbol(symbol)
         try:
             data = self._exchange.fetch_ticker(sym)
             return Ticker(
@@ -452,7 +359,7 @@ class CCXTMarketDataProvider:
                 return None
 
     def get_order_book(self, symbol: str, depth: int = 10) -> OrderBook | None:
-        sym = self._symbol_map.get(symbol.upper(), symbol)
+        sym = self._normalize_ccxt_symbol(symbol)
         try:
             data = self._exchange.fetch_order_book(sym, limit=depth)
             bids = [OrderBookLevel(price=float(r[0]), size=float(r[1])) for r in data.get("bids", [])]
@@ -466,7 +373,7 @@ class CCXTMarketDataProvider:
         return infer_trend_from_swings(candles)
 
     def get_market_definition(self, symbol: str) -> dict | None:
-        sym = self._symbol_map.get(symbol.upper(), symbol)
+        sym = self._normalize_ccxt_symbol(symbol)
         try:
             if not self._exchange.markets:
                 self._exchange.load_markets()

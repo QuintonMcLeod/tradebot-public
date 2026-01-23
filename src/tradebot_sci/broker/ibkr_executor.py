@@ -112,6 +112,7 @@ class IbkrExecutor:
         self.placed_orders = []
         self._symbol = ""
         self._contract_cache: dict[str, object] = {}
+        self._min_tick_cache: dict[str, float] = {}
         self._native_stop_supported: dict[str, bool] = {}
         self._local_stop_info: dict[str, dict[str, Any]] = {}
         self._synthetic_stops: dict[str, SyntheticStop] = {}
@@ -146,6 +147,7 @@ class IbkrExecutor:
         self._allowed_symbols = (
             {symbol.upper() for symbol in allowed_symbols} if allowed_symbols else None
         )
+        self._account_segments: dict[str, float] = {}
         store_path = (
             position_hold_store_path
             or os.getenv("POSITION_HOLD_STORE_PATH")
@@ -166,8 +168,13 @@ class IbkrExecutor:
         }
 
     @property
-    def position_hold_store(self):
+    def position_hold_store(self) -> PositionHoldStore:
         return self._position_hold_store
+
+    @property
+    def profile(self):
+        """Alias for profile_settings to maintain interface compatibility with loop.py."""
+        return self.profile_settings
 
     @staticmethod
     def _effective_tif(asset_class: AssetClass | None, exchange: str | None, default: str) -> str:
@@ -191,6 +198,57 @@ class IbkrExecutor:
             )
             return "Minutes"
         return default
+
+    def _get_min_tick(self, contract: object, symbol: str) -> float | None:
+        cached = self._min_tick_cache.get(symbol)
+        if cached:
+            return cached
+        if not self.ib:
+            return None
+        try:
+            details = self.ib.reqContractDetails(contract)
+        except Exception as exc:  # pragma: no cover - network/venue errors
+            logger.warning("[IBKR] Failed to fetch contract details for %s: %s", symbol, exc)
+            return None
+        if not details:
+            return None
+        min_tick = getattr(details[0], "minTick", None)
+        if not min_tick or min_tick <= 0:
+            return None
+        self._min_tick_cache[symbol] = float(min_tick)
+        return float(min_tick)
+
+    @staticmethod
+    def _round_price_to_tick(price: float, tick: float) -> float:
+        from decimal import Decimal, ROUND_HALF_UP
+
+        if tick <= 0:
+            return price
+        ticks = Decimal(str(price)) / Decimal(str(tick))
+        rounded_ticks = ticks.to_integral_value(rounding=ROUND_HALF_UP)
+        return float(rounded_ticks * Decimal(str(tick)))
+
+    @staticmethod
+    def _align_bracket_prices(
+        direction: str,
+        entry: float,
+        take_profit: float,
+        stop_loss: float,
+        tick: float,
+    ) -> tuple[float, float, float]:
+        if tick <= 0:
+            return entry, take_profit, stop_loss
+        if direction == "long":
+            if take_profit <= entry:
+                take_profit = entry + tick
+            if stop_loss >= entry:
+                stop_loss = entry - tick
+        else:
+            if take_profit >= entry:
+                take_profit = entry - tick
+            if stop_loss <= entry:
+                stop_loss = entry + tick
+        return entry, take_profit, stop_loss
 
     @staticmethod
     def _apply_zerohash_minutes_tif(order: Any) -> None:
@@ -296,6 +354,11 @@ class IbkrExecutor:
             return None
         currency = getattr(contract, "currency", None) or "USD"
         key = (contract_symbol.upper(), currency.upper())
+        if contract_symbol.upper() in {"BIP", "BITCOIN", "BTC"}:
+            return "BTCUSD"
+        if contract_symbol.upper() in {"ETP", "ETHER", "ETH"}:
+            return "ETHUSD"
+
         if key in self._contract_symbol_map:
             return self._contract_symbol_map[key]
         fallback = f"{contract_symbol.upper()}{currency.upper()}"
@@ -313,11 +376,13 @@ class IbkrExecutor:
         sym = (symbol or "").upper()
         if not sym or not contract:
             return False
+        contract_symbol = (getattr(contract, "symbol", "") or "").upper()
+        if contract_symbol == sym:
+            return True
         canonical = self._canonical_symbol_for_contract(contract)
         if canonical and canonical.upper() == sym:
             return True
-        contract_symbol = (getattr(contract, "symbol", "") or "").upper()
-        return contract_symbol == sym
+        return False
 
     def _is_symbol_allowed(self, symbol: str) -> bool:
         if not self._allowed_symbols:
@@ -1085,6 +1150,8 @@ class IbkrExecutor:
             candidate = max(0.0, min(units_by_risk, shares_cap))
         else:
             candidate = max(0, min(int(units_by_risk), int(shares_cap)))
+        if self._requires_integer_qty(symbol, metadata):
+            candidate = self._round_quantity_to_int(candidate)
         if candidate <= 0 or (not allows_fractional and candidate < 1):
             logger.info(
                 "[GUARD] Suppressed %s entry: candidate_shares=%s (remaining_risk=%.2f, per_share_risk=%.4f, cap=%s)",
@@ -1159,6 +1226,17 @@ class IbkrExecutor:
             if step:
                 return step
         return DEFAULT_CRYPTO_QTY_STEPS.get(symbol.upper(), 0.0)
+
+    @staticmethod
+    def _round_quantity_to_int(qty: float) -> float:
+        return float(max(1, int(qty)))
+
+    @staticmethod
+    def _requires_integer_qty(symbol: str, metadata: SymbolMetadata | None) -> bool:
+        if not metadata:
+            return False
+        sym = symbol.upper()
+        return metadata.asset_class == AssetClass.FOREX and sym.startswith(("XAU", "XAG", "XPT", "XPD"))
 
     def _apply_crypto_fractional_symbol(
         self, symbol: str, qty: float, entry_price: float
@@ -1983,16 +2061,21 @@ class IbkrExecutor:
             logger.warning("[ACCOUNT] Failed to refresh account summary: %s", exc)
             return
         summary: dict[str, float] = {}
+        segments: dict[str, float] = {}
         for row in rows:
             tag = getattr(row, "tag", None)
             value = getattr(row, "value", None)
             if not tag or value is None:
                 continue
             try:
-                summary[tag] = float(value)
+                val_float = float(value)
+                summary[tag] = val_float
+                if "-" in tag:
+                    segments[tag] = val_float
             except ValueError:
                 continue
         self._account_summary = summary
+        self._account_segments = segments
         self._last_account_summary = datetime.now(timezone.utc)
         net_liq = summary.get("NetLiquidation")
         if isinstance(net_liq, (int, float)):
@@ -2040,33 +2123,35 @@ class IbkrExecutor:
         threshold = self.runtime.min_equity_for_margin
         if threshold <= 0:
             return False, None
-        net_liq = self.get_net_liquidation()
+        
+        # Use segment-specific net liquidation if available
+        # NetLiquidation-S: Securities (Equities, Forex)
+        # NetLiquidation-C: Commodities (Futures)
+        seg_tag = "NetLiquidation-C" if metadata.asset_class == AssetClass.FUTURE else "NetLiquidation-S"
+        net_liq = self._account_segments.get(seg_tag, self.get_net_liquidation())
+        
         if net_liq is None or net_liq >= threshold:
             return False, None
-        reason = f"net_liq={net_liq:.2f} threshold={threshold:.2f}"
+        
+        reason = f"segment={seg_tag} liquid={net_liq:.2f} threshold={threshold:.2f}"
         fragile_asset = metadata.asset_class
+        
+        # [ANTIGRAVITY FIX] Margin Guard now checks the specific segment.
+        # If the user has sufficient Forex capital ($400) but low Futures ($0),
+        # only Futures trades will be blocked.
+        
         block_short = fragile_asset == AssetClass.EQUITY and decision.action == "enter_short"
-        block_fx = fragile_asset == AssetClass.FOREX and decision.action in {
-            "enter_long",
-            "enter_short",
-            "scale_in",
-        }
-        if block_short:
+        block_futures = fragile_asset == AssetClass.FUTURE
+        block_forex = fragile_asset == AssetClass.FOREX # User says "no need to exempt if separated"
+        
+        if block_short or block_futures or block_forex:
             logger.warning(
-                "[MARGIN_GUARD] net_liq=%.2f < %.2f; blocking short entry for %s",
-                net_liq,
-                threshold,
+                "[MARGIN_GUARD] %s; blocking trade for %s",
+                reason,
                 symbol,
             )
             return True, reason
-        if block_fx:
-            logger.warning(
-                "[MARGIN_GUARD] net_liq=%.2f < %.2f; blocking FX trade for %s",
-                net_liq,
-                threshold,
-                symbol,
-            )
-            return True, reason
+            
         return False, None
 
     def should_block_for_hold(
@@ -2101,10 +2186,25 @@ class IbkrExecutor:
         )
         return True, detail, age
 
-    def _has_active_orders_or_position(self, symbol: str, state: dict | None = None) -> bool:
-        """Checks for any live position or outstanding working orders for the symbol."""
-        state = state or self._fetch_symbol_state(symbol)
-        if abs(state.get("position_shares", 0)) > 0:
+    def _has_active_orders_or_position(self, symbol: str, state: dict) -> bool:
+        """True if we have a position OR open orders for this specific symbol.
+        
+        Note: If max_concurrent_positions > 1, we only return True if THIS symbol
+        is already active. We rely on the loops to handle the total portfolio cap.
+        """
+        max_pos = int(self.profile_settings.max_concurrent_positions if self.profile_settings else 1)
+        
+        # If we are limited to 1 position, then ANY active position/order elsewhere blocks us.
+        if max_pos <= 1:
+            total_active = len(self.list_open_position_symbols())
+            if total_active > 0:
+                # But wait, if the one active position IS this symbol, we shouldn't block scale-ins
+                # This is handled by the caller checking if action == "scale_in"
+                # For a fresh entry, we block if total_active > 0.
+                return True
+
+        # If we have multi-slot capability, we only care if THIS symbol is busy.
+        if abs(state.get("position_shares", 0)) > 1e-8:
             return True
         if state.get("working_orders", 0) > 0:
             return True
@@ -2747,7 +2847,9 @@ class IbkrExecutor:
         try:
             positions = self.ib.positions()
             for pos in positions:
-                if self._contract_matches_symbol(symbol, getattr(pos, "contract", None)):
+                contract = getattr(pos, "contract", None)
+                if self._contract_matches_symbol(symbol, contract):
+                    logger.debug(f"[IBKR] Match: symbol={symbol} contract={getattr(contract, 'symbol', 'N/A')} qty={pos.position}")
                     state["position_shares"] += pos.position
                     state["avg_price"] = float(pos.avgCost)
             if state["position_shares"] > 0:
@@ -2789,6 +2891,28 @@ class IbkrExecutor:
         except Exception as e:
             logger.error(f"Failed to process open orders for {symbol}: {e}")
             pass
+        if state["position_shares"] == 0 and state["working_orders"] > 0:
+            try:
+                open_orders = self.ib.openOrders()
+                has_active = False
+                for o in open_orders:
+                    contract = getattr(o, "contract", None)
+                    if not self._contract_matches_symbol(symbol, contract):
+                        continue
+                    status_name = getattr(getattr(o, "orderStatus", None), "status", None)
+                    if status_name in WORKING_ORDER_STATUSES:
+                        has_active = True
+                        break
+                if not has_active:
+                    state["working_orders"] = 0
+                    state["working_order_statuses"] = []
+            except Exception as e:
+                logger.debug(f"Failed to verify openOrders for {symbol}: {e}")
+
+        if symbol.upper() == "BTCUSD":
+            symbol = "BIP"
+        elif symbol.upper() == "ETHUSD":
+            symbol = "ETP"
 
         local = self._local_stop_info.get(symbol)
         if local:
@@ -3126,6 +3250,12 @@ class IbkrExecutor:
         return contract
 
     def _discover_zero_hash_symbols(self) -> list[str]:
+        # [ANTIGRAVITY FIX] Skip Zerohash management if IBKR is not the primary crypto broker
+        broker_mode = (os.getenv("BROKER_MODE") or "").strip().lower()
+        if broker_mode in {"hybrid", "alternative"}:
+            logger.info("[CRYPTO][IBKR] Skipping Zerohash discovery (managed by alternative broker)")
+            return []
+
         symbols: list[str] = []
         for sym, metadata in SYMBOL_METADATA.items():
             if metadata.asset_class != AssetClass.CRYPTO:
@@ -3164,8 +3294,8 @@ class IbkrExecutor:
             except Exception:
                 exchange = (metadata.exchange or "").upper() or None
             if exchange == "ZEROHASH":
-                long_only = True
-                supports_short = False
+                long_only = False
+                supports_short = True
                 supports_bracket_children = False
                 supports_native_brackets = False
                 supports_native_stops = False
@@ -3207,6 +3337,15 @@ class IbkrExecutor:
             metadata.asset_class == AssetClass.CRYPTO and contract_exchange.upper() == "ZEROHASH"
         )
         tif = self._effective_tif(metadata.asset_class, contract_exchange, tif)
+        min_tick = self._get_min_tick(contract, symbol) or 0.0
+        if min_tick > 0:
+            entry_price = self._round_price_to_tick(entry_price, min_tick)
+            stop_loss = self._round_price_to_tick(stop_loss, min_tick)
+            if take_profit is not None:
+                take_profit = self._round_price_to_tick(take_profit, min_tick)
+                entry_price, take_profit, stop_loss = self._align_bracket_prices(
+                    direction, entry_price, take_profit, stop_loss, min_tick
+                )
 
         if zerohash_crypto:
             logger.info(
@@ -3359,6 +3498,10 @@ class IbkrExecutor:
                 None,
             )
             return
+        min_tick = self._get_min_tick(contract, symbol) or 0.0
+        if min_tick > 0:
+            take_profit = self._round_price_to_tick(take_profit, min_tick)
+            stop_loss = self._round_price_to_tick(stop_loss, min_tick)
 
         tp_order = LimitOrder(
             action=exit_side,

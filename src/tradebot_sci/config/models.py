@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, HttpUrl, NonNegativeInt, PositiveInt
-from tradebot_sci.config.broker import BrokerSettings
+from tradebot_sci.config.broker import BrokerSettings, OandaSettings
 
 
 class LoggingSettings(BaseModel):
@@ -43,25 +43,25 @@ class MarketSettings(BaseModel):
     default_timeframe: str = Field(default="5m")
     max_candles: PositiveInt = Field(default=200)
     symbols: list[str] = Field(default_factory=list, description="Symbols the scanner will consider")
-    exchange_provider: Literal["primary", "alternative", "hybrid", "coinbase_futures"] = Field(
+    exchange_provider: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda"] = Field(
         default="primary",
         description="DEPRECATED: Use market_data_mode and broker_mode instead. Selects global mode.",
     )
-    market_data_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures"] = Field(
+    market_data_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda"] = Field(
         default="primary",
-        description="Selects the market data provider strategy (primary=IBKR, alternative=Crypto plugin, hybrid=Mix, coinbase_futures=Coinbase V3 Futures).",
+        description="Selects the market data provider strategy (primary=IBKR, alternative=Crypto plugin, hybrid=Mix, coinbase_futures=Coinbase V3 Futures, oanda=OANDA v20).",
     )
-    broker_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures"] = Field(
+    broker_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda"] = Field(
         default="primary",
-        description="Selects the broker execution strategy (primary=IBKR, alternative=CCXT, hybrid=Mix, coinbase_futures=Coinbase V3 Futures).",
+        description="Selects the broker execution strategy (primary=IBKR, alternative=CCXT, hybrid=Mix, coinbase_futures=Coinbase V3 Futures, oanda=OANDA v20).",
     )
-    alternative_market_data: Literal["mock", "coinbase", "coinbase_futures"] = Field(
+    alternative_market_data: Literal["mock", "coinbase", "coinbase_futures", "ccxt", "oanda"] = Field(
         default="mock",
-        description="Market data backend to use when exchange_provider=alternative (mock or coinbase public REST).",
+        description="Market data backend to use when exchange_provider=alternative (mock, ccxt, oanda, or coinbase).",
     )
-    alternative_broker: Literal["mock", "ccxt", "coinbase_futures"] = Field(
+    alternative_broker: Literal["mock", "ccxt", "coinbase_futures", "oanda"] = Field(
         default="mock",
-        description="Execution backend to use when exchange_provider=alternative and EXECUTE_TRADES=true (mock or ccxt).",
+        description="Execution backend to use when exchange_provider=alternative and EXECUTE_TRADES=true (mock, ccxt, or oanda).",
     )
     crypto_routing: CryptoRoutingSettings = Field(
         default_factory=CryptoRoutingSettings,
@@ -710,6 +710,7 @@ class Settings(BaseModel):
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     schedule: ScheduleSettings = Field(default_factory=ScheduleSettings)
     broker: Optional[BrokerSettings] = None
+    oanda: Optional[OandaSettings] = None
 
     def get_active_profile(self) -> TradingProfileSettings:
         profile = self.profiles.get(self.app.profile_name)
@@ -721,3 +722,47 @@ class Settings(BaseModel):
 @lru_cache
 def get_cached_settings(settings: Settings) -> Settings:
     return settings
+
+
+class UserConfig:
+    # Strategy Selection
+    # Variants: 'evolution', 'robocop', 'quantum', 'london_breakout', 'mean_reversion', 'hyperscalper'
+    STRATEGY_VARIANT = 'rubberband_reaper'  # The Rubberband Reaper (+865%, 39% WR, 3.7:1 R:R)
+    
+    # Extreme Risk Management (Goal: 100%-400% / week) 
+    # VERIFIED: +7,036% PnL with Tiered Risk (20%/10%/1%)
+    # Tiered Risk (Anti-Martingale):
+    #   - Below $1,000: 20% (aggressive growth)
+    #   - $1,000-$5,000: 10% (growth)
+    #   - Above $5,000: 1% (wealth protection)
+    BASE_RISK_PCT = 0.20        # 20% starting risk (tiered down as account grows)
+    COMPOUND_PROFITS = True     # Reinvest all gains for exponential growth
+    
+    # Singularity Pyramiding (Infinite Scale)
+    # NOTE: Super-Extreme mode (RSI <15/>85) prevents over-scaling
+    INFINITE_PYRAMIDING = True  # bypass MAX_PYRAMID_ENTRIES
+    MAX_PYRAMID_ENTRIES = 1000  # Effective infinity
+    PYRAMID_TRIGGER_PCT = 0.0001 # 0.01% (Instant Load)
+    PYRAMID_RISK_LOAD = 1.00    # 100% Risk on Load (Aggressive)
+    PYRAMID_RISK_SCALE = 1.00   # 100% Risk on Scale (Aggressive)
+    
+    # Efficiency Gates
+    STAGNATION_EXIT_ENABLED = False
+    STAGNATION_EXIT_MINUTES = 60  # Kill trade if PnL <= 0 after 60 mins
+    
+    # Chop Scalp
+    CHOP_SCALP_TARGET_USD = 1.00  # Bank profits in weak trends (Increased from 0.40)
+    CHOP_STRENGTH_THRESHOLD = 0.5 # Below this is considered "Chop"
+    
+    # RoboCop Optimization (Machine Speed)
+    COMBAT_MODE_ENABLED = True   # Bypass human delays (Session, Confirmation)
+    
+    # Fast Exit Logic ("Chop Top")
+    ROBO_FAST_EXIT_ENABLED = True
+    CHOP_TP_EXIT_ENABLED = False
+    CHOP_MAX_BARS = 10           # Exit if in chop for > 10 bars and profitable (Increased from 3)
+    
+    # Robot Strategy Evolution (Robot Speed)
+    ROBO_CHOP_SCALP_ENABLED = True # Trade inside the range (NTZ)
+    RUNNER_GRACE_ENABLED = True    # Allow winners to run during momentum
+    ROBO_ENTRY_SCORE_THRESHOLD = 35.0 # Quality over quantity

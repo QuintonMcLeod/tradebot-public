@@ -308,7 +308,7 @@ def detect_continuation(
         # [ALGORITHMIC PRECISION]
         # Check momentum of the recent move to allow V-Bottoms (1 swing)
         # Calculate ATR-based momentum
-        atr = _atr(recent, period=14) or 0.0001
+        atr = calculate_atr(recent, period=14) or 0.0001
         last_move_size = recent[-1].close - recent[0].close
         momentum_score = last_move_size / (atr * len(recent)) # Pips per bar per ATR? No. 
         # Simpler: If last candle is huge (> 2 ATR), assume momentum.
@@ -357,7 +357,7 @@ def detect_continuation(
 
     elif trend_direction == "short":
         # [ALGORITHMIC PRECISION]
-        atr = _atr(recent, period=14) or 0.0001
+        atr = calculate_atr(recent, period=14) or 0.0001
         is_high_momentum = (recent[-1].open - recent[-1].close) > (atr * 2.0)
         
         # [SMART OVERRIDE]
@@ -484,7 +484,7 @@ def detect_indication(
             swing_high = recent[swing_idx].close
             # Check if any candle after this swing closed above it with CONVICTION
             # [ALGORITHMIC PRECISION] Noise Filter
-            atr = _atr(recent, period=14) or 0.0001
+            atr = calculate_atr(recent, period=14) or 0.0001
             conviction_buffer = atr * 0.05
             
             for i in range(swing_idx + 1, len(recent)):
@@ -499,7 +499,7 @@ def detect_indication(
             swing_low = recent[swing_idx].close
             # Check if any candle after this swing closed below it with CONVICTION
             # [ALGORITHMIC PRECISION] Noise Filter
-            atr = _atr(recent, period=14) or 0.0001
+            atr = calculate_atr(recent, period=14) or 0.0001
             conviction_buffer = atr * 0.05
             
             for i in range(swing_idx + 1, len(recent)):
@@ -621,7 +621,7 @@ def detect_correction(
         # Calculate Impulse Velocity (Pips per Bar of the move)
         move_bars = max(1, indication_idx_in_window - swing_lows[-1])
         velocity = move_size / move_bars
-        atr = _atr(recent, period=14) or 0.0001
+        atr = calculate_atr(recent, period=14) or 0.0001
         relative_velocity = velocity / atr
         
         # If Impulse was > 1.0 ATR per bar (Explosive), allow shallow pullback (15%)
@@ -698,7 +698,7 @@ def detect_correction(
         # [DYNAMIC LIMITS]
         move_bars = max(1, indication_idx_in_window - swing_highs[-1])
         velocity = move_size / move_bars
-        atr = _atr(recent, period=14) or 0.0001
+        atr = calculate_atr(recent, period=14) or 0.0001
         relative_velocity = velocity / atr
         
         # If Impulse was > 1.0 ATR per bar (Explosive), allow shallow pullback (15%)
@@ -786,7 +786,7 @@ def detect_structure_invalidation(
 
     recent = candles[-window:] if window > 0 else candles
     last = recent[-1]
-    atr = _atr(recent, period=atr_period)
+    atr = calculate_atr(recent, period=atr_period)
     if atr is None:
         return None
     buffer = float(max(0.0, atr * atr_mult))
@@ -820,7 +820,7 @@ def detect_structure_invalidation(
     return None
 
 
-def _atr(candles: list[Candle], *, period: int = 14) -> float | None:
+def calculate_atr(candles: list[Candle], *, period: int = 14) -> float | None:
     if period < 1 or len(candles) < period + 1:
         return None
     trs: list[float] = []

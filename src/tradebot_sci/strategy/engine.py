@@ -24,6 +24,7 @@ from tradebot_sci.strategy.decisions import (
 )
 from tradebot_sci.confluence.context import build_confluence
 from tradebot_sci.strategy.icc_signals import (
+    calculate_atr,
     detect_correction,
     detect_continuation,
     detect_indication,
@@ -61,26 +62,7 @@ logger = logging.getLogger(__name__)
 
 # [USER CONFIGURATION]
 # SINGULARITY STRATEGY SETTINGS (Edit this block to tune the bot)
-class UserConfig:
-    # Risk Management
-    BASE_RISK_PCT = 0.005       # 0.5% Survival Risk per Initial Trade
-    
-    # Singularity Pyramiding (Infinite Scale)
-    MAX_PYRAMID_ENTRIES = 50    # limit: 50
-    PYRAMID_TRIGGER_PCT = 0.0001 # 0.01% (Instant Load)
-    PYRAMID_RISK_LOAD = 1.00    # 100% Risk on Load (Aggressive)
-    PYRAMID_RISK_SCALE = 1.00   # 100% Risk on Scale (Aggressive)
-    
-    # Efficiency Gates
-    STAGNATION_EXIT_ENABLED = True
-    STAGNATION_EXIT_MINUTES = 60  # Kill trade if PnL <= 0 after 60 mins
-    
-    # Chop Scalp
-    CHOP_SCALP_TARGET_USD = 0.40  # Bank small profits in weak trends
-    CHOP_STRENGTH_THRESHOLD = 0.5 # Below this is considered "Chop"
-    
-    # RoboCop Optimization (Machine Speed)
-    COMBAT_MODE_ENABLED = True   # Bypass human delays (Session, Confirmation)
+from tradebot_sci.config.models import UserConfig
 
 
 
@@ -102,9 +84,46 @@ class StrategyEngine:
         self.symbol = symbol
         self._last_auto_entry_time: dict[str, datetime] = {}
         self._last_scale_out_time: dict[str, datetime] = {}
+        self._chop_bars_count: dict[str, int] = {}
         # AI decision cache with LRU eviction (max 100 entries)
         self._ai_decision_cache: OrderedDict[str, tuple[float, str, str, datetime, AITradeDecision]] = OrderedDict()
         self._ai_decision_cache_max_size = 100
+        
+        # Load the selected strategy variant
+        self._strategy = self._load_strategy_variant()
+        logger.info(f"[ENGINE] Loaded strategy variant: {self._strategy.name}")
+
+    def _load_strategy_variant(self):
+        """Factory method for loading strategy variants."""
+        variant = getattr(UserConfig, "STRATEGY_VARIANT", "evolution").lower()
+        if variant == "evolution":
+            from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
+            return RobotEvolutionStrategy()
+        elif variant == "robocop":
+            from tradebot_sci.strategy.variants.robocop import RoboCopStrategy
+            return RoboCopStrategy()
+        elif variant == "london_breakout":
+            from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
+            return LondonBreakoutStrategy()
+        elif variant == "mean_reversion":
+            from tradebot_sci.strategy.variants.mean_reversion import MeanReversionStrategy
+            return MeanReversionStrategy()
+        elif variant == "rubberband_reaper":
+            from tradebot_sci.strategy.variants.rubberband_reaper import RubberbandReaperStrategy
+            return RubberbandReaperStrategy()
+        elif variant == "hyperscalper":
+            from tradebot_sci.strategy.variants.hyper_scalper import HyperScalperStrategy
+            return HyperScalperStrategy()
+        elif variant == "breakout":
+            from tradebot_sci.strategy.variants.breakout import VolatilityBreakoutStrategy
+            return VolatilityBreakoutStrategy()
+        elif variant == "aggregator":
+            from tradebot_sci.strategy.variants.aggregator import AggregatorStrategy
+            return AggregatorStrategy()
+        else:
+            # Fallback to Evolution
+            from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
+            return RobotEvolutionStrategy()
 
     def build_market_context(
         self,
@@ -122,7 +141,6 @@ class StrategyEngine:
         sweep = self._detect_sweep(snapshot)
         indication = self._detect_indication(snapshot)
         correction = self._detect_correction(snapshot, indication)
-        continuation = self._detect_continuation(snapshot, sweep, indication, correction)
         continuation = self._detect_continuation(snapshot, sweep, indication, correction)
         # Pass all signals to _determine_phase for strict state machine
         phase = self._determine_phase(snapshot, sweep=sweep, continuation=continuation, indication=indication, correction=correction)
@@ -249,6 +267,8 @@ class StrategyEngine:
                 "sweep_dir": sweep.direction if sweep else None,
             }
         )
+        
+        # [ROBOCOP ALIGNMENT] Backtest uses fixed thresholds and 1:1 points
         score, score_breakdown, score_threshold = self._score_icc_entry(
             snapshot=snapshot,
             sweep=sweep,
@@ -265,6 +285,28 @@ class StrategyEngine:
             }
         )
 
+        # [NEW ARCHITECTURE] Strategy Variant Override
+        # We always check for variant signals. If a position is open, 
+        # the variant can return SCALE_IN or EXIT decisions.
+        if open_position and abs(open_position.get("size", 0.0)) > 0:
+            # 1. Check for Exit Signal
+            variant_exit = self._strategy.check_exit_signal(snapshot, open_position, gates)
+            if variant_exit is not None:
+                logger.info(f"[ENGINE] Variant '{self._strategy.name}' triggered EXIT: {variant_exit.summary()}")
+                return variant_exit
+            
+            # 2. Check for Entry Signal (Pyramiding)
+            variant_entry = self._strategy.check_entry_signal(snapshot, gates, open_position=open_position)
+            if variant_entry and variant_entry.action == "scale_in":
+                logger.info(f"[ENGINE] Variant '{self._strategy.name}' triggered SCALE_IN: {variant_entry.summary()}")
+                return validate_decision(variant_entry, execution_capabilities=execution_capabilities)
+        else:
+            variant_entry = self._strategy.check_entry_signal(snapshot, gates)
+            if variant_entry is not None:
+                logger.info(f"[ENGINE] Variant '{self._strategy.name}' triggered ENTRY: {variant_entry.summary()}")
+                return validate_decision(variant_entry, execution_capabilities=execution_capabilities)
+
+        # Legacy/Fallback Logic below...
         # Check invalidation for open positions
         invalidation_decision = self._check_invalidation_gate(snapshot, open_position, gates)
         if invalidation_decision is not None:
@@ -303,10 +345,6 @@ class StrategyEngine:
             if session_decision is not None:
                 return session_decision
 
-            # ICC scoring gate (points-based)
-            # If score passes threshold, proceed with auto-entry
-            # If score fails but AI is available, skip score gate and let AI decide
-            # If score fails and no AI, block entry
             score_gate_decision = self._check_icc_entry_score(
                 snapshot,
                 sweep,
@@ -319,40 +357,28 @@ class StrategyEngine:
                 score_threshold,
                 gates,
             )
+            
             if score_gate_decision is not None:
-                # Score failed - check if AI can override
-                if self.ai_client is not None:
-                     # OPIMIZATION: Don't ask AI if the setup is fundamentally weak (HTF strength)
-                     # This prevents 1000s of API calls during chop
-                    min_htf_strength = getattr(self.profile, "icc_auto_entry_min_htf_strength", 0.0)
-                    htf_strength = float(snapshot.trend_htf.strength or 0.0)
-                    
-                    # DEBUG LOG
-                    logger.info(f"[DEBUG] HTF Gate Check: strength={htf_strength}, min={min_htf_strength}, score={score}")
-
-                    if htf_strength < min_htf_strength:
-                        logger.info(
-                            "[STRATEGY] Skipping AI override: HTF strength %.2f < %.2f (Hard Gate)",
-                            htf_strength, min_htf_strength
-                        )
-                        return score_gate_decision
-                    
-                    if score < 10.0:
-                         logger.info(f"[STRATEGY] Skipping AI override: Score {score} is too low (Garbage)")
-                         return score_gate_decision
-
-                    # AI available - skip score gate, let AI decide later
-                    logger.info(
-                        "[SCORING] Score %s/%s failed, deferring to AI decision",
-                        score,
-                        score_threshold,
-                    )
+                # [ROBOCOP ALIGNMENT] Bypass Score Gates if Combat Mode is Enabled
+                if UserConfig.COMBAT_MODE_ENABLED:
+                    logger.info(f"[ROBOCOP] Bypassing Score Gates (htf_str={snapshot.trend_htf.strength:.2f}, score={score:.1f})")
                 else:
-                    # No AI - enforce score gate
+                    # Not in Combat Mode - Enforce the gate
                     return score_gate_decision
 
             auto_entry_enabled = bool(getattr(self.profile, "icc_auto_entry_enabled", False))
-            if continuation is not None:
+            
+            # [ROBO-EVOLUTION] Chop Scalping
+            valid_auto_signal = (continuation is not None) or (sweep is not None and indication is not None)
+            
+            # If no standard signal, check if we can scalp the chop
+            if not valid_auto_signal and UserConfig.ROBO_CHOP_SCALP_ENABLED:
+                chop_scalp_decision = self._check_chop_scalp_entry(snapshot, gates)
+                if chop_scalp_decision:
+                    logger.info(f"[ROBO-SCALP] Triggering chop scalp for {snapshot.symbol}")
+                    return validate_decision(chop_scalp_decision, execution_capabilities=execution_capabilities)
+
+            if valid_auto_signal:
                 bar_time = current_bar_time
                 if bar_time is None and snapshot.candles:
                     bar_time = getattr(snapshot.candles[-1], "timestamp", None) or getattr(
@@ -365,9 +391,9 @@ class StrategyEngine:
                         bar_time = bar_time.replace(tzinfo=timezone.utc)
                     eastern_time = bar_time.astimezone(ZoneInfo("America/New_York"))
                     logger.info(
-                        "[AUTO-ENTRY] Continuation detected: time=%s, direction=%s, sweep=%s, htf_strength=%.2f",
+                        "[AUTO-ENTRY] Auto-signal detected: time=%s, type=%s, sweep=%s, htf_strength=%.2f",
                         eastern_time.strftime("%Y-%m-%d %H:%M %Z"),
-                        getattr(continuation, "direction", "unknown"),
+                        "Continuation" if continuation else "Sweep+Indication",
                         sweep is not None,
                         snapshot.trend_htf.strength,
                     )
@@ -424,7 +450,7 @@ class StrategyEngine:
                 min_htf_strength = getattr(self.profile, "icc_auto_entry_min_htf_strength", 0.0)
                 htf_strength = snapshot.trend_htf.strength
 
-                if htf_strength < min_htf_strength:
+                if htf_strength < min_htf_strength and not UserConfig.COMBAT_MODE_ENABLED:
                     logger.info(
                         "[AUTO-ENTRY] BLOCKED by HTF strength: %.2f < %.2f",
                         htf_strength,
@@ -435,6 +461,11 @@ class StrategyEngine:
                         f"< minimum {min_htf_strength:.2f}"
                     )
                 else:
+                    if UserConfig.COMBAT_MODE_ENABLED and htf_strength < min_htf_strength:
+                         logger.info(
+                            "[ROBOCOP] Bypassing HTF strength gate (%.2f < %.2f) for combat mode entry",
+                            htf_strength, min_htf_strength
+                        )
                     auto_decision = self._build_auto_entry_decision(
                         snapshot,
                         continuation=continuation,
@@ -458,20 +489,20 @@ class StrategyEngine:
                         auto_decision = auto_decision.copy(update={"gates": gates})
                         self._last_auto_entry_time[snapshot.symbol] = auto_entry_time
                         return validate_decision(auto_decision, execution_capabilities=execution_capabilities)
+        base_decision = stand_aside_decision(
+            snapshot.symbol,
+            timeframe,
+            "Bot stand aside: no auto-entry trigger",
+        )
+        base_decision = base_decision.copy(update={"gates": gates})
+        if self.ai_client is None:
+            return base_decision
         context = self.build_market_context(
             snapshot,
             open_position=open_position,
             execution_capabilities=execution_capabilities,
             confluence=confluence,
         )
-        if self.ai_client is None:
-            decision = stand_aside_decision(
-                snapshot.symbol,
-                timeframe,
-                "AI disabled for deterministic backtest",
-            )
-            decision = decision.copy(update={"gates": gates})
-            return decision
 
         # OPTIMIZATION: Final check to preventing expensive AI calls on weak setups
         # If auto-entry was blocked by HTF strength, AI should typically not override it in backtest
@@ -481,13 +512,10 @@ class StrategyEngine:
         # Only block if we have a hard gate configured (min > 0)
         if min_htf_strength > 0 and htf_strength < min_htf_strength:
              logger.info(f"[STRATEGY] Optimization: Blocking AI call for {self.symbol} (HTF {htf_strength:.2f} < {min_htf_strength:.2f})")
-             decision = stand_aside_decision(
-                 snapshot.symbol, 
-                 timeframe, 
-                 f"AI Blocked: HTF Strength {htf_strength:.2f} < {min_htf_strength:.2f}"
-             )
-             decision = decision.copy(update={"gates": gates})
-             return decision
+             return base_decision.copy(update={
+                 "structure_summary": f"Bot stand aside: no auto-entry trigger; AI blocked: HTF Strength {htf_strength:.2f} < {min_htf_strength:.2f}",
+                 "notes": f"Bot stand aside: no auto-entry trigger; AI blocked: HTF Strength {htf_strength:.2f} < {min_htf_strength:.2f}",
+             })
 
         # Hybrid cache: 15-min TTL + HTF/LTF trend state tracking + fresh continuation check
         cache_score = round(score, 2)
@@ -554,17 +582,13 @@ class StrategyEngine:
             stack_label=stack_label,
             confluence=confluence,
         )
-        
-        # Bug Fix: Check structural invalidation BEFORE returning an entry decision
-        # This prevents entering a trade that is already technically invalid on HTF
-        if decision.action in {"enter_long", "enter_short"}:
-             entry_invalidation = self._check_entry_invalidation(decision, snapshot, gates)
-             if entry_invalidation:
-                 return entry_invalidation
 
-        decision = decision.copy(update={"gates": gates})
-        decision = validate_decision(decision, execution_capabilities=execution_capabilities)
-        return decision
+        ai_action = decision.action
+        ai_summary = decision.summary()
+        return base_decision.copy(update={
+            "structure_summary": f"{base_decision.structure_summary} | AI second opinion: {ai_action}",
+            "notes": f"{base_decision.notes} | AI summary: {ai_summary}",
+        })
 
     def _check_entry_invalidation(
         self,
@@ -686,22 +710,25 @@ class StrategyEngine:
         else:
             # Should be unreachable with auto-entry logic, but handled for manual overrides
             trigger_label = "manual/override"
-        # [ANTIGRAVITY] Dynamic Risk Sizing
+        # [ROBOCOP ALIGNMENT] Dynamic Risk Sizing
         # Determine risk based on HTF Strength (Chop protection)
-        base_risk_pct = float(getattr(self.profile, "icc_risk_per_trade", 0.01))
+        # Use FIXED_RISK_DOLLARS if available (matches backtest setup)
+        risk_per_trade_dollars = float(getattr(self.profile, "risk_per_trade_dollars", 0.0))
+        base_risk_pct = float(getattr(self.profile, "icc_risk_per_trade", UserConfig.BASE_RISK_PCT))
+        
         htf_strength = float(snapshot.trend_htf.strength or 0.0)
 
         if htf_strength >= 0.5:
-            dynamic_risk = base_risk_pct * 1.0  # 100% Risk (Strong Trend)
+            dynamic_mult = 1.0  # 100% Risk (Strong Trend)
         elif htf_strength >= 0.3:
-            dynamic_risk = base_risk_pct * 0.5  # 50% Risk (Weak Trend)
+            dynamic_mult = 0.5  # 50% Risk (Weak Trend)
         else:
-            dynamic_risk = base_risk_pct * 0.25 # 25% Risk (Chop Fishing)
+            dynamic_mult = 0.25 # 25% Risk (Chop Fishing)
 
-        # Ensure we don't go below minimum (e.g. 0.0025 or 0.25%)
-        # dynamic_risk = max(0.0025, dynamic_risk)
-
-        notes = f"Auto ICC entry: {trigger_label}; stack={stack_label}; Risk={dynamic_risk*100:.2f}% (Str={htf_strength:.2f})"
+        final_risk_pct = base_risk_pct * dynamic_mult
+        
+        notes = f"Auto ICC entry: {trigger_label}; stack={stack_label}; Risk={final_risk_pct*100:.2f}% (Str={htf_strength:.2f})"
+        
         return AITradeDecision(
             symbol=snapshot.symbol,
             timeframe=snapshot.timeframe,
@@ -712,7 +739,8 @@ class StrategyEngine:
             entry_zone=None,
             stop_loss=stop_loss,
             take_profit=target,
-            risk_per_trade_pct=dynamic_risk,
+            risk_per_trade_pct=final_risk_pct,
+            risk_per_trade_dollars=risk_per_trade_dollars * dynamic_mult if risk_per_trade_dollars > 0 else None,
             max_position_size_pct=None,
             time_in_force_sec=None,
             urgency="medium",
@@ -724,28 +752,54 @@ class StrategyEngine:
 
     def score_structure(self, snapshot: MarketSnapshot) -> tuple[float, str]:
         """Scores ICC structure cleanliness for symbol selection."""
-        # Allow neutral HTF if LTF shows clear direction
         ltf_dir = snapshot.trend_ltf.direction
         htf_dir = snapshot.trend_htf.direction
+        
+        # Calculate shared metrics
+        base_score = snapshot.trend_htf.strength * HTF_TREND_WEIGHT + snapshot.trend_ltf.strength * LTF_TREND_WEIGHT
+        vol_score = self._calc_volatility_percentile(snapshot.candles, window=20, history=120)
+        
+        # [ANTIGRAVITY REF] RoboCop Combat Mode Logic
+        if UserConfig.COMBAT_MODE_ENABLED:
+            # Combat Mode: Only block explicit opposition
+            opposing = (htf_dir != "neutral" and ltf_dir != "neutral" and htf_dir != ltf_dir)
+            if opposing:
+                return 0.0, "HTF/LTF explicitly opposing (Combat Mode)"
+            
+            # Boost neutral trends to ensure they pass the threshold (0.05)
+            if ltf_dir == "neutral":
+                base_score = max(base_score, 0.4) 
+                
+            final_score = base_score + VOLATILITY_WEIGHT * vol_score
+            return min(final_score, 1.2), f"Combat Mode Active (dir={ltf_dir}/{htf_dir})"
+
+        # Standard ICC Logic (Strict)
         if ltf_dir == "neutral":
             return 0.0, "LTF neutral"
-        if htf_dir not in {"neutral", ltf_dir}:  # Block if HTF opposes LTF
+        if htf_dir not in {"neutral", ltf_dir}:
             return 0.0, "HTF/LTF misaligned"
-        base = snapshot.trend_htf.strength * HTF_TREND_WEIGHT + snapshot.trend_ltf.strength * LTF_TREND_WEIGHT
-        vol_score = self._calc_volatility_percentile(snapshot.candles, window=20, history=120)
-        score = base + VOLATILITY_WEIGHT * vol_score
+            
+        final_score = base_score + VOLATILITY_WEIGHT * vol_score
         reason = f"trend aligned, vol_pct={vol_score:.2f}"
-        return min(score, 1.2), reason
+        return min(final_score, 1.2), reason
 
     def score_icc_readiness(self, snapshot: MarketSnapshot) -> tuple[float, str]:
         """Scores ICC readiness (sweep + continuation) for explainable logging."""
-        # Allow neutral HTF if LTF shows clear direction
         ltf_dir = snapshot.trend_ltf.direction
         htf_dir = snapshot.trend_htf.direction
-        if ltf_dir == "neutral":
-            return 0.0, "LTF neutral"
-        if htf_dir not in {"neutral", ltf_dir}:  # Block if HTF opposes LTF
-            return 0.0, "HTF/LTF misaligned"
+        
+        # [ANTIGRAVITY FIX] RoboCop Combat Mode Logic
+        if UserConfig.COMBAT_MODE_ENABLED:
+            opposing = (htf_dir != "neutral" and ltf_dir != "neutral" and htf_dir != ltf_dir)
+            if opposing:
+                return 0.0, "HTF/LTF explicitly opposing (Combat Mode)"
+            # Proceed to sweep checks logic regardless of neutral
+        else:
+            # Standard Strict Logic
+            if ltf_dir == "neutral":
+                return 0.0, "LTF neutral"
+            if htf_dir not in {"neutral", ltf_dir}:  # Block if HTF opposes LTF
+                return 0.0, "HTF/LTF misaligned"
         sweep = self._detect_sweep(snapshot)
         indication = self._detect_indication(snapshot)
         correction = self._detect_correction(snapshot, indication)
@@ -964,8 +1018,8 @@ class StrategyEngine:
         ntz = detect_no_trade_zone(htf_candles, swing_lookback=2)
         
         if ntz and not ntz.is_broken:
-            # We are inside the range. STRICT NO TRADE.
-            return "range" # New phase "range" maps to "chop" or "stand_aside" logic
+            # We are inside the range. Map to 'chop' for external consumers 
+            return "chop"
             
         # 2. If NTZ is broken, we have an implicit Indication (or explicit one passed in)
         # If we have a valid Continuation signal, we are in execution phase
@@ -1001,55 +1055,51 @@ class StrategyEngine:
             return None
 
         ltf_candles = snapshot.ltf_candles or snapshot.candles
-        return detect_liquidity_sweep(ltf_candles, trend_dir, swing_lookback=1)
+        return detect_liquidity_sweep(ltf_candles, trend_dir, swing_lookback=2)
 
     def _detect_continuation(self, snapshot: MarketSnapshot, sweep, indication, correction=None):
         """Wrapper for detect_continuation."""
-        # [FIX] Use HTF candles to match indication/correction timeframe
-        # All ICC signals should use the same timeframe for consistency
-        htf_candles = snapshot.htf_candles or snapshot.candles
-        htf_dir = snapshot.trend_htf.direction
+        # [ROBOCOP ALIGNMENT] Backtest uses LTF (15m) for signal detection
+        ltf_candles = snapshot.ltf_candles or snapshot.candles
+        ltf_dir = snapshot.trend_ltf.direction
         
-        if htf_dir not in {"long", "short"}:
-            # If HTF is neutral, use LTF direction
-            htf_dir = snapshot.trend_ltf.direction
-            if htf_dir not in {"long", "short"}:
+        if ltf_dir not in {"long", "short"}:
+            # Fallback to HTF if LTF is neutral (prevents skipping startups)
+            ltf_dir = snapshot.trend_htf.direction
+            if ltf_dir not in {"long", "short"}:
                 return None
 
-        require_sweep = bool(getattr(self.profile, "icc_auto_entry_require_sweep", True))
-        # [ANTIGRAVITY FIX] Configurable confirmation bars for trade frequency tuning
-        # Default to 1 for more trades (human traders use 1-bar confirmation)
-        confirmation_bars = int(getattr(self.profile, "icc_confirmation_bars", 1))
+        # [ROBOCOP ALIGNMENT] Backtest settings 1:1
+        confirmation_bars = int(getattr(self.profile, "icc_confirmation_bars", 2))
         max_bars_after_sweep = int(getattr(self.profile, "icc_max_bars_after_sweep", 30))
 
         return detect_continuation(
-            htf_candles,
-            htf_dir,
+            ltf_candles,
+            ltf_dir,
             sweep,
             indication,
             correction=correction,
-            # [ANTIGRAVITY FIX] Relaxed for higher trade frequency
+            # [ROBOCOP ALIGNMENT] Backtest allows naked continuations
             require_sweep=False,
             require_indication=False,
             require_correction=False,
             max_bars_after_sweep=max_bars_after_sweep,
-            swing_lookback=1,
+            swing_lookback=2, # Backtest uses 2
             confirmation_bars=confirmation_bars,
         )
 
     def _detect_indication(self, snapshot: MarketSnapshot):
-        htf_candles = snapshot.htf_candles or snapshot.candles
-        return detect_indication(htf_candles, swing_lookback=1)
+        # [ROBOCOP ALIGNMENT] Backtest uses LTF (15m) and swing_lookback=2
+        ltf_candles = snapshot.ltf_candles or snapshot.candles
+        return detect_indication(ltf_candles, swing_lookback=2)
 
     def _detect_correction(self, snapshot: MarketSnapshot, indication):
         """Wrapper for detect_correction."""
-        from tradebot_sci.strategy.icc_signals import detect_correction
         if indication is None:
             return None
-        # [FIX] Use HTF candles to match indication timeframe
-        # Indication is detected on HTF, so correction should also check HTF
-        htf_candles = snapshot.htf_candles or snapshot.candles
-        return detect_correction(htf_candles, indication, swing_lookback=1)
+        # [ROBOCOP ALIGNMENT] Backtest uses LTF (15m) and swing_lookback=2
+        ltf_candles = snapshot.ltf_candles or snapshot.candles
+        return detect_correction(ltf_candles, indication, swing_lookback=2)
 
     def _build_notes(
         self,
@@ -1257,6 +1307,24 @@ class StrategyEngine:
         if exit_state != "IN_TRADE":
              logger.info(f"[ICC-EXIT] {snapshot.symbol} State={exit_state} (pos={pos_dir}, exit_check={exit_dir})")
 
+        # [ROBOCOP FAST EXIT]
+        if UserConfig.ROBO_FAST_EXIT_ENABLED:
+            if exit_state == "EXIT_CONFIRMED":
+                pass # Already handled by existing logic below
+            elif exit_state == "EXIT_ARMED":
+                # If HTF doesn't explicitly support us, get out!
+                htf_dir = snapshot.trend_htf.direction
+                htf_supports_pos = (htf_dir == TrendDirection.LONG and pos_dir == "long") or \
+                                   (htf_dir == TrendDirection.SHORT and pos_dir == "short")
+                if not htf_supports_pos:
+                    logger.info(f"[EXIT] Robo Fast-Fail: State={exit_state} (HTF neutral/opposing)")
+                    return close_position_decision(
+                        snapshot.symbol,
+                        snapshot.timeframe,
+                        f"Robo Fast-Fail: Opposite {exit_state} + Lack of HTF support.",
+                        emergency_exit=False
+                    ).copy(update={"gates": gates, "decision_reason_codes": ["ROBO_FAST_FAIL"]})
+
         # HOLD RULE: If HTF align matches POSITION, suppress exit unless Continuation is confirmed
         # (i.e. Ignore Indication/Correction noise if HTF supports the trade)
         htf_dir = snapshot.trend_htf.direction
@@ -1304,8 +1372,43 @@ class StrategyEngine:
         if not open_position or abs(open_position.get("size", 0.0)) <= 0:
             return None
         
+        # [AGGRESIVE VALIDATION] Disable ALL engine exits for chop scalps
+        # Patterns show TargetHit is 10x more frequent than HardStop if we just wait.
+        if str(open_position.get("phase", "")).lower() == "chop":
+            return None
+        
         # [ANTIGRAVITY DEBUG] Log what we are checking
         logger.info(f"[INVALIDATION-CHECK] {snapshot.symbol} checking pos: {open_position}")
+
+        # [ROBOCOP] Momentum Grace (Runners)
+        # If HTF strength is very high (>= 0.6) or we just had a continuation breakout, 
+        # allow the trade more room by resetting chop stagnation counters.
+        htf_strength = float(snapshot.trend_htf.strength or 0.0)
+        is_high_momentum = UserConfig.RUNNER_GRACE_ENABLED and (htf_strength >= 0.6 or gates.get("phase") == "continuation")
+        
+        if is_high_momentum:
+             if self._chop_bars_count.get(snapshot.symbol, 0) > 0:
+                  logger.info(f"[RUNNER] Momentum Grace: Resetting chop counter for {snapshot.symbol} (Str={htf_strength:.2f})")
+                  self._chop_bars_count[snapshot.symbol] = 0
+
+        # [CHOP TP] Robot Take Profit
+        unrealized_pnl = float(open_position.get("unrealized_pnl", 0.0))
+        current_phase = gates.get("phase", "")
+        
+        if UserConfig.CHOP_TP_EXIT_ENABLED and unrealized_pnl > 0 and current_phase == "chop":
+            count = self._chop_bars_count.get(snapshot.symbol, 0) + 1
+            self._chop_bars_count[snapshot.symbol] = count
+            if count >= UserConfig.CHOP_MAX_BARS:
+                logger.info(f"[EXIT] Chop TP: ${unrealized_pnl:.2f} profit + {count} bars of chop.")
+                self._chop_bars_count[snapshot.symbol] = 0
+                return close_position_decision(
+                    snapshot.symbol,
+                    snapshot.timeframe,
+                    f"Chop TP: Profitable (${unrealized_pnl:.2f}) + Stagnation ({count} bars chop)",
+                    emergency_exit=False
+                ).copy(update={"gates": gates, "decision_reason_codes": ["CHOP_TP"]})
+        else:
+            self._chop_bars_count[snapshot.symbol] = 0
 
         # [ANTIGRAVITY FIX] ICC Exit Strategy (Structure Driven)
         # Replaces Timer/Sticky exits with Indication -> Correction -> Continuation sequence.
@@ -1357,29 +1460,32 @@ class StrategyEngine:
                     return decision.copy(update={"gates": gates, "decision_reason_codes": ["ICC_SCALE_OUT"]})
 
         # NEW: HTF flip exit - exit if HTF trend flips to opposite direction
-        if position_direction == "long" and htf_trend.direction == TrendDirection.SHORT:
-            decision = close_position_decision(
-                snapshot.symbol,
-                snapshot.timeframe,
-                "HTF invalidation: HTF flipped SHORT while holding LONG",
-                emergency_exit=True,
-            )
-            logger.warning(
-                f"[EXIT] HTF flip detected: position=LONG, HTF={htf_trend.direction}, exiting immediately"
-            )
-            return decision.copy(update={"gates": gates, "decision_reason_codes": ["HTF_FLIP_EXIT_LONG_TO_SHORT"]})
+        # [DATA-DRIVEN] Skip for chop scalps - analysis shows sweep+indication entries often profit from counter-trend
+        position_phase = str(open_position.get("phase", "")).lower()
+        if position_phase != "chop":  # Only apply HTF flip exit for non-scalp trades
+            if position_direction == "long" and htf_trend.direction == TrendDirection.SHORT:
+                decision = close_position_decision(
+                    snapshot.symbol,
+                    snapshot.timeframe,
+                    "HTF invalidation: HTF flipped SHORT while holding LONG",
+                    emergency_exit=True,
+                )
+                logger.warning(
+                    f"[EXIT] HTF flip detected: position=LONG, HTF={htf_trend.direction}, exiting immediately"
+                )
+                return decision.copy(update={"gates": gates, "decision_reason_codes": ["HTF_FLIP_EXIT_LONG_TO_SHORT"]})
 
-        elif position_direction == "short" and htf_trend.direction == TrendDirection.LONG:
-            decision = close_position_decision(
-                snapshot.symbol,
-                snapshot.timeframe,
-                "HTF invalidation: HTF flipped LONG while holding SHORT",
-                emergency_exit=True,
-            )
-            logger.warning(
-                f"[EXIT] HTF flip detected: position=SHORT, HTF={htf_trend.direction}, exiting immediately"
-            )
-            return decision.copy(update={"gates": gates, "decision_reason_codes": ["HTF_FLIP_EXIT_SHORT_TO_LONG"]})
+            elif position_direction == "short" and htf_trend.direction == TrendDirection.LONG:
+                decision = close_position_decision(
+                    snapshot.symbol,
+                    snapshot.timeframe,
+                    "HTF invalidation: HTF flipped LONG while holding SHORT",
+                    emergency_exit=True,
+                )
+                logger.warning(
+                    f"[EXIT] HTF flip detected: position=SHORT, HTF={htf_trend.direction}, exiting immediately"
+                )
+                return decision.copy(update={"gates": gates, "decision_reason_codes": ["HTF_FLIP_EXIT_SHORT_TO_LONG"]})
 
         # [ANTIGRAVITY] Stagnation Exit ("Fast Fail")
         # If trade is held > 1 hour and not profitable, Kill it.
@@ -1391,9 +1497,17 @@ class StrategyEngine:
                     # Parse ISO format (handle partial timestamps if needed)
                     # Use str() to ensure it's a string, assuming format 2026-01-20T...
                     entry_dt = datetime.fromisoformat(str(entry_time_iso).replace("Z", "+00:00"))
-                    now_utc = datetime.now(timezone.utc)
+                    
+                    # [ANTIGRAVITY FIX] Use Snapshot time for backtest accuracy
+                    if snapshot.candles:
+                        now_utc = snapshot.candles[-1].timestamp
+                    else:
+                        now_utc = datetime.now(timezone.utc)
+                        
                     if entry_dt.tzinfo is None:
-                         entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                        entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                    if now_utc.tzinfo is None:
+                        now_utc = now_utc.replace(tzinfo=timezone.utc)
                     
                     duration_mins = (now_utc - entry_dt).total_seconds() / 60
                     unrealized_pnl = float(open_position.get("unrealized_pnl", 0.0))
@@ -1454,24 +1568,78 @@ class StrategyEngine:
                 logger.info(f"[EXIT] Take Profit hit for {snapshot.symbol}: {current_price:.2f} <= {take_profit:.2f}")
                 return decision.copy(update={"gates": gates, "decision_reason_codes": ["TAKE_PROFIT_HIT"]})
 
-        # [ANTIGRAVITY] Chop Scalp (Take Profit in Noise)
-        # If HTF Strength is weak (< 0.5), we are likely in chop.
-        # Structure exits are too slow. Bank profit if we hit a "Chop Target" (scalp).
+        # [ROBOCOP] Chop TP (Robot Take Profit)
+        # This is a faster exit for profitable trades in stagnant markets.
+        current_phase = gates.get("phase", "")
+        
+        # 1. Stagnation-based (Chop Bars)
+        if UserConfig.CHOP_TP_EXIT_ENABLED and unrealized_pnl > 0 and current_phase == "chop":
+            count = self._chop_bars_count.get(snapshot.symbol, 0) + 1
+            self._chop_bars_count[snapshot.symbol] = count
+            if count >= UserConfig.CHOP_MAX_BARS:
+                logger.info(f"[EXIT] Chop TP: ${unrealized_pnl:.2f} profit + {count} bars of chop.")
+                self._chop_bars_count[snapshot.symbol] = 0
+                return close_position_decision(
+                    snapshot.symbol,
+                    snapshot.timeframe,
+                    f"Chop TP: Profitable (${unrealized_pnl:.2f}) + Stagnation ({count} bars chop)",
+                    emergency_exit=False
+                ).copy(update={"gates": gates, "decision_reason_codes": ["CHOP_TP"]})
+        else:
+            self._chop_bars_count[snapshot.symbol] = 0
+
+        # 2. Profit-based Scalp (Requiring meaningful profit relative to risk)
+        # We need average wins to be > average losses.
+        min_profit_threshold = UserConfig.CHOP_SCALP_TARGET_USD
         htf_strength = float(snapshot.trend_htf.strength or 0.0)
-        unrealized_pnl = float(open_position.get("unrealized_pnl", 0.0))
-        
-        # Default scalp target from Configuration
-        chop_target = UserConfig.CHOP_SCALP_TARGET_USD
-        
-        if htf_strength < 0.5 and unrealized_pnl >= chop_target:
+        if htf_strength < 0.5 and unrealized_pnl >= min_profit_threshold:
              decision = close_position_decision(
                  snapshot.symbol,
                  snapshot.timeframe,
-                 f"Chop Scalp: Weak Trend (Str={htf_strength:.2f}) + Profit ${unrealized_pnl:.2f} >= Target ${chop_target:.2f}",
+                 f"Chop Scalp: Weak Trend (Str={htf_strength:.2f}) + Profit ${unrealized_pnl:.2f} >= ${min_profit_threshold:.2f}",
                  emergency_exit=False
              )
              logger.info(f"[EXIT] Chop Scalp triggered: {snapshot.symbol} +${unrealized_pnl:.2f} (Str={htf_strength:.2f})")
              return decision.copy(update={"gates": gates, "decision_reason_codes": ["ICC_CHOP_SCALP"]})
+
+        # 3. Chop-Top/Bottom (Structural Failure)
+        # Exit if price is within 0.05% of the range extreme but shows reversal/overlap
+        htf_candles = snapshot.htf_candles or snapshot.candles
+        ntz = detect_no_trade_zone(htf_candles, swing_lookback=1)
+        if ntz and unrealized_pnl > 0:
+            last_close = htf_candles[-1].close
+            pos_dir = str(open_position.get("direction", "")).lower()
+            
+            # Check proximity to "Top" (Long) or "Bottom" (Short)
+            if pos_dir == "long":
+                dist_to_top = (ntz.high - last_close) / ntz.high
+                if dist_to_top < 0.0005: # Within 5 bps of top
+                    # Check for stall (small body, wick rejection)
+                    last_bar = htf_candles[-1]
+                    body_size = abs(last_bar.close - last_bar.open)
+                    range_size = last_bar.high - last_bar.low
+                    if body_size < (range_size * 0.3): # Indecision candle at top
+                         logger.info(f"[EXIT] Chop Top: Stall at range high ({last_close:.5f}) with profit.")
+                         return close_position_decision(
+                             snapshot.symbol,
+                             snapshot.timeframe,
+                             f"Chop Top: Stall at structural resistance ({ntz.high:.5f})",
+                             emergency_exit=False
+                         ).copy(update={"gates": gates, "decision_reason_codes": ["CHOP_TOP_STALL"]})
+            elif pos_dir == "short":
+                dist_to_bot = (last_close - ntz.low) / ntz.low
+                if dist_to_bot < 0.0005: # Within 5 bps of bottom
+                    last_bar = htf_candles[-1]
+                    body_size = abs(last_bar.close - last_bar.open)
+                    range_size = last_bar.high - last_bar.low
+                    if body_size < (range_size * 0.3): # Indecision candle at bottom
+                         logger.info(f"[EXIT] Chop Bottom: Stall at range low ({last_close:.5f}) with profit.")
+                         return close_position_decision(
+                             snapshot.symbol,
+                             snapshot.timeframe,
+                             f"Chop Bottom: Stall at structural support ({ntz.low:.5f})",
+                             emergency_exit=False
+                         ).copy(update={"gates": gates, "decision_reason_codes": ["CHOP_BOT_STALL"]})
 
         # Original structure invalidation check
         htf_candles = snapshot.htf_candles or snapshot.candles
@@ -1778,8 +1946,10 @@ class StrategyEngine:
         IMPORTANT: Skip this check if we have sweep+continuation, as that indicates
         a valid breakout from the consolidation zone.
         """
-        # Allow trade if we have sweep AND continuation (valid breakout from consolidation)
-        if sweep is not None and continuation is not None:
+        # [ROBOCOP] Robot Chop Scalping: Allow trading inside NTZ
+        if UserConfig.ROBO_CHOP_SCALP_ENABLED or UserConfig.COMBAT_MODE_ENABLED:
+            if sweep is None:
+                 logger.info("[ROBOCOP] Bypassing No Trade Zone for robot entry")
             return None
 
         require_sweep = bool(getattr(self.profile, "icc_auto_entry_require_sweep", True))
@@ -1842,8 +2012,8 @@ class StrategyEngine:
         phase: str,
         htf_align: bool,
     ) -> tuple[float, dict[str, float], float]:
-        # [ROBOCOP] Lower Threshold in Combat Mode to react to ANY valid 2-signal stack
-        base_threshold = 50.0 if UserConfig.COMBAT_MODE_ENABLED else 60.0
+        # [ROBOCOP] Lower Threshold in Robot Mode to react to ANY valid micro-signal
+        base_threshold = UserConfig.ROBO_ENTRY_SCORE_THRESHOLD if UserConfig.COMBAT_MODE_ENABLED else 60.0
         score_threshold = float(getattr(self.profile, "icc_entry_score_threshold", base_threshold))
         align_points = float(getattr(self.profile, "icc_score_htf_ltf_align_points", 30.0))
         sweep_points = float(getattr(self.profile, "icc_score_sweep_points", 25.0))
@@ -1864,23 +2034,45 @@ class StrategyEngine:
 
         strong_htf = float(snapshot.trend_htf.strength or 0.0) >= strong_htf_threshold
         good_phase = phase != "chop"
+        
+        # [ANTIGRAVITY FIX] Combat Mode Scoring Logic
+        # If Combat Mode is ON, we relax what counts as "aligned" or "good phase".
+        is_combat = UserConfig.COMBAT_MODE_ENABLED
+        
+        # Calculate Alignment Points
+        align_score = 0.0
+        if htf_align:
+             align_score = align_points
+        elif is_combat:
+             # In Combat Mode, award partial points for "Neutral/Neutral" as effectively aligned
+             ltf_dir = snapshot.trend_ltf.direction
+             htf_dir = snapshot.trend_htf.direction
+             opposing = (htf_dir != "neutral" and ltf_dir != "neutral" and htf_dir != ltf_dir)
+             if not opposing:
+                  align_score = align_points * 0.8 # 80% credit for neutral alignment
+        
+        # Calculate Phase Points
+        phase_score = 0.0
+        if good_phase:
+             phase_score = phase_points
+        elif is_combat:
+             phase_score = phase_points # Full credit for Chop in Combat Mode (we scalp it)
+             
         breakdown = {
-            "htf_ltf_align": align_points if htf_align else 0.0,
+            "htf_ltf_align": align_score,
             "liquidity_sweep": sweep_points if sweep is not None else 0.0,
             "continuation": continuation_points if continuation is not None else 0.0,
             "strong_htf_trend": strong_htf_points if strong_htf else 0.0,
-            "good_phase": phase_points if good_phase else 0.0,
+            "good_phase": phase_score,
         }
         if indication_points > 0.0:
             breakdown["indication"] = indication_points if indication else 0.0
+        
+        # Bonus for Combat Mode Aggression
+        if is_combat:
+             breakdown["combat_mode_active"] = 10.0
+             
         score = sum(breakdown.values())
-
-        # [ANTIGRAVITY ATTACHMENT] Tiebreaker Nudge
-        # If score is very close (e.g. 55/60) and we have strong HTF backing, tip the scale.
-        if score >= (score_threshold - 5.0) and score < score_threshold:
-            if breakdown.get("strong_htf_trend", 0.0) > 0:
-                 score += 5.0
-                 breakdown["tiebreaker_nudge"] = 5.0
         
         return score, breakdown, score_threshold
 
@@ -1988,3 +2180,91 @@ class StrategyEngine:
         else:
             label = "B"
         return min(1.0, score), label
+
+    def _check_chop_scalp_entry(self, snapshot: MarketSnapshot, gates: dict) -> AITradeDecision | None:
+        """Robot-speed entry for trading inside the No Trade Zone (Chop Scalping).
+        
+        Uses ICC Indication to TIME entries, not just range boundaries.
+        """
+        if not snapshot.candles or len(snapshot.candles) < 20:
+            return None
+            
+        htf_candles = snapshot.htf_candles or snapshot.candles
+        ltf_candles = snapshot.ltf_candles or snapshot.candles
+        from tradebot_sci.strategy.icc_signals import detect_no_trade_zone, detect_indication
+        
+        ntz = detect_no_trade_zone(htf_candles, swing_lookback=2)
+        
+        if not ntz or ntz.is_broken:
+            return None
+            
+        current_price = snapshot.candles[-1].close
+        last_bar = snapshot.candles[-1]
+        ntz_range = ntz.high - ntz.low
+        if ntz_range <= 0:
+            return None
+
+        # [ICC PRECISION] Use Indication to TIME entries
+        indication = detect_indication(ltf_candles, swing_lookback=1)
+        if not indication:
+            return None # No momentum confirmation = no entry
+            
+        atr = calculate_atr(snapshot.candles, period=14) or (ntz_range * 0.1)
+        htf_dir = snapshot.trend_htf.direction
+        
+        # 1. Long: Sweep of NTZ Low + Bullish Indication
+        # [DATA-DRIVEN] Analysis shows big moves often went AGAINST prior trend - removing HTF filter
+        lowest_recent = min(c.low for c in snapshot.candles[-5:])
+        if lowest_recent < ntz.low and current_price > ntz.low and indication.direction == "long":
+            if last_bar.close > last_bar.open: # Bullish bar confirms sweep failed
+                logger.info(f"[ROBO-SCALP] ICC-Timed Long: Swept {lowest_recent:.4f} + Indication Long")
+                
+                # [DATA-DRIVEN] Match 1.5 ATR safety stop used in backtest for 2R alignment
+                # Force a minimum ATR (0.2% of price) to ensure leverage cap doesn't dilute wins
+                atr_floor = current_price * 0.002
+                effective_atr = max(atr, atr_floor)
+                
+                stop_dist = effective_atr * 1.5
+                stop_loss = lowest_recent - stop_dist
+                target = current_price + (stop_dist * 2.0)
+                
+                notes = f"ICC Scalp Long: Sweep({lowest_recent:.4f}) + Indication (Target 2R of 1.5ATR)"
+                return AITradeDecision(
+                    symbol=snapshot.symbol,
+                    timeframe=snapshot.timeframe,
+                    bias="long", phase="chop", action="enter_long",
+                    entry_price=current_price, stop_loss=stop_loss, take_profit=target,
+                    risk_per_trade_pct=UserConfig.BASE_RISK_PCT,
+                    urgency="high", structure_summary=notes, notes=notes, gates=gates,
+                    invalidation_conditions="Close below sweep low.",
+                    management_instructions="Target 2R. Hold for volatility expansion.",
+                )
+
+        # 2. Short: Sweep of NTZ High + Bearish Indication
+        highest_recent = max(c.high for c in snapshot.candles[-5:])
+        if highest_recent > ntz.high and current_price < ntz.high and indication.direction == "short":
+            if last_bar.close < last_bar.open: # Bearish bar confirms sweep failed
+                logger.info(f"[ROBO-SCALP] ICC-Timed Short: Swept {highest_recent:.4f} + Indication Short")
+
+                # [DATA-DRIVEN] Match 1.5 ATR safety stop used in backtest for 2R alignment
+                # Force a minimum ATR (0.2% of price) to ensure leverage cap doesn't dilute wins
+                atr_floor = current_price * 0.002
+                effective_atr = max(atr, atr_floor)
+                
+                stop_dist = effective_atr * 1.5
+                stop_loss = highest_recent + stop_dist
+                target = current_price - (stop_dist * 2.0)
+                
+                notes = f"ICC Scalp Short: Sweep({highest_recent:.4f}) + Indication (Target 2R of 1.5ATR)"
+                return AITradeDecision(
+                    symbol=snapshot.symbol,
+                    timeframe=snapshot.timeframe,
+                    bias="short", phase="chop", action="enter_short",
+                    entry_price=current_price, stop_loss=stop_loss, take_profit=target,
+                    risk_per_trade_pct=UserConfig.BASE_RISK_PCT,
+                    urgency="high", structure_summary=notes, notes=notes, gates=gates,
+                    invalidation_conditions="Close above sweep high.",
+                    management_instructions="Target 2R. Hold for volatility expansion.",
+                )
+        
+        return None

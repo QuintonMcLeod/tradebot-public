@@ -19,6 +19,7 @@ class MarketType(Enum):
     FOREX = "FOREX"
     CRYPTO = "CRYPTO"
     FUTURE = "FUTURE"
+    COMMODITY = "COMMODITY"
 
 
 MARKET_HOURS: Dict[MarketType, dict[str, str]] = {
@@ -40,6 +41,7 @@ MARKET_HOURS: Dict[MarketType, dict[str, str]] = {
     MarketType.FOREX: {"timezone": "UTC", "open": "22:00", "close": "22:00"},
     MarketType.CRYPTO: {"timezone": "UTC", "open": "00:00", "close": "23:59"},
     MarketType.FUTURE: {"timezone": "UTC", "open": "00:00", "close": "00:00"},
+    MarketType.COMMODITY: {"timezone": "UTC", "open": "23:00", "close": "22:00"},
 }
 
 
@@ -102,6 +104,9 @@ SYMBOL_MARKET_TYPE: Dict[str, MarketType] = {
     "NZDUSD": MarketType.FOREX,
     "USDCAD": MarketType.FOREX,
     "USDCHF": MarketType.FOREX,
+    "GBPJPY": MarketType.FOREX,
+    "EURJPY": MarketType.FOREX,
+    "AUDJPY": MarketType.FOREX,
     "XAUUSD": MarketType.FOREX,
     "XAGUSD": MarketType.FOREX,
     "XPTUSD": MarketType.FOREX,  # Platinum
@@ -139,6 +144,9 @@ FOREX_SYMBOLS = {
     "NZDUSD",
     "USDCAD",
     "USDCHF",
+    "GBPJPY",
+    "EURJPY",
+    "AUDJPY",
     "XAUUSD",
     "XAGUSD",
     "XPTUSD",
@@ -188,8 +196,6 @@ SUPPORTED_SYMBOLS = [
     "FXI",
     "BTCUSD",
     "ETHUSD",
-    "BTCUSD",
-    "ETHUSD",
     "SOLUSD",
     "BTCUSDT",
     "ETHUSDT",
@@ -221,8 +227,13 @@ SUPPORTED_SYMBOLS = [
     "NZDUSD",
     "USDCAD",
     "USDCHF",
+    "GBPJPY",
+    "EURJPY",
+    "AUDJPY",
     "XAUUSD",
     "XAGUSD",
+    "XPTUSD",
+    "XPDUSD",
     "MES",
     "MNQ",
     "M2K",
@@ -253,6 +264,7 @@ CRYPTO_BASE_SYMBOLS = {
     "AVAXUSD": "AVAX", "SHIBUSD": "SHIB", "NEARUSD": "NEAR", "DOTUSD": "DOT",
     "ATOMUSD": "ATOM",
     "ETP-20DEC30-CDE": "ETH", "BIP-20DEC30-CDE": "BTC",
+    "BIP": "BTC", "ETP": "ETH",
     "CDENGS/USD:USD-260127": "FANG+",
     "SHIB/USD:USD-301220": "SHIB",
     "AVAX/USD:USD-301220": "AVAX",
@@ -265,8 +277,7 @@ CRYPTO_BASE_SYMBOLS = {
     "ETC/USDC:USDC": "ETC",
 }
 DISABLED_SYMBOLS = {
-    "XAUUSD", "XAGUSD", 
-    "BIP-20DEC30-CDE", "ETP-20DEC30-CDE", # BTC, ETH (>$300)
+    # "BIP-20DEC30-CDE", "ETP-20DEC30-CDE", # Re-enabled for management
     "SOL/USD:USD-301220", "XRP/USD:USD-301220", "DOGE/USD:USD-301220", # Whale Traps (>$700)
     "LINK/USD:USD-301220", "BCH/USD:USD-301220", # Also too expensive
     "LTC/USD:USD-301220", # Unaffordable (~$98 margin vs $86 balance)
@@ -339,7 +350,8 @@ def is_crypto(symbol: str) -> bool:
     if sym in CRYPTO_SYMBOLS:
         return True
     
-    # [ANTIGRAVITY FIX] Treat all Coinbase Derivatives as 'crypto' for provider routing
+    # [ANTIGRAVITY FIX] Treat Coinbase Derivatives (BIP, ETP) as 'crypto' for CCXT routing
+    # They are Coinbase Nano Futures and should use CCXT provider
     if is_coinbase_derivative(sym):
         return True
 
@@ -349,9 +361,25 @@ def is_crypto(symbol: str) -> bool:
             # Check if it's NOT in futures or forex (which might also end in USD/GBP)
             if sym in FUTURES_SYMBOLS or sym in FOREX_SYMBOLS:
                 return False
+            # Check if it's a known non-crypto like XPTUSD/XPDUSD (sometimes in universals)
+            if sym in {"XPTUSD", "XPDUSD", "XAUUSD", "XAGUSD"}:
+                return False
             # Check if it's a known equity/ETF like GLD (ends in USD-ish but is Equity)
             meta = SYMBOL_METADATA.get(sym)
             if meta and meta.asset_class != AssetClass.CRYPTO:
                 return False
             return True
     return False
+
+
+# [ANTIGRAVITY FIX] Explicit Metal Registration
+for meta_sym in ["XAUUSD", "XAGUSD", "XPTUSD", "XPDUSD"]:
+    SYMBOL_METADATA[meta_sym] = SymbolMetadata(
+        symbol=meta_sym,
+        contract_symbol=meta_sym,
+        asset_class=AssetClass.FOREX,
+        market_type=MarketType.FOREX,
+        exchange="SMART",
+        currency="USD",
+        enabled=True,
+    )

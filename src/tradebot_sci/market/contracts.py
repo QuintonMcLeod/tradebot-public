@@ -4,11 +4,13 @@ import logging
 from functools import lru_cache
 
 try:
-    from ib_insync import Crypto, Forex, Stock  # type: ignore
+    from ib_insync import Crypto, Forex, Stock, Commodity, CFD  # type: ignore
 except ImportError:  # pragma: no cover
     Crypto = None  # type: ignore[assignment]
     Forex = None  # type: ignore[assignment]
     Stock = None  # type: ignore[assignment]
+    Commodity = None
+    CFD = None
 
 from tradebot_sci.config.models import CryptoRoutingSettings
 from tradebot_sci.market.symbols import AssetClass, SymbolMetadata, SYMBOL_METADATA
@@ -50,7 +52,20 @@ def _crypto_contract(metadata: SymbolMetadata):
 def _forex_contract(metadata: SymbolMetadata):
     if Forex is None:
         raise ContractResolutionError(metadata.symbol)
-    return Forex(metadata.contract_symbol)
+    
+    symbol = metadata.contract_symbol
+    
+    # [ANTIGRAVITY FIX] Metals contract routing
+    if symbol == "XAUUSD": return Commodity(symbol, "SMART", "USD", primaryExchange="IBCMDTY", conId=69067924)
+    if symbol == "XAGUSD": return Commodity(symbol, "SMART", "USD", primaryExchange="IBCMDTY", conId=77124483)
+    if symbol == "XPTUSD": return Commodity(symbol, "SMART", "USD", primaryExchange="IBCMDTY", conId=78363317)
+    if symbol == "XPDUSD":
+        # Final attempt: SMART usually works if primary is right.
+        return Commodity(symbol, "SMART", "USD", primaryExchange="IBCMDTY")
+
+    # Standard Forex pairs
+    # ib_insync Forex constructor expects the full pair string (e.g. "EURUSD")
+    return Forex(symbol)
 
 
 @lru_cache(maxsize=256)

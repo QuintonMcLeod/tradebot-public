@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -36,6 +36,14 @@ class BrokerSettings(BaseModel):
             "If set, overrides max_dollar_risk_per_symbol when accountSummary is available."
         ),
     )
+
+
+class OandaSettings(BaseModel):
+    """Configuration for OANDA v20 API."""
+    account_id: str = Field(default="")
+    api_key: str = Field(default="")
+    environment: Literal["practice", "live"] = Field(default="practice")
+    read_only: bool = Field(default=True)
 
 
 def load_ibkr_broker_options(config_path: Optional[Path] = None) -> BrokerSettings:
@@ -123,3 +131,16 @@ def load_ibkr_broker_options(config_path: Optional[Path] = None) -> BrokerSettin
     # filter out Nones to let Pydantic use defaults
     data = {k: v for k, v in data.items() if v is not None}
     return BrokerSettings(**data)
+
+def load_oanda_broker_options() -> OandaSettings:
+    """Loads OANDA credentials from environment variables."""
+    data = {
+        "account_id": os.getenv("OANDA_ACCOUNT_ID", ""),
+        "api_key": os.getenv("OANDA_API_KEY", ""),
+        "environment": os.getenv("OANDA_ENVIRONMENT", "practice").lower(),
+        "read_only": os.getenv("OANDA_READ_ONLY", "true").lower() == "true",
+    }
+    # Basic validation of environment
+    if data["environment"] not in ["practice", "live"]:
+        data["environment"] = "practice"
+    return OandaSettings(**data)

@@ -34,17 +34,6 @@ logger.setLevel(logging.INFO)
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'jan_2026')
 INITIAL_CAPITAL = 500.0
-# Nov 2024 High-Beta Assets
-# COMMODITIES ONLY (User Request)
-FOREX_PAIRS = [
-    # Gold (The Hedge)
-    "PAXGUSD", 
-    # Precious Metals
-    "XAGUSD", "XPTUSD", "XPDUSD",
-    # Energy
-    "USOIL"
-]
-
 # Backtest Settings
 INITIAL_CAPITAL = 100.0
 LONG_RISK_PCT = 0.005       # [FINAL OPTIMIZED] 0.5% Risk
@@ -105,6 +94,7 @@ class ForexPosition:
     last_add_index: int = -1           # Bar index for last add
     pending_be_price: float = 0.0      # Deferred breakeven stop
     bars_held: int = 0                 # [STAGNATION EXIT] Duration tracker
+    chop_bars: int = 0                 # [CHOP TP] Stagnation tracker
 
 def load_candles(symbol: str) -> List[Candle]:
     filepath = os.path.join(DATA_DIR, f'{symbol}_15m.json')  # Use 15m data
@@ -251,12 +241,15 @@ def run_forex_backtest():
     
     all_candles = {}
 
-    # Use FOREX_PAIRS list (crypto/commodity only for clean PnL)
+    profile_symbols = list(getattr(profile, "symbols", []) or [])
     available_files = [f for f in os.listdir(DATA_DIR) if f.endswith("_15m.json")]
     all_available = [f.replace("_15m.json", "") for f in available_files]
-    discovered_symbols = [s for s in FOREX_PAIRS if s in all_available]
+    discovered_symbols = [s for s in profile_symbols if s in all_available]
+    missing_symbols = [s for s in profile_symbols if s not in all_available]
 
     print(f"Using {len(discovered_symbols)} symbols: {discovered_symbols}")
+    if missing_symbols:
+        print(f"Missing data for {len(missing_symbols)} symbols: {missing_symbols}")
     
     for symbol in discovered_symbols:
         candles = load_candles(symbol)
@@ -382,27 +375,69 @@ def run_forex_backtest():
                         del positions[symbol]
                         continue
 
+                # [ROBO FAST FAIL]
+                # Exit on opposite correction if HTF is not supporting
+                exit_dir = "short" if pos.direction == "long" else "long"
+                rev_ind = detect_indication(ltf_candles[-20:], swing_lookback=1)
+                if rev_ind and rev_ind.direction == exit_dir:
+                    rev_corr = detect_correction(ltf_candles[-20:], rev_ind, swing_lookback=1)
+                    if rev_corr:
+                        # EXIT_ARMED equivalent
+                        if current_htf_dir == "neutral" or current_htf_dir == exit_dir:
+                            pnl_check = calculate_pnl(pos.avg_price, current_price, pos.size, pos.direction, symbol)
+                            capital += pnl_check
+                            completed_trades.append(ForexTrade(
+                                symbol=symbol, direction=pos.direction, entry_price=pos.avg_price,
+                                exit_price=current_price, size=pos.size, entry_time=pos.entry_time,
+                                exit_time=current_time, pnl=pnl_check, exit_reason="fast_fail",
+                                pyramid_count=pos.pyramid_count, score=pos.score
+                            ))
+                            logger.info(f"[EXIT] {symbol} Robo Fast-Fail (Opposite Correction, HTF {current_htf_dir})")
+                            del positions[symbol]
+                            continue
+
                 # [CHOP PROFIT TAKING]
                 # Dynamic Logic matches engine.py
                 htf_strength = float(trend_htf.strength or 0.0)
-                if htf_strength < 0.5:
-                    if pos.direction == "long":
-                        curr_float_pnl = calculate_pnl(pos.avg_price, current_price, pos.size, pos.direction, symbol)
-                    else:
-                        curr_float_pnl = calculate_pnl(pos.avg_price, current_price, pos.size, pos.direction, symbol)
-                    
-                    # Target: 0.40 (Proven Sweet Spot for 1% Risk)
-                    if curr_float_pnl >= 0.40:
+                
+                # 1. Stagnation-based (Chop Bars)
+                # Check if in NTZ (Chop)
+                ntz = detect_no_trade_zone(lookback[-20:], swing_lookback=1)
+                is_chopping = ntz and not ntz.is_broken
+                
+                if pos.direction == "long":
+                    curr_float_pnl = calculate_pnl(pos.avg_price, current_price, pos.size, pos.direction, symbol)
+                else:
+                    curr_float_pnl = calculate_pnl(pos.avg_price, current_price, pos.size, pos.direction, symbol)
+
+                if is_chopping and curr_float_pnl > 0:
+                    pos.chop_bars += 1
+                    if pos.chop_bars >= 3:
                         capital += curr_float_pnl
                         completed_trades.append(ForexTrade(
                             symbol=symbol, direction=pos.direction, entry_price=pos.avg_price,
                             exit_price=current_price, size=pos.size, entry_time=pos.entry_time,
-                            exit_time=current_time, pnl=curr_float_pnl, exit_reason="chop_tp",
+                            exit_time=current_time, pnl=curr_float_pnl, exit_reason="chop_tp_bars",
                             pyramid_count=pos.pyramid_count, score=pos.score
                         ))
-                        logger.info(f"[EXIT] {symbol} Chop Take Profit (+${curr_float_pnl:.2f}) Strength={htf_strength:.2f}")
+                        logger.info(f"[EXIT] {symbol} Chop TP (3 Bars Stagnation) +${curr_float_pnl:.2f}")
                         del positions[symbol]
                         continue
+                else:
+                    pos.chop_bars = 0
+
+                # 2. Profit-based Scalp (Reduced Threshold for 'Faster' Speed)
+                if htf_strength < 0.5 and curr_float_pnl >= 0.20:
+                    capital += curr_float_pnl
+                    completed_trades.append(ForexTrade(
+                        symbol=symbol, direction=pos.direction, entry_price=pos.avg_price,
+                        exit_price=current_price, size=pos.size, entry_time=pos.entry_time,
+                        exit_time=current_time, pnl=curr_float_pnl, exit_reason="chop_tp_scalp",
+                        pyramid_count=pos.pyramid_count, score=pos.score
+                    ))
+                    logger.info(f"[EXIT] {symbol} Chop Scalp (+${curr_float_pnl:.2f}) Strength={htf_strength:.2f}")
+                    del positions[symbol]
+                    continue
                 
 
 

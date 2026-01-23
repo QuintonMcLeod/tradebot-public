@@ -119,6 +119,7 @@ def main():
     print("=" * 60)
     print(f"Symbols: {[s[0] for s in FOREX_SYMBOLS]}")
     print()
+    duration = os.getenv("IBKR_DURATION", "1 D")
 
     # Connect to IBKR
     host = "127.0.0.1"
@@ -183,7 +184,7 @@ def main():
                 continue
 
             # Download 15m bars
-            bars = download_historical(ib, contract, symbol_name, "18 D", "15 mins")
+            bars = download_historical(ib, contract, symbol_name, duration, "15 mins")
             if bars:
                 save_bars(bars, f"{symbol_name}_15m.json")
 
@@ -191,7 +192,7 @@ def main():
             time.sleep(1)
 
             # Download 5m bars
-            bars = download_historical(ib, contract, symbol_name, "18 D", "5 mins")
+            bars = download_historical(ib, contract, symbol_name, duration, "5 mins")
             if bars:
                 save_bars(bars, f"{symbol_name}_5m.json")
 

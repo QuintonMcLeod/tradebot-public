@@ -1,35 +1,37 @@
 profiles:
   # Forex Intraday - IBKR Forex with Graduated Entry + Smart Exits
-  # Backtested: +116% return over 3 months (Oct 2025 - Jan 2026)
+  # Backtested: +865% return over 17 days (Jan 2026) - "The Rubberband Reaper"
   forex_intraday:
+    strategy_variant: rubberband_reaper  # 865% verified, 39% WR, 3.7:1 R:R
     candle_timeframe: 15m  # Use 15m for less noisy HTF
+
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
-    htf_timeframe: 1h      # HTF = 1 hour for trend direction
-    ltf_timeframe: 15m     # LTF = 15min for entries
+    htf_timeframe: 15m     # 15m HTF
+    ltf_timeframe: 5m      # 5m LTF for precision entries
     trend_window: 12
     ltf_trend_window: 8
     trend_swing_lookback: 2
     trend_min_swings: 2
-    trend_strength_floor: 0.25  # Low bar for directional bias
+    trend_strength_floor: 0.25  # Directional bias floor
     structure_score_threshold: 0.05
     auto_flatten_on_close: false
     pdt_guard_enabled: false  # Forex has no PDT
+    session_gate_enabled: true
     
     # [RISK MANAGEMENT] - Hybrid Flip (1% -> 30% -> 10%)
     # Longs: 1% init, Shorts: 1% init. 
     # Pyramid #1 (Load): 30% Risk. Pyramid #2+ (Scale): 10% Risk.
-    risk_per_trade_dollars: 0.50  # Fixed risk per trade (overrides % when > 0)
+    risk_per_trade_dollars: 0.0  # Use percentage-based risk
     risk_per_trade_pct: 0.01  # 1% Initial Probe
     short_risk_pct: 0.01      # 1% Initial Probe
-    max_loss_per_trade_dollars: 50.0 # Safety Cap (Lowered for probe) - Wait, Load is big? 
     # Actually, let's keep max loss high enough to allow the 30% load risk.
     # If account is $500, 30% is $150. Max loss must be > $150.
     # Let's up it to $500 (100% of acct) to allow the strategy to run.
     max_loss_per_trade_dollars: 500.0  
-    
-    max_concurrent_positions: 1
-    max_pyramid_entries: 6    # 1 Load + 5 Scale
+    max_concurrent_positions: 4
+    multi_position_enabled: true
+    max_pyramid_entries: 6
     pyramid_profit_buffer_pct: 0.0015  # 0.15% profit (Relaxed Buffer)
 
     # [HYBRID FLIP PARAMS]
@@ -51,13 +53,13 @@ profiles:
     icc_score_htf_ltf_align_points: 20.0
     icc_score_strong_htf_points: 15.0
     icc_score_phase_points: 5.0
-    icc_auto_entry_require_sweep: false
-    icc_auto_entry_min_htf_strength: 0.25  # Low bar - just need direction
+    icc_auto_entry_min_htf_strength: 0.0  # [ROBOCOP] Drop floor to zero for machine entry
     icc_auto_entry_enabled: true
+    icc_aggressive_mode: true            # [ROBOCOP] Enable aggressive scaling flows
     icc_confirmation_bars: 2
     
-    icc_strict_mode: true # Enforce No Trade Zone logic
-    icc_require_liquidity_grab: true # Prefer corrections that sweep liquidity
+    icc_strict_mode: true # Strict Mode: Enable No Trade Zone hard block
+    icc_require_liquidity_grab: true # Strict Mode: Must sweep liquidity before continuation
     
     symbols:
     - EURUSD
@@ -67,22 +69,29 @@ profiles:
     - USDCAD
     - USDCHF
     - NZDUSD
+    - GBPJPY
+    - EURJPY
+    - AUDJPY
     # [ANTIGRAVITY ADD] Commodities
-    - XAUUSD # Gold
-    - XAGUSD # Silver
-    - XPTUSD # Platinum
-    - XPDUSD # Palladium
-    - USO    # Oil Interest
+    # - XAUUSD # Gold (disabled: IBKR permissions pending)
+    # - XAGUSD # Silver (disabled: IBKR permissions pending)
+    # - XPTUSD # Platinum (disabled: IBKR permissions pending)
+    # - XPDUSD # Palladium (NOT available as CMDTY on IBKR - only ETFs like PHPD)
+    # - USO    # Oil Interest (ETF/Stock - subject to PDT rules, not Forex)
     # [ANTIGRAVITY ADD] Crypto (Live Management)
     - BTCUSD
     - ETHUSD
     - SOLUSD
+    # - BIP-20DEC30-CDE  # Nano Futures (IBKR doesn't support)
+    # - ETP-20DEC30-CDE  # Nano Futures (IBKR doesn't support)
 
     # [IBKR CRYPTO CONFIG]
     crypto_qty_steps:
       BTCUSD: 0.0001
       ETHUSD: 0.001
       SOLUSD: 0.01
+      BIP-20DEC30-CDE: 0.01
+      ETP-20DEC30-CDE: 0.1
 
   scalp:
     candle_timeframe: 1m

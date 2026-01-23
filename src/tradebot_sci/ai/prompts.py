@@ -207,9 +207,30 @@ def build_decision_messages(context: Dict, model_name: str = "") -> List[ChatMes
         "and explain why in structure_summary and notes. (Note: missing continuation doesn't require stand_aside)"
     )
 
-    return [
+    messages = [
         {"role": "system", "content": system_prompt},
         {"role": "system", "content": "Respond with JSON only. No prose allowed."},
+    ]
+
+    # [ANTIGRAVITY FIX] RoboCop Combat Mode Override
+    from tradebot_sci.config.models import UserConfig
+    if UserConfig.COMBAT_MODE_ENABLED:
+        messages.append({
+            "role": "system", 
+            "content": (
+                "COMBAT MODE ACTIVE: ATTENTION!\n"
+                "You are authorized to bypass standard ICC trend alignment rules.\n"
+                "1. If Phase is 'chop' or 'neutral', do NOT stand aside automatically. Look for internal LTF scalps (sweeps/continuations).\n"
+                "2. Treat 'neutral' HTF as a valid backdrop for LTF trades.\n"
+                "3. Aggressively target small moves within the range.\n"
+                "4. IGNORE 'HTF/LTF alignment REQUIRED' rule if a clear 5m/15m setup exists.\n"
+                "SCALP THE STRUCTURE."
+            )
+        })
+
+    messages.extend([
         {"role": "user", "content": "\n".join(summary_lines)},
         {"role": "user", "content": final_instruction},
-    ]
+    ])
+    
+    return messages

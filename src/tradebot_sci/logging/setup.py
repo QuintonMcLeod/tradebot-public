@@ -17,20 +17,22 @@ def setup_logging(settings: LoggingSettings) -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
+    level = getattr(logging, settings.level.upper(), logging.INFO)
+
     file_handler = RotatingFileHandler(
         settings.file,
         maxBytes=settings.max_bytes,
         backupCount=settings.backup_count,
     )
-    file_handler.setLevel(settings.level)
+    file_handler.setLevel(level)
     file_handler.setFormatter(formatter)
 
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(settings.level)
+    console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
 
     logger = logging.getLogger()
-    logger.setLevel(settings.level)
+    logger.setLevel(level)
 
     logger.handlers.clear()
     logger.addHandler(console_handler)

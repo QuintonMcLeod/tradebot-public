@@ -41,12 +41,12 @@ if tmux has-session -t tradebot 2>/dev/null; then
     echo "[RESTART] Restarting in existing tmux session 'tradebot'..."
     tmux send-keys -t tradebot:view.0 C-c
     sleep 1
-    tmux send-keys -t tradebot:view.0 "cd '$PROJECT_DIR' && /home/qchan/.cache/pypoetry/virtualenvs/tradebot-sci-enterprise-t72gH1Ax-py3.11/bin/python scripts/run_dev_bot.py --continuous" C-m
+    tmux send-keys -t tradebot:view.0 "cd '$PROJECT_DIR' && '$PROJECT_DIR'/.venv/bin/python scripts/run_dev_bot.py --continuous" C-m
     echo "[RESTART] Bot restarted in tmux session"
 else
     echo "[RESTART] Starting bot in new background process..."
     cd "$PROJECT_DIR"
-    nohup /home/qchan/.cache/pypoetry/virtualenvs/tradebot-sci-enterprise-t72gH1Ax-py3.11/bin/python scripts/run_dev_bot.py --continuous > /dev/null 2>&1 &
+    nohup "$PROJECT_DIR"/.venv/bin/python scripts/run_dev_bot.py --continuous > /dev/null 2>&1 &
     echo "[RESTART] Bot started (PID: $!)"
 fi
 

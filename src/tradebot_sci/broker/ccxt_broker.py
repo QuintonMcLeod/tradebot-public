@@ -228,101 +228,96 @@ class CCXTExchangeBroker:
         """Returns a set of canonical symbols (e.g. BTCUSD) that have open positions > 0."""
         open_symbols = set()
         try:
-            dtype = self.default_type or os.getenv("CCXT_DEFAULT_TYPE") or "spot"
-            dtype = dtype.lower()
-            is_future = dtype in {"future", "swap", "option", "margin"}
-            if is_future:
-                # Futures/Swap logic
-                if self._exchange.has['fetchPositions']:
-                    # Note: Using None to fetch ALL positions if supported
-                    positions = self._exchange.fetch_positions(None)
+            # 1. Check Futures/Swap Positions
+            if self._exchange.has.get('fetchPositions', False):
+                try:
+                    positions = self._exchange.fetch_positions()
                     for p in positions:
-                        if float(p.get("contracts") or 0) > 0:
+                        if abs(float(p.get("contracts") or 0)) > 0:
                             # Reverse map symbol
                             raw_sym = p.get("symbol")
                             for k, v in self.symbol_map.items():
                                 if v == raw_sym:
                                     open_symbols.add(k)
                                     break
-            else:
-                # Spot: check balances
+                except Exception as e:
+                    logger.debug(f"[CCXT] fetch_positions failed: {e}")
+
+            # 2. Check Spot Balances
+            try:
                 bal = self._exchange.fetch_balance()
                 total = bal.get("total", {})
                 
                 # Filter out Quote Currencies (Cash) from being treated as "Positions"
-                ignored_currencies = {"USD", "USDT", "USDC", "DAI", "FDUSD"}
+                ignored_currencies = {"USD", "USDT", "USDC", "DAI", "FDUSD", "EUR", "GBP"}
                 
                 for currency, amount in total.items():
                     amount_float = float(amount or 0)
-                    
-                    # Ignore Cash/Stablecoins
-                    if currency in ignored_currencies:
+                    if amount_float <= 1e-8 or currency in ignored_currencies:
                         continue
                     
-                    # Ignore Dust (Threshold: 0.00001)
-                    if amount_float > 0.00001:
-                        # [ANTIGRAVITY FIX] Deduplicate by currency to prevent duplicate USD/USDT rows
-                        # Prefer USD pairs first, then USDT, then USDC
-                        candidates = [f"{currency}/USD", f"{currency}/USDT", f"{currency}/USDC"]
-                        
-                        mapped_already = False
-                        # First check existing map
-                        for cand in candidates:
-                            for k, v in self.symbol_map.items():
-                                if v == cand:
-                                    if amount_float > 1e-8:
-                                        open_symbols.add(k)
-                                        mapped_already = True
-                                        break
-                            if mapped_already:
-                                break
-                        
-                        # If not mapped, attempt to auto-discover a valid market
-                        if not mapped_already:
-                            for cand in candidates:
-                                if cand in self._exchange.markets:
-                                    # Create a system symbol name (e.g. UNIUSD)
-                                    sys_sym = cand.replace("/", "").upper()
-                                    logger.info(f"[CCXT] Auto-discovered mapping for {currency}: {sys_sym} -> {cand}")
-                                    self.symbol_map[sys_sym] = cand
-                                    if amount_float > 1e-8:
-                                        open_symbols.add(sys_sym)
-                                        mapped_already = True
-                                        break
-                            if mapped_already:
-                                continue
-                
-                # [ANTIGRAVITY FIX] Discovery from Open Orders
-                # Some positions might have 0 balance but open stop orders (Coinbase "Used" balance issue)
-                try:
-                    allowed_exchange_symbols = self._get_allowed_exchange_symbols()
-                    open_orders = self._exchange.fetch_open_orders(None)
-                    for o in open_orders:
-                        cand = o.get("symbol")
-                        if not cand:
-                            continue
-                        if allowed_exchange_symbols and cand not in allowed_exchange_symbols:
-                            continue
-                        if not self._is_known_exchange_symbol(cand):
-                            continue
-                        
-                        mapped_already = False
-                        for k, v in self.symbol_map.items():
-                            if v == cand:
+                    # Try to map back to a canonical symbol (e.g. BTC -> BTCUSD)
+                    found = False
+                    for k, v in self.symbol_map.items():
+                        # Direct mapping if v is just the currency (e.g. 'BTC')
+                        if v == currency:
+                            open_symbols.add(k)
+                            found = True
+                            break
+                    
+                    if not found:
+                        for k in self.symbol_map.keys():
+                            if k.startswith(currency) and k.endswith("USD"):
                                 open_symbols.add(k)
-                                mapped_already = True
+                                found = True
                                 break
-                        
-                        if not mapped_already:
-                            sys_sym = cand.replace("/", "").replace("-", "").upper()
-                            logger.info(f"[CCXT] Auto-discovered mapping from order: {sys_sym} -> {cand}")
+                    if not found:
+                         # Fallback to currency+USD if no map
+                         open_symbols.add(f"{currency}USD")
+            except Exception as e:
+                logger.debug(f"[CCXT] fetch_balance failed: {e}")
+
+            # 3. Discovery from Orders (Fallback for private sub-accounts)
+            try:
+                allowed_exchange_symbols = self._get_allowed_exchange_symbols()
+                open_orders = self._exchange.fetch_open_orders(None)
+                for o in open_orders:
+                    cand = o.get("symbol")
+                    if not cand:
+                        continue
+                    if allowed_exchange_symbols and cand not in allowed_exchange_symbols:
+                        continue
+                    
+                    mapped_already = False
+                    for k, v in self.symbol_map.items():
+                        if v == cand:
+                            open_symbols.add(k)
+                            mapped_already = True
+                            break
+                    
+                    if not mapped_already:
+                        sys_sym = cand.replace("/", "").replace("-", "").upper()
+                        # Only add if it looks like a valid trading pair
+                        if "USD" in sys_sym:
                             self.symbol_map[sys_sym] = cand
                             open_symbols.add(sys_sym)
+            except Exception as e:
+                logger.debug(f"[CCXT] Discovery from orders failed: {e}")
+
+            # 4. Check Position Hold Store (Fallback for all)
+            if self.position_hold_store:
+                try:
+                    for k in self.position_hold_store.load_all().keys():
+                        # Only add if we have a non-zero size in the store
+                        record = self.position_hold_store.get(k)
+                        if record and record.size and abs(record.size) > 0:
+                            open_symbols.add(k.upper())
                 except Exception as e:
-                    logger.warning(f"[CCXT] Discovery from orders failed: {e}")
+                    logger.debug(f"[CCXT] Discovery from hold store failed: {e}")
         except Exception as e:
             logger.warning(f"[CCXT] list_open_position_symbols failed: {e}")
         
+        logger.debug(f"[CCXT] Discovered open symbols: {open_symbols}")
         return open_symbols
 
     def get_open_position_snapshot(self, symbol: str) -> dict | None:
@@ -332,11 +327,14 @@ class CCXTExchangeBroker:
 
         sym = self._map_symbol(symbol)
         
-        default_type = (os.getenv("CCXT_DEFAULT_TYPE") or "spot").lower()
-        is_future = default_type in {"future", "swap", "option", "margin"}
+        from tradebot_sci.market.symbols import is_coinbase_derivative
+        is_future = is_coinbase_derivative(symbol)
         
         size = 0.0
         avg_price = None
+        unrealized_pnl = 0.0
+        pnl_pct = 0.0
+        current_price = None
         
         try:
             # If it's a future, we use fetch_positions if available
@@ -350,6 +348,8 @@ class CCXTExchangeBroker:
                     side = str(target.get('side') or 'long')
                     size = contracts if side == 'long' else -contracts
                     avg_price = float(target.get('entryPrice') or 0.0)
+                    unrealized_pnl = float(target.get('unrealizedPnl') or 0.0)
+                    pnl_pct = float(target.get('percentage') or 0.0)
             else:
                 # Spot: fetch_balance
                 base = sym.split("/")[0] if "/" in sym else sym
@@ -404,34 +404,30 @@ class CCXTExchangeBroker:
                     except Exception as e:
                         logger.warning(f"[CCXT] Hidden balance check failed for {symbol}: {e}")
 
-                # Fetch current price for PnL
-                current_price = None
+            # Fallback PnL calculation if missing from exchange or for spot
+            if abs(size) > 0:
                 ticker = self._safe_fetch_ticker(sym)
                 if ticker:
                     current_price = ticker.last
-
-                # Restore entry price from store if missing from exchange (spot)
+                
+                # Restore entry price from store if missing
                 avg_p = avg_price
                 record = self.position_hold_store.get(symbol) if self.position_hold_store else None
                 if (not avg_p or avg_p == 0) and record and record.entry_price:
                     avg_p = record.entry_price
                     logger.debug(f"[CCXT] Restored entry_price {avg_p} from store for {symbol}")
                 
-                # [ANTIGRAVITY FIX] Recover from Exchange Trades if still missing
+                # Recover from trades if still missing
                 if (not avg_p or avg_p == 0):
                     rec_p = self._recover_entry_price_from_trades(sym)
                     if rec_p:
-                         avg_p = rec_p
-                         logger.info(f"[CCXT] Recovered entry_price {avg_p} from recent trades for {symbol}")
-                         # Persist recovery to store so we don't spam API
-                         if self.position_hold_store:
-                             self.position_hold_store.upsert(symbol, _utc_now(), entry_price=avg_p, size=size)
-
-                avg_price = avg_p # Update for return
-
-                # Calculate PnL
-                unrealized_pnl = 0.0
-                pnl_pct = 0.0
+                        avg_p = rec_p
+                        logger.info(f"[CCXT] Recovered entry_price {avg_p} from recent trades for {symbol}")
+                        if self.position_hold_store:
+                            self.position_hold_store.upsert(symbol, _utc_now(), entry_price=avg_p, size=size)
+                
+                avg_price = avg_p
+                
                 if avg_p and avg_p > 0 and current_price:
                     unrealized_pnl = (current_price - avg_p) * size
                     # Side-aware PnL %
@@ -440,8 +436,7 @@ class CCXTExchangeBroker:
                     else:
                         pnl_pct = (1.0 - current_price / avg_p) * 100.0
                 
-                # For debugging:
-                logger.debug(f"[CCXT] Snapshot {sym} | Size={size} | Entry={avg_p} | Last={current_price} | PnL={unrealized_pnl:.2f} ({pnl_pct:.2f}%)")
+            logger.debug(f"[CCXT] Snapshot {sym} | Size={size} | Entry={avg_price} | Last={current_price} | PnL={unrealized_pnl:.2f} ({pnl_pct:.2f}%)")
         except Exception as e:
             logger.error(f"[CCXT] Snapshot fetch failed for {symbol}: {e}", exc_info=True)
             return None
@@ -513,12 +508,28 @@ class CCXTExchangeBroker:
         )
 
     def _extract_balance_amount(self, bal: dict, quote: str) -> float:
+        # Standard CCXT extraction
         free = bal.get("free") or {}
         amount = float(free.get(quote, 0.0) or 0.0)
         if amount:
             return amount
         total = bal.get("total") or {}
-        return float(total.get(quote, 0.0) or 0.0)
+        amount = float(total.get(quote, 0.0) or 0.0)
+        if amount:
+            return amount
+            
+        # [ANTIGRAVITY FIX] Coinbase Futures-specific extraction from 'info' object
+        # Coinbase Advanced Trade doesn't always populate free/total for futures in fetch_balance
+        if "info" in bal and "balance_summary" in bal["info"]:
+            summary = bal["info"]["balance_summary"]
+            # Prioritize Buying Power (Margin Available)
+            for key in ["futures_buying_power", "available_margin", "total_usd_balance"]:
+                if key in summary:
+                    val_dict = summary[key]
+                    if val_dict.get("currency") == quote:
+                        return float(val_dict.get("value", 0.0) or 0.0)
+                        
+        return 0.0
 
     def _fetch_balance_for_type(self, balance_type: str) -> dict | None:
         try:
@@ -941,7 +952,12 @@ class CCXTExchangeBroker:
                     )
                     qty_base = min_amount_limit
                 else:
-                    qty_base = int(qty_base)
+                    # [ANTIGRAVITY FIX] Use ceil for small positions to avoid truncation to 0
+                    if qty_base > 0 and qty_base < 1.0:
+                         logger.info(f"[CCXT] Sizing: Rounding {qty_base:.4f} up to 1 contract for {sym}")
+                         qty_base = 1.0
+                    else:
+                         qty_base = int(round(qty_base))
             
             send_amount = qty_base
             is_coinbase = "coinbase" in self.exchange_id.lower()
@@ -972,7 +988,7 @@ class CCXTExchangeBroker:
                 # [ANTIGRAVITY FIX] Handle Multipliers (Contract Size)
                 # Some futures have multipliers (e.g. LTC=5, ETH=0.1).
                 # Nanos: 1 Contract = Multiplier * Price.
-                market_info = self._exchange.market(decision.symbol)
+                market_info = self._exchange.market(sym)
                 c_size = market_info.get("contractSize") or 1.0
                 
                 # [ANTIGRAVITY CORRECTION] Use send_amount (Integer Contracts) for accuracy.
@@ -1022,7 +1038,14 @@ class CCXTExchangeBroker:
             # Entry Execution
             try:
                 # [ANTIGRAVITY FIX] Strict Min Amount Check
-                min_amount_limit = min_amount_limit or self._exchange.market(sym).get('limits', {}).get('amount', {}).get('min') or (1.0 if is_future else 0.000001)
+                # [ANTIGRAVITY FIX] Strict Min Amount Check with Safety Map
+                try:
+                    market = self._exchange.market(sym)
+                    min_amount_limit = min_amount_limit or market.get('limits', {}).get('amount', {}).get('min')
+                except Exception:
+                    logger.debug(f"[CCXT] market({sym}) info missing; using fallback min amount.")
+                
+                min_amount_limit = min_amount_limit or (1.0 if is_future else 0.000001)
                 
                 if send_amount < min_amount_limit:
                     # Attempt round up if close (within 80%? No, simplistic check for now: if integer needed and > 0.5)
@@ -1038,6 +1061,7 @@ class CCXTExchangeBroker:
 
                 # Place Entry
                 order = self._exchange.create_order(sym, "market", side, send_amount)
+                self._track_local_order(sym, order)
                 entry_id = str(order.get("id"))
                 logger.info(f"[CCXT] Placed {side} market order {entry_id} for {send_amount} {sym}")
                 
@@ -1183,6 +1207,7 @@ class CCXTExchangeBroker:
                         stop_qty = float(self._exchange.amount_to_precision(sym, stop_qty))
 
                         stop_order = self._exchange.create_order(sym, order_type, stop_side, stop_qty, limit_price, stop_params)
+                        self._track_local_order(sym, stop_order)
                         logger.info(f"[CCXT] Placed Consolidated Stop Loss {stop_side} ({order_type}) at {decision.stop_loss} (qty={stop_qty})")
                     except Exception as e:
                          # [ANTIGRAVITY FIX] Robust Error Handling for Stop Failures

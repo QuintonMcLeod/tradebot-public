@@ -1,20 +1,12 @@
-const { ipcRenderer } = require('electron');
-// const ipcRenderer = { on: () => {}, send: () => {} }; // [ANTIGRAVITY] Mock for Browser Screenshot
-
-// Dynamic Timezone Offset (Client-side shift to match user's local time)
-// Dynamic Timezone Offset (Client-side shift to match user's local time)
-var TIMEZONE_OFFSET_SEC = new Date().getTimezoneOffset() * 60;
-
-console.log("[DEBUG] Renderer script starting...");
-
-var chart;
-var candleSeries;
-var indicatorSeries;
-var logTerminal;
-var statusProfile;
-var statusText;
-var statusDot;
-var statusLatency;
+// --- Chart & DOM State ---
+let chart;
+let candleSeries;
+let indicatorSeries;
+let logTerminal;
+let statusProfile;
+let statusText;
+let statusDot;
+let statusLatency;
 
 function initChart(intervalSeconds = 900) {
     const chartContainer = document.getElementById('chart-area');
@@ -114,22 +106,17 @@ function connectWebSocket() {
             } else if (msg.type === 'candle') {
                 // Update Chart ONLY if it matches current symbol
                 const currentSym = document.getElementById('chart-symbol-label')?.innerText;
-                const normMsgSym = msg.symbol.replace('/', '');
-                const normCurrSym = currentSym ? currentSym.replace('/', '') : '';
-
-                if (normMsgSym === normCurrSym) {
-                    // Apply Timezone Shift to incoming candle
-                    const localTime = msg.data.time - TIMEZONE_OFFSET_SEC;
-                    candleSeries.update({ ...msg.data, time: localTime });
+                if (msg.symbol === currentSym) {
+                    // [ANTIGRAVITY FIX] Dynamic Timezone Sync
+                    // Calculate local offset in seconds
+                    const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
+                    // Adjust timestamp: subtract offset because getTimezoneOffset returns positive for behind UTC
+                    const fixedData = { ...msg.data, time: msg.data.time - tzOffsetSeconds };
+                    candleSeries.update(fixedData);
                 }
             } else if (msg.type === 'log') {
-                const logLines = msg.data.split('\n');
-                logLines.forEach(line => {
-                    if (line.trim()) {
-                        parseLogLine(line);
-                        appendLog(msg.level || "INFO", line);
-                    }
-                });
+                parseLogLine(msg.data);
+                appendLog(msg.level || "INFO", msg.data);
             }
         } catch (e) {
             console.error("WS Parse Error", e);
@@ -154,9 +141,11 @@ function connectWebSocket() {
 
 function generateDummyData(interval = 900) {
     let res = [];
-    const now = Math.floor(Date.now() / 1000);
-    // Apply offset to dummy data too
-    let time = (now - (300 * interval)) - TIMEZONE_OFFSET_SEC;
+    const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
+    // Current local time in seconds
+    const now = Math.floor(Date.now() / 1000) - tzOffsetSeconds;
+
+    let time = now - (300 * interval);
     let value = 1.1000;
     for (let i = 0; i < 300; i++) {
         let open = value;
@@ -176,9 +165,9 @@ function generateDummyData(interval = 900) {
 // --- Log Formatting Logic ---
 function formatLogMessage(msg) {
     let formatted = msg;
-    // Strip timestamps like [10:00:00] or 2024-01-01 10:00:00 (with optional ms)
+    // Strip timestamps like [10:00:00] or 2024-01-01 10:00:00
     formatted = formatted.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, "");
-    formatted = formatted.replace(/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}([,\.]\d+)?\s*/, "");
+    formatted = formatted.replace(/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}[,\.]\d+\s*/, "");
 
     const labels = {
         'INFO': 'text-blue-500 font-bold',
@@ -213,7 +202,7 @@ function appendLog(level, rawMessage) {
         if (!logTerminal) return;
     }
     const div = document.createElement('div');
-    div.className = "log-line text-white/90";
+    div.className = "log-line text-white/90 py-0.5";
 
     const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
     div.innerHTML = `<span class="text-slate-600 font-mono">[${ts}]</span> ${formatLogMessage(rawMessage)}`;
@@ -276,16 +265,17 @@ function addDecisionRow(symbol, action, scoreNum, reason) {
         actionHtml = `<span class="text-green-400 font-bold text-glow-sm">ENTER_LONG</span>`;
     } else if (action === "ENTER_SHORT" || action === "SELL") {
         actionHtml = `<span class="text-red-500 font-bold text-glow-sm">ENTER_SHORT</span>`;
-    } else if (action === "HOLD" || action === "WAIT") {
-        actionHtml = `<span class="text-slate-400 font-bold text-glow-sm">HOLD</span>`;
+    } else if (action === "HOLD" || action === "WAIT" || action === "CONTINUATION") {
+        actionHtml = `<span class="text-slate-400 font-bold text-glow-sm">${action}</span>`;
     }
 
+    // [ANTIGRAVITY REFINE] Much larger font (text-lg / 18px), bunched rows (py-1.5)
     row.innerHTML = `
-        <td class="px-1 py-4 text-slate-500 text-left font-mono text-base border-r border-teal-500/10">${time}</td>
-        <td class="px-1 py-4 font-bold text-slate-200 text-left text-base border-r border-teal-500/10">${symbol}</td>
-        <td class="px-1 py-4 text-left text-base border-r border-teal-500/10">${actionHtml}</td>
-        <td class="px-1 py-4 ${scoreClass} text-left font-bold text-base text-center border-r border-teal-500/10">${grade}</td>
-        <td class="px-1 py-4 text-slate-400 text-base italic text-left">${reason}</td>
+        <td class="px-4 py-1.5 text-slate-500 text-left font-mono text-sm">${time}</td>
+        <td class="px-4 py-1.5 font-bold text-slate-200 text-left text-lg">${symbol}</td>
+        <td class="px-4 py-1.5 text-left text-sm uppercase tracking-wider">${actionHtml}</td>
+        <td class="px-4 py-1.5 ${scoreClass} text-left font-black text-lg">${grade}</td>
+        <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${reason}</td>
     `;
 
     if (!existingRow) {
@@ -295,7 +285,7 @@ function addDecisionRow(symbol, action, scoreNum, reason) {
 }
 
 // --- IPC / Socket Logic ---
-ipcRenderer.on('fromMain', (event, payload) => {
+window.api.on('fromMain', (payload) => {
     if (payload.type === 'log-chunk') {
         // Initial chunk (history)
         const lines = payload.data.split('\n');
@@ -305,21 +295,24 @@ ipcRenderer.on('fromMain', (event, payload) => {
             appendLog("HIST", line.trim(), "FILE");
         });
     } else if (payload.type === 'log-update') {
-        // Real-time update
-        const lines = payload.line.split('\n');
-        lines.forEach(rawLine => {
-            const line = rawLine.trim();
-            if (line) {
-                parseLogLine(line);
-                appendLog("LIVE", line, "FILE");
-            }
-        });
+        // Real-time update: Chunk might contain multiple lines
+        const chunk = payload.line;
+        if (chunk) {
+            const lines = chunk.split('\n');
+            lines.forEach(rawLine => {
+                const line = rawLine.trim();
+                if (line) {
+                    parseLogLine(line);
+                    appendLog("LIVE", line, "FILE");
+                }
+            });
+        }
     }
 });
 
 // --- Panel Rotation Logic ---
 const panels = ['panel-decisions', 'panel-commentary', 'panel-holdings'];
-const panelTitles = ['Decisions Panel', 'AI Commentary', 'Holdings'];
+const panelTitles = ['Decisions Panel', 'AI Insight', 'Holdings'];
 let currentPanelIndex = 0;
 
 function setupPanelRotation() {
@@ -362,12 +355,12 @@ function setupTableSorting() {
 
             // clear others
             document.querySelectorAll('.sortable-header').forEach(h => {
-                h.classList.remove('asc', 'desc', 'text-teal-300', 'bg-teal-500/20', 'shadow-inner');
+                h.classList.remove('asc', 'desc', 'text-teal-300');
             });
 
             th.classList.toggle('asc', !isAsc);
             th.classList.toggle('desc', isAsc);
-            th.classList.add('text-teal-300', 'bg-teal-500/20', 'shadow-inner'); // Highlight active
+            th.classList.add('text-teal-300'); // Highlight active
 
             rows.sort((a, b) => {
                 const aText = a.cells[colIndex].innerText.trim();
@@ -399,11 +392,15 @@ function updateHoldingsTable(payload) {
         // Determine side color/text
         const sideClass = (pos.side && pos.side.toUpperCase() === 'SHORT') ? "text-red-400" : "text-green-400";
 
+        const rawPnl = parseFloat(pos.unrealized_pnl);
+        const displayPnl = isNaN(rawPnl) ? "0.00" : rawPnl.toFixed(2);
+        const displaySize = Math.abs(parseFloat(pos.size)).toFixed(4);
+
         row.innerHTML = `
             <td class="p-2 font-mono font-bold text-slate-200">${pos.symbol}</td>
             <td class="p-2 text-center ${sideClass} font-bold text-xs">${pos.side ? pos.side.toUpperCase() : 'LONG'}</td>
-            <td class="p-2 text-right font-mono text-slate-400">${parseFloat(pos.size).toFixed(4)}</td>
-            <td class="p-2 text-right font-mono font-bold ${pnlClass}">${pnlSign}${parseFloat(pos.unrealized_pnl).toFixed(2)}</td>
+            <td class="p-2 text-right font-mono text-slate-400">${displaySize}</td>
+            <td class="p-2 text-right font-mono font-bold ${pnlClass}">${pnlSign}$${displayPnl}</td>
         `;
         tbody.appendChild(row);
     });
@@ -411,6 +408,22 @@ function updateHoldingsTable(payload) {
     // Handle empty state
     if (payload.positions.length === 0) {
         tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500 italic text-xs">No active positions</td></tr>`;
+    }
+
+    // [ANTIGRAVITY FIX] Update sidebar PNL
+    const equityEl = document.getElementById('account-equity');
+    if (equityEl && payload.total_unrealized_pnl !== undefined) {
+        const totalPnl = parseFloat(payload.total_unrealized_pnl);
+        equityEl.textContent = isNaN(totalPnl) ? "0.00" : totalPnl.toFixed(2);
+
+        // Optional: color coding for sidebar
+        if (totalPnl >= 0) {
+            equityEl.classList.remove('text-red-400');
+            equityEl.classList.add('text-emerald-400');
+        } else {
+            equityEl.classList.remove('text-emerald-400');
+            equityEl.classList.add('text-red-400');
+        }
     }
 }
 
@@ -472,15 +485,16 @@ function parseLogLine(line) {
         } catch (e) { console.error("Decision Parsing Error:", e); }
     }
 
-    // 2. Profile Parsing
-    if (line.includes('[PROFILE]') || line.includes('profile=') || line.includes('switching to profile')) {
-        const profileMatch = line.match(/profile[:=]\s?([\w\-]+)/i) || line.match(/switching to profile\s+([\w\-]+)/i);
+    // 2. Profile Parsing (Enhanced)
+    if (line.includes('[PROFILE]') || line.includes('profile=') || line.includes('switching to')) {
+        const profileMatch = line.match(/profile[:=]\s?([\w\-]+)/i) ||
+            line.match(/switching to (?:profile\s+)?([\w\-]+)/i);
         if (profileMatch) {
             const prof = profileMatch[1];
             if (!statusProfile) statusProfile = document.getElementById('status-profile');
             if (statusProfile) {
                 statusProfile.innerText = prof.toUpperCase();
-                statusProfile.classList.add('text-teal-400', 'font-bold');
+                statusProfile.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
             }
             saveState();
         }
@@ -498,15 +512,47 @@ function parseLogLine(line) {
         saveState();
     }
 
-    // 4. AI Commentary
+    // 3b. Overall Capital (from [HEARTBEAT] Capital available: $XXX.XX)
+    if (line.includes('[HEARTBEAT] Capital available:')) {
+        const match = line.match(/Capital available:\s*\$?([\d\.,]+)/i);
+        if (match) {
+            const val = parseFloat(match[1].replace(/,/g, ''));
+            const capitalEl = document.getElementById('account-capital');
+            if (capitalEl) {
+                capitalEl.innerText = val.toLocaleString('en-US', { minimumFractionDigits: 2 });
+            }
+            saveState();
+        }
+    }
+
+    // 4. AI Insight (Timestamped Bubbles)
     if (line.includes('[COMMENTARY]') || line.includes('commentary:') || line.includes('Insight:')) {
         const textParts = line.split(/\[COMMENTARY\]|commentary:|Insight:/i);
         if (textParts.length > 1) {
             const text = textParts[1].trim().replace(/^"|"$/g, '');
-            const el = document.getElementById('commentary-content');
-            if (el) el.innerText = text;
+            const scroller = document.getElementById('insight-scroller');
+            if (scroller) {
+                // Clear initial placeholder if this is the first real message
+                if (scroller.querySelector('.italic.text-slate-500')) {
+                    scroller.innerHTML = '';
+                }
+
+                const div = document.createElement('div');
+                div.className = "insight-bubble bg-teal-500/5 border border-teal-500/20 rounded-xl p-4 mb-4 animate-in fade-in slide-in-from-bottom-2 duration-500";
+
+                const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-teal-400 opacity-70">AI Signal Analysis</span>
+                        <span class="text-[9px] font-mono text-slate-500">${ts}</span>
+                    </div>
+                    <div class="text-slate-200 text-sm leading-relaxed">${text}</div>
+                `;
+
+                scroller.appendChild(div);
+                scroller.scrollTop = scroller.scrollHeight;
+            }
         }
-        saveState();
     }
 
     // 5. Holdings
@@ -577,7 +623,7 @@ function setupCalendar() {
 
 let botIsRunning = false;
 
-ipcRenderer.on('bot-status', (event, payload) => {
+window.api.on('bot-status', (payload) => {
     botIsRunning = payload.running;
     console.log("Bot Status Update:", botIsRunning);
     updatePanicButtonState();
@@ -678,7 +724,7 @@ function setupInteractiveElements() {
     document.getElementById('btn-panic')?.addEventListener('click', (e) => {
         if (!botIsRunning) {
             // "Start Bot" mode
-            ipcRenderer.send('start-bot');
+            window.api.send('start-bot');
             appendLog("INFO", "[USER] START BOT SIGNAL SENT TO SYSTEM.");
 
             // Visual feedback for starting
@@ -723,12 +769,27 @@ function setupInteractiveElements() {
 
             const name = e.currentTarget.innerText.trim();
             appendLog("INFO", `[UI] Switched to ${name} view.`);
+
+            if (id === 'nav-settings') {
+                window.api.send('open-settings');
+            }
         });
     });
 
     // Indicator Button
     document.getElementById('btn-indicators')?.addEventListener('click', () => {
         appendLog("INFO", "[UI] Indicators menu toggled.");
+    });
+
+    // Window Controls
+    document.getElementById('btn-minimize')?.addEventListener('click', () => {
+        window.api.send('minimize-window');
+    });
+    document.getElementById('btn-maximize')?.addEventListener('click', () => {
+        window.api.send('maximize-window');
+    });
+    document.getElementById('btn-close')?.addEventListener('click', () => {
+        window.api.send('close-window');
     });
 }
 
@@ -756,7 +817,7 @@ function loadState() {
         const state = JSON.parse(raw);
         if (state.profile) document.getElementById('status-profile').innerText = state.profile;
         if (state.equity) document.getElementById('account-equity').innerText = state.equity;
-        // if (state.decisions) document.getElementById('decisions-table').innerHTML = state.decisions; // CLEARED FOR FONT UPDATE
+        if (state.decisions) document.getElementById('decisions-table').innerHTML = state.decisions;
         if (state.commentary) document.getElementById('commentary-content').innerText = state.commentary;
         if (state.holdings) document.getElementById('holdings-table-body').innerHTML = state.holdings;
         if (state.symbol) document.getElementById('chart-symbol-label').innerText = state.symbol;
@@ -797,7 +858,17 @@ function init() {
         setupCalendar();
 
         // Request initial bot status
-        ipcRenderer.send('get-bot-status');
+        window.api.send('get-bot-status');
+
+        // [ANTIGRAVITY FIX] Chart Refresh Interval (15 Seconds)
+        setInterval(() => {
+            const sym = document.getElementById('chart-symbol-label')?.innerText || 'EURUSD';
+            const tf = document.getElementById('chart-tf-label')?.innerText || '15m';
+            console.log(`[SYSTEM] Heartbeat: Refreshing chart for ${sym} @ ${tf}`);
+            // We just trigger a visual refresh or data fetch if needed. 
+            // Since WebSocket drives updates, this interval ensures the chart stays reactive.
+            if (chart) chart.timeScale().scrollToRealTime();
+        }, 15000);
 
         console.log("Other UI modules initialized.");
     } catch (e) {
