@@ -1550,14 +1550,20 @@ def run_bot(
                 except:
                     holdings_count = 0
 
+                # [ANTIGRAVITY] Get Sabbath status
+                tz_obj = ZoneInfo(profile_settings.sabbath_timezone)
+                now_utc = datetime.now(timezone.utc)
+                sabbath_active, _, _ = SabbathContext(profile_settings).evaluate(now_utc)
+
                 state_data = {
                     "equity": cap,
                     "capital": cap,
                     "holdings_count": holdings_count,
-                    "profile": profile_name
+                    "profile": profile_name,
+                    "is_sabbath": sabbath_active
                 }
                 ws_server.broadcast_state_sync(state_data)
-                logger.info(f"[WS] Pushed immediate state sync: Equity=${cap:.2f}, Holds={holdings_count}")
+                logger.info(f"[WS] Pushed immediate state sync: Equity=${cap:.2f}, Holds={holdings_count}, Sabbath={sabbath_active}")
 
             # [ANTIGRAVITY] Then fetch historical data (can be slow)
             hist_candles = provider.get_latest_candles(symbol, tf, limit=200)
@@ -1715,13 +1721,24 @@ def run_bot(
                 # Reset error counter when we successfully fetch at least one symbol
                 consecutive_error_iterations = 0
                 
-                # [ANTIGRAVITY FIX] Strictly honor Sabbath: Do not even process candidates (which triggers flattening).
-                # The user explicitly requested that NO actions (including flattening dust) occur during Sabbath.
+                # [ANTIGRAVITY FIX] Strictly honor Sabbath: 
+                # Block NEW entries, but ALLOW processing candidates so that _process_candidate_cycle 
+                # can still perform "flatten_symbol" if needed (or manage exits).
                 if sabbath_active:
-                    logger.info("[SABBATH] Strict adherence active: Skipping candidate processing (no trades/flattens allowed).")
-                    next_decision_in = decision_interval
-                    time.sleep(poll_interval)
-                    continue
+                    # We still broadcast the state so the UI knows we are in Sabbath
+                    ws_server.broadcast_state_sync({
+                        "is_sabbath": True,
+                        "profile": profile_name
+                    })
+                    # If there are NO active symbols to manage/flatten, we can skip.
+                    if not active_symbols:
+                        logger.info("[SABBATH] Active: No positions to manage. Idling.")
+                        next_decision_in = decision_interval
+                        time.sleep(poll_interval)
+                        continue
+                    else:
+                        logger.info(f"[SABBATH] Active: Managing {len(active_symbols)} positions for exit/flattening (entries blocked).")
+
 
                 managing_positions = any(reason == "existing position" for _, _, _, reason in candidates)
                 success_symbol, attempts, blocked, skipped = _process_candidate_cycle(

@@ -2,7 +2,19 @@ profiles:
   # Forex Continuous - 24/7 Trading (Sabbath Excluded)
   # Based on Rubberband Reaper v2 (+7,036% verified with tiered risk)
   forex_continuous:
-    strategy_variant: rubberband_reaper
+    strategy_variant: rubberband_reaper  # Default fallback
+
+    # Per-Asset-Class Strategies (overrides strategy_variant when symbol matches)
+    # Available: rubberband_reaper, robocop, evolution, quantum, mean_reversion,
+    #            hyper_scalper, london_breakout, volatility_breakout, aggregator
+    strategies:
+      crypto: rubberband_reaper    # BTC, ETH, altcoins
+      forex: rubberband_reaper     # EUR/USD, GBP/JPY, etc.
+      stocks: rubberband_reaper    # Individual equities
+      etf: rubberband_reaper       # SPY, QQQ, sector funds
+      metals: rubberband_reaper    # Gold, Silver, Platinum
+      futures: rubberband_reaper   # ES, NQ, commodities
+
     candle_timeframe: 15m
 
     market_poll_interval_seconds: 15
@@ -65,7 +77,17 @@ profiles:
   # Forex Intraday - IBKR Forex with Graduated Entry + Smart Exits
   # Backtested: +865% return over 17 days (Jan 2026) - "The Rubberband Reaper"
   forex_intraday:
-    strategy_variant: rubberband_reaper  # 865% verified, 39% WR, 3.7:1 R:R
+    strategy_variant: rubberband_reaper  # Default fallback
+
+    # Per-Asset-Class Strategies
+    strategies:
+      crypto: rubberband_reaper
+      forex: rubberband_reaper     # Primary focus for this profile
+      stocks: quantum              # Trend-following for equities
+      etf: quantum
+      metals: mean_reversion       # Metals tend to range
+      futures: volatility_breakout
+
     candle_timeframe: 15m  # Use 15m for less noisy HTF
 
     market_poll_interval_seconds: 15
@@ -157,10 +179,27 @@ profiles:
       ETP-20DEC30-CDE: 0.1
 
   scalp:
+    strategy_variant: hyper_scalper  # Default fallback
+    strategies:
+      crypto: hyper_scalper
+      forex: hyper_scalper
+      stocks: hyper_scalper
+      etf: hyper_scalper
+      metals: hyper_scalper
+      futures: hyper_scalper
     candle_timeframe: 1m
     market_poll_interval_seconds: 2
     ai_decision_interval_seconds: 2
+
   intraday:
+    strategy_variant: rubberband_reaper  # Default fallback
+    strategies:
+      crypto: rubberband_reaper
+      forex: rubberband_reaper
+      stocks: quantum
+      etf: quantum
+      metals: mean_reversion
+      futures: volatility_breakout
     candle_timeframe: 5m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
@@ -195,6 +234,14 @@ profiles:
     icc_high_score_override_threshold: 30.0
     icc_score_continuation_points: 60.0 # [ANTIGRAVITY FIX] Boosted
   swing:
+    strategy_variant: quantum  # Default fallback (trend-following for swing)
+    strategies:
+      crypto: quantum
+      forex: quantum
+      stocks: quantum
+      etf: quantum
+      metals: mean_reversion
+      futures: quantum
     candle_timeframe: 1h
     market_poll_interval_seconds: 120
     ai_decision_interval_seconds: 300
@@ -202,7 +249,16 @@ profiles:
     ltf_timeframe: 15m
     trend_window: 18
     ltf_trend_window: 12
+
   coinbase_futures:
+    strategy_variant: robocop  # Default fallback (aggressive for futures)
+    strategies:
+      crypto: robocop          # Aggressive ICC for crypto futures
+      forex: rubberband_reaper
+      stocks: quantum
+      etf: quantum
+      metals: mean_reversion
+      futures: robocop         # Aggressive for futures
     candle_timeframe: 5m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
@@ -253,6 +309,14 @@ profiles:
     - LTC/USD
     - BTC/USD
   crypto_247:
+    strategy_variant: rubberband_reaper  # Default fallback
+    strategies:
+      crypto: rubberband_reaper  # Primary focus for this profile
+      forex: rubberband_reaper
+      stocks: quantum
+      etf: quantum
+      metals: mean_reversion
+      futures: volatility_breakout
     candle_timeframe: 5m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
@@ -308,6 +372,14 @@ profiles:
     multi_position_enabled: true
     icc_high_score_override_threshold: 30.0
   all_247:
+    strategy_variant: aggregator  # Default fallback (multi-strategy for all assets)
+    strategies:
+      crypto: rubberband_reaper
+      forex: rubberband_reaper
+      stocks: quantum
+      etf: quantum
+      metals: mean_reversion
+      futures: volatility_breakout
     candle_timeframe: 5m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
@@ -394,6 +466,14 @@ profiles:
       intraday_flatten: false
       cancel_orders_on_start: false
   auto_schedule:
+    strategy_variant: rubberband_reaper  # Default fallback
+    strategies:
+      crypto: rubberband_reaper  # Anti-martingale for volatile crypto
+      forex: rubberband_reaper   # Proven +7,036% on forex
+      stocks: quantum            # Trend-following for equities
+      etf: quantum               # Trend-following for ETFs
+      metals: mean_reversion     # Metals tend to range
+      futures: volatility_breakout  # Catch breakouts on futures
     candle_timeframe: 5m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
@@ -506,6 +586,14 @@ profiles:
     - ATOMUSD
 
   coinbase_futures_nano:
+    strategy_variant: robocop  # Default fallback (aggressive for nano futures)
+    strategies:
+      crypto: robocop          # Aggressive ICC for crypto nano futures
+      forex: rubberband_reaper
+      stocks: quantum
+      etf: quantum
+      metals: mean_reversion
+      futures: robocop         # Aggressive for futures
     candle_timeframe: 5m
     market_poll_interval_seconds: 5
     ai_decision_interval_seconds: 60

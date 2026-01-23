@@ -167,6 +167,16 @@ function connectWebSocket() {
                         profileEl.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
                     }
                 }
+                if (data.is_sabbath !== undefined) {
+                    const sabbathEl = document.getElementById('status-sabbath');
+                    if (sabbathEl) {
+                        if (data.is_sabbath) {
+                            sabbathEl.classList.remove('hidden');
+                        } else {
+                            sabbathEl.classList.add('hidden');
+                        }
+                    }
+                }
                 saveState();
             }
         } catch (e) {
