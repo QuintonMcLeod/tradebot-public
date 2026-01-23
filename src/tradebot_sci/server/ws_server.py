@@ -15,8 +15,10 @@ class WebSocketServer:
         self.runner = None
         self.site = None
         self.clients = set()
+        self.subscriptions: dict[aiohttp.web.WebSocketResponse, dict[str, str]] = {} # client -> {"symbol": "BTCUSD", "tf": "15m"}
         self.loop = None
         self._halted = False
+        self._on_subscribe_cb = None # Optional callback for loop.py
 
     async def start(self):
         """Starts the WebSocket server."""
@@ -48,14 +50,14 @@ class WebSocketServer:
                         data = json.loads(msg.data)
                         if data.get('type') == 'ping':
                             await ws.send_str(json.dumps({'type': 'pong'}))
-                        elif data.get('type') == 'command':
-                            cmd = data.get('cmd')
-                            if cmd == 'halt':
-                                self._halted = True
-                                logger.info("[WS] BOT HALT SIGNAL RECEIVED")
-                            elif cmd == 'resume':
-                                self._halted = False
-                                logger.info("[WS] BOT RESUME SIGNAL RECEIVED")
+                        elif data.get('type') == 'subscribe':
+                            symbol = data.get('symbol')
+                            tf = data.get('tf')
+                            if symbol:
+                                self.subscriptions[ws] = {"symbol": symbol, "tf": tf or "15m"}
+                                logger.info(f"[WS] Client subscribed to {symbol} ({tf})")
+                                if self._on_subscribe_cb:
+                                    self._on_subscribe_cb(symbol, tf or "15m")
                     except json.JSONDecodeError:
                         if msg.data == 'ping':
                             await ws.send_str(json.dumps({'type': 'pong'}))
@@ -63,6 +65,8 @@ class WebSocketServer:
                     logger.error('ws connection closed with exception %s', ws.exception())
         finally:
             self.clients.remove(ws)
+            if ws in self.subscriptions:
+                del self.subscriptions[ws]
             logger.info("WebSocket client disconnected.")
         
         return ws
@@ -110,6 +114,37 @@ class WebSocketServer:
             "data": candle
         }
         self.broadcast_sync(msg)
+
+    def broadcast_log_sync(self, level, message):
+        """Thread-safe log broadcast."""
+        msg = {
+            "type": "log",
+            "level": level,
+            "data": message
+        }
+        self.broadcast_sync(msg)
+
+    def broadcast_state_sync(self, data: dict):
+        """Thread-safe state update broadcast."""
+        msg = {
+            "type": "state",
+            "data": data
+        }
+        self.broadcast_sync(msg)
+
+    def broadcast_history_sync(self, symbol, timeframe, candles: list[dict]):
+        """Thread-safe historical data broadcast."""
+        msg = {
+            "type": "history",
+            "symbol": symbol,
+            "tf": timeframe,
+            "data": candles
+        }
+        self.broadcast_sync(msg)
+
+    def set_on_subscribe_callback(self, cb):
+        """Register a callback for when a client subscribes to a symbol."""
+        self._on_subscribe_cb = cb
 
     def is_halted(self) -> bool:
         """Returns True if the bot should be paused."""

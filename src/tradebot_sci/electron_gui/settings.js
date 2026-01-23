@@ -3,7 +3,8 @@
  * Premium Trading Bot Configuration Interface
  */
 
-const { electronAPI } = window;
+// Wait for DOM to be ready
+document.addEventListener('DOMContentLoaded', () => init());
 
 // ═══════════════════════════════════════════════════════════
 // STATE MANAGEMENT
@@ -58,31 +59,65 @@ const TABS = {
 // ═══════════════════════════════════════════════════════════
 
 async function init() {
+    setupGlobalEvents();
+
+    // Load data from backend
     try {
-        envData = await electronAPI.readEnv();
-        profilesContent = await electronAPI.readProfiles();
-        setupGlobalEvents();
-        switchTab('system');
+        if (window.electronAPI) {
+            envData = await window.electronAPI.readEnv() || {};
+            profilesContent = await window.electronAPI.readProfiles() || "";
+        }
     } catch (e) {
-        console.error("Initialization Failed:", e);
+        console.error("Data load failed:", e);
     }
+
+    switchTab('system');
 }
 
 function setupGlobalEvents() {
+    // Navigation buttons
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
 
-    document.getElementById('btn-close').addEventListener('click', () => electronAPI.closeWindow());
-    document.getElementById('btn-minimize').addEventListener('click', () => electronAPI.minimizeWindow());
-    document.getElementById('btn-save').addEventListener('click', saveAll);
-    document.getElementById('btn-revert').addEventListener('click', () => {
-        if (confirm("Discard all unsaved changes?")) location.reload();
-    });
+    // Window controls (with safety checks)
+    const btnClose = document.getElementById('btn-close');
+    const btnMinimize = document.getElementById('btn-minimize');
+    const btnSave = document.getElementById('btn-save');
+    const btnRevert = document.getElementById('btn-revert');
+    const searchInput = document.getElementById('setting-search');
 
-    document.getElementById('setting-search').addEventListener('input', (e) => {
-        if (currentTab === 'advanced') renderAdvancedTab(document.getElementById('tab-content'), e.target.value);
-    });
+    if (btnClose) {
+        btnClose.addEventListener('click', () => {
+            if (window.electronAPI?.closeWindow) {
+                window.electronAPI.closeWindow();
+            }
+        });
+    }
+
+    if (btnMinimize) {
+        btnMinimize.addEventListener('click', () => {
+            if (window.electronAPI?.minimizeWindow) {
+                window.electronAPI.minimizeWindow();
+            }
+        });
+    }
+
+    if (btnSave) {
+        btnSave.addEventListener('click', saveAll);
+    }
+
+    if (btnRevert) {
+        btnRevert.addEventListener('click', () => {
+            if (confirm("Discard all unsaved changes?")) location.reload();
+        });
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            if (currentTab === 'advanced') renderAdvancedTab(document.getElementById('tab-content'), e.target.value);
+        });
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -95,14 +130,29 @@ function switchTab(tabId) {
         btn.classList.toggle('active', btn.dataset.tab === tabId);
     });
 
-    document.getElementById('search-container').classList.toggle('hidden', tabId !== 'advanced');
+    const searchContainer = document.getElementById('search-container');
+    if (searchContainer) {
+        searchContainer.classList.toggle('hidden', tabId !== 'advanced');
+    }
     renderTab();
 }
 
 function renderTab() {
     const container = document.getElementById('tab-content');
+    if (!container) return;
     container.innerHTML = '';
-    if (TABS[currentTab]) TABS[currentTab].render(container);
+
+    if (TABS[currentTab]) {
+        try {
+            TABS[currentTab].render(container);
+        } catch (e) {
+            console.error("Error rendering tab:", e);
+            container.innerHTML = `<div style="color: red; padding: 20px;">Error rendering tab: ${e.message}</div>`;
+        }
+    } else {
+        console.error("[SETTINGS] Tab not found in TABS:", currentTab);
+        container.innerHTML = `<div style="color: orange; padding: 20px;">Tab "${currentTab}" not found</div>`;
+    }
 }
 
 window.setSubTab = (category, tab) => {
@@ -608,7 +658,7 @@ function renderScheduleTab(container) {
         const btn = resolver.querySelector('#btn-resolve');
         btn.textContent = 'RESOLVING...';
 
-        const res = await electronAPI.resolveCity(city);
+        const res = await window.electronAPI.resolveCity(city);
         if (res) {
             updateValue('SABBATH_LAT', res.lat.toString());
             updateValue('SABBATH_LON', res.lon.toString());
@@ -683,21 +733,29 @@ async function saveAll() {
     if (changeCount === 0) return;
 
     const indicator = document.getElementById('save-indicator');
-    indicator.style.opacity = '1';
+    if (indicator) indicator.style.opacity = '1';
 
     try {
+        if (!window.electronAPI) {
+            throw new Error("Not connected to Electron backend");
+        }
+
         const envUpdates = { ...localChanges };
         delete envUpdates['_profiles_'];
 
-        if (Object.keys(envUpdates).length > 0) await electronAPI.saveEnv(envUpdates);
-        if (localChanges['_profiles_']) await electronAPI.saveProfiles(profilesContent);
+        if (Object.keys(envUpdates).length > 0 && window.electronAPI.saveEnv) {
+            await window.electronAPI.saveEnv(envUpdates);
+        }
+        if (localChanges['_profiles_'] && window.electronAPI.saveProfiles) {
+            await window.electronAPI.saveProfiles(profilesContent);
+        }
 
         localChanges = {};
         updateChangeCounter();
-        setTimeout(() => indicator.style.opacity = '0', 2000);
+        setTimeout(() => { if (indicator) indicator.style.opacity = '0'; }, 2000);
     } catch (e) {
-        alert("Critical Save Error: " + e.message);
-        indicator.style.opacity = '0';
+        alert("Save Error: " + e.message);
+        if (indicator) indicator.style.opacity = '0';
     }
 }
 
@@ -710,25 +768,20 @@ function showTooltip(e, title, content) {
     document.getElementById('tooltip-title').textContent = title;
     document.getElementById('tooltip-content').textContent = content;
 
-    popup.style.opacity = '1';
-    popup.style.transform = 'translateY(0) scale(1)';
-    popup.style.pointerEvents = 'auto';
-
-    // Position tooltip
+    // Position tooltip first
     const rect = e.currentTarget.getBoundingClientRect();
     popup.style.left = `${rect.right + 16}px`;
     popup.style.top = `${rect.top}px`;
+
+    // Then show it using class
+    popup.classList.add('visible');
 }
 
 function hideTooltip() {
     const popup = document.getElementById('tooltip-popup');
-    popup.style.opacity = '0';
-    popup.style.transform = 'translateY(4px) scale(0.98)';
-    popup.style.pointerEvents = 'none';
+    popup.classList.remove('visible');
 }
 
 // ═══════════════════════════════════════════════════════════
-// START
+// START (init is called from DOMContentLoaded handler at top)
 // ═══════════════════════════════════════════════════════════
-
-init();

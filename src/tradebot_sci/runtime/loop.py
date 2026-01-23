@@ -12,7 +12,7 @@ import sys
 import time
 import traceback
 from collections import defaultdict
-from datetime import datetime, timedelta, time as datetime_time
+from datetime import datetime, timedelta, time as datetime_time, timezone
 from zoneinfo import ZoneInfo
 print("ANTIGRAVITY LOADED SRC/LOOP.PY")
 
@@ -1375,6 +1375,19 @@ def _handle_execution_result(
         logger.info("[GUARD] Unsupported symbol %s: %s", result.symbol, result.reason)
 
 
+class WSLoggingHandler(logging.Handler):
+    """Bridge Python logging to WebSocket clients."""
+    def __init__(self, ws_server: WebSocketServer):
+        super().__init__()
+        self.ws_server = ws_server
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.ws_server.broadcast_log_sync(record.levelname, msg)
+        except Exception:
+            self.handleError(record)
+
 def run_bot(
     iterations: int | None = 20,
     skip_schedule: bool = False,
@@ -1514,6 +1527,56 @@ def run_bot(
 
     # [ANTIGRAVITY] Start WebSocket Server
     ws_server = WebSocketServer(port=8080)
+    
+    # [ANTIGRAVITY] Bridge logs to WS
+    ws_handler = WSLoggingHandler(ws_server)
+    ws_handler.setFormatter(logging.Formatter('%(message)s'))
+    logging.getLogger().addHandler(ws_handler)
+    
+    def on_subscribe(symbol, tf):
+        logger.info(f"[WS] Handling subscription for {symbol} ({tf})")
+        try:
+            # [ANTIGRAVITY] Force immediate state sync FIRST to fix 0.00 bug ASAP
+            if executor:
+                cap = executor.get_liquid_capital()
+                # Get holdings count excluding dust
+                try:
+                    open_symbols = list(executor.list_open_position_symbols() or [])
+                    active_holds = [
+                        s for s in open_symbols 
+                        if not (executor.get_open_position_snapshot(s) or {}).get("is_dust", False)
+                    ]
+                    holdings_count = len(active_holds)
+                except:
+                    holdings_count = 0
+
+                state_data = {
+                    "equity": cap,
+                    "capital": cap,
+                    "holdings_count": holdings_count,
+                    "profile": profile_name
+                }
+                ws_server.broadcast_state_sync(state_data)
+                logger.info(f"[WS] Pushed immediate state sync: Equity=${cap:.2f}, Holds={holdings_count}")
+
+            # [ANTIGRAVITY] Then fetch historical data (can be slow)
+            hist_candles = provider.get_latest_candles(symbol, tf, limit=200)
+            if hist_candles:
+                formatted = [
+                    {
+                        "time": int(c.timestamp.timestamp()),
+                        "open": c.open,
+                        "high": c.high,
+                        "low": c.low,
+                        "close": c.close
+                    }
+                    for c in hist_candles
+                ]
+                ws_server.broadcast_history_sync(symbol, tf, formatted)
+        except Exception as e:
+            logger.error(f"[WS] Failed to push history/state for {symbol} on subscribe: {e}")
+
+    ws_server.set_on_subscribe_callback(on_subscribe)
     ws_server.start_in_thread()
 
     last_auto_mode: str | None = None

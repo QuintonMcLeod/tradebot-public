@@ -44,6 +44,13 @@ function initChart(intervalSeconds = 900) {
         wickDownColor: '#f43f5e',
     });
 
+    candleSeries.priceScale().applyOptions({
+        scaleMargins: {
+            top: 0.1,    // 10% gap from top
+            bottom: 0.3, // 30% gap from bottom to make room for indicators
+        },
+    });
+
     indicatorSeries = chart.addHistogramSeries({
         color: '#22c55e',
         priceFormat: { type: 'volume' },
@@ -51,7 +58,10 @@ function initChart(intervalSeconds = 900) {
     });
 
     chart.priceScale('indicators').applyOptions({
-        scaleMargins: { top: 0.8, bottom: 0 },
+        scaleMargins: {
+            top: 0.85,   // Reserve top 85% (only use bottom 15%)
+            bottom: 0,
+        },
     });
 
     new ResizeObserver(entries => {
@@ -61,13 +71,14 @@ function initChart(intervalSeconds = 900) {
         chart.applyOptions({ width, height });
     }).observe(chartContainer);
 
-    const dummyData = generateDummyData(intervalSeconds);
-    candleSeries.setData(dummyData);
+    // [ANTIGRAVITY] Dummy data removed. Waiting for 'history' from backend.
+}
 
-    chart.timeScale().setVisibleRange({
-        from: dummyData[dummyData.length - 60].time,
-        to: dummyData[dummyData.length - 1].time,
-    });
+function subscribeToAsset(symbol, tf) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        console.log(`Subscribing to ${symbol} (${tf})...`);
+        ws.send(JSON.stringify({ type: 'subscribe', symbol, tf }));
+    }
 }
 
 // [WEBSOCKET] Connect to Python Backend
@@ -83,6 +94,11 @@ function connectWebSocket() {
     ws.onopen = () => {
         console.log("Connected to Live Data Stream.");
         updateStatus('connected', '--');
+
+        // [ANTIGRAVITY] Subscribe to current UI selection on open
+        const symbol = document.getElementById('chart-symbol-label')?.innerText;
+        const tf = document.getElementById('chart-tf-label')?.innerText || '15m';
+        if (symbol) subscribeToAsset(symbol, tf);
 
         // Start Ping-Pong
         if (pingInterval) clearInterval(pingInterval);
@@ -103,20 +119,55 @@ function connectWebSocket() {
                     const latency = Date.now() - ws._lastPing;
                     if (statusLatency) statusLatency.textContent = `${latency}ms`;
                 }
+            } else if (msg.type === 'history') {
+                // Initialize Chart with real historical data
+                const currentSym = document.getElementById('chart-symbol-label')?.innerText;
+                if (msg.symbol === currentSym) {
+                    console.log(`Received history for ${msg.symbol} (${msg.data.length} candles)`);
+                    const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
+                    const fixedData = msg.data.map(c => ({
+                        ...c,
+                        time: c.time - tzOffsetSeconds
+                    }));
+                    candleSeries.setData(fixedData);
+                }
             } else if (msg.type === 'candle') {
                 // Update Chart ONLY if it matches current symbol
                 const currentSym = document.getElementById('chart-symbol-label')?.innerText;
                 if (msg.symbol === currentSym) {
                     // [ANTIGRAVITY FIX] Dynamic Timezone Sync
-                    // Calculate local offset in seconds
                     const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
-                    // Adjust timestamp: subtract offset because getTimezoneOffset returns positive for behind UTC
                     const fixedData = { ...msg.data, time: msg.data.time - tzOffsetSeconds };
                     candleSeries.update(fixedData);
                 }
             } else if (msg.type === 'log') {
                 parseLogLine(msg.data);
                 appendLog(msg.level || "INFO", msg.data);
+            } else if (msg.type === 'state') {
+                const data = msg.data;
+                console.log("Syncing UI state:", data);
+
+                if (data.equity !== undefined) {
+                    const equityEl = document.getElementById('account-equity');
+                    if (equityEl) {
+                        equityEl.innerText = data.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        equityEl.className = `text-sm font-black ${data.equity >= 0 ? 'text-green-400' : 'text-red-500'}`;
+                    }
+                }
+                if (data.capital !== undefined) {
+                    const capitalEl = document.getElementById('account-capital');
+                    if (capitalEl) {
+                        capitalEl.innerText = data.capital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    }
+                }
+                if (data.profile) {
+                    const profileEl = document.getElementById('status-profile');
+                    if (profileEl) {
+                        profileEl.innerText = data.profile.toUpperCase();
+                        profileEl.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
+                    }
+                }
+                saveState();
             }
         } catch (e) {
             console.error("WS Parse Error", e);
@@ -471,13 +522,22 @@ function parseLogLine(line) {
 
             addDecisionRow(symbol, action, score, reason);
 
-            // Chart Indicator
+            // Chart Indicator (The "Grey Bars" that should be colorful)
             const headerSym = document.getElementById('chart-symbol-label')?.innerText;
             if (indicatorSeries && symbol === headerSym) {
-                const nowSec = Math.floor(Date.now() / 1000);
-                let color = '#334155';
-                if (action.includes("BUY") || action.includes("LONG") || action.includes("ENTER")) color = '#2dd4bf';
-                else if (action.includes("SELL") || action.includes("SHORT")) color = '#f43f5e';
+                const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
+                const nowSec = Math.floor(Date.now() / 1000) - tzOffsetSeconds;
+
+                let color = '#475569'; // Muted grey for neutral/hold
+                const act = action.toUpperCase();
+
+                if (act.includes("LONG") || act.includes("BUY") || act.includes("BIP")) {
+                    color = '#2dd4bf'; // Teal
+                } else if (act.includes("SHORT") || act.includes("SELL")) {
+                    color = '#f43f5e'; // Rose
+                } else if (act === "CLOSE") {
+                    color = '#f59e0b'; // Amber
+                }
 
                 indicatorSeries.update({ time: nowSec, value: 1, color: color });
             }
@@ -500,28 +560,29 @@ function parseLogLine(line) {
         }
     }
 
-    // 3. P&L / Equity
-    if (line.match(/(?:balance|Liquidation|Profit|Net P&L|Equity)[:\s]+\$?\s?([\d\.,\-]+)/i)) {
-        const match = line.match(/(?:balance|Liquidation|Profit|Net P&L|Equity)[:\s]+\$?\s?([\d\.,\-]+)/i);
-        const val = parseFloat(match[1].replace(/,/g, ''));
+    // 3. P&L / Equity / Capital (Consolidated & Robust)
+    // Matches: [OANDA] Account Summary: Balance=123.45, NAV=100.00
+    // Matches: [IBKR] Account Summary: Balance=123.45, Equity=100.00
+    // Matches: [HEARTBEAT] Capital available: $100.00
+
+    // Balance / Profit (matches first numeric value after 'Balance=' or 'Profit:')
+    const balanceMatch = line.match(/(?:balance|Profit|Equity)[:=]\s?\$?\s?([\d\.,\-]+)/i);
+    if (balanceMatch) {
+        const val = parseFloat(balanceMatch[1].replace(/,/g, ''));
         const equityEl = document.getElementById('account-equity');
         if (equityEl) {
-            equityEl.innerText = val.toLocaleString('en-US', { minimumFractionDigits: 2 });
+            equityEl.innerText = val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             equityEl.className = `text-sm font-black ${val >= 0 ? 'text-green-400' : 'text-red-500'}`;
         }
-        saveState();
     }
 
-    // 3b. Overall Capital (from [HEARTBEAT] Capital available: $XXX.XX)
-    if (line.includes('[HEARTBEAT] Capital available:')) {
-        const match = line.match(/Capital available:\s*\$?([\d\.,]+)/i);
-        if (match) {
-            const val = parseFloat(match[1].replace(/,/g, ''));
-            const capitalEl = document.getElementById('account-capital');
-            if (capitalEl) {
-                capitalEl.innerText = val.toLocaleString('en-US', { minimumFractionDigits: 2 });
-            }
-            saveState();
+    // Capital / NAV (matches first numeric value after 'NAV=' or 'Capital available:')
+    const capitalMatch = line.match(/(?:NAV|Capital available)[:=]\s?\$?\s?([\d\.,\-]+)/i);
+    if (capitalMatch) {
+        const val = parseFloat(capitalMatch[1].replace(/,/g, ''));
+        const capitalEl = document.getElementById('account-capital');
+        if (capitalEl) {
+            capitalEl.innerText = val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
     }
 
@@ -666,7 +727,7 @@ function setPanicState(isStarted, isStartMode = false) {
 }
 
 // --- Interactive Elements ---
-const WATCHED_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'USDCAD', 'BTCUSD', 'ETHUSD', 'XAUUSD'];
+const WATCHED_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'GBPJPY', 'EURJPY', 'USDCAD', 'BTCUSD', 'ETHUSD', 'XAUUSD'];
 let currentSymbolIndex = 0;
 
 function setupInteractiveElements() {
@@ -693,8 +754,9 @@ function setupInteractiveElements() {
         // REFRESH CHART DATA
         console.log(`Refreshing candlestick data for ${sym}...`);
         const tf = document.getElementById('chart-tf-label')?.innerText || '15m';
-        const tfMap = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600 };
-        initChart(tfMap[tf] || 900);
+
+        // [ANTIGRAVITY] Use subscription instead of full re-init
+        subscribeToAsset(sym, tf);
     }
 
     // Timeframe Buttons
@@ -704,20 +766,35 @@ function setupInteractiveElements() {
                 b.className = "timeframe-btn text-[10px] px-3 py-1 rounded-lg cursor-pointer text-slate-400 hover:text-white transition-colors";
             });
             e.target.className = "timeframe-btn text-[10px] px-3 py-1 rounded-lg bg-teal-500/20 text-teal-300 border border-teal-500/40 font-bold";
+
+            // Reset dropdown
+            const dropdown = document.getElementById('timeframe-select');
+            if (dropdown) dropdown.selectedIndex = 0;
+
             const tf = e.target.innerText;
             if (document.getElementById('chart-tf-label')) document.getElementById('chart-tf-label').innerText = tf;
 
-            // Map TF to seconds
-            const tfMap = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600 };
-            const interval = tfMap[tf] || 900;
-
-            console.log(`Switching chart to ${tf} (${interval}s)`);
-            initChart(interval);
-
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'set_timeframe', value: tf }));
-            }
+            console.log(`Switching chart to ${tf}`);
+            const sym = document.getElementById('chart-symbol-label')?.innerText;
+            if (sym) subscribeToAsset(sym, tf);
         });
+    });
+
+    // Timeframe Dropdown
+    document.getElementById('timeframe-select')?.addEventListener('change', (e) => {
+        const tf = e.target.value;
+        if (!tf) return;
+
+        // De-highlight standard buttons
+        document.querySelectorAll('.timeframe-btn').forEach(b => {
+            b.className = "timeframe-btn text-[10px] px-3 py-1 rounded-lg cursor-pointer text-slate-400 hover:text-white transition-colors";
+        });
+
+        if (document.getElementById('chart-tf-label')) document.getElementById('chart-tf-label').innerText = tf;
+
+        console.log(`Switching chart to ${tf} via dropdown`);
+        const sym = document.getElementById('chart-symbol-label')?.innerText;
+        if (sym) subscribeToAsset(sym, tf);
     });
 
     // Button Handlers

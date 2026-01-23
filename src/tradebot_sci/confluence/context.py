@@ -217,30 +217,29 @@ def _compute_confluence_score(data: dict) -> float:
 
 def _compute_risk_cap_pct(data: dict, confluence_score: float) -> float:
     """Returns a deterministic risk cap (fractional 0..1)."""
-    # Base caps: low=2%, medium=5%, high=12%.
+    # Relaxed caps for hyper-growth: low=5%, medium=10%, high=15%, ultra=25%.
     if confluence_score >= 0.8:
-        cap = 0.12
+        cap = 0.25
     elif confluence_score >= 0.65:
-        cap = 0.08
+        cap = 0.15
     elif confluence_score >= 0.5:
-        cap = 0.05
+        cap = 0.10
     else:
-        cap = 0.02
+        cap = 0.05
 
     spread_bps = data.get("spread_bps")
     if isinstance(spread_bps, (int, float)) and spread_bps > 100:
-        cap = min(cap, 0.01)
+        cap = min(cap, 0.02)
 
     asset_class = data.get("asset_class")
     friction_fail_safe = os.getenv("FRICTION_FAIL_SAFE", "true").lower() == "true"
-    friction_risk_cap = float(os.getenv("FRICTION_RISK_CAP", "0.02"))
+    friction_risk_cap = float(os.getenv("FRICTION_RISK_CAP", "0.05"))
     if friction_fail_safe and asset_class == "crypto" and not isinstance(spread_bps, (int, float)):
-        # Without spread/ticker, stay conservative to avoid getting bled by friction.
         cap = min(cap, friction_risk_cap)
 
     vix_present = isinstance(data.get("vix_close"), (int, float))
     vix_fail_safe = os.getenv("VIX_FAIL_SAFE", "true").lower() == "true"
-    vix_risk_cap = float(os.getenv("VIX_RISK_CAP", "0.03"))
+    vix_risk_cap = float(os.getenv("VIX_RISK_CAP", "0.05"))
     if asset_class == "equity" and vix_fail_safe and not vix_present:
         cap = min(cap, vix_risk_cap)
 
@@ -249,9 +248,9 @@ def _compute_risk_cap_pct(data: dict, confluence_score: float) -> float:
     if session == "US_CLOSED_WEEKEND":
         cap = min(cap, 0.0)
     if session == "US_OFF_HOURS":
-        cap = min(cap, 0.03)
+        cap = min(cap, 0.05)
 
-    return float(max(0.0, min(0.15, cap)))
+    return float(max(0.0, min(0.30, cap)))
 
 
 _STOOQ_CACHE: dict[str, tuple[float, float]] = {}

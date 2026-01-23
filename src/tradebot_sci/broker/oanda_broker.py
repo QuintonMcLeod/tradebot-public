@@ -209,7 +209,7 @@ class OandaExchangeBroker(IExchangeBroker):
                 "order": {
                     "units": str(units),
                     "instrument": oanda_sym,
-                    "timeInForce": "FOK",
+                    "timeInForce": "IOC",
                     "type": "MARKET",
                     "positionFill": "DEFAULT"
                 }

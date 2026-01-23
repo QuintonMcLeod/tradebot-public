@@ -149,7 +149,7 @@ class RubberbandReaperStrategy(BaseStrategy):
                 management_instructions="Target Opposite Bollinger Band.",
                 risk_per_trade_pct=self.base_risk_pct * risk_mult,
                 notes="Extreme Mean Reversion variant",
-                urgency="high" if rsi < 20 else "medium"
+                urgency="high"
             )
 
         # Short Entry: Close above upper band + overbought RSI
@@ -170,7 +170,7 @@ class RubberbandReaperStrategy(BaseStrategy):
                 management_instructions="Target Opposite Bollinger Band.",
                 risk_per_trade_pct=self.base_risk_pct * risk_mult,
                 notes="Extreme Mean Reversion variant",
-                urgency="high" if rsi > 80 else "medium"
+                urgency="high"
             )
 
         return None

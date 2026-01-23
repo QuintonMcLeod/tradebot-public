@@ -11,64 +11,64 @@ let botRunning = false;
 const DOTENV_PATH = path.join(__dirname, '../../../.env');
 const PROFILES_PATH = path.join(__dirname, '../../../config/settings_profiles.yaml');
 
-// IPC Handlers for Settings Data
-ipcMain.handle('read-env', async () => {
-    if (!fs.existsSync(DOTENV_PATH)) return {};
-    const content = fs.readFileSync(DOTENV_PATH, 'utf8');
-    const env = {};
-    content.split('\n').forEach(line => {
-        const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)$/);
-        if (match) env[match[1]] = match[2];
+// Setup IPC handlers (called after app ready)
+function setupIpcHandlers() {
+    // IPC Handlers for Settings Data
+    ipcMain.handle('read-env', async () => {
+        if (!fs.existsSync(DOTENV_PATH)) return {};
+        const content = fs.readFileSync(DOTENV_PATH, 'utf8');
+        const env = {};
+        content.split('\n').forEach(line => {
+            const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)$/);
+            if (match) env[match[1]] = match[2];
+        });
+        return env;
     });
-    return env;
-});
 
-ipcMain.handle('save-env', async (event, updates) => {
-    let content = fs.existsSync(DOTENV_PATH) ? fs.readFileSync(DOTENV_PATH, 'utf8') : '';
-    let lines = content.split('\n');
-    const keys = Object.keys(updates);
+    ipcMain.handle('save-env', async (event, updates) => {
+        let content = fs.existsSync(DOTENV_PATH) ? fs.readFileSync(DOTENV_PATH, 'utf8') : '';
+        let lines = content.split('\n');
+        const keys = Object.keys(updates);
 
-    keys.forEach(key => {
-        let found = false;
-        for (let i = 0; i < lines.length; i++) {
-            if (lines[i].startsWith(`${key}=`)) {
-                lines[i] = `${key}=${updates[key]}`;
-                found = true;
-                break;
+        keys.forEach(key => {
+            let found = false;
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].startsWith(`${key}=`)) {
+                    lines[i] = `${key}=${updates[key]}`;
+                    found = true;
+                    break;
+                }
             }
-        }
-        if (!found) lines.push(`${key}=${updates[key]}`);
+            if (!found) lines.push(`${key}=${updates[key]}`);
+        });
+
+        fs.writeFileSync(DOTENV_PATH, lines.join('\n'));
+        return { success: true };
     });
 
-    fs.writeFileSync(DOTENV_PATH, lines.join('\n'));
-    return { success: true };
-});
+    ipcMain.handle('read-profiles', async () => {
+        if (!fs.existsSync(PROFILES_PATH)) return "";
+        return fs.readFileSync(PROFILES_PATH, 'utf8');
+    });
 
-ipcMain.handle('read-profiles', async () => {
-    if (!fs.existsSync(PROFILES_PATH)) return "";
-    return fs.readFileSync(PROFILES_PATH, 'utf8');
-});
+    ipcMain.handle('save-profiles', async (event, content) => {
+        fs.writeFileSync(PROFILES_PATH, content);
+        return { success: true };
+    });
 
-ipcMain.handle('save-profiles', async (event, content) => {
-    fs.writeFileSync(PROFILES_PATH, content);
-    return { success: true };
-});
-
-// City / Location Resolver (Ported Logic)
-ipcMain.handle('resolve-city', async (event, cityName) => {
-    // Simple mock or mapping based on QT logic 'Resolve'
-    // In a real app, this might call a geocoding API.
-    // For now, we mimic the QT behavior of resolving common US cities.
-    const cities = {
-        "New York": { lat: 40.7128, lon: -74.0060, tz: "America/New_York" },
-        "Los Angeles": { lat: 34.0522, lon: -118.2437, tz: "America/Los_Angeles" },
-        "Chicago": { lat: 41.8781, lon: -87.6298, tz: "America/Chicago" },
-        "Miami": { lat: 25.7617, lon: -80.1918, tz: "America/New_York" },
-        "Jerusalem": { lat: 31.7683, lon: 35.2137, tz: "Asia/Jerusalem" },
-        "London": { lat: 51.5074, lon: -0.1278, tz: "Europe/London" }
-    };
-    return cities[cityName] || null;
-});
+    // City / Location Resolver (Ported Logic)
+    ipcMain.handle('resolve-city', async (event, cityName) => {
+        const cities = {
+            "New York": { lat: 40.7128, lon: -74.0060, tz: "America/New_York" },
+            "Los Angeles": { lat: 34.0522, lon: -118.2437, tz: "America/Los_Angeles" },
+            "Chicago": { lat: 41.8781, lon: -87.6298, tz: "America/Chicago" },
+            "Miami": { lat: 25.7617, lon: -80.1918, tz: "America/New_York" },
+            "Jerusalem": { lat: 31.7683, lon: 35.2137, tz: "Asia/Jerusalem" },
+            "London": { lat: 51.5074, lon: -0.1278, tz: "Europe/London" }
+        };
+        return cities[cityName] || null;
+    });
+}
 
 // Handle Log Tailing
 function startLogWatcher(win) {
@@ -195,7 +195,10 @@ function createWindow() {
     ipcMain.on('close-settings', () => { if (settingsWindow) settingsWindow.close(); });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+    setupIpcHandlers();
+    createWindow();
+});
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

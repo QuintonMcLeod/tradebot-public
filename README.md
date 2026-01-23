@@ -1,6 +1,6 @@
 # Tradebot SCI Enterprise - AI Trading Assistant
 
-![Tradebot Dashboard](docs/images/dashboard_main.png)
+![Tradebot Dashboard](Documentation/images/new_sleek_uiv2.png)
 
 > **"Automated ICC Trading for IBKR, Crypto, and Futures."**
 > 
@@ -71,7 +71,7 @@ The easiest way to start is the **GUI Dashboard**. It handles the bot process, l
 
 *(Or just open settings: `./scripts/tradebot.sh --settings`)*
 
-![Settings Window](docs/images/settings_window.png)
+![Settings Window](Documentation/images/new_sleek_settings_windowv2.png)
 
 **In the GUI:**
 1.  Go to **Settings → AI** to verify your provider/model.

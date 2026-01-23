@@ -30,7 +30,7 @@ def validate_decision(
     execution_capabilities: Optional[dict] = None,
 ) -> AITradeDecision:
     """Sanity-checks the AI so it doesn't YOLO your account into oblivion."""
-    max_sim_risk = 0.15  # default 15% cap unless settings say otherwise
+    max_sim_risk = 0.25  # Increased to 25% for small account hyper-growth
     try:
         if settings and hasattr(settings, "app"):
             max_sim_risk = max_sim_risk  # placeholder for future configurable cap
