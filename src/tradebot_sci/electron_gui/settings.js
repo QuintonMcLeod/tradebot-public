@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', () => init());
 let envData = {};
 let profilesContent = "";
 let currentTab = 'system';
-let subTabs = { brokers: 'ibkr', strategy: 'risk' };
+let subTabs = { brokers: 'ibkr', strategy: 'assets' };
 let localChanges = {};
 let changeCount = 0;
 
@@ -148,6 +148,113 @@ const TOOLTIPS = {
     SESSION_OVERLAP_TIMEZONE: "Timezone for session hours. UTC is universal, or use your local timezone.",
     AUTO_SCHEDULE_ENABLED: "Automatically switch between equity hours (9:30-4 ET) and crypto (24/7) based on what you're trading.",
 };
+
+// ═══════════════════════════════════════════════════════════
+// STRATEGY DEFINITIONS with detailed descriptions
+// ═══════════════════════════════════════════════════════════
+
+const STRATEGIES = {
+    rubberband_reaper: {
+        name: "Rubberband Reaper",
+        shortDesc: "Anti-Martingale Mean Reversion",
+        description: "Uses Bollinger Bands and RSI to catch price reversals at extremes. Features intelligent tiered risk management that INCREASES position size after wins and DECREASES after losses. Targets the opposite Bollinger Band for 3:1+ reward-to-risk ratios.",
+        style: "Mean Reversion",
+        risk: "Adaptive",
+        bestFor: "Ranging markets, volatile assets",
+        stats: { verified: "+7,036%", winRate: "39%", riskReward: "3.7:1" }
+    },
+    robocop: {
+        name: "RoboCop",
+        shortDesc: "Aggressive High-Frequency ICC",
+        description: "Lightning-fast execution with minimal confirmation requirements. Reacts to ANY valid micro-signal without waiting for corrections. Uses 1-bar confirmation and targets 3.0 ATR for maximum profit potential. Includes fast 'chop exit' to avoid ranging traps.",
+        style: "Aggressive Scalping",
+        risk: "High",
+        bestFor: "Trending markets, high volatility",
+        stats: { speed: "Ultra-fast", confirmation: "1 bar", target: "3.0 ATR" }
+    },
+    evolution: {
+        name: "Robot Evolution",
+        shortDesc: "NTZ Range Scalper",
+        description: "Optimized for choppy, ranging markets. Identifies the 'No-Trade-Zone' (NTZ) between swing highs and lows, then trades liquidity sweeps at the edges. Targets 2.0R with conservative 1.5 ATR stops for consistent small wins.",
+        style: "Range Trading",
+        risk: "Low-Medium",
+        bestFor: "Sideways markets, consolidation phases",
+        stats: { target: "2.0R", stop: "1.5 ATR", focus: "NTZ edges" }
+    },
+    quantum: {
+        name: "Quantum",
+        shortDesc: "Trend-Following with SMA Pullback",
+        description: "Classic trend-following strategy that waits for price to pull back to the 20-period SMA before entering in the trend direction. Requires HTF/LTF alignment for high-probability entries. Exits automatically when the higher timeframe trend flips.",
+        style: "Trend Following",
+        risk: "Medium",
+        bestFor: "Strong trending forex pairs",
+        stats: { target: "1.6R", stop: "2.5 ATR", indicator: "20 SMA" }
+    },
+    mean_reversion: {
+        name: "Mean Reversion",
+        shortDesc: "Bollinger + RSI Extremes",
+        description: "Enters when price breaks outside Bollinger Bands (15-period, 2.5 std) with RSI confirmation of oversold (<25) or overbought (>75). Supports pyramiding with 6-bar cooldown between adds. Simple but effective for ranging markets.",
+        style: "Mean Reversion",
+        risk: "Medium",
+        bestFor: "Ranging crypto and forex",
+        stats: { bands: "15p/2.5σ", rsi: "<25/>75", pyramid: "6-bar cool" }
+    },
+    hyper_scalper: {
+        name: "HyperScalper",
+        shortDesc: "EMA Crossover Speed Trading",
+        description: "High-frequency 5-minute scalper using 9/21 EMA crossovers filtered by 200 EMA trend and RSI. Designed for aggressive compounding with 1% default risk per trade. Targets 3.0 ATR for 100%+ weekly return potential.",
+        style: "Fast Scalping",
+        risk: "High",
+        bestFor: "Liquid forex pairs, fast markets",
+        stats: { ema: "9/21/200", target: "3.0 ATR", risk: "1%" }
+    },
+    london_breakout: {
+        name: "London Breakout",
+        shortDesc: "Session Opening Range",
+        description: "Trades the breakout of the first hour of London session (08:00-09:00 GMT). Waits for the range to establish, then enters on breakout of the high or low before noon. Classic institutional strategy with 1.5R targets.",
+        style: "Breakout",
+        risk: "Medium",
+        bestFor: "GBP pairs, European session",
+        stats: { session: "08:00-12:00", target: "1.5R", window: "London" }
+    },
+    volatility_breakout: {
+        name: "Volatility Breakout",
+        shortDesc: "Range Expansion Momentum",
+        description: "Catches explosive moves when price breaks out of a 20-period range with RSI confirmation (>60 long, <40 short). Features fast momentum exit when RSI reverses. Great for catching the start of new trends.",
+        style: "Breakout",
+        risk: "Medium-High",
+        bestFor: "Any market showing compression",
+        stats: { range: "20 periods", target: "2.0R", rsi: ">60/<40" }
+    },
+    aggregator: {
+        name: "Singularity Aggregator",
+        shortDesc: "Multi-Strategy Parallel",
+        description: "Runs Mean Reversion + HyperScalper simultaneously for maximum capital utilization. Prioritizes scale-ins on existing winners, then new entries. Keeps the bot 'always loaded' for potential 400%+ returns by never missing opportunities.",
+        style: "Multi-Strategy",
+        risk: "Variable",
+        bestFor: "Maximizing capital efficiency",
+        stats: { strategies: "2 parallel", priority: "Scale > New", goal: "Always loaded" }
+    }
+};
+
+// Asset class definitions for strategy assignment
+const ASSET_CLASSES = [
+    { id: 'crypto', name: 'Cryptocurrency', icon: 'currency_bitcoin', subtitle: 'BTC, ETH, altcoins', envKey: 'STRATEGY_CRYPTO' },
+    { id: 'forex', name: 'Forex', icon: 'currency_exchange', subtitle: 'EUR/USD, GBP/JPY, etc.', envKey: 'STRATEGY_FOREX' },
+    { id: 'stocks', name: 'Stocks', icon: 'monitoring', subtitle: 'Individual equities', envKey: 'STRATEGY_STOCKS' },
+    { id: 'etf', name: 'ETFs', icon: 'analytics', subtitle: 'SPY, QQQ, sector funds', envKey: 'STRATEGY_ETF' },
+    { id: 'metals', name: 'Precious Metals', icon: 'diamond', subtitle: 'Gold, Silver, Platinum', envKey: 'STRATEGY_METALS' },
+    { id: 'futures', name: 'Futures', icon: 'schedule', subtitle: 'ES, NQ, commodities', envKey: 'STRATEGY_FUTURES' }
+];
+
+// Helper to format camelCase/snake_case to Title Case
+function formatStatKey(key) {
+    return key
+        .replace(/([A-Z])/g, ' $1')  // camelCase to spaces
+        .replace(/_/g, ' ')           // snake_case to spaces
+        .replace(/^\w/, c => c.toUpperCase())  // Capitalize first letter
+        .trim();
+}
 
 const TABS = {
     system: { icon: 'dashboard', label: 'System', render: renderSystemTab },
@@ -496,6 +603,7 @@ function renderSystemTab(container) {
 function renderStrategyTab(container) {
     // Sub-navigation
     container.appendChild(createSubNav([
+        { id: 'assets', label: 'Asset Strategies' },
         { id: 'risk', label: 'Risk & Sizing' },
         { id: 'pyramid', label: 'Pyramiding' },
         { id: 'icc', label: 'ICC Scoring' },
@@ -506,7 +614,87 @@ function renderStrategyTab(container) {
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    if (subTabs.strategy === 'risk') {
+    if (subTabs.strategy === 'assets') {
+        section.appendChild(createSectionHeader('Strategy per Asset Class', 'precision_manufacturing'));
+
+        // Intro text
+        const intro = document.createElement('div');
+        intro.className = 'strategy-intro';
+        intro.innerHTML = `
+            <p style="color: var(--text-secondary); font-size: 13px; line-height: 1.7; margin-bottom: 24px;">
+                Choose which trading strategy to use for each asset class. Each strategy has different strengths —
+                some excel in trending markets, others in ranging conditions. Read the descriptions to find the best fit.
+            </p>
+        `;
+        section.appendChild(intro);
+
+        // Create a card for each asset class
+        ASSET_CLASSES.forEach(asset => {
+            const card = document.createElement('div');
+            card.className = 'asset-strategy-card';
+
+            // Get current strategy for this asset
+            const currentStrategy = envData[asset.envKey] || 'rubberband_reaper';
+            const strategyInfo = STRATEGIES[currentStrategy] || STRATEGIES.rubberband_reaper;
+
+            card.innerHTML = `
+                <div class="asset-header">
+                    <div class="asset-icon ${asset.id}">
+                        <span class="material-symbols-outlined">${asset.icon}</span>
+                    </div>
+                    <div>
+                        <div class="asset-title">${asset.name}</div>
+                        <div class="asset-subtitle">${asset.subtitle}</div>
+                    </div>
+                </div>
+                <div class="strategy-select-wrapper">
+                    <select class="input-field" data-env-key="${asset.envKey}">
+                        ${Object.entries(STRATEGIES).map(([key, strat]) => `
+                            <option value="${key}" ${key === currentStrategy ? 'selected' : ''}>
+                                ${strat.name} — ${strat.shortDesc}
+                            </option>
+                        `).join('')}
+                    </select>
+                </div>
+                <div class="strategy-description" data-desc-for="${asset.envKey}">
+                    <strong>${strategyInfo.style} • ${strategyInfo.risk} Risk</strong>
+                    ${strategyInfo.description}
+                    <div class="strategy-best-for">Best for: <em>${strategyInfo.bestFor}</em></div>
+                    <div class="strategy-stats">
+                        ${Object.entries(strategyInfo.stats || {}).map(([k, v]) => `
+                            <div class="strategy-stat">${formatStatKey(k)}: <span>${v}</span></div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+
+            // Handle strategy selection change
+            const select = card.querySelector('select');
+            select.addEventListener('change', (e) => {
+                const newStrategy = e.target.value;
+                const newInfo = STRATEGIES[newStrategy];
+
+                // Update the description
+                const descBox = card.querySelector('.strategy-description');
+                descBox.innerHTML = `
+                    <strong>${newInfo.style} • ${newInfo.risk} Risk</strong>
+                    ${newInfo.description}
+                    <div class="strategy-best-for">Best for: <em>${newInfo.bestFor}</em></div>
+                    <div class="strategy-stats">
+                        ${Object.entries(newInfo.stats || {}).map(([k, v]) => `
+                            <div class="strategy-stat">${formatStatKey(k)}: <span>${v}</span></div>
+                        `).join('')}
+                    </div>
+                `;
+
+                // Save the value
+                updateValue(asset.envKey, newStrategy);
+            });
+
+            section.appendChild(card);
+        });
+
+    } else if (subTabs.strategy === 'risk') {
         section.appendChild(createSectionHeader('Risk Management', 'account_balance'));
 
         // Slider Grid

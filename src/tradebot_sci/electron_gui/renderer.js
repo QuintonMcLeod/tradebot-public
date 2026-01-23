@@ -722,7 +722,7 @@ function setPanicState(isStarted, isStartMode = false) {
         btn.classList.add('panic-stripes', 'bg-red-500', 'border-red-500/40');
         btn.classList.remove('bg-emerald-500', 'border-emerald-500/40');
         text.innerText = "PANIC BUTTON -\nHALT ALL TRADING";
-        text.classList.add('whitespace-pre-wrap', 'text-center', 'leading-tight', 'text-shadow-md', 'text-sm', 'font-black');
+        text.className = "text-[12px] font-black uppercase tracking-wider relative z-10 whitespace-pre-line leading-tight drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] text-center";
     }
 }
 
