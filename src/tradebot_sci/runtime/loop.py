@@ -1722,22 +1722,17 @@ def run_bot(
                 consecutive_error_iterations = 0
                 
                 # [ANTIGRAVITY FIX] Strictly honor Sabbath: 
-                # Block NEW entries, but ALLOW processing candidates so that _process_candidate_cycle 
-                # can still perform "flatten_symbol" if needed (or manage exits).
+                # Block BOTH entries and exits (Zero Action).
                 if sabbath_active:
-                    # We still broadcast the state so the UI knows we are in Sabbath
+                    # Sync state so UI shows Sabbath badge
                     ws_server.broadcast_state_sync({
                         "is_sabbath": True,
                         "profile": profile_name
                     })
-                    # If there are NO active symbols to manage/flatten, we can skip.
-                    if not active_symbols:
-                        logger.info("[SABBATH] Active: No positions to manage. Idling.")
-                        next_decision_in = decision_interval
-                        time.sleep(poll_interval)
-                        continue
-                    else:
-                        logger.info(f"[SABBATH] Active: Managing {len(active_symbols)} positions for exit/flattening (entries blocked).")
+                    logger.info("[SABBATH] Strict adherence active: Skipping candidate processing (no trades/flattens allowed).")
+                    next_decision_in = decision_interval
+                    time.sleep(poll_interval)
+                    continue
 
 
                 managing_positions = any(reason == "existing position" for _, _, _, reason in candidates)
