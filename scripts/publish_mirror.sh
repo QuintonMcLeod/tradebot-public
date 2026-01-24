@@ -84,7 +84,7 @@ else
     git commit -m "Update public mirror: $(date '+%Y-%m-%d %H:%M:%S')"
     
     echo "Pushing to public remote (FORCE)..."
-    git push --force origin "$BRANCH"
+    git push origin "$BRANCH"
 fi
 
 echo "✅ Success! Public mirror updated at $REMOTE_URL"

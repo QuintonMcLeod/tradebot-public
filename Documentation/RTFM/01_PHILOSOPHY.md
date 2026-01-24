@@ -38,13 +38,22 @@ That is the bare minimum to see results. If you get chopped up for 7 days across
 
 ## What It Actually Does
 This isn't just a "Crypto Bot." That's thinking too small.
-The TradeBot is a multi-market, multi-asset predator.
+The TradeBot is a multi-market, multi-asset, **multi-strategy** predator.
 *   **Crypto?** Yes. Use the **CCXT** engine. It eats volatility for breakfast.
 *   **Stocks?** Yes. NASDAQ, NYSE via IBKR.
-*   **Forex?** Yes.
-*   **Futures?** Yes.
+*   **Forex?** Yes. Via **OANDA** or **IBKR**.
+*   **Futures?** Yes. ES, NQ, commodities.
+*   **ETFs?** Yes. SPY, QQQ, sector funds.
+*   **Metals?** Yes. Gold, Silver, Platinum.
 
-It supports **IBKR** (Interactive Brokers) because some of us need to trade boomer stocks, and **CCXT** for everything else. It connects to everything, trades everything, and doesn't ask for permission.
+**9 Trading Strategies.** Each optimized for different market conditions. You can assign different strategies to different asset classes — mean reversion for crypto, trend-following for stocks, breakout for futures.
+
+It supports:
+- **IBKR** (Interactive Brokers) for stocks, options, futures
+- **OANDA** for forex (the easy way)
+- **CCXT** for crypto (Coinbase, Kraken, Binance, etc.)
+
+It connects to everything, trades everything, and doesn't ask for permission.
 
 ## How It Works (The "Easy" Button)
 I'm not going to lie to you: This tool looks like the cockpit of a 747. There are levers, dials, switches, and config files everywhere. It’s blinding.

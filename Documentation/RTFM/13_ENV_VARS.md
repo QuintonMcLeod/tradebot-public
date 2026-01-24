@@ -128,6 +128,27 @@ This document provides comprehensive details for each environment variable used 
 | `CCXT_SYMBOL_MAP` | **Symbol Translation.**<br>Map bot `BTCUSD` to exchange `BTC/USDT`. |
 | `CCXT_API_KEY` / `SECRET` / `PASS` | **Credentials.**<br>Secure authentication. |
 
+## OANDA-Specific Settings
+
+| Environment Variable | Description |
+|----------------------|-------------|
+| `OANDA_ACCOUNT_ID` | **Account ID.**<br>Format: `101-001-1234567-001`. Found in OANDA account settings. |
+| `OANDA_API_KEY` | **API Access Token.**<br>Generate in OANDA Hub under "Manage API Access". Keep secret! |
+| `OANDA_ENVIRONMENT` | **Trading Environment.**<br>`practice` (demo) or `live` (real money). Always test in practice first. |
+| `OANDA_READ_ONLY` | **Read-Only Mode.**<br>Fetch prices/positions but no order placement. Good for monitoring. |
+
+## Strategy Selection Settings
+
+| Environment Variable | Description |
+|----------------------|-------------|
+| `STRATEGY_VARIANT` | **Default Strategy.**<br>Fallback when per-asset strategies not configured.<br>Options: `rubberband_reaper`, `robocop`, `evolution`, `quantum`, `mean_reversion`, `hyper_scalper`, `london_breakout`, `volatility_breakout`, `aggregator`. |
+| `STRATEGY_CRYPTO` | **Crypto Strategy.**<br>Strategy for BTC, ETH, altcoins. Overrides `STRATEGY_VARIANT` for crypto symbols. |
+| `STRATEGY_FOREX` | **Forex Strategy.**<br>Strategy for EUR/USD, GBP/JPY, etc. Overrides `STRATEGY_VARIANT` for forex pairs. |
+| `STRATEGY_STOCKS` | **Stocks Strategy.**<br>Strategy for individual equities. |
+| `STRATEGY_ETF` | **ETF Strategy.**<br>Strategy for SPY, QQQ, sector funds. |
+| `STRATEGY_METALS` | **Metals Strategy.**<br>Strategy for Gold (XAU), Silver (XAG), etc. |
+| `STRATEGY_FUTURES` | **Futures Strategy.**<br>Strategy for ES, NQ, MES, commodities. |
+
 ## AI/Commentary Settings
 
 | Environment Variable | Description |

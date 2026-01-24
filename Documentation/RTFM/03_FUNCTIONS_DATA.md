@@ -4,6 +4,8 @@
 
 If you are debugging this thing, you need to know what the data actually looks like.
 
+---
+
 ## The Core Data Objects
 These are the data packets passed around like hot potatoes.
 
@@ -32,30 +34,90 @@ class AITradeDecision:
     stop_loss: float         # Proposed stop ("The line in the sand")
     take_profit: float       # Proposed target ("The moon")
     reason: str              # "Because the stars aligned (and RSI < 30)"
+    strategy_used: str       # Which strategy made the decision (e.g., "rubberband_reaper")
 ```
 *   **Philosophy:** Actionable. The Broker takes this and executes it blindly (after checking the wallet).
 
+### 3. `AssetClass` (Enum)
+Used for per-asset strategy selection.
+```python
+class AssetClass(Enum):
+    CRYPTO = "crypto"       # BTC, ETH, altcoins
+    FOREX = "forex"         # EUR/USD, GBP/JPY
+    STOCKS = "stocks"       # AAPL, TSLA
+    ETF = "etf"             # SPY, QQQ
+    METALS = "metals"       # XAU, XAG (Gold, Silver)
+    FUTURES = "futures"     # ES, NQ, MES
+```
+
+### 4. `PerAssetStrategies` (`src/tradebot_sci/strategy/profiles.py`)
+Maps asset classes to strategies.
+```python
+@dataclass
+class PerAssetStrategies:
+    crypto: str = "rubberband_reaper"
+    forex: str = "rubberband_reaper"
+    stocks: str = "quantum"
+    etf: str = "quantum"
+    metals: str = "mean_reversion"
+    futures: str = "volatility_breakout"
+
+    def get_strategy_for_symbol(self, symbol: str) -> str:
+        asset_class = classify_symbol(symbol)
+        return getattr(self, asset_class.value)
+```
+
+---
+
 ## Key Functions (The Heavy Hitters)
+
+### `classify_symbol(symbol: str) -> AssetClass`
+*   **Location:** `src/tradebot_sci/utils/symbol_classifier.py`
+*   **Purpose:** Determines which asset class a symbol belongs to.
+*   **Logic:**
+    - `BTC/USD`, `ETH/USD` → `CRYPTO`
+    - `EUR/USD`, `GBP_JPY` → `FOREX`
+    - `AAPL`, `TSLA` → `STOCKS`
+    - `SPY`, `QQQ` → `ETF`
+    - `XAU/USD`, `XAUUSD` → `METALS`
+    - `ES`, `NQ`, `MES` → `FUTURES`
 
 ### `StrategyEngine.decide(...)`
 *   **Location:** `src/tradebot_sci/strategy/engine.py`
 *   **Purpose:** Takes a `MarketSnapshot` and returns an `AITradeDecision`.
 *   **Flow:**
-    1.  `build_market_context()`: Formats data for analysis.
-    2.  `_check_entry_invalidation()`: Fast-fail if price already ran away.
-    3.  `score_icc_grade()`: Calculates the A-F grade.
-    4.  Returns a Decision.
+    1.  `classify_symbol()`: Determine asset class.
+    2.  `get_strategy_for_asset()`: Get the correct strategy for this asset class.
+    3.  `build_market_context()`: Formats data for analysis.
+    4.  `strategy.evaluate()`: Run the strategy-specific logic.
+    5.  Returns a Decision.
 
-### `CCXTExchangeBroker.execute_decision(...)`
-*   **Location:** `src/tradebot_sci/broker/ccxt_broker.py`
-*   **Purpose:** The muscle.
-*   **Flow:**
-    1.  **Affordability Check:** `if wallet < req_cash: return BLOCKED`.
-    2.  **Order Sizing:** Calculates position size based on Risk %.
-    3.  **API Call:** `exchange.create_order(...)`.
-    4.  **Stop Loss:** Places the protective stop order immediately after entry.
+### Broker Execution
+Each broker has its own execution method:
+
+| Broker | Method | Location |
+|--------|--------|----------|
+| **CCXT** | `execute_decision()` | `broker/ccxt_broker.py` |
+| **IBKR** | `execute_decision()` | `broker/ibkr_broker.py` |
+| **OANDA** | `execute_decision()` | `broker/oanda_broker.py` |
+
+**Common Flow:**
+1.  **Affordability Check:** `if wallet < req_cash: return BLOCKED`.
+2.  **Order Sizing:** Calculates position size based on Risk %.
+3.  **API Call:** Broker-specific order placement.
+4.  **Stop Loss:** Places the protective stop order immediately after entry.
 
 ### `run_bot(...)`
 *   **Location:** `src/tradebot_sci/runtime/loop.py`
 *   **Purpose:** The eternal loop.
-*   **Flow:** `while True: scan -> decide -> execute -> sleep`.
+*   **Flow:**
+    ```
+    while True:
+        for symbol in symbols:
+            asset_class = classify_symbol(symbol)
+            strategy = get_strategy_for_asset(asset_class)
+            snapshot = fetch_market_data(symbol)
+            decision = strategy.evaluate(snapshot)
+            execute_decision(decision)
+        sleep(interval)
+    ```
