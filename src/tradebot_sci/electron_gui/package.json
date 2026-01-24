@@ -1,5 +1,5 @@
 {
-  "name": "stitch-ai-trading-dashboard",
+  "name": "tradebot-sci-dashboard",
   "version": "1.0.0",
   "description": "High-fidelity Electron dashboard for Tradebot SCI",
   "main": "main.js",

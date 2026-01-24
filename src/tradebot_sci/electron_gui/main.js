@@ -149,6 +149,7 @@ function createWindow() {
         },
         backgroundColor: '#020617',
         frame: false,
+        icon: path.join(__dirname, 'assets/stitch_avatar.png'),
     });
 
     win.loadFile('index.html');
