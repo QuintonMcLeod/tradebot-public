@@ -20,7 +20,7 @@ class QuantumStrategy(BaseStrategy):
         super().__init__("Quantum")
         self.sma_period = sma_period
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None) -> Optional[AITradeDecision]:
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         # [QUANTUM] High-Efficiency Trend Entry
         lookback = snapshot.candles
         htf_dir = snapshot.trend_htf.direction
@@ -75,7 +75,7 @@ class QuantumStrategy(BaseStrategy):
 
         return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict) -> Optional[AITradeDecision]:
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
         # Exit if HTF trend flips
         htf_dir = snapshot.trend_htf.direction
         pos_dir = open_position.get("direction")

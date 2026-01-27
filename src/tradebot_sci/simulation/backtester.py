@@ -14,12 +14,16 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone, time as dt_time
+import os
+import random
 from typing import Any, Dict, List, Optional
+# Added os for optimization
 from zoneinfo import ZoneInfo
 
 from ib_insync import IB, util
 
 from tradebot_sci.broker.execution import ExecutionOutcome, ExecutionOutcomeType
+from tradebot_sci.broker.trade_result_store import TradeResult, TradeResultStore
 from tradebot_sci.config.models import Settings
 from tradebot_sci.market.contracts import build_contract
 from tradebot_sci.market.models import Candle, MarketSnapshot, TrendState
@@ -378,6 +382,7 @@ class Backtester:
 
     def __init__(self, ib: IB, settings: Settings, ai_client: TradeSciAIClient | None):
         self.ib = ib
+        print("ALOHA FROM THE REAL BACKTESTER")
         self.settings = settings
         self.ai_client = ai_client
         self._cache: Dict[str, Any] = {}
@@ -417,14 +422,16 @@ class Backtester:
         start_date: datetime,
         end_date: datetime,
         symbols: Optional[List[str]] = None,
+        wind_down_days: int = 0,
     ) -> BacktestResult:
         """Run a complete backtest over the specified date range.
 
         Args:
             initial_capital: Starting capital in dollars
             start_date: Backtest start date (UTC)
-            end_date: Backtest end date (UTC)
+            end_date: Backtest end date (UTC) (Last day for NEW ENTRIES)
             symbols: List of symbols to trade (defaults to settings.market.symbols)
+            wind_down_days: Days to continue simulation AFTER end_date to manage exits (no new entries)
 
         Returns:
             BacktestResult containing P&L, trades, and performance metrics
@@ -433,9 +440,13 @@ class Backtester:
         if not symbols:
             raise ValueError("No symbols specified for backtest")
 
+        # [ANTIGRAVITY] Wind-Down Calculation
+        simulation_end_date = end_date + timedelta(days=wind_down_days)
         logger.info(
             f"[BACKTEST] Starting backtest: {initial_capital:.2f} capital, "
-            f"{start_date.date()} to {end_date.date()}, symbols={symbols}"
+            f"Entry Phase: {start_date.date()} to {end_date.date()}, "
+            f"Wind-Down: {wind_down_days} days (until {simulation_end_date.date()}), "
+            f"symbols={symbols}"
         )
 
         # Get active profile
@@ -456,8 +467,9 @@ class Backtester:
 
         all_candles: Dict[str, List[Candle]] = {}
         for symbol in symbols:
+            # [ANTIGRAVITY] Fetch data up to simulation_end_date (includes wind-down)
             candles = self.market_provider.fetch_historical_candles(
-                symbol, timeframe, data_start_date, end_date
+                symbol, timeframe, data_start_date, simulation_end_date
             )
             if candles:
                 all_candles[symbol] = candles
@@ -471,6 +483,10 @@ class Backtester:
         positions: Dict[str, SimulatedPosition] = {}
         completed_trades: List[SimulatedTrade] = []
         equity_curve: List[tuple[datetime, float]] = [(start_date, capital)]
+        
+        # [ANTIGRAVITY] Memory-based trade results for strategy awareness
+        trade_results_store = TradeResultStore(path="/tmp/backtest_results.json")
+        trade_results_store.results = [] # Start fresh
 
         # Validate timeframe conversion
         if tf_seconds == 0:
@@ -495,13 +511,22 @@ class Backtester:
         potential_trades_blocked = 0
         potential_trade_block_reasons: Dict[str, int] = defaultdict(int)
 
-        logger.info(f"[BACKTEST] Starting simulation loop: {start_date} to {end_date}")
+        logger.info(f"[BACKTEST] Starting simulation loop: {start_date} to {simulation_end_date}")
 
-        while current_time <= end_date:
+        while current_time <= simulation_end_date:
+            # [ANTIGRAVITY] Wind-Down Logic: Stop loop early if past end_date AND no positions
+            is_wind_down = current_time > end_date
+            if is_wind_down and not positions:
+                logger.info("[BACKTEST] Wind-down complete: No open positions. Terminating simulation.")
+                break
+
             if not self._is_market_hours_utc(current_time):
                 current_time += timedelta(seconds=tf_seconds)
                 continue
 
+            # [ANTIGRAVITY] Expose current capital to strategy/engine
+            self.market_provider.current_capital = capital
+            
             # Update current candles for each symbol
             for symbol, candles in all_candles.items():
                 # Find candles up to current_time
@@ -547,6 +572,14 @@ class Backtester:
                         exit_reason="max_hold",
                         entry_gates=getattr(pos, "entry_gates", None),
                     ))
+                    trade_results_store.add_result(TradeResult(
+                        symbol=symbol,
+                        closed_at=current_time.isoformat(),
+                        pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                        is_win=pnl > 0,
+                        tier="backtest",
+                        capital_at_close=capital
+                    ))
                     del positions[symbol]
                     logger.info(f"[BACKTEST] {symbol} max-hold exit: PnL=${pnl:.2f}")
                     continue
@@ -571,6 +604,14 @@ class Backtester:
                             pnl=pnl,
                             exit_reason="profit_hold",
                         entry_gates=getattr(pos, "entry_gates", None),
+                        ))
+                        trade_results_store.add_result(TradeResult(
+                            symbol=symbol,
+                            closed_at=current_time.isoformat(),
+                            pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                            is_win=pnl > 0,
+                            tier="backtest",
+                            capital_at_close=capital
                         ))
                         del positions[symbol]
                         logger.info(f"[BACKTEST] {symbol} profit-hold exit: PnL=${pnl:.2f}")
@@ -601,6 +642,14 @@ class Backtester:
                             pnl=pnl,
                             exit_reason="stop",
                         entry_gates=getattr(pos, "entry_gates", None),
+                        ))
+                        trade_results_store.add_result(TradeResult(
+                            symbol=symbol,
+                            closed_at=current_time.isoformat(),
+                            pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                            is_win=pnl > 0,
+                            tier="backtest",
+                            capital_at_close=capital
                         ))
                         del positions[symbol]
                         logger.info(f"[BACKTEST] {symbol} stop hit: PnL=${pnl:.2f}")
@@ -635,6 +684,14 @@ class Backtester:
                             exit_reason="target",
                         entry_gates=getattr(pos, "entry_gates", None),
                         ))
+                        trade_results_store.add_result(TradeResult(
+                            symbol=symbol,
+                            closed_at=current_time.isoformat(),
+                            pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                            is_win=pnl > 0,
+                            tier="backtest",
+                            capital_at_close=capital
+                        ))
                         del positions[symbol]
                         logger.info(f"[BACKTEST] {symbol} target hit: PnL=${pnl:.2f}")
                         continue
@@ -664,6 +721,14 @@ class Backtester:
                         pnl=pnl,
                         exit_reason="max_loss_cap",
                         entry_gates=getattr(pos, "entry_gates", None),
+                    ))
+                    trade_results_store.add_result(TradeResult(
+                        symbol=symbol,
+                        closed_at=current_time.isoformat(),
+                        pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                        is_win=pnl > 0,
+                        tier="backtest",
+                        capital_at_close=capital
                     ))
                     del positions[symbol]
                     logger.info(f"[BACKTEST] {symbol} max loss cap exit: Net PnL=${pnl:.2f}")
@@ -699,6 +764,14 @@ class Backtester:
                         pnl=pnl,
                         exit_reason="htf_neutral_timeout",
                         entry_gates=getattr(pos, "entry_gates", None),
+                    ))
+                    trade_results_store.add_result(TradeResult(
+                        symbol=symbol,
+                        closed_at=current_time.isoformat(),
+                        pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                        is_win=pnl > 0,
+                        tier="backtest",
+                        capital_at_close=capital
                     ))
                     del positions[symbol]
                     logger.info(f"[BACKTEST] {symbol} HTF neutral timeout exit: PnL=${pnl:.2f}")
@@ -737,6 +810,14 @@ class Backtester:
                                 exit_reason="eod",
                         entry_gates=getattr(pos, "entry_gates", None),
                             ))
+                            trade_results_store.add_result(TradeResult(
+                                symbol=symbol,
+                                closed_at=current_time.isoformat(),
+                                pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                                is_win=pnl > 0,
+                                tier="backtest",
+                                capital_at_close=capital
+                            ))
                             del positions[symbol]
                             logger.info(f"[BACKTEST] {symbol} EOD flatten: PnL=${pnl:.2f}")
                         last_flatten_date = eastern_time.date()
@@ -766,12 +847,26 @@ class Backtester:
                     # Always evaluate strategy, even when in position
                     # This allows for position management, exits, and multi-entry strategies
 
-                    # Get current position for this symbol (if any)
+                    # [FIXED] Use current running capital for risk sizing
                     current_position = positions.get(symbol)
+                    
+                    # 1.5 Calculate Global Risk across all symbols
+                    total_open_risk_dollars = 0.0
+                    for s_name, s_pos in positions.items():
+                        s_risk_per_share = abs(s_pos.entry_price - s_pos.stop_price)
+                        total_open_risk_dollars += (s_risk_per_share * s_pos.size)
+                    
+                    global_risk_pct = total_open_risk_dollars / capital if capital > 0 else 0
 
                     # Check if we have enough capital for NEW entries
                     # Skip capital check if we already have a position (for exit/management signals)
                     if current_position is None:
+                        # [ANTIGRAVITY] Wind-Down Block: No new entries after end_date
+                        if current_time > end_date:
+                            if total_decision_checks % 100 == 0: # Reduce log spam
+                                logger.debug(f"[BACKTEST] {symbol}: Skipping entry (Wind-Down active)")
+                            continue
+
                         # [FIX] Don't enter new trades with depleted capital
                         if capital <= 0:
                             continue
@@ -784,19 +879,16 @@ class Backtester:
                                         f"[BACKTEST] {symbol}: Skipping entry (insufficient time for min hold)"
                                     )
                                 continue
-                        # Use profile risk setting (default 10% for ICC methodology)
-                        # Up to 3 entries = 30% total risk when pyramiding
-                        risk_pct = float(getattr(profile, "risk_per_trade_pct", 0.10))
-                        # Use profile max loss cap, or broker setting, with sensible fallback
-                        max_loss_cap = float(getattr(profile, "max_loss_per_trade_dollars", 0.0))
-                        if max_loss_cap <= 0:
-                            max_loss_cap = self.settings.broker.max_dollar_risk_per_symbol if self.settings.broker else 1000000.0
-                        max_risk = min(capital * risk_pct, max_loss_cap)
+                        # Default risk to 0.0 - variant must specify or we use profile
+                        risk_pct = 0.0
+                        max_risk = capital * 1.0 # Buffer
 
-                        if max_risk < 1.0:  # Need at least $1 risk per trade
-                            if total_decision_checks <= 3:
-                                logger.info(f"[BACKTEST] {symbol}: Insufficient capital (max_risk=${max_risk:.2f} < $1)")
-                            continue
+                        # [REMOVED] Need at least $1 risk per trade
+                        # Allows for Feet Wet scouts (0.25%) on small accounts ($100)
+                        # if max_risk < 1.0:  
+                        #     if total_decision_checks <= 3:
+                        #         logger.info(f"[BACKTEST] {symbol}: Insufficient capital (max_risk=${max_risk:.2f} < $1)")
+                        #     continue
 
                     try:
                         # Get strategy decision
@@ -805,6 +897,7 @@ class Backtester:
                             market_provider=self.market_provider,
                             profile=profile,
                             symbol=symbol,
+                            trade_results=trade_results_store
                         )
 
                         snapshot = self.market_provider.get_latest_snapshot(symbol, timeframe)
@@ -890,7 +983,7 @@ class Backtester:
                             continue  # Skip to next symbol after exit
 
                         # Handle pyramid/add to position
-                        if current_position is not None and decision.action == "add_to_position":
+                        if current_position is not None and decision.action in ("add_to_position", "scale_in"):
                             add_price = snapshot.candles[-1].close
 
                             # Calculate size for pyramid entry (same risk % as initial entry)
@@ -898,33 +991,48 @@ class Backtester:
                             risk_per_share = abs(add_price - stop_price)
 
                             # Use profile risk setting (same as initial entry)
-                            risk_pct = float(getattr(profile, "risk_per_trade_pct", 0.10))
+                            if hasattr(decision, "risk_per_trade_pct") and decision.risk_per_trade_pct:
+                                target_risk_pct = float(decision.risk_per_trade_pct)
+                                risk_pct = target_risk_pct
+                            else:
+                                risk_pct = float(getattr(profile, "risk_per_trade_pct", 0.10))
+
                             # Use profile max loss cap, or broker setting, with sensible fallback
                             max_loss_cap = float(getattr(profile, "max_loss_per_trade_dollars", 0.0))
                             if max_loss_cap <= 0:
                                 max_loss_cap = self.settings.broker.max_dollar_risk_per_symbol if self.settings.broker else 1000000.0
-                            max_risk = min(capital * risk_pct, max_loss_cap)
+                            # [RISK SATURATION] Cap pyramid sizing at $750 base
+                            compounding_capital = min(capital, 750.0)
+                            max_risk = min(compounding_capital * risk_pct, max_loss_cap)
 
                             raw_add_size = max_risk / risk_per_share if risk_per_share > 0 else 0.0
                             add_size = raw_add_size
                             cap_reason = None
 
-                            # Cap pyramid entry notional at 30× capital (same as initial entry)
-                            max_add_notional = capital * 30.0
+                            # Cap pyramid entry notional (Config 13: 100x)
+                            # Default to 100x (Allow Profit Scaling)
+                            lev_cap = float(os.getenv('RR_LEV_CAP', '100.0'))
+                            max_add_notional = capital * lev_cap
                             max_add_shares = max_add_notional / add_price
+                            
+                            # Safety calculation matching initial entry for consistency
+                            min_stop_distance = add_price * 0.001
+                            if risk_per_share < min_stop_distance:
+                                risk_per_share = min_stop_distance
+
                             if add_size > max_add_shares:
                                 logger.warning(
                                     f"[BACKTEST] {symbol}: Pyramid size capped from {add_size:.2f} to {max_add_shares:.2f} shares "
-                                    f"(max 30× leverage = ${max_add_notional:.2f} notional on ${capital:.2f} capital)"
+                                    f"(max {lev_cap:.0f}× leverage = ${max_add_notional:.2f} notional on ${capital:.2f} capital)"
                                 )
                                 add_size = max_add_shares
                                 cap_reason = "pyramid_max_leverage"
 
-                            # Cap total position at 3x initial size (prevents excessive pyramiding)
-                            max_total_size = current_position.size * 3
-                            if current_position.size + add_size > max_total_size:
-                                add_size = max_total_size - current_position.size
-                                cap_reason = "pyramid_max_total_size"
+                            # [REMOVED] Cap total position at 3x initial size (Allows Scout -> Hammer scaling)
+                            # max_total_size = current_position.size * 3
+                            # if current_position.size + add_size > max_total_size:
+                            #     add_size = max_total_size - current_position.size
+                            #     cap_reason = "pyramid_max_total_size"
 
                             if add_size > 0:
                                 # Update position with pyramid entry
@@ -989,14 +1097,26 @@ class Backtester:
                         # Execute entry if signal is valid (no confidence check - AI decides via action field)
                         # Only allow new entries if we don't already have a position
                         if current_position is None and decision.action in ("enter_long", "enter_short"):
+                            # ENSURE Strategy-defined risk is used (Scout=0.25%, Hammer=60%)
+                            if hasattr(decision, "risk_per_trade_pct") and decision.risk_per_trade_pct is not None:
+                                risk_pct = float(decision.risk_per_trade_pct)
+                            else:
+                                # Fallback to Profile if variant forgot to specify
+                                risk_pct = float(getattr(profile, "risk_per_trade_pct", 0.10))
+                                
+                            # [RISK SATURATION] Cap compounding at $750 to prevent Nuclear Blowout
+                            compounding_capital = min(capital, 750.0)
+                            max_risk = compounding_capital * risk_pct
+                            logger.info(f"[BACKTEST] Entry: {symbol} using {risk_pct*100:.2f}% risk on ${compounding_capital:.2f} base (${max_risk:.2f})")
+
                             entry_price = snapshot.candles[-1].close
 
                             # Calculate position size with safety measures
                             stop_price = decision.stop_loss or (entry_price * 0.98 if decision.action == "enter_long" else entry_price * 1.02)
                             risk_per_share = abs(entry_price - stop_price)
 
-                            # Safety 1: Enforce minimum stop distance (0.5% of entry)
-                            min_stop_distance = entry_price * 0.005
+                            # Safety 1: Enforce minimum stop distance (0.1% of entry - allows heavy scalping leverage)
+                            min_stop_distance = entry_price * 0.001
                             if risk_per_share < min_stop_distance:
                                 logger.warning(
                                     f"[BACKTEST] {symbol}: Stop too tight (${risk_per_share:.4f} < ${min_stop_distance:.4f}), "
@@ -1015,9 +1135,9 @@ class Backtester:
                             # Example: $100 risk / $3 stop = 33 shares = $20k notional (20× leverage)
                             size = max_risk / risk_per_share if risk_per_share > 0 else 0
 
-                            # Safety 2: Cap total notional at 30× capital (prevents extreme leverage)
-                            # ICC uses tight stops, so some leverage is expected, but cap at reasonable limit
-                            max_position_value = capital * 30.0  # Max 30× leverage (allows full ICC 10% risk with tight stops)
+                            # Safety 2: Cap total notional (Config 13: 100x)
+                            lev_cap = float(os.getenv('RR_LEV_CAP', '100.0'))
+                            max_position_value = capital * lev_cap
                             max_shares = max_position_value / entry_price
                             if size > max_shares:
                                 logger.warning(

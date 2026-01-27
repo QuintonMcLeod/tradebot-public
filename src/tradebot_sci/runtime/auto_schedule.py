@@ -32,15 +32,25 @@ def select_auto_schedule_symbols(
     symbols: list[str],
     now_utc: datetime,
 ) -> AutoScheduleSelection:
-    """Auto-switch between equities (US market hours) and crypto (off-hours)."""
-    desired_class = AssetClass.EQUITY if _is_us_equity_session_open(now_utc) else AssetClass.CRYPTO
-    mode = "equity" if desired_class == AssetClass.EQUITY else "crypto"
+    """Auto-switch between equities (US market hours) and crypto/forex (off-hours)."""
+    is_equity_session = _is_us_equity_session_open(now_utc)
+    
+    # [ANTIGRAVITY FIX] Include Forex and Commodities in the "off-hours" or "extended" selection
+    # so they aren't filtered out by the equity/crypto toggle.
+    if is_equity_session:
+        desired_classes = {AssetClass.EQUITY}
+        mode = "equity"
+    else:
+        desired_classes = {AssetClass.CRYPTO, AssetClass.FOREX}
+        mode = "extended"
+
     selected: list[str] = []
     for symbol in symbols:
         metadata = SYMBOL_METADATA.get(symbol)
         if not metadata:
             continue
-        if metadata.asset_class == desired_class:
+        if metadata.asset_class in desired_classes:
             selected.append(symbol)
+            
     return AutoScheduleSelection(mode=mode, symbols=selected)
 

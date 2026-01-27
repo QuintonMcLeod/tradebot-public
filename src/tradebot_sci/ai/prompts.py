@@ -98,21 +98,48 @@ SYSTEM_PROMPT_QWEN = dedent(
     """
 ).strip()
 
+SYSTEM_PROMPT_MECHANICAL = dedent(
+    """
+    You are a Risk Management Second Opinion for a specialized Python-based Mechanical Strategy (e.g., Rubberband Reaper, Mean Reversion).
+    Your job is NOT to originate trades. Your job is to validate market safety.
+    
+    The Python strategy handles the specific entry triggers (RSI, Bollinger Bands, etc).
+    You are acting as a "Safety Officer". 
+    
+    Your Rules:
+    1. Do NOT enforce ICC/ICT Smart Money Concepts (Sweeps, Indication, Continuation) as requirements. These strategies operate on Mean Reversion, which often trade AGAINST structural trend.
+    2. Do NOT stand aside just because "Phase is chop" or "HTF/LTF misaligned". Mean Reversion thrives in chop!
+    3. DO stand aside if you see "Immediate Danger" (e.g., Buying directly into a massive crash/news spike, or Selling into a parabolic pump).
+    4. If the market looks normal (even if choppy or trending), output action="stand_aside" with a note "Market normal, awaiting mechanical signal".
+    5. UNLESS you see a verified valid trade opportunity based on pure price action (e.g. extremely overextended price), generally you should DEFER to the mechanical strategy.
+    
+    Since the Python strategy returned "stand_aside" (implied, because you were called), you should generally "stand_aside" too, unless you see a screaming opportunity that the mechanical strategy missed.
+    BUT: Do not hallucinate ICC setups (sweeps) that aren't there.
+    SAFE DEFAULT: action="stand_aside", bias="neutral", phase="chop".
+    """
+).strip()
+
 # Default to generic prompt for backward compatibility
 SYSTEM_PROMPT = SYSTEM_PROMPT_GENERIC
 
 
-def _select_system_prompt(model_name: str) -> str:
+def _select_system_prompt(model_name: str, strategy_variant: str = "") -> str:
     """
-    Select appropriate system prompt based on model name.
+    Select appropriate system prompt based on model name and strategy.
 
     Args:
         model_name: The AI model identifier (e.g., "qwen/qwen-turbo", "gpt-4", etc.)
+        strategy_variant: The active strategy name (e.g., "rubberband_reaper", "icc_core")
 
     Returns:
         The appropriate system prompt string
     """
     model_lower = model_name.lower()
+    variant_lower = strategy_variant.lower().replace(" ", "_")
+    
+    # [ANTIGRAVITY FIX] Mechanical Strategies get specific prompt
+    if variant_lower in ("rubberband_reaper", "mean_reversion", "hyper_scalper"):
+        return SYSTEM_PROMPT_MECHANICAL
 
     # Models known to have ICC/ICT training
     if "qwen" in model_lower:
@@ -124,8 +151,9 @@ def _select_system_prompt(model_name: str) -> str:
 
 def build_decision_messages(context: Dict, model_name: str = "") -> List[ChatMessage]:
     """Assembles a fancy dinner plate of context for the AI to feast on."""
-    # Select appropriate system prompt based on model
-    system_prompt = _select_system_prompt(model_name)
+    # Select appropriate system prompt based on model and strategy
+    strategy_variant = str(context.get("strategy_variant", ""))
+    system_prompt = _select_system_prompt(model_name, strategy_variant)
 
     summary_lines = [
         f"Symbol: {context.get('symbol')}",
@@ -213,8 +241,15 @@ def build_decision_messages(context: Dict, model_name: str = "") -> List[ChatMes
     ]
 
     # [ANTIGRAVITY FIX] RoboCop Combat Mode Override
+    # [ANTIGRAVITY FIX] RoboCop Combat Mode Override
+    # ONLY inject this prompt if the strategy itself supports/requests Combat Mode.
+    # Rubberband Reaper (or others) should NEVER see this instruction, as it leads to reckless scalping.
     from tradebot_sci.config.models import UserConfig
-    if UserConfig.COMBAT_MODE_ENABLED:
+    
+    variant = str(context.get("strategy_variant", "")).lower().replace(" ", "_")
+    is_robocop_variant = variant in ("robocop", "icc_core")
+    
+    if UserConfig.COMBAT_MODE_ENABLED and is_robocop_variant:
         messages.append({
             "role": "system", 
             "content": (

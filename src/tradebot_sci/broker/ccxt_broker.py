@@ -98,6 +98,20 @@ class CCXTExchangeBroker:
                 "ADA/USD:USD-260130": "ADA/USD:USD-260130",
             },
             **{"USDTUSD": "USDT/USD"}, # For tracking value of USDT itself
+            **{
+                # Gemini specific mappings (Standard and common)
+                "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD", "SOLUSD": "SOL/USD", "LTCUSD": "LTC/USD",
+                "XRPUSD": "XRP/USD", "ADAUSD": "ADA/USD", "LINKUSD": "LINK/USD", "DOGEUSD": "DOGE/USD",
+                "AVAXUSD": "AVAX/USD", "SHIBUSD": "SHIB/USD", "NEARUSD": "NEAR/USD", "DOTUSD": "DOT/USD",
+                "PEPEUSD": "PEPE/USD", "FETUSD": "FET/USD", "GRTUSD": "GRT/USD",
+                "USDPUSD": "USDP/USD", # Gemini's stablecoin
+            },
+            **{
+                # Kraken specific mappings
+                "XBTUSD": "BTC/USD", "XBTEUR": "BTC/EUR",
+                "ETHXBT": "ETH/BTC", "XRPXBT": "XRP/BTC",
+                "USDTZUSD": "USDT/USD",
+            },
             **_parse_symbol_map(os.getenv("CCXT_SYMBOL_MAP")),
         }
 
@@ -204,7 +218,7 @@ class CCXTExchangeBroker:
             # For futures, sometimes 'reduceOnly': True is needed in params
             params = {}
             default_type = (os.getenv("CCXT_DEFAULT_TYPE") or "spot").lower()
-            if default_type in {"future", "swap"}:
+            if default_type in {"future", "swap"} and self._exchange.id != "coinbase":
                 params["reduceOnly"] = True
 
             self._exchange.create_order(sym, "market", side, qty, None, params)
@@ -241,7 +255,7 @@ class CCXTExchangeBroker:
                                     open_symbols.add(k)
                                     break
                 except Exception as e:
-                    logger.debug(f"[CCXT] fetch_positions failed: {e}")
+                    logger.warning(f"[CCXT] fetch_positions failed for {self.exchange_id}: {e}")
 
             # 2. Check Spot Balances
             try:
@@ -275,12 +289,18 @@ class CCXTExchangeBroker:
                          # Fallback to currency+USD if no map
                          open_symbols.add(f"{currency}USD")
             except Exception as e:
-                logger.debug(f"[CCXT] fetch_balance failed: {e}")
+                logger.warning(f"[CCXT] fetch_balance failed for {self.exchange_id}: {e}")
 
             # 3. Discovery from Orders (Fallback for private sub-accounts)
             try:
                 allowed_exchange_symbols = self._get_allowed_exchange_symbols()
-                open_orders = self._exchange.fetch_open_orders(None)
+                # Use a specific symbol if possible or catch failures early
+                open_orders = []
+                try:
+                    open_orders = self._exchange.fetch_open_orders(None)
+                except Exception as e:
+                    logger.debug(f"[CCXT] fetch_open_orders(None) failed for {self.exchange_id}: {e}")
+                
                 for o in open_orders:
                     cand = o.get("symbol")
                     if not cand:
@@ -324,8 +344,12 @@ class CCXTExchangeBroker:
         # logger.debug(f"[CCXT] Checking snapshot for {symbol}...")
         if not self._is_crypto(symbol):
             return None
-
+            
         sym = self._map_symbol(symbol)
+        
+        # [ANTIGRAVITY FIX] Ignore symbols not supported by the exchange to silence noisy "Symbol not found" warnings.
+        if not self._is_known_exchange_symbol(sym):
+            return None
         
         from tradebot_sci.market.symbols import is_coinbase_derivative
         is_future = is_coinbase_derivative(symbol)
@@ -338,24 +362,31 @@ class CCXTExchangeBroker:
         
         try:
             # If it's a future, we use fetch_positions if available
-            if is_future and self._exchange.has['fetchPositions']:
-                positions = self._exchange.fetch_positions([sym])
-                # Find matching position
-                # Note: CCXT 4.x returns a list. Filter by symbol.
-                target = next((p for p in positions if p.get('symbol') == sym), None)
-                if target:
-                    contracts = float(target.get('contracts') or 0.0)
-                    side = str(target.get('side') or 'long')
-                    size = contracts if side == 'long' else -contracts
-                    avg_price = float(target.get('entryPrice') or 0.0)
-                    unrealized_pnl = float(target.get('unrealizedPnl') or 0.0)
-                    pnl_pct = float(target.get('percentage') or 0.0)
+            if is_future and self._exchange.has.get('fetchPositions', False):
+                try:
+                    positions = self._exchange.fetch_positions([sym])
+                    # Find matching position
+                    # Note: CCXT 4.x returns a list. Filter by symbol.
+                    target = next((p for p in positions if p.get('symbol') == sym), None)
+                    if target:
+                        contracts = float(target.get('contracts') or 0.0)
+                        side = str(target.get('side') or 'long')
+                        size = contracts if side == 'long' else -contracts
+                        avg_price = float(target.get('entryPrice') or 0.0)
+                        unrealized_pnl = float(target.get('unrealizedPnl') or 0.0)
+                        pnl_pct = float(target.get('percentage') or 0.0)
+                except Exception as e:
+                    logger.warning(f"[CCXT] Snapshot fetch_positions failed for {sym} on {self.exchange_id}: {e}")
             else:
                 # Spot: fetch_balance
                 base = sym.split("/")[0] if "/" in sym else sym
-                bal = self._exchange.fetch_balance()
-                total = bal.get("total", {})
-                size = float(total.get(base, 0.0))
+                try:
+                    bal = self._exchange.fetch_balance()
+                    total = bal.get("total", {})
+                    size = float(total.get(base, 0.0))
+                except Exception as e:
+                    logger.warning(f"[CCXT] Snapshot fetch_balance failed for {sym} on {self.exchange_id}: {e}")
+                    size = 0.0
 
                 # [FIX] Define min_amount BEFORE checking it!
                 min_amount = None
@@ -442,6 +473,12 @@ class CCXTExchangeBroker:
             return None
             
         if abs(size) == 0:
+            # [ANTIGRAVITY FIX] Reconcile Ghost Positions
+            # If size is 0 but we have a record in the store, purge it.
+            if self.position_hold_store and self.position_hold_store.get(symbol):
+                logger.info(f"[CCXT] Reconciling ghost position for {symbol}: Record exists but balance/orders are zero. Purging record.")
+                self.position_hold_store.remove(symbol)
+                
             self._scale_in_counts[symbol.upper()] = 0
             return None
             
@@ -1451,6 +1488,12 @@ class CCXTExchangeBroker:
         secret = os.getenv("CCXT_SECRET")
         password = os.getenv("CCXT_PASSWORD")
         enable_rate_limit = (os.getenv("CCXT_ENABLE_RATE_LIMIT", "true").lower() == "true")
+
+        # [ANTIGRAVITY FIX] Kraken Specific Credential Mapping
+        if "kraken" in self.exchange_id.lower():
+            if not api_key: api_key = os.getenv("KRAKEN_API_KEY")
+            if not secret: secret = os.getenv("KRAKEN_API_SECRET")
+            
         options = {}
         # [ANTIGRAVITY FIX] Coinbase specific fix for market orders
         if "coinbase" in self.exchange_id.lower():

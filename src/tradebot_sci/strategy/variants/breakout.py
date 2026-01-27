@@ -21,7 +21,7 @@ class VolatilityBreakoutStrategy(BaseStrategy):
         self.range_period = range_period
         self.atr_mult = atr_mult
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None) -> Optional[AITradeDecision]:
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         closes = [c.close for c in snapshot.candles]
         if len(closes) < self.range_period + 1:
             return None
@@ -48,7 +48,8 @@ class VolatilityBreakoutStrategy(BaseStrategy):
                 invalidation_conditions="Close below breakout bar",
                 management_instructions="Target 2R. Hold for explosive momentum.",
                 notes="Aggressive breakout scalper",
-                urgency="high"
+                urgency="high",
+                risk_per_trade_pct=0.10
             )
 
         # Short Entry: Breakout of range low + RSI < 40
@@ -65,12 +66,13 @@ class VolatilityBreakoutStrategy(BaseStrategy):
                 invalidation_conditions="Close above breakout bar",
                 management_instructions="Target 2R. Hold for explosive momentum.",
                 notes="Aggressive breakout scalper",
-                urgency="high"
+                urgency="high",
+                risk_per_trade_pct=0.10
             )
 
         return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict) -> Optional[AITradeDecision]:
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
         # Fast exit if RSI reverses significantly
         rsi = calculate_rsi([c.close for c in snapshot.candles], 14)
         pos_dir = open_position.get("direction")

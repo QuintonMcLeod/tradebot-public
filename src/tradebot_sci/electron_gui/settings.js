@@ -62,7 +62,7 @@ const TOOLTIPS = {
     BREAKEVEN_TRAIL_PCT: "How far above breakeven to trail your stop. 0.003 = 0.3%, so if you bought at $100, stop moves to $100.30 instead of exactly $100.",
 
     // ICC Settings
-    ICC_AUTO_ENTRY_ENABLED: "Enable automatic trade entries based on ICC (Indication-Correction-Continuation) signals. The core pattern recognition system.",
+    ICC_AUTO_ENTRY_ENABLED: "Enable automatic trade entries based on ICC (Indication, Correction, Continuation) signals. The core pattern recognition system.",
     ICC_AGGRESSIVE_MODE: "When enabled, the bot uses larger position sizes on high-confidence setups. More aggressive but higher risk/reward.",
     ICC_AUTO_ENTRY_REQUIRE_SWEEP: "Require a 'liquidity sweep' (price briefly breaks a level then reverses) before entering. These setups have higher win rates but occur less frequently.",
     ICC_AUTO_ENTRY_MIN_HTF_STRENGTH: "Minimum trend strength on higher timeframe before ICC entries are allowed. Filters out trades against weak or uncertain trends.",
@@ -109,6 +109,16 @@ const TOOLTIPS = {
     CCXT_SECRET: "Your API secret key - paired with the API key. Never share this! Required to authenticate trades.",
     CCXT_SANDBOX: "Enable sandbox/testnet mode for the exchange. Trade with fake money to test your setup safely.",
     CCXT_ENABLE_RATE_LIMIT: "Automatically respect exchange rate limits to avoid getting temporarily banned for too many requests.",
+
+    // Broker Settings - Gemini
+    GEMINI_API_KEY: "Your Gemini API key - found in Gemini Settings -> API. Enables the bot to trade crypto on Gemini.com.",
+    GEMINI_API_SECRET: "Your Gemini API secret - provided when you created the API key. Never share this! Required to sign orders.",
+    GEMINI_SANDBOX: "Connect to the Gemini Sandbox (Exchange Testnet) for risk-free testing with simulated funds.",
+
+    // Broker Settings - Kraken
+    KRAKEN_API_KEY: "Your Kraken API key. Enables the bot to trade on your behalf. Keep this secret!",
+    KRAKEN_API_SECRET: "Your Kraken API secret. Required for authentication. Never share this!",
+    KRAKEN_ENVIRONMENT: "Choose 'production' for real trading or 'sandbox' for testing (if supported).",
 
     // Crypto Order Settings
     CRYPTO_FRACTIONAL_ENABLED: "Allow buying fractional amounts (0.001 BTC instead of whole coins). Required for expensive cryptos with small accounts.",
@@ -234,6 +244,15 @@ const STRATEGIES = {
         risk: "Variable",
         bestFor: "Maximizing capital efficiency",
         stats: { strategies: "2 parallel", priority: "Scale > New", goal: "Always loaded" }
+    },
+    icc_core: {
+        name: "Indication, Correction, Continuation (ICC)",
+        shortDesc: "Strict Trade By Sci Logic",
+        description: "The pure, unmodified Trade By Sci Internal Capital Cycle methodology. Requires strict HTF/LTF alignment and follows the standard Indication (Sweep) -> Correction -> Continuation sequence. No Rubberband logic, no RoboCop bypasses. Pure Price Action.",
+        style: "Trend Following",
+        risk: "Low-Medium",
+        bestFor: "Aligned Trends",
+        stats: { alignment: "Strict", structure: "Standard", method: "Vanilla" }
     }
 };
 
@@ -331,6 +350,48 @@ function setupGlobalEvents() {
     }
 }
 
+function getProfileOptions() {
+    if (!profilesContent) return [
+        { value: 'auto_schedule', label: 'Auto (Equities/Crypto)' },
+        { value: 'forex_intraday', label: 'Forex Intraday' },
+        { value: 'forex_oanda', label: 'OANDA Forex' },
+        { value: 'crypto_247', label: 'Crypto 24/7' },
+        { value: 'intraday', label: 'Standard Intraday' },
+        { value: 'coinbase_futures', label: 'Coinbase Futures' },
+        { value: 'coinbase_futures_nano', label: 'Coinbase Nano Futures' }
+    ];
+
+    const options = [];
+    const lines = profilesContent.split('\n');
+    let inProfiles = false;
+
+    for (let line of lines) {
+        if (line.trim().startsWith('profiles:')) {
+            inProfiles = true;
+            continue;
+        }
+        if (inProfiles) {
+            const match = line.match(/^  ([\w-]+):/);
+            if (match) {
+                const value = match[1];
+                const label = value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                    .replace('Forex', 'Forex ').replace('Crypto', 'Crypto ').trim();
+                options.push({ value, label });
+            }
+        }
+    }
+
+    return options.length > 0 ? options : [
+        { value: 'auto_schedule', label: 'Auto (Equities/Crypto)' },
+        { value: 'forex_intraday', label: 'Forex Intraday' },
+        { value: 'forex_oanda', label: 'OANDA Forex' },
+        { value: 'crypto_247', label: 'Crypto 24/7' },
+        { value: 'intraday', label: 'Standard Intraday' },
+        { value: 'coinbase_futures', label: 'Coinbase Futures' },
+        { value: 'coinbase_futures_nano', label: 'Coinbase Nano Futures' }
+    ];
+}
+
 // ═══════════════════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════════════════
@@ -399,8 +460,9 @@ function createCard(title, desc, key, controlType, options = {}) {
     const controlContainer = card.querySelector('.card-control');
     const value = envData[key] || options.default || '';
 
-    if (TOOLTIPS[key]) {
-        card.addEventListener('mouseenter', (e) => showTooltip(e, key, TOOLTIPS[key]));
+    const tooltipContent = options.tooltip || TOOLTIPS[key];
+    if (tooltipContent) {
+        card.addEventListener('mouseenter', (e) => showTooltip(e, key, tooltipContent));
         card.addEventListener('mouseleave', hideTooltip);
     }
 
@@ -462,6 +524,11 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%') {
     const slider = card.querySelector('.slider-input');
     const valueDisplay = card.querySelector('.slider-value');
 
+    if (TOOLTIPS[key]) {
+        card.addEventListener('mouseenter', (e) => showTooltip(e, key, TOOLTIPS[key]));
+        card.addEventListener('mouseleave', hideTooltip);
+    }
+
     slider.addEventListener('input', (e) => {
         valueDisplay.innerHTML = `${e.target.value}<span class="slider-value-small">${unit}</span>`;
         updateValue(key, e.target.value);
@@ -513,15 +580,7 @@ function renderSystemTab(container) {
     section.appendChild(createSectionHeader('Core Runtime', 'dashboard'));
 
     section.appendChild(createCard('Active Profile', 'Select symbol universe & trading cadence', 'APP_PROFILE', 'dropdown', {
-        items: [
-            { value: 'auto_schedule', label: 'Auto (Equities/Crypto)' },
-            { value: 'forex_intraday', label: 'Forex Intraday' },
-            { value: 'forex_oanda', label: 'OANDA Forex' },
-            { value: 'crypto_247', label: 'Crypto 24/7' },
-            { value: 'intraday', label: 'Standard Intraday' },
-            { value: 'coinbase_futures', label: 'Coinbase Futures' },
-            { value: 'coinbase_futures_nano', label: 'Coinbase Nano Futures' }
-        ]
+        items: getProfileOptions()
     }));
 
     section.appendChild(createCard('Strategy Variant', 'Trading strategy algorithm', 'STRATEGY_VARIANT', 'dropdown', {
@@ -534,7 +593,8 @@ function renderSystemTab(container) {
             { value: 'hyper_scalper', label: 'HyperScalper (EMA Crossover)' },
             { value: 'london_breakout', label: 'London Breakout (Session)' },
             { value: 'volatility_breakout', label: 'Volatility Breakout' },
-            { value: 'aggregator', label: 'Singularity Aggregator (Multi-Strategy)' }
+            { value: 'aggregator', label: 'Singularity Aggregator (Multi-Strategy)' },
+            { value: 'icc_core', label: 'ICC (Indication, Correction, Continuation)' }
         ],
         default: 'rubberband_reaper'
     }));
@@ -600,13 +660,14 @@ function renderSystemTab(container) {
     container.appendChild(section);
 }
 
+
 function renderStrategyTab(container) {
     // Sub-navigation
     container.appendChild(createSubNav([
         { id: 'assets', label: 'Asset Strategies' },
-        { id: 'risk', label: 'Risk & Sizing' },
+        { id: 'toolbox', label: 'Strategy Toolbox' },
+        { id: 'risk', label: 'Global Risk' },
         { id: 'pyramid', label: 'Pyramiding' },
-        { id: 'icc', label: 'ICC Scoring' },
         { id: 'exits', label: 'Exit Logic' },
         { id: 'yaml', label: 'YAML Editor' }
     ], 'strategy'));
@@ -694,13 +755,20 @@ function renderStrategyTab(container) {
             section.appendChild(card);
         });
 
+    } else if (subTabs.strategy === 'toolbox') {
+        // Delegate to specific toolbox renderer
+        renderStrategyToolbox(container);
+        return;
+
     } else if (subTabs.strategy === 'risk') {
-        section.appendChild(createSectionHeader('Risk Management', 'account_balance'));
+        section.appendChild(createSectionHeader('Global Risk Limits', 'account_balance'));
+
+        section.appendChild(createWarningBox('<strong>Note:</strong> These are global defaults and safety limits. Individual strategies in the <strong>Strategy Toolbox</strong> may override specific risk parameters (e.g. higher risk for high-probability setups).'));
 
         // Slider Grid
         const grid = document.createElement('div');
         grid.className = 'card-grid';
-        grid.appendChild(createSliderCard('Risk Per Trade', 'Percentage of equity', 'RISK_PER_TRADE_PCT', 0.1, 5.0, 0.1, '%'));
+        grid.appendChild(createSliderCard('Default Risk %', 'Fallback equity risk', 'RISK_PER_TRADE_PCT', 0.1, 5.0, 0.1, '%'));
         grid.appendChild(createSliderCard('Short Risk', 'Risk for short positions', 'SHORT_RISK_PCT', 0.1, 5.0, 0.1, '%'));
         grid.appendChild(createSliderCard('Max Exposure', 'Total open risk limit', 'MAX_EXPOSURE_PCT', 5, 100, 5, '%'));
         grid.appendChild(createSliderCard('Max Daily Loss', 'Daily loss circuit breaker', 'MAX_DAILY_LOSS_PCT', 1, 20, 1, '%'));
@@ -732,30 +800,6 @@ function renderStrategyTab(container) {
 
         section.appendChild(createCard('Trail After N Pyramids', '0 = disabled', 'BREAKEVEN_TRAIL_AFTER_PYRAMIDS', 'input', { number: true, default: '1', min: 0, max: 10 }));
         section.appendChild(createCard('Trail Percentage', 'Above breakeven (0.003 = 0.3%)', 'BREAKEVEN_TRAIL_PCT', 'input', { number: true, default: '0.003', min: 0, max: 0.05, step: 0.001 }));
-
-    } else if (subTabs.strategy === 'icc') {
-        section.appendChild(createSectionHeader('ICC Auto-Entry', 'auto_mode'));
-
-        section.appendChild(createCard('ICC Auto-Entry', 'Auto-enter on valid signals', 'ICC_AUTO_ENTRY_ENABLED', 'toggle', { default: 'true' }));
-        section.appendChild(createCard('Aggressive Mode', 'Enable aggressive sizing', 'ICC_AGGRESSIVE_MODE', 'toggle', { default: 'true' }));
-        section.appendChild(createCard('Require Sweep', 'Must have liquidity sweep', 'ICC_AUTO_ENTRY_REQUIRE_SWEEP', 'toggle'));
-        section.appendChild(createCard('Min HTF Strength', 'Minimum trend strength', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 'input', { number: true, default: '0.25', min: 0, max: 1, step: 0.05 }));
-        section.appendChild(createCard('Confirmation Bars', 'Bars to confirm signal', 'ICC_CONFIRMATION_BARS', 'input', { number: true, default: '2', min: 1, max: 5 }));
-
-        section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('ICC Scoring Weights', 'leaderboard'));
-
-        section.appendChild(createCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 'input', { number: true, default: '35', min: 0, max: 100 }));
-
-        const scoreGrid = document.createElement('div');
-        scoreGrid.className = 'card-grid';
-        scoreGrid.appendChild(createSliderCard('Continuation', 'Points for continuation', 'ICC_SCORE_CONTINUATION_POINTS', 0, 100, 5, 'pts'));
-        scoreGrid.appendChild(createSliderCard('Sweep', 'Points for liquidity sweep', 'ICC_SCORE_SWEEP_POINTS', 0, 50, 5, 'pts'));
-        scoreGrid.appendChild(createSliderCard('HTF/LTF Align', 'Points for alignment', 'ICC_SCORE_HTF_LTF_ALIGN_POINTS', 0, 50, 5, 'pts'));
-        scoreGrid.appendChild(createSliderCard('Strong HTF', 'Points for strong trend', 'ICC_SCORE_STRONG_HTF_POINTS', 0, 30, 5, 'pts'));
-        scoreGrid.appendChild(createSliderCard('Phase', 'Points for good phase', 'ICC_SCORE_PHASE_POINTS', 0, 20, 5, 'pts'));
-        scoreGrid.appendChild(createSliderCard('Indication', 'Points for indication', 'ICC_SCORE_INDICATION_POINTS', 0, 20, 5, 'pts'));
-        section.appendChild(scoreGrid);
 
     } else if (subTabs.strategy === 'exits') {
         section.appendChild(createSectionHeader('Exit Configuration', 'exit_to_app'));
@@ -800,6 +844,9 @@ function renderBrokersTab(container) {
     container.appendChild(createSubNav([
         { id: 'ibkr', label: 'Interactive Brokers' },
         { id: 'oanda', label: 'OANDA Forex' },
+        { id: 'gemini', label: 'Gemini.com' },
+        { id: 'kraken', label: 'Kraken' },
+        { id: 'paxos', label: 'Paxos (Crypto)' },
         { id: 'ccxt', label: 'Coinbase / CCXT' },
         { id: 'routing', label: 'Data Routing' }
     ], 'brokers'));
@@ -851,6 +898,80 @@ function renderBrokersTab(container) {
         `;
         section.appendChild(infoBox);
 
+    } else if (subTabs.brokers === 'gemini') {
+        section.appendChild(createSectionHeader('Gemini.com Connection', 'security'));
+
+        section.appendChild(createCard('API Key', 'Gemini Master Key', 'GEMINI_API_KEY', 'input', { password: true }));
+        section.appendChild(createCard('API Secret', 'Gemini Secret', 'GEMINI_API_SECRET', 'input', { password: true }));
+        section.appendChild(createCard('Sandbox Mode', 'Use Gemini Exchange Testnet', 'GEMINI_SANDBOX', 'toggle', { default: 'false' }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Gemini Info', 'info'));
+
+        const geminiInfo = document.createElement('div');
+        geminiInfo.className = 'warning-box';
+        geminiInfo.style.borderColor = 'rgba(20, 184, 166, 0.3)';
+        geminiInfo.innerHTML = `
+            <span class="material-symbols-outlined" style="color: var(--accent);">info</span>
+            <div class="warning-box-content">
+                <strong>Configuring Gemini Trading:</strong><br>
+                1. Log in to your account at gemini.com<br>
+                2. Navigate to <strong>Settings -> API</strong><br>
+                3. Create a new API Key with "Trading" permissions enabled<br>
+                4. Paste your Key and Secret here<br>
+                5. Important: Set <strong>Data Routing</strong> to use Gemini for Crypto.
+            </div>
+        `;
+        section.appendChild(geminiInfo);
+
+    } else if (subTabs.brokers === 'kraken') {
+        section.appendChild(createSectionHeader('Kraken Connection', 'account_balance_wallet'));
+
+        section.appendChild(createCard('API Key', 'Kraken API Key', 'KRAKEN_API_KEY', 'input', { password: true }));
+        section.appendChild(createCard('API Secret', 'Kraken API Secret', 'KRAKEN_API_SECRET', 'input', { password: true }));
+        section.appendChild(createCard('Environment', 'Trading Environment', 'KRAKEN_ENVIRONMENT', 'dropdown', {
+            items: [
+                { value: 'production', label: 'Production (Live)' },
+                { value: 'sandbox', label: 'Sandbox (Test)' }
+            ],
+            default: 'production'
+        }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Kraken Info', 'info'));
+        const krakenInfo = document.createElement('div');
+        krakenInfo.className = 'warning-box';
+        krakenInfo.style.borderColor = 'rgba(20, 184, 166, 0.3)';
+        krakenInfo.innerHTML = `
+            <span class="material-symbols-outlined" style="color: var(--accent);">info</span>
+            <div class="warning-box-content">
+                <strong>Configuring Kraken Trading:</strong><br>
+                1. Log in to your Kraken account<br>
+                2. Navigate to <strong>Security -> API</strong><br>
+                3. Create a new API Key with appropriate permissions<br>
+                4. Paste your Key and Private Key (Secret) here<br>
+                5. Note: Set <strong>Data Routing</strong> to use Kraken for Crypto.
+            </div>
+        `;
+        section.appendChild(krakenInfo);
+
+    } else if (subTabs.brokers === 'paxos') {
+        section.appendChild(createSectionHeader('Paxos / itBit Connection', 'token'));
+
+        section.appendChild(createCard('API Key', 'Paxos API Key', 'PAXOS_API_KEY', 'input', { password: true }));
+        section.appendChild(createCard('API Secret', 'Paxos API Secret', 'PAXOS_API_SECRET', 'input', { password: true }));
+        section.appendChild(createCard('Environment', 'Sandbox or Production', 'PAXOS_ENVIRONMENT', 'dropdown', {
+            items: [
+                { value: 'sandbox', label: 'Sandbox (Test)' },
+                { value: 'production', label: 'Production (Live)' }
+            ],
+            default: 'sandbox'
+        }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Paxos Info', 'info'));
+        section.appendChild(createWarningBox('<strong>Note:</strong> Used for direct Crypto Spot trading. Ensure "Data Routing" is set to use Paxos for Crypto.'));
+
     } else if (subTabs.brokers === 'ccxt') {
         section.appendChild(createSectionHeader('Coinbase / CCXT Engine', 'currency_bitcoin'));
 
@@ -883,40 +1004,48 @@ function renderBrokersTab(container) {
     } else if (subTabs.brokers === 'routing') {
         section.appendChild(createSectionHeader('Data & Execution Routing', 'route'));
 
-        section.appendChild(createCard('Market Data Mode', 'Primary data source', 'MARKET_DATA_MODE', 'dropdown', {
+        section.appendChild(createSectionHeader('Asset-Based Routing', 'route'));
+
+        const infoBox = document.createElement('div');
+        infoBox.className = 'warning-box';
+        infoBox.style.borderColor = 'rgba(20, 184, 166, 0.3)';
+        infoBox.innerHTML = `
+            <div class="warning-box-content">
+                <strong>Smart Routing Active:</strong><br>
+                The execution engine will automatically route orders to the correct broker based on the asset class (Crypto vs Forex vs Stocks).
+            </div>
+        `;
+        section.appendChild(infoBox);
+
+        section.appendChild(createCard('Crypto Broker', 'btc, eth, sol', 'BROKER_CRYPTO', 'dropdown', {
             items: [
-                { value: 'primary', label: 'Primary (IBKR)' },
-                { value: 'oanda', label: 'OANDA Forex' },
-                { value: 'alternative', label: 'Alternative (CCXT)' },
-                { value: 'hybrid', label: 'Hybrid' },
-                { value: 'coinbase_futures', label: 'Coinbase Futures' }
-            ]
+                { value: 'ccxt', label: 'Coinbase / CCXT' },
+                { value: 'gemini', label: 'Gemini.com' },
+                { value: 'kraken', label: 'Kraken' },
+                { value: 'paxos', label: 'Paxos (Native API)' },
+                { value: 'oanda', label: 'OANDA (Spot via Paxos)' },
+                { value: 'ibkr', label: 'Interactive Brokers' }
+            ],
+            default: 'ccxt'
         }));
-        section.appendChild(createCard('Broker Mode', 'Execution routing', 'BROKER_MODE', 'dropdown', {
+
+        section.appendChild(createCard('Forex Broker', 'eur/usd, jpy', 'BROKER_FOREX', 'dropdown', {
             items: [
-                { value: 'primary', label: 'Primary (IBKR)' },
-                { value: 'oanda', label: 'OANDA Forex' },
-                { value: 'alternative', label: 'Alternative (CCXT)' },
-                { value: 'hybrid', label: 'Hybrid' },
-                { value: 'coinbase_futures', label: 'Coinbase Futures' }
-            ]
+                { value: 'ibkr', label: 'Interactive Brokers (Primary)' },
+                { value: 'oanda', label: 'OANDA' }
+            ],
+            default: 'ibkr'
         }));
-        section.appendChild(createCard('Alternative Data', 'Fallback data source', 'ALTERNATIVE_MARKET_DATA', 'dropdown', {
+
+        section.appendChild(createCard('Equities Broker', 'spy, aapl', 'BROKER_EQUITIES', 'dropdown', {
             items: [
-                { value: 'mock', label: 'Mock' },
-                { value: 'oanda', label: 'OANDA' },
-                { value: 'coinbase', label: 'Coinbase' },
-                { value: 'ccxt', label: 'CCXT' }
-            ]
+                { value: 'ibkr', label: 'Interactive Brokers Only' }
+            ],
+            default: 'ibkr'
         }));
-        section.appendChild(createCard('Alternative Broker', 'Fallback execution', 'ALTERNATIVE_BROKER', 'dropdown', {
-            items: [
-                { value: 'mock', label: 'Mock' },
-                { value: 'oanda', label: 'OANDA' },
-                { value: 'ccxt', label: 'CCXT' },
-                { value: 'coinbase_futures', label: 'Coinbase Futures' }
-            ]
-        }));
+
+        // Hidden master mode (implicitly Hybrid)
+        // We will handle the BROKER_MODE env var on the backend or implicitly set it.
     }
 
     container.appendChild(section);
@@ -1114,18 +1243,276 @@ function showTooltip(e, title, content) {
     document.getElementById('tooltip-title').textContent = title;
     document.getElementById('tooltip-content').textContent = content;
 
-    // Position tooltip first
-    const rect = e.currentTarget.getBoundingClientRect();
-    popup.style.left = `${rect.right + 16}px`;
-    popup.style.top = `${rect.top}px`;
-
-    // Then show it using class
+    // Make visible first to get dimensions (but keep offscreen or transparent if possible, though opacity-0 handles visibility)
     popup.classList.add('visible');
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const tooltipWidth = popup.offsetWidth;
+    const windowWidth = window.innerWidth;
+    const gap = 16;
+
+    // Default: Position to the right
+    let leftPos = rect.right + gap;
+
+    // Collision detection: If generic right position + width exceeds window width, flip to left
+    if (leftPos + tooltipWidth > windowWidth - 20) { // 20px safety buffer
+        leftPos = rect.left - tooltipWidth - gap;
+    }
+
+    popup.style.left = `${leftPos}px`;
+    popup.style.top = `${rect.top}px`;
 }
 
 function hideTooltip() {
     const popup = document.getElementById('tooltip-popup');
     popup.classList.remove('visible');
+}
+
+// ═══════════════════════════════════════════════════════════
+// NEW STRATEGY TOOLBOX RENDERER
+// ═══════════════════════════════════════════════════════════
+
+// Internal state for toolbox sub-tabs
+let toolboxTab = 'icc'; // Default
+
+function renderStrategyToolbox(container) {
+    // Internal Navigation for Toolbox (Horizontal or vertical variant)
+    const nav = document.createElement('div');
+    nav.className = 'sub-nav';
+    // Using a different style or just expanding sub-nav
+
+    const strategies = [
+        { id: 'icc', label: 'ICC (Indication, Correction, Continuation)' },
+        { id: 'rubberband_reaper', label: 'Rubberband Reaper' },
+        { id: 'robocop', label: 'RoboCop' },
+        { id: 'evolution', label: 'Robot Evolution' },
+        { id: 'quantum', label: 'Quantum' },
+        { id: 'mean_reversion', label: 'Mean Reversion' },
+        { id: 'hyper_scalper', label: 'HyperScalper' },
+        { id: 'london_breakout', label: 'London Breakout' },
+        { id: 'volatility_breakout', label: 'Volatility Breakout' },
+        { id: 'aggregator', label: 'Aggregator' }
+    ];
+
+    strategies.forEach(s => {
+        const btn = document.createElement('button');
+        btn.className = `sub-nav-btn ${toolboxTab === s.id ? 'active' : ''}`;
+        btn.textContent = s.label;
+        btn.onclick = () => {
+            toolboxTab = s.id;
+            renderTab(); // Re-render the whole tab to update this section
+        };
+        nav.appendChild(btn);
+    });
+
+    container.appendChild(nav);
+
+    const section = document.createElement('div');
+    section.className = 'settings-section';
+
+    if (toolboxTab === 'icc') {
+        section.appendChild(createSectionHeader('ICC Core Logic', 'auto_mode'));
+
+        section.appendChild(createCard('ICC Auto-Entry', 'Auto-enter on valid signals', 'ICC_AUTO_ENTRY_ENABLED', 'toggle', { default: 'true' }));
+        section.appendChild(createCard('Aggressive Mode', 'Enable aggressive sizing', 'ICC_AGGRESSIVE_MODE', 'toggle', { default: 'true' }));
+        section.appendChild(createCard('Require Sweep', 'Must have liquidity sweep', 'ICC_AUTO_ENTRY_REQUIRE_SWEEP', 'toggle'));
+        section.appendChild(createCard('Min HTF Strength', 'Minimum trend strength', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 'input', { number: true, default: '0.25', min: 0, max: 1, step: 0.05 }));
+        section.appendChild(createCard('Confirmation Bars', 'Bars to confirm signal', 'ICC_CONFIRMATION_BARS', 'input', { number: true, default: '2', min: 1, max: 5 }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('ICC Scoring Weights', 'leaderboard'));
+
+        section.appendChild(createCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 'input', { number: true, default: '35', min: 0, max: 100 }));
+
+        const scoreGrid = document.createElement('div');
+        scoreGrid.className = 'card-grid';
+        scoreGrid.appendChild(createSliderCard('Continuation', 'Points for continuation', 'ICC_SCORE_CONTINUATION_POINTS', 0, 100, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('Sweep', 'Points for liquidity sweep', 'ICC_SCORE_SWEEP_POINTS', 0, 50, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('HTF/LTF Align', 'Points for alignment', 'ICC_SCORE_HTF_LTF_ALIGN_POINTS', 0, 50, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('Strong HTF', 'Points for strong trend', 'ICC_SCORE_STRONG_HTF_POINTS', 0, 30, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('Phase', 'Points for good phase', 'ICC_SCORE_PHASE_POINTS', 0, 20, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('Indication', 'Points for indication', 'ICC_SCORE_INDICATION_POINTS', 0, 20, 5, 'pts'));
+        section.appendChild(scoreGrid);
+    } else if (toolboxTab === 'rubberband_reaper') {
+        const stratInfo = STRATEGIES.rubberband_reaper;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'tune'));
+
+        section.appendChild(createWarningBox(`
+            <strong>Strategy Override:</strong><br>
+            Use this panel to configure the Mean Reversion parameters. These settings override global defaults when this strategy is active.
+        `));
+
+        section.appendChild(createCard('Base Risk %', 'Initial entry risk', 'RUBBERBAND_REAPER_RISK_PCT', 'input', {
+            number: true,
+            default: '0.20',
+            tooltip: 'The default risk percentage for the initial entry. Rubberband Reaper uses a "Tiered Risk" model by default (20% for small accounts), but this setting defines the baseline if dynamic logic permits.'
+        }));
+
+        section.appendChild(createCard('Friday Fade Damper', 'Risk cap after 12PM Fri', 'FRIDAY_FADE_ENABLED', 'toggle', {
+            default: 'true',
+            tooltip: 'IMPORTANT: When enabled, this safety feature automatically drops risk to 0.25% (almost zero) after 12:00 PM EST on Fridays. Why? Because Friday afternoon liquidity disappears, meaning "mean reversion" stops working and price just drifts endlessly against you. This prevents giving back all your weekly profits in the final hours.'
+        }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Bollinger Bands', 'donut_large'));
+
+        section.appendChild(createCard('Period', 'Lookback bars', 'BB_PERIOD', 'input', {
+            number: true,
+            default: '15',
+            tooltip: 'The number of candles used to calculate the Bollinger Bands. A smaller number makes the bands more reactive to price changes, while a larger number smooths them out.'
+        }));
+        section.appendChild(createCard('Std Dev', 'Width multiplier', 'BB_STD', 'input', {
+            number: true,
+            default: '2.5',
+            tooltip: 'Standard Deviation multiplier. Higher values (e.g. 3.0) mean price hits the bands less often (more extreme). Lower values (e.g. 2.0) generate more signals but potentially more false alarms.'
+        }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('RSI Config', 'ssid_chart'));
+
+        section.appendChild(createCard('Period', 'RSI Lookback', 'RSI_PERIOD', 'input', {
+            number: true,
+            default: '14',
+            tooltip: 'The lookback period for the Relative Strength Index. 14 is the industry standard.'
+        }));
+        section.appendChild(createCard('Overbought', 'Short threshold', 'RSI_OVERBOUGHT', 'input', {
+            number: true,
+            default: '75',
+            tooltip: 'RSI level considered "Overbought". Price above this level suggests an exhaustion of buying momentum, signaling a potential Short entry.'
+        }));
+        section.appendChild(createCard('Oversold', 'Long threshold', 'RSI_OVERSOLD', 'input', {
+            number: true,
+            default: '25',
+            tooltip: 'RSI level considered "Oversold". Price below this level suggests an exhaustion of selling momentum, signaling a potential Long entry.'
+        }));
+
+    } else if (toolboxTab === 'icc') {
+        const stratInfo = STRATEGIES.icc_core || { description: "Standard ICC Logic" };
+        section.appendChild(createDescriptionBox(stratInfo.description, stratInfo.stats));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Indication, Correction, Continuation (ICC)', 'auto_mode'));
+
+        section.appendChild(createCard('ICC Auto-Entry', 'Auto-enter on valid signals', 'ICC_AUTO_ENTRY_ENABLED', 'toggle', { default: 'true' }));
+        section.appendChild(createCard('Aggressive Mode', 'Enable aggressive sizing', 'ICC_AGGRESSIVE_MODE', 'toggle', { default: 'true' }));
+        section.appendChild(createCard('Require Sweep', 'Must have liquidity sweep', 'ICC_AUTO_ENTRY_REQUIRE_SWEEP', 'toggle'));
+        section.appendChild(createCard('Min HTF Strength', 'Minimum trend strength', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 'input', { number: true, default: '0.25', min: 0, max: 1, step: 0.05 }));
+        section.appendChild(createCard('Confirmation Bars', 'Bars to confirm signal', 'ICC_CONFIRMATION_BARS', 'input', { number: true, default: '2', min: 1, max: 5 }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('ICC Scoring Weights', 'leaderboard'));
+
+        section.appendChild(createCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 'input', { number: true, default: '35', min: 0, max: 100 }));
+
+        const scoreGrid = document.createElement('div');
+        scoreGrid.className = 'card-grid';
+        scoreGrid.appendChild(createSliderCard('Continuation', 'Points for continuation', 'ICC_SCORE_CONTINUATION_POINTS', 0, 100, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('Sweep', 'Points for liquidity sweep', 'ICC_SCORE_SWEEP_POINTS', 0, 50, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('HTF/LTF Align', 'Points for alignment', 'ICC_SCORE_HTF_LTF_ALIGN_POINTS', 0, 50, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('Strong HTF', 'Points for strong trend', 'ICC_SCORE_STRONG_HTF_POINTS', 0, 30, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('Phase', 'Points for good phase', 'ICC_SCORE_PHASE_POINTS', 0, 20, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('Indication', 'Points for indication', 'ICC_SCORE_INDICATION_POINTS', 0, 20, 5, 'pts'));
+        section.appendChild(scoreGrid);
+    } else if (toolboxTab === 'robocop') {
+        const stratInfo = STRATEGIES.robocop;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'local_police'));
+
+        section.appendChild(createWarningBox(`
+            <strong>High Frequency Trading:</strong><br>
+            RoboCop is designed for speed. Use "Combat Mode" to bypass safety checks (like HTF alignment) for maximum aggression.
+        `));
+
+        section.appendChild(createCard('Combat Mode', 'Bypass all safety gates', 'COMBAT_MODE_ENABLED', 'toggle', {
+            tooltip: 'If enabled, RoboCop ignores "HTF Strength" and "Score Threshold" gates. It will take every valid liquidity sweep or continuation signal regardless of broader context. High risk, high volume.'
+        }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Aggressive Targets', 'gps_fixed'));
+
+        section.appendChild(createCard('Confirmation Bars', 'Bars to wait', 'ROBOCOP_CONFIRMATION_BARS', 'input', {
+            number: true,
+            default: '1',
+            min: 1, limit: 3,
+            tooltip: 'How many candles to wait after a signal before entering. RoboCop defaults to 1 for speed. Increasing this adds safety but may miss fast moves.'
+        }));
+        section.appendChild(createCard('Target Multiplier', 'R-multiple', 'ROBOCOP_TARGET_ATR_MULT', 'input', {
+            number: true,
+            default: '3.0',
+            tooltip: 'Multiplies the ATR (volatility) to set the Take Profit level. 3.0 means targeting a move 3x the average volatility size.'
+        }));
+        section.appendChild(createCard('Stop Multiplier', 'Protection width', 'ROBOCOP_STOP_ATR_MULT', 'input', {
+            number: true,
+            default: '1.5',
+            tooltip: 'Multiplies the ATR to set the Stop Loss. 1.5 offers a tight but breathable stop for scalping.'
+        }));
+
+    } else if (toolboxTab === 'evolution') {
+        const stratInfo = STRATEGIES.evolution;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'smart_toy'));
+
+        section.appendChild(createCard('Target Risk:Reward', 'R-Multiple', 'EVOLUTION_TARGET_R', 'input', {
+            number: true,
+            default: '2.0',
+            tooltip: 'The fixed Reward-to-Risk ratio. A value of 2.0 means the bot calculates position size such that the Profit Target is 2x the distance of the Stop Loss.'
+        }));
+        section.appendChild(createCard('Stop ATR Mult', 'Volatility based stop', 'EVOLUTION_STOP_ATR_MULT', 'input', {
+            number: true,
+            default: '1.5',
+            tooltip: 'Sets the stop loss distance based on market volatility (ATR). 1.5 is standard for this strategy to survive random noise while chopping.'
+        }));
+
+    } else if (toolboxTab === 'quantum') {
+        const stratInfo = STRATEGIES.quantum;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'science'));
+
+        section.appendChild(createCard('SMA Period', 'Trend baseline', 'QUANTUM_SMA_PERIOD', 'input', {
+            number: true,
+            default: '20',
+            tooltip: 'The Simple Moving Average (SMA) period used to define the "mean". Quantum looks for pullbacks to this line.'
+        }));
+        section.appendChild(createCard('Stop ATR Mult', 'Protection width', 'QUANTUM_STOP_ATR_MULT', 'input', {
+            number: true,
+            default: '2.5',
+            tooltip: 'Quantum uses a wider stop (2.5 ATR) to allow for deeper pullbacks within a massive trend.'
+        }));
+        section.appendChild(createCard('Target R', 'Profit target', 'QUANTUM_TARGET_R', 'input', {
+            number: true,
+            default: '1.6',
+            tooltip: 'The Reward-to-Risk target. 1.6 ensures a high win rate while maintaining positive expectancy.'
+        }));
+
+    } else {
+        // Generic fallback for others (London, MeanRev, HyperScalper, etc)
+        const stratInfo = STRATEGIES[toolboxTab];
+        if (stratInfo) {
+            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'tune'));
+
+            section.appendChild(createWarningBox(`
+                <strong>Strategy Override Enabled:</strong><br>
+                Settings configured here for <em>${stratInfo.name}</em> will take precedence over global Global Risk limits.
+            `));
+
+            section.appendChild(createCard('Base Risk %', `Specific risk for ${stratInfo.name}`, `${toolboxTab.toUpperCase()}_RISK_PCT`, 'input', {
+                number: true,
+                placeholder: 'Default',
+                tooltip: `Define the specific risk percentage for ${stratInfo.name}. This overrides the global "Default Risk %" setting.`
+            }));
+
+            // Add strategy description again for context
+            const descCard = document.createElement('div');
+            descCard.className = 'control-card';
+            descCard.style.display = 'block';
+            descCard.style.padding = '16px';
+            descCard.innerHTML = `
+                <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
+                    ${stratInfo.description}
+                </div>
+            `;
+            section.appendChild(descCard);
+        }
+    }
+
+    container.appendChild(section);
 }
 
 // ═══════════════════════════════════════════════════════════

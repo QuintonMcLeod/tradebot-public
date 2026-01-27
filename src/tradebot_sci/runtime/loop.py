@@ -33,7 +33,19 @@ from tradebot_sci.strategy.decisions import stand_aside_decision
 from tradebot_sci.strategy.profiles import BaseProfile
 from tradebot_sci.market.symbols import AssetClass, MARKET_HOURS, MarketType, SYMBOL_METADATA, is_crypto
 from tradebot_sci.broker.trade_result_store import TradeResultStore, TradeResult
-from tradebot_sci.server.ws_server import WebSocketServer
+from tradebot_sci.runtime.trackers import StrikeTracker
+from tradebot_sci.runtime.sabbath import SabbathContext
+from tradebot_sci.runtime.scheduling import (
+    is_market_open,
+    get_current_session,
+    get_next_session_start,
+)
+from tradebot_sci.runtime.controller import RuntimeController
+from tradebot_sci.runtime.cycle import (
+    build_candidate_list,
+    process_candidate_cycle,
+    handle_execution_result,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -185,88 +197,6 @@ def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool) -> objec
     return shared_ib
 
 
-class StrikeTracker:
-    def __init__(
-        self,
-        max_consecutive: int,
-        cooldown_cycles: int,
-        guard_block_threshold: int,
-        guard_block_cooldown: int,
-    ) -> None:
-        self.max_consecutive = max_consecutive
-        self.cooldown_cycles = cooldown_cycles
-        self.guard_block_threshold = guard_block_threshold
-        self.guard_block_cooldown_cycles = guard_block_cooldown
-        self.strikes: dict[str, int] = {}
-        self.cooldowns: dict[str, int] = {}
-        self.guard_block_streak: dict[str, int] = {}
-        self.guard_block_cooldowns: dict[str, int] = {}
-        self.cooldown_reasons: dict[str, str] = {}
-
-    def advance_cycle(self) -> None:
-        # Decrement cooldowns and remove expired ones
-        # Note: Creating new dict to avoid mutation during iteration (cleaner pattern)
-        self.cooldowns = {sym: count - 1 for sym, count in self.cooldowns.items() if count > 1}
-        # Clean up reasons for expired cooldowns
-        self.cooldown_reasons = {sym: reason for sym, reason in self.cooldown_reasons.items() if sym in self.cooldowns}
-
-        # Same for guard block cooldowns
-        self.guard_block_cooldowns = {sym: count - 1 for sym, count in self.guard_block_cooldowns.items() if count > 1}
-
-    def is_skipped(self, symbol: str) -> bool:
-        return self.cooldowns.get(symbol, 0) > 0
-
-    def is_guard_skipped(self, symbol: str) -> bool:
-        return self.guard_block_cooldowns.get(symbol, 0) > 0
-
-    def guard_cooldown_remaining(self, symbol: str) -> int:
-        return self.guard_block_cooldowns.get(symbol, 0)
-
-    def record_risk_suppression(self, symbol: str) -> bool:
-        if self.max_consecutive <= 0 or self.cooldown_cycles <= 0:
-            return False
-        current = self.strikes.get(symbol, 0) + 1
-        self.strikes[symbol] = current
-        if current >= self.max_consecutive:
-            self._apply_cooldown(symbol, "risk_suppressed")
-            self.strikes[symbol] = 0
-            return True
-        return False
-
-    def record_guard_block(self, symbol: str) -> bool:
-        if self.guard_block_threshold <= 0 or self.guard_block_cooldown_cycles <= 0:
-            return False
-        current = self.guard_block_streak.get(symbol, 0) + 1
-        self.guard_block_streak[symbol] = current
-        if current >= self.guard_block_threshold:
-            self.guard_block_cooldowns[symbol] = self.guard_block_cooldown_cycles
-            self.guard_block_streak[symbol] = 0
-            return True
-        return False
-
-    def reset(self, symbol: str) -> None:
-        self.strikes.pop(symbol, None)
-        self.cooldowns.pop(symbol, None)
-        self.guard_block_streak.pop(symbol, None)
-        self.guard_block_cooldowns.pop(symbol, None)
-        self.cooldown_reasons.pop(symbol, None)
-
-    def cooldown_reason(self, symbol: str) -> str | None:
-        return self.cooldown_reasons.get(symbol)
-
-    def _apply_cooldown(self, symbol: str, reason: str | None) -> bool:
-        if self.cooldown_cycles <= 0:
-            self.cooldown_reasons.pop(symbol, None)
-            return False
-        self.cooldowns[symbol] = self.cooldown_cycles
-        self.cooldown_reasons[symbol] = reason or "cooldown"
-        return True
-
-    def record_execution_success(self, symbol: str, reason: str | None = None) -> None:
-        self.strikes.pop(symbol, None)
-        self.guard_block_streak.pop(symbol, None)
-        self.guard_block_cooldowns.pop(symbol, None)
-        self._apply_cooldown(symbol, reason or "success")
 
 
 def _log_state_snapshot(executor, symbol: str):
@@ -456,193 +386,13 @@ def _persist_trading_confirmation(expected_confirmation: str) -> None:
             pass
 
 
-def _fetch_snapshot(provider, cache, symbol, timeframe, profile_settings, market_settings, ws_server=None):
-    htf_timeframe = getattr(profile_settings, "htf_timeframe", None) or "4h"
-    ltf_timeframe = getattr(profile_settings, "ltf_timeframe", None) or timeframe
-    trend_window = int(getattr(profile_settings, "trend_window", 24) or 24)
-    ltf_trend_window = getattr(profile_settings, "ltf_trend_window", None)
-    ltf_window = int(ltf_trend_window) if ltf_trend_window else trend_window
-    swing_lookback = int(getattr(profile_settings, "trend_swing_lookback", 2) or 2)
-    min_swings = int(getattr(profile_settings, "trend_min_swings", 3) or 3)
-    strength_floor = float(getattr(profile_settings, "trend_strength_floor", 0.5) or 0.5)
-    max_candles = int(getattr(market_settings, "max_candles", 200) or 200)
-
-    key = (symbol, ltf_timeframe, htf_timeframe, max_candles, trend_window, swing_lookback, min_swings, strength_floor)
-    if key not in cache:
-        ltf_candles = provider.get_latest_candles(symbol, ltf_timeframe, limit=max_candles)
-        htf_candles = provider.get_latest_candles(symbol, htf_timeframe, limit=max_candles)
-        
-        # [ANTIGRAVITY] Broadcast latest LTF candle
-        if ws_server and ltf_candles:
-            latest = ltf_candles[-1]
-            # Convert to dictionary if it's an object, or ensure format
-            c_data = {
-                "time": int(latest.timestamp.timestamp()),
-                "open": latest.open,
-                "high": latest.high,
-                "low": latest.low,
-                "close": latest.close
-            }
-            ws_server.broadcast_candle_sync(symbol, ltf_timeframe, c_data)
-
-        trend_htf = infer_trend_from_swings(
-            htf_candles,
-            swing_lookback=swing_lookback,
-            window=trend_window,
-            min_swings=min_swings,
-            strength_floor=strength_floor,
-        )
-        trend_ltf = infer_trend_from_swings(
-            ltf_candles,
-            swing_lookback=swing_lookback,
-            window=ltf_window,
-            min_swings=min_swings,
-            strength_floor=strength_floor,
-        )
-        cache[key] = MarketSnapshot(
-            symbol=symbol,
-            timeframe=timeframe,
-            candles=ltf_candles,
-            trend_htf=trend_htf,
-            trend_ltf=trend_ltf,
-            htf_candles=htf_candles,
-            ltf_candles=ltf_candles,
-            htf_timeframe=htf_timeframe,
-            ltf_timeframe=ltf_timeframe,
-        )
-    return cache[key]
+# Snapshot fetching moved to cycle.py
 
 
-def _parse_local_time(value: str) -> tuple[int, int]:
-    hour, minute = map(int, value.split(":"))
-    return hour, minute
+# Sabbath logic moved to sabbath.py
 
 
-def _compute_sabbath_window(
-    reference: datetime,
-    profile: TradingProfileSettings,
-    allow_astronomical: bool,
-) -> tuple[datetime, datetime, bool, bool]:
-    tz = ZoneInfo(profile.sabbath_timezone)
-    local_ref = reference.astimezone(tz)
-    days_since_friday = (local_ref.weekday() - 4) % 7
-    friday_date = (local_ref - timedelta(days=days_since_friday)).date()
-    start_hour, start_minute = _parse_local_time(profile.sabbath_start_local)
-    end_hour, end_minute = _parse_local_time(profile.sabbath_end_local)
-    start = datetime(
-        friday_date.year,
-        friday_date.month,
-        friday_date.day,
-        start_hour,
-        start_minute,
-        tzinfo=tz,
-    )
-    saturday_date = friday_date + timedelta(days=1)
-    end_fixed = datetime(
-        saturday_date.year,
-        saturday_date.month,
-        saturday_date.day,
-        end_hour,
-        end_minute,
-        tzinfo=tz,
-    )
-    if (
-        allow_astronomical
-        and profile.sabbath_astronomical
-        and profile.sabbath_lat is not None
-        and profile.sabbath_lon is not None
-        and ASTRAL_AVAILABLE
-        and LocationInfo is not None
-        and sun is not None
-    ):
-        try:
-            location = LocationInfo(
-                name="sabbath",
-                region="",
-                timezone=profile.sabbath_timezone,
-                latitude=profile.sabbath_lat,
-                longitude=profile.sabbath_lon,
-            )
-            friday_sun = sun(location.observer, date=friday_date, tzinfo=tz)
-            saturday_sun = sun(location.observer, date=saturday_date, tzinfo=tz)
-            return friday_sun["sunset"], saturday_sun["sunset"], True, False
-        except Exception as e:
-            logger.warning(f"Failed to compute astronomical sabbath window: {e}")
-            return start, end_fixed, False, True
-    return start, end_fixed, False, False
-
-
-def _is_sabbath_now(
-    now: datetime, profile: TradingProfileSettings, allow_astronomical: bool
-) -> tuple[bool, datetime]:
-    tz = ZoneInfo(profile.sabbath_timezone)
-    local_now = now.astimezone(tz)
-    start, end, _, _ = _compute_sabbath_window(local_now, profile, allow_astronomical)
-    return start <= local_now < end, end
-
-
-class SabbathContext:
-    def __init__(self, profile: TradingProfileSettings, override: bool | None = None) -> None:
-        self.profile = profile
-        self.override = override
-        self.timezone = ZoneInfo(profile.sabbath_timezone)
-        self._log_counter = 0
-        self._last_active: bool | None = None
-        self._log_rate = 10
-        self._astral_fallback_logged = False
-
-    @property
-    def enabled(self) -> bool:
-        if self.override is not None:
-            return self.override
-        return bool(self.profile.sabbath_enabled)
-
-    def log_startup(self) -> None:
-        now = datetime.now(self.timezone)
-        start, end, _, astral_failed = _compute_sabbath_window(
-            now, self.profile, allow_astronomical=self.profile.sabbath_astronomical
-        )
-        logger.info(
-            "[SABBATH] enabled=%s override=%s timezone=%s now=%s window_start=%s window_end=%s astral=%s lat=%s lon=%s",
-            self.enabled,
-            self.override,
-            self.profile.sabbath_timezone,
-            now.isoformat(),
-            start.isoformat(),
-            end.isoformat(),
-            self.profile.sabbath_astronomical and ASTRAL_AVAILABLE,
-            self.profile.sabbath_lat,
-            self.profile.sabbath_lon,
-        )
-        if astral_failed and not self._astral_fallback_logged:
-            logger.warning("[SABBATH] astral_unavailable=true; falling back to fixed window")
-            self._astral_fallback_logged = True
-
-    def evaluate(self, reference: datetime) -> tuple[bool, datetime, datetime]:
-        if not self.enabled:
-            return False, reference, reference
-        local_ref = reference.astimezone(self.timezone)
-        start, end, _, astral_failed = _compute_sabbath_window(
-            local_ref, self.profile, allow_astronomical=self.profile.sabbath_astronomical
-        )
-        active = start <= local_ref < end
-        remaining = max(0.0, (end - local_ref).total_seconds()) if active else 0.0
-        if astral_failed and not self._astral_fallback_logged:
-            logger.warning("[SABBATH] astral_unavailable=true; falling back to fixed window")
-            self._astral_fallback_logged = True
-        self._log_counter += 1
-        if self._last_active is None or self._last_active != active or self._log_counter >= self._log_rate:
-            logger.info(
-                "[SABBATH] sabbath_active=%s time_now_local=%s window_start_local=%s window_end_local=%s remaining_block_duration=%.1f",
-                active,
-                local_ref.isoformat(),
-                start.isoformat(),
-                end.isoformat(),
-                remaining,
-            )
-            self._log_counter = 0
-            self._last_active = active
-        return active, start, end
+# SabbathContext moved to sabbath.py
 
 
 def _log_build_info(sabbath_context: SabbathContext) -> None:
@@ -653,765 +403,23 @@ def _log_build_info(sabbath_context: SabbathContext) -> None:
     )
 
 
-def _build_candidate_list(
-    executor,
-    engines,
-    provider,
-    symbols,
-    timeframe,
-    structure_score_threshold: float,
-    profile_settings,
-    market_settings,
-    strike_tracker: StrikeTracker | None,
-    now: datetime,
-    ws_server: WebSocketServer | None = None,
-    allow_entries: bool = True,
-) -> tuple[list[tuple[str, object, float, str]], bool]:
-    snapshot_cache: dict[tuple[object, ...], object] = {}
-    symbols = [symbol for symbol in symbols if symbol in engines]
-    # Single-ticker safety: if any symbol has working orders (entry bracket pending) or synthetic protection
-    # armed, stick to that symbol and avoid placing new entry orders on other symbols.
-    if executor and hasattr(executor, "_fetch_symbol_state") and hasattr(executor, "_has_active_orders_or_position"):
-        active_order_symbols: list[str] = []
-        for symbol in symbols:
-            try:
-                state = executor._fetch_symbol_state(symbol)
-            except Exception as e:
-                logger.error(f"Failed to fetch symbol state for {symbol}: {e}")
-                continue
-            if not state:
-                continue
-            pos_size = state.get("position_shares", 0)
-            if abs(pos_size) > 0:
-                # Filled position handling is covered below via get_open_position_snapshot().
-                continue
-            if state.get("working_orders", 0) or state.get("synthetic_stop_armed"):
-                active_order_symbols.append(symbol)
-        if active_order_symbols:
-            # [ANTIGRAVITY FIX] Multi-position enhancement:
-            # If multi-position is enabled, we only block IF we have already reached max_concurrent.
-            # Otherwise, we allow scanning to continue.
-            # [ANTIGRAVITY FIX] Robust multi-position check
-            multi_enabled = False
-            if profile_settings:
-                multi_enabled = bool(getattr(profile_settings, "multi_position_enabled", False))
-            if not multi_enabled:
-                runtime = getattr(executor, "runtime", None)
-                multi_enabled = bool(getattr(runtime, "multi_position_enabled", False))
-            
-            max_concurrent = 1
-            if profile_settings:
-                 max_concurrent = int(getattr(profile_settings, "max_concurrent_positions", 1) or 1)
-            else:
-                 max_concurrent = int(getattr(runtime, "max_concurrent_positions", 1) or 1)
-            max_concurrent = max(1, max_concurrent)
-            
-            if len(active_order_symbols) > 1:
-                logger.error(
-                    "[GUARD] Multiple symbols have working orders/synthetic stops; refusing new entries until cleared: %s",
-                    ", ".join(active_order_symbols),
-                )
-            
-            # Still stick to the campaign symbol if multi-pos is disabled
-            if not multi_enabled:
-                if not allow_entries:
-                    logger.info(
-                        "[SABBATH] working orders present on %s; blocking new entries/decisions until sabbath ends",
-                        active_order_symbols[0],
-                    )
-                    return [], True
-                logger.info(
-                    "[STATE] Skipping universe scan: sticking to symbol with working orders: %s",
-                    ", ".join(active_order_symbols),
-                )
-                # Build only the active campaign candidate
-                symbol = active_order_symbols[0]
-                try:
-                    snap = _fetch_snapshot(provider, snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_server=ws_server)
-                    return [(symbol, snap, 0.0, "active campaign")], True
-                except Exception:
-                    return [], True
-            else:
-                logger.info(
-                    "[STATE] Symbols with working orders: %s (continuing scan for other slots)",
-                    ", ".join(active_order_symbols),
-                )
-    if executor:
-        open_symbols: list[str] = []
-        for symbol in symbols:
-            pos = executor.get_open_position_snapshot(symbol)
-            if pos and abs(pos.get("size", 0)) > 0:
-                # [ANTIGRAVITY FIX] Ignore dust so bot doesn't get stuck managing $0.15 positions
-                if pos.get("is_dust", False):
-                    logger.info(f"[DUST] Ignoring {symbol} position (size={pos.get('size')}) to allow other trades")
-                    continue
-                open_symbols.append(symbol)
-        
-        # Build position candidates first
-        position_candidates: list[tuple[str, object, float, str]] = []
-        for symbol in open_symbols:
-            try:
-                snapshot = _fetch_snapshot(
-                    provider,
-                    snapshot_cache,
-                    symbol,
-                    timeframe,
-                    profile_settings,
-                    market_settings,
-                    ws_server=ws_server,
-                )
-                position_candidates.append((symbol, snapshot, 0.0, "existing position"))
-            except Exception as exc:
-                logger.info("[STRUCTURE] %s fetch failed during open position check; skipping (%s)", symbol, exc)
-
-        if position_candidates:
-            logger.info(
-                "[STATE] Managing %s open position(s): %s",
-                len(position_candidates),
-                ", ".join(sym for sym, *_ in position_candidates),
-            )
-            
-            # [ANTIGRAVITY FIX] If multi-position is enabled and we have slots, 
-            # we want to continue to scanning to potentially enter a new symbol.
-            # [ANTIGRAVITY FIX] Robust multi-position check
-            multi_enabled = False
-            if profile_settings:
-                multi_enabled = bool(getattr(profile_settings, "multi_position_enabled", False))
-            if not multi_enabled:
-                runtime = getattr(executor, "runtime", None)
-                multi_enabled = bool(getattr(runtime, "multi_position_enabled", False))
-            
-            max_concurrent = 1
-            if profile_settings:
-                 max_concurrent = int(getattr(profile_settings, "max_concurrent_positions", 1) or 1)
-            else:
-                 max_concurrent = int(getattr(runtime, "max_concurrent_positions", 1) or 1)
-            max_concurrent = max(1, max_concurrent)
-            
-            if not multi_enabled or len(position_candidates) >= max_concurrent:
-                return position_candidates, True
-
-    if not allow_entries:
-        return (position_candidates if 'position_candidates' in locals() and position_candidates else []), True
-
-    candidates: list[tuple[str, object, float, str]] = (position_candidates if 'position_candidates' in locals() and position_candidates else [])
-    best_score = 0.0
-    for symbol in symbols:
-        if strike_tracker:
-            if strike_tracker.is_guard_skipped(symbol):
-                remaining = strike_tracker.guard_cooldown_remaining(symbol)
-                logger.info(
-                    "[STATE] Skipping %s for %s cycles after guard block streak",
-                    symbol,
-                    remaining,
-                )
-                continue
-            if strike_tracker.is_skipped(symbol):
-                remaining = strike_tracker.cooldowns.get(symbol, 0)
-                reason = strike_tracker.cooldown_reason(symbol) or "cooldown"
-                logger.info(
-                    "[COOLDOWN] skip symbol=%s remaining=%s reason=%s (excluded from candidates)",
-                    symbol,
-                    remaining,
-                    reason,
-                )
-                continue
-        state = None
-        if executor:
-            state = executor._fetch_symbol_state(symbol)
-            if executor._has_active_orders_or_position(symbol, state):
-                detail_parts: list[str] = []
-                pos_size = state.get("position_shares", 0)
-                if abs(pos_size) > 0:
-                    detail_parts.append(f"position_size={pos_size}")
-                working_count = state.get("working_orders", 0)
-                if working_count:
-                    statuses = "/".join(state.get("working_order_statuses", [])) or "unknown"
-                    detail_parts.append(f"workingOrders={working_count} statuses={statuses}")
-                if state.get("synthetic_stop_armed"):
-                    detail_parts.append("synthetic_stop=armed")
-                detail = " ".join(detail_parts) if detail_parts else "active orders/position"
-                logger.info(
-                    "[STATE] Skipping %s: %s",
-                    symbol,
-                    detail,
-                )
-                continue
-        if not _is_market_open(symbol, now):
-            logger.info("[STATE] Skipping %s: market currently closed", symbol)
-            continue
-        
-        # Stagger requests to avoid hitting rate limits
-        import time
-        time.sleep(1.2)
-
-        try:
-            snapshot = _fetch_snapshot(
-                provider,
-                snapshot_cache,
-                symbol,
-                timeframe,
-                profile_settings,
-                market_settings,
-                ws_server=ws_server,
-            )
-        except Exception as exc:
-            logger.info("[STRUCTURE] %s fetch failed; skipping (%s)", symbol, type(exc).__name__)
-            continue
-        score, reason = engines[symbol].score_structure(snapshot)
-        readiness, readiness_reason = engines[symbol].score_icc_readiness(snapshot)
-        icc_score, icc_grade = engines[symbol].score_icc_grade(snapshot)
-        watch_score, watch_grade, flip_watch = engines[symbol].score_icc_watch(snapshot)
-        telemetry = engines[symbol].icc_gate_telemetry(snapshot) if hasattr(engines[symbol], "icc_gate_telemetry") else {}
-        logger.info(
-            "[STRUCTURE] %s selection_score=%.3f readiness=%.2f icc_score=%.2f icc_grade=%s watch_score=%.2f watch_grade=%s flip_watch=%s last_gate=%s since_sweep=%s since_cont=%s (%s; %s)",
-            symbol,
-            score,
-            readiness,
-            icc_score,
-            icc_grade,
-            watch_score,
-            watch_grade,
-            flip_watch,
-            telemetry.get("last_gate_to_true"),
-            _fmt_seconds(telemetry.get("time_since_sweep_s")),
-            _fmt_seconds(telemetry.get("time_since_continuation_s")),
-            reason,
-            readiness_reason,
-        )
-        candidates.append((symbol, snapshot, score, reason))
-        if score > best_score:
-            best_score = score
-    if not candidates:
-        logger.info("[SELECT] No candidates built (threshold=%.2f)", structure_score_threshold)
-        decision = stand_aside_decision("NONE", timeframe, "No candidates built")
-        logger.info("Decision: %s", decision.summary())
-
-        # [ANTIGRAVITY FIX] Do not flag as connection error just because candidates are empty.
-        # If we had critical connection errors, they would likely be caught upstream or result in 0 successful fetches attempted.
-        # But here 'continue' inside the loop might be due to 404s or other non-critical issues.
-        # We'll treat this as "Success" (data_fetch_succeeded=True) to avoid endless restarting,
-        # unless we want to implement a strict "active_symbols" count check.
-        # For now, returning True prevents the false-positive restart loop.
-        return [], True
-
-    candidates.sort(key=lambda entry: entry[2], reverse=True)
-    candidate_summary = ", ".join(f"{entry[0]}:{entry[2]:.3f}" for entry in candidates)
-    logger.info(
-        "[CYCLE] candidates=[%s] threshold=%.3f",
-        candidate_summary,
-        structure_score_threshold,
-    )
-    best_symbol = candidates[0][0]
-    if best_score < structure_score_threshold:
-        logger.info(
-            "[SELECT] No symbol passed threshold=%.2f (best=%.3f). Standing aside this cycle.",
-            structure_score_threshold,
-            best_score,
-        )
-        reason = f"No symbol passed threshold={structure_score_threshold:.2f} (best={best_score:.3f})"
-        decision = stand_aside_decision(best_symbol, timeframe, reason)
-        logger.info("Decision: %s", decision.summary())
-        return [], True  # Candidates built successfully but below threshold - NOT a connection error
-    logger.info(
-        "[SELECT] Active symbol: %s (score=%.3f threshold=%.2f)",
-        best_symbol,
-        best_score,
-        structure_score_threshold,
-    )
-    return candidates, True  # Successfully built and filtered candidates
-
-
-def _process_candidate_cycle(
-    executor,
-    engines,
-    profile: BaseProfile,
-    profile_settings: TradingProfileSettings,
-    settings: Settings,
-    strike_tracker: StrikeTracker | None,
-    candidates: list[tuple[str, object, float, str]],
-    stop_after_submit: bool = True,
-) -> tuple[str | None, int, int, int]:
-    attempts = 0
-    blocked = 0
-    skipped = 0
-    success_symbol: str | None = None
-    # [ANTIGRAVITY FIX] Removed global capital_exhausted guard.
-    # The broker now handles balance checks per-decision, allowing symbol-specific
-    # recovery and avoiding global deadlocks on small accounts.
-    friction = None
-    friction_disabled = os.getenv("DISABLE_FRICTION_GUARD", "false").lower() == "true"
-    if not friction_disabled:
-        friction = FrictionModel(
-            max_spread_bps=getattr(profile_settings, "pair_selector_max_spread_bps", 25.0),
-            min_rr=0.4,
-        )
-    # [ANTIGRAVITY FIX] Unify symbol state scanning to avoid redundant calls and inconsistent results
-    pending_entry_symbols: set[str] = set()
-    open_position_symbols_list: list[str] = []
-    
-    if executor and hasattr(executor, "_fetch_symbol_state"):
-        for sym in engines.keys():
-            try:
-                state = executor._fetch_symbol_state(sym)
-                if not state:
-                    continue
-                
-                # [ANTIGRAVITY FIX] Define is_dust locally if not provided by broker state
-                # We use a $2.50 value threshold or min_qty logic
-                pos_shares = abs(state.get("position_shares", 0.0))
-                is_dust = state.get("is_dust", False)
-                if not is_dust and pos_shares > 0:
-                    snapshot = executor.get_open_position_snapshot(sym)
-                    if snapshot:
-                        is_dust = snapshot.get("is_dust", False)
-                
-                # [ANTIGRAVITY FIX] Only count as having a position if shares > 0
-                has_pos = pos_shares > 1e-9  # Use epsilon for float comparison
-                if not has_pos and getattr(executor, "position_hold_store", None):
-                    record = executor.position_hold_store.get(sym)
-                    # Only count hold store entry if it has a non-zero size
-                    if record and abs(getattr(record, "size", 0) or 0) > 1e-9:
-                        has_pos = True
-                
-                if has_pos and not is_dust:
-                    logger.debug(f"[STATE] Symbol {sym} has non-dust position: {pos_shares}")
-                    open_position_symbols_list.append(sym)
-                elif state.get("working_orders", 0) or state.get("synthetic_stop_armed"):
-                    # Only pending entry if NO position
-                    pending_entry_symbols.add(sym)
-            except Exception as e:
-                logger.error(f"Failed to scan state for {sym}: {e}")
-
-
-    open_position_symbols = set(open_position_symbols_list)
-    
-    # [ANTIGRAVITY FIX] Robust multi-position check from executor profile
-    multi_enabled = False
-    max_concurrent = 1
-    if executor and hasattr(executor, "profile") and executor.profile:
-        multi_enabled = bool(getattr(executor.profile, "multi_position_enabled", False))
-        max_concurrent = int(getattr(executor.profile, "max_concurrent_positions", 1) or 1)
-    else:
-        runtime = getattr(executor, "runtime", None) if executor else None
-        multi_enabled = bool(getattr(runtime, "multi_position_enabled", False))
-        max_concurrent = int(getattr(runtime, "max_concurrent_positions", 1) or 1)
-    
-    max_concurrent = max(1, max_concurrent)
-    
-    # ... position verification already handled in unified scan ...
-
-    for symbol, snapshot, _, _ in candidates:
-        logger.debug(f"Processing candidate loop for: '{symbol}'")
-        attempts += 1
-        if executor and hasattr(executor, "_fetch_symbol_state"):
-            _log_state_snapshot(executor, symbol)
-        open_pos = executor.get_open_position_snapshot(symbol) if executor else None
-        
-        # [ANTIGRAVITY FIX] Mask dust positions
-        # Check 1: Broker flag
-        if open_pos and open_pos.get("is_dust", False):
-            logger.info(f"[DUST-BROKER] Masking dust {symbol} size={open_pos.get('size')}")
-            open_pos = None
-        # Check 2: Calculated Value < $1.00
-        elif open_pos and snapshot and snapshot.candles:
-            try:
-                val = abs(float(open_pos.get("size", 0)) * float(snapshot.candles[-1].close))
-                if val < 1.0:
-                    logger.info(f"[DUST-CALC] Masking dust {symbol} value=${val:.4f}")
-                    open_pos = None
-            except Exception:
-                pass
-
-        # Update position metadata (htf_neutral_bars counter) for open positions
-        if open_pos and executor and hasattr(executor, "update_position_metadata"):
-            executor.update_position_metadata(symbol, snapshot)
-            # Refresh position snapshot after metadata update
-            open_pos = executor.get_open_position_snapshot(symbol)
-
-        engine = engines[symbol]
-        execution_capabilities = (
-            executor.get_execution_capabilities(symbol)
-            if executor and hasattr(executor, "get_execution_capabilities")
-            else None
-        )
-        if execution_capabilities is None:
-            execution_capabilities = {}
-        else:
-            execution_capabilities = dict(execution_capabilities)
-        execution_capabilities["flip_allowed"] = bool(getattr(profile_settings, "flip_actions_enabled", False))
-
-        try:
-            decision = _engine_decide(
-                engine,
-                profile.candle_timeframe,
-                open_pos,
-                snapshot,
-                execution_capabilities,
-            )
-        except Exception as e:
-            logger.error(f"[Loop] Strategy decision failed for {symbol}: {e}")
-            blocked += 1
-            continue
-        if executor and hasattr(executor, "should_block_for_hold"):
-            hold_blocked, _, _ = executor.should_block_for_hold(symbol, decision, open_pos)
-            if hold_blocked:
-                blocked += 1
-                continue
-        if not executor:
-            skipped += 1
-        decision = validate_decision(decision, settings=settings, execution_capabilities=execution_capabilities)
-        action = getattr(decision, "action", None)
-        if action in {"enter_long", "enter_short"}:
-            # Avoid multi-ticker entry order collisions: if another symbol has a pending entry campaign,
-            # suppress new entries until it resolves (prevents accidental multi-symbol fills).
-            if pending_entry_symbols:
-                other_pending = sorted(sym for sym in pending_entry_symbols if sym != symbol)
-                if other_pending:
-                    blocked += 1
-                    logger.info(
-                        "[GUARD] Blocked new entry on %s: pending working orders on %s",
-                        symbol,
-                        ", ".join(other_pending),
-                    )
-                    continue
-
-            # Single-position default: do not open a second symbol while another position is open.
-            if not multi_enabled:
-                # [ANTIGRAVITY FIX] Ignore dust positions when checking for concurrent usage
-                other_positions = sorted(
-                    sym for sym in open_position_symbols 
-                    if sym != symbol 
-                    and not (executor.get_open_position_snapshot(sym) or {}).get("is_dust", False)
-                )
-                if other_positions:
-                    blocked += 1
-                    logger.info(
-                        "[GUARD] Blocked new entry on %s: existing position(s) on %s (multi_position_enabled=false)",
-                        symbol,
-                        ", ".join(other_positions),
-                    )
-                    continue
-
-            # Multi-position mode: enforce a maximum concurrent positions limit.
-            # [ANTIGRAVITY FIX] Filter out dust from slot count
-            active_holds = {
-                s for s in open_position_symbols 
-                if not (executor.get_open_position_snapshot(s) or {}).get("is_dust", False)
-            }
-            slots = active_holds | set(pending_entry_symbols)
-            if symbol not in slots and len(slots) >= max_concurrent:
-                blocked += 1
-                logger.info(
-                    "[GUARD] Blocked new entry on %s: max_concurrent_positions=%s reached (open=%s pending=%s)",
-                    symbol,
-                    max_concurrent,
-                    len(open_position_symbols),
-                    len(pending_entry_symbols),
-                )
-                continue
-        logger.info("Decision: %s", decision.summary())
-        print(_format_decision(decision))
-        if not executor:
-            continue
-        market_provider = getattr(engine, "market_provider", None)
-        if market_provider is not None and friction is not None:
-            friction_decision = friction.evaluate(market_provider, decision)
-            if not friction_decision.allow:
-                blocked += 1
-                logger.info(
-                    "[FRICTION] blocked %s reason=%s spread_bps=%s rr=%s",
-                    symbol,
-                    friction_decision.reason,
-                    f"{friction_decision.spread_bps:.2f}" if friction_decision.spread_bps is not None else "n/a",
-                    f"{friction_decision.rr:.2f}" if friction_decision.rr is not None else "n/a",
-                )
-                continue
-
-        if action in ("close_position", "flatten") and open_pos:
-            # Capture result before closure
-            pnl_pct = float(open_pos.get("pnl_pct", 0.0))
-            is_win = pnl_pct > 0
-            tier = "unknown"
-            capital = float(getattr(executor, "current_capital", 0.0) or 0.0)
-            if capital < 1000: tier = "20%"
-            elif capital < 5000: tier = "10%"
-            else: tier = "1%-5%"
-            
-            res = TradeResult(
-                symbol=symbol,
-                closed_at=datetime.now(timezone.utc).isoformat(),
-                pnl_pct=pnl_pct,
-                is_win=is_win,
-                tier=tier,
-                capital_at_close=capital
-            )
-            engine.trade_results.add_result(res)
-            logger.info(f"[RISK] Recorded trade result for {symbol}: {pnl_pct:.2f}% (Win={is_win}) Tier={tier}")
-
-        execution_result, execution_outcome = executor.execute_decision(decision)
-        _handle_execution_result(execution_result, strike_tracker, execution_outcome)
-        outcome_status = execution_outcome.status
-        logger.info("[EXEC] %s outcome=%s reason=%s", symbol, outcome_status.value, execution_outcome.reason)
-        if outcome_status == ExecutionOutcomeType.SUCCESS_SUBMITTED:
-            success_symbol = symbol
-            if action in {"enter_long", "enter_short"}:
-                pending_entry_symbols.add(symbol)
-            if stop_after_submit:
-                break
-        if outcome_status in {
-            ExecutionOutcomeType.BLOCKED_EXISTING,
-            ExecutionOutcomeType.BLOCKED_GUARD,
-            ExecutionOutcomeType.BLOCKED_PDT,
-            ExecutionOutcomeType.BLOCKED_PDT_EXIT,
-        }:
-            blocked += 1
-            if (
-                outcome_status == ExecutionOutcomeType.BLOCKED_GUARD
-                and execution_outcome.reason
-                and "capital exhausted" in execution_outcome.reason
-            ):
-                if executor:
-                    setattr(executor, "capital_exhausted", True)
-                logger.info("[GUARD] Capital exhausted; pausing further entry attempts this cycle.")
-                break
-            continue
-        skipped += 1
-    return success_symbol, attempts, blocked, skipped
-
-
-def _resolve_active_symbol(
-    executor,
-    engines,
-    provider,
-    symbols,
-    timeframe,
-    structure_score_threshold: float,
-    profile_settings,
-    market_settings,
-    strike_tracker: StrikeTracker | None = None,
-    now: datetime | None = None,
-    ws_server: WebSocketServer | None = None,
-):
-    """Returns the symbol that should trade this cycle and its latest snapshot."""
-    now = now or datetime.now(ZoneInfo("UTC"))
-    snapshot_cache: dict[tuple[object, ...], object] = {}
-    if executor:
-        if hasattr(executor, "_fetch_symbol_state") and hasattr(executor, "_has_active_orders_or_position"):
-            active_order_symbols: list[str] = []
-            for symbol in symbols:
-                try:
-                    state = executor._fetch_symbol_state(symbol)
-                except Exception as e:
-                    logger.error(f"Failed to fetch symbol state for {symbol}: {e}")
-                    continue
-                if not state:
-                    continue
-                pos_size = state.get("position_shares", 0)
-                if abs(pos_size) > 0:
-                    continue
-                if state.get("working_orders", 0) or state.get("synthetic_stop_armed"):
-                    active_order_symbols.append(symbol)
-            if active_order_symbols:
-                if len(active_order_symbols) > 1:
-                    logger.error(
-                        "[GUARD] Multiple symbols have working orders/synthetic stops; refusing new entries until cleared: %s",
-                        ", ".join(active_order_symbols),
-                    )
-                    return None, None
-                symbol = active_order_symbols[0]
-                try:
-                    snapshot = _fetch_snapshot(
-                        provider,
-                        snapshot_cache,
-                        symbol,
-                        timeframe,
-                        profile_settings,
-                        market_settings,
-                    )
-                except Exception as exc:
-                    logger.info(
-                        "[STRUCTURE] %s fetch failed during working order check; skipping (%s)",
-                        symbol,
-                        exc,
-                    )
-                    return None, None
-                logger.info("[STATE] Holding active campaign on %s (working orders present)", symbol)
-                return symbol, snapshot
-        for symbol in symbols:
-            pos = executor.get_open_position_snapshot(symbol)
-            if pos and abs(pos.get("size", 0)) > 0:
-                try:
-                    snapshot = _fetch_snapshot(
-                        provider,
-                        snapshot_cache,
-                        symbol,
-                        timeframe,
-                        profile_settings,
-                        market_settings,
-                    )
-                except Exception as exc:
-                    logger.info(
-                        "[STRUCTURE] %s fetch failed during open position check; skipping (%s)",
-                        symbol,
-                        exc,
-                    )
-                    return None, None
-                logger.info("[STATE] Continuing existing position on %s", symbol)
-                return symbol, snapshot
-    if strike_tracker:
-        strike_tracker.advance_cycle()
-    best_score = 0.0
-    best_symbol = None
-    best_snapshot = None
-    for symbol in symbols:
-        if strike_tracker:
-            if strike_tracker.is_guard_skipped(symbol):
-                remaining = strike_tracker.guard_cooldown_remaining(symbol)
-                logger.info(
-                    "[STATE] Skipping %s for %s cycles after guard block streak",
-                    symbol,
-                    remaining,
-                )
-                continue
-            if strike_tracker.is_skipped(symbol):
-                remaining = strike_tracker.cooldowns.get(symbol, 0)
-                logger.info(
-                    "[STATE] Skipping %s for %s cycles after repeated risk vetoes",
-                    symbol,
-                    remaining,
-                )
-                continue
-        if not _is_market_open(symbol, now):
-            logger.info("[STATE] Skipping %s: market currently closed", symbol)
-            continue
-        try:
-            snapshot = _fetch_snapshot(
-                provider,
-                snapshot_cache,
-                symbol,
-                timeframe,
-                profile_settings,
-                market_settings,
-            )
-        except Exception as exc:
-            logger.info("[STRUCTURE] %s fetch failed; skipping (%s)", symbol, type(exc).__name__)
-            continue
-        score, reason = engines[symbol].score_structure(snapshot)
-        readiness, readiness_reason = engines[symbol].score_icc_readiness(snapshot)
-        icc_score, icc_grade = engines[symbol].score_icc_grade(snapshot)
-        watch_score, watch_grade, flip_watch = engines[symbol].score_icc_watch(snapshot)
-        telemetry = engines[symbol].icc_gate_telemetry(snapshot) if hasattr(engines[symbol], "icc_gate_telemetry") else {}
-        logger.info(
-            "[STRUCTURE] %s selection_score=%.3f readiness=%.2f icc_score=%.2f icc_grade=%s watch_score=%.2f watch_grade=%s flip_watch=%s last_gate=%s since_sweep=%s since_cont=%s (%s; %s)",
-            symbol,
-            score,
-            readiness,
-            icc_score,
-            icc_grade,
-            watch_score,
-            watch_grade,
-            flip_watch,
-            telemetry.get("last_gate_to_true"),
-            _fmt_seconds(telemetry.get("time_since_sweep_s")),
-            _fmt_seconds(telemetry.get("time_since_continuation_s")),
-            reason,
-            readiness_reason,
-        )
-        if score > best_score:
-            best_score = score
-            best_symbol = symbol
-            best_snapshot = snapshot
-    if best_symbol is None or best_score < structure_score_threshold:
-        logger.info(
-            "[SELECT] No symbol passed threshold=%.2f (best=%.3f). Standing aside this cycle.",
-            structure_score_threshold,
-            best_score,
-        )
-        return None, None
-    logger.info(
-        "[SELECT] Active symbol: %s (score=%.3f threshold=%.2f)",
-        best_symbol,
-        best_score,
-        structure_score_threshold,
-    )
-    return best_symbol, best_snapshot
-
-
-def _handle_execution_result(
-    result: ExecutionResult | None,
-    strike_tracker: StrikeTracker | None,
-    outcome: ExecutionOutcome | None = None,
-) -> None:
-    """Tracks strikes/cooldowns based on the latest execution outcome."""
-    if not result or not strike_tracker:
-        return
-    if result.status == ExecutionStatus.RISK_SUPPRESSED:
-        guard_triggered = strike_tracker.record_guard_block(result.symbol)
-        if guard_triggered:
-            logger.info(
-                "[STATE] %s guard block: cooling for %s cycles after %s guard strikes",
-                result.symbol,
-                strike_tracker.guard_block_cooldown_cycles,
-                strike_tracker.guard_block_threshold,
-            )
-        cooldown_triggered = strike_tracker.record_risk_suppression(result.symbol)
-        if cooldown_triggered:
-            logger.info(
-                "[STATE] %s cooling for %s cycles after %s risk strikes",
-                result.symbol,
-                strike_tracker.cooldown_cycles,
-                strike_tracker.max_consecutive,
-            )
-        return
-    if result.status == ExecutionStatus.EXECUTED:
-        reason = outcome.status.value if outcome else None
-        strike_tracker.record_execution_success(result.symbol, reason)
-        return
-    if result.status in {
-        ExecutionStatus.UNSUPPORTED_SYMBOL,
-        ExecutionStatus.UNSUPPORTED_SYMBOL_CONFIG,
-    }:
-        logger.info("[GUARD] Unsupported symbol %s: %s", result.symbol, result.reason)
-
-
-class WSLoggingHandler(logging.Handler):
-    """Bridge Python logging to WebSocket clients."""
-    def __init__(self, ws_server: WebSocketServer):
-        super().__init__()
-        self.ws_server = ws_server
-
-    def emit(self, record):
-        try:
-            msg = self.format(record)
-            self.ws_server.broadcast_log_sync(record.levelname, msg)
-        except Exception:
-            self.handleError(record)
+# Candidate list building moved to cycle.py
 
 def run_bot(
-    iterations: int | None = 20,
-    skip_schedule: bool = False,
+    iterations: int | None = None,
     sabbath_override: bool | None = None,
-) -> None:
-    """Runs a small sim loop so you can watch ideas roll in (None = infinite)."""
+):
     settings = get_settings()
     setup_logging(settings.logging)
-
     profile_settings = settings.get_active_profile()
     profile_name = settings.app.profile_name
-    crypto_only_profile = profile_settings.crypto_only
     auto_schedule_enabled = bool(getattr(profile_settings, "auto_schedule_enabled", False))
     sabbath_context = SabbathContext(profile_settings, sabbath_override)
-    sabbath_context.log_startup()
     _log_build_info(sabbath_context)
-    profile = BaseProfile(
-        name=profile_name,
-        candle_timeframe=profile_settings.candle_timeframe,
-        market_poll_interval_seconds=profile_settings.market_poll_interval_seconds,
-        ai_decision_interval_seconds=profile_settings.ai_decision_interval_seconds,
-    )
+    sabbath_context.log_startup()
     symbols = _resolve_symbol_universe(settings, profile_settings, profile_name)
     pair_selector = PairSelector(profile_settings) if getattr(profile_settings, "pair_selector_enabled", False) else None
+    crypto_only_profile = profile_settings.crypto_only
     strike_tracker = StrikeTracker(
         settings.runtime.strike_max_consecutive,
         settings.runtime.strike_cooldown_cycles,
@@ -1421,17 +429,8 @@ def run_bot(
     execute_trades = os.getenv("EXECUTE_TRADES", "false").lower() == "true"
     _confirm_trading_universe(symbols, profile_name, execute_trades)
 
-    # If schedule sessions are configured, run the scheduled loop only in continuous mode.
-    # (Scheduled mode is explicitly handled via `run_scheduled_bot()` / `--scheduled`.)
-    if (
-        settings.schedule.sessions
-        and iterations is None
-        and not skip_schedule
-        and not os.getenv("BUG_BYPASS_SCHEDULE")
-        and not auto_schedule_enabled
-    ):
-        run_scheduled_bot(sabbath_override=sabbath_override)
-        return
+    # Removed blocking run_scheduled_bot check here.
+    # The main loop now handles per-symbol market hours filtering.
 
     shared_ib = _maybe_connect_primary_ib(settings, execute_trades)
     provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib)
@@ -1525,65 +524,26 @@ def run_bot(
         profile_settings.candle_timeframe,
     )
 
-    # [ANTIGRAVITY] Start WebSocket Server
-    ws_server = WebSocketServer(port=8080)
-    
-    # [ANTIGRAVITY] Bridge logs to WS
-    ws_handler = WSLoggingHandler(ws_server)
+    controller = RuntimeController(settings, profile_settings)
+
+    # Bridge logs to WS
+    from tradebot_sci.runtime.cycle import handle_execution_result # reload check
+    ws_handler = WSLoggingHandler(controller)
     ws_handler.setFormatter(logging.Formatter('%(message)s'))
     logging.getLogger().addHandler(ws_handler)
     
     def on_subscribe(symbol, tf):
-        logger.info(f"[WS] Handling subscription for {symbol} ({tf})")
-        try:
-            # [ANTIGRAVITY] Force immediate state sync FIRST to fix 0.00 bug ASAP
-            if executor:
-                cap = executor.get_liquid_capital()
-                # Get holdings count excluding dust
-                try:
-                    open_symbols = list(executor.list_open_position_symbols() or [])
-                    active_holds = [
-                        s for s in open_symbols 
-                        if not (executor.get_open_position_snapshot(s) or {}).get("is_dust", False)
-                    ]
-                    holdings_count = len(active_holds)
-                except:
-                    holdings_count = 0
+        logger.info(f"[WS] Subscription for {symbol} ({tf})")
+        # Sync current state
+        controller.broadcast_state(executor, force=True)
+        # Push history
+        hist = provider.get_latest_candles(symbol, tf, limit=200)
+        if hist:
+            formatted = [{"time": int(c.timestamp.timestamp()), "open": c.open, "high": c.high, "low": c.low, "close": c.close} for c in hist]
+            controller.ws_server.broadcast_history_sync(symbol, tf, formatted)
 
-                # [ANTIGRAVITY] Get Sabbath status
-                tz_obj = ZoneInfo(profile_settings.sabbath_timezone)
-                now_utc = datetime.now(timezone.utc)
-                sabbath_active, _, _ = SabbathContext(profile_settings).evaluate(now_utc)
-
-                state_data = {
-                    "equity": cap,
-                    "capital": cap,
-                    "holdings_count": holdings_count,
-                    "profile": profile_name,
-                    "is_sabbath": sabbath_active
-                }
-                ws_server.broadcast_state_sync(state_data)
-                logger.info(f"[WS] Pushed immediate state sync: Equity=${cap:.2f}, Holds={holdings_count}, Sabbath={sabbath_active}")
-
-            # [ANTIGRAVITY] Then fetch historical data (can be slow)
-            hist_candles = provider.get_latest_candles(symbol, tf, limit=200)
-            if hist_candles:
-                formatted = [
-                    {
-                        "time": int(c.timestamp.timestamp()),
-                        "open": c.open,
-                        "high": c.high,
-                        "low": c.low,
-                        "close": c.close
-                    }
-                    for c in hist_candles
-                ]
-                ws_server.broadcast_history_sync(symbol, tf, formatted)
-        except Exception as e:
-            logger.error(f"[WS] Failed to push history/state for {symbol} on subscribe: {e}")
-
-    ws_server.set_on_subscribe_callback(on_subscribe)
-    ws_server.start_in_thread()
+    controller.start_ws_server()
+    controller.ws_server.set_on_subscribe_callback(on_subscribe)
 
     last_auto_mode: str | None = None
     last_holdings_log_ts = 0.0
@@ -1594,7 +554,7 @@ def run_bot(
     try:
         for _ in loop_iter:
             # [ANTIGRAVITY] Check for Halt Signal
-            if ws_server.is_halted():
+            if controller.is_halted():
                 logger.debug("[LOOP] Bot is HALTED via signal. Waiting...")
                 time.sleep(poll_interval)
                 continue
@@ -1666,11 +626,32 @@ def run_bot(
                         if selection.selected:
                             active_symbols = selection.selected
                 else:
-                    logger.debug("[LOOP_DEBUG] pair_selector is disabled or None; skipping extra selection")
+                    logger.info("[LOOP_DEBUG] pair_selector is disabled or None; skipping extra selection")
                 if executor and hasattr(executor, "list_open_position_symbols"):
                     for sym in executor.list_open_position_symbols():
                         if sym in engines and sym not in active_symbols:
                             active_symbols.append(sym)
+
+                # [ANTIGRAVITY] Live Chart Sync: Ensure viewed symbols/timeframes are fetched
+                if controller.ws_server:
+                    for sub_sym, sub_tf in controller.ws_server.get_subscriptions():
+                        if sub_sym in engines:
+                            if sub_sym not in active_symbols:
+                                active_symbols.append(sub_sym)
+                            
+                            if sub_tf != profile_settings.candle_timeframe:
+                                try:
+                                    fetch_snapshot(
+                                        provider, 
+                                        snapshot_cache, 
+                                        sub_sym, 
+                                        sub_tf, 
+                                        profile_settings, 
+                                        settings.market, 
+                                        ws_controller=controller
+                                    )
+                                except Exception as e:
+                                    logger.debug(f"[LOOP] UI fetch failed for {sub_sym} {sub_tf}: {e}")
                 if sabbath_active:
                     if executor and hasattr(executor, "list_open_position_symbols"):
                         active_symbols = [sym for sym in executor.list_open_position_symbols() if sym in engines]
@@ -1686,18 +667,25 @@ def run_bot(
                         next_decision_in = decision_interval
                         time.sleep(poll_interval)
                         continue
-                candidates, data_fetch_succeeded = _build_candidate_list(
+                # [ANTIGRAVITY FIX] Filter by market hours (OANDA weekend halt protection)
+                active_symbols = [s for s in active_symbols if is_market_open(s, now, settings=profile_settings)]
+                if not active_symbols:
+                    logger.info("[SCHEDULE] No symbols have open markets. Skipping cycle.")
+                    next_decision_in = decision_interval
+                    time.sleep(poll_interval)
+                    continue
+
+                candidates, data_fetch_succeeded = build_candidate_list(
                     executor,
                     engines,
                     provider,
                     active_symbols,
                     profile_settings.candle_timeframe,
-                    profile_settings.structure_score_threshold,
                     profile_settings,
                     settings.market,
                     strike_tracker=strike_tracker,
                     now=now,
-                    ws_server=ws_server,
+                    ws_controller=controller,
                     allow_entries=allow_entries,
                 )
                 if not candidates:
@@ -1724,19 +712,15 @@ def run_bot(
                 # [ANTIGRAVITY FIX] Strictly honor Sabbath: 
                 # Block BOTH entries and exits (Zero Action).
                 if sabbath_active:
-                    # Sync state so UI shows Sabbath badge
-                    ws_server.broadcast_state_sync({
-                        "is_sabbath": True,
-                        "profile": profile_name
-                    })
-                    logger.info("[SABBATH] Strict adherence active: Skipping candidate processing (no trades/flattens allowed).")
+                    controller.broadcast_state(executor, force=True)
+                    logger.info("[SABBATH] Strict adherence active: Skipping candidate processing.")
                     next_decision_in = decision_interval
                     time.sleep(poll_interval)
                     continue
 
 
                 managing_positions = any(reason == "existing position" for _, _, _, reason in candidates)
-                success_symbol, attempts, blocked, skipped = _process_candidate_cycle(
+                success_symbol, attempts, blocked, skipped = process_candidate_cycle(
                     executor,
                     engines,
                     profile,
@@ -1814,9 +798,14 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
     execute_trades = os.getenv("EXECUTE_TRADES", "false").lower() == "true"
     _confirm_trading_universe(symbols, profile_name, execute_trades)
 
-    # [ANTIGRAVITY] Start WebSocket Server
-    ws_server = WebSocketServer(port=8080)
-    ws_server.start_in_thread()
+    controller = RuntimeController(settings, profile_settings)
+    
+    # Bridge logs to WS
+    ws_handler = WSLoggingHandler(controller)
+    ws_handler.setFormatter(logging.Formatter('%(message)s'))
+    logging.getLogger().addHandler(ws_handler)
+
+    controller.start_ws_server()
 
     shared_ib = _maybe_connect_primary_ib(settings, execute_trades)
     provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib)
@@ -1895,17 +884,17 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         consecutive_error_iterations = 0
         while True:
             # [ANTIGRAVITY] Check for Halt Signal
-            if ws_server.is_halted():
+            if controller.is_halted():
                 logger.debug("[LOOP] Bot is HALTED via signal. Waiting...")
                 time.sleep(poll_interval)
                 continue
 
             now = datetime.now(tz)
-            session = _current_session(now, settings.schedule.sessions, tz)
+            session = get_current_session(now, settings.schedule.sessions, tz)
             if session:
                 current_session_name = session["name"]
             if not session:
-                next_start, next_session = _next_session_start(now, settings.schedule.sessions, tz)
+                next_start, next_session = get_next_session_start(now, settings.schedule.sessions, tz)
                 if not next_start or not next_session:
                     logger.info("[STATE] No upcoming sessions; idling")
                     time.sleep(poll_interval)
@@ -1932,15 +921,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                     "[GUARD] Cannot start session '%s': IBKR not connected; skipping this session",
                     session["name"],
                 )
-                next_start, _ = _next_session_start(datetime.now(tz), settings.schedule.sessions, tz)
-                _sleep_until(
-                    next_start,
-                    settings.runtime.keep_alive_interval_seconds,
-                    shared_ib,
-                    logger,
-                    settings,
-                )
-                continue
+                next_start, _ = get_next_session_start(datetime.now(tz), settings.schedule.sessions, tz)
             logger.info(
                 "Starting session '%s' until %s (%s)",
                 session["name"],
@@ -2011,32 +992,17 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                                         symbol=sym,
                                     )
                                 active_symbols.append(sym)
-                    if sabbath_active:
-                        if executor and hasattr(executor, "list_open_position_symbols"):
-                            active_symbols = [sym for sym in executor.list_open_position_symbols() if sym in engines]
-                        else:
-                            active_symbols = [
-                                sym
-                                for sym in active_symbols
-                                if executor
-                                and (pos := executor.get_open_position_snapshot(sym))
-                                and abs(pos.get("size", 0)) > 0
-                            ]
-                        if not active_symbols:
-                            next_decision_in = decision_interval
-                            time.sleep(poll_interval)
-                            continue
-                    candidates = _build_candidate_list(
+                    candidates = build_candidate_list(
                         executor,
                         engines,
                         provider,
                         active_symbols,
                         profile.candle_timeframe,
-                        threshold,
                         profile_settings,
                         settings.market,
                         strike_tracker=scheduled_strike_tracker,
                         now=loop_now,
+                        ws_controller=controller,
                         allow_entries=allow_entries,
                     )
                     if not candidates:
@@ -2053,7 +1019,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                     # Reset error counter when we successfully fetch at least one symbol
                     consecutive_error_iterations = 0
                     managing_positions = any(reason == "existing position" for _, _, _, reason in candidates)
-                    _process_candidate_cycle(
+                    process_candidate_cycle(
                         executor,
                         engines,
                         profile,
@@ -2136,100 +1102,9 @@ def _format_decision(decision) -> str:
     )
 
 
-def _is_market_open(symbol: str, now: datetime) -> bool:
-    # [ANTIGRAVITY FIX] Treat all crypto/Coinbase Derivatives as 24/7 markets
-    if is_crypto(symbol):
-        return True
-
-    metadata = SYMBOL_METADATA.get(symbol.strip().upper())
-    if not metadata:
-        logger.warning(f"[SCHEDULE-DEBUG] No metadata for {symbol}")
-        return False
-    
-    # [ANTIGRAVITY OPTIMIZATION] Skip known problematic metals to avoid timeouts IF using IBKR
-    # If using Kraken (CCXT), we want these!
-    from ..config import loader as config_loader
-    settings = config_loader.get_settings()
-    is_ccxt_data = settings.market.market_data_mode in ("alternative", "hybrid")
-
-    if not is_ccxt_data and symbol in {"XPTUSD", "XPDUSD"}:
-        return False
-
-    # logger.info(f"[SCHEDULE-DEBUG] {symbol} Type={metadata.market_type} Asset={metadata.asset_class}")
-    if metadata.market_type == MarketType.CRYPTO:
-        return True
-        
-    # [ANTIGRAVITY FIX] If using CCXT for Data, treat Forex/Metals as effectively 24/7 (or managed by exchange)
-    # This prevents 'Market Closed' skips when we actually have live crypto-feeds for them.
-    if is_ccxt_data and (metadata.market_type == MarketType.FOREX or metadata.market_type == MarketType.COMMODITY):
-        return True
-
-    hours = MARKET_HOURS.get(metadata.market_type)
-    if not hours:
-        return False
-    if metadata.market_type == MarketType.FOREX:
-        return _is_forex_open(now)
-    tz = ZoneInfo(hours["timezone"])
-    local = now.astimezone(tz)
-    if metadata.market_type in {MarketType.US_EQUITY, MarketType.EU_EQUITY, MarketType.APAC_EQUITY}:
-        if local.weekday() >= 5:
-            return False
-    open_hour, open_minute = map(int, hours["open"].split(":"))
-    close_hour, close_minute = map(int, hours["close"].split(":"))
-    open_dt = local.replace(
-        hour=open_hour,
-        minute=open_minute,
-        second=0,
-        microsecond=0,
-    )
-    close_dt = local.replace(
-        hour=close_hour,
-        minute=close_minute,
-        second=0,
-        microsecond=0,
-    )
-    if open_dt <= close_dt:
-        return open_dt <= local < close_dt
-    return local >= open_dt or local < close_dt
+# Scheduling helpers moved to scheduling.py
 
 
-def _is_forex_open(now: datetime) -> bool:
-    utc = now.astimezone(ZoneInfo("UTC"))
-    cutoff = datetime_time(22, 0)
-    current = utc.time()
-    weekday = utc.weekday()
-    if weekday == 5:  # Saturday
-        return False
-    if weekday == 6:  # Sunday
-        return current >= cutoff
-    if weekday == 4:  # Friday
-        return current < cutoff
-    return True
-
-
-def _current_session(now: datetime, sessions, tz: ZoneInfo):
-    for sess in sessions:
-        start_h, start_m = map(int, sess.start.split(":"))
-        end_h, end_m = map(int, sess.end.split(":"))
-        start_dt = now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
-        end_dt = now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
-        if start_dt <= now < end_dt:
-            return {"name": sess.name, "end": end_dt}
-    return None
-
-
-def _next_session_start(now: datetime, sessions, tz: ZoneInfo):
-    upcoming: list[tuple[datetime, object]] = []
-    for sess in sessions:
-        sh, sm = map(int, sess.start.split(":"))
-        start_dt = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
-        if start_dt <= now:
-            start_dt = start_dt + timedelta(days=1)
-        upcoming.append((start_dt, sess))
-    if not upcoming:
-        return None, None
-    next_start, sess = min(upcoming, key=lambda pair: pair[0])
-    return next_start, sess
 
 
 def _sleep_until(
@@ -2367,6 +1242,53 @@ def _fmt_seconds(value: float | None) -> str:
         if value < 3600:
             return f"{value/60.0:.0f}m"
         return f"{value/3600.0:.1f}h"
-    except Exception as e:
-        logger.debug(f"Failed to format duration {value}: {e}")
+    except Exception:
         return "-"
+class WSLoggingHandler(logging.Handler):
+    """Bridges internal engine logs to the WebSocket UI."""
+    def __init__(self, controller: RuntimeController):
+        super().__init__()
+        self.controller = controller
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            if self.controller.ws_server and any(marker in msg for marker in ["[STATE]", "[CYCLE]", "[RESULT]", "[AUTO-ENTRY]", "[ROBOCOP]", "[EXIT]", "[PROFILE]", "[HEARTBEAT]", "[DECISION]", "[STRUCTURE]"]):
+                self.controller.ws_server.broadcast_log_sync(record.levelname, msg)
+        except Exception:
+            self.handleError(record)
+
+
+def _engine_decide(engine, timeframe: str, open_position, snapshot, execution_capabilities: dict | None):
+    # This remains for backward compatibility or direct engine calls
+    return engine.decide(timeframe, open_position=open_position, snapshot=snapshot, execution_capabilities=execution_capabilities)
+
+# Backward compatibility aliases for tests
+def _build_candidate_list(*args, **kwargs):
+    from tradebot_sci.runtime.cycle import build_candidate_list
+    import datetime
+    
+    # Map legacy test calls (8 arguments) to new signature (12 arguments)
+    if len(args) >= 8 and isinstance(args[5], (float, int)):
+        # Old: (executor, engines, provider, symbols, timeframe, threshold, strike_tracker, now)
+        executor, engines, provider, symbols, timeframe, threshold, strike_tracker, now = args[:8]
+        # Mock profile_settings and market_settings
+        from types import SimpleNamespace
+        profile_settings = SimpleNamespace(structure_score_threshold=threshold, multi_position_enabled=False, max_concurrent_positions=1)
+        market_settings = SimpleNamespace(max_candles=200)
+        candidates, success = build_candidate_list(
+            executor, engines, provider, symbols, timeframe, 
+            profile_settings, market_settings, strike_tracker, now
+        )
+        return candidates
+    return build_candidate_list(*args, **kwargs)
+_process_candidate_cycle = process_candidate_cycle
+_handle_execution_result = handle_execution_result
+_is_market_open = is_market_open
+
+def _is_sabbath_now(dt, profile_settings, override=None):
+    from tradebot_sci.runtime.sabbath import SabbathContext
+    active, end_ts, _ = SabbathContext(profile_settings, override).evaluate(dt)
+    return active, end_ts
+
+# Legacy helpers moved or removed

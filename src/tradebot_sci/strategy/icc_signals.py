@@ -236,11 +236,11 @@ def detect_continuation(
             if debug:
                 logger.info("[CONTINUATION] WARNING: no indication (optional)")
             # Do NOT return None - continue to check structure
-        elif indication.direction != trend_direction:
+        elif getattr(indication, "direction", None) != trend_direction:
             if debug:
                 logger.info(
                     "[CONTINUATION] WARNING: indication_dir=%s trend_dir=%s (optional)",
-                    indication.direction,
+                    getattr(indication, "direction", None),
                     trend_direction,
                 )
             # Do NOT return None - continue to check structure
@@ -248,7 +248,7 @@ def detect_continuation(
     if correction is not None:
         if debug:
             logger.info(
-                f"[CONTINUATION] CORRECTION DETECTED: {correction.retracement_pct:.1%} retracement"
+                f"[CONTINUATION] CORRECTION DETECTED: {getattr(correction, 'retracement_pct', 0.0):.1%} retracement"
             )
     elif require_correction:
         if debug:
@@ -276,14 +276,15 @@ def detect_continuation(
                 len(candles),
             )
     else:
-        if len(candles) - 1 - sweep.index > max_bars_after_sweep:
+        sweep_idx = getattr(sweep, "index", 0)
+        if len(candles) - 1 - sweep_idx > max_bars_after_sweep:
             if debug:
                 logger.info(
-                    f"[CONTINUATION] REJECTED: sweep too old bars_since={len(candles) - 1 - sweep.index} "
+                    f"[CONTINUATION] REJECTED: sweep too old bars_since={len(candles) - 1 - sweep_idx} "
                     f"(max={max_bars_after_sweep})"
                 )
             return None
-        recent = candles[sweep.index :]
+        recent = candles[sweep_idx :]
 
     min_window = max(breakout_lookback + 2, swing_lookback * 2 + 5)
     if len(recent) < min_window:
@@ -585,7 +586,10 @@ def detect_correction(
     offset = len(candles) - len(recent)
 
     # Find the indication candle in our window
-    indication_idx_in_window = indication.index - offset
+    ind_idx = getattr(indication, "index", -1)
+    if ind_idx < 0: return None
+    
+    indication_idx_in_window = ind_idx - offset
     if indication_idx_in_window < 0 or indication_idx_in_window >= len(recent):
         if debug:
             logger.info("[CORRECTION] REJECTED: indication outside window")
@@ -599,9 +603,10 @@ def detect_correction(
         return None
 
     indication_candle = recent[indication_idx_in_window]
-    indication_level = indication.level
+    indication_level = getattr(indication, "level", indication_candle.close)
+    indication_direction = getattr(indication, "direction", "long")
 
-    if indication.direction == "long":
+    if indication_direction == "long":
         # For long: indication broke above a high, correction pulls back toward it
         # Find the swing low before indication (the start of the move)
         swing_highs, swing_lows = swing_points_close(recent[:indication_idx_in_window + 1], lookback=swing_lookback)
@@ -663,7 +668,7 @@ def detect_correction(
         correction_idx = None
         for i, c in enumerate(post_indication):
             if float(c.low) == correction_low:
-                correction_idx = indication.index + i
+                correction_idx = ind_idx + i
                 break
 
         if debug:
@@ -677,11 +682,12 @@ def detect_correction(
             indication_level=indication_level,
             retracement_level=correction_low,
             retracement_pct=retracement_pct,
-            index=correction_idx or indication.index + 1,
+            index=correction_idx or ind_idx + 1,
         )
 
-    else:  # short
+    elif indication_direction == "short":
         # For short: indication broke below a low, correction rallies back toward it
+        # Find the swing high before indication (the start of the move)
         swing_highs, swing_lows = swing_points_close(recent[:indication_idx_in_window + 1], lookback=swing_lookback)
         if not swing_highs:
             if debug:
@@ -740,7 +746,7 @@ def detect_correction(
         correction_idx = None
         for i, c in enumerate(post_indication):
             if float(c.high) == correction_high:
-                correction_idx = indication.index + i
+                correction_idx = ind_idx + i
                 break
 
         if debug:

@@ -42,6 +42,9 @@ class IExchangeBroker(Protocol):
     def summarize_pnl(self) -> None:
         ...
 
+    def get_liquid_capital(self, symbol: str | None = None) -> float:
+        ...
+
     def _fetch_symbol_state(self, symbol: str) -> dict:
         ...
 

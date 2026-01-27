@@ -23,7 +23,7 @@ class AggregatorStrategy(BaseStrategy):
         self.mean_rev = MeanReversionStrategy(bb_period=15, bb_std=2.5, rsi_oversold=25, rsi_overbought=75, base_risk_pct=base_risk_pct)
         self.scalper = HyperScalperStrategy(fast_ema=13, slow_ema=50, base_risk_pct=base_risk_pct)
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None) -> Optional[AITradeDecision]:
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         # Priority 1: Scale-in if position exists (aggressive load)
         if open_position:
             # Check Mean Reversion Scale-in
@@ -50,7 +50,7 @@ class AggregatorStrategy(BaseStrategy):
 
         return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict) -> Optional[AITradeDecision]:
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
         # Exit if EITHER strategy confirms an invalidation
         # Mean Reversion handles its exits by TP/SL primarily, but HyperScalper has Trend exits.
         hs_exit = self.scalper.check_exit_signal(snapshot, open_position, gates)

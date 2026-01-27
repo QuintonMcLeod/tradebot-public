@@ -1,20 +1,17 @@
 {
-  "name": "tradebot-sci-dashboard",
-  "version": "1.0.0",
-  "description": "High-fidelity Electron dashboard for Tradebot SCI",
-  "main": "main.js",
-  "scripts": {
-    "start": "env -u ELECTRON_RUN_AS_NODE electron . --no-sandbox",
-    "dev": "concurrently \"npm run css:watch\" \"env -u ELECTRON_RUN_AS_NODE electron . --no-sandbox\"",
-    "css:build": "tailwindcss -i ./src/input.css -o ./dist/output.css",
-    "css:watch": "tailwindcss -i ./src/input.css -o ./dist/output.css --watch"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "devDependencies": {
-    "concurrently": "^8.2.2",
-    "electron": "^28.3.3",
-    "tailwindcss": "^3.4.1"
-  }
+    "name": "tradebot-sci-gui",
+    "version": "1.0.0",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron ."
+    },
+    "dependencies": {
+        "date-fns": "^2.30.0",
+        "js-yaml": "^4.1.0",
+        "chart.js": "^4.4.0",
+        "chartjs-plugin-datalabels": "^2.2.0"
+    },
+    "devDependencies": {
+        "electron": "^25.3.0"
+    }
 }

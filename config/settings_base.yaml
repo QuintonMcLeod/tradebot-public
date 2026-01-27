@@ -8,17 +8,18 @@ logging:
   max_bytes: 1048576
   backup_count: 100
 ai:
-  model_name: gpt-4.1-mini
-  temperature: 0.2
-  max_tokens: 2048
+  provider: deepseek
+  model_name: deepseek-chat
+  temperature: 0.0
+  max_tokens: 1024
   timeout_seconds: 30
-  base_url: https://api.openai.com/v1
+  base_url: https://api.deepseek.com
 market:
   default_symbol: BTCUSD
   default_timeframe: 5m
   max_candles: 200
   exchange_provider: alternative
-  alternative_market_data: coinbase
+  alternative_market_data: ccxt
   alternative_broker: ccxt
   symbols:
   - BTCUSD

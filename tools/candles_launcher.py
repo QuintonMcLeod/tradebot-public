@@ -18,14 +18,26 @@ def main():
         if env_prov: provider = env_prov
         if env_alt: alt_data = env_alt
         
-        is_alternative = (provider == "alternative")
+        is_alternative = (provider == "alternative" or "ccxt" in provider or "gemini" in provider)
         is_coinbase = ("coinbase" in alt_data)
         
         if is_alternative or is_coinbase:
             # Launch CCXT UI
             # We construct the command carefully.
-            # We strip conflicting args from sys.argv if we provide them.
-            base_args = [arg for arg in sys.argv[1:] if "--refresh-seconds" not in arg and "--interval" not in arg]
+            # We remove conflicting args (key and its value)
+            skip_next = False
+            base_args = []
+            for i, arg in enumerate(sys.argv[1:]):
+                if skip_next:
+                    skip_next = False
+                    continue
+                if arg in ("--refresh-seconds", "--interval", "--rotate-seconds"):
+                    skip_next = True
+                    continue
+                # Handle --key=value style if present (though launcher usually gets --key value)
+                if "--refresh-seconds=" in arg or "--interval=" in arg or "--rotate-seconds=" in arg:
+                    continue
+                base_args.append(arg)
             
             cmd = [
                 sys.executable, 
@@ -34,7 +46,7 @@ def main():
                 "--interval", "0.5" # UI loop speed
             ] + base_args
             
-            print(f"[LAUNCHER] Detected CCXT/Coinbase. Launching fast UI (0.5s)...")
+            print(f"[LAUNCHER] Detected CCXT/Gemini/Coinbase. Launching fast UI (0.5s)...")
         else:
             # Launch IBKR UI
             cmd = [

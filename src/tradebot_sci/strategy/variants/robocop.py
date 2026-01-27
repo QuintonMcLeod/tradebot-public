@@ -9,7 +9,8 @@ from tradebot_sci.strategy.icc_signals import (
     detect_liquidity_sweep, 
     detect_indication, 
     detect_correction,
-    detect_structure_invalidation
+    detect_structure_invalidation,
+    calculate_atr
 )
 from tradebot_sci.config.models import UserConfig
 
@@ -24,9 +25,10 @@ class RoboCopStrategy(BaseStrategy):
     def __init__(self):
         super().__init__("RoboCop")
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None) -> Optional[AITradeDecision]:
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         # [ROBOCOP] Combat Mode Entry: React to ANY valid micro-signal
-        sweep = detect_liquidity_sweep(snapshot.candles, snapshot.trend_ltf.direction, swing_lookback=2)
+        # [ROBOCOP-SENSITIVITY] Use swing_lookback=1 for high-speed crypto
+        sweep = detect_liquidity_sweep(snapshot.candles, snapshot.trend_ltf.direction, swing_lookback=1)
         indication = detect_indication(snapshot.candles, swing_lookback=1)
         
         # [ROBOCOP] Naked Entry: Allow continuation without prior correction if momentum is high
@@ -36,6 +38,7 @@ class RoboCopStrategy(BaseStrategy):
             sweep, 
             indication, 
             require_correction=False,
+            swing_lookback=1,
             confirmation_bars=1 # Faster confirmation
         )
         
@@ -59,7 +62,7 @@ class RoboCopStrategy(BaseStrategy):
             )
         return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict) -> Optional[AITradeDecision]:
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
         # [ROBOCOP] Fast Exit Logic
         pos_dir = open_position.get("direction")
         unrealized_pnl = float(open_position.get("unrealized_pnl", 0.0))

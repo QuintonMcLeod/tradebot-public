@@ -29,6 +29,12 @@ from tradebot_sci.broker.synthetic_stop_store import (
     SyntheticStopStore,
 )
 from tradebot_sci.broker.position_hold_store import PositionHoldStore
+from tradebot_sci.broker.ibkr.bracket_manager import BracketManager
+from tradebot_sci.broker.ibkr.pdt_guard import PDTGuard
+from tradebot_sci.broker.ibkr.synthetic_stops import SyntheticStop, SyntheticStopManager
+
+
+# SyntheticStop moved to synthetic_stops.py
 
 
 @dataclass
@@ -41,33 +47,6 @@ class EntryPreparation:
     open_risk: float
     max_risk_dollars: float
     shares_cap: float
-
-
-@dataclass
-class SyntheticStop:
-    symbol: str
-    direction: str
-    stop_price: float
-    tp_price: float | None
-    size: float
-    entry_order: Any | None
-    tp_order: Any | None
-    state: str
-    created_at: datetime
-
-    def should_trigger(self, last_price: float) -> bool:
-        if self.state != "armed":
-            return False
-        if self.direction == "long":
-            return last_price <= self.stop_price
-        return last_price >= self.stop_price
-
-    def should_take_profit(self, last_price: float) -> bool:
-        if self.state != "armed" or self.tp_price is None:
-            return False
-        if self.direction == "long":
-            return last_price >= self.tp_price
-        return last_price <= self.tp_price
 
 logger = logging.getLogger(__name__)
 
@@ -110,25 +89,21 @@ class IbkrExecutor:
         self.ib = ib_client or self._lazy_ib_client()
         self.profile_settings = profile_settings
         self.placed_orders = []
-        self._symbol = ""
-        self._contract_cache: dict[str, object] = {}
-        self._min_tick_cache: dict[str, float] = {}
-        self._native_stop_supported: dict[str, bool] = {}
-        self._local_stop_info: dict[str, dict[str, Any]] = {}
-        self._synthetic_stops: dict[str, SyntheticStop] = {}
-        self._pdt_guard_enabled = bool(profile_settings and profile_settings.pdt_guard_enabled)
-        self._pdt_roundtrip_limit = (
-            profile_settings.max_equity_roundtrips_per_day if profile_settings else 0
-        )
-        self._pdt_roundtrips_today = 0
-        self._pdt_current_date: date | None = None
-        self._pdt_entry_dates: dict[str, date] = {}
-        self._flip_last_ts: dict[str, float] = {}
-        self._flip_cooldown_seconds = int(
-            profile_settings.flip_cooldown_seconds if profile_settings else 0
-        )
         overrides = getattr(self.runtime, "local_stop_symbols", []) or []
         self._local_stop_symbols = {symbol.upper() for symbol in overrides}
+        
+        # [ANTIGRAVITY] Initialize modular components
+        self.bracket_manager = BracketManager(self.ib, self.runtime, self.profile_settings)
+        self.pdt_guard = PDTGuard(self.profile_settings)
+        self.stop_manager = SyntheticStopManager()
+        
+        # [ANTIGRAVITY] Legacy attributes for test compatibility
+        self._local_stop_info: dict[str, dict] = {}
+        self._native_stop_supported: dict[str, bool] = {}
+        self._synthetic_stops = self.stop_manager.stops
+        self._pdt_guard_enabled = bool(getattr(profile_settings, "pdt_guard_enabled", False))
+        self._pdt_roundtrip_limit = int(getattr(profile_settings, "pdt_roundtrip_limit", 3))
+        
         self._last_bracket_orders: list[Any] = []
         store_path = os.getenv("SYNTH_STOP_STORE_PATH") or (
             profile_settings.synthetic_stop_store_path if profile_settings else "state/synthetic_stops.json"
@@ -160,6 +135,7 @@ class IbkrExecutor:
         self._contract_symbol_map = self._build_contract_symbol_map()
         self._account_summary: dict[str, float] = {}
         self._last_account_summary: datetime | None = None
+        self._contract_cache: dict[str, Any] = {}
         self._daily_risk_state: dict[str, Any] = {
             "date": None,
             "start_net_liq": None,
@@ -176,57 +152,32 @@ class IbkrExecutor:
         """Alias for profile_settings to maintain interface compatibility with loop.py."""
         return self.profile_settings
 
-    @staticmethod
-    def _effective_tif(asset_class: AssetClass | None, exchange: str | None, default: str) -> str:
-        """Return a venue-safe time-in-force.
+    @property
+    def _pdt_roundtrips_today(self) -> int:
+        return self.pdt_guard.roundtrips_today
+    
+    @_pdt_roundtrips_today.setter
+    def _pdt_roundtrips_today(self, value: int):
+        self.pdt_guard.roundtrips_today = value
+        
+    @property
+    def _pdt_current_date(self):
+        return self.pdt_guard.current_date
 
-        IBKR spot crypto on ZEROHASH rejects GTC/DAY and requires Minutes or IOC.
-        We default to Minutes to avoid IOC cancellations on crypto.
-        """
-        if asset_class == AssetClass.CRYPTO and (exchange or "").upper() == "ZEROHASH":
-            override = (os.getenv("IBKR_ZEROHASH_CRYPTO_TIF") or "Minutes").strip()
-            if not override:
-                return "Minutes"
-            override_l = override.lower()
-            if override_l in {"ioc"}:
-                return "IOC"
-            if override_l in {"minutes", "minute"}:
-                return "Minutes"
-            logger.warning(
-                "[CRYPTO] Unsupported IBKR_ZEROHASH_CRYPTO_TIF=%r (expected IOC/Minutes); forcing Minutes",
-                override,
-            )
-            return "Minutes"
-        return default
+    @_pdt_current_date.setter
+    def _pdt_current_date(self, value):
+        self.pdt_guard.current_date = value
+        
+    @property
+    def _pdt_entry_dates(self) -> dict:
+        return self.pdt_guard.entry_dates
 
     def _get_min_tick(self, contract: object, symbol: str) -> float | None:
-        cached = self._min_tick_cache.get(symbol)
-        if cached:
-            return cached
-        if not self.ib:
-            return None
-        try:
-            details = self.ib.reqContractDetails(contract)
-        except Exception as exc:  # pragma: no cover - network/venue errors
-            logger.warning("[IBKR] Failed to fetch contract details for %s: %s", symbol, exc)
-            return None
-        if not details:
-            return None
-        min_tick = getattr(details[0], "minTick", None)
-        if not min_tick or min_tick <= 0:
-            return None
-        self._min_tick_cache[symbol] = float(min_tick)
-        return float(min_tick)
+        return self.bracket_manager.get_min_tick(contract, symbol)
 
     @staticmethod
     def _round_price_to_tick(price: float, tick: float) -> float:
-        from decimal import Decimal, ROUND_HALF_UP
-
-        if tick <= 0:
-            return price
-        ticks = Decimal(str(price)) / Decimal(str(tick))
-        rounded_ticks = ticks.to_integral_value(rounding=ROUND_HALF_UP)
-        return float(rounded_ticks * Decimal(str(tick)))
+        return BracketManager.round_price_to_tick(price, tick)
 
     @staticmethod
     def _align_bracket_prices(
@@ -236,54 +187,19 @@ class IbkrExecutor:
         stop_loss: float,
         tick: float,
     ) -> tuple[float, float, float]:
-        if tick <= 0:
-            return entry, take_profit, stop_loss
-        if direction == "long":
-            if take_profit <= entry:
-                take_profit = entry + tick
-            if stop_loss >= entry:
-                stop_loss = entry - tick
-        else:
-            if take_profit >= entry:
-                take_profit = entry - tick
-            if stop_loss <= entry:
-                stop_loss = entry + tick
-        return entry, take_profit, stop_loss
+        return BracketManager.align_prices(direction, entry, take_profit, stop_loss, tick)
+
+    @staticmethod
+    def _effective_tif(asset_class: AssetClass | None, exchange: str | None, default: str) -> str:
+        return BracketManager.effective_tif(asset_class, exchange, default)
 
     @staticmethod
     def _apply_zerohash_minutes_tif(order: Any) -> None:
-        """
-        IBKR crypto supports a special TIF "Minutes" that requires a goodTillDate.
-
-        If you set `IBKR_ZEROHASH_CRYPTO_TIF=Minutes` without a valid `goodTillDate`, IBKR can cancel
-        the order as invalid.
-        """
-        if not order or getattr(order, "tif", None) != "Minutes":
-            return
-        try:
-            raw = (os.getenv("IBKR_ZEROHASH_CRYPTO_TIF_MINUTES") or "").strip() or "1"
-            minutes = int(float(raw))
-        except Exception:
-            minutes = 1
-        minutes = max(1, min(60, minutes))
-        gtd = datetime.now(timezone.utc) + timedelta(minutes=minutes)
-        order.goodTillDate = gtd.strftime("%Y%m%d %H:%M:%S")
+        return BracketManager.apply_zerohash_minutes_tif(order)
 
     @staticmethod
     def _set_order_ref(order: Any, symbol: str, tag: str) -> None:
-        """Best-effort orderRef tagging so fills/cancels can be attributed quickly in logs."""
-        if not order:
-            return
-        try:
-            existing = getattr(order, "orderRef", "") or ""
-            if existing.strip():
-                return
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            nonce = uuid.uuid4().hex[:8]
-            setattr(order, "orderRef", f"TBSCI:{symbol.upper()}:{tag}:{stamp}:{nonce}")
-        except Exception as e:
-            logger.warning(f"Failed to set order ref for {symbol}: {e}")
-            return
+        return BracketManager.set_order_ref(order, symbol, tag)
 
     def _make_outcome(
         self,
@@ -1561,241 +1477,51 @@ class IbkrExecutor:
         self._clear_stop_record(symbol)
 
     def evaluate_synthetic_stops(self, provider, timeframe: str) -> list[ExecutionResult]:
-        results: list[ExecutionResult] = []
-        if not provider:
-            return results
-        interval = (
-            self.profile_settings.synthetic_stop_integrity_interval
-            if self.profile_settings
-            else 0
+        """Monitors last sale price against armed stops; triggers market exits on breach."""
+        if not self.ib or not provider:
+            return []
+        return self.stop_manager.evaluate_all(
+            provider,
+            get_last_price_fn=lambda s: self.get_last_price(s),
+            trigger_cb=self._on_synthetic_trigger
         )
-        if interval and interval > 0:
-            self._integrity_counter += 1
-            if self._integrity_counter >= interval:
-                self._integrity_counter = 0
-                self._integrity_check()
-        self._detect_unprotected_positions(provider, timeframe)
-        for symbol, stop in list(self._synthetic_stops.items()):
-            if stop.state != "armed":
-                continue
-            state = self._fetch_symbol_state(symbol)
-            pos_size = abs(state.get("position_shares", 0))
-            if pos_size == 0:
-                logger.info(
-                    "[CRYPTO] Synthetic stop cleared for %s (reason=flat)",
-                    symbol,
-                )
-                self._clear_synthetic_stop(symbol)
-                continue
-            try:
-                snapshot = provider.get_latest_snapshot(symbol, timeframe)
-            except Exception as e:
-                logger.error(f"Failed to get snapshot for {symbol} during synthetic stop monitoring: {e}")
-                continue
-            candles = getattr(snapshot, "candles", None)
-            if not candles:
-                continue
-            last_price = candles[-1].close
-            if stop.should_take_profit(last_price):
-                result = self._trigger_synthetic_take_profit(stop, last_price)
-                if result:
-                    results.append(result)
-                continue
-            if stop.should_trigger(last_price):
-                result = self._trigger_synthetic_stop(stop, last_price)
-                if result:
-                    results.append(result)
-        return results
 
-    def _trigger_synthetic_take_profit(
-        self, stop: SyntheticStop, last_price: float
-    ) -> ExecutionResult | None:
+    def _on_synthetic_trigger(self, stop: SyntheticStop, price: float, trigger_type: str) -> Optional[ExecutionResult]:
+        if trigger_type == "TP":
+            return self._trigger_synthetic_take_profit(stop, price)
+        return self._trigger_synthetic_stop(stop, price)
+
+    def _trigger_synthetic_take_profit(self, stop: SyntheticStop, last_price: float) -> ExecutionResult | None:
         symbol = stop.symbol
-        state = self._fetch_symbol_state(symbol)
-        pos_size = state.get("position_shares", 0)
-        if pos_size == 0:
-            self._cancel_order(stop.entry_order)
-            self._cancel_order(stop.tp_order)
-            stop.state = "cancelled"
-            self._clear_synthetic_stop(symbol)
-            logger.info(
-                "[CRYPTO] Synthetic TP cancelled for %s (reason=flat last=%.4f)",
-                symbol,
-                last_price,
-            )
-            return ExecutionResult(
-                ExecutionStatus.STAND_ASIDE,
-                symbol,
-                "synthetic take-profit cancelled",
-            )
-        action = "SELL" if stop.direction == "long" else "BUY"
-        order_qty = abs(pos_size)
-        if order_qty <= 0:
-            return None
         try:
-            from ib_insync import MarketOrder  # type: ignore
-
-            order = MarketOrder(action=action, totalQuantity=order_qty)
-        except Exception as exc:  # pragma: no cover
-            logger.error("ib_insync MarketOrder unavailable for synthetic TP: %s", exc)
-            return ExecutionResult(
-                ExecutionStatus.ERROR,
-                symbol,
-                f"synthetic take-profit failed: {exc}",
-            )
-        contract = self._contract_for_symbol(symbol)
-        metadata = SYMBOL_METADATA.get(symbol.upper())
-        order.tif = self._effective_tif(
-            metadata.asset_class if metadata else None,
-            getattr(contract, "exchange", None),
-            "GTC",
-        )
-        self._set_order_ref(order, symbol, "SYN_TP")
-        self._apply_zerohash_minutes_tif(order)
-        self._cancel_order(stop.tp_order)
-        self.cancel_all_orders_for_symbol(symbol)
-        try:
-            self.ib.placeOrder(contract, order)
+            from ib_insync import MarketOrder
+            self.cancel_all_orders_for_symbol(symbol)
+            action = "SELL" if stop.direction == "long" else "BUY"
+            order = MarketOrder(action=action, totalQuantity=stop.size)
+            self._set_order_ref(order, symbol, "SYN_TP")
+            self.ib.placeOrder(self._contract_for_symbol(symbol), order)
+            logger.info("[CRYPTO] Synthetic TP TRIGGERED for %s at %.4f", symbol, last_price)
+            self._record_equity_exit(symbol)
+            return ExecutionResult(ExecutionStatus.EXECUTED, symbol, "synthetic take-profit triggered")
         except Exception as exc:
-            logger.error("Synthetic TP flatten for %s failed: %s", symbol, exc)
-            return ExecutionResult(
-                ExecutionStatus.ERROR,
-                symbol,
-                f"synthetic take-profit flatten failed: {exc}",
-            )
-        tp_display = f"{stop.tp_price:.4f}" if stop.tp_price is not None else "n/a"
-        logger.info(
-            "[CRYPTO] Synthetic TP HIT for %s at last=%.4f; sending MKT %s %.2f (tp=%s)",
-            symbol,
-            last_price,
-            action,
-            order_qty,
-            tp_display,
-        )
-        stop.state = "triggered"
-        self._clear_synthetic_stop(symbol)
-        self._record_equity_exit(symbol)
-        return ExecutionResult(
-            ExecutionStatus.EXECUTED,
-            symbol,
-            "synthetic take-profit triggered",
-        )
-
-    def _integrity_check(self) -> None:
-        if not self.profile_settings or not self._stop_store or not self.ib:
-            return
-        positions: dict[str, Any] = {}
-        for pos in self.ib.positions():
-            canonical = self._canonical_symbol_for_contract(pos.contract)
-            if not canonical or canonical not in self._zero_hash_symbols:
-                continue
-            positions[canonical] = pos
-        for symbol, stop in list(self._synthetic_stops.items()):
-            if symbol not in positions or abs(positions[symbol].position) < 1e-8:
-                logger.info(
-                    "[CRYPTO][INTEGRITY] no live position for %s; clearing synthetic stop",
-                    symbol,
-                )
-                self._mark_stop_stale(symbol)
-                self._clear_synthetic_stop(symbol)
-                continue
-            live_size = abs(positions[symbol].position)
-            if abs(stop.size - live_size) > 1e-6:
-                stop.size = live_size
-                self._persist_stop_record(symbol, stop, stop.state.upper())
-                logger.info(
-                    "[CRYPTO][INTEGRITY] size mismatch corrected for %s: live=%.2f stored=%.2f",
-                    symbol,
-                    live_size,
-                    self._stop_store.records.get(symbol).size if symbol in self._stop_store.records else live_size,
-                )
-
-    def _detect_unprotected_positions(self, provider, timeframe: str) -> None:
-        if not self.profile_settings or not self.ib or not provider:
-            return
-        policy = self._effective_startup_crypto_unprotected_policy()
-        for pos in self.ib.positions():
-            symbol = self._canonical_symbol_for_contract(pos.contract)
-            if not symbol or not self._is_zero_hash_symbol(symbol) or abs(pos.position) <= 0:
-                continue
-            if symbol in self._synthetic_stops and self._synthetic_stops[symbol].state == "armed":
-                continue
-            if policy == "PAUSE" and symbol in self._paused_symbols:
-                continue
-            self._handle_naked_position(symbol, pos.position, provider, timeframe, policy)
+            logger.error("[CRYPTO] Synthetic TP failed for %s: %s", symbol, exc)
+            return ExecutionResult(ExecutionStatus.ERROR, symbol, f"synthetic take-profit failed: {exc}")
 
     def _trigger_synthetic_stop(self, stop: SyntheticStop, last_price: float) -> ExecutionResult | None:
         symbol = stop.symbol
-        state = self._fetch_symbol_state(symbol)
-        pos_size = state.get("position_shares", 0)
-        if pos_size == 0:
-            self._cancel_order(stop.entry_order)
-            self._cancel_order(stop.tp_order)
-            stop.state = "cancelled"
-            self._clear_synthetic_stop(symbol)
-            logger.info(
-                "[CRYPTO] Synthetic stop cancelled for %s (reason=entry_cancelled last=%.4f)",
-                symbol,
-                last_price,
-            )
-            return ExecutionResult(
-                ExecutionStatus.STAND_ASIDE,
-                symbol,
-                "synthetic stop cancelled",
-            )
-        action = "SELL" if stop.direction == "long" else "BUY"
-        order_qty = abs(pos_size)
-        if order_qty <= 0:
-            return None
         try:
-            from ib_insync import MarketOrder  # type: ignore
-
-            order = MarketOrder(action=action, totalQuantity=order_qty)
-        except Exception as exc:  # pragma: no cover
-            logger.error("ib_insync MarketOrder unavailable for synthetic stop: %s", exc)
-            return ExecutionResult(
-                ExecutionStatus.ERROR,
-                symbol,
-                f"synthetic stop failed: {exc}",
-            )
-        order.tif = "GTC"
-        contract = self._contract_for_symbol(symbol)
-        metadata = SYMBOL_METADATA.get(symbol.upper())
-        order.tif = self._effective_tif(
-            metadata.asset_class if metadata else None,
-            getattr(contract, "exchange", None),
-            order.tif,
-        )
-        self._set_order_ref(order, symbol, "SYN_STOP")
-        self._apply_zerohash_minutes_tif(order)
-        self._cancel_order(stop.tp_order)
-        self.cancel_all_orders_for_symbol(symbol)
-        try:
-            self.ib.placeOrder(contract, order)
+            from ib_insync import MarketOrder
+            self.cancel_all_orders_for_symbol(symbol)
+            action = "SELL" if stop.direction == "long" else "BUY"
+            order = MarketOrder(action=action, totalQuantity=stop.size)
+            self._set_order_ref(order, symbol, "SYN_SL")
+            self.ib.placeOrder(self._contract_for_symbol(symbol), order)
+            logger.warning("[CRYPTO] Synthetic stop TRIGGERED for %s at %.4f", symbol, last_price)
+            self._record_equity_exit(symbol)
+            return ExecutionResult(ExecutionStatus.EXECUTED, symbol, "synthetic stop triggered")
         except Exception as exc:
-            logger.error("Synthetic stop flatten for %s failed: %s", symbol, exc)
-            return ExecutionResult(
-                ExecutionStatus.ERROR,
-                symbol,
-                f"synthetic stop flatten failed: {exc}",
-            )
-        tp_display = f"{stop.tp_price:.4f}" if stop.tp_price is not None else "n/a"
-        logger.info(
-            "[CRYPTO] Synthetic stop TRIGGERED for %s at last=%.4f; sending MKT %s %.2f and cancelling TP=%s",
-            symbol,
-            last_price,
-            action,
-            order_qty,
-            tp_display,
-        )
-        stop.state = "triggered"
-        self._clear_synthetic_stop(symbol)
-        self._record_equity_exit(symbol)
-        return ExecutionResult(
-            ExecutionStatus.EXECUTED,
-            symbol,
-            "synthetic stop triggered",
-        )
+            logger.error("[CRYPTO] Synthetic stop failed for %s: %s", symbol, exc)
+            return ExecutionResult(ExecutionStatus.ERROR, symbol, f"synthetic stop failed: {exc}")
 
     def _cancel_order(self, order: Any | None) -> None:
         if not order or not self.ib:
@@ -1805,55 +1531,14 @@ class IbkrExecutor:
         except Exception as exc:
             logger.debug("Failed to cancel order %s: %s", getattr(order, "orderId", order), exc)
 
-    def _pdt_rollover(self) -> None:
-        today = datetime.now(ZoneInfo("UTC")).date()
-        if self._pdt_current_date != today:
-            self._pdt_current_date = today
-            self._pdt_roundtrips_today = 0
-            self._pdt_entry_dates.clear()
-
     def _check_pdt_guard(self, symbol: str, metadata: SymbolMetadata) -> bool:
-        if not self._pdt_guard_enabled or metadata.asset_class != AssetClass.EQUITY:
-            return True
-        if self._pdt_roundtrip_limit <= 0:
-            return True
-        self._pdt_rollover()
-        if self._pdt_roundtrips_today >= self._pdt_roundtrip_limit:
-            logger.info(
-                "[PDT] Blocked new equity entry for %s: equity_roundtrips_today=%s max=%s (pdt_guard_enabled=true)",
-                symbol,
-                self._pdt_roundtrips_today,
-                self._pdt_roundtrip_limit,
-            )
-            return False
-        return True
+        return self.pdt_guard.check_pdt_guard(symbol, metadata)
 
     def _record_equity_entry(self, symbol: str) -> None:
-        if not self._pdt_guard_enabled:
-            return
-        metadata = SYMBOL_METADATA.get(symbol.upper())
-        if not metadata or metadata.asset_class != AssetClass.EQUITY:
-            return
-        self._pdt_rollover()
-        self._pdt_entry_dates[symbol.upper()] = self._pdt_current_date
+        self.pdt_guard.record_equity_entry(symbol)
 
     def _record_equity_exit(self, symbol: str) -> None:
-        if not self._pdt_guard_enabled:
-            return
-        metadata = SYMBOL_METADATA.get(symbol.upper())
-        if not metadata or metadata.asset_class != AssetClass.EQUITY:
-            return
-        self._pdt_rollover()
-        entry_day = self._pdt_entry_dates.pop(symbol.upper(), None)
-        if entry_day == self._pdt_current_date:
-            self._pdt_roundtrips_today += 1
-            logger.info(
-                "[PDT] Equity roundtrip completed: symbol=%s date=%s total_today=%s",
-                symbol,
-                self._pdt_current_date.isoformat(),
-                self._pdt_roundtrips_today,
-            )
-        self._clear_position_hold(symbol)
+        self.pdt_guard.record_equity_exit(symbol)
 
     def _sync_position_holds_with_ib(self) -> None:
         if not self.ib:

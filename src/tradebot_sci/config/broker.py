@@ -144,3 +144,41 @@ def load_oanda_broker_options() -> OandaSettings:
     if data["environment"] not in ["practice", "live"]:
         data["environment"] = "practice"
     return OandaSettings(**data)
+
+
+class PaxosSettings(BaseModel):
+    """Configuration for Paxos (itBit) API."""
+    api_key: str = Field(default="")
+    api_secret: str = Field(default="")
+    environment: Literal["sandbox", "production"] = Field(default="sandbox")
+
+
+def load_paxos_broker_options() -> PaxosSettings:
+    """Loads Paxos credentials from environment variables."""
+    data = {
+        "api_key": os.getenv("PAXOS_API_KEY", ""),
+        "api_secret": os.getenv("PAXOS_API_SECRET", ""),
+        "environment": os.getenv("PAXOS_ENVIRONMENT", "sandbox").lower(),
+    }
+    # Basic validation
+    if data["environment"] not in ["sandbox", "production"]:
+        data["environment"] = "sandbox"
+    return PaxosSettings(**data)
+
+class KrakenSettings(BaseModel):
+    """Configuration for Kraken API."""
+    api_key: str = Field(default="")
+    api_secret: str = Field(default="")
+    environment: Literal["sandbox", "production"] = Field(default="production")
+
+
+def load_kraken_broker_options() -> KrakenSettings:
+    """Loads Kraken credentials from environment variables."""
+    data = {
+        "api_key": os.getenv("KRAKEN_API_KEY", ""),
+        "api_secret": os.getenv("KRAKEN_API_SECRET", ""),
+        "environment": os.getenv("KRAKEN_ENVIRONMENT", "production").lower(),
+    }
+    if data["environment"] not in ["sandbox", "production"]:
+        data["environment"] = "production"
+    return KrakenSettings(**data)

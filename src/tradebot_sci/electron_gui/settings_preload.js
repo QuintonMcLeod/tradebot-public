@@ -6,8 +6,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readProfiles: () => ipcRenderer.invoke('read-profiles'),
     saveProfiles: (content) => ipcRenderer.invoke('save-profiles', content),
     resolveCity: (cityName) => ipcRenderer.invoke('resolve-city', cityName),
+    readProfileStrategies: (profileName) => ipcRenderer.invoke('read-profile-strategies', profileName),
+    saveProfileStrategies: (profileName, strategies) => ipcRenderer.invoke('save-profile-strategies', profileName, strategies),
     closeSettings: () => ipcRenderer.send('close-settings'),
     minimizeWindow: () => ipcRenderer.send('minimize-window'),
     maximizeWindow: () => ipcRenderer.send('maximize-window'),
     closeWindow: () => ipcRenderer.send('close-window'),
+    onEnvUpdated: (callback) => ipcRenderer.on('env-updated', (event, data) => callback(data)),
 });

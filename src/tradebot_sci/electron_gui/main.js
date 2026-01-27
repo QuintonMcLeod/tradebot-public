@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
+const logParser = require('./log_parser');
 
 let mainWindow;
 let settingsWindow;
@@ -43,6 +44,12 @@ function setupIpcHandlers() {
         });
 
         fs.writeFileSync(DOTENV_PATH, lines.join('\n'));
+
+        // Notify all windows
+        BrowserWindow.getAllWindows().forEach(win => {
+            win.webContents.send('env-updated', updates);
+        });
+
         return { success: true };
     });
 
@@ -67,6 +74,65 @@ function setupIpcHandlers() {
             "London": { lat: 51.5074, lon: -0.1278, tz: "Europe/London" }
         };
         return cities[cityName] || null;
+    });
+
+    ipcMain.handle('read-profile-strategies', async (event, profileName) => {
+        const yaml = require('js-yaml');
+        if (!fs.existsSync(PROFILES_PATH)) return null;
+        const content = fs.readFileSync(PROFILES_PATH, 'utf8');
+        const profiles = yaml.load(content);
+        return profiles?.profiles?.[profileName]?.strategies || null;
+    });
+
+    ipcMain.handle('save-profile-strategies', async (event, profileName, strategies) => {
+        const yaml = require('js-yaml');
+        if (!fs.existsSync(PROFILES_PATH)) return { success: false, error: 'Profiles file missing' };
+        const content = fs.readFileSync(PROFILES_PATH, 'utf8');
+        const profiles = yaml.load(content);
+
+        if (!profiles.profiles) profiles.profiles = {};
+        if (!profiles.profiles[profileName]) profiles.profiles[profileName] = {};
+
+        profiles.profiles[profileName].strategies = strategies;
+
+        fs.writeFileSync(PROFILES_PATH, yaml.dump(profiles, { lineWidth: -1 }));
+        return { success: true };
+    });
+
+    // Analytics IPC Handlers
+    ipcMain.handle('get-trade-history', async (event, filter = '24h') => {
+        console.log('[ANALYTICS-IPC] get-trade-history called with filter:', filter);
+        try {
+            const data = await logParser.getTradeHistory(filter);
+            console.log('[ANALYTICS-IPC] Trade history result - trades:', data.trades?.length, 'capital:', data.capital?.length);
+            return { success: true, data };
+        } catch (error) {
+            console.error('[ANALYTICS-IPC] Error getting trade history:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('get-analytics-summary', async (event, filter = '24h') => {
+        console.log('[ANALYTICS-IPC] get-analytics-summary called with filter:', filter);
+        try {
+            const data = await logParser.getTradeHistory(filter);
+            console.log('[ANALYTICS-IPC] Raw data - trades:', data.trades?.length, 'capital:', data.capital?.length);
+            const summary = logParser.calculateAnalyticsSummary(data);
+            console.log('[ANALYTICS-IPC] Summary calculated - totalTrades:', summary.totalTrades);
+            return { success: true, data: summary };
+        } catch (error) {
+            console.error('[ANALYTICS-IPC] Error calculating summary:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('get-log-files', async () => {
+        try {
+            const files = logParser.getLogFiles();
+            return { success: true, data: files };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
     });
 }
 
@@ -116,7 +182,7 @@ function createSettingsWindow() {
     }
 
     settingsWindow = new BrowserWindow({
-        width: 1100,
+        width: 1615,
         height: 850,
         backgroundColor: '#020617',
         frame: false,
@@ -157,6 +223,10 @@ function createWindow() {
 
     win.on('close', () => {
         try { fs.writeFileSync(statePath, JSON.stringify(win.getBounds())); } catch (e) { }
+        if (settingsWindow) {
+            settingsWindow.close();
+            settingsWindow = null;
+        }
     });
 
     win.webContents.once('did-finish-load', () => {

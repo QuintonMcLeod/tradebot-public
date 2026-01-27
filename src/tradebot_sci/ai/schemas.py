@@ -104,6 +104,7 @@ class MarketContext(BaseModel):
     ltf_candles: Optional[list[dict]] = None
     open_position: Optional[dict] = None
     notes: Optional[str] = None
+    strategy_variant: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Exports context as dict so the AI gets the memo."""

@@ -83,7 +83,7 @@ else
     echo "Committing changes..."
     git commit -m "Update public mirror: $(date '+%Y-%m-%d %H:%M:%S')"
     
-    echo "Pushing to public remote (FORCE)..."
+    echo "Pushing to public remote..."
     git push origin "$BRANCH"
 fi
 

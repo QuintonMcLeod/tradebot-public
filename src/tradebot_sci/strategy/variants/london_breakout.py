@@ -39,7 +39,7 @@ class LondonBreakoutStrategy(BaseStrategy):
         low = min(c.low for c in candles_today)
         return low, high
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict) -> Optional[AITradeDecision]:
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, **kwargs) -> Optional[AITradeDecision]:
         current_time = snapshot.candles[-1].timestamp.time()
         # Only trade after the range is established
         if current_time <= self.range_end:
@@ -93,7 +93,7 @@ class LondonBreakoutStrategy(BaseStrategy):
 
         return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict) -> Optional[AITradeDecision]:
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
         # Exit if price returns into the range (failed breakout)
         london_range = self._get_london_range(snapshot)
         if not london_range:

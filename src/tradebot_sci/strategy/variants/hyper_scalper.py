@@ -24,7 +24,7 @@ class HyperScalperStrategy(BaseStrategy):
         self.trend_ema_period = trend_ema
         self.base_risk_pct = base_risk_pct
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None) -> Optional[AITradeDecision]:
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         closes = [c.close for c in snapshot.candles]
         if len(closes) < self.trend_ema_period:
             return None
@@ -82,7 +82,7 @@ class HyperScalperStrategy(BaseStrategy):
 
         return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict) -> Optional[AITradeDecision]:
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
         closes = [c.close for c in snapshot.candles]
         if len(closes) < self.slow_ema_period:
             return None

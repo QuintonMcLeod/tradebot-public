@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="./dist/output.css" rel="stylesheet">
+    <link href="./settings.css" rel="stylesheet">
     <title>Tradebot SCI</title>
     <!-- Material Symbols -->
     <link rel="stylesheet"
@@ -161,7 +162,7 @@
         </div>
 
         <!-- MAIN VIEW (Vertical Stack) -->
-        <div class="flex-1 flex flex-col gap-6 p-6 min-w-0">
+        <div id="view-dashboard" class="flex-1 flex flex-col gap-6 p-6 min-w-0">
 
             <!-- CHART PANEL (Deep Navy + Thick Borders) -->
             <div
@@ -319,12 +320,203 @@
 
         </div>
 
+        <!-- ANALYTICS VIEW (Hidden by default) -->
+        <div id="view-analytics" class="hidden flex-1 flex flex-col gap-6 p-6 min-w-0 overflow-y-auto scrollbar-thin">
+
+            <!-- Analytics Header -->
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <span class="material-symbols-outlined text-3xl text-teal-400">analytics</span>
+                    <div>
+                        <h1 class="text-2xl font-black text-white tracking-tight">Trade Analytics</h1>
+                        <p class="text-xs text-slate-500">Performance metrics and trade history</p>
+                    </div>
+                </div>
+
+                <!-- Time Filter Tabs -->
+                <div class="flex gap-2 bg-black/40 p-1.5 rounded-xl border border-white/5">
+                    <button class="time-filter-btn active text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all" data-filter="1h">1H</button>
+                    <button class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white" data-filter="24h">24H</button>
+                    <button class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white" data-filter="week">Week</button>
+                    <button class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white" data-filter="month">Month</button>
+                    <button class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white" data-filter="all">All</button>
+                </div>
+            </div>
+
+            <!-- Primary Metrics Row -->
+            <div class="grid grid-cols-6 gap-4">
+                <!-- Wins Card -->
+                <div class="metric-card bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 transition-all hover:border-emerald-500/40 hover:shadow-lg hover:shadow-emerald-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-emerald-400 text-lg">trending_up</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70">Wins</span>
+                    </div>
+                    <div id="metric-wins" class="text-3xl font-black text-emerald-400">0</div>
+                </div>
+
+                <!-- Losses Card -->
+                <div class="metric-card bg-gradient-to-br from-red-500/10 to-red-500/5 border border-red-500/20 rounded-2xl p-5 transition-all hover:border-red-500/40 hover:shadow-lg hover:shadow-red-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-red-400 text-lg">trending_down</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-red-400/70">Losses</span>
+                    </div>
+                    <div id="metric-losses" class="text-3xl font-black text-red-400">0</div>
+                </div>
+
+                <!-- Win Rate Card -->
+                <div class="metric-card bg-gradient-to-br from-teal-500/10 to-teal-500/5 border border-teal-500/20 rounded-2xl p-5 transition-all hover:border-teal-500/40 hover:shadow-lg hover:shadow-teal-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-teal-400 text-lg">percent</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-teal-400/70">Win Rate</span>
+                    </div>
+                    <div id="metric-winrate" class="text-3xl font-black text-teal-400">0%</div>
+                </div>
+
+                <!-- R:R Ratio Card -->
+                <div class="metric-card bg-gradient-to-br from-purple-500/10 to-purple-500/5 border border-purple-500/20 rounded-2xl p-5 transition-all hover:border-purple-500/40 hover:shadow-lg hover:shadow-purple-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-purple-400 text-lg">balance</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-purple-400/70">R:R Ratio</span>
+                    </div>
+                    <div id="metric-rr" class="text-3xl font-black text-purple-400">0:1</div>
+                </div>
+
+                <!-- Total PnL Card -->
+                <div class="metric-card bg-gradient-to-br from-amber-500/10 to-amber-500/5 border border-amber-500/20 rounded-2xl p-5 transition-all hover:border-amber-500/40 hover:shadow-lg hover:shadow-amber-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-amber-400 text-lg">payments</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-amber-400/70">Total PnL</span>
+                    </div>
+                    <div id="metric-pnl" class="text-3xl font-black text-amber-400">$0.00</div>
+                </div>
+
+                <!-- PnL % Card -->
+                <div class="metric-card bg-gradient-to-br from-cyan-500/10 to-cyan-500/5 border border-cyan-500/20 rounded-2xl p-5 transition-all hover:border-cyan-500/40 hover:shadow-lg hover:shadow-cyan-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-cyan-400 text-lg">show_chart</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-cyan-400/70">Return %</span>
+                    </div>
+                    <div id="metric-pnl-pct" class="text-3xl font-black text-cyan-400">0%</div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-2 gap-6">
+                <!-- Win/Loss Pie Chart -->
+                <div class="bg-[#020617] rounded-2xl border border-teal-500/20 p-6 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal-500/30 to-transparent"></div>
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-teal-400 mb-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-base">pie_chart</span>
+                        Win/Loss Distribution
+                    </h3>
+                    <div class="h-64 flex items-center justify-center">
+                        <canvas id="chart-winloss-pie"></canvas>
+                    </div>
+                </div>
+
+                <!-- Equity Curve -->
+                <div class="bg-[#020617] rounded-2xl border border-teal-500/20 p-6 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal-500/30 to-transparent"></div>
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-teal-400 mb-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-base">trending_up</span>
+                        Equity Curve
+                    </h3>
+                    <div id="chart-equity-curve" class="h-64"></div>
+                </div>
+            </div>
+
+            <!-- Secondary Metrics Row -->
+            <div class="grid grid-cols-5 gap-4">
+                <!-- Avg Win -->
+                <div class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Avg Win</div>
+                    <div id="metric-avg-win" class="text-xl font-black text-emerald-400">$0.00</div>
+                </div>
+
+                <!-- Avg Loss -->
+                <div class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Avg Loss</div>
+                    <div id="metric-avg-loss" class="text-xl font-black text-red-400">$0.00</div>
+                </div>
+
+                <!-- Best Trade -->
+                <div class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Best Trade</div>
+                    <div id="metric-best" class="text-xl font-black text-emerald-400">$0.00</div>
+                </div>
+
+                <!-- Worst Trade -->
+                <div class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Worst Trade</div>
+                    <div id="metric-worst" class="text-xl font-black text-red-400">$0.00</div>
+                </div>
+
+                <!-- Profit Factor -->
+                <div class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Profit Factor</div>
+                    <div id="metric-pf" class="text-xl font-black text-teal-400">0.00</div>
+                </div>
+            </div>
+
+            <!-- Capital Summary Row -->
+            <div class="grid grid-cols-3 gap-4">
+                <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/5 rounded-xl p-5">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-2">Capital at Start</div>
+                    <div id="metric-capital-start" class="text-2xl font-black text-white">$0.00</div>
+                </div>
+                <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/5 rounded-xl p-5">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-2">Capital at End</div>
+                    <div id="metric-capital-end" class="text-2xl font-black text-white">$0.00</div>
+                </div>
+                <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/5 rounded-xl p-5">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-2">Net Change</div>
+                    <div id="metric-capital-change" class="text-2xl font-black text-teal-400">$0.00</div>
+                </div>
+            </div>
+
+            <!-- Trade History Table -->
+            <div class="bg-[#020617] rounded-2xl border border-teal-500/20 flex-1 min-h-[300px] flex flex-col overflow-hidden">
+                <div class="h-12 flex items-center justify-between px-6 border-b border-teal-500/10 bg-black/40">
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-teal-400 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-base">receipt_long</span>
+                        Trade History
+                    </h3>
+                    <span id="trade-count" class="text-[10px] text-slate-500">0 trades</span>
+                </div>
+                <div class="flex-1 overflow-auto scrollbar-thin">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="sticky top-0 bg-[#020617]/95 backdrop-blur-sm z-10">
+                            <tr class="text-teal-500 font-black uppercase tracking-widest text-[10px]">
+                                <th class="px-6 py-3 w-32">Time</th>
+                                <th class="px-4 py-3 w-28">Symbol</th>
+                                <th class="px-4 py-3 w-20 text-center">Side</th>
+                                <th class="px-4 py-3 w-28 text-right">PnL</th>
+                                <th class="px-4 py-3">Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trade-history-body" class="divide-y divide-slate-800/50 font-mono text-xs text-slate-300">
+                            <!-- Trade rows will be inserted here -->
+                            <tr id="no-trades-row">
+                                <td colspan="5" class="px-6 py-12 text-center text-slate-500 italic">
+                                    <span class="material-symbols-outlined text-4xl mb-2 block opacity-30">search_off</span>
+                                    No trades found in this period
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
     </div>
 
-    <!-- Chart Library -->
+    <!-- Chart Libraries -->
     <script src="./lightweight-charts.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <!-- App Logic -->
     <script src="renderer.js"></script>
+    <script src="analytics.js"></script>
 </body>
 
 </html>

@@ -105,13 +105,14 @@ class WebSocketServer:
         if self.loop:
             asyncio.run_coroutine_threadsafe(self.broadcast(message), self.loop)
 
-    def broadcast_candle_sync(self, symbol, timeframe, candle):
-        """Thread-safe candle broadcast."""
+    def broadcast_candle_sync(self, symbol, timeframe, candle, provider=None):
+        """Thread-safe candle broadcast with optional provider tagging."""
         msg = {
             "type": "candle",
             "symbol": symbol,
             "tf": timeframe,
-            "data": candle
+            "data": candle,
+            "provider": provider 
         }
         self.broadcast_sync(msg)
 
@@ -145,6 +146,10 @@ class WebSocketServer:
     def set_on_subscribe_callback(self, cb):
         """Register a callback for when a client subscribes to a symbol."""
         self._on_subscribe_cb = cb
+
+    def get_subscriptions(self) -> list[tuple[str, str]]:
+        """Returns a list of (symbol, timeframe) currently subscribed to by clients."""
+        return [(sub["symbol"], sub["tf"]) for sub in self.subscriptions.values()]
 
     def is_halted(self) -> bool:
         """Returns True if the bot should be paused."""

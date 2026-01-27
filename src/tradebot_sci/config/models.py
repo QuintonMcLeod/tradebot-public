@@ -1,10 +1,11 @@
 from __future__ import annotations
+import os
 
 from functools import lru_cache
 from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, HttpUrl, NonNegativeInt, PositiveInt
-from tradebot_sci.config.broker import BrokerSettings, OandaSettings
+from tradebot_sci.config.broker import BrokerSettings, OandaSettings, PaxosSettings, KrakenSettings
 
 
 class LoggingSettings(BaseModel):
@@ -14,16 +15,41 @@ class LoggingSettings(BaseModel):
     backup_count: PositiveInt = Field(default=5, description="Number of rotated files to keep")
 
 
+class PerAssetStrategies(BaseModel):
+    """Per-asset-class strategy configuration."""
+    crypto: str = "rubberband_reaper"
+    forex: str = "rubberband_reaper"
+    stocks: str = "quantum"
+    etf: str = "quantum"
+    metals: str = "mean_reversion"
+    futures: str = "volatility_breakout"
+
+
 class AISettings(BaseModel):
     provider: str = Field(
-        default="openai",
+        default_factory=lambda: os.getenv("TRADE_SCI_PROVIDER", "openai"),
         description="LLM provider: openai|gemini|claude|deepseek|openrouter|custom",
     )
-    base_url: HttpUrl = Field(description="Base URL for Trade by SCI compatible API")
-    api_key: Optional[str] = Field(default=None, description="API key for authentication")
-    model_name: str = Field(default="trade-sci-max-icc", description="Model identifier")
-    temperature: float = Field(default=0.2, ge=0.0, le=2.0)
-    max_tokens: PositiveInt = Field(default=2048)
+    base_url: HttpUrl = Field(
+        default_factory=lambda: os.getenv("TRADE_SCI_API_BASE_URL", "https://api.openai.com/v1"),
+        description="Base URL for Trade by SCI compatible API"
+    )
+    api_key: Optional[str] = Field(
+        default_factory=lambda: os.getenv("TRADE_SCI_API_KEY") or os.getenv("CHATGPT_KEY"),
+        description="API key for authentication"
+    )
+    model_name: str = Field(
+        default_factory=lambda: os.getenv("TRADE_SCI_MODEL_NAME", "trade-sci-max-icc"),
+        description="Model identifier"
+    )
+    temperature: float = Field(
+        default_factory=lambda: float(os.getenv("TRADE_SCI_TEMPERATURE", "0.2")),
+        ge=0.0,
+        le=2.0
+    )
+    max_tokens: PositiveInt = Field(
+        default_factory=lambda: int(os.getenv("TRADE_SCI_MAX_TOKENS", "2048"))
+    )
     timeout_seconds: PositiveInt = Field(default=30)
 
 
@@ -44,15 +70,15 @@ class MarketSettings(BaseModel):
     max_candles: PositiveInt = Field(default=200)
     symbols: list[str] = Field(default_factory=list, description="Symbols the scanner will consider")
     exchange_provider: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda"] = Field(
-        default="primary",
+        default_factory=lambda: os.getenv("EXCHANGE_PROVIDER", "primary"),
         description="DEPRECATED: Use market_data_mode and broker_mode instead. Selects global mode.",
     )
     market_data_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda"] = Field(
-        default="primary",
+        default_factory=lambda: os.getenv("MARKET_DATA_MODE", os.getenv("EXCHANGE_PROVIDER", "primary")),
         description="Selects the market data provider strategy (primary=IBKR, alternative=Crypto plugin, hybrid=Mix, coinbase_futures=Coinbase V3 Futures, oanda=OANDA v20).",
     )
     broker_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda"] = Field(
-        default="primary",
+        default_factory=lambda: os.getenv("BROKER_MODE", os.getenv("EXCHANGE_PROVIDER", "primary")),
         description="Selects the broker execution strategy (primary=IBKR, alternative=CCXT, hybrid=Mix, coinbase_futures=Coinbase V3 Futures, oanda=OANDA v20).",
     )
     alternative_market_data: Literal["mock", "coinbase", "coinbase_futures", "ccxt", "oanda"] = Field(
@@ -78,8 +104,19 @@ class CoinbaseFuturesSettings(BaseModel):
     margin_buffer_pct: float = Field(default=0.1, ge=0.0, le=0.5, description="Buffer above maintenance margin")
     use_cross_margin: bool = Field(default=True, description="Use cross margin if supported")
 
-
 class TradingProfileSettings(BaseModel):
+    name: Optional[str] = Field(
+        default=None,
+        description="Internal name for the profile.",
+    )
+    strategy_variant: str = Field(
+        default="rubberband_reaper",
+        description="Legacy single strategy (fallback) for the profile.",
+    )
+    strategies: Optional[PerAssetStrategies] = Field(
+        default=None,
+        description="Per-asset-class strategy overrides.",
+    )
     candle_timeframe: str
     market_poll_interval_seconds: PositiveInt
     ai_decision_interval_seconds: PositiveInt
@@ -573,6 +610,43 @@ class TradingProfileSettings(BaseModel):
         description="Optional override for runtime.max_concurrent_positions. If set, overrides the global setting.",
     )
 
+    def get_strategy_for_symbol(self, symbol: str) -> str:
+        """
+        Get the appropriate strategy for a given symbol.
+
+        Args:
+            symbol: The trading symbol
+
+        Returns:
+            Strategy variant name
+        """
+        from tradebot_sci.utils.symbol_classifier import AssetClass, classify_symbol
+        asset_class = classify_symbol(symbol)
+
+        # 1. Check for environment variable overrides (highest priority)
+        # e.g., STRATEGY_CRYPTO=robocop
+        env_key = f"STRATEGY_{asset_class.value.upper()}"
+        env_override = os.getenv(env_key)
+        if env_override:
+            return env_override.lower()
+
+        # 2. Check for profile-specific overrides
+        if self.strategies is not None:
+            strategy_map = {
+                AssetClass.CRYPTO: self.strategies.crypto,
+                AssetClass.FOREX: self.strategies.forex,
+                AssetClass.STOCKS: self.strategies.stocks,
+                AssetClass.ETF: self.strategies.etf,
+                AssetClass.METALS: self.strategies.metals,
+                AssetClass.FUTURES: self.strategies.futures,
+            }
+            res = strategy_map.get(asset_class)
+            if res:
+                return res
+
+        # 3. Fallback to legacy single strategy
+        return self.strategy_variant
+
 
 class AppSettings(BaseModel):
     name: str = Field(default="tradebot-sci-enterprise")
@@ -591,115 +665,133 @@ class ScheduleSettings(BaseModel):
     sessions: list[ScheduleSession] = Field(default_factory=list)
 
 
+class RoboCopSettings(BaseModel):
+    combat_mode_enabled: bool = Field(
+        default_factory=lambda: os.getenv("COMBAT_MODE_ENABLED", "True").lower() == "true",
+        description="Bypass human delays (Session, Confirmation)"
+    )
+    fast_exit_enabled: bool = Field(
+        default_factory=lambda: os.getenv("ROBO_FAST_EXIT_ENABLED", "True").lower() == "true"
+    )
+    chop_scalp_enabled: bool = Field(
+        default_factory=lambda: os.getenv("ROBO_CHOP_SCALP_ENABLED", "True").lower() == "true"
+    )
+    runner_grace_enabled: bool = Field(
+        default_factory=lambda: os.getenv("RUNNER_GRACE_ENABLED", "True").lower() == "true"
+    )
+    entry_score_threshold: float = Field(
+        default_factory=lambda: float(os.getenv("ROBO_ENTRY_SCORE_THRESHOLD", "35.0"))
+    )
+
+
+class RiskSettings(BaseModel):
+    base_risk_pct: float = Field(
+        default_factory=lambda: float(os.getenv("PROFILE_AGGRESSIVE_RISK_PER_TRADE_PCT", "0.20"))
+    )
+    compound_profits: bool = Field(default=True)
+    infinite_pyramiding: bool = Field(default=True)
+    max_pyramid_entries: int = Field(default=1000)
+    pyramid_trigger_pct: float = Field(default=0.0001)
+    pyramid_risk_load: float = Field(default=1.00)
+    pyramid_risk_scale: float = Field(default=1.00)
+    stagnation_exit_enabled: bool = Field(
+        default_factory=lambda: os.getenv("STAGNATION_EXIT_ENABLED", "False").lower() == "true"
+    )
+    stagnation_exit_minutes: int = Field(
+        default_factory=lambda: int(os.getenv("STAGNATION_EXIT_MINUTES", "60"))
+    )
+    chop_scalp_target_usd: float = Field(default=1.00)
+    chop_strength_threshold: float = Field(default=0.5)
+
+
 class RuntimeSettings(BaseModel):
-    cancel_orders_on_start: bool = Field(default=False)
-    flatten_on_exit: bool = Field(default=False)
+    cancel_orders_on_start: bool = Field(
+        default_factory=lambda: os.getenv("CANCEL_ORDERS_ON_START", "False").lower() == "true"
+    )
+    flatten_on_exit: bool = Field(
+        default_factory=lambda: os.getenv("FLATTEN_ON_EXIT", "False").lower() == "true"
+    )
     intraday_flatten: bool = Field(
-        default=False,
+        default_factory=lambda: os.getenv("INTRADAY_FLATTEN", "False").lower() == "true",
         description="Flatten at session end for intraday mode",
     )
     allow_day_trades: bool = Field(
-        default=False,
+        default_factory=lambda: os.getenv("ALLOW_DAY_TRADES", "False").lower() == "true",
         description="When false, exits are blocked until the minimum hold duration elapses.",
     )
     min_hold_seconds: PositiveInt = Field(
-        default=300,
+        default_factory=lambda: int(os.getenv("MIN_HOLD_SECONDS", "300")),
         description="Minimum seconds a position must be held before exits or TP orders are permitted when day trades are disabled.",
     )
     min_equity_for_margin: float = Field(
-        default=2000.0,
+        default_factory=lambda: float(os.getenv("MIN_EQUITY_FOR_MARGIN", "2000.0")),
         ge=0.0,
         description="Minimum NetLiquidation required before margin, short, or FX trades proceed.",
     )
     position_hold_store_path: str = Field(
-        default="data/position_holds.json",
+        default_factory=lambda: os.getenv("POSITION_HOLD_STORE_PATH", "data/position_holds.json"),
         description="Path where position-open timestamps are persisted across restarts.",
     )
     allow_inherited_position: bool = Field(
-        default=False,
+        default_factory=lambda: os.getenv("ALLOW_INHERITED_POSITION", "False").lower() == "true",
         description="Allow runs to start with an existing broker position instead of auto-flattening",
     )
-    infer_position_hold_from_executions: bool = Field(
-        default=False,
-        description="Best-effort inference of inherited position age from recent IBKR executions (fallback uses now).",
-    )
-    infer_position_hold_lookback_days: int = Field(
-        default=7,
-        ge=1,
-        description="Lookback window (days) for execution-history inference of inherited position age.",
-    )
-    scale_out_fraction: float = Field(default=0.5, ge=0.0, le=1.0)
-    min_position_size_to_scale: float = Field(
-        default=1.0,
+    # ... rest of fields can use internal defaults unless needed ...
+    infer_position_hold_from_executions: bool = Field(default=False)
+    infer_position_hold_lookback_days: int = Field(default=7, ge=1)
+    scale_out_fraction: float = Field(
+        default_factory=lambda: float(os.getenv("SCALE_OUT_FRACTION", "0.5")),
         ge=0.0,
-        description="Minimum absolute position size before scaling out; below this we fully flatten",
+        le=1.0
     )
-    emergency_stop_pct: float = Field(default=0.01, ge=0.0, description="Fallback stop distance as fraction of price")
-    keep_alive_interval_seconds: int = Field(
-        default=300,
-        ge=0,
-        description="Interval in seconds to ping IBKR API during idle periods (0 disables keep-alive)",
+    min_position_size_to_scale: float = Field(
+        default_factory=lambda: float(os.getenv("MIN_POSITION_SIZE_TO_SCALE", "1.0")),
+        ge=0.0
     )
-    strike_max_consecutive: PositiveInt = Field(
-        default=3,
-        description="Maximum consecutive risk suppressions before a symbol is temporarily skipped",
+    emergency_stop_pct: float = Field(
+        default_factory=lambda: float(os.getenv("EMERGENCY_STOP_PCT", "0.01")),
+        ge=0.0
     )
-    strike_cooldown_cycles: PositiveInt = Field(
-        default=3,
-        description="Number of cycles to skip a symbol after it hits the strike limit",
-    )
-    guard_block_threshold: PositiveInt = Field(
-        default=6,
-        description="Guard block streak before activating cooldown (per symbol)",
-    )
-    guard_block_cooldown_cycles: PositiveInt = Field(
-        default=1,
-        description="Number of scheduler cycles to skip after guard block streak triggers",
-    )
-    allow_local_stops: bool = Field(
-        default=False,
-        description="Allow client-side local stop logic when the venue rejects stop orders",
-    )
-    local_stop_symbols: list[str] = Field(
-        default_factory=list,
-        description="Symbols that should use local-stop protection even if stop support is missing for others",
-    )
+    keep_alive_interval_seconds: int = Field(default=300, ge=0)
+    strike_max_consecutive: PositiveInt = Field(default=3)
+    strike_cooldown_cycles: PositiveInt = Field(default=3)
+    guard_block_threshold: PositiveInt = Field(default=6)
+    guard_block_cooldown_cycles: PositiveInt = Field(default=1)
+    allow_local_stops: bool = Field(default=False)
+    local_stop_symbols: list[str] = Field(default_factory=list)
     max_scale_ins_per_leg: int = Field(
-        default=2,
-        ge=0,
-        description="Maximum number of scale_in adds allowed per position leg (0 disables scale_in).",
+        default_factory=lambda: int(os.getenv("MAX_SCALE_INS_PER_LEG", "2")),
+        ge=0
     )
     multi_position_enabled: bool = Field(
-        default=True,  # [ANTIGRAVITY FIX] Changed default to True to prevent blocking if config load fails
-        description=(
-            "When true, the bot may hold multiple concurrent positions (up to max_concurrent_positions). "
-            "When false, new entries are blocked while any other position is open."
-        ),
+        default_factory=lambda: os.getenv("MULTI_POSITION_ENABLED", "True").lower() == "true"
     )
     max_concurrent_positions: PositiveInt = Field(
-        default=1,
-        description="Maximum number of concurrent open positions when multi_position_enabled is true.",
+        default_factory=lambda: int(os.getenv("MAX_CONCURRENT_POSITIONS", "1"))
     )
     auto_restart_on_error: bool = Field(
-        default=False,
-        description="Allow the bot to self-restart if IBKR health checks stay unhealthy for too long.",
+        default_factory=lambda: os.getenv("AUTO_RESTART_ON_ERROR", "False").lower() == "true"
     )
     auto_restart_stale_seconds: int = Field(
-        default=300,
-        ge=30,
-        description="Seconds without healthy IBKR account data/connection before auto-restart triggers.",
+        default_factory=lambda: int(os.getenv("AUTO_RESTART_STALE_SECONDS", "300")),
+        ge=30
     )
     auto_restart_min_uptime_seconds: int = Field(
-        default=120,
-        ge=0,
-        description="Minimum uptime before auto-restart can trigger (prevents boot loops).",
+        default_factory=lambda: int(os.getenv("AUTO_RESTART_MIN_UPTIME_SECONDS", "120")),
+        ge=0
     )
     auto_restart_cooldown_seconds: int = Field(
-        default=600,
-        ge=0,
-        description="Minimum seconds between auto-restarts (prevents rapid restart loops).",
+        default_factory=lambda: int(os.getenv("AUTO_RESTART_COOLDOWN_SECONDS", "600")),
+        ge=0
     )
 
+
+    simulation_risk_cap: float = Field(
+        default_factory=lambda: float(os.getenv("SIMULATION_RISK_CAP", "1.0")),
+        ge=0.0,
+        le=1.0,
+        description="Maximum allowed risk per trade as a fraction of equity (safety cap)."
+    )
 
 class Settings(BaseModel):
     app: AppSettings
@@ -708,9 +800,13 @@ class Settings(BaseModel):
     market: MarketSettings
     profiles: Dict[str, TradingProfileSettings]
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
+    risk: RiskSettings = Field(default_factory=RiskSettings)
+    robocop: RoboCopSettings = Field(default_factory=RoboCopSettings)
     schedule: ScheduleSettings = Field(default_factory=ScheduleSettings)
     broker: Optional[BrokerSettings] = None
     oanda: Optional[OandaSettings] = None
+    paxos: Optional[PaxosSettings] = None
+    kraken: Optional[KrakenSettings] = None
 
     def get_active_profile(self) -> TradingProfileSettings:
         profile = self.profiles.get(self.app.profile_name)
@@ -725,44 +821,50 @@ def get_cached_settings(settings: Settings) -> Settings:
 
 
 class UserConfig:
-    # Strategy Selection
-    # Variants: 'evolution', 'robocop', 'quantum', 'london_breakout', 'mean_reversion', 'hyperscalper'
-    STRATEGY_VARIANT = 'rubberband_reaper'  # The Rubberband Reaper (+865%, 39% WR, 3.7:1 R:R)
-    
-    # Extreme Risk Management (Goal: 100%-400% / week) 
-    # VERIFIED: +7,036% PnL with Tiered Risk (20%/10%/1-5%)
-    # Tiered Risk (Anti-Martingale):
-    #   - Below $1,000: 20% (aggressive growth)
-    #   - $1,000-$5,000: 10% (growth)
-    #   - Above $5,000: 1%-5% (adaptive protection/scaling)
-    BASE_RISK_PCT = 0.20        # 20% starting risk (tiered down as account grows)
-    COMPOUND_PROFITS = True     # Reinvest all gains for exponential growth
-    
-    # Singularity Pyramiding (Infinite Scale)
-    # NOTE: Super-Extreme mode (RSI <15/>85) prevents over-scaling
-    INFINITE_PYRAMIDING = True  # bypass MAX_PYRAMID_ENTRIES
-    MAX_PYRAMID_ENTRIES = 1000  # Effective infinity
-    PYRAMID_TRIGGER_PCT = 0.0001 # 0.01% (Instant Load)
-    PYRAMID_RISK_LOAD = 1.00    # 100% Risk on Load (Aggressive)
-    PYRAMID_RISK_SCALE = 1.00   # 100% Risk on Scale (Aggressive)
-    
-    # Efficiency Gates
-    STAGNATION_EXIT_ENABLED = False
-    STAGNATION_EXIT_MINUTES = 60  # Kill trade if PnL <= 0 after 60 mins
-    
-    # Chop Scalp
-    CHOP_SCALP_TARGET_USD = 1.00  # Bank profits in weak trends (Increased from 0.40)
-    CHOP_STRENGTH_THRESHOLD = 0.5 # Below this is considered "Chop"
-    
-    # RoboCop Optimization (Machine Speed)
-    COMBAT_MODE_ENABLED = True   # Bypass human delays (Session, Confirmation)
-    
-    # Fast Exit Logic ("Chop Top")
-    ROBO_FAST_EXIT_ENABLED = True
-    CHOP_TP_EXIT_ENABLED = False
-    CHOP_MAX_BARS = 10           # Exit if in chop for > 10 bars and profitable (Increased from 3)
-    
-    # Robot Strategy Evolution (Robot Speed)
-    ROBO_CHOP_SCALP_ENABLED = True # Trade inside the range (NTZ)
-    RUNNER_GRACE_ENABLED = True    # Allow winners to run during momentum
-    ROBO_ENTRY_SCORE_THRESHOLD = 35.0 # Quality over quantity
+    def _settings(self):
+        from tradebot_sci.config.loader import get_settings
+        return get_settings()
+
+    @property
+    def STRATEGY_VARIANT(self): 
+        s = self._settings()
+        return s.profiles.get(s.app.profile_name).strategy_variant
+    @property
+    def BASE_RISK_PCT(self): return self._settings().risk.base_risk_pct
+    @property
+    def COMPOUND_PROFITS(self): return self._settings().risk.compound_profits
+    @property
+    def INFINITE_PYRAMIDING(self): return self._settings().risk.infinite_pyramiding
+    @property
+    def MAX_PYRAMID_ENTRIES(self): return self._settings().risk.max_pyramid_entries
+    @property
+    def PYRAMID_TRIGGER_PCT(self): return self._settings().risk.pyramid_trigger_pct
+    @property
+    def PYRAMID_RISK_LOAD(self): return self._settings().risk.pyramid_risk_load
+    @property
+    def PYRAMID_RISK_SCALE(self): return self._settings().risk.pyramid_risk_scale
+    @property
+    def STAGNATION_EXIT_ENABLED(self): return self._settings().risk.stagnation_exit_enabled
+    @property
+    def STAGNATION_EXIT_MINUTES(self): return self._settings().risk.stagnation_exit_minutes
+    @property
+    def CHOP_SCALP_TARGET_USD(self): return self._settings().risk.chop_scalp_target_usd
+    @property
+    def CHOP_STRENGTH_THRESHOLD(self): return self._settings().risk.chop_strength_threshold
+    @property
+    def COMBAT_MODE_ENABLED(self): return self._settings().robocop.combat_mode_enabled
+    @property
+    def ROBO_FAST_EXIT_ENABLED(self): return self._settings().robocop.fast_exit_enabled
+    @property
+    def CHOP_TP_EXIT_ENABLED(self): return self._settings().robocop.fast_exit_enabled # alias for now
+    @property
+    def CHOP_MAX_BARS(self): return 10
+    @property
+    def ROBO_CHOP_SCALP_ENABLED(self): return self._settings().robocop.chop_scalp_enabled
+    @property
+    def RUNNER_GRACE_ENABLED(self): return self._settings().robocop.runner_grace_enabled
+    @property
+    def ROBO_ENTRY_SCORE_THRESHOLD(self): return self._settings().robocop.entry_score_threshold
+
+# Create a singleton instance to keep legacy code working
+UserConfig = UserConfig()

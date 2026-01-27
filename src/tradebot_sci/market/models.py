@@ -57,8 +57,20 @@ class OrderBookLevel:
 
 
 @dataclass
+class Ask:
+    price: float
+    size: float
+
+
+@dataclass
+class Bid:
+    price: float
+    size: float
+
+
+@dataclass
 class OrderBook:
     symbol: str
-    bids: list[OrderBookLevel]
-    asks: list[OrderBookLevel]
+    bids: list[Bid]
+    asks: list[Ask]
     timestamp: datetime

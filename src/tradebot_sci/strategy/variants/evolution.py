@@ -18,7 +18,7 @@ class RobotEvolutionStrategy(BaseStrategy):
     def __init__(self):
         super().__init__("Robot Evolution")
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None) -> Optional[AITradeDecision]:
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         if not snapshot.candles or len(snapshot.candles) < 20:
             return None
             
@@ -86,7 +86,7 @@ class RobotEvolutionStrategy(BaseStrategy):
         
         return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict) -> Optional[AITradeDecision]:
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
         # [AGGRESIVE VALIDATION] Disable ALL engine exits for chop scalps
         # Let Target or Stop handle it (configured in models/backtest)
         return None

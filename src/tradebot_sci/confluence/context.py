@@ -238,9 +238,11 @@ def _compute_risk_cap_pct(data: dict, confluence_score: float) -> float:
         cap = min(cap, friction_risk_cap)
 
     vix_present = isinstance(data.get("vix_close"), (int, float))
-    vix_fail_safe = os.getenv("VIX_FAIL_SAFE", "true").lower() == "true"
-    vix_risk_cap = float(os.getenv("VIX_RISK_CAP", "0.05"))
-    if asset_class == "equity" and vix_fail_safe and not vix_present:
+    # VIX Fail-safe: Always enable for equities unless provided in external data
+    vix_fail_safe = True
+    vix_risk_cap = 0.03
+    
+    if asset_class == "equity" and not vix_present:
         cap = min(cap, vix_risk_cap)
 
     # Session hard limits (equities outside hours should generally be lower risk).

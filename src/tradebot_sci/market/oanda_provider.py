@@ -25,10 +25,20 @@ class OandaMarketDataProvider:
         self.account_id = account_id
 
     def _normalize_symbol(self, symbol: str) -> str:
-        """Converts EURUSD to EUR_USD."""
+        """Converts EURUSD to EUR_USD, handles Crypto mappings."""
         sym = symbol.upper().replace("/", "").replace("-", "")
+        
+        # Standard OANDA pairs: XXX_YYY
         if len(sym) == 6:
             return f"{sym[:3]}_{sym[3:]}"
+        
+        # Crypto handling (BTCUSD -> BTC_USD, etc)
+        # OANDA usually uses BTC_USD or XBT_USD. We'll stick to _ format.
+        if sym.endswith("USD") and len(sym) > 3:
+            return f"{sym[:-3]}_{sym[-3:]}"
+        if sym.endswith("USDT") and len(sym) > 4:
+            return f"{sym[:-4]}_{sym[-4:]}"
+            
         return sym
 
     def _map_timeframe(self, tf: str) -> str:

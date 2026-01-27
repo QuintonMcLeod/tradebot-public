@@ -468,7 +468,7 @@ profiles:
   auto_schedule:
     strategy_variant: rubberband_reaper  # Default fallback
     strategies:
-      crypto: rubberband_reaper  # Anti-martingale for volatile crypto
+      crypto: robocop            # High-frequency aggressive for volatile crypto
       forex: rubberband_reaper   # Proven +7,036% on forex
       stocks: quantum            # Trend-following for equities
       etf: quantum               # Trend-following for ETFs
@@ -498,6 +498,11 @@ profiles:
     icc_high_score_override_threshold: 70.0
     icc_aggressive_mode: true
     aggressive_risk_per_trade_pct: 0.10
+    runtime_overrides:
+      market_data_mode: oanda
+      alternative_market_data: oanda
+      broker_mode: oanda
+      alternative_broker: oanda
     max_concurrent_positions: 1
     max_pyramid_entries: 5
     pyramid_score_threshold: 50.0
@@ -573,17 +578,19 @@ profiles:
     symbols:
     - BTCUSD
     - ETHUSD
-    - SOLUSD
-    - DOGEUSD
-    - XRPUSD
-    - ADAUSD
-    - LINKUSD
-    - POLUSD
-    - AVAXUSD
-    - SHIBUSD
-    - NEARUSD
-    - DOTUSD
-    - ATOMUSD
+    - LTCUSD
+    - BCHUSD
+    # - SOLUSD (Not supported on OANDA US)
+    # - DOGEUSD (Not supported on OANDA US)
+    # - XRPUSD (Not supported on OANDA US)
+    # - ADAUSD (Not supported on OANDA US)
+    # - LINKUSD (Not supported on OANDA US)
+    # - POLUSD (Not supported on OANDA US)
+    # - AVAXUSD (Not supported on OANDA US)
+    # - SHIBUSD (Not supported on OANDA US)
+    # - NEARUSD (Not supported on OANDA US)
+    # - DOTUSD (Not supported on OANDA US)
+    # - ATOMUSD (Not supported on OANDA US)
 
   coinbase_futures_nano:
     strategy_variant: robocop  # Default fallback (aggressive for nano futures)
@@ -674,3 +681,42 @@ profiles:
       broker_mode: "primary" # Use CCXT as primary
       flatten_on_exit: false
       cancel_orders_on_start: false
+
+  oanda_multi_asset:
+    strategy_variant: rubberband_reaper
+    strategies:
+      crypto: rubberband_reaper
+      forex: rubberband_reaper
+    candle_timeframe: 15m
+    htf_timeframe: 15m
+    ltf_timeframe: 5m
+    
+    market_poll_interval_seconds: 15
+    ai_decision_interval_seconds: 60
+    
+    # Risk Management
+    risk_per_trade_pct: 0.05
+    max_concurrent_positions: 5
+    multi_position_enabled: true
+    
+    # OANDA specific overrides
+    runtime_overrides:
+      market_data_mode: alternative
+      broker_mode: alternative
+      alternative_market_data: oanda
+      alternative_broker: oanda
+      primary_broker: oanda
+
+    symbols:
+      # Forex Only
+      - EURUSD
+      - GBPUSD
+      - USDJPY
+      # Extended Majors & Crosses
+      - USDCAD
+      - USDCHF
+      - AUDUSD
+      - NZDUSD
+      - EURJPY
+      - GBPJPY
+      - AUDJPY

@@ -25,7 +25,7 @@ class MeanReversionStrategy(BaseStrategy):
         self.rsi_oversold = rsi_oversold
         self.base_risk_pct = base_risk_pct
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None) -> Optional[AITradeDecision]:
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         closes = [c.close for c in snapshot.candles]
         if len(closes) < self.bb_period:
             return None
@@ -128,6 +128,6 @@ class MeanReversionStrategy(BaseStrategy):
 
         return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict) -> Optional[AITradeDecision]:
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
         # Most exits are handled by TP/SL, but we could exit if RSI reverses
         return None

@@ -49,10 +49,19 @@ class OandaExchangeBroker(IExchangeBroker):
         self.refresh_account_summary()
 
     def _normalize_symbol(self, symbol: str) -> str:
-        """Converts EURUSD to EUR_USD."""
+        """Converts EURUSD to EUR_USD, handles Crypto mappings."""
         sym = symbol.upper().replace("/", "").replace("-", "")
+        
+        # Standard OANDA pairs: XXX_YYY
         if len(sym) == 6:
             return f"{sym[:3]}_{sym[3:]}"
+        
+        # Crypto handling (BTCUSD -> BTC_USD, BTCUSDT -> BTC_USDT etc)
+        if sym.endswith("USD") and len(sym) > 3:
+            return f"{sym[:-3]}_{sym[-3:]}"
+        if sym.endswith("USDT") and len(sym) > 4:
+            return f"{sym[:-4]}_{sym[-4:]}"
+            
         return sym
 
     def refresh_account_summary(self) -> None:
@@ -66,7 +75,7 @@ class OandaExchangeBroker(IExchangeBroker):
         except Exception as e:
             logger.error(f"[OANDA] Failed to refresh account summary: {e}")
 
-    def get_liquid_capital(self) -> float:
+    def get_liquid_capital(self, symbol: str | None = None) -> float:
         return self._liquid_capital
 
     def cancel_all_orders_for_symbol(self, symbol: str) -> None:
@@ -111,7 +120,7 @@ class OandaExchangeBroker(IExchangeBroker):
             if close_data:
                 r_close = oanda_positions.PositionClose(self.account_id, instrument=oanda_sym, data=close_data)
                 self.client.request(r_close)
-                logger.info(f"[OANDA] Flattened {symbol}")
+                logger.info(f"[OANDA] Flattened {symbol}. Response: {r_close.response}")
         except Exception as e:
             logger.error(f"[OANDA] Failed to flatten {symbol}: {e}")
 
@@ -196,12 +205,23 @@ class OandaExchangeBroker(IExchangeBroker):
                 risk_amount = self._liquid_capital * self.profile.risk_per_trade_pct
                 
             # units = risk / stop_dist
-            units = int(risk_amount / stop_dist)
+            units = risk_amount / stop_dist
             if is_short:
                 units = -units
             
-            if abs(units) < 1:
-                logger.warning(f"[OANDA] Calculated units too small: {units} for {decision.symbol}")
+            # Crypto might require more than 0 decimals, Forex usually whole units?
+            # Actually OANDA supports fractional units regardless of class if using v20?
+            # Let's keep 4 decimals for crypto, whole for forex to be safe.
+            is_crypto = any(c in decision.symbol.upper() for c in ["BTC", "ETH", "SOL", "ADA", "LTC"])
+            if is_crypto:
+                units = round(units, 4)
+            else:
+                units = int(units)
+            
+            # Allow fractional units for crypto
+            min_size = 0.0001 if is_crypto else 1
+            if abs(units) < min_size:
+                logger.warning(f"[OANDA] Calculated units too small: {units} for {decision.symbol} (min={min_size})")
                 return ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "units too small"), ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "units too small")
 
             # Prepare Order
@@ -216,10 +236,13 @@ class OandaExchangeBroker(IExchangeBroker):
             }
             
             # Attach SL/TP if provided
+            fmt = ".5f" if not is_crypto else ".2f"
+            if "JPY" in decision.symbol: fmt = ".3f" # JPY pairs use 3 decimals
+            
             if stop_price:
-                order_data["order"]["stopLossOnFill"] = {"price": f"{stop_price:.5f}"}
+                order_data["order"]["stopLossOnFill"] = {"price": f"{stop_price:{fmt}}"}
             if take_profit:
-                order_data["order"]["takeProfitOnFill"] = {"price": f"{take_profit:.5f}"}
+                order_data["order"]["takeProfitOnFill"] = {"price": f"{take_profit:{fmt}}"}
 
             logger.info(f"[OANDA] Placing {decision.action} order for {decision.symbol}: {units} units")
             r = orders.OrderCreate(self.account_id, data=order_data)

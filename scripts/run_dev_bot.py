@@ -96,7 +96,6 @@ def main() -> None:
         iterations = None if args.continuous else args.iterations
         run_bot(
             iterations=iterations,
-            skip_schedule=args.continuous,
             sabbath_override=sabbath_override,
         )
 

@@ -135,6 +135,11 @@ function connectWebSocket() {
                 // Update Chart ONLY if it matches current symbol
                 const currentSym = document.getElementById('chart-symbol-label')?.innerText;
                 if (msg.symbol === currentSym) {
+
+                    // [ANTIGRAVITY FIX] Filter by provider if present (avoids flickering)
+                    // If msg.provider is set, we could filter here.
+                    // For now, we rely on the backend only sending routed data.
+
                     // [ANTIGRAVITY FIX] Dynamic Timezone Sync
                     const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
                     const fixedData = { ...msg.data, time: msg.data.time - tzOffsetSeconds };
@@ -175,6 +180,18 @@ function connectWebSocket() {
                         } else {
                             sabbathEl.classList.add('hidden');
                         }
+                    }
+                }
+                if (data.symbols && Array.isArray(data.symbols) && data.symbols.length > 0) {
+                    console.log("Updating WATCHED_SYMBOLS:", data.symbols);
+                    // Update the global WATCHED_SYMBOLS list
+                    WATCHED_SYMBOLS.splice(0, WATCHED_SYMBOLS.length, ...data.symbols);
+
+                    // Update current index if current symbol is in new list
+                    const currentSym = document.getElementById('chart-symbol-label')?.innerText;
+                    const newIdx = WATCHED_SYMBOLS.indexOf(currentSym);
+                    if (newIdx !== -1) {
+                        currentSymbolIndex = newIdx;
                     }
                 }
                 saveState();
@@ -346,6 +363,18 @@ function addDecisionRow(symbol, action, scoreNum, reason) {
 }
 
 // --- IPC / Socket Logic ---
+window.api.on('env-updated', (updates) => {
+    console.log("[UI] Environment updated:", updates);
+    if (updates.APP_PROFILE) {
+        const profileEl = document.getElementById('status-profile');
+        if (profileEl) {
+            profileEl.innerText = updates.APP_PROFILE.toUpperCase();
+            profileEl.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
+            appendLog("SYSTEM", `Active Profile changed to ${updates.APP_PROFILE.toUpperCase()}`);
+        }
+    }
+});
+
 window.api.on('fromMain', (payload) => {
     if (payload.type === 'log-chunk') {
         // Initial chunk (history)
@@ -501,10 +530,20 @@ function parseLogLine(line) {
             else if (line.includes('Decision: Decision:')) content = line.split('Decision: Decision:')[1].trim();
             else if (line.includes('[DECISION]')) content = line.split('[DECISION]')[1].trim();
 
+            // [ANTIGRAVITY FIX] Handle key-value format "symbol=BTCUSD action=..."
             const parts = content.split('|');
-            const head = parts[0].trim();
-            const symbolMatch = head.match(/^([A-Z0-9]+)/);
-            const symbol = symbolMatch ? symbolMatch[1] : "UNKNOWN";
+            let head = parts[0].trim();
+
+            let symbol = "UNKNOWN";
+            // Try key-value parse first
+            const kvSymbolMatch = content.match(/symbol=([A-Z0-9]+)/i);
+            if (kvSymbolMatch) {
+                symbol = kvSymbolMatch[1].toUpperCase();
+            } else {
+                // Fallback to old "BTCUSD | ..." format
+                const headMatch = head.match(/^([A-Z0-9]+)/);
+                if (headMatch) symbol = headMatch[1];
+            }
 
             // Search ENTIRE content for action/score/reason
             const body = content;
@@ -518,10 +557,16 @@ function parseLogLine(line) {
 
             const scoreMatch = body.match(/icc_score=([\d\.]+)/i) ||
                 body.match(/ICC score\s+([\d\.]+)/i) ||
+                body.match(/score=([\d\.]+)/i) ||
                 body.match(/selection_score=([\d\.]+)/i) ||
                 body.match(/\/(\d+)\s+score/i);
+
             if (scoreMatch) {
                 let raw = parseFloat(scoreMatch[1]);
+                // Heuristic: if raw is > 100, it might be raw points (e.g. 6000), scale it? 
+                // The log showed 6100.0. Let's assume it's unscaled points.
+                if (raw > 100) raw = raw / 100;
+
                 if (raw <= 1.0 && (line.includes('selection_score') || body.includes('selection_score'))) score = raw * 100;
                 else if (raw <= 35.0 && line.includes('/35')) score = (raw / 35.0) * 100;
                 else score = raw;
@@ -571,28 +616,49 @@ function parseLogLine(line) {
     }
 
     // 3. P&L / Equity / Capital (Consolidated & Robust)
+
+    // [ANTIGRAVITY FIX] Strict Capital Logic
+    // We ONLY update Capital, never PnL (which comes from [HOLDINGS])
+
+    let isOandaProfile = false;
+    const currentProfile = document.getElementById('status-profile')?.innerText?.toLowerCase() || "";
+    if (currentProfile.includes("oanda") || currentProfile.includes("forex")) {
+        isOandaProfile = true;
+    }
+
+    // Capital / NAV 
     // Matches: [OANDA] Account Summary: Balance=123.45, NAV=100.00
-    // Matches: [IBKR] Account Summary: Balance=123.45, Equity=100.00
+    // Matches: [CCXT] get_liquid_capital... winner=$180.83
     // Matches: [HEARTBEAT] Capital available: $100.00
 
-    // Balance / Profit (matches first numeric value after 'Balance=' or 'Profit:')
-    const balanceMatch = line.match(/(?:balance|Profit|Equity)[:=]\s?\$?\s?([\d\.,\-]+)/i);
-    if (balanceMatch) {
-        const val = parseFloat(balanceMatch[1].replace(/,/g, ''));
-        const equityEl = document.getElementById('account-equity');
-        if (equityEl) {
-            equityEl.innerText = val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            equityEl.className = `text-sm font-black ${val >= 0 ? 'text-green-400' : 'text-red-500'}`;
+    let capVal = null;
+
+    // OANDA Source
+    if (line.includes('[OANDA] Account Summary')) {
+        const navMatch = line.match(/NAV=([\d\.,\-]+)/);
+        if (navMatch && isOandaProfile) {
+            capVal = parseFloat(navMatch[1].replace(/,/g, ''));
+        }
+    }
+    // CCXT Source (Ignore if OANDA profile active)
+    else if (line.includes('[CCXT]') && (line.match(/winner=\$([\d\.,\-]+)/) || line.match(/Liquid capital: \$([\d\.,\-]+)/))) {
+        const match = line.match(/winner=\$([\d\.,\-]+)/) || line.match(/Liquid capital: \$([\d\.,\-]+)/);
+        if (match && !isOandaProfile) {
+            capVal = parseFloat(match[1].replace(/,/g, ''));
+        }
+    }
+    // HEARTBEAT Source (Executor agnostic, generally trusted)
+    else if (line.includes('[HEARTBEAT] Capital available:')) {
+        const hbMatch = line.match(/Capital available: \$([\d\.,\-]+)/);
+        if (hbMatch) {
+            capVal = parseFloat(hbMatch[1].replace(/,/g, ''));
         }
     }
 
-    // Capital / NAV (matches first numeric value after 'NAV=' or 'Capital available:')
-    const capitalMatch = line.match(/(?:NAV|Capital available)[:=]\s?\$?\s?([\d\.,\-]+)/i);
-    if (capitalMatch) {
-        const val = parseFloat(capitalMatch[1].replace(/,/g, ''));
+    if (capVal !== null) {
         const capitalEl = document.getElementById('account-capital');
         if (capitalEl) {
-            capitalEl.innerText = val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            capitalEl.innerText = capVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
     }
 
@@ -737,7 +803,7 @@ function setPanicState(isStarted, isStartMode = false) {
 }
 
 // --- Interactive Elements ---
-const WATCHED_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'GBPJPY', 'EURJPY', 'USDCAD', 'BTCUSD', 'ETHUSD', 'XAUUSD'];
+const WATCHED_SYMBOLS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'GBPJPY', 'EURJPY', 'USDCAD'];
 let currentSymbolIndex = 0;
 
 function setupInteractiveElements() {
@@ -857,8 +923,26 @@ function setupInteractiveElements() {
             const name = e.currentTarget.innerText.trim();
             appendLog("INFO", `[UI] Switched to ${name} view.`);
 
+            // Handle view switching
+            const dashboardView = document.getElementById('view-dashboard');
+            const analyticsView = document.getElementById('view-analytics');
+
             if (id === 'nav-settings') {
                 window.api.send('open-settings');
+            } else if (id === 'nav-graph') {
+                // Show Analytics view, hide Dashboard
+                if (dashboardView) dashboardView.classList.add('hidden');
+                if (analyticsView) {
+                    analyticsView.classList.remove('hidden');
+                    // Refresh analytics data when view is shown
+                    if (window.analyticsModule && window.analyticsModule.refresh) {
+                        window.analyticsModule.refresh();
+                    }
+                }
+            } else if (id === 'nav-dashboard') {
+                // Show Dashboard view, hide Analytics
+                if (analyticsView) analyticsView.classList.add('hidden');
+                if (dashboardView) dashboardView.classList.remove('hidden');
             }
         });
     });

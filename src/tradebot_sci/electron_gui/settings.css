@@ -133,7 +133,7 @@ body {
    CONTENT SECTIONS
    ═══════════════════════════════════════════════════════════ */
 .settings-section {
-    max-width: 900px;
+    max-width: 750px;
     margin: 0 auto;
     animation: fadeSlideUp 0.4s var(--transition-smooth);
 }
@@ -143,6 +143,7 @@ body {
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -734,12 +735,35 @@ select.input-field {
     font-size: 20px;
 }
 
-.asset-icon.crypto { background: linear-gradient(135deg, #f7931a20, #f7931a10); color: #f7931a; }
-.asset-icon.forex { background: linear-gradient(135deg, #22c55e20, #22c55e10); color: #22c55e; }
-.asset-icon.stocks { background: linear-gradient(135deg, #3b82f620, #3b82f610); color: #3b82f6; }
-.asset-icon.etf { background: linear-gradient(135deg, #8b5cf620, #8b5cf610); color: #8b5cf6; }
-.asset-icon.metals { background: linear-gradient(135deg, #eab30820, #eab30810); color: #eab308; }
-.asset-icon.futures { background: linear-gradient(135deg, #ec489920, #ec489910); color: #ec4899; }
+.asset-icon.crypto {
+    background: linear-gradient(135deg, #f7931a20, #f7931a10);
+    color: #f7931a;
+}
+
+.asset-icon.forex {
+    background: linear-gradient(135deg, #22c55e20, #22c55e10);
+    color: #22c55e;
+}
+
+.asset-icon.stocks {
+    background: linear-gradient(135deg, #3b82f620, #3b82f610);
+    color: #3b82f6;
+}
+
+.asset-icon.etf {
+    background: linear-gradient(135deg, #8b5cf620, #8b5cf610);
+    color: #8b5cf6;
+}
+
+.asset-icon.metals {
+    background: linear-gradient(135deg, #eab30820, #eab30810);
+    color: #eab308;
+}
+
+.asset-icon.futures {
+    background: linear-gradient(135deg, #ec489920, #ec489910);
+    color: #ec4899;
+}
 
 .asset-title {
     font-size: 14px;
@@ -854,4 +878,136 @@ select.input-field {
     height: 1px;
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
     margin: 40px 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ANALYTICS STYLES
+   ═══════════════════════════════════════════════════════════ */
+
+/* Time Filter Tabs */
+.time-filter-btn {
+    transition: all 0.25s var(--transition-smooth);
+}
+
+.time-filter-btn.active {
+    background: rgba(20, 184, 166, 0.2);
+    color: var(--accent);
+    border: 1px solid rgba(20, 184, 166, 0.4);
+}
+
+.time-filter-btn:not(.active):hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-main);
+}
+
+/* Metric Cards */
+.metric-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.metric-card:hover::before {
+    opacity: 1;
+}
+
+.metric-card-sm {
+    transition: all 0.25s var(--transition-smooth);
+}
+
+.metric-card-sm:hover {
+    transform: translateY(-2px);
+}
+
+/* Analytics Charts Container */
+#chart-winloss-pie {
+    max-width: 280px;
+    max-height: 280px;
+    margin: 0 auto;
+}
+
+#chart-equity-curve {
+    width: 100%;
+}
+
+/* Trade History Table */
+#trade-history-body tr {
+    transition: background-color 0.15s ease;
+}
+
+#trade-history-body tr:hover {
+    background: rgba(20, 184, 166, 0.05);
+}
+
+/* Analytics Loading Animation */
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+.analytics-loading {
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0.03) 25%,
+            rgba(255, 255, 255, 0.08) 50%,
+            rgba(255, 255, 255, 0.03) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+/* Analytics Empty State */
+.analytics-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--text-dim);
+}
+
+.analytics-empty .material-symbols-outlined {
+    font-size: 48px;
+    opacity: 0.3;
+    margin-bottom: 16px;
+}
+
+/* Analytics View Transition */
+#view-analytics {
+    animation: fadeSlideUp 0.3s var(--transition-smooth);
+}
+
+#view-dashboard {
+    animation: fadeSlideUp 0.3s var(--transition-smooth);
+}
+
+/* Number Animation */
+@keyframes countUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.metric-animate {
+    animation: countUp 0.4s ease-out;
 }
