@@ -1,9 +1,10 @@
 /**
- * Tradebot SCI Settings Interface
+ * Tradebot SCI Settings Interface (Integrated)
+ * This module is loaded by the main app and initialized when the Settings view is opened.
  */
 
-// Wait for DOM to be ready
-document.addEventListener('DOMContentLoaded', () => init());
+// Track if already initialized
+let settingsInitialized = false;
 
 // ═══════════════════════════════════════════════════════════
 // STATE MANAGEMENT
@@ -299,22 +300,30 @@ const TABS = {
 // ═══════════════════════════════════════════════════════════
 
 async function init() {
+    // Prevent re-initialization
+    if (settingsInitialized) {
+        // Just render the current tab if already initialized
+        renderTab();
+        return;
+    }
+    settingsInitialized = true;
+
     setupGlobalEvents();
 
     // Listen for bot status updates
-    if (window.electronAPI?.onBotStatus) {
-        window.electronAPI.onBotStatus((status) => {
+    if (window.api?.onBotStatus) {
+        window.api.onBotStatus((status) => {
             updateBotStatusUI(status.running);
         });
         // Initial check
-        window.electronAPI.getBotStatus();
+        window.api.getBotStatus();
     }
 
     // Load data from backend
     try {
-        if (window.electronAPI) {
-            envData = await window.electronAPI.readEnv() || {};
-            profilesContent = await window.electronAPI.readProfiles() || "";
+        if (window.api) {
+            envData = await window.api.readEnv() || {};
+            profilesContent = await window.api.readProfiles() || "";
         }
     } catch (e) {
         console.error("Data load failed:", e);
@@ -338,16 +347,16 @@ function setupGlobalEvents() {
 
     if (btnClose) {
         btnClose.addEventListener('click', () => {
-            if (window.electronAPI?.closeWindow) {
-                window.electronAPI.closeWindow();
+            if (window.api?.closeWindow) {
+                window.api.closeWindow();
             }
         });
     }
 
     if (btnMinimize) {
         btnMinimize.addEventListener('click', () => {
-            if (window.electronAPI?.minimizeWindow) {
-                window.electronAPI.minimizeWindow();
+            if (window.api?.minimizeWindow) {
+                window.api.minimizeWindow();
             }
         });
     }
@@ -713,15 +722,15 @@ function renderSystemTab(container) {
     controlGrid.className = 'card-grid card-grid-3 mb-8';
 
     const btnStart = createControlButton('Start Bot', 'play_arrow', 'teal', () => {
-        window.electronAPI.startBot();
+        window.api.startBot();
         showNotice('Bot start command sent', 'teal');
     });
     const btnStop = createControlButton('Stop Bot', 'stop', 'red', () => {
-        window.electronAPI.stopBot();
+        window.api.stopBot();
         showNotice('Bot stop command sent', 'red');
     });
     const btnRestart = createControlButton('Restart', 'refresh', 'purple', () => {
-        window.electronAPI.restartBot();
+        window.api.restartBot();
         showNotice('Bot restart sequence initiated', 'purple');
     });
 
@@ -1264,7 +1273,7 @@ function renderScheduleTab(container) {
         const btn = resolver.querySelector('#btn-resolve');
         btn.textContent = 'RESOLVING...';
 
-        const res = await window.electronAPI.resolveCity(city);
+        const res = await window.api.resolveCity(city);
         if (res) {
             updateValue('SABBATH_LAT', res.lat.toString());
             updateValue('SABBATH_LON', res.lon.toString());
@@ -1342,18 +1351,18 @@ async function saveAll() {
     if (indicator) indicator.style.opacity = '1';
 
     try {
-        if (!window.electronAPI) {
+        if (!window.api) {
             throw new Error("Not connected to Electron backend");
         }
 
         const envUpdates = { ...localChanges };
         delete envUpdates['_profiles_'];
 
-        if (Object.keys(envUpdates).length > 0 && window.electronAPI.saveEnv) {
-            await window.electronAPI.saveEnv(envUpdates);
+        if (Object.keys(envUpdates).length > 0 && window.api.saveEnv) {
+            await window.api.saveEnv(envUpdates);
         }
-        if (localChanges['_profiles_'] && window.electronAPI.saveProfiles) {
-            await window.electronAPI.saveProfiles(profilesContent);
+        if (localChanges['_profiles_'] && window.api.saveProfiles) {
+            await window.api.saveProfiles(profilesContent);
         }
 
         localChanges = {};
@@ -1407,32 +1416,76 @@ function hideTooltip() {
 let toolboxTab = 'icc'; // Default
 
 function renderStrategyToolbox(container) {
-    // Internal Navigation for Toolbox (Horizontal or vertical variant)
+    // Strategy selector using a responsive grid layout
     const nav = document.createElement('div');
-    nav.className = 'sub-nav';
-    // Using a different style or just expanding sub-nav
+    nav.className = 'strategy-selector-grid';
+    nav.style.cssText = `
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 10px;
+        margin-bottom: 32px;
+        padding: 16px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    `;
 
     const strategies = [
-        { id: 'icc', label: 'ICC (Indication, Correction, Continuation)' },
-        { id: 'rubberband_reaper', label: 'Rubberband Reaper' },
-        { id: 'robocop', label: 'RoboCop' },
-        { id: 'evolution', label: 'Robot Evolution' },
-        { id: 'quantum', label: 'Quantum' },
-        { id: 'mean_reversion', label: 'Mean Reversion' },
-        { id: 'hyper_scalper', label: 'HyperScalper' },
-        { id: 'london_breakout', label: 'London Breakout' },
-        { id: 'volatility_breakout', label: 'Volatility Breakout' },
-        { id: 'aggregator', label: 'Aggregator' },
-        { id: 'supply_demand', label: 'Supply & Demand' }
+        { id: 'icc', label: 'ICC Core', icon: 'auto_mode', color: '#14b8a6' },
+        { id: 'rubberband_reaper', label: 'Rubberband Reaper', icon: 'elastic', color: '#f59e0b' },
+        { id: 'robocop', label: 'RoboCop', icon: 'smart_toy', color: '#ef4444' },
+        { id: 'evolution', label: 'Robot Evolution', icon: 'psychology', color: '#8b5cf6' },
+        { id: 'quantum', label: 'Quantum', icon: 'blur_on', color: '#3b82f6' },
+        { id: 'mean_reversion', label: 'Mean Reversion', icon: 'swap_vert', color: '#22c55e' },
+        { id: 'hyper_scalper', label: 'HyperScalper', icon: 'speed', color: '#ec4899' },
+        { id: 'london_breakout', label: 'London Breakout', icon: 'location_city', color: '#f97316' },
+        { id: 'volatility_breakout', label: 'Volatility Breakout', icon: 'show_chart', color: '#06b6d4' },
+        { id: 'aggregator', label: 'Aggregator', icon: 'hub', color: '#a855f7' },
+        { id: 'supply_demand', label: 'Supply & Demand', icon: 'layers', color: '#eab308' }
     ];
 
     strategies.forEach(s => {
         const btn = document.createElement('button');
-        btn.className = `sub-nav-btn ${toolboxTab === s.id ? 'active' : ''}`;
-        btn.textContent = s.label;
+        const isActive = toolboxTab === s.id;
+        btn.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 16px 12px;
+            border-radius: 12px;
+            border: 1px solid ${isActive ? s.color + '60' : 'rgba(255,255,255,0.08)'};
+            background: ${isActive ? s.color + '20' : 'rgba(255,255,255,0.03)'};
+            color: ${isActive ? s.color : '#94a3b8'};
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 11px;
+            font-weight: 600;
+            text-align: center;
+            min-height: 80px;
+        `;
+        btn.innerHTML = `
+            <span class="material-symbols-outlined" style="font-size: 24px; opacity: ${isActive ? 1 : 0.6};">${s.icon}</span>
+            <span style="line-height: 1.3;">${s.label}</span>
+        `;
+        btn.onmouseenter = () => {
+            if (!isActive) {
+                btn.style.background = 'rgba(255,255,255,0.08)';
+                btn.style.borderColor = 'rgba(255,255,255,0.15)';
+                btn.style.color = '#e2e8f0';
+            }
+        };
+        btn.onmouseleave = () => {
+            if (!isActive) {
+                btn.style.background = 'rgba(255,255,255,0.03)';
+                btn.style.borderColor = 'rgba(255,255,255,0.08)';
+                btn.style.color = '#94a3b8';
+            }
+        };
         btn.onclick = () => {
             toolboxTab = s.id;
-            renderTab(); // Re-render the whole tab to update this section
+            renderTab();
         };
         nav.appendChild(btn);
     });
@@ -1737,3 +1790,14 @@ function showNotice(message, color = 'teal') {
         setTimeout(() => toast.remove(), 500);
     }, 4000);
 }
+
+// ═══════════════════════════════════════════════════════════
+// SETTINGS MODULE EXPORT
+// ═══════════════════════════════════════════════════════════
+window.settingsModule = {
+    init: init,
+    switchTab: switchTab,
+    renderTab: renderTab,
+    saveAll: saveAll
+};
+

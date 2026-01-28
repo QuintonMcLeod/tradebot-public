@@ -769,6 +769,41 @@ def run_bot(
                         blocked,
                         skipped,
                     )
+                
+                # [ANTIGRAVITY] AI Commentary: Update the UI with market insights
+                try:
+                    # Identify active strategy for context
+                    active_strategy = "supply_demand"
+                    if active_symbols:
+                        first_engine = engines.get(active_symbols[0])
+                        if first_engine and hasattr(first_engine, "_strategy"):
+                            active_strategy = first_engine._strategy.name.lower()
+
+                    # Build state context for AI
+                    state_lines = [
+                        f"Profile: {profile_name}",
+                        f"Active Strategy: {active_strategy.upper()}",
+                        f"Active Symbols: {', '.join(active_symbols)}",
+                        f"Candidates Analyzed: {len(candidates)}",
+                        f"Success: {success_symbol or 'none'}",
+                        f"Blocked: {blocked}, Skipped: {skipped}",
+                    ]
+                    if executor:
+                        cap = executor.get_liquid_capital()
+                        state_lines.append(f"Available Capital: ${cap:.2f}")
+                    
+                    # Get recent logs for context (last 10 lines from this session)
+                    recent_logs = []  # Could extract from ws_handler buffer
+                    
+                    controller.broadcast_commentary(
+                        state_context="\n".join(state_lines),
+                        strategy_name=active_strategy,
+                        recent_logs=recent_logs,
+                        recent_errors=None
+                    )
+                except Exception as e:
+                    logger.debug(f"[COMMENTARY] Trigger skipped: {e}")
+                
                 next_decision_in = decision_interval
             else:
                 next_decision_in -= poll_interval

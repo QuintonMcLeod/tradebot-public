@@ -143,6 +143,16 @@ class WebSocketServer:
         }
         self.broadcast_sync(msg)
 
+    def broadcast_commentary_sync(self, commentary: str, timestamp: str, next_update_in: int = 300):
+        """Thread-safe AI commentary broadcast for Electron UI."""
+        msg = {
+            "type": "ai_commentary",
+            "content": commentary,
+            "timestamp": timestamp,
+            "next_update_in": next_update_in  # seconds until next update
+        }
+        self.broadcast_sync(msg)
+
     def set_on_subscribe_callback(self, cb):
         """Register a callback for when a client subscribes to a symbol."""
         self._on_subscribe_cb = cb
@@ -154,3 +164,4 @@ class WebSocketServer:
     def is_halted(self) -> bool:
         """Returns True if the bot should be paused."""
         return self._halted
+

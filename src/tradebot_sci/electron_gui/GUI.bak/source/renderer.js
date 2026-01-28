@@ -199,10 +199,6 @@ function connectWebSocket() {
                     }
                 }
                 saveState();
-            } else if (msg.type === 'ai_commentary') {
-                // [ANTIGRAVITY] AI Commentary: Update the insight panel
-                console.log("AI Commentary received:", msg.content?.substring(0, 50) + "...");
-                updateAIInsightPanel(msg.content, msg.timestamp, msg.next_update_in);
             }
         } catch (e) {
             console.error("WS Parse Error", e);
@@ -296,101 +292,6 @@ function appendLog(level, rawMessage) {
     logTerminal.appendChild(div);
     if (logTerminal.children.length > 300) logTerminal.removeChild(logTerminal.firstChild);
     logTerminal.scrollTop = logTerminal.scrollHeight;
-}
-
-// --- AI Commentary Panel Logic ---
-let aiCommentaryTimer = null;
-let aiNextUpdateCountdown = 0;
-
-function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
-    const scroller = document.getElementById('insight-scroller');
-    if (!scroller || !content) return;
-
-    // Clear placeholder and existing content
-    scroller.innerHTML = '';
-
-    // Parse markdown-like formatting from AI response
-    const lines = content.split('\n');
-    let currentSection = null;
-    let sectionContent = [];
-
-    const createBubble = (title, text, icon, colorClass) => {
-        const bubble = document.createElement('div');
-        bubble.className = `insight-bubble bg-black/40 border border-${colorClass}-500/30 rounded-xl p-4 backdrop-blur-sm`;
-        bubble.innerHTML = `
-            <div class="flex items-start gap-3">
-                <span class="material-symbols-outlined text-${colorClass}-400 text-lg mt-0.5">${icon}</span>
-                <div class="flex-1">
-                    <div class="text-[10px] font-bold uppercase tracking-wider text-${colorClass}-400 mb-1">${title}</div>
-                    <div class="text-xs text-slate-300 leading-relaxed">${text}</div>
-                </div>
-            </div>
-        `;
-        return bubble;
-    };
-
-    // Parse sections from AI content
-    const sections = [];
-    let current = { title: 'Market Update', content: [], icon: 'insights', color: 'teal' };
-
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        // Detect section headers by emoji markers
-        if (trimmed.includes('📊') || trimmed.toLowerCase().includes("what's happening")) {
-            if (current.content.length > 0) sections.push({ ...current });
-            current = { title: "What's Happening Now", content: [], icon: 'trending_up', color: 'teal' };
-        } else if (trimmed.includes('📈') || trimmed.toLowerCase().includes('chart breakdown')) {
-            if (current.content.length > 0) sections.push({ ...current });
-            current = { title: 'Chart Breakdown', content: [], icon: 'show_chart', color: 'cyan' };
-        } else if (trimmed.includes('🎯') || trimmed.toLowerCase().includes('watching')) {
-            if (current.content.length > 0) sections.push({ ...current });
-            current = { title: "What I'm Watching", content: [], icon: 'visibility', color: 'purple' };
-        } else if (trimmed.includes('⚠️') || trimmed.toLowerCase().includes('heads up')) {
-            if (current.content.length > 0) sections.push({ ...current });
-            current = { title: 'Heads Up', content: [], icon: 'warning', color: 'amber' };
-        } else {
-            // Clean up markdown formatting
-            let cleaned = trimmed.replace(/\*\*/g, '').replace(/^\s*[-•]\s*/, '• ');
-            current.content.push(cleaned);
-        }
-    }
-    if (current.content.length > 0) sections.push(current);
-
-    // Render sections as bubbles
-    for (const section of sections) {
-        const bubble = createBubble(section.title, section.content.join('<br>'), section.icon, section.color);
-        scroller.appendChild(bubble);
-    }
-
-    // Add update timer footer
-    const footer = document.createElement('div');
-    footer.className = 'insight-footer flex items-center justify-between text-[10px] text-slate-500 pt-3 border-t border-white/5 mt-4';
-    footer.innerHTML = `
-        <span class="flex items-center gap-1">
-            <span class="material-symbols-outlined text-xs">schedule</span>
-            Updated ${timestamp}
-        </span>
-        <span id="ai-countdown" class="text-teal-500/70">Next update in ${Math.floor(nextUpdateIn / 60)}m</span>
-    `;
-    scroller.appendChild(footer);
-
-    // Start countdown timer
-    if (aiCommentaryTimer) clearInterval(aiCommentaryTimer);
-    aiNextUpdateCountdown = nextUpdateIn;
-    aiCommentaryTimer = setInterval(() => {
-        aiNextUpdateCountdown--;
-        const countdownEl = document.getElementById('ai-countdown');
-        if (countdownEl && aiNextUpdateCountdown > 0) {
-            const mins = Math.floor(aiNextUpdateCountdown / 60);
-            const secs = aiNextUpdateCountdown % 60;
-            countdownEl.textContent = mins > 0 ? `Next update in ${mins}m ${secs}s` : `Next update in ${secs}s`;
-        } else if (countdownEl) {
-            countdownEl.textContent = 'Updating soon...';
-            clearInterval(aiCommentaryTimer);
-        }
-    }, 1000);
 }
 
 // --- Decisions Logic ---
@@ -1036,23 +937,16 @@ function setupInteractiveElements() {
             const dashboardView = document.getElementById('view-dashboard');
             const analyticsView = document.getElementById('view-analytics');
             const profilesView = document.getElementById('view-profiles');
-            const settingsView = document.getElementById('view-settings');
 
             // Hide all views first
             if (dashboardView) dashboardView.classList.add('hidden');
             if (analyticsView) analyticsView.classList.add('hidden');
             if (profilesView) profilesView.classList.add('hidden');
-            if (settingsView) settingsView.classList.add('hidden');
 
             if (id === 'nav-settings') {
-                // Show integrated Settings view
-                if (settingsView) {
-                    settingsView.classList.remove('hidden');
-                    // Initialize settings if not loaded
-                    if (window.settingsModule && window.settingsModule.init) {
-                        window.settingsModule.init();
-                    }
-                }
+                window.api.send('open-settings');
+                // Show dashboard when opening settings (don't leave blank)
+                if (dashboardView) dashboardView.classList.remove('hidden');
             } else if (id === 'nav-graph') {
                 // Show Analytics view
                 if (analyticsView) {

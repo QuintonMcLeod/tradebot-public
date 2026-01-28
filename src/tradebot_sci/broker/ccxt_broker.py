@@ -765,7 +765,19 @@ class CCXTExchangeBroker:
         broker_mode = (os.getenv("BROKER_MODE") or settings.market.broker_mode or "").strip().lower()
         profile_name = (os.getenv("PROFILE_NAME") or "").strip().lower()
         alt_md = (os.getenv("ALTERNATIVE_MARKET_DATA") or "").strip().lower()
+        
+        from tradebot_sci.market.symbols import is_coinbase_derivative
         is_future = (default_type in {"future", "swap"} or provider == "coinbase_futures" or broker_mode == "coinbase_futures" or profile_name == "coinbase_futures" or alt_md == "coinbase_futures")
+        
+        # [ANTIGRAVITY FIX] Symbol-Aware Future Check
+        # Even if global default is 'future' (set for Coinbase Nano), we must NOT treat 
+        # spot symbols (like BCHUSD on Gemini) as futures, otherwise sizing logic 
+        # rounds up 0.1 BCH to 1.0 BCH ($600+), causing Insufficient Funds.
+        if not is_coinbase_derivative(decision.symbol):
+             # Only treat as future if NOT on a known spot exchange like Gemini
+             if "gemini" in self.exchange_id.lower():
+                 is_future = False
+             # Optional: Add other spot-only heuristics here
         
         if action == "enter_short" and not is_future:
             return (
@@ -1680,7 +1692,12 @@ class CCXTExchangeBroker:
                      # Use 5% offset for stop price if not provided
                      sl_price = last * 0.95 if side == "sell" else last * 1.05
                      params["stopPrice"] = self._exchange.price_to_precision(symbol, sl_price)
-            if price is None:
+            if price is None and "stopPrice" in params:
                  price = float(params["stopPrice"]) # Fallback if price was not provided
+        
+        # Ensure amount and price (if present) are within exchange precision limits
+        amount = float(self._exchange.amount_to_precision(symbol, amount))
+        if price is not None:
+            price = float(self._exchange.price_to_precision(symbol, price))
 
         return self._exchange.create_order(symbol, type, side, amount, price, params)

@@ -44,6 +44,8 @@ class AITradeDecision(BaseModel):
     emergency_exit: bool = False
     gates: Optional[dict] = None
     decision_reason_codes: Optional[list[str]] = None
+    score: Optional[float] = None
+    grade: Optional[str] = None
 
     def validate_and_fix_rr(self, min_rr: float = 0.4) -> "AITradeDecision":
         """Validates and fixes risk/reward ratio to meet minimum requirements.

@@ -136,18 +136,23 @@ class StrategyEngine:
         ).data
 
         # 2. Build Gates (Metadata for Strategy)
+        current_capital = current_capital if current_capital is not None else getattr(self.market_provider, "current_capital", None)
+        history = [r.to_dict() for r in (self.trade_results.results if self.trade_results else [])]
+        
+        # Calculate grade for the current snapshot
+        score, grade = self.score_icc_grade(snapshot)
+        
         gates = {
             "htf_dir": snapshot.trend_htf.direction,
             "ltf_dir": snapshot.trend_ltf.direction,
             "htf_strength": round(float(snapshot.trend_htf.strength or 0.0), 3),
             "ltf_strength": round(float(snapshot.trend_ltf.strength or 0.0), 3),
             "confluence": confluence_data,
+            "score": score,
+            "grade": grade
         }
 
         # 3. Request Decisions from Strategy
-        current_capital = current_capital if current_capital is not None else getattr(self.market_provider, "current_capital", None)
-        history = [r.to_dict() for r in (self.trade_results.results if self.trade_results else [])]
-        
         # A. Check for EXIT if we have a position
         if open_position and abs(open_position.get("size", 0.0)) > 0:
             exit_decision = self._strategy.check_exit_signal(
@@ -158,6 +163,8 @@ class StrategyEngine:
                 trade_history=history
             )
             if exit_decision:
+                exit_decision.score = score
+                exit_decision.grade = grade
                 logger.info(f"[PHOENIX] {self.symbol} Strategy EXIT triggered: {exit_decision.summary()}")
                 return exit_decision
 
@@ -171,13 +178,18 @@ class StrategyEngine:
         )
 
         if decision:
+            decision.score = score
+            decision.grade = grade
             logger.info(f"[PHOENIX] {self.symbol} Strategy {decision.action.upper()} triggered: {decision.summary()}")
             # 4. Final Safety Patch (Margin/Venue Only)
             return validate_decision(decision, execution_capabilities=caps)
 
         # 5. Default: Stand Aside
         from tradebot_sci.strategy.decisions import stand_aside_decision
-        return stand_aside_decision(snapshot.symbol, timeframe, "No strategy signal detected.")
+        decision = stand_aside_decision(snapshot.symbol, timeframe, "No strategy signal detected.")
+        decision.score = score
+        decision.grade = grade
+        return decision
 
     def build_market_context(self, snapshot: MarketSnapshot, **kwargs):
         """Legacy helper for AI compatibility."""

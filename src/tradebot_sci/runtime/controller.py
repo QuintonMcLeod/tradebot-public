@@ -88,3 +88,60 @@ class RuntimeController:
 
     def is_halted(self) -> bool:
         return self.ws_server.is_halted() if self.ws_server else False
+
+    # --- AI Commentary Integration ---
+    _last_commentary_ts: float = 0.0
+    _last_commentary_content: str = ""
+    _commentary_min_interval: int = 300  # 5 minutes between updates
+    
+    def broadcast_commentary(self, state_context: str, strategy_name: str = "supply_demand", recent_logs: list[str] | None = None, recent_errors: list[str] | None = None):
+        """
+        Generate and broadcast AI commentary to the Electron UI.
+        
+        Args:
+            state_context: Current bot state summary for the AI
+            strategy_name: The active strategy name (e.g. 'supply_demand', 'robocop')
+            recent_logs: Recent log lines for context
+            recent_errors: Recent error messages to highlight
+        """
+        if not self.ws_server:
+            return
+        
+        now = time.time()
+        if now - self._last_commentary_ts < self._commentary_min_interval:
+            return  # Too soon for another update
+        
+        try:
+            from tradebot_sci.ai.commentary_prompts import build_commentary_messages, build_commentary_prompt_with_logs
+            from tradebot_sci.ai.client import TradeSciAIClient
+            from tradebot_sci.config.loader import load_settings
+            
+            # Build the rich prompt with log context
+            prompt = build_commentary_prompt_with_logs(state_context, recent_logs, recent_errors)
+            
+            # Generate commentary
+            settings = load_settings().ai
+            client = TradeSciAIClient(settings)
+            messages = build_commentary_messages(prompt, strategy_name=strategy_name)
+            commentary = client.generate_text(messages)
+            
+            if commentary and commentary.strip():
+                self._last_commentary_content = commentary.strip()
+                self._last_commentary_ts = now
+                
+                timestamp = datetime.now().strftime("%I:%M %p")
+                next_update = self._commentary_min_interval
+                
+                self.ws_server.broadcast_commentary_sync(
+                    self._last_commentary_content,
+                    timestamp,
+                    next_update
+                )
+            
+        except Exception as e:
+            logger.error(f"[COMMENTARY] Generation failed: {e}")
+    
+    def get_last_commentary(self) -> tuple[str, float]:
+        """Returns (last_commentary_content, last_update_timestamp)."""
+        return self._last_commentary_content, self._last_commentary_ts
+```

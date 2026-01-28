@@ -24,18 +24,6 @@ contextBridge.exposeInMainWorld('api', {
     readProfiles: () => ipcRenderer.invoke('read-profiles'),
     saveProfiles: (content) => ipcRenderer.invoke('save-profiles', content),
 
-    // Settings IPC (mirrors settings_preload.js for integrated settings UI)
-    readEnv: () => ipcRenderer.invoke('read-env'),
-    saveEnv: (updates) => ipcRenderer.invoke('save-env', updates),
-    resolveCity: (cityName) => ipcRenderer.invoke('resolve-city', cityName),
-    readProfileStrategies: (profileName) => ipcRenderer.invoke('read-profile-strategies', profileName),
-    saveProfileStrategies: (profileName, strategies) => ipcRenderer.invoke('save-profile-strategies', profileName, strategies),
-    startBot: () => ipcRenderer.send('start-bot'),
-    stopBot: () => ipcRenderer.send('stop-bot'),
-    restartBot: () => ipcRenderer.send('restart-bot'),
-    getBotStatus: () => ipcRenderer.send('get-bot-status'),
-    onBotStatus: (callback) => ipcRenderer.on('bot-status', (event, data) => callback(data)),
-
     // Generic invoke for flexibility
     invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
 });

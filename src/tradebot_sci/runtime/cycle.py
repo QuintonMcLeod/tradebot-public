@@ -186,7 +186,7 @@ def build_candidate_list(
             if score >= profile_settings.structure_score_threshold:
                 candidates.append((symbol, snap, score, grade))
             else:
-                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={score*100:.1f} reason=Score {score*100:.1f} below threshold {profile_settings.structure_score_threshold*100:.1f}")
+                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={score*100:.1f} grade={grade} reason=Score {score*100:.1f} ({grade}) below threshold {profile_settings.structure_score_threshold*100:.1f}")
         except Exception as e:
             logger.error(f"[CYCLE] Error fetching snapshot for {symbol}: {e}")
             continue
@@ -240,7 +240,9 @@ def process_candidate_cycle(
             decision = engines[symbol].decide(snapshot.timeframe, open_position=pos, snapshot=snapshot, current_capital=liq_cap)
             if not decision or decision.action == "stand_aside":
                 reason = decision.notes if decision else "No strategy signal"
-                logger.info(f"[DECISION] symbol={symbol} action=HOLD reason={reason}")
+                d_score = (decision.score * 100.0) if (decision and decision.score is not None) else 0.0
+                d_grade = (decision.grade) if (decision and decision.grade is not None) else "N/A"
+                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} reason={reason}")
                 blocked += 1
                 continue
             
