@@ -83,15 +83,18 @@ def _get_dynamic_max_concurrent(profile_settings: Any, now: datetime) -> int:
     # Try to find profile name in settings or name attribute
     profile_name = getattr(profile_settings, "name", "")
     if not profile_name:
-        # Fallback check for common indicator
         if "oanda" in str(getattr(profile_settings, "runtime_overrides", "")).lower():
             profile_name = "oanda_multi_asset"
             
+    val = getattr(profile_settings, "max_concurrent_positions", 1)
+    if val is None:
+        val = 1
+
     if profile_name != "oanda_multi_asset":
-        return getattr(profile_settings, "max_concurrent_positions", 1)
+        return val
 
     # Convert now to America/New_York
-    local_now = now.astimezone(ZoneInfo("America/New_York"))
+    local_now = (now or datetime.now()).astimezone(ZoneInfo("America/New_York"))
     
     # 0=Monday, 4=Friday, 5=Saturday, 6=Sunday
     wd = local_now.weekday()
@@ -236,6 +239,8 @@ def process_candidate_cycle(
             liq_cap = executor.get_liquid_capital(symbol) if executor else None
             decision = engines[symbol].decide(snapshot.timeframe, open_position=pos, snapshot=snapshot, current_capital=liq_cap)
             if not decision or decision.action == "stand_aside":
+                reason = decision.notes if decision else "No strategy signal"
+                logger.info(f"[DECISION] symbol={symbol} action=HOLD reason={reason}")
                 blocked += 1
                 continue
             

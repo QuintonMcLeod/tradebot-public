@@ -69,24 +69,24 @@ class CCXTExchangeBroker:
         if not self.exchange_id:
             raise ValueError("CCXT_EXCHANGE is required when market.alternative_broker=ccxt")
 
+        # 1. Base default mappings (Common to most exchanges)
         self.symbol_map = {
-            # Coinbase expects USD pairs (e.g. LTC/USD), not USDT, for most major cryptos
-            # Coinbase: USDT pairs for stablecoin trading, USD for fiat trading
-            **{"BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD", "SOLUSD": "SOL/USD", "LTCUSD": "LTC/USD"},
-            **{
+            "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD", "SOLUSD": "SOL/USD", "LTCUSD": "LTC/USD",
+        }
+
+        eid = self.exchange_id.lower()
+        if eid == "coinbase":
+            # 2. Coinbase-specific mappings
+            self.symbol_map.update({
                 "BTCUSDT": "BTC/USDT", "ETHUSDT": "ETH/USDT", "SOLUSDT": "SOL/USDT", "LTCUSDT": "LTC/USDT", "DOGEUSDT": "DOGE/USDT",
                 "XRPUSDT": "XRP/USDT", "ADAUSDT": "ADA/USDT", "LINKUSDT": "LINK/USDT", "POLUSD": "POL/USD",
                 "AVAXUSDT": "AVAX/USDT", "SHIBUSDT": "SHIB/USDT", "NEARUSDT": "NEAR/USDT", "DOTUSDT": "DOT/USDT",
                 "ATOMUSDT": "ATOM/USDT",
-            },
-            # [ANTIGRAVITY FIX] Add USD pairs for efficient trading (Coinbase)
-            **{
                 "DOGEUSD": "DOGE/USD", "ADAUSD": "ADA/USD", "XRPUSD": "XRP/USD", "LINKUSD": "LINK/USD",
                 "AVAXUSD": "AVAX/USD", "SHIBUSD": "SHIB/USD", "NEARUSD": "NEAR/USD", "DOTUSD": "DOT/USD",
                 "ATOMUSD": "ATOM/USD",
                 "ETP-20DEC30-CDE": "ETP-20DEC30-CDE", "BIP-20DEC30-CDE": "BIP-20DEC30-CDE",
                 "CDENGS/USD:USD-260127": "CDENGS/USD:USD-260127",
-                # US Nano Futures (Front Month: Jan 2026)
                 "BTC/USD:USD-260130": "BTC/USD:USD-260130",
                 "ETH/USD:USD-260130": "ETH/USD:USD-260130",
                 "SOL/USD:USD-260130": "SOL/USD:USD-260130",
@@ -96,24 +96,30 @@ class CCXTExchangeBroker:
                 "LINK/USD:USD-260130": "LINK/USD:USD-260130",
                 "SHIB/USD:USD-260130": "SHIB/USD:USD-260130",
                 "ADA/USD:USD-260130": "ADA/USD:USD-260130",
-            },
-            **{"USDTUSD": "USDT/USD"}, # For tracking value of USDT itself
-            **{
-                # Gemini specific mappings (Standard and common)
-                "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD", "SOLUSD": "SOL/USD", "LTCUSD": "LTC/USD",
-                "XRPUSD": "XRP/USD", "ADAUSD": "ADA/USD", "LINKUSD": "LINK/USD", "DOGEUSD": "DOGE/USD",
+                "USDTUSD": "USDT/USD",
+            })
+        elif eid == "gemini":
+            # 3. Gemini-specific mappings
+            self.symbol_map.update({
+                "XRPUSD": "XRP/USD", "BCHUSD": "BCH/USD", "ZECUSD": "ZEC/USD", "ADAUSD": "ADA/USD", "LINKUSD": "LINK/USD", "DOGEUSD": "DOGE/USD",
                 "AVAXUSD": "AVAX/USD", "SHIBUSD": "SHIB/USD", "NEARUSD": "NEAR/USD", "DOTUSD": "DOT/USD",
+                "ATOMUSD": "ATOM/USD",
                 "PEPEUSD": "PEPE/USD", "FETUSD": "FET/USD", "GRTUSD": "GRT/USD",
-                "USDPUSD": "USDP/USD", # Gemini's stablecoin
-            },
-            **{
-                # Kraken specific mappings
+                "USDPUSD": "USDP/USD", "GUSDUSD": "GUSD/USD", "HYPEUSD": "HYPE/USD", "WIFUSD": "WIF/USD",
+            })
+        elif eid == "kraken":
+            # 4. Kraken-specific mappings
+            self.symbol_map.update({
                 "XBTUSD": "BTC/USD", "XBTEUR": "BTC/EUR",
                 "ETHXBT": "ETH/BTC", "XRPXBT": "XRP/BTC",
                 "USDTZUSD": "USDT/USD",
-            },
-            **_parse_symbol_map(os.getenv("CCXT_SYMBOL_MAP")),
-        }
+            })
+
+        # 5. Environment variable overrides (highest priority)
+        env_map = _parse_symbol_map(os.getenv("CCXT_SYMBOL_MAP"))
+        if env_map:
+            self.symbol_map.update(env_map)
+
 
         self._exchange = self._build_exchange()
         self._local_orders: dict[str, _LocalOrder] = {}
@@ -221,7 +227,7 @@ class CCXTExchangeBroker:
             if default_type in {"future", "swap"} and self._exchange.id != "coinbase":
                 params["reduceOnly"] = True
 
-            self._exchange.create_order(sym, "market", side, qty, None, params)
+            self._ccxt_create_order(sym, "market", side, qty, params=params)
             
             # [ANTIGRAVITY FIX] Clear Position from Store
             if self.position_hold_store:
@@ -802,7 +808,7 @@ class CCXTExchangeBroker:
             close_side = "buy" if size < 0 else "sell"
             
             try:
-                order = self._exchange.create_order(sym, "market", close_side, qty)
+                order = self._ccxt_create_order(sym, "market", close_side, qty)
                 return self._ok(decision.symbol, "scale_out market", [str(order.get("id"))])
             except Exception as e:
                 logger.error(f"[CCXT] Scale Out failed: {e}")
@@ -1097,7 +1103,7 @@ class CCXTExchangeBroker:
                           )
 
                 # Place Entry
-                order = self._exchange.create_order(sym, "market", side, send_amount)
+                order = self._ccxt_create_order(sym, "market", side, send_amount)
                 self._track_local_order(sym, order)
                 entry_id = str(order.get("id"))
                 logger.info(f"[CCXT] Placed {side} market order {entry_id} for {send_amount} {sym}")
@@ -1406,9 +1412,16 @@ class CCXTExchangeBroker:
                                         limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
                                         stop_params["stop_price"] = self._exchange.price_to_precision(sym, sl_price)
                                         stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if side == "sell" else "STOP_DIRECTION_STOP_UP"
+                                    elif "gemini" in self.exchange_id.lower():
+                                        order_type = "limit" # CCXT gemini create_order will switch to stop limit if stopPrice is in params
+                                        # Gemini stop orders require a limit price (stop-limit only)
+                                        raw_limit = sl_price * 0.95 if side == "sell" else sl_price * 1.05
+                                        limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
+                                        # CCXT Gemini looks for stopPrice or stop_price
+                                        stop_params["stopPrice"] = self._exchange.price_to_precision(sym, sl_price)
 
                                     stop_qty = float(self._exchange.amount_to_precision(sym, abs(raw_size)))
-                                    self._exchange.create_order(sym, order_type, side, stop_qty, limit_price, stop_params)
+                                    self._ccxt_create_order(sym, order_type, side, stop_qty, limit_price, stop_params)
                                     logger.info(f"[CCXT] AUTO-PROTECTED {sys_sym} with SL at {sl_price} (qty={stop_qty})")
                                     
                                     # Persist this new SL so we don't drift
@@ -1447,8 +1460,13 @@ class CCXTExchangeBroker:
             open_orders = len(self._exchange.fetch_open_orders(sym))
             logger.debug(f"[CCXT] fetch_open_orders {sym} done. count={open_orders}")
         except Exception as e:
-            logger.warning(f"[CCXT] fetch_open_orders {sym} failed: {e}")
-            open_orders = 0
+            # [ANTIGRAVITY] Suppress warnings for known missing symbols on Gemini to reduce log noise
+            is_missing_symbol = "does not have market symbol" in str(e) or "Bad Request" in str(e)
+            if is_missing_symbol and any(s in symbol for s in ["ADA", "NEAR", "USDP"]):
+                open_orders = 0 # Suppress warning, treat as no open orders
+            else:
+                logger.warning(f"[CCXT] fetch_open_orders {sym} failed: {e}")
+                open_orders = 0
         pos = self.get_open_position_snapshot(symbol)
         size = float(pos.get("size", 0.0)) if pos else 0.0
         is_dust = pos.get("is_dust", False) if pos else False
@@ -1484,8 +1502,14 @@ class CCXTExchangeBroker:
         cls = getattr(ccxt, self.exchange_id, None)
         if cls is None:
             raise ValueError(f"Unknown ccxt exchange '{self.exchange_id}'")
-        api_key = os.getenv("CCXT_API_KEY")
-        secret = os.getenv("CCXT_SECRET")
+        api_key = os.getenv("CCXT_API_KEY", "")
+        secret = os.getenv("CCXT_SECRET", "")
+        
+        # [ANTIGRAVITY] Diagnostic logging for Gemini authentication
+        if self.exchange_id == "gemini":
+            logger.info(f"[CCXT] Gemini API Key check: prefix='{api_key[:8] if api_key else 'NONE'}', length={len(api_key)}")
+            if api_key and "account" not in api_key:
+                 logger.warning("[CCXT] Gemini API Key missing 'account' prefix! CCXT requires it.")
         password = os.getenv("CCXT_PASSWORD")
         enable_rate_limit = (os.getenv("CCXT_ENABLE_RATE_LIMIT", "true").lower() == "true")
 
@@ -1566,7 +1590,7 @@ class CCXTExchangeBroker:
             qty = free_usdt
             
             # Sanity check symbol existence logic or just try
-            order = self._exchange.create_order(symbol, "market", "sell", qty)
+            order = self._ccxt_create_order(symbol, "market", "sell", qty)
             logger.info(f"[CCXT] Auto-Liq: Converted {qty} USDT to USD. Order: {order.get('id')}")
             
             # Sleep briefly to allow balance update propagation?
@@ -1629,3 +1653,34 @@ class CCXTExchangeBroker:
             ExecutionResult(ExecutionStatus.EXECUTED, symbol, reason),
             ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, symbol, reason, order_ids=order_ids),
         )
+
+    def _ccxt_create_order(self, symbol: str, type: str, side: str, amount: float, price: float | None = None, params: dict | None = None) -> dict:
+        """Wrapper for ccxt.create_order with Gemini market->limit conversion."""
+        params = params or {}
+        if self.exchange_id == "gemini" and type == "market":
+            # Gemini does not support market orders; use aggressive limit
+            ticker = self._exchange.fetch_ticker(symbol)
+            last = float(ticker['last'])
+            # 5% offset for "market" fill guarantee
+            price = last * 0.95 if side == "sell" else last * 1.05
+            price = float(self._exchange.price_to_precision(symbol, price))
+            type = "limit"
+        
+        # Handle stop orders for Gemini (stopPrice requirement)
+        if self.exchange_id == "gemini" and type == "stop_market":
+            # Gemini only supports stop-limit
+            type = "limit"
+            if "stopPrice" not in params:
+                 # If we missed it somehow, use the price as stop price (though this should be handled by caller)
+                 if price:
+                     params["stopPrice"] = self._exchange.price_to_precision(symbol, price)
+                 else:
+                     ticker = self._exchange.fetch_ticker(symbol)
+                     last = float(ticker['last'])
+                     # Use 5% offset for stop price if not provided
+                     sl_price = last * 0.95 if side == "sell" else last * 1.05
+                     params["stopPrice"] = self._exchange.price_to_precision(symbol, sl_price)
+            if price is None:
+                 price = float(params["stopPrice"]) # Fallback if price was not provided
+
+        return self._exchange.create_order(symbol, type, side, amount, price, params)

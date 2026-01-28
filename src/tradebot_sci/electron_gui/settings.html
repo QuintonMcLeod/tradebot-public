@@ -106,6 +106,14 @@
                 <!-- Tab content will be rendered here -->
             </div>
 
+            <!-- BOT STATUS BANNER (Floating) -->
+            <div id="runtime-status-banner" class="absolute bottom-32 left-1/2 -translate-x-1/2 z-[60] hidden">
+                 <div class="bg-black/80 backdrop-blur-xl border border-white/10 rounded-full px-6 py-2 flex items-center gap-3 shadow-2xl">
+                     <div id="status-dot" class="w-2 h-2 rounded-full bg-slate-500 animate-pulse"></div>
+                     <span id="status-text" class="text-[10px] font-black uppercase tracking-widest text-slate-400">Bot Offline</span>
+                 </div>
+            </div>
+
             <!-- ACTION FOOTER -->
             <div class="h-24 border-t border-white/5 bg-black/60 flex items-center px-12 justify-between shrink-0">
                 <div class="flex flex-col">

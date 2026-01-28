@@ -382,3 +382,33 @@ class CCXTMarketDataProvider:
         except Exception as e:
             logger.warning(f"[CCXT-DATA] Failed to get market definition for {symbol}: {e}")
         return None
+
+
+class NoOpMarketDataProvider:
+    """A Null Object implementation of MarketDataProvider that returns empty data."""
+
+    def get_latest_candles(self, symbol: str, timeframe: str, limit: int) -> List[Candle]:
+        return []
+
+    def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
+        # Return an empty snapshot
+        return MarketSnapshot(
+            symbol=symbol,
+            timeframe=timeframe,
+            candles=[],
+            trend_htf=TrendState.RANGE,  # Neutral default
+            trend_ltf=TrendState.RANGE,
+            htf_candles=[],
+            ltf_candles=[],
+            htf_timeframe=timeframe,
+            ltf_timeframe=timeframe,
+        )
+
+    def get_ticker(self, symbol: str) -> Ticker | None:
+        return None
+
+    def get_order_book(self, symbol: str, depth: int = 10) -> OrderBook | None:
+        return None
+
+    def get_market_definition(self, symbol: str) -> dict | None:
+        return None

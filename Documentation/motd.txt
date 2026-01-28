@@ -1,0 +1,18 @@
+Welcome to TradeBot SCI! 🚀
+
+Our goal is simple: We want you to make money and achieve financial freedom through disciplined, automated trading.
+
+⚠️ IMPORTANT SAFETY WARNING:
+- Never trade with money you cannot afford to lose.
+- Do not put your entire life savings into a single trading bot or strategy.
+- Trading involves significant risk. Always monitor your bot's performance and ensure your risk settings (Stop Loss, Take Profit) are correctly configured.
+- Have fun and learn as you go!
+
+Latest Updates:
+✅ New integrated APIs for Gemini and Kraken.
+✅ Added Bot Lifecycle Controls: Start, Stop, and Restart directly from the Settings UI.
+✅ Improved logging: Strategy variants are now clearly visible at startup.
+✅ Performance Optimization: Fixed background broker polling for profiles that don't need them.
+✅ Stability: Fixed various 404 and NoneType errors in the execution loop.
+
+Good luck and happy trading! 📈

@@ -122,7 +122,10 @@ SYMBOL_MARKET_TYPE: Dict[str, MarketType] = {
     "CDEGLD": MarketType.CRYPTO,
     "CDESIL": MarketType.CRYPTO,
     "CDENGS": MarketType.CRYPTO,
+    "CDENGS": MarketType.CRYPTO,
     "B50": MarketType.CRYPTO,
+    "BCHUSD": MarketType.CRYPTO,
+    "ZECUSD": MarketType.CRYPTO,
 }
 
 
@@ -135,6 +138,8 @@ CRYPTO_SYMBOLS = {
     # [ANTIGRAVITY] New Volatile Adds
     "DASH/USDC:USDC", "ORDI/USDC:USDC",
     "INJ/USDC:USDC", "AR/USDC:USDC", "ZEN/USDC:USDC", "ETC/USDC:USDC",
+    "HYPEUSD", "PEPEUSD", "WIFUSD", "GUSDUSD", "USDPUSD",
+    "BCHUSD", "ZECUSD",
 }
 FOREX_SYMBOLS = {
     "EURUSD",
@@ -253,6 +258,14 @@ SUPPORTED_SYMBOLS = [
     "AR/USDC:USDC",
     "ZEN/USDC:USDC",
     "ETC/USDC:USDC",
+    "HYPEUSD",
+    "PEPEUSD",
+    "WIFUSD",
+    "GUSDUSD",
+    "GUSDUSD",
+    "USDPUSD",
+    "BCHUSD",
+    "ZECUSD",
 ]
 
 CRYPTO_BASE_SYMBOLS = {
@@ -275,6 +288,14 @@ CRYPTO_BASE_SYMBOLS = {
     "AR/USDC:USDC": "AR",
     "ZEN/USDC:USDC": "ZEN",
     "ETC/USDC:USDC": "ETC",
+    "HYPEUSD": "HYPE",
+    "PEPEUSD": "PEPE",
+    "WIFUSD": "WIF",
+    "GUSDUSD": "GUSD",
+    "GUSDUSD": "GUSD",
+    "USDPUSD": "USDP",
+    "BCHUSD": "BCH",
+    "ZECUSD": "ZEC",
 }
 DISABLED_SYMBOLS = {
     # "BIP-20DEC30-CDE", "ETP-20DEC30-CDE", # Re-enabled for management

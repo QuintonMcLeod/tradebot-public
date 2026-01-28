@@ -653,6 +653,12 @@ class Backtester:
                         ))
                         del positions[symbol]
                         logger.info(f"[BACKTEST] {symbol} stop hit: PnL=${pnl:.2f}")
+                        # [FEET WET] Update risk after trade close
+                        try:
+                            from tradebot_sci.strategy.variants.supply_demand import feet_wet_on_trade_closed
+                            feet_wet_on_trade_closed(pnl)
+                        except Exception:
+                            pass
                         continue
 
                 # Check take profit
@@ -694,6 +700,12 @@ class Backtester:
                         ))
                         del positions[symbol]
                         logger.info(f"[BACKTEST] {symbol} target hit: PnL=${pnl:.2f}")
+                        # [FEET WET] Update risk after trade close
+                        try:
+                            from tradebot_sci.strategy.variants.supply_demand import feet_wet_on_trade_closed
+                            feet_wet_on_trade_closed(pnl)
+                        except Exception:
+                            pass
                         continue
 
                 # Update unrealized P&L
@@ -905,6 +917,14 @@ class Backtester:
                         # Convert SimulatedPosition to a format the engine expects (if we have one)
                         open_position = None
                         if current_position is not None:
+                            # [FIXED] Strategy needs to know its profit to pyramid!
+                            last_close = snapshot.candles[-1].close
+                            pnl = _calculate_pnl(
+                                current_position.entry_price, 
+                                last_close, 
+                                current_position.size, 
+                                current_position.direction
+                            )
                             # Create a minimal position dict for the engine
                             open_position = {
                                 'symbol': current_position.symbol,
@@ -912,7 +932,9 @@ class Backtester:
                                 'entry_price': current_position.entry_price,
                                 'size': current_position.size,
                                 'stop_price': current_position.stop_price,
+                                'stop_loss': current_position.stop_price, # Mapping for RoboCop
                                 'target_price': current_position.target_price,
+                                'unrealized_pnl': pnl,
                                 'pyramid_count': current_position.pyramid_count,
                                 'htf_neutral_bars': current_position.htf_neutral_bars,
                             }
@@ -976,7 +998,7 @@ class Backtester:
                                 exit_time=current_time,
                                 pnl=pnl,
                                 exit_reason="signal",
-                        entry_gates=getattr(pos, "entry_gates", None),
+                                entry_gates=getattr(current_position, "entry_gates", None),
                             ))
                             del positions[symbol]
                             logger.info(f"[BACKTEST] {symbol} EXIT signal: PnL=${pnl:.2f}")

@@ -235,11 +235,46 @@ function createWindow() {
     });
 
     ipcMain.on('start-bot', () => {
-        exec('bash scripts/tradebot.sh --gui --daemon');
+        console.log('[MAIN] Start signal received.');
+        const scriptPath = path.join(__dirname, '../../../scripts/tradebot.sh');
+
+        // Check if already running
+        exec('pgrep -f run_dev_bot.py', (err, stdout) => {
+            if (stdout && stdout.trim().length > 0) {
+                console.log('[MAIN] Bot already running. Ignoring start command.');
+                return;
+            }
+            console.log(`[MAIN] No existing process found. Starting bot via ${scriptPath}...`);
+            exec(`bash "${scriptPath}" --daemon`, (error) => {
+                if (error) console.error(`[MAIN] Start error: ${error}`);
+                // Check status immediately after start attempt
+                setTimeout(() => checkBotStatus(mainWindow, true), 1000);
+            });
+        });
     });
 
     ipcMain.on('stop-bot', () => {
-        exec('pkill -f run_dev_bot.py');
+        console.log('[MAIN] Stopping bot...');
+        exec('pkill -f run_dev_bot.py', (error) => {
+            // pkill returns 1 if no process found, which is fine
+            if (error && error.code !== 1) console.error(`[MAIN] Stop error: ${error}`);
+            setTimeout(() => checkBotStatus(mainWindow, true), 1000);
+        });
+    });
+
+    ipcMain.on('restart-bot', () => {
+        console.log('[MAIN] Restarting bot (Workflow: Kill -> Wait -> Start)...');
+        const scriptPath = path.join(__dirname, '../../../scripts/tradebot.sh');
+
+        exec('pkill -f run_dev_bot.py', () => {
+            // Wait 2 seconds for clean shutdown
+            setTimeout(() => {
+                exec(`bash "${scriptPath}" --daemon`, (error) => {
+                    if (error) console.error(`[MAIN] Restart-Start error: ${error}`);
+                    checkBotStatus(mainWindow, true);
+                });
+            }, 2000);
+        });
     });
 
     ipcMain.on('get-bot-status', () => { checkBotStatus(mainWindow, true); });

@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 from tradebot_sci.market.models import MarketSnapshot
-from tradebot_sci.strategy.decisions import AITradeDecision, close_position_decision
+from tradebot_sci.strategy.decisions import AITradeDecision, close_position_decision, stand_aside_decision, hold_decision
 from tradebot_sci.strategy.variants.base import BaseStrategy
 from tradebot_sci.strategy.icc_signals import (
     detect_continuation, 
@@ -12,72 +12,208 @@ from tradebot_sci.strategy.icc_signals import (
     detect_structure_invalidation,
     calculate_atr
 )
-from tradebot_sci.config.models import UserConfig
 
 logger = logging.getLogger(__name__)
 
 class RoboCopStrategy(BaseStrategy):
     """
-    High-frequency, aggressive ICC variant.
-    Bypasses sessions, human delays, and allows 'naked' entries on strong signals.
+    RoboCop (Iteration 17): THE ABSOLUTE SNIPER.
+    
+    User-driven "Surefire" approach.
+    - Zero Strength Filter (Quiet markets allowed)
+    - Strict Triple Confluence: HTF Alignment + Sweep + BOS
+    - Anchored Stop: Absolute Sweep Extremes.
+    - Risk: 2% Probe / 15% Load.
     """
     
     def __init__(self):
         super().__init__("RoboCop")
+        self.FEET_WET_RISK = 0.02   # 2% Probe
+        self.LOAD_RISK_PCT = 0.05   # 5% Load (Sustainable)
+        self.BREAKEVEN_R = 1.0      # Be very safe
+        self.TARGET_R = 3.0         # 3:1 Sustainable RR
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
-        # [ROBOCOP] Combat Mode Entry: React to ANY valid micro-signal
-        # [ROBOCOP-SENSITIVITY] Use swing_lookback=1 for high-speed crypto
-        sweep = detect_liquidity_sweep(snapshot.candles, snapshot.trend_ltf.direction, swing_lookback=1)
-        indication = detect_indication(snapshot.candles, swing_lookback=1)
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, **kwargs) -> Optional[AITradeDecision]:
+        if open_position and float(open_position.get("size", 0)) > 0:
+            return None 
+
+        lookback = 2
+
+        # SCORING SYSTEM (Legacy "Engine V1" Logic)
+        # To solve the binary strength filter issue, we grade the setup on a 0-100 scale.
+        # Passing Grade: 60 Points.
         
-        # [ROBOCOP] Naked Entry: Allow continuation without prior correction if momentum is high
-        cont = detect_continuation(
-            snapshot.candles, 
-            snapshot.trend_ltf.direction, 
-            sweep, 
-            indication, 
-            require_correction=False,
-            swing_lookback=1,
-            confirmation_bars=1 # Faster confirmation
-        )
+        score = 0.0
+        score_breakdown = []
         
-        if cont:
-             last_close = snapshot.candles[-1].close
-             atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
-             
-             # Aggressive sizing
-             stop_loss = last_close - (atr * 1.5) if cont.direction == "long" else last_close + (atr * 1.5)
-             target = last_close + (atr * 3.0) if cont.direction == "long" else last_close - (atr * 3.0)
-             
-             return AITradeDecision(
-                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                bias=cont.direction, phase="continuation", action="enter_long" if cont.direction == "long" else "enter_short",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=target,
-                structure_summary=f"RoboCop Aggressive ICC (Sweep={bool(sweep)})",
-                invalidation_conditions="Close below recent swing",
-                management_instructions="Target 2R",
-                notes="Combat Mode Entry",
-                urgency="high"
+        # 1. Alignment (+30 pts)
+        # HTF and LTF must match.
+        htf_actual_dir = snapshot.trend_htf.direction
+        ltf_actual_dir = snapshot.trend_ltf.direction
+        
+        if htf_actual_dir != "neutral" and htf_actual_dir == ltf_actual_dir:
+            score += 30.0
+            score_breakdown.append("Align(+30)")
+            
+        # 2. Liquidity Sweep (+25 pts)
+        # Note: We redetect here to check existence before calculating specific entry params
+        # Use the "intended" direction (LTF) for detection
+        target_dir = ltf_actual_dir
+        if target_dir == "neutral":
+             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Sniper: Neutral LTF")
+
+        sweep = detect_liquidity_sweep(snapshot.candles, target_dir, swing_lookback=lookback)
+        if sweep:
+            # Check freshness
+            sweep_age = len(snapshot.candles) - 1 - sweep.index
+            if sweep_age <= 5: # Allow slightly wider window for "points", strict 2 for entry
+                score += 25.0
+                score_breakdown.append("Sweep(+25)")
+
+        # 3. Indication/BOS (+25 pts)
+        ind = detect_indication(snapshot.candles, swing_lookback=lookback)
+        if ind and ind.direction == target_dir:
+            score += 25.0
+            score_breakdown.append("BOS(+25)")
+            
+        # 4. Strong HTF Trend (+15 pts)
+        # Reward distinct trends (Strength >= 0.5)
+        htf_strength = snapshot.trend_htf.strength
+        if htf_strength >= 0.5:
+            score += 15.0
+            score_breakdown.append(f"StrongHTF({htf_strength:.1f}=+15)")
+            
+        # 5. Good Phase (+5 pts) - Simplified
+        # If we have BOS + Sweep, we are likely not in simple chop
+        if sweep and ind:
+            score += 5.0
+            score_breakdown.append("Phase(+5)")
+
+        # FILTER: Minimum Score 60
+        if score < 60.0:
+            return stand_aside_decision(
+                snapshot.symbol, 
+                snapshot.timeframe, 
+                f"Sniper: Low Score {score:.0f}/60 ({', '.join(score_breakdown)})"
             )
-        return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
-        # [ROBOCOP] Fast Exit Logic
-        pos_dir = open_position.get("direction")
-        unrealized_pnl = float(open_position.get("unrealized_pnl", 0.0))
+        # --- EXECUTION LOGIC (If Score >= 60) ---
         
-        # 1. Structure Invalidation (Aggressive 0.5 ATR)
+        # We re-verify the STRICT entry conditions for the specific order parameters
+        # 1. Must have Fresh Sweep (<= 2 bars) 
+        # (The score gave points for <= 5, but we want strict entry timing)
+        if not sweep:
+             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Sniper: Hunting Sweep (Score Pass, No Sweep)")
+             
+        sweep_age = len(snapshot.candles) - 1 - sweep.index
+        if sweep_age > 2:
+             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Sniper: Stale Sweep ({sweep_age} bars)")
+
+        # 2. Must have BOS (Indication) - Simple Check, NOT strict continuation
+        # Per user: "Continuations are not mandatory"
+        if not ind or ind.direction != target_dir:
+             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Sniper: Seeking BOS Alignment")
+
+
+        last_close = snapshot.candles[-1].close
+        
+        # EXTREME ANCHORING: Stop Loss at the absolute wick of the sweep candle
+        sweep_candle = snapshot.candles[sweep.index]
+        stop_loss = sweep_candle.low if target_dir == "long" else sweep_candle.high
+        
+        # Safety buffer (0.2 ATR)
+        atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
+        buffer = atr * 0.2
+        if target_dir == "long":
+            stop_loss -= buffer
+        else:
+            stop_loss += buffer
+
+        take_profit = last_close + (abs(last_close - stop_loss) * self.TARGET_R) if target_dir == "long" else last_close - (abs(last_close - stop_loss) * self.TARGET_R)
+        
+        return AITradeDecision(
+            symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+            bias=target_dir, phase="continuation", action="enter_long" if target_dir == "long" else "enter_short",
+            entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
+            risk_per_trade_pct=self.FEET_WET_RISK,
+            structure_summary=f"RoboCop Scorer: {score:.0f}/100 ({', '.join(score_breakdown)})",
+            invalidation_conditions=f"Absolute extreme ({stop_loss:.2f}) breached",
+            management_instructions="BE at 1R, Compound at 1R profit.",
+            notes=f"Score {score:.0f}: {', '.join(score_breakdown)}",
+            urgency="high"
+        )
+
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, current_capital: Optional[float] = None, **kwargs) -> Optional[AITradeDecision]:
+        pos_dir = open_position.get("direction")
+        entry_price = float(open_position.get("entry_price", 0))
+        current_stop = float(open_position.get("stop_loss", 0))
+        current_pnl = float(open_position.get("unrealized_pnl", 0))
+        capital = current_capital or 1000.0
+        
+        last_close = snapshot.candles[-1].close
+        atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
+        
+        # 1. Smart Exit: HTF Reversal (User Request: "Usually it's the htf that invalidates")
+        # If we are long, and HTF flips to short (or neutral?), bail.
+        htf_dir = snapshot.trend_htf.direction
+        if (pos_dir == "long" and htf_dir == "short") or (pos_dir == "short" and htf_dir == "long"):
+             return close_position_decision(snapshot.symbol, snapshot.timeframe, f"Sniper Exit: HTF Reversal ({htf_dir})")
+
+        # 2. Smart Exit: Opposing Indication (BOS against us)
+        # If we see a structure break against our position, get out before the stop.
+        opposing_ind = detect_indication(snapshot.candles, swing_lookback=2)
+        if opposing_ind and opposing_ind.direction != pos_dir:
+             return close_position_decision(snapshot.symbol, snapshot.timeframe, f"Sniper Exit: Opposing BOS ({opposing_ind.direction})")
+
+        # 3. Structure Invalidation (Tight)
         inval = detect_structure_invalidation(snapshot.candles, pos_dir, atr_mult=0.5)
         if inval:
-             return close_position_decision(snapshot.symbol, snapshot.timeframe, f"RoboCop Structure Invalidation: {inval.describe()}")
-             
-        # 2. Chop TP (Stagnation Exit)
-        # We use the gates passed from engine which track 'phase'
-        current_phase = gates.get("phase", "")
-        if current_phase == "chop" and unrealized_pnl > 0:
-             # If we've been in chop for more than 3 bars while profitable, bank it.
-             # This is a classic 'RoboCop' move to keep the machine moving.
-             return close_position_decision(snapshot.symbol, snapshot.timeframe, f"RoboCop Chop TP: Profitable (${unrealized_pnl:.2f}) + Market Stagnation")
+             return close_position_decision(snapshot.symbol, snapshot.timeframe, "Sniper Defeat: Structure Broken")
+
+        # 4. Stop Management
+        risk_dist = abs(entry_price - current_stop)
+        profit_dist = (last_close - entry_price) if pos_dir == "long" else (entry_price - last_close)
+        
+        new_stop = current_stop
+        update_needed = False
+
+        # Breakeven at 1R
+        if profit_dist > (risk_dist * self.BREAKEVEN_R):
+            be_price = entry_price + (atr * 0.1) if pos_dir == "long" else entry_price - (atr * 0.1)
+            if (pos_dir == "long" and current_stop < be_price) or (pos_dir == "short" and current_stop > be_price):
+                new_stop = be_price
+                update_needed = True
+
+        # Trailing at 2.0R
+        if profit_dist > (risk_dist * 2.0):
+            trail_dist = atr * 0.8
+            potential_stop = last_close - trail_dist if pos_dir == "long" else last_close + trail_dist
+            if (pos_dir == "long" and potential_stop > new_stop) or (pos_dir == "short" and potential_stop < new_stop):
+                new_stop = potential_stop
+                update_needed = True
+
+        # 5. [THE LOAD] - Compound at 1R profit (Surefire stacking)
+        one_r_dollars = capital * self.FEET_WET_RISK
+        
+        if current_pnl > one_r_dollars:
+            return AITradeDecision(
+                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                bias=pos_dir, phase="trend", action="add_to_position",
+                entry_price=last_close, 
+                stop_loss=new_stop, 
+                risk_per_trade_pct=self.LOAD_RISK_PCT,
+                structure_summary=f"RoboCop LOAD: Surefire Compound ${current_pnl:.2f}",
+                invalidation_conditions="Existing SL hit",
+                management_instructions="Maintain Trail",
+                notes="Absolute Sniper Load",
+                urgency="high"
+            )
+
+        if update_needed:
+            return hold_decision(
+                snapshot.symbol, snapshot.timeframe, 
+                bias=pos_dir, phase="trend", 
+                reason="Sniper Trail"
+            ).model_copy(update={"stop_loss": new_stop})
 
         return None

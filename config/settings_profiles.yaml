@@ -8,7 +8,7 @@ profiles:
     # Available: rubberband_reaper, robocop, evolution, quantum, mean_reversion,
     #            hyper_scalper, london_breakout, volatility_breakout, aggregator
     strategies:
-      crypto: rubberband_reaper    # BTC, ETH, altcoins
+      crypto: supply_demand    # BTC, ETH, altcoins
       forex: rubberband_reaper     # EUR/USD, GBP/JPY, etc.
       stocks: rubberband_reaper    # Individual equities
       etf: rubberband_reaper       # SPY, QQQ, sector funds
@@ -81,7 +81,7 @@ profiles:
 
     # Per-Asset-Class Strategies
     strategies:
-      crypto: rubberband_reaper
+      crypto: supply_demand
       forex: rubberband_reaper     # Primary focus for this profile
       stocks: quantum              # Trend-following for equities
       etf: quantum
@@ -253,7 +253,7 @@ profiles:
   coinbase_futures:
     strategy_variant: robocop  # Default fallback (aggressive for futures)
     strategies:
-      crypto: robocop          # Aggressive ICC for crypto futures
+      crypto: supply_demand          # Aggressive ICC for crypto futures
       forex: rubberband_reaper
       stocks: quantum
       etf: quantum
@@ -309,9 +309,10 @@ profiles:
     - LTC/USD
     - BTC/USD
   crypto_247:
-    strategy_variant: rubberband_reaper  # Default fallback
+    strategy_variant: supply_demand  # RECOVERY MARTINGALE CONFIG
+    max_daily_trades: 100
     strategies:
-      crypto: rubberband_reaper  # Primary focus for this profile
+      crypto: supply_demand  # Aggressive Recovery Martingale
       forex: rubberband_reaper
       stocks: quantum
       etf: quantum
@@ -320,26 +321,29 @@ profiles:
     candle_timeframe: 5m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
-    htf_timeframe: 15m
+    htf_timeframe: 1h  # Proven 1H trend filter
     ltf_timeframe: 5m
     trend_window: 18
     ltf_trend_window: 12
-    trend_swing_lookback: 3 # [ANTIGRAVITY FIX] Added
+    trend_swing_lookback: 3
     structure_score_threshold: 0.05
     auto_flatten_on_close: false
     symbols:
     - BTCUSD
     - ETHUSD
     - SOLUSD
+    - XRPUSD
+    - ZECUSD
+    - BCHUSD
     icc_entry_score_threshold: 60.0
-    icc_score_continuation_points: 60.0 # [ANTIGRAVITY FIX] Added
+    icc_score_continuation_points: 60.0
     icc_auto_entry_min_htf_strength: 0.1
     pair_selector_enabled: true
     pair_selector_refresh_seconds: 300
-    pair_selector_min_volume_usd_24h: 1000000.0
+    pair_selector_min_volume_usd_24h: 100000.0
     pair_selector_max_spread_bps: 25.0
     pair_selector_min_depth_usd: 10000.0
-    pair_selector_max_pairs: 3
+    pair_selector_max_pairs: 6
     maker_first_enabled: true
     maker_first_offset_bps: 0.0
     taker_max_slippage_bps: 30.0
@@ -359,6 +363,9 @@ profiles:
       BTCUSD: 0.0001
       ETHUSD: 0.001
       SOLUSD: 0.01
+      XRPUSD: 1.0
+      ZECUSD: 0.01
+      BCHUSD: 0.01
     synthetic_stop_persistence_enabled: true
     synthetic_stop_store_path: data/synthetic_stops.json
     startup_crypto_unprotected_policy: FLATTEN
@@ -374,7 +381,7 @@ profiles:
   all_247:
     strategy_variant: aggregator  # Default fallback (multi-strategy for all assets)
     strategies:
-      crypto: rubberband_reaper
+      crypto: supply_demand
       forex: rubberband_reaper
       stocks: quantum
       etf: quantum
@@ -430,6 +437,9 @@ profiles:
     - BTCUSD
     - ETHUSD
     - SOLUSD
+    - XRPUSD
+    - ZECUSD
+    - BCHUSD
     - EURUSD
     - GBPUSD
     - USDJPY
@@ -456,6 +466,9 @@ profiles:
       BTCUSD: 0.0001
       ETHUSD: 0.001
       SOLUSD: 0.01
+      XRPUSD: 1.0
+      ZECUSD: 0.01
+      BCHUSD: 0.01
     synthetic_stop_persistence_enabled: true
     synthetic_stop_store_path: data/synthetic_stops.json
     startup_crypto_unprotected_policy: FLATTEN
@@ -468,7 +481,7 @@ profiles:
   auto_schedule:
     strategy_variant: rubberband_reaper  # Default fallback
     strategies:
-      crypto: robocop            # High-frequency aggressive for volatile crypto
+      crypto: supply_demand      # Aggressive Recovery Martingale
       forex: rubberband_reaper   # Proven +7,036% on forex
       stocks: quantum            # Trend-following for equities
       etf: quantum               # Trend-following for ETFs
@@ -566,12 +579,17 @@ profiles:
       NEARUSDT: 0.1
       DOTUSDT: 0.1
       ATOMUSDT: 0.1
+      XRPUSD: 1.0
+      ZECUSD: 0.01
+      BCHUSD: 0.01
     synthetic_stop_persistence_enabled: true
     synthetic_stop_store_path: data/synthetic_stops.json
     startup_crypto_unprotected_policy: FLATTEN
     rearm_stop_distance_pct: 0.02
     synthetic_stop_integrity_interval: 10
     runtime_overrides:
+      APP_PROFILE: crypto_247
+      market_data_mode: oanda
       flatten_on_exit: false
       intraday_flatten: false
       cancel_orders_on_start: false
@@ -580,6 +598,9 @@ profiles:
     - ETHUSD
     - LTCUSD
     - BCHUSD
+    - XRPUSD
+    - ZECUSD
+    - SOLUSD
     # - SOLUSD (Not supported on OANDA US)
     # - DOGEUSD (Not supported on OANDA US)
     # - XRPUSD (Not supported on OANDA US)
@@ -595,7 +616,7 @@ profiles:
   coinbase_futures_nano:
     strategy_variant: robocop  # Default fallback (aggressive for nano futures)
     strategies:
-      crypto: robocop          # Aggressive ICC for crypto nano futures
+      crypto: supply_demand          # Aggressive ICC for crypto nano futures
       forex: rubberband_reaper
       stocks: quantum
       etf: quantum

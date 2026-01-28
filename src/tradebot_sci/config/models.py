@@ -609,6 +609,10 @@ class TradingProfileSettings(BaseModel):
         default=None,
         description="Optional override for runtime.max_concurrent_positions. If set, overrides the global setting.",
     )
+    max_daily_trades: Optional[PositiveInt] = Field(
+        default=None,
+        description="Maximum number of trade entries allowed per day per symbol.",
+    )
 
     def get_strategy_for_symbol(self, symbol: str) -> str:
         """

@@ -39,7 +39,7 @@ class StrategyEngine:
         
         # Load the Strategy Variant
         self._strategy = self._load_strategy_variant()
-        logger.info(f"[PHOENIX] Engine initialized for {symbol} with variant: {self._strategy.name}")
+        logger.info(f" [PHOENIX] === ENGINE LOADED === Symbol: {symbol} | Variant: {self._strategy.name.upper()} ")
 
     def _load_strategy_variant(self):
         """Factory method for loading strategy variants."""
@@ -56,8 +56,9 @@ class StrategyEngine:
             from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
             return RobotEvolutionStrategy()
         elif variant == "robocop":
-            from tradebot_sci.strategy.variants.robocop import RoboCopStrategy
-            return RoboCopStrategy()
+            # [RENT GOAL] Standardized to Supply/Demand for maximum aggression
+            from tradebot_sci.strategy.variants.supply_demand import SupplyDemandStrategy
+            return SupplyDemandStrategy()
         elif variant == "london_breakout":
             from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
             return LondonBreakoutStrategy()
@@ -70,6 +71,9 @@ class StrategyEngine:
         elif variant == "icc_core":
             from tradebot_sci.strategy.variants.icc_core import ICCCoreStrategy
             return ICCCoreStrategy()
+        elif variant == "supply_demand":
+            from tradebot_sci.strategy.variants.supply_demand import SupplyDemandStrategy
+            return SupplyDemandStrategy()
         else:
             # Fallback
             from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy

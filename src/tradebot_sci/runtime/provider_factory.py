@@ -78,11 +78,22 @@ class RoutedExchangeBroker(IExchangeBroker):
 
     def __init__(self, brokers: Dict[str, IExchangeBroker]):
         self.brokers = brokers
-        self._fallback = brokers.get("equity") or next(iter(brokers.values()))
+        # [ANTIGRAVITY] Robust fallback: find first non-NoOp broker
+        self._fallback = None
+        for b in brokers.values():
+            if not isinstance(b, NoOpExchangeBroker):
+                self._fallback = b
+                break
+        if not self._fallback:
+            self._fallback = next(iter(brokers.values()))
 
     def _get_broker(self, symbol: str) -> IExchangeBroker:
         key = _get_asset_key(symbol)
-        return self.brokers.get(key, self._fallback)
+        broker = self.brokers.get(key)
+        # If the requested asset class is NoOp, don't fall back to Oanda/IBKR!
+        if broker and not isinstance(broker, NoOpExchangeBroker):
+            return broker
+        return broker or self._fallback
 
     @property
     def profile(self):
@@ -127,9 +138,10 @@ class RoutedExchangeBroker(IExchangeBroker):
         return all_orders
 
     def get_recent_fills(self, *args, **kwargs) -> Any:
-        unique_brokers = set(self.brokers.values())
+        # Filter brokers that were lazily initialized and aren't NoOp
+        active_brokers = [b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker)]
         all_fills = []
-        for b in unique_brokers:
+        for b in active_brokers:
             f = b.get_recent_fills(*args, **kwargs) or []
             all_fills.extend(f)
         return all_fills
@@ -170,12 +182,14 @@ class RoutedExchangeBroker(IExchangeBroker):
         return self._get_broker(symbol)._has_active_orders_or_position(symbol, state)
 
     def refresh_account_summary(self) -> None:
-        for b in set(self.brokers.values()):
+        active_brokers = [b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker)]
+        for b in active_brokers:
             if hasattr(b, "refresh_account_summary"):
                 b.refresh_account_summary()
 
     def summarize_pnl(self) -> None:
-        for b in set(self.brokers.values()):
+        active_brokers = [b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker)]
+        for b in active_brokers:
             if hasattr(b, "summarize_pnl"):
                 b.summarize_pnl()
 
@@ -184,7 +198,8 @@ class RoutedExchangeBroker(IExchangeBroker):
             return self._get_broker(symbol).get_liquid_capital(symbol)
             
         total = 0.0
-        for b in set(self.brokers.values()):
+        active_brokers = [b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker)]
+        for b in active_brokers:
             if hasattr(b, "get_liquid_capital"):
                 total += b.get_liquid_capital()
         logger.debug("[ROUTED] Total Capital: %.2f", total)
@@ -391,6 +406,7 @@ def build_market_provider(
     profile_settings: TradingProfileSettings | None = None,
     *,
     shared_ib: object | None,
+    allowed_symbols: set[str] | None = None,
 ) -> MarketDataProvider:
     """Builds a market data provider with per-asset routing support."""
     
@@ -406,22 +422,33 @@ def build_market_provider(
     
     if is_routed:
         # Default defaults
+        # Default defaults
         if not crypto_md_mode: crypto_md_mode = "ccxt" # Default crypto
-        if not forex_md_mode: forex_md_mode = "ibkr"   # Default forex
+        if not forex_md_mode: forex_md_mode = "oanda" # Default forex
         if not equity_md_mode: equity_md_mode = "ibkr" # Default equity
         
         providers = {}
         cache = {} # Deduplication cache
 
-        def get_p(mode):
+        def get_p(mode, asset_class=None):
             if mode in cache: return cache[mode]
+            
+            # Optimization: Skip if no symbols for this asset class
+            if allowed_symbols and asset_class:
+                 has_class = any(_get_asset_key(s) == asset_class for s in allowed_symbols)
+                 if not has_class:
+                     logger.debug(f"[ROUTED-DATA] Skipping {asset_class} provider ({mode}) - no symbols assigned.")
+                     from tradebot_sci.market.providers import NoOpMarketDataProvider
+                     cache[mode] = NoOpMarketDataProvider()
+                     return cache[mode]
+
             p = _create_single_provider(mode, settings, profile_settings, shared_ib)
             if p: cache[mode] = p
             return p
 
-        p_crypto = get_p(crypto_md_mode)
-        p_forex = get_p(forex_md_mode)
-        p_equity = get_p(equity_md_mode)
+        p_crypto = get_p(crypto_md_mode, "crypto")
+        p_forex = get_p(forex_md_mode, "forex")
+        p_equity = get_p(equity_md_mode, "equity")
         
         if p_crypto: providers["crypto"] = p_crypto
         if p_forex: providers["forex"] = p_forex
@@ -435,23 +462,18 @@ def build_market_provider(
     # (Original logic implementation omitted for brevity, but reusing helper logic would be ideal if consistent)
     # For safety in this edit, I will reimplement the basic switch using the helpers.
     
-    mode = _get_effective_setting("market_data_mode", settings, profile_settings)
-    if not mode:
-        mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
-    
-    if mode == "hybrid":
-        # Classic Hybrid: Crypto->Alternative, Rest->Primary
-        p_primary = _create_single_provider("primary", settings, profile_settings, shared_ib)
-        p_alt = _create_single_provider("alternative", settings, profile_settings, shared_ib)
-        
-        # Reuse RoutedMarketDataProvider for Hybrid too!
-        return RoutedMarketDataProvider({
-            "crypto": p_alt or p_primary,
-            "forex": p_primary,
-            "equity": p_primary
-        })
-        
     p = _create_single_provider(mode, settings, profile_settings, shared_ib)
+    
+    # [ANTIGRAVITY] Final safety check: if we are in crypto_only but ended up with Oanda/IBKR
+    if p and allowed_symbols:
+        has_crypto = any(_get_asset_key(s) == "crypto" for s in allowed_symbols)
+        has_others = any(_get_asset_key(s) != "crypto" for s in allowed_symbols)
+        if has_crypto and not has_others:
+            # Strictly crypto only, make sure we aren't using Oanda for everything
+            if "oanda" in str(p).lower() or "ibkr" in str(p).lower():
+                logger.debug("[ROUTED-DATA] Overriding global %s to NoOp (crypto_only detected)", p)
+                return NoOpMarketDataProvider()
+
     return p or NoOpMarketDataProvider()
 
 
@@ -478,15 +500,25 @@ def build_exchange_broker(
         brokers = {}
         cache = {}
 
-        def get_b(mode):
+        def get_b(mode, asset_class=None):
             if mode in cache: return cache[mode]
+            
+            # Optimization: If we have allowed_symbols, check if this broker is actually needed
+            if allowed_symbols and asset_class:
+                has_class = any(_get_asset_key(s) == asset_class for s in allowed_symbols)
+                if not has_class:
+                    logger.debug(f"[ROUTED-EXEC] Skipping {asset_class} broker ({mode}) - no symbols assigned.")
+                    from tradebot_sci.broker.interfaces import NoOpExchangeBroker
+                    cache[mode] = NoOpExchangeBroker()
+                    return cache[mode]
+
             b = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols)
             if b: cache[mode] = b
             return b
 
-        b_crypto = get_b(crypto_mode)
-        b_forex = get_b(forex_mode)
-        b_equity = get_b(equity_mode)
+        b_crypto = get_b(crypto_mode, "crypto")
+        b_forex = get_b(forex_mode, "forex")
+        b_equity = get_b(equity_mode, "equity")
         
         if b_crypto: brokers["crypto"] = b_crypto
         if b_forex: brokers["forex"] = b_forex
@@ -510,5 +542,17 @@ def build_exchange_broker(
             "equity": b_primary
         })
 
-    b = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols)
-    return b or NoOpExchangeBroker()
+    p = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols)
+
+    # [ANTIGRAVITY] Final safety check: if we are in crypto_only but ended up with Oanda/IBKR
+    if p and allowed_symbols:
+        has_crypto = any(_get_asset_key(s) == "crypto" for s in allowed_symbols)
+        has_others = any(_get_asset_key(s) != "crypto" for s in allowed_symbols)
+        if has_crypto and not has_others:
+            # Strictly crypto only, make sure we aren't using Oanda/IBKR for everything
+            if "oanda" in str(p).lower() or "ibkr" in str(p).lower():
+                logger.debug("[ROUTED-EXEC] Overriding global broker %s to NoOp (crypto_only detected)", p)
+                from tradebot_sci.broker.interfaces import NoOpExchangeBroker
+                return NoOpExchangeBroker()
+
+    return p or NoOpExchangeBroker()

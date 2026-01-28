@@ -1011,3 +1011,55 @@ select.input-field {
 .metric-animate {
     animation: countUp 0.4s ease-out;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   CONTROL BUTTONS
+   ═══════════════════════════════════════════════════════════ */
+.control-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 24px;
+    border-radius: 20px;
+    border: 1px solid var(--card-border);
+    background: rgba(15, 23, 42, 0.4);
+    cursor: pointer;
+    transition: all 0.3s var(--transition-smooth);
+    color: var(--text-secondary);
+    min-height: 120px;
+}
+
+.control-btn .material-symbols-outlined {
+    font-size: 32px;
+    transition: transform 0.3s;
+}
+
+.control-btn:hover {
+    transform: translateY(-4px);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.control-btn:hover .material-symbols-outlined {
+    transform: scale(1.1);
+}
+
+.control-btn-teal:hover { 
+    color: var(--accent);
+    border-color: var(--accent-glow);
+    box-shadow: 0 8px 32px rgba(20, 184, 166, 0.2);
+}
+
+.control-btn-red:hover { 
+    color: var(--error);
+    border-color: rgba(239, 68, 68, 0.3);
+    box-shadow: 0 8px 32px rgba(239, 68, 68, 0.2);
+}
+
+.control-btn-purple:hover { 
+    color: var(--purple);
+    border-color: var(--purple-dim);
+    box-shadow: 0 8px 32px rgba(139, 92, 246, 0.2);
+}

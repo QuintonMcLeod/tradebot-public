@@ -23,8 +23,8 @@ from tradebot_sci.config.models import Settings
 from tradebot_sci.logging.setup import setup_logging
 from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.market.trend import infer_trend_from_swings
+from tradebot_sci.runtime.universe import resolve_symbol_universe, instrument_classes_for_symbols
 from tradebot_sci.runtime.provider_factory import build_exchange_broker, build_market_provider
-from tradebot_sci.runtime.safety import validate_decision
 from tradebot_sci.runtime.pair_selector import PairSelector
 from tradebot_sci.runtime.friction import FrictionModel
 from tradebot_sci.runtime.auto_schedule import select_auto_schedule_symbols
@@ -128,7 +128,7 @@ except ImportError:  # pragma: no cover - optional dependency
     ASTRAL_AVAILABLE = False
 
 
-def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool) -> object | None:
+def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool, allowed_asset_classes: list[str] | None = None) -> object | None:
     if not execute_trades:
         return None
     
@@ -149,6 +149,13 @@ def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool) -> objec
 
     if broker_mode not in ("primary", "hybrid") and market_mode not in ("primary", "hybrid"):
         return None
+        
+    # [ANTIGRAVITY] Asset Class Guard: Only connect if Forex or Equity/Metals are active
+    if allowed_asset_classes:
+        has_ib_class = any(ac in ("forex", "equity", "commodity") for ac in allowed_asset_classes)
+        if not has_ib_class:
+            logger.info("[IBKR] Skipping connection - no Forex or Equity symbols in active profile.")
+            return None
     try:
         from ib_insync import IB  # type: ignore
     except Exception as exc:
@@ -256,7 +263,8 @@ def _filter_crypto_symbols(symbols: list[str], profile_name: str) -> list[str]:
 
 
 def _resolve_symbol_universe(settings, profile_settings, profile_name: str) -> list[str]:
-    from tradebot_sci.runtime.universe import resolve_symbol_universe
+    # Import moved to top of file
+    symbols = resolve_symbol_universe(settings, profile_settings, profile_name)
 
     symbols = resolve_symbol_universe(settings, profile_settings, profile_name)
     if not symbols:
@@ -432,8 +440,15 @@ def run_bot(
     # Removed blocking run_scheduled_bot check here.
     # The main loop now handles per-symbol market hours filtering.
 
-    shared_ib = _maybe_connect_primary_ib(settings, execute_trades)
-    provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib)
+    allowed_asset_classes = instrument_classes_for_symbols(symbols) if symbols else []
+
+    shared_ib = _maybe_connect_primary_ib(settings, execute_trades, allowed_asset_classes)
+    provider = build_market_provider(
+        settings, 
+        profile_settings, 
+        shared_ib=shared_ib,
+        allowed_symbols=set(symbols) if symbols else None
+    )
     ai_client = TradeSciAIClient(settings.ai)
     profile = BaseProfile(
         name=profile_name,
@@ -453,6 +468,21 @@ def run_bot(
         for symbol in symbols
     }
 
+    # [ANTIGRAVITY] Prominent Strategy & MOTD Display
+    print("\n" + "="*60)
+    motd_path = os.path.join(os.getcwd(), "Documentation", "motd.txt")
+    if os.path.exists(motd_path):
+        with open(motd_path, "r") as f:
+            print(f.read())
+    else:
+        print("Welcome to Tradebot SCI! (Documentation/motd.txt not found)")
+    print("="*60 + "\n")
+
+    logger.info("[PHOENIX] === ACTIVE STRATEGIES SUMMARY ===")
+    for sym, engine in engines.items():
+        logger.info(f"[PHOENIX]   {sym.ljust(10)} -> Strategy: {engine._strategy.name.upper()}")
+    logger.info("[PHOENIX] ==================================" + "\n")
+
     executor = (
         build_exchange_broker(
             settings,
@@ -463,6 +493,7 @@ def run_bot(
         if execute_trades
         else None
     )
+
     if executor and settings.runtime.cancel_orders_on_start:
         for symbol in symbols:
             executor.cancel_all_orders_for_symbol(symbol)

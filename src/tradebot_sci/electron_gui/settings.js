@@ -157,6 +157,7 @@ const TOOLTIPS = {
     SESSION_OVERLAP_END_HOUR: "Hour when active trading session ends (0-23). 16 = 4 PM. Position management continues after this.",
     SESSION_OVERLAP_TIMEZONE: "Timezone for session hours. UTC is universal, or use your local timezone.",
     AUTO_SCHEDULE_ENABLED: "Automatically switch between equity hours (9:30-4 ET) and crypto (24/7) based on what you're trading.",
+    SUPPLY_DEMAND: "Identifies areas where large institutional orders are likely waiting. The bot looks for a 'Break of Structure' (BOS) indicating a new trend, then waits for price to return to the 'Base' (Supply or Demand zone) before entering. High-accuracy institutional method.",
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -253,6 +254,15 @@ const STRATEGIES = {
         risk: "Low-Medium",
         bestFor: "Aligned Trends",
         stats: { alignment: "Strict", structure: "Standard", method: "Vanilla" }
+    },
+    supply_demand: {
+        name: "Supply & Demand",
+        shortDesc: "Institutional Price Action",
+        description: "Uses the pure institutional methodology of Supply and Demand zones. It waits for a clear Break of Structure to identify a trend, then tags the 'Base' candle that caused the move as a high-probability zone. Enters only when price returns to 'tap' that zone on a candle break.",
+        style: "Price Action / Institutional",
+        risk: "Low-Medium",
+        bestFor: "Clean trending markets, high-volume crypto",
+        stats: { method: "SND Zones", confirmation: "Zone Tap", trend: "BOS Based" }
     }
 };
 
@@ -290,6 +300,15 @@ const TABS = {
 
 async function init() {
     setupGlobalEvents();
+
+    // Listen for bot status updates
+    if (window.electronAPI?.onBotStatus) {
+        window.electronAPI.onBotStatus((status) => {
+            updateBotStatusUI(status.running);
+        });
+        // Initial check
+        window.electronAPI.getBotStatus();
+    }
 
     // Load data from backend
     try {
@@ -594,7 +613,8 @@ function renderSystemTab(container) {
             { value: 'london_breakout', label: 'London Breakout (Session)' },
             { value: 'volatility_breakout', label: 'Volatility Breakout' },
             { value: 'aggregator', label: 'Singularity Aggregator (Multi-Strategy)' },
-            { value: 'icc_core', label: 'ICC (Indication, Correction, Continuation)' }
+            { value: 'icc_core', label: 'ICC (Indication, Correction, Continuation)' },
+            { value: 'supply_demand', label: 'Supply & Demand (Institutional)' }
         ],
         default: 'rubberband_reaper'
     }));
@@ -610,6 +630,32 @@ function renderSystemTab(container) {
     section.appendChild(createCard('Live Trading', 'Master switch for real order execution', 'EXECUTE_TRADES', 'toggle'));
     section.appendChild(createCard('Auto-Start Bot', 'Launch bot automatically with GUI', 'GUI_AUTOSTART_BOT', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Continuous Mode', 'Keep runtime alive indefinitely', 'CONTINUOUS_MODE', 'toggle'));
+
+    section.appendChild(createDivider());
+
+    // Runtime Control (Start/Stop/Restart)
+    section.appendChild(createSectionHeader('Runtime Control', 'play_circle'));
+
+    const controlGrid = document.createElement('div');
+    controlGrid.className = 'card-grid card-grid-3 mb-8';
+
+    const btnStart = createControlButton('Start Bot', 'play_arrow', 'teal', () => {
+        window.electronAPI.startBot();
+        showNotice('Bot start command sent', 'teal');
+    });
+    const btnStop = createControlButton('Stop Bot', 'stop', 'red', () => {
+        window.electronAPI.stopBot();
+        showNotice('Bot stop command sent', 'red');
+    });
+    const btnRestart = createControlButton('Restart', 'refresh', 'purple', () => {
+        window.electronAPI.restartBot();
+        showNotice('Bot restart sequence initiated', 'purple');
+    });
+
+    controlGrid.appendChild(btnStart);
+    controlGrid.appendChild(btnStop);
+    controlGrid.appendChild(btnRestart);
+    section.appendChild(controlGrid);
 
     section.appendChild(createDivider());
 
@@ -1291,7 +1337,8 @@ function renderStrategyToolbox(container) {
         { id: 'hyper_scalper', label: 'HyperScalper' },
         { id: 'london_breakout', label: 'London Breakout' },
         { id: 'volatility_breakout', label: 'Volatility Breakout' },
-        { id: 'aggregator', label: 'Aggregator' }
+        { id: 'aggregator', label: 'Aggregator' },
+        { id: 'supply_demand', label: 'Supply & Demand' }
     ];
 
     strategies.forEach(s => {
@@ -1384,6 +1431,36 @@ function renderStrategyToolbox(container) {
             number: true,
             default: '25',
             tooltip: 'RSI level considered "Oversold". Price below this level suggests an exhaustion of selling momentum, signaling a potential Long entry.'
+        }));
+
+    } else if (toolboxTab === 'supply_demand') {
+        const stratInfo = STRATEGIES.supply_demand;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'account_balance_wallet'));
+
+        section.appendChild(createWarningBox(`
+            <strong>Institutional Logic:</strong><br>
+            Supply & Demand focuses on "Unfilled Orders". It ignores minor noise and only enters when price returns to a high-probability zone after a solid Break of Structure (BOS).
+        `));
+
+        section.appendChild(createCard('RR Target', 'Reward-to-Risk Goal', 'SND_RR_TARGET', 'input', {
+            number: true,
+            default: '2.0',
+            tooltip: 'The desired Reward-to-Risk ratio. 2.0 means targeting twice the amount risked. This is the optimal setting for SND institutional setups.'
+        }));
+
+        section.appendChild(createCard('Zone Window', 'Candle Lookback for Zones', 'SND_ZONE_WINDOW', 'input', {
+            number: true,
+            default: '100',
+            tooltip: 'How many historical candles the bot scans to find valid Supply or Demand zones. A larger window finds older, potentially stronger zones.'
+        }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Advanced SND Filters', 'military_tech'));
+
+        section.appendChild(createCard('Max Daily Trades', 'Daily Trade Cap', 'MAX_DAILY_TRADES', 'input', {
+            number: true,
+            default: '20',
+            tooltip: 'Safety cap on how many trades this strategy can take per symbol per day. Prevents over-trading in choppy markets.'
         }));
 
     } else if (toolboxTab === 'icc') {
@@ -1518,3 +1595,60 @@ function renderStrategyToolbox(container) {
 // ═══════════════════════════════════════════════════════════
 // START (init is called from DOMContentLoaded handler at top)
 // ═══════════════════════════════════════════════════════════
+
+function createControlButton(label, icon, color, onClick) {
+    const btn = document.createElement('button');
+    btn.className = `control-btn control-btn-${color}`;
+    btn.innerHTML = `
+        <span class="material-symbols-outlined">${icon}</span>
+        <span class="text-xs font-bold uppercase tracking-widest">${label}</span>
+    `;
+    btn.onclick = (e) => {
+        e.preventDefault();
+        onClick();
+    };
+    return btn;
+}
+
+function updateBotStatusUI(isRunning) {
+    const banner = document.getElementById('runtime-status-banner');
+    const dot = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+
+    if (!banner || !dot || !text) return;
+
+    banner.classList.remove('hidden');
+    if (isRunning) {
+        dot.className = 'w-2 h-2 rounded-full bg-teal-500 shadow-[0_0_10px_rgba(20,184,166,0.8)]';
+        text.textContent = 'Bot Online';
+        text.className = 'text-[10px] font-black uppercase tracking-widest text-teal-400';
+    } else {
+        dot.className = 'w-2 h-2 rounded-full bg-slate-500 animate-pulse';
+        text.textContent = 'Bot Offline';
+        text.className = 'text-[10px] font-black uppercase tracking-widest text-slate-400';
+    }
+}
+
+function showNotice(message, color = 'teal') {
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `fixed top-12 left-1/2 -translate-x-1/2 z-[100] px-8 py-4 rounded-2xl bg-black/80 backdrop-blur-2xl border-2 border-${color}-500/30 shadow-2xl animate-in fade-in zoom-in slide-in-from-top-4 duration-500`;
+
+    // Convert generic colors to valid tailwind/custom classes if needed
+    const colorClass = color === 'teal' ? 'teal' : (color === 'red' ? 'red' : 'purple');
+
+    toast.innerHTML = `
+        <div class="flex items-center gap-4">
+            <div class="w-3 h-3 rounded-full bg-${colorClass}-500 shadow-[0_0_15px_rgba(20,184,166,0.8)] animate-pulse"></div>
+            <span class="text-xs font-black uppercase tracking-[0.2em] text-${colorClass}-400">${message}</span>
+        </div>
+    `;
+
+    document.body.appendChild(toast);
+
+    // Smooth exit
+    setTimeout(() => {
+        toast.classList.add('animate-out', 'fade-out', 'zoom-out', 'slide-out-to-top-4');
+        setTimeout(() => toast.remove(), 500);
+    }, 4000);
+}
