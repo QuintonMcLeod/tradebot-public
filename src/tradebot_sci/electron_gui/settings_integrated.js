@@ -139,9 +139,11 @@ const TOOLTIPS = {
     CHATGPT_KEY: "API key for your chosen AI provider. Get this from their developer portal. Required for AI-powered commentary.",
     AI_TEMPERATURE: "AI creativity level (0-2). Lower = more consistent/predictable responses. Higher = more creative but potentially erratic. 0.2 recommended.",
     AI_MAX_TOKENS: "Maximum response length from AI. Higher = more detailed analysis but costs more. 2048 is good for trading commentary.",
-    COMMENTARY_LLM_POLICY: "When to request AI analysis: 'a_plus_or_4x' for best setups or 4x daily, 'a_plus_only' for only exceptional setups, 'interval' for fixed schedule.",
-    COMMENTARY_LLM_DAILY_SLOTS: "Specific times to request AI commentary (HH:MM format). Example: 09:00,12:00,18:00 for market open, midday, and close.",
-    COMMENTARY_LLM_MAX_CALLS_PER_DAY: "Maximum AI API calls per day. Prevents runaway costs. Each call provides fresh market analysis.",
+    COMMENTARY_ENABLED: "Master toggle for AI commentary. When disabled, no AI insights will be generated.",
+    COMMENTARY_LLM_POLICY: "When to generate AI insights: 'disabled' to turn off, 'interval' for fixed timing, 'schedule' for specific times, 'on_signal' on every trade decision.",
+    COMMENTARY_INTERVAL_MINUTES: "Time between AI updates when using 'Fixed Interval' policy. Range: 1-60 minutes.",
+    COMMENTARY_LLM_DAILY_SLOTS: "Specific times to request AI commentary when using 'Scheduled Times' policy. Format: HH:MM, comma-separated.",
+    COMMENTARY_LLM_MAX_CALLS_PER_DAY: "Hard limit on AI API calls per day. Prevents runaway costs regardless of policy.",
 
     // Sabbath Settings
     SABBATH_ENABLED: "Block new trade entries during the Jewish Sabbath (Friday sunset to Saturday sunset). Existing positions are managed but no new trades opened.",
@@ -449,7 +451,7 @@ function getActiveProfileSettings() {
         if (!inTargetProfile) continue;
 
         // Match property (4 spaces) - strip inline comments
-        const propMatch = line.match(/^    ([a-z_]+):\s*(.+)$/);
+        const propMatch = line.match(/^    ([a-z_]+):\s*(.*)$/);
         if (propMatch) {
             const key = propMatch[1];
             const rawVal = propMatch[2].split('#')[0].trim();
@@ -1215,15 +1217,33 @@ function renderAITab(container) {
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('AI Commentary', 'comment'));
 
-    section.appendChild(createCard('Commentary Policy', 'When to invoke AI', 'COMMENTARY_LLM_POLICY', 'dropdown', {
+    // Master toggle
+    section.appendChild(createCard('Enable Commentary', 'Show AI insights in dashboard', 'COMMENTARY_ENABLED', 'toggle', { default: 'true' }));
+
+    // Policy dropdown with cleaner options
+    section.appendChild(createCard('Commentary Policy', 'When to generate insights', 'COMMENTARY_LLM_POLICY', 'dropdown', {
         items: [
-            { value: 'a_plus_or_4x', label: 'A+ Setup or 4x Daily' },
-            { value: 'a_plus_only', label: 'A+ Setup Only' },
-            { value: 'interval', label: 'Fixed Interval' }
+            { value: 'disabled', label: 'Disabled' },
+            { value: 'interval', label: 'Fixed Interval' },
+            { value: 'schedule', label: 'Scheduled Times' },
+            { value: 'on_signal', label: 'On Trade Signals' }
         ]
     }));
-    section.appendChild(createCard('Daily Slots', 'Comma-separated HH:MM', 'COMMENTARY_LLM_DAILY_SLOTS', 'input', { placeholder: '09:00,12:00,18:00,22:00' }));
-    section.appendChild(createCard('Max Daily Calls', 'API cost cap', 'COMMENTARY_LLM_MAX_CALLS_PER_DAY', 'input', { number: true, default: '20' }));
+
+    // Interval slider (shown when policy is 'interval')
+    section.appendChild(createCard('Interval (Minutes)', 'Time between AI updates', 'COMMENTARY_INTERVAL_MINUTES', 'input', {
+        number: true,
+        default: '5',
+        min: 1,
+        max: 60,
+        step: 1
+    }));
+
+    // Daily slots (shown when policy is 'schedule')
+    section.appendChild(createCard('Scheduled Times', 'Comma-separated HH:MM', 'COMMENTARY_LLM_DAILY_SLOTS', 'input', { placeholder: '09:00,12:00,18:00' }));
+
+    // Daily limit
+    section.appendChild(createCard('Daily API Limit', 'Max AI calls per day', 'COMMENTARY_LLM_MAX_CALLS_PER_DAY', 'input', { number: true, default: '50' }));
 
     container.appendChild(section);
 }

@@ -797,6 +797,32 @@ class RuntimeSettings(BaseModel):
         description="Maximum allowed risk per trade as a fraction of equity (safety cap)."
     )
 
+    # --- AI Commentary Settings ---
+    commentary_enabled: bool = Field(
+        default_factory=lambda: os.getenv("COMMENTARY_ENABLED", "True").lower() == "true",
+        description="Master toggle for AI commentary feature."
+    )
+    commentary_policy: str = Field(
+        default_factory=lambda: os.getenv("COMMENTARY_LLM_POLICY", "interval"),
+        description="Commentary trigger policy: 'disabled', 'interval', 'schedule', or 'on_signal'."
+    )
+    commentary_interval_minutes: int = Field(
+        default_factory=lambda: int(os.getenv("COMMENTARY_INTERVAL_MINUTES", "5")),
+        ge=1,
+        le=60,
+        description="Interval in minutes between AI commentary updates (when policy='interval')."
+    )
+    commentary_daily_slots: str = Field(
+        default_factory=lambda: os.getenv("COMMENTARY_LLM_DAILY_SLOTS", ""),
+        description="Comma-separated HH:MM times for scheduled commentary (when policy='schedule')."
+    )
+    commentary_max_daily_calls: int = Field(
+        default_factory=lambda: int(os.getenv("COMMENTARY_LLM_MAX_CALLS_PER_DAY", "50")),
+        ge=1,
+        description="Hard limit on AI API calls per day to prevent runaway costs."
+    )
+
+
 class Settings(BaseModel):
     app: AppSettings
     logging: LoggingSettings

@@ -741,3 +741,44 @@ profiles:
       - EURJPY
       - GBPJPY
       - AUDJPY
+
+  forex_crypto_hybrid:
+    strategy_variant: aggregator
+    strategies:
+      crypto: supply_demand
+      forex: supply_demand
+    candle_timeframe: 15m
+    htf_timeframe: 15m
+    ltf_timeframe: 5m
+    
+    market_poll_interval_seconds: 15
+    ai_decision_interval_seconds: 60
+    
+    trend_window: 12
+    ltf_trend_window: 8
+    trend_swing_lookback: 2
+    trend_min_swings: 2
+    trend_strength_floor: 0.25
+    structure_score_threshold: 0.05
+    
+    # Risk Management
+    risk_per_trade_pct: 0.05
+    max_concurrent_positions: 6
+    multi_position_enabled: true
+    max_pyramid_entries: 4
+    
+    runtime_overrides:
+      market_data_mode: alternative
+      broker_mode: alternative
+      alternative_market_data: oanda
+      alternative_broker: oanda
+      primary_broker: oanda
+    
+    symbols:
+      - EURUSD
+      - GBPUSD
+      - USDJPY
+      - AUDUSD
+      - BTCUSD
+      - ETHUSD
+      - SOLUSD

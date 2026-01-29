@@ -126,11 +126,15 @@ def run_simulation(cartridge_name, strategy_override=None, symbol_override=None)
     # 6. Apply Custom Overrides (Hooks)
     cart_profile = config.get("profile_settings")
     if cart_profile:
+        from tradebot_sci.config.models import TradingProfileSettings as ActualProfileSettings
+        # Convert dict/dotdict to actual Pydantic model
+        actual_profile = ActualProfileSettings(**cart_profile)
+        
         # Pydantic Settings object uses 'profiles' and 'app.profile_name'
         profile_key = "marathon_profile"
-        settings.profiles[profile_key] = cart_profile
+        settings.profiles[profile_key] = actual_profile
         settings.app.profile_name = profile_key
-        print(f"[Cartridge] Injected Profile: {profile_key} (Variant: {cart_profile.strategy_variant})")
+        print(f"[Cartridge] Injected Profile: {profile_key} (Variant: {actual_profile.strategy_variant})")
 
     if hasattr(cartridge, "apply_overrides"):
         print("Applying custom overrides...")

@@ -36,6 +36,19 @@ function initChart(intervalSeconds = 900) {
         },
     });
 
+    indicatorSeries = chart.addHistogramSeries({
+        color: '#22c55e',
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'indicators',
+    });
+
+    chart.priceScale('indicators').applyOptions({
+        scaleMargins: {
+            top: 0.80,   // Reserve top 80% (stay at bottom)
+            bottom: 0,
+        },
+    });
+
     candleSeries = chart.addCandlestickSeries({
         upColor: '#2dd4bf',     // Teal
         downColor: '#f43f5e',   // Rose
@@ -47,20 +60,7 @@ function initChart(intervalSeconds = 900) {
     candleSeries.priceScale().applyOptions({
         scaleMargins: {
             top: 0.1,    // 10% gap from top
-            bottom: 0.3, // 30% gap from bottom to make room for indicators
-        },
-    });
-
-    indicatorSeries = chart.addHistogramSeries({
-        color: '#22c55e',
-        priceFormat: { type: 'volume' },
-        priceScaleId: 'indicators',
-    });
-
-    chart.priceScale('indicators').applyOptions({
-        scaleMargins: {
-            top: 0.85,   // Reserve top 85% (only use bottom 15%)
-            bottom: 0,
+            bottom: 0.05, // 5% gap from bottom (Eliminate dead zone)
         },
     });
 
@@ -1505,8 +1505,8 @@ window.profilesModule = (function () {
         return `
             <div class="bg-black/30 border border-white/5 rounded-xl p-3 flex items-center justify-between">
                 <span class="text-xs font-bold text-slate-300">${label}</span>
-                <div class="toggle-switch w-10 h-5 rounded-full cursor-pointer relative transition-all ${value ? 'bg-teal-500' : 'bg-slate-700'}" data-key="${key}">
-                    <div class="absolute w-4 h-4 bg-white rounded-full top-0.5 transition-all ${value ? 'left-5' : 'left-0.5'}"></div>
+                <div class="toggle-switch ${value ? 'active' : ''}" data-key="${key}">
+                    <div class="toggle-knob"></div>
                 </div>
             </div>
         `;
@@ -1572,12 +1572,9 @@ window.profilesModule = (function () {
     function handleToggleClick(e) {
         const toggle = e.currentTarget;
         const key = toggle.dataset.key;
-        const isOn = toggle.classList.contains('bg-teal-500');
-        toggle.classList.toggle('bg-teal-500', !isOn);
-        toggle.classList.toggle('bg-slate-700', isOn);
-        toggle.querySelector('div').classList.toggle('left-5', !isOn);
-        toggle.querySelector('div').classList.toggle('left-0.5', isOn);
-        setNestedValue(allProfiles[selectedProfileName], key, !isOn);
+        const isActive = toggle.classList.contains('active');
+        toggle.classList.toggle('active', !isActive);
+        setNestedValue(allProfiles[selectedProfileName], key, !isActive);
         incrementChangeCounter();
     }
 

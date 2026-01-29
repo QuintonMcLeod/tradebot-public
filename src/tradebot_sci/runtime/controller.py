@@ -92,9 +92,61 @@ class RuntimeController:
     # --- AI Commentary Integration ---
     _last_commentary_ts: float = 0.0
     _last_commentary_content: str = ""
-    _commentary_min_interval: int = 300  # 5 minutes between updates
+    _commentary_call_count_today: int = 0
+    _commentary_call_date: str = ""
     
-    def broadcast_commentary(self, state_context: str, strategy_name: str = "supply_demand", recent_logs: list[str] | None = None, recent_errors: list[str] | None = None):
+    def _get_commentary_settings(self):
+        """Get commentary settings from RuntimeSettings."""
+        return self.settings.runtime
+    
+    def _should_trigger_commentary(self, force_signal: bool = False) -> bool:
+        """Determine if commentary should be triggered based on policy."""
+        rt = self._get_commentary_settings()
+        
+        # Master toggle
+        if not rt.commentary_enabled:
+            return False
+        
+        policy = rt.commentary_policy.lower()
+        if policy == "disabled":
+            return False
+        
+        # Check daily limit
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self._commentary_call_date != today:
+            self._commentary_call_date = today
+            self._commentary_call_count_today = 0
+        
+        if self._commentary_call_count_today >= rt.commentary_max_daily_calls:
+            logger.debug(f"[COMMENTARY] Daily limit reached ({rt.commentary_max_daily_calls})")
+            return False
+        
+        now = time.time()
+        
+        if policy == "on_signal":
+            # Triggered by trade signals (force_signal flag from caller)
+            return force_signal
+        
+        if policy == "interval":
+            interval_seconds = rt.commentary_interval_minutes * 60
+            if now - self._last_commentary_ts < interval_seconds:
+                return False
+            return True
+        
+        if policy == "schedule":
+            # Check if current time matches a scheduled slot (within 1 minute)
+            slots = [s.strip() for s in rt.commentary_daily_slots.split(",") if s.strip()]
+            current_time = datetime.now().strftime("%H:%M")
+            for slot in slots:
+                if slot == current_time:
+                    # Only trigger once per slot (check last update wasn't in same minute)
+                    if now - self._last_commentary_ts > 60:
+                        return True
+            return False
+        
+        return False
+    
+    def broadcast_commentary(self, state_context: str, strategy_name: str = "supply_demand", recent_logs: list[str] | None = None, recent_errors: list[str] | None = None, force_signal: bool = False):
         """
         Generate and broadcast AI commentary to the Electron UI.
         
@@ -103,13 +155,13 @@ class RuntimeController:
             strategy_name: The active strategy name (e.g. 'supply_demand', 'robocop')
             recent_logs: Recent log lines for context
             recent_errors: Recent error messages to highlight
+            force_signal: If True, treat as an on_signal trigger
         """
         if not self.ws_server:
             return
         
-        now = time.time()
-        if now - self._last_commentary_ts < self._commentary_min_interval:
-            return  # Too soon for another update
+        if not self._should_trigger_commentary(force_signal):
+            return
         
         try:
             from tradebot_sci.ai.commentary_prompts import build_commentary_messages, build_commentary_prompt_with_logs
@@ -127,16 +179,20 @@ class RuntimeController:
             
             if commentary and commentary.strip():
                 self._last_commentary_content = commentary.strip()
-                self._last_commentary_ts = now
+                self._last_commentary_ts = time.time()
+                self._commentary_call_count_today += 1
                 
                 timestamp = datetime.now().strftime("%I:%M %p")
-                next_update = self._commentary_min_interval
+                rt = self._get_commentary_settings()
+                next_update = rt.commentary_interval_minutes * 60 if rt.commentary_policy == "interval" else 300
                 
                 self.ws_server.broadcast_commentary_sync(
                     self._last_commentary_content,
                     timestamp,
                     next_update
                 )
+                
+                logger.info(f"[COMMENTARY] Generated update #{self._commentary_call_count_today} for today")
             
         except Exception as e:
             logger.error(f"[COMMENTARY] Generation failed: {e}")
@@ -144,4 +200,4 @@ class RuntimeController:
     def get_last_commentary(self) -> tuple[str, float]:
         """Returns (last_commentary_content, last_update_timestamp)."""
         return self._last_commentary_content, self._last_commentary_ts
-```
+
