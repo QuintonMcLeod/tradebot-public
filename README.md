@@ -90,40 +90,21 @@ Before you clone anything, ensure you have:
 
 ---
 
-## 2. Installation
+## 2. One-Click Installation (Recommended)
 
-### Step 1: Clone the Repository
+The easiest way to get started is using our universal installer. It handles all system dependencies, Python, Node.js, and even creates a **Desktop Shortcut** for one-click access.
 
 ```bash
 git clone https://gitlab.com/ultraedge/tradebot-public.git
 cd tradebot-public
+chmod +x scripts/install.sh && ./scripts/install.sh
 ```
 
-### Step 2: Installation Options
+> [!TIP]
+> Once finished, you can launch the bot directly from your **Applications Menu** or **Desktop**!
 
-#### Option A: Automatic Setup (Recommended)
-This script detects your Linux distribution and installs all required system dependencies, Python, Poetry, and Node.js.
-> [!NOTE]
-> This script requires `sudo` privileges to install system packages.
-
-```bash
-chmod +x scripts/install.sh
-./scripts/install.sh
-```
-
-#### Option B: Manual Setup
-If you prefer to configure your environment manually:
-
-1. **Python Dependencies**:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   poetry install --with gui
-   ```
-2. **GUI Dependencies** (Optional):
-   ```bash
-   cd src/tradebot_sci/electron_gui && npm install
-   ```
+### Manual Configuration (Advanced)
+If you prefer to set up manually, please refer to the [Legacy Installation Guide](Documentation/installation_manual.md) (or use `poetry install --with gui`).
 
 ### Step 3: Configure Environment
 ```bash
