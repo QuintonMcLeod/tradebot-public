@@ -557,6 +557,12 @@ if [[ "$GUI" == "true" ]] || [[ "$DAEMON" == "true" ]]; then
   echo "Launching Electron GUI..."
   cd src/tradebot_sci/electron_gui
   
+  if [[ ! -d "node_modules" ]]; then
+      echo "ERROR: GUI dependencies not found in src/tradebot_sci/electron_gui/node_modules" >&2
+      echo "Please run: cd src/tradebot_sci/electron_gui && npm install" >&2
+      exit 2
+  fi
+
   if command -v npm >/dev/null 2>&1; then
       npm start -- --no-sandbox
       
