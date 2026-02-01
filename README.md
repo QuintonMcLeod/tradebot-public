@@ -99,24 +99,33 @@ git clone https://gitlab.com/ultraedge/tradebot-public.git
 cd tradebot-public
 ```
 
-### Step 2: Install Python Dependencies
+### Step 2: Installation Options
+
+#### Option A: Automatic Setup (Recommended)
+This script detects your Linux distribution and installs all required system dependencies, Python, Poetry, and Node.js.
+> [!NOTE]
+> This script requires `sudo` privileges to install system packages.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-poetry install --with gui
+chmod +x scripts/install.sh
+./scripts/install.sh
 ```
 
-### Step 3: Install GUI Dependencies (Optional)
+#### Option B: Manual Setup
+If you prefer to configure your environment manually:
 
-```bash
-cd src/tradebot_sci/electron_gui
-npm install
-cd ../../..
-```
+1. **Python Dependencies**:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   poetry install --with gui
+   ```
+2. **GUI Dependencies** (Optional):
+   ```bash
+   cd src/tradebot_sci/electron_gui && npm install
+   ```
 
-### Step 4: Configure Environment
-
+### Step 3: Configure Environment
 ```bash
 cp .env.example .env
 # Edit .env with your API keys
