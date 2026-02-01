@@ -117,7 +117,43 @@ if [ ! -f ".env" ]; then
     warn ".env created. PLEASE EDIT IT with your API keys before running the bot."
 fi
 
-# 6. Success Output
+# 6. Desktop Shortcut
+create_shortcut() {
+    info "Creating desktop shortcut..."
+    local DESKTOP_FILE="tradebot.desktop"
+    local ICON_PATH="$ROOT_DIR/src/tradebot_sci/electron_gui/assets/icon.png"
+    local EXEC_PATH="$ROOT_DIR/scripts/tradebot.sh --gui"
+    local APP_DIR="$HOME/.local/share/applications"
+
+    mkdir -p "$APP_DIR"
+
+    cat <<EOF > "$APP_DIR/$DESKTOP_FILE"
+[Desktop Entry]
+Name=Tradebot SCI
+Comment=AI-Powered Trading Assistant
+Exec=$EXEC_PATH
+Icon=$ICON_PATH
+Terminal=false
+Type=Application
+Categories=Finance;Utility;
+Path=$ROOT_DIR
+EOF
+
+    chmod +x "$APP_DIR/$DESKTOP_FILE"
+    
+    # Also copy to ~/Desktop if it exists
+    if [ -d "$HOME/Desktop" ]; then
+        cp "$APP_DIR/$DESKTOP_FILE" "$HOME/Desktop/"
+        chmod +x "$HOME/Desktop/$DESKTOP_FILE"
+        success "Shortcut created on Desktop and in Applications menu."
+    else
+        success "Shortcut created in Applications menu."
+    fi
+}
+
+create_shortcut
+
+# 7. Success Output
 echo ""
 success "Tradebot SCI Installation Complete!"
 info "Next Steps:"
