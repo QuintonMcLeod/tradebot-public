@@ -81,10 +81,38 @@ class StrategyEngine:
         elif variant == "supply_demand":
             from tradebot_sci.strategy.variants.supply_demand import SupplyDemandStrategy
             return SupplyDemandStrategy()
+        elif variant == "meta_sci":
+            # For the base variant, we keep the engine on Meta mode.
+            # Initial setup detection will happen in decide()
+            from tradebot_sci.strategy.variants.base import BaseStrategy
+            return BaseStrategy("meta_sci")
         else:
             # Fallback
             from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
             return RobotEvolutionStrategy()
+
+    def _load_specific_variant(self, variant: str):
+        """Dynamic helper for Meta-SCI ensemble loading."""
+        v = variant.lower()
+        if v == "evolution":
+            from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
+            return RobotEvolutionStrategy()
+        elif v in ("robocop", "supply_demand"):
+            from tradebot_sci.strategy.variants.supply_demand import SupplyDemandStrategy
+            return SupplyDemandStrategy()
+        elif v == "london_breakout":
+            from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
+            return LondonBreakoutStrategy()
+        elif v == "rubberband_reaper":
+            from tradebot_sci.strategy.variants.rubberband_reaper import RubberbandReaperStrategy
+            return RubberbandReaperStrategy()
+        elif v == "volatility_breakout":
+            from tradebot_sci.strategy.variants.breakout import VolatilityBreakoutStrategy
+            return VolatilityBreakoutStrategy()
+        elif v == "icc_core":
+            from tradebot_sci.strategy.variants.icc_core import ICCCoreStrategy
+            return ICCCoreStrategy()
+        return None
 
     def score_icc_grade(self, snapshot: MarketSnapshot) -> tuple[float, str]:
         """Provides a score and grade for the current market state."""
@@ -152,7 +180,7 @@ class StrategyEngine:
         )
 
         # [WEALTH MODE] Register current positions for House Money checks
-        if open_position:
+        if open_position and isinstance(open_position, dict):
             SafetyGuard.set_current_positions([open_position]) 
             # In a real multi-symbol setup, we'd pass ALL positions from the cycle.
             # But for per-engine logic, we pass self.
@@ -165,14 +193,6 @@ class StrategyEngine:
         snapshot = snapshot or self.market_provider.get_latest_snapshot(self.symbol, timeframe)
         caps = execution_capabilities or {}
         
-        # Build Confluence (Legacy block kept for strategy-v1 compatibility)
-        confluence_data = build_confluence(
-            self.market_provider,
-            snapshot.symbol,
-            snapshot.candles,
-            include_external=os.getenv("CONFLUENCE_EXTERNAL", "false").lower() == "true",
-        ).data
-
         # 2. Build Gates (Metadata for Strategy)
         current_capital = current_capital if current_capital is not None else getattr(self.market_provider, "current_capital", None)
         history = [r.to_dict() for r in (self.trade_results.results if self.trade_results else [])]
@@ -185,14 +205,67 @@ class StrategyEngine:
             "ltf_dir": snapshot.trend_ltf.direction,
             "htf_strength": round(float(snapshot.trend_htf.strength or 0.0), 3),
             "ltf_strength": round(float(snapshot.trend_ltf.strength or 0.0), 3),
-            "confluence": confluence_data,
             "score": score,
             "grade": grade
         }
 
-        # 3. Request Decisions from Strategy
+        # [META-SCI] Auto-Strategy Ensemble Master
+        if self._strategy.name == "meta_sci" and not open_position:
+            logger.info(f" [META-SCI] Executing Ensemble Pulse for {self.symbol}...")
+            
+            # 1. Load sub-strategies
+            strats_to_run = ["supply_demand", "robocop", "evolution", "london_breakout", "rubberband_reaper", "icc_core"]
+            exclude = getattr(self.profile, 'meta_sci_exclude_list', [])
+            consensus_needed = getattr(self.profile, 'meta_sci_min_consensus', 1)
+            
+            signals = []
+            for s_name in strats_to_run:
+                if s_name in exclude: continue
+                # Dynamic load
+                try:
+                    s_inst = self._load_specific_variant(s_name)
+                    sig = s_inst.check_entry_signal(snapshot, gates, open_position=None, current_capital=current_capital, trade_history=history)
+                    if sig and sig.action in ("enter_long", "enter_short"):
+                        sig.notes = (sig.notes or "") + f" | [META] Sourced via {s_name.upper()}"
+                        # Attach the strategy name for dynamic adoption
+                        sig.gates = sig.gates or {}
+                        sig.gates["meta_source"] = s_name
+                        signals.append(sig)
+                except Exception as e:
+                    logger.error(f"[META-SCI] Sub-strategy {s_name} failed: {e}")
+
+            if signals:
+                # Ranking logic: Winner is the highest score
+                # Consensus logic: Directional agreement check
+                long_sigs = [s for s in signals if s.bias == "long"]
+                short_sigs = [s for s in signals if s.bias == "short"]
+                
+                winner = None
+                if len(long_sigs) >= consensus_needed:
+                    winner = max(long_sigs, key=lambda x: x.score or 0)
+                elif len(short_sigs) >= consensus_needed:
+                    winner = max(short_sigs, key=lambda x: x.score or 0)
+                
+                if winner:
+                   logger.info(f" [META-SCI] Winner Selected: {winner.gates.get('meta_source').upper()} with score {winner.score or 'N/A'}")
+                   decision = winner
+                   # Proceed to safety augmentation below
+                else:
+                   from tradebot_sci.strategy.decisions import stand_aside_decision
+                   return stand_aside_decision(snapshot.symbol, timeframe, f"Meta-SCI Consensus Not Met ({len(signals)} sigs vs {consensus_needed} needed)")
+            else:
+                from tradebot_sci.strategy.decisions import stand_aside_decision
+                return stand_aside_decision(snapshot.symbol, timeframe, "Meta-SCI: No sub-strategy signals detected.")
+
+        # [META-SCI] Dynamic Adoption for Exits
+        if open_position and isinstance(open_position, dict) and self._strategy.name == "meta_sci":
+            source = open_position.get("meta_source") or "supply_demand" # Default fallback
+            self._strategy = self._load_specific_variant(source)
+            logger.info(f" [META-SCI] Adopted {source.upper()} for exit management of {self.symbol}")
+
+        # 3. Request Decisions from Strategy (Standard Path or Adopted Meta Path)
         # A. Check for EXIT if we have a position
-        if open_position and abs(open_position.get("size", 0.0)) > 0:
+        if open_position and isinstance(open_position, dict) and abs(open_position.get("size", 0.0)) > 0:
             exit_decision = self._strategy.check_exit_signal(
                 snapshot, 
                 open_position, 

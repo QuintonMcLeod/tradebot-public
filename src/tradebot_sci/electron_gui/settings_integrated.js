@@ -198,6 +198,11 @@ const TOOLTIPS = {
     PERFORMANCE_MODE_ALPHA: "<strong>Time-of-Day Alpha:</strong> The Power Hour. Automatically doubles risk during high-volume sessions (Market Overlaps) and goes conservative during 'lunch hours'.",
     PERFORMANCE_MODE_GAMMA: "<strong>Gamma Squeeze:</strong> Price Velocity. Detects when price is moving too fast for regular hedging to keep up, then hitches a ride with heavy leverage until momentum fades.",
     PERFORMANCE_MODE_SMOOTH: "<strong>Equity Smoothing:</strong> Account Protector. Rewards new all-time highs with 0.5% risk boosts, and slashes risk in half during drawdowns until the bot 'earns' its right to trade large again.",
+
+    // Meta-SCI (Auto Strategy)
+    META_SCI_ENABLED: "<strong>Meta-SCI Master Toggle:</strong> Enables the 'Auto Strategy' ensemble logic. When ON, the bot runs ALL registered strategies in parallel and selects the winning setup based on consensus and entry score.",
+    META_SCI_MIN_CONSENSUS: "<strong>Min Consensus:</strong> The minimum number of strategies that must agree on the same trade direction (Long or Short) before an entry is allowed. 1 = Winner takes all. 2+ = Safer, high-accuracy ensemble.",
+    META_SCI_EXCLUDE_LIST: "<strong>Strategy Blacklist:</strong> Comma-separated list of strategy IDs to exclude from the Auto Strategy ensemble (e.g. 'evolution, quantum').",
     PERFORMANCE_MODE_SENTIMENT: "<strong>AI Sentiment Fusion:</strong> Hype Train. Only allows high-risk trades when your configured AI confirms that global news sentiment for the asset is 'Highly Bullish'.",
     PERFORMANCE_MODE_GHOST: "<strong>Harmonic Ghost:</strong> Order Flow. Only takes trades that align with 'Hidden Institutional Liquidity' levels filtered through specialized flow analysis.",
     PERFORMANCE_MODE_PHOENIX: "<strong>The Phoenix:</strong> Reversion Scaling. After the 'Streak Breaker' pause ends, the bot takes the next signal at Double Risk, assuming a win is mathematically overdue.",
@@ -423,6 +428,15 @@ const STRATEGIES = {
         risk: "Low-Medium",
         bestFor: "Clean trending markets, high-volume crypto",
         stats: { method: "SND Zones", confirmation: "Zone Tap", trend: "BOS Based" }
+    },
+    meta_sci: {
+        name: "Meta-SCI (Auto Strategy)",
+        shortDesc: "The Ensemble Master",
+        description: "The ultimate AI orchestration layer. Instead of running one strategy, Meta-SCI runs THEM ALL in parallel. It analyzes setups from SND, RoboCop, and Evolution simultaneously, then deploys capital only to the strategy with the highest A+ confidence score.",
+        style: "Ensemble / Macro",
+        risk: "Dynamic",
+        bestFor: "All market regimes (Trend/Chop/Reversal)",
+        stats: { strategies: "All-in-One", selection: "Score-Based", mode: "Autonomous" }
     }
 };
 
@@ -1849,7 +1863,8 @@ function renderStrategyToolbox(container) {
         { id: 'london_breakout', label: 'London Breakout', icon: 'location_city', color: '#f97316' },
         { id: 'volatility_breakout', label: 'Volatility Breakout', icon: 'show_chart', color: '#06b6d4' },
         { id: 'aggregator', label: 'Aggregator', icon: 'hub', color: '#a855f7' },
-        { id: 'supply_demand', label: 'Supply & Demand', icon: 'layers', color: '#eab308' }
+        { id: 'supply_demand', label: 'Supply & Demand', icon: 'layers', color: '#eab308' },
+        { id: 'meta_sci', label: 'Meta-SCI Alpha', icon: 'hub', color: '#14b8a6' }
     ];
 
     strategies.forEach(s => {
@@ -2003,6 +2018,54 @@ function renderStrategyToolbox(container) {
             default: '20',
             tooltip: 'Safety cap on how many trades this strategy can take per symbol per day. Prevents over-trading in choppy markets.'
         }));
+
+    } else if (toolboxTab === 'meta_sci') {
+        const stratInfo = STRATEGIES.meta_sci;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'hub'));
+
+        section.appendChild(createWarningBox(`
+            <strong>Ensemble Master:</strong><br>
+            Meta-SCI does not use its own logic. It orchestrates all other strategies in parallel. 
+            The configuration below determines how it selects the "Winning" signal when multiple strategies agree.
+        `));
+
+        section.appendChild(createCard('Meta-SCI Active', 'Orchestrate all strategies in parallel', 'META_SCI_ENABLED', 'toggle'));
+        section.appendChild(createCard('Min Consensus', 'Min strategies that must agree', 'META_SCI_MIN_CONSENSUS', 'input', {
+            number: true,
+            default: '1',
+            min: 1,
+            max: 5,
+            tooltip: 'Minimum number of strategies that must signal the same direction before an entry is permitted. 1 = Highest score wins immediately.'
+        }));
+
+        section.appendChild(createCard('Strategy Blacklist', 'Comma-separated IDs to ignore', 'META_SCI_EXCLUDE_LIST', 'input', {
+            placeholder: 'evolution, quantum',
+            tooltip: 'Strategies listed here will be completely ignored by the Meta-SCI ensemble. Useful for filtering out strategies that you haven\'t yet tuned.'
+        }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Meta-SCI Strategy Feed', 'rss_feed'));
+
+        const feedBox = document.createElement('div');
+        feedBox.className = 'warning-box';
+        feedBox.style.borderColor = 'rgba(20, 184, 166, 0.2)';
+        feedBox.innerHTML = `
+            <div class="flex flex-col gap-2 w-full text-xs">
+                <div class="flex justify-between">
+                    <span style="color: var(--text-dim);">Active Workers:</span>
+                    <span style="color: var(--accent); font-weight: 700;">SND, RoboCop, Evolution, London, Reaper</span>
+                </div>
+                <div class="flex justify-between">
+                    <span style="color: var(--text-dim);">Decision Logic:</span>
+                    <span style="color: var(--text-secondary);">Highest A+ Entry Score</span>
+                </div>
+                <div class="flex justify-between">
+                    <span style="color: var(--text-dim);">Status:</span>
+                    <span style="color: var(--text-secondary);">Operational</span>
+                </div>
+            </div>
+        `;
+        section.appendChild(feedBox);
 
     } else if (toolboxTab === 'icc') {
         const stratInfo = STRATEGIES.icc_core || { description: "Standard ICC Logic" };

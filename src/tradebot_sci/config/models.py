@@ -23,6 +23,7 @@ class PerAssetStrategies(BaseModel):
     etf: str = "quantum"
     metals: str = "mean_reversion"
     futures: str = "volatility_breakout"
+    meta_sci: str = "meta_sci"
 
 
 class AISettings(BaseModel):
@@ -632,6 +633,19 @@ class TradingProfileSettings(BaseModel):
         default=750.0,
         ge=0.0,
         description="Override the hard $750 pyramid risk saturation cap. Only active in Nuclear Mode.",
+    )
+    meta_sci_enabled: bool = Field(
+        default=False,
+        description="Master toggle for Meta-SCI Auto Strategy logic within this profile.",
+    )
+    meta_sci_min_consensus: int = Field(
+        default=1,
+        ge=1,
+        description="Minimum number of strategies that must agree on direction (consensus) for a Meta-SCI entry.",
+    )
+    meta_sci_exclude_list: list[str] = Field(
+        default_factory=list,
+        description="Strategies to exclude from the Meta-SCI ensemble (e.g., ['evolution']).",
     )
 
     def get_strategy_for_symbol(self, symbol: str) -> str:
