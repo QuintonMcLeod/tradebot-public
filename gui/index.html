@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="./dist/output.css" rel="stylesheet">
+    <link href="./settings.css" rel="stylesheet">
+    <title>Tradebot SCI</title>
+    <!-- Material Symbols -->
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <style>
+        .titlebar-drag {
+            -webkit-app-region: drag;
+        }
+
+        .no-drag {
+            -webkit-app-region: no-drag;
+        }
+
+        .panic-stripes {
+            background-color: #dc2626;
+            background-image: repeating-linear-gradient(45deg,
+                    transparent,
+                    transparent 10px,
+                    rgba(0, 0, 0, 0.3) 10px,
+                    rgba(0, 0, 0, 0.3) 20px);
+        }
+
+        /* Custom Scrollbar */
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: rgba(20, 184, 166, 0.2);
+            border-radius: 10px;
+        }
+
+        .translucent-black-70 {
+            background-color: rgba(0, 0, 0, 0.3) !important;
+            backdrop-filter: blur(8px);
+        }
+
+        /* Settings Nav Buttons */
+        .nav-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.875rem 1rem;
+            border-radius: 0.75rem;
+            background: transparent;
+            color: #94a3b8;
+            font-weight: 500;
+            font-size: 0.875rem;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+        }
+
+        .nav-btn.active {
+            background: rgba(20, 184, 166, 0.15);
+            color: #5eead4;
+            border-color: rgba(20, 184, 166, 0.3);
+            font-weight: 700;
+        }
+
+        .nav-btn .material-symbols-outlined {
+            font-size: 1.25rem;
+        }
+
+        /* Settings Input Fields */
+        .settings-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 0.5rem;
+            padding: 0.625rem 0.875rem;
+            color: white;
+            font-size: 0.875rem;
+            transition: border-color 0.2s ease;
+        }
+
+        .settings-input:focus {
+            outline: none;
+            border-color: rgba(20, 184, 166, 0.5);
+        }
+
+        /* Toggle Switch */
+        .toggle-switch {
+            width: 44px;
+            height: 24px;
+            background: #334155;
+            border-radius: 12px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .toggle-switch.active {
+            background: #14b8a6;
+        }
+
+        .toggle-switch .toggle-knob {
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.2s ease;
+        }
+
+        .toggle-switch.active .toggle-knob {
+            transform: translateX(20px);
+        }
+
+        /* Sub-nav buttons */
+        .sub-nav-btn {
+            padding: 0.5rem 1rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-radius: 0.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            color: #94a3b8;
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .sub-nav-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .sub-nav-btn.active {
+            background: rgba(20, 184, 166, 0.2);
+            color: #5eead4;
+            border-color: rgba(20, 184, 166, 0.3);
+        }
+    </style>
+</head>
+
+<body class="text-slate-300 font-sans h-screen w-screen overflow-hidden flex flex-col select-none">
+
+    <!-- BACKGROUND GRADIENT MESH - SPOT UPPER LEFT (INTENSIFIED) -->
+    <!-- BACKGROUND GRADIENT MESH - SPOT UPPER LEFT (TEAL -> NAVY) -->
+    <div class="fixed inset-0 bg-[#020617] -z-30"></div>
+    <div
+        class="fixed inset-0 bg-[radial-gradient(circle_at_0%_0%,_#0d9488_0%,_#1e1b4b_60%,_transparent_100%)] opacity-50 -z-20">
+    </div>
+
+    <!-- Title Bar (Win98 Gradient Style) -->
+    <div
+        class="h-10 bg-[linear-gradient(90deg,#0058e6_0%,#002159_100%)] border-b-2 border-white/10 flex items-center px-4 justify-between titlebar-drag shrink-0 relative z-50">
+        <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-white text-base">smart_toy</span>
+            <span class="text-[11px] font-black uppercase tracking-[0.2em] text-white">Tradebot SCI</span>
+        </div>
+        <div class="flex gap-4 no-drag pt-1">
+            <span id="btn-minimize"
+                class="material-symbols-outlined text-white/70 text-sm hover:text-white cursor-pointer">remove</span>
+            <span id="btn-maximize"
+                class="material-symbols-outlined text-white/70 text-sm hover:text-white cursor-pointer">crop_square</span>
+            <span id="btn-close"
+                class="material-symbols-outlined text-white/70 text-sm hover:text-red-400 cursor-pointer">close</span>
+        </div>
+    </div>
+
+    <!-- MAIN APP WRAPPER -->
+    <div class="flex-1 flex overflow-hidden">
+
+        <!-- SIDEBAR WRAPPER (Reduced top margin to ensure visibility) -->
+        <div class="flex flex-col mt-4 ml-5 mb-5 mr-0 gap-4 shrink-0 h-[calc(100vh-5rem)]">
+            <!-- SIDEBAR (Floating Box with INTENSE UPPER LEFT GRADIENT) -->
+            <!-- SIDEBAR (Teal -> Dark Teal Spot Gradient - Darkened) -->
+            <div
+                class="w-[230px] flex-1 rounded-2xl flex flex-col p-6 gap-8 bg-[radial-gradient(circle_at_0%_0%,_#115e59_0%,_#020617_90%)] border-2 border-teal-500/30 z-20 shadow-[-15px_0_45px_rgba(0,0,0,0.6)]">
+
+                <!-- Navigation -->
+                <nav class="flex flex-col gap-2">
+                    <button id="nav-dashboard"
+                        class="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-teal-500/20 text-teal-300 font-bold text-sm border-2 border-teal-500/30 shadow-[0_0_20px_rgba(20,184,166,0.3)] transition-all">
+                        <span class="material-symbols-outlined text-xl">speed</span>
+                        <span>Dashboard</span>
+                    </button>
+                    <button id="nav-graph"
+                        class="flex items-center justify-start text-left gap-3 px-4 py-3.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-white transition-all text-sm font-medium">
+                        <span class="material-symbols-outlined text-xl">show_chart</span>
+                        <span>Graph</span>
+                    </button>
+                    <button id="nav-settings"
+                        class="flex items-center justify-start text-left gap-3 px-4 py-3.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-white transition-all text-sm font-medium">
+                        <span class="material-symbols-outlined text-xl">settings</span>
+                        <span>Settings</span>
+                    </button>
+                    <button id="nav-profile"
+                        class="flex items-center justify-start text-left gap-3 px-4 py-3.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-white transition-all text-sm font-medium">
+                        <span class="material-symbols-outlined text-xl">person</span>
+                        <span>Profile</span>
+                    </button>
+                </nav>
+
+                <div class="mt-auto"></div>
+
+                <!-- Status Box -->
+                <div class="p-5 rounded-xl bg-black/40 border-2 border-teal-500/20 space-y-4 shadow-inner">
+                    <div class="space-y-1">
+                        <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Active Profile:</div>
+                        <div id="status-profile" class="text-xs text-emerald-400 font-bold drop-shadow-sm">SCANNING...
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="status-dot"
+                            class="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"></span>
+                        <span id="status-text"
+                            class="text-[10px] text-white/60 font-black uppercase tracking-widest text-shadow">Status:
+                            OFFLINE</span>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Profit and Loss:
+                        </div>
+                        <div class="text-sm font-black text-white">$ <span id="account-equity">0.00</span></div>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Overall Capital:
+                        </div>
+                        <div class="text-sm font-black text-teal-400">$ <span id="account-capital">0.00</span></div>
+                    </div>
+                    <div class="text-[10px] text-slate-500 font-bold">Latency: <span id="status-latency"
+                            class="text-teal-500 font-mono">--</span></div>
+
+                    <!-- Sabbath Badge -->
+                    <div id="status-sabbath"
+                        class="hidden flex items-center justify-center gap-2 py-2 px-3 bg-indigo-500/20 border border-indigo-500/40 rounded-lg animate-pulse">
+                        <span class="material-symbols-outlined text-sm text-indigo-400">auto_awesome</span>
+                        <span class="text-[10px] font-black text-indigo-300 uppercase tracking-widest">Sabbath
+                            Mode</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panic Box (Standalone below sidebar) -->
+            <div id="panic-box-outer"
+                class="w-[230px] p-2 rounded-xl bg-[#020617] border-2 border-teal-500/40 shadow-xl">
+                <button id="btn-panic"
+                    class="w-full py-4 rounded-xl panic-stripes relative overflow-hidden shadow-lg border-2 border-red-500/40 hover:brightness-110 active:scale-95 transition-all text-white flex flex-col items-center justify-center text-center">
+                    <span id="panic-text"
+                        class="text-[12px] font-black uppercase tracking-wider relative z-10 whitespace-pre-line leading-tight drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">PANIC
+                        BUTTON -
+                        HALT ALL TRADING</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- MAIN VIEW (Vertical Stack) -->
+        <div id="view-dashboard" class="flex-1 flex flex-col gap-6 p-6 min-w-0">
+
+            <!-- CHART PANEL (Deep Navy + Thick Borders) -->
+            <div
+                class="flex-[3] bg-[#020617] rounded-xl border-2 border-teal-500/20 flex flex-col relative overflow-hidden shadow-2xl">
+                <!-- Inner Header -->
+                <div class="h-14 flex items-center justify-between px-6 border-b-2 border-teal-500/10 bg-black/40">
+                    <div class="flex items-center gap-4">
+                        <div class="flex gap-2 bg-black/50 p-1 rounded-xl border border-white/5">
+                            <span
+                                class="timeframe-btn text-[10px] px-3 py-1 rounded-lg cursor-pointer text-slate-400 hover:text-white transition-colors">1m</span>
+                            <span
+                                class="timeframe-btn text-[10px] px-3 py-1 rounded-lg cursor-pointer text-slate-400 hover:text-white transition-colors">5m</span>
+                            <span
+                                class="timeframe-btn text-[10px] px-3 py-1 rounded-lg bg-teal-500/20 text-teal-300 border border-teal-500/40 font-bold">15m</span>
+                            <span
+                                class="timeframe-btn text-[10px] px-3 py-1 rounded-lg cursor-pointer text-slate-400 hover:text-white transition-colors">1h</span>
+                            <select id="timeframe-select"
+                                class="bg-[#020617] text-[10px] text-slate-400 font-bold border-none focus:ring-0 cursor-pointer hover:text-white transition-colors outline-none rounded ml-1">
+                                <option value="" disabled selected class="bg-[#020617] text-slate-500">MORE</option>
+                                <option value="30m" class="bg-[#020617] text-white">30M</option>
+                                <option value="4h" class="bg-[#020617] text-white">4H</option>
+                                <option value="1d" class="bg-[#020617] text-white">1D</option>
+                            </select>
+                        </div>
+                        <div class="w-px h-5 bg-white/10"></div>
+                        <button id="btn-calendar"
+                            class="flex items-center gap-2 text-[10px] text-slate-400 hover:text-white font-bold uppercase tracking-widest transition-all">
+                            <span class="material-symbols-outlined text-base">calendar_month</span> Date
+                        </button>
+                        <input type="date" id="date-picker-input" class="hidden">
+                        <div class="w-px h-5 bg-white/10"></div>
+                        <button id="btn-indicators"
+                            class="flex items-center gap-2 text-[10px] text-slate-400 hover:text-white font-bold uppercase tracking-widest">
+                            <span class="material-symbols-outlined text-base">ssid_chart</span> Indicator
+                        </button>
+                    </div>
+                    <div class="flex items-center gap-6">
+                        <div class="flex gap-2 text-white/50">
+                            <button id="btn-prev-symbol" class="hover:text-white transition-all"><span
+                                    class="material-symbols-outlined text-xl">undo</span></button>
+                            <button id="btn-next-symbol"
+                                class="hover:text-white transition-all transform scale-x-[-1]"><span
+                                    class="material-symbols-outlined text-xl">undo</span></button>
+                        </div>
+                        <div
+                            class="flex items-center gap-2 px-4 py-1.5 bg-emerald-500/10 border-2 border-emerald-500/20 rounded-full">
+                            <span
+                                class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_#10b981]"></span>
+                            <span
+                                class="text-[10px] font-black text-emerald-400 uppercase tracking-widest text-glow-sm">Live</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Symbol Display Overlay -->
+                <div class="absolute top-20 left-8 z-10 pointer-events-none">
+                    <div class="flex flex-col">
+                        <span class="text-3xl font-black text-white tracking-tighter uppercase"><span
+                                id="chart-symbol-label">EURUSD</span> <span id="chart-tf-label"
+                                class="text-teal-500 font-bold text-lg ml-1">15m</span></span>
+                    </div>
+                </div>
+
+                <!-- Chart Container -->
+                <div id="chart-area" class="flex-1 w-full bg-transparent"></div>
+            </div>
+
+            <!-- BOTTOM ROTATING PANEL (Win98 Container - restored spot gradient) -->
+            <div
+                class="flex-[1.5] rounded-xl p-[3px] bg-[radial-gradient(circle_at_0%_0%,_#0f766e_0%,_#020617_70%)] shadow-2xl flex flex-col overflow-hidden min-h-[220px]">
+
+                <!-- Win98 Gradient Frame Header (Part of the Outer Gradient) -->
+                <div class="h-10 flex items-center justify-between px-6 shrink-0">
+                    <button id="btn-prev-panel" class="text-teal-500/50 hover:text-teal-400 transition-all"><span
+                            class="material-symbols-outlined text-base">chevron_left</span></button>
+                    <span id="panel-title"
+                        class="text-[10px] font-black uppercase tracking-[0.5em] text-teal-500/90 text-shadow-sm">Decisions
+                        Panel</span>
+                    <button id="btn-next-panel" class="text-teal-500/50 hover:text-teal-400 transition-all"><span
+                            class="material-symbols-outlined text-base">chevron_right</span></button>
+                </div>
+
+                <!-- Win98 Inner Content Well (Forced 70% Transparent Black) -->
+                <div
+                    class="flex-1 translucent-black-70 rounded-b-[20px] rounded-t-lg mx-[1px] mb-[1px] overflow-hidden relative border-t border-white/5 shadow-inner">
+                    <!-- Decisions Tab -->
+                    <div id="panel-decisions" class="absolute inset-0 overflow-auto scrollbar-hide">
+                        <table class="w-full text-left border-collapse">
+                            <thead
+                                class="sticky top-0 bg-[#020617]/90 backdrop-blur-sm z-10 border-b border-teal-500/10">
+                                <tr class="text-teal-500 font-black uppercase tracking-[0.3em] text-[10px]">
+                                    <th class="px-2 py-4 w-40 cursor-pointer hover:text-teal-300 select-none sortable-header"
+                                        data-col="0">Time</th>
+                                    <th class="px-2 py-4 w-48 cursor-pointer hover:text-teal-300 select-none sortable-header"
+                                        data-col="1">Symbol</th>
+                                    <th class="px-2 py-4 w-64 cursor-pointer hover:text-teal-300 select-none sortable-header"
+                                        data-col="2">Action</th>
+                                    <th class="px-2 py-4 w-40 cursor-pointer hover:text-teal-300 select-none sortable-header"
+                                        data-col="3">Score</th>
+                                    <th class="px-2 py-4 cursor-pointer hover:text-teal-300 select-none sortable-header"
+                                        data-col="4">Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody id="decisions-table"
+                                class="divide-y-2 divide-teal-900/10 font-mono text-[10px] text-slate-400">
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- AI Insight Tab (Beautiful Bubbles) -->
+                    <div id="panel-commentary" class="absolute inset-0 p-6 overflow-hidden hidden flex flex-col">
+                        <div id="insight-scroller" class="flex-1 overflow-y-auto scrollbar-thin pr-2 space-y-4">
+                            <!-- Insight Bubbles will be appended here via JS -->
+                            <div class="insight-entry opacity-50 italic text-slate-500 text-xs text-center py-8">
+                                Waiting for AI Signal Breakdown...
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Holdings Tab -->
+                    <div id="panel-holdings" class="absolute inset-0 overflow-auto hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead
+                                class="sticky top-0 bg-[#020617]/90 backdrop-blur-sm z-10 border-b border-teal-500/10">
+                                <tr class="text-teal-500 font-black uppercase tracking-[0.3em] text-[10px]">
+                                    <th class="px-8 py-4">Symbol</th>
+                                    <th class="px-8 py-4 text-center">Side</th>
+                                    <th class="px-8 py-4 text-right">Size</th>
+                                    <th class="px-8 py-4 text-right">PnL (USD)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="holdings-table-body"
+                                class="font-mono text-xs text-slate-300 divide-y divide-teal-900/10">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LOG PANEL (Win98 Container - Thinner Borders - restored spot gradient) -->
+            <div
+                class="flex-1 rounded-xl p-[2px] bg-[radial-gradient(circle_at_0%_0%,_#0f766e_0%,_#020617_70%)] shadow-2xl flex flex-col overflow-hidden min-h-[160px]">
+
+                <!-- Win98 Frame Header -->
+                <div class="h-8 flex items-center justify-center shrink-0">
+                    <span class="text-[10px] font-black uppercase tracking-[0.5em] text-slate-400/80">System Logs</span>
+                </div>
+
+                <!-- Win98 Inner Content Well (Forced 70% Transparent Black) -->
+                <div id="log-terminal"
+                    class="flex-1 p-5 font-mono text-[13px] text-slate-300 overflow-y-auto overflow-x-hidden break-all leading-relaxed translucent-black-70 rounded-b-[22px] rounded-t-md mx-[1px] mb-[1px] scrollbar-thin space-y-3 shadow-inner">
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ANALYTICS VIEW (Hidden by default) -->
+        <div id="view-analytics" class="hidden flex-1 flex flex-col gap-6 p-6 min-w-0 overflow-y-auto scrollbar-thin">
+
+            <!-- Analytics Header -->
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <span class="material-symbols-outlined text-3xl text-teal-400">analytics</span>
+                    <div>
+                        <h1 class="text-2xl font-black text-white tracking-tight">Trade Analytics</h1>
+                        <p class="text-xs text-slate-500">Performance metrics and trade history</p>
+                    </div>
+                </div>
+
+                <!-- Time Filter Tabs -->
+                <div class="flex gap-2 bg-black/40 p-1.5 rounded-xl border border-white/5">
+                    <button
+                        class="time-filter-btn active text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all"
+                        data-filter="1h">1H</button>
+                    <button
+                        class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white"
+                        data-filter="24h">24H</button>
+                    <button
+                        class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white"
+                        data-filter="week">Week</button>
+                    <button
+                        class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white"
+                        data-filter="month">Month</button>
+                    <button
+                        class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white"
+                        data-filter="all">All</button>
+                </div>
+            </div>
+
+            <!-- Primary Metrics Row -->
+            <div class="grid grid-cols-6 gap-4">
+                <!-- Wins Card -->
+                <div
+                    class="metric-card bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 transition-all hover:border-emerald-500/40 hover:shadow-lg hover:shadow-emerald-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-emerald-400 text-lg">trending_up</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70">Wins</span>
+                    </div>
+                    <div id="metric-wins" class="text-3xl font-black text-emerald-400">0</div>
+                </div>
+
+                <!-- Losses Card -->
+                <div
+                    class="metric-card bg-gradient-to-br from-red-500/10 to-red-500/5 border border-red-500/20 rounded-2xl p-5 transition-all hover:border-red-500/40 hover:shadow-lg hover:shadow-red-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-red-400 text-lg">trending_down</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-red-400/70">Losses</span>
+                    </div>
+                    <div id="metric-losses" class="text-3xl font-black text-red-400">0</div>
+                </div>
+
+                <!-- Win Rate Card -->
+                <div
+                    class="metric-card bg-gradient-to-br from-teal-500/10 to-teal-500/5 border border-teal-500/20 rounded-2xl p-5 transition-all hover:border-teal-500/40 hover:shadow-lg hover:shadow-teal-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-teal-400 text-lg">percent</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-teal-400/70">Win Rate</span>
+                    </div>
+                    <div id="metric-winrate" class="text-3xl font-black text-teal-400">0%</div>
+                </div>
+
+                <!-- R:R Ratio Card -->
+                <div
+                    class="metric-card bg-gradient-to-br from-purple-500/10 to-purple-500/5 border border-purple-500/20 rounded-2xl p-5 transition-all hover:border-purple-500/40 hover:shadow-lg hover:shadow-purple-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-purple-400 text-lg">balance</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-purple-400/70">R:R Ratio</span>
+                    </div>
+                    <div id="metric-rr" class="text-3xl font-black text-purple-400">0:1</div>
+                </div>
+
+                <!-- Total PnL Card -->
+                <div
+                    class="metric-card bg-gradient-to-br from-amber-500/10 to-amber-500/5 border border-amber-500/20 rounded-2xl p-5 transition-all hover:border-amber-500/40 hover:shadow-lg hover:shadow-amber-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-amber-400 text-lg">payments</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-amber-400/70">Total PnL</span>
+                    </div>
+                    <div id="metric-pnl" class="text-3xl font-black text-amber-400">$0.00</div>
+                </div>
+
+                <!-- PnL % Card -->
+                <div
+                    class="metric-card bg-gradient-to-br from-cyan-500/10 to-cyan-500/5 border border-cyan-500/20 rounded-2xl p-5 transition-all hover:border-cyan-500/40 hover:shadow-lg hover:shadow-cyan-500/10">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-cyan-400 text-lg">show_chart</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-cyan-400/70">Return %</span>
+                    </div>
+                    <div id="metric-pnl-pct" class="text-3xl font-black text-cyan-400">0%</div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-2 gap-6">
+                <!-- Win/Loss Pie Chart -->
+                <div class="bg-[#020617] rounded-2xl border border-teal-500/20 p-6 relative overflow-hidden">
+                    <div
+                        class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal-500/30 to-transparent">
+                    </div>
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-teal-400 mb-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-base">pie_chart</span>
+                        Win/Loss Distribution
+                    </h3>
+                    <div class="h-64 flex items-center justify-center">
+                        <canvas id="chart-winloss-pie"></canvas>
+                    </div>
+                </div>
+
+                <!-- Equity Curve -->
+                <div class="bg-[#020617] rounded-2xl border border-teal-500/20 p-6 relative overflow-hidden">
+                    <div
+                        class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal-500/30 to-transparent">
+                    </div>
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-teal-400 mb-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-base">trending_up</span>
+                        Equity Curve
+                    </h3>
+                    <div id="chart-equity-curve" class="h-64"></div>
+                </div>
+            </div>
+
+            <!-- Secondary Metrics Row -->
+            <div class="grid grid-cols-5 gap-4">
+                <!-- Avg Win -->
+                <div
+                    class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Avg Win</div>
+                    <div id="metric-avg-win" class="text-xl font-black text-emerald-400">$0.00</div>
+                </div>
+
+                <!-- Avg Loss -->
+                <div
+                    class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Avg Loss</div>
+                    <div id="metric-avg-loss" class="text-xl font-black text-red-400">$0.00</div>
+                </div>
+
+                <!-- Best Trade -->
+                <div
+                    class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Best Trade</div>
+                    <div id="metric-best" class="text-xl font-black text-emerald-400">$0.00</div>
+                </div>
+
+                <!-- Worst Trade -->
+                <div
+                    class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Worst Trade</div>
+                    <div id="metric-worst" class="text-xl font-black text-red-400">$0.00</div>
+                </div>
+
+                <!-- Profit Factor -->
+                <div
+                    class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Profit Factor</div>
+                    <div id="metric-pf" class="text-xl font-black text-teal-400">0.00</div>
+                </div>
+            </div>
+
+            <!-- Capital Summary Row -->
+            <div class="grid grid-cols-3 gap-4">
+                <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/5 rounded-xl p-5">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-2">Capital at Start
+                    </div>
+                    <div id="metric-capital-start" class="text-2xl font-black text-white">$0.00</div>
+                </div>
+                <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/5 rounded-xl p-5">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-2">Capital at End</div>
+                    <div id="metric-capital-end" class="text-2xl font-black text-white">$0.00</div>
+                </div>
+                <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/5 rounded-xl p-5">
+                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-2">Net Change</div>
+                    <div id="metric-capital-change" class="text-2xl font-black text-teal-400">$0.00</div>
+                </div>
+            </div>
+
+            <!-- Trade History Table -->
+            <div
+                class="bg-[#020617] rounded-2xl border border-teal-500/20 flex-1 min-h-[300px] flex flex-col overflow-hidden">
+                <div class="h-12 flex items-center justify-between px-6 border-b border-teal-500/10 bg-black/40">
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-teal-400 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-base">receipt_long</span>
+                        Trade History
+                    </h3>
+                    <span id="trade-count" class="text-[10px] text-slate-500">0 trades</span>
+                </div>
+                <div class="flex-1 overflow-auto scrollbar-thin">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="sticky top-0 bg-[#020617]/95 backdrop-blur-sm z-10">
+                            <tr class="text-teal-500 font-black uppercase tracking-widest text-[10px]">
+                                <th class="px-6 py-3 w-32">Time</th>
+                                <th class="px-4 py-3 w-28">Symbol</th>
+                                <th class="px-4 py-3 w-20 text-center">Side</th>
+                                <th class="px-4 py-3 w-28 text-right">PnL</th>
+                                <th class="px-4 py-3">Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trade-history-body"
+                            class="divide-y divide-slate-800/50 font-mono text-xs text-slate-300">
+                            <!-- Trade rows will be inserted here -->
+                            <tr id="no-trades-row">
+                                <td colspan="5" class="px-6 py-12 text-center text-slate-500 italic">
+                                    <span
+                                        class="material-symbols-outlined text-4xl mb-2 block opacity-30">search_off</span>
+                                    No trades found in this period
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- PROFILES VIEW (Hidden by default) -->
+        <div id="view-profiles" class="hidden flex-1 flex gap-6 p-6 min-w-0 overflow-hidden">
+
+            <!-- Profile List Sidebar -->
+            <div class="w-64 bg-black/40 rounded-2xl border border-teal-500/20 flex flex-col overflow-hidden">
+                <div class="p-4 border-b border-white/5">
+                    <div class="text-[10px] font-black uppercase tracking-[0.2em] text-teal-500 mb-3">Trading Profiles
+                    </div>
+                    <button id="btn-new-profile"
+                        class="w-full py-2 px-3 rounded-lg bg-teal-500/20 border border-teal-500/30 text-teal-400 text-xs font-bold hover:bg-teal-500/30 transition-all flex items-center justify-center gap-2">
+                        <span class="material-symbols-outlined text-sm">add</span>
+                        New Profile
+                    </button>
+                </div>
+                <div id="profile-list" class="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-thin">
+                    <!-- Profile items rendered by JS -->
+                </div>
+            </div>
+
+            <!-- Profile Editor Content -->
+            <div class="flex-1 bg-[#020617] rounded-2xl border border-teal-500/20 flex flex-col overflow-hidden">
+
+                <!-- Header -->
+                <div class="px-6 pt-5 pb-4 border-b border-white/5 bg-black/40">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            <span class="material-symbols-outlined text-2xl text-teal-400">tune</span>
+                            <div>
+                                <h2 id="profile-name-display" class="text-lg font-bold text-white">Select a Profile</h2>
+                                <p id="profile-desc-display" class="text-[10px] text-slate-500">Choose a profile from
+                                    the sidebar</p>
+                            </div>
+                        </div>
+                        <div id="profile-status"
+                            class="hidden px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                            Active
+                        </div>
+                    </div>
+
+                    <!-- Tab Navigation -->
+                    <div id="profile-tabs" class="flex gap-2 bg-black/40 p-1 rounded-xl border border-white/5">
+                        <button data-tab="general"
+                            class="profile-tab-btn active text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all">General</button>
+                        <button data-tab="symbols"
+                            class="profile-tab-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white">Symbols</button>
+                        <button data-tab="risk"
+                            class="profile-tab-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white">Risk</button>
+                        <button data-tab="icc"
+                            class="profile-tab-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white">ICC</button>
+                        <button data-tab="schedule"
+                            class="profile-tab-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white">Schedule</button>
+                    </div>
+                </div>
+
+                <!-- Tab Content -->
+                <div id="profile-tab-content" class="flex-1 overflow-y-auto p-6 scrollbar-thin">
+                    <!-- Empty State -->
+                    <div id="profile-empty-state" class="flex flex-col items-center justify-center h-full text-center">
+                        <span class="material-symbols-outlined text-5xl text-slate-600 mb-3">folder_open</span>
+                        <p class="text-slate-500 text-sm">Select a profile from the sidebar to begin editing</p>
+                    </div>
+                </div>
+
+                <!-- Action Footer -->
+                <div class="h-16 border-t border-white/5 bg-black/40 flex items-center px-6 justify-between">
+                    <div class="flex flex-col">
+                        <div class="text-[9px] text-teal-400 font-black uppercase tracking-[0.15em]">Profile Changes
+                        </div>
+                        <div id="profile-change-counter" class="text-[10px] text-slate-500 font-bold">0 unsaved changes
+                        </div>
+                    </div>
+                    <div class="flex gap-3">
+                        <button id="btn-delete-profile"
+                            class="hidden px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] font-bold transition-all border border-red-500/20 flex items-center gap-1">
+                            <span class="material-symbols-outlined text-sm">delete</span>
+                            Delete
+                        </button>
+                        <button id="btn-revert-profile"
+                            class="px-5 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] font-bold transition-all border border-white/5">Revert</button>
+                        <button id="btn-save-profile"
+                            class="px-6 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-black text-[10px] font-black uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(20,184,166,0.2)]">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SETTINGS VIEW (Hidden by default) -->
+        <div id="view-settings" class="hidden flex-1 flex gap-0 p-0 min-w-0 overflow-hidden bg-[#020617]/40">
+
+            <!-- Settings Sidebar -->
+            <div class="w-72 bg-black/40 border-r border-white/5 flex flex-col p-6 gap-1">
+                <div class="text-[9px] font-black uppercase tracking-[0.3em] text-slate-500 mb-4 px-4">Settings Menu
+                </div>
+
+                <button data-tab="system" class="nav-btn active">
+                    <span class="material-symbols-outlined">dashboard</span>
+                    <div class="flex flex-col items-start">
+                        <span class="text-sm font-bold">System</span>
+                        <span class="text-[9px] opacity-50 uppercase tracking-tighter">Core Runtime & Mode</span>
+                    </div>
+                </button>
+
+                <button data-tab="strategy" class="nav-btn">
+                    <span class="material-symbols-outlined">precision_manufacturing</span>
+                    <div class="flex flex-col items-start">
+                        <span class="text-sm font-bold">Strategy Workshop</span>
+                        <span class="text-[9px] opacity-50 uppercase tracking-tighter">Risk & Sizing Logic</span>
+                    </div>
+                </button>
+
+                <button data-tab="safety" class="nav-btn">
+                    <span class="material-symbols-outlined">shield</span>
+                    <div class="flex flex-col items-start">
+                        <span class="text-sm font-bold">Safety & Shields</span>
+                        <span class="text-[9px] opacity-50 uppercase tracking-tighter">Floor, Armor & Breaker</span>
+                    </div>
+                </button>
+
+                <button data-tab="performance" class="nav-btn">
+                    <span class="material-symbols-outlined">trending_up</span>
+                    <div class="flex flex-col items-start">
+                        <span class="text-sm font-bold">Performance & Profits</span>
+                        <span class="text-[9px] opacity-50 uppercase tracking-tighter">Wealth Creation Suite</span>
+                    </div>
+                </button>
+
+                <button data-tab="brokers" class="nav-btn">
+                    <span class="material-symbols-outlined">lan</span>
+                    <div class="flex flex-col items-start">
+                        <span class="text-sm font-bold">Broker Suite</span>
+                        <span class="text-[9px] opacity-50 uppercase tracking-tighter">IBKR & CCXT Stacks</span>
+                    </div>
+                </button>
+
+                <button data-tab="ai" class="nav-btn">
+                    <span class="material-symbols-outlined">auto_awesome</span>
+                    <div class="flex flex-col items-start">
+                        <span class="text-sm font-bold">Intelligence</span>
+                        <span class="text-[9px] opacity-50 uppercase tracking-tighter">AI Models & Commentary</span>
+                    </div>
+                </button>
+
+                <button data-tab="schedule" class="nav-btn">
+                    <span class="material-symbols-outlined">event_repeat</span>
+                    <div class="flex flex-col items-start">
+                        <span class="text-sm font-bold">Hours & Sabbath</span>
+                        <span class="text-[9px] opacity-50 uppercase tracking-tighter">Timezone & Guards</span>
+                    </div>
+                </button>
+
+                <div class="mt-auto pt-6 border-t border-white/5 flex flex-col gap-1">
+                    <button data-tab="advanced" class="nav-btn">
+                        <span class="material-symbols-outlined">terminal</span>
+                        <div class="flex flex-col items-start">
+                            <span class="text-sm font-bold">Advanced</span>
+                            <span class="text-[9px] opacity-50 uppercase tracking-tighter">Raw Env Variables</span>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Settings Content Area -->
+            <div class="flex-1 flex flex-col min-w-0">
+                <!-- Search Bar (for Advanced tab) -->
+                <div id="search-container" class="absolute top-20 right-8 z-50 hidden">
+                    <div class="relative">
+                        <span
+                            class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">search</span>
+                        <input type="text" id="setting-search" placeholder="Filter variables..."
+                            class="bg-black/60 border border-white/10 rounded-full py-2 pl-10 pr-6 text-xs text-white focus:outline-none focus:border-teal-500/50 w-64 shadow-2xl">
+                    </div>
+                </div>
+
+                <div id="tab-content" class="flex-1 overflow-y-auto p-12 scrollbar-thin">
+                    <!-- Tab content will be rendered here -->
+                </div>
+
+                <!-- Action Footer -->
+                <div class="h-20 border-t border-white/5 bg-black/60 flex items-center px-12 justify-between">
+                    <div class="flex flex-col">
+                        <div class="text-[10px] text-teal-400 font-black uppercase tracking-[0.2em]">Session Changes
+                        </div>
+                        <div id="change-counter" class="text-xs text-slate-500 font-bold">0 unsaved changes
+                            detected</div>
+                    </div>
+                    <div class="flex gap-4">
+                        <button id="btn-revert"
+                            class="px-8 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold transition-all border border-white/5">Revert</button>
+                        <button id="btn-save"
+                            class="px-10 py-3 rounded-xl bg-teal-500 hover:bg-teal-600 text-black text-xs font-black uppercase tracking-widest transition-all shadow-[0_0_30px_rgba(20,184,166,0.2)]">Save
+                            Changes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tooltip Popup -->
+        <div id="tooltip-popup"
+            class="fixed z-[100] w-72 bg-[#0f172a] border border-teal-500/30 rounded-xl p-4 shadow-2xl opacity-0 pointer-events-none transition-all duration-200 transform scale-95 translate-y-2">
+            <div id="tooltip-title" class="text-[10px] font-black uppercase tracking-widest text-teal-400 mb-2">Variable
+            </div>
+            <div id="tooltip-content" class="text-xs text-slate-400 leading-relaxed">Explanation...</div>
+        </div>
+
+    </div>
+
+    <!-- Chart Libraries -->
+    <script src="./lightweight-charts.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- App Logic -->
+    <script src="renderer.js"></script>
+    <script src="settings_integrated.js?v=smartpositions"></script>
+    <script src="analytics.js"></script>
+</body>
+
+</html>
