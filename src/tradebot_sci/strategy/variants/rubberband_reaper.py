@@ -71,8 +71,12 @@ class RubberbandReaperStrategy(BaseStrategy):
             RubberbandReaperStrategy.MAX_CAPITAL_SEEN = capital
             
         # 1. THE STAIRCASE (Safety Floor)
-        floor = self._get_staircase_floor(RubberbandReaperStrategy.MAX_CAPITAL_SEEN)
-        cushion = capital - floor
+        # [SAFETY SYNC] Only apply if the Global Safety Floor is enabled in UI
+        if os.getenv("SAFETY_FLOOR_ENABLED", "true").lower() == "true":
+            floor = self._get_staircase_floor(RubberbandReaperStrategy.MAX_CAPITAL_SEEN)
+            cushion = capital - floor
+        else:
+            cushion = capital # No floor, use all capital
         
         # 3. SAFETY MODE (At or below floor)
         # If we drawdown to the floor, we enter "Sensor Mode" (0.1% risk) to protect principal.
@@ -199,34 +203,42 @@ class RubberbandReaperStrategy(BaseStrategy):
 
         # 2. THE SCOUT (Initial Entry)
         if last_close < lower and rsi < self.rsi_oversold:
-            stop_loss = last_close - (atr * 1.5)
+            # [ARMOR] 2x ATR Dynamic Stops
+            stop_loss = last_close - (atr * 2.0)
+            take_profit = last_close + (atr * 2.0)
+            
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                 bias="long", phase="correction", action="enter_long",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=upper,
+                entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
                 risk_per_trade_pct=final_risk_pct,
                 structure_summary=f"Staircase Scout (RSI={rsi:.1f})",
                 urgency="high",
-                notes=f"Strict Quality Entry. Risk={final_risk_pct*100:.2f}%",
+                notes=f"Armor Entry (2x ATR). Risk={final_risk_pct*100:.2f}%",
                 invalidation_conditions="Close below stop loss.",
-                management_instructions="Standard management."
+                management_instructions="Net-Zero at 1xATR."
             )
 
         if last_close > upper and rsi > self.rsi_overbought:
-            stop_loss = last_close + (atr * 1.5)
+            # [ARMOR] 2x ATR Dynamic Stops
+            stop_loss = last_close + (atr * 2.0)
+            take_profit = last_close - (atr * 2.0)
+            
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                 bias="short", phase="correction", action="enter_short",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=lower,
+                entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
                 risk_per_trade_pct=final_risk_pct,
                 structure_summary=f"Staircase Scout (RSI={rsi:.1f})",
                 urgency="high",
-                notes=f"Strict Quality Entry. Risk={final_risk_pct*100:.2f}%",
+                notes=f"Armor Entry (2x ATR). Risk={final_risk_pct*100:.2f}%",
                 invalidation_conditions="Close above stop loss.",
-                management_instructions="Standard management."
+                management_instructions="Net-Zero at 1xATR."
             )
 
         return None
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
+        # [SAFETY] Managed by StrategyEngine via SafetyGuard
+        # We only implement Reaper-specific exits here if needed (none currently, relies on SafetyGuard)
         return None

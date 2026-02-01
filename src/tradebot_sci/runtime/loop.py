@@ -607,8 +607,8 @@ def run_bot(
                     _log_holdings_snapshot(executor, reason="heartbeat")
                     last_holdings_log_ts = now_ts
                 
-                # [ANTIGRAVITY] Periodic Capital Check (15m)
-                if now_ts - last_capital_check_ts >= 900.0:
+                # [ANTIGRAVITY] Periodic Capital Check (Increased frequency to 30s)
+                if now_ts - last_capital_check_ts >= 30.0:
                     try:
                          # Force a fresh check
                          cap = executor.get_liquid_capital()
@@ -624,8 +624,13 @@ def run_bot(
                 except Exception as e:
                     logger.error(f"[CRASH_GUARD] Error in evaluate_synthetic_stops: {e}", exc_info=True)
             strike_tracker.advance_cycle()
+            
+            # [ANTIGRAVITY FIX] Evaluate Sabbath Status ALWAYS (every loop tick)
+            # This ensures we enter Sabbath mode immediately when the time comes,
+            # regardless of whether a trading decision is pending.
             sabbath_active, _, _ = sabbath_context.evaluate(now)
             allow_entries = not sabbath_active
+
             if next_decision_in <= 0:
                 active_symbols = symbols
                 auto_mode: str | None = None
@@ -794,7 +799,6 @@ def run_bot(
                     
                     # Get recent logs for context (last 10 lines from this session)
                     recent_logs = []  # Could extract from ws_handler buffer
-                    
                     controller.broadcast_commentary(
                         state_context="\n".join(state_lines),
                         strategy_name=active_strategy,
@@ -811,7 +815,14 @@ def run_bot(
     except KeyboardInterrupt:
         logger.info("Shutting down simulation")
     except Exception as exc:
-        logger.error("Fatal error in run_bot: %s", exc)
+        # [ANTIGRAVITY FIX] enhanced crash logging
+        logger.critical(f"[FATAL] Bot process crashed: {exc}", exc_info=True)
+        # Force flush to ensure log is written before death
+        for handler in logger.handlers:
+            handler.flush()
+        if sys.stderr:
+            print(f"[FATAL] {exc}", file=sys.stderr, flush=True)
+            traceback.print_exc()
         raise SystemExit(1) from exc
     finally:
         if executor:

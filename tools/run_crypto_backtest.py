@@ -37,6 +37,17 @@ def main():
     # Force settings for backtest if needed
     # We want robust protections
     settings.app.profile_name = "auto_schedule" # Use the AI schedule profile
+    # [VERIFICATION] Force RoboCop for Risk Test
+    from tradebot_sci.config.models import PerAssetStrategies
+    profile = settings.profiles["auto_schedule"]
+    # Force fallback
+    profile.strategy_variant = "RoboCop"
+    # Force specific override (create if missing)
+    if not profile.strategies:
+        profile.strategies = PerAssetStrategies()
+    profile.strategies.crypto = "robocop"
+    
+    print(f"Strategy Variant Forced: RoboCop (Profile: {profile.strategies.crypto})")
     
     # 3-day validation window
     end_date = datetime.now(ZoneInfo("UTC"))

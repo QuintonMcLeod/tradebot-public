@@ -1,22 +1,25 @@
 profiles:
-  # Forex Continuous - 24/7 Trading (Sabbath Excluded)
-  # Based on Rubberband Reaper v2 (+7,036% verified with tiered risk)
   forex_continuous:
-    strategy_variant: rubberband_reaper  # Default fallback
-
-    # Per-Asset-Class Strategies (overrides strategy_variant when symbol matches)
-    # Available: rubberband_reaper, robocop, evolution, quantum, mean_reversion,
-    #            hyper_scalper, london_breakout, volatility_breakout, aggregator
+    symbols:
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+    - AUDUSD
+    - USDCAD
+    - USDCHF
+    - NZDUSD
+    - GBPJPY
+    - EURJPY
+    - AUDJPY
     strategies:
-      crypto: supply_demand    # BTC, ETH, altcoins
-      forex: rubberband_reaper     # EUR/USD, GBP/JPY, etc.
-      stocks: rubberband_reaper    # Individual equities
-      etf: rubberband_reaper       # SPY, QQQ, sector funds
-      metals: rubberband_reaper    # Gold, Silver, Platinum
-      futures: rubberband_reaper   # ES, NQ, commodities
-
+      crypto: supply_demand
+      forex: rubberband_reaper
+      stocks: rubberband_reaper
+      etf: rubberband_reaper
+      metals: rubberband_reaper
+      futures: rubberband_reaper
+    strategy_variant: rubberband_reaper
     candle_timeframe: 15m
-
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
     htf_timeframe: 15m
@@ -29,39 +32,28 @@ profiles:
     structure_score_threshold: 0.05
     auto_flatten_on_close: false
     pdt_guard_enabled: false
-    session_gate_enabled: false  # 24/7 trading (no session gate)
-    
-    # Risk Management - Tiered Anti-Martingale (20%/10%/1%)
-    risk_per_trade_dollars: 0.0
-    risk_per_trade_pct: 0.20  # Starting risk (tiered down by strategy)
-    short_risk_pct: 0.20
-    max_loss_per_trade_dollars: 500.0
+    session_gate_enabled: false
+    risk_per_trade_dollars: 0
+    risk_per_trade_pct: 0.2
+    short_risk_pct: 0.2
+    max_loss_per_trade_dollars: 500
     max_concurrent_positions: 4
     multi_position_enabled: true
     max_pyramid_entries: 6
     pyramid_profit_buffer_pct: 0.0015
-    
-    runtime_overrides:
-      market_data_mode: alternative
-      broker_mode: alternative
-      alternative_market_data: oanda
-      alternative_broker: oanda
-
-    # ICC Scoring
-    icc_entry_score_threshold: 35.0
-    icc_score_continuation_points: 60.0
-    icc_score_sweep_points: 25.0
-    icc_score_htf_ltf_align_points: 20.0
-    icc_score_strong_htf_points: 15.0
-    icc_score_phase_points: 5.0
-    icc_auto_entry_min_htf_strength: 0.0
+    icc_entry_score_threshold: 35
+    icc_score_continuation_points: 60
+    icc_score_sweep_points: 25
+    icc_score_htf_ltf_align_points: 20
+    icc_score_strong_htf_points: 15
+    icc_score_phase_points: 5
+    icc_auto_entry_min_htf_strength: 0
     icc_auto_entry_enabled: true
     icc_aggressive_mode: true
     icc_confirmation_bars: 2
     icc_strict_mode: true
     icc_require_liquidity_grab: true
-    
-    # Pure Forex Symbols Only (OANDA compatible)
+  forex_intraday:
     symbols:
     - EURUSD
     - GBPUSD
@@ -73,113 +65,59 @@ profiles:
     - GBPJPY
     - EURJPY
     - AUDJPY
-
-  # Forex Intraday - IBKR Forex with Graduated Entry + Smart Exits
-  # Backtested: +865% return over 17 days (Jan 2026) - "The Rubberband Reaper"
-  forex_intraday:
-    strategy_variant: rubberband_reaper  # Default fallback
-
-    # Per-Asset-Class Strategies
+    - BTCUSD
+    - ETHUSD
+    - SOLUSD
     strategies:
       crypto: supply_demand
-      forex: rubberband_reaper     # Primary focus for this profile
-      stocks: quantum              # Trend-following for equities
+      forex: rubberband_reaper
+      stocks: quantum
       etf: quantum
-      metals: mean_reversion       # Metals tend to range
+      metals: mean_reversion
       futures: volatility_breakout
-
-    candle_timeframe: 15m  # Use 15m for less noisy HTF
-
+    strategy_variant: rubberband_reaper
+    candle_timeframe: 15m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
-    htf_timeframe: 15m     # 15m HTF
-    ltf_timeframe: 5m      # 5m LTF for precision entries
+    htf_timeframe: 15m
+    ltf_timeframe: 5m
     trend_window: 12
     ltf_trend_window: 8
     trend_swing_lookback: 2
     trend_min_swings: 2
-    trend_strength_floor: 0.25  # Directional bias floor
+    trend_strength_floor: 0.25
     structure_score_threshold: 0.05
     auto_flatten_on_close: false
-    pdt_guard_enabled: false  # Forex has no PDT
+    pdt_guard_enabled: false
     session_gate_enabled: true
-    
-    # [RISK MANAGEMENT] - Hybrid Flip (1% -> 30% -> 10%)
-    # Longs: 1% init, Shorts: 1% init. 
-    # Pyramid #1 (Load): 30% Risk. Pyramid #2+ (Scale): 10% Risk.
-    risk_per_trade_dollars: 0.0  # Use percentage-based risk
-    risk_per_trade_pct: 0.01  # 1% Initial Probe
-    short_risk_pct: 0.01      # 1% Initial Probe
-    # Actually, let's keep max loss high enough to allow the 30% load risk.
-    # If account is $500, 30% is $150. Max loss must be > $150.
-    # Let's up it to $500 (100% of acct) to allow the strategy to run.
-    max_loss_per_trade_dollars: 500.0  
+    risk_per_trade_dollars: 0
+    risk_per_trade_pct: 0.01
+    short_risk_pct: 0.01
+    max_loss_per_trade_dollars: 500
     max_concurrent_positions: 4
     multi_position_enabled: true
     max_pyramid_entries: 6
-    pyramid_profit_buffer_pct: 0.0015  # 0.15% profit (Relaxed Buffer)
-
-    # [HYBRID FLIP PARAMS]
-    pyramid_risk_load: 0.30   # 30% Risk for First Add
-    pyramid_risk_scale: 0.10  # 10% Risk for Subsequent Adds
-
-    # [BREAKEVEN TRAIL] - Lock in profit from first pyramid entry
-    breakeven_trail_after_pyramids: 1  # After 1st entry, move stop to BE + trail
-    breakeven_trail_pct: 0.003         # 0.3% above breakeven (protects 🔺1 trades)
-    stop_atr_multiplier: 1.5  # Tighter stop (not 2.0)
-    
-    # [SMART EXIT] - Only exit on HTF flip if in loss
+    pyramid_profit_buffer_pct: 0.0015
+    pyramid_risk_load: 0.3
+    pyramid_risk_scale: 0.1
+    breakeven_trail_after_pyramids: 1
+    breakeven_trail_pct: 0.003
+    stop_atr_multiplier: 1.5
     exit_on_htf_flip_only_if_losing: true
-    
-    # [ICC SCORING]
-    icc_entry_score_threshold: 35.0
-    icc_score_continuation_points: 60.0
-    icc_score_sweep_points: 25.0
-    icc_score_htf_ltf_align_points: 20.0
-    icc_score_strong_htf_points: 15.0
-    icc_score_phase_points: 5.0
-    icc_auto_entry_min_htf_strength: 0.0  # [ROBOCOP] Drop floor to zero for machine entry
+    icc_entry_score_threshold: 35
+    icc_score_continuation_points: 60
+    icc_score_sweep_points: 25
+    icc_score_htf_ltf_align_points: 20
+    icc_score_strong_htf_points: 15
+    icc_score_phase_points: 5
+    icc_auto_entry_min_htf_strength: 0
     icc_auto_entry_enabled: true
-    icc_aggressive_mode: true            # [ROBOCOP] Enable aggressive scaling flows
+    icc_aggressive_mode: true
     icc_confirmation_bars: 2
-    
-    icc_strict_mode: true # Strict Mode: Enable No Trade Zone hard block
-    icc_require_liquidity_grab: true # Strict Mode: Must sweep liquidity before continuation
-    
-    symbols:
-    - EURUSD
-    - GBPUSD
-    - USDJPY
-    - AUDUSD
-    - USDCAD
-    - USDCHF
-    - NZDUSD
-    - GBPJPY
-    - EURJPY
-    - AUDJPY
-    # [ANTIGRAVITY ADD] Commodities
-    # - XAUUSD # Gold (disabled: IBKR permissions pending)
-    # - XAGUSD # Silver (disabled: IBKR permissions pending)
-    # - XPTUSD # Platinum (disabled: IBKR permissions pending)
-    # - XPDUSD # Palladium (NOT available as CMDTY on IBKR - only ETFs like PHPD)
-    # - USO    # Oil Interest (ETF/Stock - subject to PDT rules, not Forex)
-    # [ANTIGRAVITY ADD] Crypto (Live Management)
-    - BTCUSD
-    - ETHUSD
-    - SOLUSD
-    # - BIP-20DEC30-CDE  # Nano Futures (IBKR doesn't support)
-    # - ETP-20DEC30-CDE  # Nano Futures (IBKR doesn't support)
-
-    # [IBKR CRYPTO CONFIG]
-    crypto_qty_steps:
-      BTCUSD: 0.0001
-      ETHUSD: 0.001
-      SOLUSD: 0.01
-      BIP-20DEC30-CDE: 0.01
-      ETP-20DEC30-CDE: 0.1
-
+    icc_strict_mode: true
+    icc_require_liquidity_grab: true
   scalp:
-    strategy_variant: hyper_scalper  # Default fallback
+    symbols:
     strategies:
       crypto: hyper_scalper
       forex: hyper_scalper
@@ -187,12 +125,12 @@ profiles:
       etf: hyper_scalper
       metals: hyper_scalper
       futures: hyper_scalper
+    strategy_variant: hyper_scalper
     candle_timeframe: 1m
     market_poll_interval_seconds: 2
     ai_decision_interval_seconds: 2
-
   intraday:
-    strategy_variant: rubberband_reaper  # Default fallback
+    symbols:
     strategies:
       crypto: rubberband_reaper
       forex: rubberband_reaper
@@ -200,6 +138,7 @@ profiles:
       etf: quantum
       metals: mean_reversion
       futures: volatility_breakout
+    strategy_variant: rubberband_reaper
     candle_timeframe: 5m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
@@ -207,13 +146,13 @@ profiles:
     ltf_timeframe: 5m
     trend_window: 12
     ltf_trend_window: 12
-    trend_swing_lookback: 3   # [ANTIGRAVITY FIX] Sensitized
+    trend_swing_lookback: 3
     trend_min_swings: 2
     trend_strength_floor: 0.3
     structure_score_threshold: 0.05
-    icc_entry_score_threshold: 60.0 # [ANTIGRAVITY FIX] Standardized
+    icc_entry_score_threshold: 60
     icc_auto_entry_enabled: true
-    icc_auto_entry_min_htf_strength: 0.0
+    icc_auto_entry_min_htf_strength: 0
     icc_auto_entry_require_sweep: true
     auto_flatten_on_close: false
     pdt_guard_enabled: true
@@ -223,18 +162,18 @@ profiles:
     cooldown_scope: symbol
     stick_to_active_symbol_until: cycle_end
     crypto_fractional_enabled: false
-    crypto_min_notional_usd: 20.0
-    crypto_max_notional_usd: 250.0
+    crypto_min_notional_usd: 20
+    crypto_max_notional_usd: 250
     synthetic_stop_persistence_enabled: true
     synthetic_stop_store_path: data/synthetic_stops.json
     startup_crypto_unprotected_policy: FLATTEN
     rearm_stop_distance_pct: 0.02
     synthetic_stop_integrity_interval: 10
     multi_position_enabled: false
-    icc_high_score_override_threshold: 30.0
-    icc_score_continuation_points: 60.0 # [ANTIGRAVITY FIX] Boosted
+    icc_high_score_override_threshold: 30
+    icc_score_continuation_points: 60
   swing:
-    strategy_variant: quantum  # Default fallback (trend-following for swing)
+    symbols:
     strategies:
       crypto: quantum
       forex: quantum
@@ -242,6 +181,7 @@ profiles:
       etf: quantum
       metals: mean_reversion
       futures: quantum
+    strategy_variant: quantum
     candle_timeframe: 1h
     market_poll_interval_seconds: 120
     ai_decision_interval_seconds: 300
@@ -249,55 +189,7 @@ profiles:
     ltf_timeframe: 15m
     trend_window: 18
     ltf_trend_window: 12
-
   coinbase_futures:
-    strategy_variant: robocop  # Default fallback (aggressive for futures)
-    strategies:
-      crypto: supply_demand          # Aggressive ICC for crypto futures
-      forex: rubberband_reaper
-      stocks: quantum
-      etf: quantum
-      metals: mean_reversion
-      futures: robocop         # Aggressive for futures
-    candle_timeframe: 5m
-    market_poll_interval_seconds: 15
-    ai_decision_interval_seconds: 60
-    htf_timeframe: 15m  # Intraday Signal Timeframe (Indication/Correction/Continuation)
-    ltf_timeframe: 5m  # Execution Timeframe
-    trend_window: 12  # Faster trend detection
-    ltf_trend_window: 8  # Faster LTF signals
-    trend_swing_lookback: 2  # More sensitive swing detection
-    trend_min_swings: 2  # Minimum swings for trend confirmation
-    trend_strength_floor: 0.25  # Reasonable floor for trend detection
-    structure_score_threshold: 0.05
-    auto_flatten_on_close: false
-    crypto_only: true  # Enable 24/7 trading for crypto backtest
-
-    # [RISK MANAGEMENT] - ICC Standard (aggressive + compounding)
-    risk_per_trade_dollars: 0.50  # Fixed risk per trade (overrides % when > 0)
-    risk_per_trade_pct: 0.012  # 1.2% Risk ("Feet Wet" Initial Entry)
-    aggressive_risk_per_trade_pct: 0.10  # 10% Risk per Pyramid (3x = 30% Total)
-    max_loss_per_trade_dollars: 100.0  # Safety Cap
-    max_concurrent_positions: 1
-    max_pyramid_entries: 3  # Allow 3 aggressive adds
-
-    # [HIGH FREQUENCY ICC] - Target 2-5 trades per day
-    # Key: 1-bar confirmation + wider sweep window
-    icc_confirmation_bars: 1  # 1-bar confirmation (faster entries)
-    icc_max_bars_after_sweep: 30  # Wide window to catch setups
-
-    # [ICC SCORING] Entry threshold and points
-    icc_entry_score_threshold: 35.0  # Balanced threshold
-    icc_score_continuation_points: 60.0  # Continuation auto-passes threshold
-    icc_score_sweep_points: 25.0  # Good sweep bonus
-    icc_score_htf_ltf_align_points: 20.0  # Trend alignment matters
-    icc_score_strong_htf_points: 15.0  # Strong HTF trend bonus
-    icc_score_phase_points: 5.0  # Phase bonus
-    icc_auto_entry_require_sweep: false  # Continuation alone is enough
-    icc_auto_entry_min_htf_strength: 0.3  # Require HTF alignment (filters trades against HTF)
-    icc_auto_entry_enabled: true  # Auto-entry on continuation
-    icc_two_signal_override_enabled: true  # Fast entry on sweep+continuation
-
     symbols:
     - AVAX/USD
     - SHIB/USD
@@ -308,26 +200,46 @@ profiles:
     - LINK/USD
     - LTC/USD
     - BTC/USD
-  crypto_247:
-    strategy_variant: supply_demand  # RECOVERY MARTINGALE CONFIG
-    max_daily_trades: 100
     strategies:
-      crypto: supply_demand  # Aggressive Recovery Martingale
+      crypto: supply_demand
       forex: rubberband_reaper
       stocks: quantum
       etf: quantum
       metals: mean_reversion
-      futures: volatility_breakout
+      futures: robocop
+    strategy_variant: robocop
     candle_timeframe: 5m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
-    htf_timeframe: 1h  # Proven 1H trend filter
+    htf_timeframe: 15m
     ltf_timeframe: 5m
-    trend_window: 18
-    ltf_trend_window: 12
-    trend_swing_lookback: 3
+    trend_window: 12
+    ltf_trend_window: 8
+    trend_swing_lookback: 2
+    trend_min_swings: 2
+    trend_strength_floor: 0.25
     structure_score_threshold: 0.05
     auto_flatten_on_close: false
+    crypto_only: true
+    risk_per_trade_dollars: 0.5
+    risk_per_trade_pct: 0.012
+    aggressive_risk_per_trade_pct: 0.1
+    max_loss_per_trade_dollars: 100
+    max_concurrent_positions: 1
+    max_pyramid_entries: 3
+    icc_confirmation_bars: 1
+    icc_max_bars_after_sweep: 30
+    icc_entry_score_threshold: 35
+    icc_score_continuation_points: 60
+    icc_score_sweep_points: 25
+    icc_score_htf_ltf_align_points: 20
+    icc_score_strong_htf_points: 15
+    icc_score_phase_points: 5
+    icc_auto_entry_require_sweep: false
+    icc_auto_entry_min_htf_strength: 0.3
+    icc_auto_entry_enabled: true
+    icc_two_signal_override_enabled: true
+  crypto_247:
     symbols:
     - BTCUSD
     - ETHUSD
@@ -335,18 +247,36 @@ profiles:
     - XRPUSD
     - ZECUSD
     - BCHUSD
-    icc_entry_score_threshold: 60.0
-    icc_score_continuation_points: 60.0
+    strategies:
+      crypto: supply_demand
+      forex: rubberband_reaper
+      stocks: quantum
+      etf: quantum
+      metals: mean_reversion
+      futures: volatility_breakout
+    strategy_variant: supply_demand
+    max_daily_trades: 100
+    candle_timeframe: 5m
+    market_poll_interval_seconds: 15
+    ai_decision_interval_seconds: 60
+    htf_timeframe: 1h
+    ltf_timeframe: 5m
+    trend_window: 18
+    ltf_trend_window: 12
+    trend_swing_lookback: 3
+    structure_score_threshold: 0.05
+    auto_flatten_on_close: false
+    icc_entry_score_threshold: 60
+    icc_score_continuation_points: 60
     icc_auto_entry_min_htf_strength: 0.1
     pair_selector_enabled: true
     pair_selector_refresh_seconds: 300
-    pair_selector_min_volume_usd_24h: 100000.0
-    pair_selector_max_spread_bps: 25.0
-    pair_selector_min_depth_usd: 10000.0
+    pair_selector_max_spread_bps: 25
+    pair_selector_min_depth_usd: 10000
     pair_selector_max_pairs: 6
     maker_first_enabled: true
-    maker_first_offset_bps: 0.0
-    taker_max_slippage_bps: 30.0
+    maker_first_offset_bps: 0
+    taker_max_slippage_bps: 30
     order_timeout_seconds: 30
     pdt_guard_enabled: false
     max_equity_roundtrips_per_day: 99
@@ -357,51 +287,17 @@ profiles:
     cooldown_scope: symbol
     stick_to_active_symbol_until: cycle_end
     crypto_fractional_enabled: true
-    crypto_min_notional_usd: 20.0
-    crypto_max_notional_usd: 1000000.0
-    crypto_qty_steps:
-      BTCUSD: 0.0001
-      ETHUSD: 0.001
-      SOLUSD: 0.01
-      XRPUSD: 1.0
-      ZECUSD: 0.01
-      BCHUSD: 0.01
+    crypto_min_notional_usd: 20
+    crypto_max_notional_usd: 1000000
     synthetic_stop_persistence_enabled: true
     synthetic_stop_store_path: data/synthetic_stops.json
     startup_crypto_unprotected_policy: FLATTEN
     rearm_stop_distance_pct: 0.02
     synthetic_stop_integrity_interval: 10
-    runtime_overrides:
-      flatten_on_exit: false
-      intraday_flatten: false
-      cancel_orders_on_start: false
     crypto_only: true
     multi_position_enabled: true
-    icc_high_score_override_threshold: 30.0
+    icc_high_score_override_threshold: 30
   all_247:
-    strategy_variant: aggregator  # Default fallback (multi-strategy for all assets)
-    strategies:
-      crypto: supply_demand
-      forex: rubberband_reaper
-      stocks: quantum
-      etf: quantum
-      metals: mean_reversion
-      futures: volatility_breakout
-    candle_timeframe: 5m
-    market_poll_interval_seconds: 15
-    ai_decision_interval_seconds: 60
-    htf_timeframe: 15m
-    ltf_timeframe: 5m
-    trend_window: 18
-    ltf_trend_window: 12
-    trend_swing_lookback: 3 # [ANTIGRAVITY FIX] Added
-    structure_score_threshold: 0.05
-    icc_entry_score_threshold: 60.0 # [ANTIGRAVITY FIX] Added
-    icc_score_continuation_points: 60.0 # [ANTIGRAVITY FIX] Added
-    auto_flatten_on_close: false
-    pdt_guard_enabled: true
-    max_equity_roundtrips_per_day: 1
-    continuous_mode: true
     symbols:
     - SPY
     - QQQ
@@ -454,39 +350,59 @@ profiles:
     - M2K
     - MGC
     - CL
+    strategies:
+      crypto: supply_demand
+      forex: rubberband_reaper
+      stocks: quantum
+      etf: quantum
+      metals: mean_reversion
+      futures: volatility_breakout
+    strategy_variant: aggregator
+    candle_timeframe: 5m
+    market_poll_interval_seconds: 15
+    ai_decision_interval_seconds: 60
+    htf_timeframe: 15m
+    ltf_timeframe: 5m
+    trend_window: 18
+    ltf_trend_window: 12
+    trend_swing_lookback: 3
+    structure_score_threshold: 0.05
+    icc_entry_score_threshold: 60
+    icc_score_continuation_points: 60
+    auto_flatten_on_close: false
+    pdt_guard_enabled: true
+    max_equity_roundtrips_per_day: 1
+    continuous_mode: true
     cooldown_enabled: true
     cooldown_cycles_after_block: 3
     cooldown_cycles_after_success: 1
     cooldown_scope: symbol
     stick_to_active_symbol_until: cycle_end
     crypto_fractional_enabled: true
-    crypto_min_notional_usd: 20.0
-    crypto_max_notional_usd: 200.0
-    crypto_qty_steps:
-      BTCUSD: 0.0001
-      ETHUSD: 0.001
-      SOLUSD: 0.01
-      XRPUSD: 1.0
-      ZECUSD: 0.01
-      BCHUSD: 0.01
+    crypto_min_notional_usd: 20
+    crypto_max_notional_usd: 200
     synthetic_stop_persistence_enabled: true
     synthetic_stop_store_path: data/synthetic_stops.json
     startup_crypto_unprotected_policy: FLATTEN
     rearm_stop_distance_pct: 0.02
     synthetic_stop_integrity_interval: 10
-    runtime_overrides:
-      flatten_on_exit: false
-      intraday_flatten: false
-      cancel_orders_on_start: false
   auto_schedule:
-    strategy_variant: rubberband_reaper  # Default fallback
+    symbols:
+    - BTCUSD
+    - ETHUSD
+    - LTCUSD
+    - BCHUSD
+    - XRPUSD
+    - ZECUSD
+    - SOLUSD
     strategies:
-      crypto: supply_demand      # Aggressive Recovery Martingale
-      forex: rubberband_reaper   # Proven +7,036% on forex
-      stocks: quantum            # Trend-following for equities
-      etf: quantum               # Trend-following for ETFs
-      metals: mean_reversion     # Metals tend to range
-      futures: volatility_breakout  # Catch breakouts on futures
+      crypto: supply_demand
+      forex: rubberband_reaper
+      stocks: quantum
+      etf: quantum
+      metals: mean_reversion
+      futures: volatility_breakout
+    strategy_variant: rubberband_reaper
     candle_timeframe: 5m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
@@ -497,56 +413,50 @@ profiles:
     ltf_trend_window: 12
     trend_swing_lookback: 3
     trend_min_swings: 2
-    structure_score_threshold: 0.020
+    structure_score_threshold: 0.02
     icc_auto_entry_min_htf_strength: 0.1
     icc_auto_entry_require_sweep: true
     icc_auto_entry_enabled: true
-    icc_entry_score_threshold: 60.0
-    icc_score_htf_ltf_align_points: 20.0
-    icc_score_sweep_points: 20.0
-    icc_score_continuation_points: 60.0
-    icc_score_strong_htf_points: 25.0
-    icc_score_phase_points: 10.0
+    icc_entry_score_threshold: 60
+    icc_score_htf_ltf_align_points: 20
+    icc_score_sweep_points: 20
+    icc_score_continuation_points: 60
+    icc_score_strong_htf_points: 25
+    icc_score_phase_points: 10
     icc_score_htf_strength_threshold: 0.65
-    icc_high_score_override_threshold: 70.0
+    icc_high_score_override_threshold: 70
     icc_aggressive_mode: true
-    aggressive_risk_per_trade_pct: 0.10
-    runtime_overrides:
-      market_data_mode: oanda
-      alternative_market_data: oanda
-      broker_mode: oanda
-      alternative_broker: oanda
+    aggressive_risk_per_trade_pct: 0.1
     max_concurrent_positions: 1
     max_pyramid_entries: 5
-    pyramid_score_threshold: 50.0
-    pyramid_min_score_threshold: 50.0
+    pyramid_score_threshold: 50
+    pyramid_min_score_threshold: 50
     pyramid_allow_chop: false
     htf_neutral_exit_bars: 48
-    min_hold_hours: 0.0
+    min_hold_hours: 0
     allow_loss_exit_after_hold: true
-    max_hold_hours: 120.0
+    max_hold_hours: 120
     trailing_stop_enabled: true
-    trailing_stop_min_profit_pct: 1.0
+    trailing_stop_min_profit_pct: 1
     backtest_disable_stops: false
     profit_exit_after_hold: false
     auto_flatten_on_close: false
     auto_schedule_enabled: true
     sabbath_enabled: true
     sabbath_timezone: America/New_York
-    sabbath_start_local: '18:00'
-    sabbath_end_local: '18:00'
+    sabbath_start_local: "18:00"
+    sabbath_end_local: "18:00"
     session_gate_enabled: false
     multi_position_enabled: false
     pair_selector_enabled: true
     pair_selector_refresh_seconds: 300
-    pair_selector_min_volume_usd_24h: 25000.0
-    pair_selector_max_spread_bps: 25.0
-    pair_selector_min_depth_usd: 10000.0
+    pair_selector_max_spread_bps: 25
+    pair_selector_min_depth_usd: 10000
     pair_selector_max_pairs: 20
     icc_auto_entry_min_score: 0.02
     maker_first_enabled: true
-    maker_first_offset_bps: 0.0
-    taker_max_slippage_bps: 30.0
+    maker_first_offset_bps: 0
+    taker_max_slippage_bps: 30
     order_timeout_seconds: 30
     pdt_guard_enabled: false
     max_equity_roundtrips_per_day: 99
@@ -559,226 +469,82 @@ profiles:
     stick_to_active_symbol_until: cycle_end
     crypto_only: true
     crypto_fractional_enabled: true
-    crypto_min_notional_usd: 20.0
-    crypto_max_notional_usd: 200.0
-    crypto_qty_steps:
-      BTCUSD: 0.0001
-      ETHUSD: 0.001
-      SOLUSD: 0.01
-      LTCUSD: 0.01
-      BTCUSDT: 0.0001
-      ETHUSDT: 0.001
-      SOLUSDT: 0.01
-      DOGEUSDT: 10.0
-      XRPUSDT: 1.0
-      ADAUSDT: 1.0
-      LINKUSDT: 0.1
-      POLUSD: 0.01
-      AVAXUSDT: 0.1
-      SHIBUSDT: 1000.0
-      NEARUSDT: 0.1
-      DOTUSDT: 0.1
-      ATOMUSDT: 0.1
-      XRPUSD: 1.0
-      ZECUSD: 0.01
-      BCHUSD: 0.01
+    crypto_min_notional_usd: 20
+    crypto_max_notional_usd: 200
     synthetic_stop_persistence_enabled: true
     synthetic_stop_store_path: data/synthetic_stops.json
     startup_crypto_unprotected_policy: FLATTEN
     rearm_stop_distance_pct: 0.02
     synthetic_stop_integrity_interval: 10
-    runtime_overrides:
-      APP_PROFILE: crypto_247
-      market_data_mode: oanda
-      flatten_on_exit: false
-      intraday_flatten: false
-      cancel_orders_on_start: false
-    symbols:
-    - BTCUSD
-    - ETHUSD
-    - LTCUSD
-    - BCHUSD
-    - XRPUSD
-    - ZECUSD
-    - SOLUSD
-    # - SOLUSD (Not supported on OANDA US)
-    # - DOGEUSD (Not supported on OANDA US)
-    # - XRPUSD (Not supported on OANDA US)
-    # - ADAUSD (Not supported on OANDA US)
-    # - LINKUSD (Not supported on OANDA US)
-    # - POLUSD (Not supported on OANDA US)
-    # - AVAXUSD (Not supported on OANDA US)
-    # - SHIBUSD (Not supported on OANDA US)
-    # - NEARUSD (Not supported on OANDA US)
-    # - DOTUSD (Not supported on OANDA US)
-    # - ATOMUSD (Not supported on OANDA US)
-
   coinbase_futures_nano:
-    strategy_variant: robocop  # Default fallback (aggressive for nano futures)
+    symbols:
     strategies:
-      crypto: supply_demand          # Aggressive ICC for crypto nano futures
+      crypto: supply_demand
       forex: rubberband_reaper
       stocks: quantum
       etf: quantum
       metals: mean_reversion
-      futures: robocop         # Aggressive for futures
+      futures: robocop
+    strategy_variant: robocop
     candle_timeframe: 5m
     market_poll_interval_seconds: 5
     ai_decision_interval_seconds: 60
     ai_enabled: true
-    # [ANTIGRAVITY] Nano Futures Strategy (US Compliant)
-    # Target: "Monthly Millions" Growth
-    # Instrument: Nano Ether (ETP) - 1/10th ETH Size
-    # Venue: Coinbase Derivatives (via Advanced Trade Cloud Key)
-    # Risk: Aggressive (1.5% Risk per Trade on $68 capital)
-    # Note: Uses 2030 Expiration contracts (ETP-20DEC30-CDE) to simulate Perp behavior (no roll).
-    description: "Coinbase Nano Futures (ETP/BIP) for Aggressive Growth"
-    
-    # Symbols
-    # ETP    market_type: future
-    
-    # [ANTIGRAVITY] Safety Cap (70% to prevent Insufficient Funds)
-    balance_cap_pct: 0.70
-    
-    # BIP = Nano Bitcoin (1/100 BTC)
-    days_to_expiry: 16  # Jan 2026 Front Month
-    symbols: 
-      # [ANTIGRAVITY] US Regulated Nano Futures (Affordable ~$86 Balance)
-      # Full US Regulated Nano Universe (Affordability Checked Dynamically)
-      - "AVAX/USD:USD-260130"
-      - "SHIB/USD:USD-260130"
-      - "ETH/USD:USD-260130"
-      - "ADA/USD:USD-260130"
-      - "SOL/USD:USD-260130"
-      - "DOGE/USD:USD-260130"
-      - "LINK/USD:USD-260130"
-      - "LTC/USD:USD-260130"
-      - "BTC/USD:USD-260130"  # Likely unaffordable, but check will block it cleanly.
-      # - SOL ($147), DOGE ($150), LINK ($143), BTC ($195)
-      
-      # Too Expensive for $86 Margin:
-      # - BTC (~$975), XRP (~$1080), XLM (~$1200)
-      
-      # [NOTE] US Customers cannot trade Perps (INJ, ORDI, etc.)
-      # We are restricted to BIT/ET/LTC/BCH/DOG futures.
-      # Currently targeting Jan 2026 Front Month.
-    
-    # Timeframes
-    timeframes:
-      primary: "5m"      # Fast entries
-      htf: "15m"         # Trend confirmation
-    htf_timeframe: "15m"
-    ltf_timeframe: "5m"
-    trend_swing_lookback: 3  # [ANTIGRAVITY FIX] Match auto_schedule specific sensitivity
-      
-    # Risk settings (Aggressive)
-    risk_per_trade_pct: 0.015  # 1.5% risk (allows ~3 bullets)
-    max_open_positions: 1      # Focus on single best setup
-    icc_auto_entry_min_htf_strength: 0.0
-    icc_score_sweep_points: 30.0
-    icc_score_continuation_points: 60.0  # [ANTIGRAVITY FIX] Boost to Automatic Pass
-    icc_entry_score_threshold: 60.0      # [ANTIGRAVITY FIX] Explicit Threshold
-    # [ANTIGRAVITY ATTACHMENT] Bonus Points from Auto_Schedule
-    icc_score_htf_ltf_align_points: 20.0
-    icc_score_strong_htf_points: 25.0
-    icc_score_phase_points: 10.0
+    description: Coinbase Nano Futures (ETP/BIP) for Aggressive Growth
+    balance_cap_pct: 0.7
+    days_to_expiry: 16
+    htf_timeframe: 15m
+    ltf_timeframe: 5m
+    trend_swing_lookback: 3
+    risk_per_trade_pct: 0.015
+    max_open_positions: 1
+    icc_auto_entry_min_htf_strength: 0
+    icc_score_sweep_points: 30
+    icc_score_continuation_points: 60
+    icc_entry_score_threshold: 60
+    icc_score_htf_ltf_align_points: 20
+    icc_score_strong_htf_points: 25
+    icc_score_phase_points: 10
     icc_score_htf_strength_threshold: 0.65
-    icc_score_indication_points: 10.0
+    icc_score_indication_points: 10
     icc_two_signal_override_enabled: true
-    
-    # Execution
-    order_type: "MARKET"       # Guaranteed entry (Nano liquidity is good)
-    
-    # Capital Constraints
-    # Nano ETH Notional ~ $310. Min margin ~ $85.
-    crypto_min_notional_usd: 2.50 
-    
-    # Environment
-    # Requires: CCXT_API_KEY (Cloud Key), CCXT_EXCHANGE=coinbase
+    order_type: MARKET
+    crypto_min_notional_usd: 2.5
     synthetic_stop_persistence_enabled: true
     synthetic_stop_store_path: data/synthetic_stops_coinbase.json
-    
-    runtime_overrides:
-      broker_mode: "primary" # Use CCXT as primary
-      flatten_on_exit: false
-      cancel_orders_on_start: false
-
   oanda_multi_asset:
-    strategy_variant: rubberband_reaper
+    symbols:
     strategies:
       crypto: rubberband_reaper
       forex: rubberband_reaper
+    strategy_variant: rubberband_reaper
     candle_timeframe: 15m
     htf_timeframe: 15m
     ltf_timeframe: 5m
-    
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
-    
-    # Risk Management
     risk_per_trade_pct: 0.05
     max_concurrent_positions: 5
     multi_position_enabled: true
-    
-    # OANDA specific overrides
-    runtime_overrides:
-      market_data_mode: alternative
-      broker_mode: alternative
-      alternative_market_data: oanda
-      alternative_broker: oanda
-      primary_broker: oanda
-
-    symbols:
-      # Forex Only
-      - EURUSD
-      - GBPUSD
-      - USDJPY
-      # Extended Majors & Crosses
-      - USDCAD
-      - USDCHF
-      - AUDUSD
-      - NZDUSD
-      - EURJPY
-      - GBPJPY
-      - AUDJPY
-
   forex_crypto_hybrid:
-    strategy_variant: aggregator
+    symbols:
     strategies:
       crypto: supply_demand
       forex: supply_demand
+    strategy_variant: aggregator
     candle_timeframe: 15m
     htf_timeframe: 15m
     ltf_timeframe: 5m
-    
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
-    
     trend_window: 12
     ltf_trend_window: 8
     trend_swing_lookback: 2
     trend_min_swings: 2
     trend_strength_floor: 0.25
     structure_score_threshold: 0.05
-    
-    # Risk Management
     risk_per_trade_pct: 0.05
     max_concurrent_positions: 6
     multi_position_enabled: true
     max_pyramid_entries: 4
-    
-    runtime_overrides:
-      market_data_mode: alternative
-      broker_mode: alternative
-      alternative_market_data: oanda
-      alternative_broker: oanda
-      primary_broker: oanda
-    
-    symbols:
-      - EURUSD
-      - GBPUSD
-      - USDJPY
-      - AUDUSD
-      - BTCUSD
-      - ETHUSD
-      - SOLUSD
+    sabbath_enabled: true

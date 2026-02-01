@@ -44,20 +44,47 @@ class CCXTHistoricalDataProvider:
         timeframe: str,
         start_date: datetime,
         end_date: datetime,
+        file_path: str | None = None,
     ) -> List[Candle]:
         """Fetch historical candles from CCXT for the specified date range."""
         cache_key = f"{symbol}:{timeframe}:{start_date.isoformat()}:{end_date.isoformat()}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
+        # [ANTIGRAVITY] Local File Loading Support
+        if file_path and os.path.exists(file_path):
+            logger.info(f"[BACKTEST] Loading candles for {symbol} from local file: {file_path}")
+            try:
+                with open(file_path, "r") as f:
+                    raw_data = json.load(f)
+                    candles = []
+                    for c in raw_data:
+                        # Handle multiple timestamp formats
+                        ts_str = c["timestamp"]
+                        try:
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                        except ValueError:
+                            ts = datetime.fromisoformat(ts_str)
+                            
+                        if start_date <= ts <= end_date:
+                            candles.append(Candle(
+                                timestamp=ts,
+                                open=float(c["open"]),
+                                high=float(c["high"]),
+                                low=float(c["low"]),
+                                close=float(c["close"]),
+                                volume=float(c.get("volume", 0.0)),
+                            ))
+                    
+                    self._cache[cache_key] = candles
+                    logger.info(f"[BACKTEST] Loaded {len(candles)} candles from file.")
+                    return candles
+            except Exception as e:
+                logger.error(f"[BACKTEST] Failed to load candles from file {file_path}: {e}")
+                return []
+
         # Map symbol to CCXT format if needed (e.g. BTCUSD -> BTC/USD)
         ccxt_symbol = symbol
-        if "/" not in symbol and len(symbol) > 3:
-            # Simple heuristic mapping, ideally share logic with Broker
-            if symbol.endswith("USD"):
-                ccxt_symbol = f"{symbol[:-3]}/USD"
-            elif symbol.endswith("USDT"):
-                 ccxt_symbol = f"{symbol[:-4]}/USDT"
 
         try:
             timeframe_seconds = timeframe_to_seconds(timeframe)

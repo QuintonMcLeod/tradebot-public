@@ -36,7 +36,8 @@ class VolatilityBreakoutStrategy(BaseStrategy):
         
         # Long Entry: Breakout of range high + RSI > 60
         if last_close > recent_high and rsi > 60:
-            stop_dist = atr * self.atr_mult
+            # [ARMOR] 2x ATR Stops
+            stop_dist = atr * 2.0
             stop_loss = last_close - stop_dist
             target = last_close + (stop_dist * 2.0)
             
@@ -46,15 +47,16 @@ class VolatilityBreakoutStrategy(BaseStrategy):
                 entry_price=last_close, stop_loss=stop_loss, take_profit=target,
                 structure_summary=f"Volatility Breakout (High={recent_high:.4f}, RSI={rsi:.1f})",
                 invalidation_conditions="Close below breakout bar",
-                management_instructions="Target 2R. Hold for explosive momentum.",
-                notes="Aggressive breakout scalper",
+                management_instructions="Net-Zero at 1xATR",
+                notes="Armor Entry (2x ATR)",
                 urgency="high",
                 risk_per_trade_pct=0.10
             )
 
         # Short Entry: Breakout of range low + RSI < 40
         if last_close < recent_low and rsi < 40:
-            stop_dist = atr * self.atr_mult
+            # [ARMOR] 2x ATR Stops
+            stop_dist = atr * 2.0
             stop_loss = last_close + stop_dist
             target = last_close - (stop_dist * 2.0)
             
@@ -64,8 +66,8 @@ class VolatilityBreakoutStrategy(BaseStrategy):
                 entry_price=last_close, stop_loss=stop_loss, take_profit=target,
                 structure_summary=f"Volatility Breakout (Low={recent_low:.4f}, RSI={rsi:.1f})",
                 invalidation_conditions="Close above breakout bar",
-                management_instructions="Target 2R. Hold for explosive momentum.",
-                notes="Aggressive breakout scalper",
+                management_instructions="Net-Zero at 1xATR",
+                notes="Armor Entry (2x ATR)",
                 urgency="high",
                 risk_per_trade_pct=0.10
             )
@@ -81,5 +83,6 @@ class VolatilityBreakoutStrategy(BaseStrategy):
              return close_position_decision(snapshot.symbol, snapshot.timeframe, "Volatility Breakout: Momentum Reversal (RSI < 45)")
         if pos_dir == "short" and rsi > 55:
              return close_position_decision(snapshot.symbol, snapshot.timeframe, "Volatility Breakout: Momentum Reversal (RSI > 55)")
-             
+
+        # [SAFETY] Managed by StrategyEngine via SafetyGuard
         return None

@@ -42,8 +42,9 @@ class QuantumStrategy(BaseStrategy):
         # Bullish Pullback: Price was above SMA, pulled back to it, then closed above prev bar
         if htf_dir == "long":
             if prev_close < sma * 1.001 and last_close > prev_close:
-                stop_loss = last_close - (atr * 2.5)
-                target = last_close + (atr * 4.0) # 1.6R
+                # [ARMOR] 2x ATR Dynamic Stops
+                stop_loss = last_close - (atr * 2.0)
+                target = last_close + (atr * 2.0)
                 
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -51,16 +52,17 @@ class QuantumStrategy(BaseStrategy):
                     entry_price=last_close, stop_loss=stop_loss, take_profit=target,
                     structure_summary=f"Quantum Long: HTF/LTF Aligned + SMA {self.sma_period} Pullback",
                     invalidation_conditions="HTF trend reversal",
-                    management_instructions="Target 1.6R",
-                    notes="Quantum Forex momentum entry",
+                    management_instructions="Net-Zero at 1xATR",
+                    notes="Armor Entry (2x ATR)",
                     urgency="medium"
                 )
 
         # Bearish Pullback
         if htf_dir == "short":
             if prev_close > sma * 0.999 and last_close < prev_close:
-                stop_loss = last_close + (atr * 2.5)
-                target = last_close - (atr * 4.0)
+                # [ARMOR] 2x ATR Dynamic Stops
+                stop_loss = last_close + (atr * 2.0)
+                target = last_close - (atr * 2.0)
                 
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -68,8 +70,8 @@ class QuantumStrategy(BaseStrategy):
                     entry_price=last_close, stop_loss=stop_loss, take_profit=target,
                     structure_summary=f"Quantum Short: HTF/LTF Aligned + SMA {self.sma_period} Pullback",
                     invalidation_conditions="HTF trend reversal",
-                    management_instructions="Target 1.6R",
-                    notes="Quantum Forex momentum entry",
+                    management_instructions="Net-Zero at 1xATR",
+                    notes="Armor Entry (2x ATR)",
                     urgency="medium"
                 )
 
@@ -80,9 +82,8 @@ class QuantumStrategy(BaseStrategy):
         htf_dir = snapshot.trend_htf.direction
         pos_dir = open_position.get("direction")
         
-        if pos_dir == "long" and htf_dir == "short":
-            return close_position_decision(snapshot.symbol, snapshot.timeframe, "Quantum Exit: HTF trend flip to short")
         if pos_dir == "short" and htf_dir == "long":
             return close_position_decision(snapshot.symbol, snapshot.timeframe, "Quantum Exit: HTF trend flip to long")
             
+        # [SAFETY] Managed by StrategyEngine via SafetyGuard
         return None

@@ -1,9 +1,10 @@
 /**
- * Tradebot SCI Settings Interface
+ * Tradebot SCI Settings Interface (Integrated)
+ * This module is loaded by the main app and initialized when the Settings view is opened.
  */
 
-// Wait for DOM to be ready
-document.addEventListener('DOMContentLoaded', () => init());
+// Track if already initialized
+let settingsInitialized = false;
 
 // ═══════════════════════════════════════════════════════════
 // STATE MANAGEMENT
@@ -28,6 +29,9 @@ const TOOLTIPS = {
     EXECUTE_TRADES: "The master ON/OFF switch for real trading. When OFF, the bot analyzes markets and shows what it WOULD do, but never places actual orders. Perfect for testing strategies without risking real money.",
     GUI_AUTOSTART_BOT: "When enabled, the trading bot automatically starts running as soon as you open this application. When disabled, you'll need to manually click 'Start' to begin trading.",
     CONTINUOUS_MODE: "Keeps the bot running indefinitely without stopping between trading sessions. Useful for 24/7 crypto markets. Disable this if you want the bot to pause after each session.",
+    GUI_WS_URL: "The WebSocket URL for the trading bot. Change this if you are connecting to a bot running on a remote server or a different port (e.g., ws://192.168.1.10:8080/ws).",
+    WS_SERVER_PORT: "The port number the trading bot should listen on for local connections. Default is 8080. If you change this, you must also update your WebConnect URL or external tools to match.",
+    FRIDAY_FADE_ENABLED: "IMPORTANT (Forex Only): Automatically reduces risk to 0.25% after 12:00 PM EST on Fridays. This accounts for the sharp drop in Forex liquidity as markets approach the weekend close, preventing 'mean reversion' strategies from getting trapped in late-session drifts.",
 
     // Timeframes
     CANDLE_TIMEFRAME: "The main chart timeframe the bot watches. '15m' means each candle represents 15 minutes of price action. Shorter timeframes (1m, 5m) = more trades but more noise. Longer (1h, 4h) = fewer but higher-quality signals.",
@@ -52,6 +56,7 @@ const TOOLTIPS = {
     // Position Management
     MULTI_POSITION_ENABLED: "Allow the bot to have multiple trades open at the same time across different symbols. When disabled, it finishes one trade before starting another.",
     MAX_CONCURRENT_POSITIONS: "Maximum number of trades that can be open simultaneously. More positions = more diversification but also more complexity and capital required.",
+    SMART_POSITIONS_ENABLED: "Prevents opening new trades unless your current open profits are high enough to 'pay for' the risk of the new position. Ensures you only scale up using profit, not principal.",
 
     // Pyramiding
     MAX_PYRAMID_ENTRIES: "Maximum times the bot can add to a winning position. 'Pyramiding' means buying more as a trade goes in your favor. 1 = no adding, just the initial entry.",
@@ -138,9 +143,11 @@ const TOOLTIPS = {
     CHATGPT_KEY: "API key for your chosen AI provider. Get this from their developer portal. Required for AI-powered commentary.",
     AI_TEMPERATURE: "AI creativity level (0-2). Lower = more consistent/predictable responses. Higher = more creative but potentially erratic. 0.2 recommended.",
     AI_MAX_TOKENS: "Maximum response length from AI. Higher = more detailed analysis but costs more. 2048 is good for trading commentary.",
-    COMMENTARY_LLM_POLICY: "When to request AI analysis: 'a_plus_or_4x' for best setups or 4x daily, 'a_plus_only' for only exceptional setups, 'interval' for fixed schedule.",
-    COMMENTARY_LLM_DAILY_SLOTS: "Specific times to request AI commentary (HH:MM format). Example: 09:00,12:00,18:00 for market open, midday, and close.",
-    COMMENTARY_LLM_MAX_CALLS_PER_DAY: "Maximum AI API calls per day. Prevents runaway costs. Each call provides fresh market analysis.",
+    COMMENTARY_ENABLED: "Master toggle for AI commentary. When disabled, no AI insights will be generated.",
+    COMMENTARY_LLM_POLICY: "When to generate AI insights: 'disabled' to turn off, 'interval' for fixed timing, 'schedule' for specific times, 'on_signal' on every trade decision.",
+    COMMENTARY_INTERVAL_MINUTES: "Time between AI updates when using 'Fixed Interval' policy. Range: 1-60 minutes.",
+    COMMENTARY_LLM_DAILY_SLOTS: "Specific times to request AI commentary when using 'Scheduled Times' policy. Format: HH:MM, comma-separated.",
+    COMMENTARY_LLM_MAX_CALLS_PER_DAY: "Hard limit on AI API calls per day. Prevents runaway costs regardless of policy.",
 
     // Sabbath Settings
     SABBATH_ENABLED: "Block new trade entries during the Jewish Sabbath (Friday sunset to Saturday sunset). Existing positions are managed but no new trades opened.",
@@ -158,6 +165,28 @@ const TOOLTIPS = {
     SESSION_OVERLAP_TIMEZONE: "Timezone for session hours. UTC is universal, or use your local timezone.",
     AUTO_SCHEDULE_ENABLED: "Automatically switch between equity hours (9:30-4 ET) and crypto (24/7) based on what you're trading.",
     SUPPLY_DEMAND: "Identifies areas where large institutional orders are likely waiting. The bot looks for a 'Break of Structure' (BOS) indicating a new trend, then waits for price to return to the 'Base' (Supply or Demand zone) before entering. High-accuracy institutional method.",
+
+    // Safety & Shields
+    SAFETY_FLOOR_ENABLED: "Identifies robust zones with the 'No Body Close' rule and locks in principal at major account milestones ($200, $500, etc).",
+    SAFETY_ATR_SHIELD_ENABLED: "Advanced ATR-based protection. Moves stops to breakeven after 1x ATR move and uses dynamic trailing stops.",
+    SAFETY_DRAWDOWN_BREAKER_ENABLED: "Account Circuit Breaker. If the account loses >5% from daily peak, all trades close and the bot pauses for 24h.",
+    SAFETY_SESSION_LOCKOUT_ENABLED: "Prevents over-trading in choppy late-session markets. Automatically stops taking signals after 12:00 PM EST.",
+
+    // Safety Suite 2.0 (New Additions)
+    SAFETY_GREED_GUARD_ENABLED: "Profit Lock. Stops trading for the day once a specified daily profit target is hit (Quit while ahead).",
+    SAFETY_CHURN_BURNER_ENABLED: "Anti-Churn. Limits the maximum number of trades per hour to prevent over-trading in chop.",
+    SAFETY_VOLATILITY_VETO_ENABLED: "Volatility Filter. Blocks entries if the market is too dead (low ATR) or too explosive (high ATR).",
+    SAFETY_STREAK_BREAKER_ENABLED: "Tilt Prevention. Pauses a specific symbol for 4 hours after 3 consecutive losses.",
+    SAFETY_OPENING_SENTRY_ENABLED: "Morning Guard. Blocks all entries during the first 15 minutes of the market open (9:30-9:45 AM ET) to avoid volatility.",
+
+    // Performance & Profits (Wealth Creation)
+    PERFORMANCE_MODE_NONE: "Standard Trading. Risk is managed normally based on your strategy settings without any acceleration.",
+    PERFORMANCE_MODE_HOUSE_MONEY: "Unlocked Capital. Leverages unrealized profits from winning trades to finance new entries, bypassing concurrent risk limits once a trade is 'Free' (>2R profit).",
+    PERFORMANCE_MODE_SNIPER: "The Sniper Grade. Automatically increases risk to 5% only for the most elite setups (Score > 90). Maximizes profit on 'A+' trades while keeping risk low on noise.",
+    PERFORMANCE_MODE_RUNNER: "The Runner. Adopts an asymmetric exit strategy: Sell 50% at the initial target to secure the win, then deactivate the target on the remainder and use a wide trailing stop for moonshot gains.",
+    PERFORMANCE_MODE_REGIME_SYNC: "Adaptive Vibe Sync. Dynamically scales risk based on Market Regime: 1.5x multipliers during strong HTF trends, and 0.5x dampers during weak or uncertain strength periods.",
+    PERFORMANCE_MODE_FLYWHEEL: "Compound Flywheel. Mathematically accelerates growth by increasing risk % at fixed equity milestones (e.g., +0.1% risk for every $200 of daily profit).",
+    PERFORMANCE_MODE_STACKER: "Signal Stacker. Doubles the risk when multiple internal strategies agree on the same entry price (e.g., both SND and Mean Reversion see a Buy signal).",
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -288,6 +317,8 @@ function formatStatKey(key) {
 const TABS = {
     system: { icon: 'dashboard', label: 'System', render: renderSystemTab },
     strategy: { icon: 'precision_manufacturing', label: 'Strategy', render: renderStrategyTab },
+    safety: { icon: 'shield', label: 'Safety', render: renderSafetyTab },
+    performance: { icon: 'trending_up', label: 'Performance', render: renderPerformanceTab },
     brokers: { icon: 'lan', label: 'Brokers', render: renderBrokersTab },
     ai: { icon: 'auto_awesome', label: 'Intelligence', render: renderAITab },
     schedule: { icon: 'event_repeat', label: 'Schedule', render: renderScheduleTab },
@@ -299,22 +330,30 @@ const TABS = {
 // ═══════════════════════════════════════════════════════════
 
 async function init() {
+    // Prevent re-initialization
+    if (settingsInitialized) {
+        // Just render the current tab if already initialized
+        renderTab();
+        return;
+    }
+    settingsInitialized = true;
+
     setupGlobalEvents();
 
     // Listen for bot status updates
-    if (window.electronAPI?.onBotStatus) {
-        window.electronAPI.onBotStatus((status) => {
+    if (window.api?.onBotStatus) {
+        window.api.onBotStatus((status) => {
             updateBotStatusUI(status.running);
         });
         // Initial check
-        window.electronAPI.getBotStatus();
+        window.api.getBotStatus();
     }
 
     // Load data from backend
     try {
-        if (window.electronAPI) {
-            envData = await window.electronAPI.readEnv() || {};
-            profilesContent = await window.electronAPI.readProfiles() || "";
+        if (window.api) {
+            envData = await window.api.readEnv() || {};
+            profilesContent = await window.api.readProfiles() || "";
         }
     } catch (e) {
         console.error("Data load failed:", e);
@@ -338,16 +377,16 @@ function setupGlobalEvents() {
 
     if (btnClose) {
         btnClose.addEventListener('click', () => {
-            if (window.electronAPI?.closeWindow) {
-                window.electronAPI.closeWindow();
+            if (window.api?.closeWindow) {
+                window.api.closeWindow();
             }
         });
     }
 
     if (btnMinimize) {
         btnMinimize.addEventListener('click', () => {
-            if (window.electronAPI?.minimizeWindow) {
-                window.electronAPI.minimizeWindow();
+            if (window.api?.minimizeWindow) {
+                window.api.minimizeWindow();
             }
         });
     }
@@ -440,7 +479,7 @@ function getActiveProfileSettings() {
         if (!inTargetProfile) continue;
 
         // Match property (4 spaces) - strip inline comments
-        const propMatch = line.match(/^    ([a-z_]+):\s*(.+)$/);
+        const propMatch = line.match(/^    ([a-z_]+):\s*(.*)$/);
         if (propMatch) {
             const key = propMatch[1];
             const rawVal = propMatch[2].split('#')[0].trim();
@@ -524,6 +563,7 @@ function createSectionHeader(title, icon = null) {
 function createCard(title, desc, key, controlType, options = {}) {
     const card = document.createElement('div');
     card.className = 'control-card';
+    card.dataset.key = key;
 
     card.innerHTML = `
         <div class="card-info">
@@ -703,6 +743,9 @@ function renderSystemTab(container) {
     section.appendChild(createCard('Live Trading', 'Master switch for real order execution', 'EXECUTE_TRADES', 'toggle'));
     section.appendChild(createCard('Auto-Start Bot', 'Launch bot automatically with GUI', 'GUI_AUTOSTART_BOT', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Continuous Mode', 'Keep runtime alive indefinitely', 'CONTINUOUS_MODE', 'toggle'));
+    section.appendChild(createCard('Friday Fade Damper', 'Risk cap after 12:00 PM EST Fri (Forex Only)', 'FRIDAY_FADE_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('WebConnect URL', 'Remote bot connection address', 'GUI_WS_URL', 'input', { default: 'ws://localhost:8080/ws' }));
+    section.appendChild(createCard('Bot Listening Port', 'Port the bot server listens on', 'WS_SERVER_PORT', 'input', { default: '8080' }));
 
     section.appendChild(createDivider());
 
@@ -713,15 +756,15 @@ function renderSystemTab(container) {
     controlGrid.className = 'card-grid card-grid-3 mb-8';
 
     const btnStart = createControlButton('Start Bot', 'play_arrow', 'teal', () => {
-        window.electronAPI.startBot();
+        window.api.startBot();
         showNotice('Bot start command sent', 'teal');
     });
     const btnStop = createControlButton('Stop Bot', 'stop', 'red', () => {
-        window.electronAPI.stopBot();
+        window.api.stopBot();
         showNotice('Bot stop command sent', 'red');
     });
     const btnRestart = createControlButton('Restart', 'refresh', 'purple', () => {
-        window.electronAPI.restartBot();
+        window.api.restartBot();
         showNotice('Bot restart sequence initiated', 'purple');
     });
 
@@ -913,6 +956,16 @@ function renderStrategyTab(container) {
 
         section.appendChild(createCard('Multi-Position', 'Trade multiple symbols simultaneously', 'MULTI_POSITION_ENABLED', 'toggle'));
         section.appendChild(createCard('Max Concurrent Positions', 'Maximum open positions', 'MAX_CONCURRENT_POSITIONS', 'input', { number: true, default: '1', min: 1, max: 10 }));
+        section.appendChild(createCard('Smart Positions', 'Fund new risk with open profits', 'SMART_POSITIONS_ENABLED', 'toggle'));
+
+        // Initialize Financed Risk state
+        setTimeout(() => {
+            const multiEnabled = envData['MULTI_POSITION_ENABLED'] === 'true';
+            const smartToggle = section.querySelector('.control-card[data-key="SMART_POSITIONS_ENABLED"]');
+            if (smartToggle && !multiEnabled) {
+                smartToggle.classList.add('opacity-50', 'pointer-events-none');
+            }
+        }, 0);
 
     } else if (subTabs.strategy === 'pyramid') {
         section.appendChild(createSectionHeader('Pyramid Configuration', 'stacked_line_chart'));
@@ -1206,15 +1259,33 @@ function renderAITab(container) {
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('AI Commentary', 'comment'));
 
-    section.appendChild(createCard('Commentary Policy', 'When to invoke AI', 'COMMENTARY_LLM_POLICY', 'dropdown', {
+    // Master toggle
+    section.appendChild(createCard('Enable Commentary', 'Show AI insights in dashboard', 'COMMENTARY_ENABLED', 'toggle', { default: 'true' }));
+
+    // Policy dropdown with cleaner options
+    section.appendChild(createCard('Commentary Policy', 'When to generate insights', 'COMMENTARY_LLM_POLICY', 'dropdown', {
         items: [
-            { value: 'a_plus_or_4x', label: 'A+ Setup or 4x Daily' },
-            { value: 'a_plus_only', label: 'A+ Setup Only' },
-            { value: 'interval', label: 'Fixed Interval' }
+            { value: 'disabled', label: 'Disabled' },
+            { value: 'interval', label: 'Fixed Interval' },
+            { value: 'schedule', label: 'Scheduled Times' },
+            { value: 'on_signal', label: 'On Trade Signals' }
         ]
     }));
-    section.appendChild(createCard('Daily Slots', 'Comma-separated HH:MM', 'COMMENTARY_LLM_DAILY_SLOTS', 'input', { placeholder: '09:00,12:00,18:00,22:00' }));
-    section.appendChild(createCard('Max Daily Calls', 'API cost cap', 'COMMENTARY_LLM_MAX_CALLS_PER_DAY', 'input', { number: true, default: '20' }));
+
+    // Interval slider (shown when policy is 'interval')
+    section.appendChild(createCard('Interval (Minutes)', 'Time between AI updates', 'COMMENTARY_INTERVAL_MINUTES', 'input', {
+        number: true,
+        default: '5',
+        min: 1,
+        max: 60,
+        step: 1
+    }));
+
+    // Daily slots (shown when policy is 'schedule')
+    section.appendChild(createCard('Scheduled Times', 'Comma-separated HH:MM', 'COMMENTARY_LLM_DAILY_SLOTS', 'input', { placeholder: '09:00,12:00,18:00' }));
+
+    // Daily limit
+    section.appendChild(createCard('Daily API Limit', 'Max AI calls per day', 'COMMENTARY_LLM_MAX_CALLS_PER_DAY', 'input', { number: true, default: '50' }));
 
     container.appendChild(section);
 }
@@ -1264,7 +1335,7 @@ function renderScheduleTab(container) {
         const btn = resolver.querySelector('#btn-resolve');
         btn.textContent = 'RESOLVING...';
 
-        const res = await window.electronAPI.resolveCity(city);
+        const res = await window.api.resolveCity(city);
         if (res) {
             updateValue('SABBATH_LAT', res.lat.toString());
             updateValue('SABBATH_LON', res.lon.toString());
@@ -1313,10 +1384,162 @@ function renderAdvancedTab(container, filter = "") {
 // DATA ACTIONS
 // ═══════════════════════════════════════════════════════════
 
+function renderSafetyTab(container) {
+    const section = document.createElement('div');
+    section.className = 'settings-section';
+
+    section.appendChild(createSectionHeader('Account Safety & Shields', 'shield'));
+
+    section.appendChild(createWarningBox('<strong>Safety First:</strong> These shields protect your principal from catastrophic drawdowns. When a shield triggers, the bot will prioritize safety over profits.'));
+
+    section.appendChild(createCard('Staircase Floor', 'Principle Protection via No-Body-Close zones', 'SAFETY_FLOOR_ENABLED', 'toggle'));
+    section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle'));
+    section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker (5% Daily Cap)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle'));
+    section.appendChild(createCard('Session Lockout', 'Stops signals after 12:00 PM EST', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle'));
+    section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock (Quit while ahead)', 'SAFETY_GREED_GUARD_ENABLED', 'toggle'));
+
+    // Greed Guard Target Input (Conditional visibility logic handled via CSS/JS later, or just always show for now)
+    section.appendChild(createCard('Greed Guard Target ($)', 'Daily profit amount to trigger lockout', 'SAFETY_GREED_GUARD_TARGET', 'input', {
+        number: true,
+        placeholder: '100.00',
+        default: '100.00'
+    }));
+
+    section.appendChild(createCard('Churn Burner', 'Rate Limit (Max trades/hour)', 'SAFETY_CHURN_BURNER_ENABLED', 'toggle'));
+    section.appendChild(createCard('Churn Burner Max', 'Maximum trades allowed per hour', 'SAFETY_CHURN_BURNER_MAX', 'input', {
+        number: true,
+        placeholder: '5',
+        default: '5'
+    }));
+
+    section.appendChild(createCard('Volatility Veto', 'Block entries if ATR is too Low/High', 'SAFETY_VOLATILITY_VETO_ENABLED', 'toggle'));
+    section.appendChild(createCard('Veto Min ATR %', 'Block if volatility falls below this %', 'SAFETY_VOLATILITY_MIN_PCT', 'input', {
+        number: true,
+        placeholder: '0.05',
+        default: '0.05',
+        step: 0.01
+    }));
+    section.appendChild(createCard('Veto Max ATR %', 'Block if volatility exceeds this %', 'SAFETY_VOLATILITY_MAX_PCT', 'input', {
+        number: true,
+        placeholder: '5.0',
+        default: '5.0',
+        step: 0.1
+    }));
+    section.appendChild(createCard('Streak Breaker', 'Pause Symbol 4h after 3 Consecutive Losses', 'SAFETY_STREAK_BREAKER_ENABLED', 'toggle'));
+    section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle'));
+
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Safety Metrics (Live Feed)', 'query_stats'));
+
+    const statsBox = document.createElement('div');
+    statsBox.className = 'warning-box';
+    statsBox.style.borderColor = 'rgba(20, 184, 166, 0.2)';
+    statsBox.innerHTML = `
+        <div class="flex flex-col gap-2 w-full text-xs">
+            <div class="flex justify-between">
+                <span class="text-slate-400">Current Safety Floor:</span>
+                <span class="text-teal-400 font-bold">$100.00</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-slate-400">Daily HWM:</span>
+                <span class="text-white font-bold">$100.00</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-slate-400">Max Allowable Drawdown:</span>
+                <span class="text-rose-400/70 font-bold">$5.00</span>
+            </div>
+        </div>
+    `;
+    section.appendChild(statsBox);
+
+    container.appendChild(section);
+}
+
+function renderPerformanceTab(container) {
+    const section = document.createElement('div');
+    section.className = 'settings-section';
+
+    section.appendChild(createSectionHeader('Performance & Profits', 'trending_up'));
+
+    section.appendChild(createWarningBox('<strong>High Octane Mode:</strong> These tools are designed to accelerate account growth. Unlike Safety Shields, these are "Offensive" tools. <strong>Note:</strong> Only one Wealth Mode can be active at a time to prevent over-leverage.'));
+
+    // Wealth Mode Selector (Radio Style)
+    const activeMode = envData['PERFORMANCE_MODE'] || 'none';
+
+    section.appendChild(createPerformanceCard('None (Safe Mode)', 'No acceleration. Standard risk rules apply.', 'none', activeMode));
+    section.appendChild(createPerformanceCard('House Money Accelerator', 'Unlock capital for new trades once winners reach 2R profit', 'house_money', activeMode));
+    section.appendChild(createPerformanceCard('Sniper Grade (A+)', 'Automatically risk 5% only on signals with Score > 90', 'sniper', activeMode));
+    section.appendChild(createPerformanceCard('The Runner', 'Partial exit at target; trail the rest for moonshots', 'runner', activeMode));
+    section.appendChild(createPerformanceCard('Regime Sync', 'Scale risk up (1.5x) or down (0.5x) based on trend strength', 'regime_sync', activeMode));
+    section.appendChild(createPerformanceCard('Compound Flywheel', 'Increase risk per trade automatically at profit milestones', 'flywheel', activeMode));
+    section.appendChild(createPerformanceCard('Signal Stacker', 'Double risk when multiple strategies agree on entry', 'stacker', activeMode));
+
+    container.appendChild(section);
+}
+
+/**
+ * Creates a specialized card for Wealth Modes with radio-style mutual exclusivity.
+ */
+function createPerformanceCard(label, sublabel, modeValue, currentMode) {
+    const card = document.createElement('div');
+    card.className = `settings-card ${currentMode === modeValue ? 'active' : ''}`;
+    card.style.cursor = 'pointer';
+    card.style.transition = 'all 0.2s ease';
+
+    // Performance tab "Performance Gold" aesthetic
+    if (currentMode === modeValue) {
+        card.style.setProperty('--card-border', 'rgba(234, 179, 8, 0.4)');
+        card.style.background = 'rgba(234, 179, 8, 0.08)';
+        card.style.borderColor = 'rgba(234, 179, 8, 0.3)';
+        card.style.boxShadow = '0 0 20px rgba(234, 179, 8, 0.1)';
+    }
+
+    const modeKey = `PERFORMANCE_MODE_${modeValue.toUpperCase()}`;
+    const tooltip = TOOLTIPS[modeKey] || sublabel;
+
+    card.innerHTML = `
+        <div class="flex items-center gap-3 w-full">
+            <div class="flex-1">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-bold ${currentMode === modeValue ? 'text-amber-400' : 'text-white'}">${label}</span>
+                    <span class="material-symbols-outlined text-[10px] text-slate-500 cursor-help" title="${tooltip}">info</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">${sublabel}</div>
+            </div>
+            <div class="radio-indicator" style="width: 18px; height: 18px; border-radius: 50%; border: 2px solid ${currentMode === modeValue ? '#fbbf24' : 'rgba(255,255,255,0.1)'}; background: ${currentMode === modeValue ? '#fbbf24' : 'transparent'}; display: flex; align-items: center; justify-content: center; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
+                ${currentMode === modeValue ? '<span class="material-symbols-outlined" style="font-size: 12px; color: #000; font-weight: bold;">check</span>' : ''}
+            </div>
+        </div>
+    `;
+
+    card.addEventListener('click', () => {
+        updateValue('PERFORMANCE_MODE', modeValue);
+        // Instant visual feedback
+        const container = document.getElementById('tab-content');
+        if (container) {
+            container.innerHTML = '';
+            renderPerformanceTab(container);
+        }
+    });
+
+    return card;
+}
+
 function updateValue(key, value) {
     envData[key] = value;
     localChanges[key] = value;
     updateChangeCounter();
+
+    if (key === 'MULTI_POSITION_ENABLED') {
+        const smartToggle = document.querySelector('.control-card[data-key="SMART_POSITIONS_ENABLED"]');
+        if (smartToggle) {
+            if (value === 'false') {
+                smartToggle.classList.add('opacity-50', 'pointer-events-none');
+            } else {
+                smartToggle.classList.remove('opacity-50', 'pointer-events-none');
+            }
+        }
+    }
 }
 
 function updateChangeCounter() {
@@ -1342,18 +1565,18 @@ async function saveAll() {
     if (indicator) indicator.style.opacity = '1';
 
     try {
-        if (!window.electronAPI) {
+        if (!window.api) {
             throw new Error("Not connected to Electron backend");
         }
 
         const envUpdates = { ...localChanges };
         delete envUpdates['_profiles_'];
 
-        if (Object.keys(envUpdates).length > 0 && window.electronAPI.saveEnv) {
-            await window.electronAPI.saveEnv(envUpdates);
+        if (Object.keys(envUpdates).length > 0 && window.api.saveEnv) {
+            await window.api.saveEnv(envUpdates);
         }
-        if (localChanges['_profiles_'] && window.electronAPI.saveProfiles) {
-            await window.electronAPI.saveProfiles(profilesContent);
+        if (localChanges['_profiles_'] && window.api.saveProfiles) {
+            await window.api.saveProfiles(profilesContent);
         }
 
         localChanges = {};
@@ -1407,32 +1630,76 @@ function hideTooltip() {
 let toolboxTab = 'icc'; // Default
 
 function renderStrategyToolbox(container) {
-    // Internal Navigation for Toolbox (Horizontal or vertical variant)
+    // Strategy selector using a responsive grid layout
     const nav = document.createElement('div');
-    nav.className = 'sub-nav';
-    // Using a different style or just expanding sub-nav
+    nav.className = 'strategy-selector-grid';
+    nav.style.cssText = `
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 10px;
+        margin-bottom: 32px;
+        padding: 16px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    `;
 
     const strategies = [
-        { id: 'icc', label: 'ICC (Indication, Correction, Continuation)' },
-        { id: 'rubberband_reaper', label: 'Rubberband Reaper' },
-        { id: 'robocop', label: 'RoboCop' },
-        { id: 'evolution', label: 'Robot Evolution' },
-        { id: 'quantum', label: 'Quantum' },
-        { id: 'mean_reversion', label: 'Mean Reversion' },
-        { id: 'hyper_scalper', label: 'HyperScalper' },
-        { id: 'london_breakout', label: 'London Breakout' },
-        { id: 'volatility_breakout', label: 'Volatility Breakout' },
-        { id: 'aggregator', label: 'Aggregator' },
-        { id: 'supply_demand', label: 'Supply & Demand' }
+        { id: 'icc', label: 'ICC Core', icon: 'auto_mode', color: '#14b8a6' },
+        { id: 'rubberband_reaper', label: 'Rubberband Reaper', icon: 'elastic', color: '#f59e0b' },
+        { id: 'robocop', label: 'RoboCop', icon: 'smart_toy', color: '#ef4444' },
+        { id: 'evolution', label: 'Robot Evolution', icon: 'psychology', color: '#8b5cf6' },
+        { id: 'quantum', label: 'Quantum', icon: 'blur_on', color: '#3b82f6' },
+        { id: 'mean_reversion', label: 'Mean Reversion', icon: 'swap_vert', color: '#22c55e' },
+        { id: 'hyper_scalper', label: 'HyperScalper', icon: 'speed', color: '#ec4899' },
+        { id: 'london_breakout', label: 'London Breakout', icon: 'location_city', color: '#f97316' },
+        { id: 'volatility_breakout', label: 'Volatility Breakout', icon: 'show_chart', color: '#06b6d4' },
+        { id: 'aggregator', label: 'Aggregator', icon: 'hub', color: '#a855f7' },
+        { id: 'supply_demand', label: 'Supply & Demand', icon: 'layers', color: '#eab308' }
     ];
 
     strategies.forEach(s => {
         const btn = document.createElement('button');
-        btn.className = `sub-nav-btn ${toolboxTab === s.id ? 'active' : ''}`;
-        btn.textContent = s.label;
+        const isActive = toolboxTab === s.id;
+        btn.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 16px 12px;
+            border-radius: 12px;
+            border: 1px solid ${isActive ? s.color + '60' : 'rgba(255,255,255,0.08)'};
+            background: ${isActive ? s.color + '20' : 'rgba(255,255,255,0.03)'};
+            color: ${isActive ? s.color : '#94a3b8'};
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 11px;
+            font-weight: 600;
+            text-align: center;
+            min-height: 80px;
+        `;
+        btn.innerHTML = `
+            <span class="material-symbols-outlined" style="font-size: 24px; opacity: ${isActive ? 1 : 0.6};">${s.icon}</span>
+            <span style="line-height: 1.3;">${s.label}</span>
+        `;
+        btn.onmouseenter = () => {
+            if (!isActive) {
+                btn.style.background = 'rgba(255,255,255,0.08)';
+                btn.style.borderColor = 'rgba(255,255,255,0.15)';
+                btn.style.color = '#e2e8f0';
+            }
+        };
+        btn.onmouseleave = () => {
+            if (!isActive) {
+                btn.style.background = 'rgba(255,255,255,0.03)';
+                btn.style.borderColor = 'rgba(255,255,255,0.08)';
+                btn.style.color = '#94a3b8';
+            }
+        };
         btn.onclick = () => {
             toolboxTab = s.id;
-            renderTab(); // Re-render the whole tab to update this section
+            renderTab();
         };
         nav.appendChild(btn);
     });
@@ -1478,11 +1745,6 @@ function renderStrategyToolbox(container) {
             number: true,
             default: '0.20',
             tooltip: 'The default risk percentage for the initial entry. Rubberband Reaper uses a "Tiered Risk" model by default (20% for small accounts), but this setting defines the baseline if dynamic logic permits.'
-        }));
-
-        section.appendChild(createCard('Friday Fade Damper', 'Risk cap after 12PM Fri', 'FRIDAY_FADE_ENABLED', 'toggle', {
-            default: 'true',
-            tooltip: 'IMPORTANT: When enabled, this safety feature automatically drops risk to 0.25% (almost zero) after 12:00 PM EST on Fridays. Why? Because Friday afternoon liquidity disappears, meaning "mean reversion" stops working and price just drifts endlessly against you. This prevents giving back all your weekly profits in the final hours.'
         }));
 
         section.appendChild(createDivider());
@@ -1737,3 +1999,14 @@ function showNotice(message, color = 'teal') {
         setTimeout(() => toast.remove(), 500);
     }, 4000);
 }
+
+// ═══════════════════════════════════════════════════════════
+// SETTINGS MODULE EXPORT
+// ═══════════════════════════════════════════════════════════
+window.settingsModule = {
+    init: init,
+    switchTab: switchTab,
+    renderTab: renderTab,
+    saveAll: saveAll
+};
+

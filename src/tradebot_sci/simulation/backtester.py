@@ -20,7 +20,13 @@ from typing import Any, Dict, List, Optional
 # Added os for optimization
 from zoneinfo import ZoneInfo
 
-from ib_insync import IB, util
+try:
+    from ib_insync import IB, util
+    IB_AVAILABLE = True
+except ImportError:
+    IB = Any
+    util = Any
+    IB_AVAILABLE = False
 
 from tradebot_sci.broker.execution import ExecutionOutcome, ExecutionOutcomeType
 from tradebot_sci.broker.trade_result_store import TradeResult, TradeResultStore
@@ -154,7 +160,7 @@ class BacktestResult:
 class HistoricalMarketDataProvider:
     """Provides market data from historical candles for backtesting."""
 
-    def __init__(self, ib: IB, settings: Settings):
+    def __init__(self, ib: IB | None, settings: Settings):
         self.ib = ib
         self.settings = settings
         self._cache: Dict[str, List[Candle]] = {}
@@ -246,13 +252,55 @@ class HistoricalMarketDataProvider:
         timeframe: str,
         start_date: datetime,
         end_date: datetime,
+        file_path: str | None = None,
     ) -> List[Candle]:
-        """Fetch historical candles from IBKR for the specified date range."""
+        """Fetch historical candles from IBKR or local file for the specified date range."""
         cache_key = f"{symbol}:{timeframe}:{start_date.isoformat()}:{end_date.isoformat()}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
+        # [ANTIGRAVITY] Local File Loading Support
+        if file_path and os.path.exists(file_path):
+            logger.info(f"[BACKTEST] Loading candles for {symbol} from local file: {file_path}")
+            try:
+                import json
+                with open(file_path, "r") as f:
+                    raw_data = json.load(f)
+                    candles = []
+                    for c in raw_data:
+                        # Handle multiple timestamp formats
+                        ts_str = c["timestamp"]
+                        try:
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                        except ValueError:
+                            # Try other common formats if needed
+                            ts = datetime.fromisoformat(ts_str)
+                            
+                        if start_date <= ts <= end_date:
+                            candles.append(Candle(
+                                timestamp=ts,
+                                open=float(c["open"]),
+                                high=float(c["high"]),
+                                low=float(c["low"]),
+                                close=float(c["close"]),
+                                volume=float(c.get("volume", 0.0)),
+                            ))
+                    
+                    self._cache[cache_key] = candles
+                    logger.info(f"[BACKTEST] Loaded {len(candles)} candles from file.")
+                    return candles
+            except Exception as e:
+                logger.error(f"[BACKTEST] Failed to load candles from file {file_path}: {e}")
+                return []
+
+        if self.ib is None:
+            logger.error(f"[BACKTEST] No IB connection and no file_path provided for {symbol}")
+            return []
+
         try:
+            if not IB_AVAILABLE:
+                logger.error("[BACKTEST] ib_insync not installed. Cannot use IB provider.")
+                return []
             contract = build_contract(symbol)
             qualified = self.ib.qualifyContracts(contract)
             if not qualified:
@@ -380,22 +428,25 @@ class HistoricalMarketDataProvider:
 class Backtester:
     """Historical simulation engine for validating ICC strategy performance."""
 
-    def __init__(self, ib: IB, settings: Settings, ai_client: TradeSciAIClient | None):
+    def __init__(self, ib: Optional[IB], settings: Settings, ai_client: TradeSciAIClient | None):
         self.ib = ib
-        print("ALOHA FROM THE REAL BACKTESTER")
         self.settings = settings
         self.ai_client = ai_client
         self._cache: Dict[str, Any] = {}
         
-        # [ANTIGRAVITY FIX] Use CCXT provider for crypto when IB is None
+        # [ANTIGRAVITY FIX] Use HistoricalMarketDataProvider for local files + IB
+        # It now handles the file_path override natively.
+        self.market_provider = HistoricalMarketDataProvider(ib, settings)
         self._is_crypto_backtest = False
-        if ib is None:
-            logger.info("[BACKTEST] Using CCXT Provider for Crypto Backtest")
-            from tradebot_sci.simulation.providers.ccxt_provider import CCXTHistoricalDataProvider
-            self.market_provider = CCXTHistoricalDataProvider(settings)
-            self._is_crypto_backtest = True  # Crypto trades 24/7
-        else:
-            self.market_provider = HistoricalMarketDataProvider(ib, settings)
+        
+        # Check profile crypto_only flag
+        profile = settings.get_active_profile()
+        if getattr(profile, "crypto_only", False):
+            self._is_crypto_backtest = True
+            if ib is None:
+                # Fallback to CCXT for crypto if no files provided (legacy behavior)
+                # But typically we want the file-capable provider if files are present.
+                pass 
 
         # Also check profile crypto_only flag
         profile = settings.get_active_profile()
@@ -423,6 +474,7 @@ class Backtester:
         end_date: datetime,
         symbols: Optional[List[str]] = None,
         wind_down_days: int = 0,
+        data_paths: Optional[Dict[str, str]] = None,
     ) -> BacktestResult:
         """Run a complete backtest over the specified date range.
 
@@ -432,6 +484,7 @@ class Backtester:
             end_date: Backtest end date (UTC) (Last day for NEW ENTRIES)
             symbols: List of symbols to trade (defaults to settings.market.symbols)
             wind_down_days: Days to continue simulation AFTER end_date to manage exits (no new entries)
+            data_paths: Optional map of symbol to local JSON data file path
 
         Returns:
             BacktestResult containing P&L, trades, and performance metrics
@@ -468,8 +521,9 @@ class Backtester:
         all_candles: Dict[str, List[Candle]] = {}
         for symbol in symbols:
             # [ANTIGRAVITY] Fetch data up to simulation_end_date (includes wind-down)
+            file_path = data_paths.get(symbol) if data_paths else None
             candles = self.market_provider.fetch_historical_candles(
-                symbol, timeframe, data_start_date, simulation_end_date
+                symbol, timeframe, data_start_date, simulation_end_date, file_path=file_path
             )
             if candles:
                 all_candles[symbol] = candles
@@ -656,7 +710,13 @@ class Backtester:
                         # [FEET WET] Update risk after trade close
                         try:
                             from tradebot_sci.strategy.variants.supply_demand import feet_wet_on_trade_closed
-                            feet_wet_on_trade_closed(pnl)
+                            # ☢️ NUCLEAR OVERRIDES
+                            risk_cap = 0.05
+                            if self.settings.app.profile_name:
+                                p = self.settings.profiles.get(self.settings.app.profile_name)
+                                if p and p.nuclear_overrides_enabled:
+                                    risk_cap = p.max_risk_cap_override
+                            feet_wet_on_trade_closed(pnl, risk_cap=risk_cap)
                         except Exception:
                             pass
                         continue
@@ -703,7 +763,13 @@ class Backtester:
                         # [FEET WET] Update risk after trade close
                         try:
                             from tradebot_sci.strategy.variants.supply_demand import feet_wet_on_trade_closed
-                            feet_wet_on_trade_closed(pnl)
+                            # ☢️ NUCLEAR OVERRIDES
+                            risk_cap = 0.05
+                            if self.settings.app.profile_name:
+                                p = self.settings.profiles.get(self.settings.app.profile_name)
+                                if p and p.nuclear_overrides_enabled:
+                                    risk_cap = p.max_risk_cap_override
+                            feet_wet_on_trade_closed(pnl, risk_cap=risk_cap)
                         except Exception:
                             pass
                         continue
@@ -1024,7 +1090,11 @@ class Backtester:
                             if max_loss_cap <= 0:
                                 max_loss_cap = self.settings.broker.max_dollar_risk_per_symbol if self.settings.broker else 1000000.0
                             # [RISK SATURATION] Cap pyramid sizing at $750 base
-                            compounding_capital = min(capital, 750.0)
+                            py_cap = 750.0
+                            if getattr(profile, 'nuclear_overrides_enabled', False):
+                                py_cap = getattr(profile, 'pyramid_cap_override', 750.0)
+
+                            compounding_capital = min(capital, py_cap)
                             max_risk = min(compounding_capital * risk_pct, max_loss_cap)
 
                             raw_add_size = max_risk / risk_per_share if risk_per_share > 0 else 0.0
@@ -1126,10 +1196,14 @@ class Backtester:
                                 # Fallback to Profile if variant forgot to specify
                                 risk_pct = float(getattr(profile, "risk_per_trade_pct", 0.10))
                                 
-                            # [RISK SATURATION] Cap compounding at $750 to prevent Nuclear Blowout
-                            compounding_capital = min(capital, 750.0)
+                            # [RISK SATURATION] Cap compounding to prevent Nuclear Blowout
+                            comp_cap = 10000.0
+                            if getattr(profile, 'nuclear_overrides_enabled', False):
+                                comp_cap = getattr(profile, 'compounding_cap_override', 10000.0)
+
+                            compounding_capital = min(capital, comp_cap)
                             max_risk = compounding_capital * risk_pct
-                            logger.info(f"[BACKTEST] Entry: {symbol} using {risk_pct*100:.2f}% risk on ${compounding_capital:.2f} base (${max_risk:.2f})")
+                            logger.info(f"[BACKTEST] Entry: {symbol} using {risk_pct*100:.2f}% risk on ${compounding_capital:.2f} base (${max_risk:.2f}) [Cap: ${comp_cap}]")
 
                             entry_price = snapshot.candles[-1].close
 

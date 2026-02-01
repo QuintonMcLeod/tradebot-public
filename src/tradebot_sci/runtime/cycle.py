@@ -43,7 +43,11 @@ def fetch_snapshot(
         htf_candles = provider.get_latest_candles(symbol, htf_timeframe, limit=max_candles)
         
         if ws_controller and ltf_candles:
-            ws_controller.broadcast_candle(symbol, ltf_timeframe, ltf_candles[-1])
+            # [ANTIGRAVITY FIX] Broadcast last 2 candles to ensure transitions are captured
+            # and verify no gaps even if bot was busy during the explicit close time.
+            recent_candles = ltf_candles[-2:]
+            for c in recent_candles:
+                ws_controller.broadcast_candle(symbol, ltf_timeframe, c)
 
         trend_htf = infer_trend_from_swings(
             htf_candles,
@@ -227,6 +231,21 @@ def process_candidate_cycle(
     # Sort by score descending (if score is present)
     sorted_candidates = sorted(candidates, key=lambda x: x[2], reverse=True)
 
+    # [OPTIMIZATION] Pre-fetch open positions and API state ONCE per cycle
+    # to avoid slamming the API with requests inside the loop (N * 3 calls).
+    global_pnl = 0.0
+    global_open_count = 0
+    if executor and hasattr(executor, "list_open_position_symbols"):
+        try:
+            open_syms = executor.list_open_position_symbols()
+            global_open_count = len(open_syms)
+            for s in open_syms:
+                p = executor.get_open_position_snapshot(s)
+                if p:
+                    global_pnl += (p.get("unrealized_pnl", 0.0) or 0.0)
+        except Exception as e:
+            logger.warning(f"[CYCLE] Global PnL fetch failed: {e}")
+
     for symbol, snapshot, score, reason in sorted_candidates:
         if strike_tracker and (strike_tracker.is_skipped(symbol) or strike_tracker.is_guard_skipped(symbol)):
             skipped += 1
@@ -237,7 +256,17 @@ def process_candidate_cycle(
         
         try:
             liq_cap = executor.get_liquid_capital(symbol) if executor else None
-            decision = engines[symbol].decide(snapshot.timeframe, open_position=pos, snapshot=snapshot, current_capital=liq_cap)
+            
+            decision = engines[symbol].decide(
+                snapshot.timeframe, 
+                open_position=pos, 
+                snapshot=snapshot, 
+                current_capital=liq_cap,
+                execution_capabilities={
+                    "total_unrealized_pnl": global_pnl,
+                    "open_position_count": global_open_count
+                }
+            )
             if not decision or decision.action == "stand_aside":
                 reason = decision.notes if decision else "No strategy signal"
                 d_score = (decision.score * 100.0) if (decision and decision.score is not None) else 0.0

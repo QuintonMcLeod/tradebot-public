@@ -34,13 +34,15 @@ class TradeSciAIClient:
         self.last_response_json: Optional[dict] = None
 
     def _resolve_base_url(self) -> str:
-        if self.settings.provider in {"openai", "openrouter", "deepseek", "custom"}:
+        if self.settings.provider in {"openai", "openrouter", "deepseek", "custom", "local"}:
             if self.settings.base_url:
                 return str(self.settings.base_url)
         if self.settings.provider == "openai":
             return "https://api.openai.com/v1"
         if self.settings.provider == "openrouter":
             return "https://openrouter.ai/api/v1"
+        if self.settings.provider == "local":
+            return "http://localhost:11434/v1" # Default for Ollama
         if self.settings.provider == "deepseek":
             return "https://api.deepseek.com"
         if self.settings.provider == "claude":
@@ -53,7 +55,7 @@ class TradeSciAIClient:
     def raw_chat(self, messages: List[ChatMessage], *, expect_json: bool) -> str:
         """Sends polite JSON to the AI and hopes for polite JSON back."""
         provider = self.settings.provider
-        if provider in {"openai", "openrouter", "deepseek", "custom"}:
+        if provider in {"openai", "openrouter", "deepseek", "custom", "local"}:
             return self._chat_openai(messages, expect_json=expect_json)
         if provider == "claude":
             return self._chat_claude(messages, expect_json=expect_json)

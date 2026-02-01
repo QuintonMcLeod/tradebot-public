@@ -41,10 +41,10 @@ class RobotEvolutionStrategy(BaseStrategy):
             
         atr = calculate_atr(snapshot.candles, period=14) or (ntz_range * 0.1)
         
-        # [VERIFIED-MATH] 1.5 ATR Safety / 2.0R Target Alignment
+        # [ARMOR] 2.0 ATR Stops
         atr_floor = current_price * 0.002
         effective_atr = max(atr, atr_floor)
-        stop_dist = effective_atr * 1.5
+        stop_dist = effective_atr * 2.0
         
         rejection_reasons = []
 
@@ -100,6 +100,30 @@ class RobotEvolutionStrategy(BaseStrategy):
         return stand_aside_decision(snapshot.symbol, snapshot.timeframe, final_reason)
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
-        # [AGGRESIVE VALIDATION] Disable ALL engine exits for chop scalps
-        # Let Target or Stop handle it (configured in models/backtest)
+        # [DYNAMIC RISK] Breakeven & Trailing
+        entry_price = float(open_position["entry_price"])
+        current_price = snapshot.candles[-1].close
+        current_stop = float(open_position.get("stop_price") or 0.0)
+        pos_dir = open_position.get("direction")
+        
+        initial_risk = abs(entry_price - current_stop)
+        if initial_risk > 0:
+            profit_dist = (current_price - entry_price) if pos_dir == "long" else (entry_price - current_price)
+            r_multiple = profit_dist / initial_risk
+            
+            # 1. Breakeven
+            if pos_dir == "long" and current_stop < entry_price and r_multiple >= 1.0:
+                 return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="long", phase="management", action="hold", stop_loss=entry_price,
+                    notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
+                )
+            if pos_dir == "short" and current_stop > entry_price and r_multiple >= 1.0:
+                 return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="short", phase="management", action="hold", stop_loss=entry_price,
+                    notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
+                )
+
+        # [SAFETY] Managed by StrategyEngine via SafetyGuard
         return None

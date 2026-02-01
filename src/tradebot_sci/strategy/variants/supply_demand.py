@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import os
 from typing import Optional, Tuple
 from datetime import datetime, timezone
 from pydantic import BaseModel
@@ -25,13 +26,13 @@ class SNDZone(BaseModel):
 # [SAFEGUARD] Global Persistence for Strategy Instances
 GLOBAL_DAILY_COUNTS = {}
 
-# [AGGRO MODE] $200 -> $6000 Target - RECOVERY MARTINGALE
-FEET_WET_RISK = 0.25     # Start at 25% Risk
-FEET_WET_MIN = 0.25      # Reset to 25% after WIN
-FEET_WET_STEP = 0.25     # +25% per LOSS (aggressive recovery)
-FEET_WET_MAX = 1.00      # Cap at 100%
+# [SECURE MODE] Balanced Risk Model
+FEET_WET_RISK = 0.01     # Start at 1% Risk (Scout)
+FEET_WET_MIN = 0.01      # Reset to 1% after WIN
+FEET_WET_STEP = 0.005    # +0.5% per LOSS (gentle recovery)
+FEET_WET_MAX = 0.05      # Cap at 5% (Safety Ceiling)
 
-def feet_wet_on_trade_closed(pnl: float):
+def feet_wet_on_trade_closed(pnl: float, risk_cap: float = 0.05):
     """RECOVERY MARTINGALE: Increase risk after loss to recover. Reset on win."""
     global FEET_WET_RISK
     if pnl > 0:
@@ -39,8 +40,8 @@ def feet_wet_on_trade_closed(pnl: float):
         FEET_WET_RISK = FEET_WET_MIN
     else:
         # LOSS: Increase risk to recover (capped at max)
-        FEET_WET_RISK = min(FEET_WET_RISK + FEET_WET_STEP, FEET_WET_MAX)
-    print(f"[MARTINGALE] PnL={pnl:.2f} -> Risk={FEET_WET_RISK*100:.0f}%")
+        FEET_WET_RISK = min(FEET_WET_RISK + FEET_WET_STEP, risk_cap)
+    logger.info(f"[MARTINGALE] PnL={pnl:.2f} -> Risk={FEET_WET_RISK*100:.1f}% (Cap: {risk_cap*100:.1f}%)")
 
 class SupplyDemandStrategy(BaseStrategy):
     """
@@ -70,10 +71,18 @@ class SupplyDemandStrategy(BaseStrategy):
         
         # Get limit
         max_daily = 100 # Default high
+        
+        # 1. Try Profile
         if "profile" in gates:
-            max_daily = getattr(gates["profile"], "max_daily_trades", None) or 20
-        else:
-            max_daily = 20
+            max_daily = getattr(gates["profile"], "max_daily_trades", None) or 100
+            
+        # 2. Try Env (Override)
+        env_limit = os.getenv("MAX_DAILY_TRADES")
+        if env_limit:
+            try:
+                max_daily = int(env_limit)
+            except ValueError:
+                pass
         
         # KEY: Symbol + Date
         daily_key = f"{snapshot.symbol}_{current_date}"
@@ -93,11 +102,13 @@ class SupplyDemandStrategy(BaseStrategy):
         # Step 2: Wait for Break of Structure (BOS)
         # We use 'detect_indication' which finds breaks of recent swing highs/lows
         bos = detect_indication(snapshot.candles, swing_lookback=2, window=self.ZONE_WINDOW)
+
         if not bos or bos.direction != trend_dir:
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"SND: No BOS in trend direction ({trend_dir})")
 
         # Step 3: Identify the Zone (The "Base" before the BOS)
         zone = self._find_base_zone(snapshot.candles, bos)
+
         if not zone:
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Could not identify valid base zone (Imbalance Missing)")
 
@@ -112,69 +123,162 @@ class SupplyDemandStrategy(BaseStrategy):
             is_tapping = last_candle.low <= zone.top and last_candle.close >= zone.bottom
             
             if is_tapping:
-                # Execution: "Break the Candle" (Last candle high break)
-                # Ensure the candle being broken was a down candle (part of the pullback) or neutral
-                valid_setup = prev_candle.close <= prev_candle.open
+                 # Calculate Trade Params
+                atr = last_candle.high - last_candle.low # Fallback
+                if hasattr(last_candle, 'atr') and last_candle.atr:
+                    atr = last_candle.atr
                 
-                if valid_setup and last_candle.close > prev_candle.high:
-                    atr = calculate_atr(snapshot.candles) or (last_candle.close * 0.001)
-                    # STRICT SL: Zone Bottom only. Ignore entry candle wick.
-                    stop_loss = zone.bottom - (atr * 0.2)
-                    take_profit = last_candle.close + (abs(last_candle.close - stop_loss) * self.RR_TARGET)
-                    
-                    # [SAFEGUARD] Increment count (Global)
+                stop_loss = zone.bottom - (atr * 0.1)
+                risk_dist = last_candle.close - stop_loss
+                if risk_dist <= 0: risk_dist = atr
+                take_profit = last_candle.close + (risk_dist * self.RR_TARGET)
+
+                action = "enter_long"
+                if open_position:
+                        # Safety: Cap at 2 pyramids for SND
+                        if open_position.get("pyramid_count", 0) >= 2:
+                             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Max Pyramids reached")
+                        
+                        # Only scale in if the new zone is HIGHER than entry (for long)
+                        entry_price = float(open_position.get("entry_price") or open_position.get("avg_price") or 0)
+                        if zone.bottom <= entry_price:
+                             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Scale-in zone not higher than entry")
+                        
+                        action = "scale_in"
+                        logger.info(f"[SND] PYRAMID OPPORTUNITY: {snapshot.symbol} @ {last_candle.close}")
+
+                # [SAFEGUARD] Increment count (Global) - Only for initial entries
+                if not open_position:
                     GLOBAL_DAILY_COUNTS[daily_key] = trades_today + 1
-                    
-                    return AITradeDecision(
-                        symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                        bias="long", phase="trend", action="enter_long",
-                        entry_price=last_candle.close, stop_loss=stop_loss, take_profit=take_profit,
-                        risk_per_trade_pct=FEET_WET_RISK,
-                        structure_summary=f"SND: Demand Zone Tap & Break (BOS at idx {zone.bos_index}) [FW:{FEET_WET_RISK*100:.0f}%]",
-                        invalidation_conditions="Zone Break / Structure Invalidation",
-                        management_instructions="SND Target or Trailing Stop",
-                        urgency="medium",
-                        notes=f"SND Zone: {zone.bottom:.4f}-{zone.top:.4f}"
-                    )
-                else:
-                    return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Tapping Demand, waiting for candle break")
+                
+                return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="long", phase="trend", action=action,
+                    entry_price=last_candle.close, stop_loss=stop_loss, take_profit=take_profit,
+                    risk_per_trade_pct=FEET_WET_RISK,
+                    structure_summary=f"SND: Demand Zone Tap & Break (BOS at idx {zone.bos_index}) [FW:{FEET_WET_RISK*100:.0f}%]",
+                    invalidation_conditions="Zone Break / Structure Invalidation",
+                    management_instructions="SND Target or Trailing Stop",
+                    urgency="medium",
+                    notes=f"SND Zone: {zone.bottom:.4f}-{zone.top:.4f}" + (" (Pyramid)" if action == "scale_in" else "")
+                )
+            else:
+                return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Tapping Demand, waiting for candle break")
         
         else: # supply
             # Supply: Price rallies into the zone
             is_tapping = last_candle.high >= zone.bottom and last_candle.close <= zone.top
             
             if is_tapping:
-                # Execution: "Break the Candle" (Last candle low break)
-                valid_setup = prev_candle.close >= prev_candle.open
+                # Calculate Trade Params
+                atr = last_candle.high - last_candle.low # Fallback
+                if hasattr(last_candle, 'atr') and last_candle.atr:
+                    atr = last_candle.atr
 
-                if valid_setup and last_candle.close < prev_candle.low:
-                    atr = calculate_atr(snapshot.candles) or (last_candle.close * 0.001)
-                    # STRICT SL: Zone Top only. Ignore entry candle wick.
-                    stop_loss = zone.top + (atr * 0.2)
-                    take_profit = last_candle.close - (abs(last_candle.close - stop_loss) * self.RR_TARGET)
-                    
-                    # [SAFEGUARD] Increment count (Global)
+                stop_loss = zone.top + (atr * 0.1)
+                risk_dist = stop_loss - last_candle.close
+                if risk_dist <= 0: risk_dist = atr
+                take_profit = last_candle.close - (risk_dist * self.RR_TARGET)
+
+                action = "enter_short"
+                if open_position:
+                        # Safety: Cap at 2 pyramids for SND
+                        if open_position.get("pyramid_count", 0) >= 2:
+                             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Max Pyramids reached")
+                        
+                        # Only scale in if the new zone is LOWER than entry (for short)
+                        entry_price = float(open_position.get("entry_price") or open_position.get("avg_price") or 0)
+                        if zone.top >= entry_price:
+                             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Scale-in zone not lower than entry")
+                        
+                        action = "scale_in"
+                        logger.info(f"[SND] PYRAMID OPPORTUNITY: {snapshot.symbol} @ {last_candle.close}")
+
+                # [SAFEGUARD] Increment count (Global) - Only for initial entries
+                if not open_position:
                     GLOBAL_DAILY_COUNTS[daily_key] = trades_today + 1
-
-                    return AITradeDecision(
-                        symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                        bias="short", phase="trend", action="enter_short",
-                        entry_price=last_candle.close, stop_loss=stop_loss, take_profit=take_profit,
-                        risk_per_trade_pct=FEET_WET_RISK,
-                        structure_summary=f"SND: Supply Zone Tap & Break (BOS at idx {zone.bos_index}) [FW:{FEET_WET_RISK*100:.0f}%]",
-                        invalidation_conditions="Zone Break / Structure Invalidation",
-                        management_instructions="SND Target or Trailing Stop",
-                        urgency="medium",
-                        notes=f"SND Zone: {zone.bottom:.4f}-{zone.top:.4f}"
-                    )
-                else:
-                    return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Tapping Supply, waiting for candle break")
+                
+                return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="short", phase="trend", action=action,
+                    entry_price=last_candle.close, stop_loss=stop_loss, take_profit=take_profit,
+                    risk_per_trade_pct=FEET_WET_RISK,
+                    structure_summary=f"SND: Supply Zone Tap & Break (BOS at idx {zone.bos_index}) [FW:{FEET_WET_RISK*100:.0f}%]",
+                    invalidation_conditions="Zone Break / Structure Invalidation",
+                    management_instructions="SND Target or Trailing Stop",
+                    urgency="medium",
+                    notes=f"SND Zone: {zone.bottom:.4f}-{zone.top:.4f}" + (" (Pyramid)" if action == "scale_in" else "")
+                )
+            else:
+                return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Tapping Supply, waiting for candle break")
 
         return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"SND: Waiting for retest of {zone.side} zone")
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, current_capital: Optional[float] = None, **kwargs) -> Optional[AITradeDecision]:
-        # Basic exit on target or structural change
-        # (Standard Trailing or Invalidation can be added later)
+        """
+        Dynamic Risk Management:
+        1. Move to Breakeven when price reaches 1R (Profit protection)
+        2. peak-5% Trailing Stop (Capital preservation)
+        """
+        if not open_position:
+            return None
+
+        # [SAFETY] Managed by StrategyEngine via SafetyGuard (ATR Armor, etc)
+        # We only implement SND-specific management here (Price Action / Structure)
+
+        try:
+            # [ANTIGRAVITY FIX] Resilient Field Access
+            # Support both 'entry_price' (standard) and 'avg_price' (common in snapshots)
+            entry_price = float(open_position.get("entry_price") or open_position.get("avg_price") or 0.0)
+            if entry_price == 0:
+                return None
+
+            current_price = snapshot.candles[-1].close
+            # Support both 'direction' and 'side'
+            direction = open_position.get("direction") or open_position.get("side")
+            if not direction:
+                return None
+                
+            current_stop = float(open_position.get("stop_price") or 0.0)
+            
+            # Calculate Risk/Reward distance
+            initial_risk = abs(entry_price - current_stop)
+            if initial_risk == 0: return None
+            
+            profit_dist = (current_price - entry_price) if direction == "long" else (entry_price - current_price)
+            r_multiple = profit_dist / initial_risk
+        except Exception as e:
+            logger.error(f"[SND-MGMT] Error evaluating active trade for {snapshot.symbol}: {e}")
+            return None
+
+        # 1. Breakeven Stop (Move to entry if 1R reached)
+        is_breakeven = False
+        if direction == "long":
+            is_breakeven = current_stop >= entry_price
+            if not is_breakeven and r_multiple >= 1.0:
+                return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="long", phase="trend", action="hold",
+                    stop_loss=entry_price, # Move to BE
+                    notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R reached)",
+                    structure_summary="Management trigger",
+                    invalidation_conditions="N/A", 
+                    management_instructions="Update Stop Loss"
+                )
+        else: # short
+            is_breakeven = current_stop <= entry_price
+            if not is_breakeven and r_multiple >= 1.0:
+                 return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="short", phase="trend", action="hold",
+                    stop_loss=entry_price, # Move to BE
+                    notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R reached)",
+                    structure_summary="Management trigger",
+                    invalidation_conditions="N/A",
+                    management_instructions="Update Stop Loss"
+                )
+
+
         return None
 
     def _find_base_zone(self, candles: list[Candle], bos) -> Optional[SNDZone]:

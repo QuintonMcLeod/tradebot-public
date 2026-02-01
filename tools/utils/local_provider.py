@@ -18,7 +18,7 @@ class LocalJSONProvider:
         self.data_dir = data_dir
         self._cache = {}
 
-    def fetch_historical_candles(self, symbol, timeframe, start_date, end_date):
+    def fetch_historical_candles(self, symbol, timeframe, start_date, end_date, file_path=None):
         # Map symbol "EUR/USD" -> "EURUSD"
         file_symbol = symbol.replace("/", "")
         file_name = f"{file_symbol}_{timeframe}.json"

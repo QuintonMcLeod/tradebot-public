@@ -127,8 +127,11 @@ def run_simulation(cartridge_name, strategy_override=None, symbol_override=None)
     cart_profile = config.get("profile_settings")
     if cart_profile:
         from tradebot_sci.config.models import TradingProfileSettings as ActualProfileSettings
-        # Convert dict/dotdict to actual Pydantic model
-        actual_profile = ActualProfileSettings(**cart_profile)
+        try:
+            actual_profile = ActualProfileSettings(**cart_profile)
+        except TypeError:
+            # It's already an object (and pydantic complains about **object)
+            actual_profile = cart_profile
         
         # Pydantic Settings object uses 'profiles' and 'app.profile_name'
         profile_key = "marathon_profile"

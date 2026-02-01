@@ -3,7 +3,10 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any
+
+from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
 
 from tradebot_sci.ai.client import TradeSciAIClient
 from tradebot_sci.market.models import MarketSnapshot
@@ -22,6 +25,10 @@ class StrategyEngine:
     Acts as the 'hands and eyes' for Strategy Variants.
     Zero internal filters. 100% Signal Fidelity.
     """
+
+    # [SAFETY] Global Account Guardians
+    MAX_CAPITAL_SEEN = 0.0
+    PAUSE_UNTIL = None
 
     def __init__(
         self,
@@ -123,6 +130,37 @@ class StrategyEngine:
         The Main Entry Point.
         Ask the strategy for a decision and return it with minimal validation.
         """
+        # 0. ACCOUNT SAFETY GUARDS (Centralized)
+        from tradebot_sci.strategy.safety_guard import SafetyGuard
+        
+        # [CONSOLIDATED] Run all pre-entry checks (Breaker, Lockout, Greed, Churn, Veto, Streak, Sentry)
+        current_capital_val = current_capital if current_capital is not None else 0.0
+        latest_snapshot = snapshot or self.market_provider.get_latest_snapshot(self.symbol, timeframe)
+        
+        # [WEALTH SYNC] Pass latest stats to SafetyGuard
+        if self.trade_results:
+            stats = self.trade_results.get_stats()
+            # If we have enough trades, update win rate for Kelly
+            if stats.get('total_trades', 0) >= 5:
+                 SafetyGuard.set_win_rate(stats.get('win_rate', 0.55))
+
+        safety_decision = SafetyGuard.check_entry_safety(
+            self.symbol, 
+            timeframe, 
+            current_capital_val,
+            latest_snapshot
+        )
+
+        # [WEALTH MODE] Register current positions for House Money checks
+        if open_position:
+            SafetyGuard.set_current_positions([open_position]) 
+            # In a real multi-symbol setup, we'd pass ALL positions from the cycle.
+            # But for per-engine logic, we pass self.
+        
+        if safety_decision:
+            logger.info(f"[SAFETY] Blocked {self.symbol}: {safety_decision.notes}")
+            return safety_decision
+
         # 1. Gather Context
         snapshot = snapshot or self.market_provider.get_latest_snapshot(self.symbol, timeframe)
         caps = execution_capabilities or {}
@@ -167,6 +205,23 @@ class StrategyEngine:
                 exit_decision.grade = grade
                 logger.info(f"[PHOENIX] {self.symbol} Strategy EXIT triggered: {exit_decision.summary()}")
                 return exit_decision
+            
+            # [SAFETY GUARD] Augment with Safety Exits (ATR Armor, Trailing) if Strategy is silent
+            safety_exit = SafetyGuard.augment_exit_decision(None, open_position, snapshot)
+            
+            # [WEALTH MODE] Check for "The Runner" partial exit
+            if safety_exit or exit_decision:
+                decision_to_check = exit_decision or safety_exit
+                performance_exit = SafetyGuard.handle_runner_exit(decision_to_check, open_position)
+                if performance_exit:
+                    performance_exit.score = score
+                    performance_exit.grade = grade
+                    return performance_exit
+            
+            if safety_exit:
+                 safety_exit.score = score
+                 safety_exit.grade = grade
+                 return safety_exit
 
         # B. Check for ENTRY / SCALE_IN
         decision = self._strategy.check_entry_signal(
@@ -180,6 +235,62 @@ class StrategyEngine:
         if decision:
             decision.score = score
             decision.grade = grade
+
+            # [WEALTH MODE] Augment with Performance Overrides (Sniper, Regime, etc.)
+            decision = SafetyGuard.augment_entry_decision(
+                decision, 
+                score, 
+                gates["htf_strength"], 
+                snapshot,
+                ai_client=self.ai_client
+            )
+            
+            # [SMART POSITIONS] Financed Risk Check
+            # Only allow new entries if we have enough open profit to cover the risk.
+            if decision.action in ("enter_long", "enter_short"):
+                # [FRIDAY FADE DAMPER] Global Forex Protection
+                from tradebot_sci.config.models import UserConfig
+                if UserConfig.FRIDAY_FADE_ENABLED:
+                    est_now = datetime.now(ZoneInfo("America/New_York"))
+                    if est_now.weekday() == 4 and est_now.hour >= 12:
+                        if classify_symbol(self.symbol) == AssetClass.FOREX:
+                            old_risk = decision.risk_per_trade_pct
+                            decision.risk_per_trade_pct = 0.0025
+                            decision.notes = (decision.notes or "") + " | [DAMPER] Friday Fade Active (Risk capped at 0.25%)"
+                            logger.info(f"[DAMPER] Capping {self.symbol} risk from {old_risk} to 0.0025 due to Friday afternoon liquidity.")
+
+                if UserConfig.SMART_POSITIONS_ENABLED:
+                    caps = execution_capabilities or {}
+                    pnl = caps.get("total_unrealized_pnl", 0.0)
+                    pos_count = caps.get("open_position_count", 0)
+
+                    # If we have no positions open, we allow the first trade to start the cycle
+                    if pos_count == 0:
+                        return decision
+                    
+                    # Calculate Risk
+                    risk_amt = 0.0
+                    if decision.risk_per_trade_dollars:
+                        risk_amt = decision.risk_per_trade_dollars
+                    elif decision.risk_per_trade_pct and current_capital:
+                         risk_amt = current_capital * decision.risk_per_trade_pct
+                    
+                    # Default fallback if risk not explicit (estimate 1% of capital)
+                    if risk_amt == 0.0 and current_capital:
+                        risk_amt = current_capital * 0.01
+
+                    if pnl < risk_amt:
+                        logger.info(f"[SMART_POSITIONS] Blocked {decision.action} on {self.symbol}. Global PnL (${pnl:.2f}) < New Risk (${risk_amt:.2f})")
+                        from tradebot_sci.strategy.decisions import stand_aside_decision
+                        decision = stand_aside_decision(snapshot.symbol, timeframe, f"[SMART] Financing Required: PnL ${pnl:.2f} < Risk ${risk_amt:.2f}")
+                        decision.score = score
+                        decision.grade = grade
+                        return decision
+
+            # [SAFETY GUARD] Notify of Entry (for Churn Burner)
+            if decision.action in ("enter_long", "enter_short", "scale_in"):
+                 SafetyGuard.notify_entry()
+
             logger.info(f"[PHOENIX] {self.symbol} Strategy {decision.action.upper()} triggered: {decision.summary()}")
             # 4. Final Safety Patch (Margin/Venue Only)
             return validate_decision(decision, execution_capabilities=caps)

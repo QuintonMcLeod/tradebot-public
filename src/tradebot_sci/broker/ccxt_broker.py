@@ -593,7 +593,10 @@ class CCXTExchangeBroker:
                 default_bal = self._exchange.fetch_balance()
                 balances.append(default_bal)
             except Exception as e:
-                logger.warning(f"[CCXT] fetch_balance(default) failed: {e}")
+                # [ANTIGRAVITY FIX] Truncate massive HTML error responses (Cloudflare 504s)
+                err_str = str(e)
+                if len(err_str) > 200: err_str = err_str[:200] + "... [TRUNCATED]"
+                logger.warning(f"[CCXT] fetch_balance(default) failed: {err_str}")
 
             dtype = (self.default_type or os.getenv("CCXT_DEFAULT_TYPE") or "spot").lower()
             if dtype in {"future", "swap", "option", "margin"}:

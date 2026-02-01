@@ -435,7 +435,7 @@ class TradingProfileSettings(BaseModel):
         description="Keep the runtime loop alive indefinitely regardless of iteration limits",
     )
     crypto_only: bool = Field(
-        default=False,
+        default=True,
         description="Treat the profile as crypto-only for flatten/confirmation logic",
     )
     cooldown_enabled: bool = Field(
@@ -601,9 +601,9 @@ class TradingProfileSettings(BaseModel):
         default=2,
         description="Consecutive loss count before blocking entries (aggressive mode).",
     )
-    multi_position_enabled: Optional[bool] = Field(
-        default=None,
-        description="Optional override for runtime.multi_position_enabled. If set, overrides the global setting.",
+    multi_position_enabled: bool = Field(
+        default=True,
+        description="Allow multiple positions concurrently for this profile.",
     )
     max_concurrent_positions: Optional[PositiveInt] = Field(
         default=None,
@@ -612,6 +612,26 @@ class TradingProfileSettings(BaseModel):
     max_daily_trades: Optional[PositiveInt] = Field(
         default=None,
         description="Maximum number of trade entries allowed per day per symbol.",
+    )
+    nuclear_overrides_enabled: bool = Field(
+        default=False,
+        description="Bypass all hard-coded safety ceilings. WARNING: HIGH RISK OF LIQUIDATION.",
+    )
+    max_risk_cap_override: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="Override the hard 5% risk per trade cap. Only active in Nuclear Mode.",
+    )
+    compounding_cap_override: float = Field(
+        default=10000.0,
+        ge=0.0,
+        description="Override the hard $10k compounding capital cap. Only active in Nuclear Mode.",
+    )
+    pyramid_cap_override: float = Field(
+        default=750.0,
+        ge=0.0,
+        description="Override the hard $750 pyramid risk saturation cap. Only active in Nuclear Mode.",
     )
 
     def get_strategy_for_symbol(self, symbol: str) -> str:
@@ -706,6 +726,10 @@ class RiskSettings(BaseModel):
     )
     chop_scalp_target_usd: float = Field(default=1.00)
     chop_strength_threshold: float = Field(default=0.5)
+    smart_positions_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SMART_POSITIONS_ENABLED", "False").lower() == "true",
+        description="Only allow new positions if Unrealized PnL > Risk of new trade."
+    )
 
 
 class RuntimeSettings(BaseModel):
@@ -787,6 +811,14 @@ class RuntimeSettings(BaseModel):
     auto_restart_cooldown_seconds: int = Field(
         default_factory=lambda: int(os.getenv("AUTO_RESTART_COOLDOWN_SECONDS", "600")),
         ge=0
+    )
+    ws_server_port: PositiveInt = Field(
+        default_factory=lambda: int(os.getenv("WS_SERVER_PORT", "8080")),
+        description="Port for the bot's WebSocket server (default 8080)."
+    )
+    friday_fade_enabled: bool = Field(
+        default_factory=lambda: os.getenv("FRIDAY_FADE_ENABLED", "True").lower() == "true",
+        description="Global safety: Drops Forex risk to 0.25% after 12PM EST on Fridays."
     )
 
 
@@ -895,6 +927,10 @@ class UserConfig:
     def RUNNER_GRACE_ENABLED(self): return self._settings().robocop.runner_grace_enabled
     @property
     def ROBO_ENTRY_SCORE_THRESHOLD(self): return self._settings().robocop.entry_score_threshold
+    @property
+    def SMART_POSITIONS_ENABLED(self): return self._settings().risk.smart_positions_enabled
+    @property
+    def FRIDAY_FADE_ENABLED(self): return self._settings().runtime.friday_fade_enabled
 
 # Create a singleton instance to keep legacy code working
 UserConfig = UserConfig()

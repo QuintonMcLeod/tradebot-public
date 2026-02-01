@@ -139,11 +139,17 @@ class OandaExchangeBroker(IExchangeBroker):
                 return None
             
             # Use project-standard keys: size, side, avg_price, unrealized_pnl
+            # [ANTIGRAVITY FIX] Add aliases 'entry_price' and 'direction' for strategy compatibility
+            side = "long" if units > 0 else "short"
+            avg_price = float(pos.get("long", {}).get("averagePrice", 0)) if units > 0 else float(pos.get("short", {}).get("averagePrice", 0))
+            
             return {
                 "symbol": symbol.upper(),
                 "size": units,
-                "side": "long" if units > 0 else "short",
-                "avg_price": float(pos.get("long", {}).get("averagePrice", 0)) if units > 0 else float(pos.get("short", {}).get("averagePrice", 0)),
+                "side": side,
+                "direction": side, # Alias
+                "avg_price": avg_price,
+                "entry_price": avg_price, # Alias
                 "unrealized_pnl": float(pos.get("unrealizedPL", 0))
             }
         except Exception:

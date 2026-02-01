@@ -15,8 +15,8 @@ def main():
     timeframe = "5m"
     
     # Range: Last 30 days
-    end_date = datetime.now(timezone.utc)
-    start_date = end_date - timedelta(days=32) # Buffer
+    start_date = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    end_date = datetime(2026, 1, 31, tzinfo=timezone.utc)
     
     data_dir = Path(__file__).resolve().parents[1] / "data" / "crypto_marathon"
     data_dir.mkdir(parents=True, exist_ok=True)

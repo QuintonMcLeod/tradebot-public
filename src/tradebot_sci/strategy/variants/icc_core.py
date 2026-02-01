@@ -131,7 +131,8 @@ class ICCCoreStrategy(BaseStrategy):
         atr = calculate_atr(snapshot.candles) or (last_close * 0.005)
         
         if action == "enter_long":
-            stop_loss = last_close - (2.0 * atr) # Wide structural stop placeholder
+            # [ARMOR] 2x ATR Stops
+            stop_loss = last_close - (2.0 * atr) 
             take_profit = last_close + (4.0 * atr) # 2R
         else:
             stop_loss = last_close + (2.0 * atr)
@@ -151,6 +152,7 @@ class ICCCoreStrategy(BaseStrategy):
             notes="Vanilla ICC Entry"
         )
 
-    def check_exit_signal(self, *args, **kwargs) -> Optional[AITradeDecision]:
-        # Vanilla ICC holds to Target/Stop (Manager handles it).
+    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
+        # [SAFETY] Managed by StrategyEngine via SafetyGuard
+        # We only implement Core-specific exits here if needed (none currently, relies on SafetyGuard)
         return None

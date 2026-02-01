@@ -25,10 +25,12 @@ class RuntimeController:
         self.last_capital_sync_ts = 0.0
         
     def start_ws_server(self, port: int = 8080):
-        self.ws_server = WebSocketServer(port=port)
+        # Use port from settings if it's not the default or if we want to override
+        effective_port = self.settings.runtime.ws_server_port or port
+        self.ws_server = WebSocketServer(port=effective_port)
         self.ws_server.set_on_subscribe_callback(self._on_ws_subscribe)
         self.ws_server.start_in_thread()
-        logger.info(f"[CONTROLLER] WebSocket server started on port {port}")
+        logger.info(f"[CONTROLLER] WebSocket server started on port {effective_port}")
 
     def _on_ws_subscribe(self, symbol: str, timeframe: str):
         """Callback when a new client subscribes to a symbol/timeframe."""
@@ -68,6 +70,7 @@ class RuntimeController:
                 "is_sabbath": sabbath_active,
                 "halted": self.ws_server.is_halted()
             }
+            logger.info(f"[PRODB-STATE] Broadcasting state: profile={self.profile_name}")
             self.ws_server.broadcast_state_sync(state_data)
             self.last_capital_sync_ts = now
         except Exception as e:
@@ -84,6 +87,8 @@ class RuntimeController:
             "low": candle.low,
             "close": candle.close
         }
+        # [ANTIGRAVITY DEBUG] Trace timestamp origin
+        # logger.debug(f"[WS-CANDLE] Broadcasting {symbol} {timeframe} ts={candle.timestamp} ({c_data['time']})") 
         self.ws_server.broadcast_candle_sync(symbol, timeframe, c_data)
 
     def is_halted(self) -> bool:

@@ -109,6 +109,7 @@ def load_settings() -> Settings:
     # Override profile name from Env if present
     env_profile = os.getenv("APP_PROFILE") or os.getenv("PROFILE_NAME")
     if env_profile:
+        print(f"DEBUG: Loader resolved profile_name override to '{env_profile}'")
         app_cfg["profile_name"] = env_profile
 
     settings = Settings(

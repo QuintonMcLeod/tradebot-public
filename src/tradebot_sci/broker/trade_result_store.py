@@ -74,3 +74,15 @@ class TradeResultStore:
 
     def get_recent_results(self, limit: int = 10) -> List[TradeResult]:
         return self.results[-limit:]
+
+    def get_stats(self) -> dict:
+        if not self.results:
+            return {"total_trades": 0, "win_rate": 0.0}
+        
+        wins = sum(1 for r in self.results if r.is_win)
+        total = len(self.results)
+        return {
+            "total_trades": total,
+            "wins": wins,
+            "win_rate": wins / total
+        }

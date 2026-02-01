@@ -44,8 +44,8 @@ class HyperScalperStrategy(BaseStrategy):
         # Long Entry: Fast EMA cross above Slow EMA AND Price > EMA 200 AND RSI > 55
         if fast_ema_prev <= slow_ema_prev and fast_ema_curr > slow_ema_curr:
             if last_close > trend_ema and rsi > 55:
-                # Stop loss at the slow EMA or 1.5 ATR (whichever is tighter but > 5 pips)
-                stop_dist = max(atr * 1.5, last_close * 0.0005) 
+                # Stop loss at the slow EMA or 2.0 ATR (ARMOR)
+                stop_dist = max(atr * 2.0, last_close * 0.0005) 
                 stop_loss = last_close - stop_dist
                 target = last_close + (stop_dist * 3.0) # Aim for 3R to hit 100%+
                 
@@ -64,7 +64,7 @@ class HyperScalperStrategy(BaseStrategy):
         # Short Entry: Fast EMA cross below Slow EMA AND Price < EMA 200 AND RSI < 45
         if fast_ema_prev >= slow_ema_prev and fast_ema_curr < slow_ema_curr:
             if last_close < trend_ema and rsi < 45:
-                stop_dist = max(atr * 1.5, last_close * 0.0005)
+                stop_dist = max(atr * 2.0, last_close * 0.0005)
                 stop_loss = last_close + stop_dist
                 target = last_close - (stop_dist * 3.0)
                 
@@ -98,4 +98,30 @@ class HyperScalperStrategy(BaseStrategy):
         if pos_dir == "short" and fast_ema > slow_ema:
             return close_position_decision(snapshot.symbol, snapshot.timeframe, "HyperScalper: Bullish EMA Cross Exit")
             
+        # [DYNAMIC RISK] Breakeven & Trailing
+        entry_price = float(open_position["entry_price"])
+        current_price = snapshot.candles[-1].close
+        current_stop = float(open_position.get("stop_price") or 0.0)
+        
+        initial_risk = abs(entry_price - current_stop)
+        if initial_risk > 0:
+            profit_dist = (current_price - entry_price) if pos_dir == "long" else (entry_price - current_price)
+            r_multiple = profit_dist / initial_risk
+            
+            # 1. Breakeven
+            if pos_dir == "long" and current_stop < entry_price and r_multiple >= 1.0:
+                 return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="long", phase="management", action="hold", stop_loss=entry_price,
+                    notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
+                )
+            if pos_dir == "short" and current_stop > entry_price and r_multiple >= 1.0:
+                 return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="short", phase="management", action="hold", stop_loss=entry_price,
+                    notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
+                )
+
+        # [SAFETY] Managed by StrategyEngine via SafetyGuard
+
         return None

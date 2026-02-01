@@ -90,7 +90,7 @@ def main():
     # Date range: Recent Jan 2026 (to ensure we get data from Kraken public API)
     # Date range: Full Week (Mon Jan 19 to Sat Jan 24)
     start_date = datetime(2026, 1, 19, tzinfo=timezone.utc)
-    end_date = datetime(2026, 1, 24, tzinfo=timezone.utc)
+    end_date = datetime(2026, 1, 31, tzinfo=timezone.utc)
 
     # Initialize Coinbase exchange for crypto (not used here but valid)
     coinbase = ccxt.coinbase({

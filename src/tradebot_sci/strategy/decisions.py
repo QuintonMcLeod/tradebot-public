@@ -34,6 +34,7 @@ class AITradeDecision(BaseModel):
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
     risk_per_trade_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    risk_per_trade_dollars: Optional[float] = Field(default=None, ge=0.0)
     max_position_size_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     time_in_force_sec: Optional[int] = None
     urgency: Literal["low", "medium", "high"] = "medium"

@@ -138,10 +138,10 @@ class RoutedExchangeBroker(IExchangeBroker):
         return all_orders
 
     def get_recent_fills(self, *args, **kwargs) -> Any:
-        # Filter brokers that were lazily initialized and aren't NoOp
-        active_brokers = [b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker)]
+        # Deduplicate brokers and ignore NoOp
+        unique_brokers = set(b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker))
         all_fills = []
-        for b in active_brokers:
+        for b in unique_brokers:
             f = b.get_recent_fills(*args, **kwargs) or []
             all_fills.extend(f)
         return all_fills
@@ -182,14 +182,16 @@ class RoutedExchangeBroker(IExchangeBroker):
         return self._get_broker(symbol)._has_active_orders_or_position(symbol, state)
 
     def refresh_account_summary(self) -> None:
-        active_brokers = [b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker)]
-        for b in active_brokers:
+        unique_brokers = set(b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker))
+        for b in unique_brokers:
             if hasattr(b, "refresh_account_summary"):
                 b.refresh_account_summary()
+        # [ANTIGRAVITY] Log aggregated total so UI stays in sync after individual refreshes
+        self.get_liquid_capital()
 
     def summarize_pnl(self) -> None:
-        active_brokers = [b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker)]
-        for b in active_brokers:
+        unique_brokers = set(b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker))
+        for b in unique_brokers:
             if hasattr(b, "summarize_pnl"):
                 b.summarize_pnl()
 
@@ -198,11 +200,14 @@ class RoutedExchangeBroker(IExchangeBroker):
             return self._get_broker(symbol).get_liquid_capital(symbol)
             
         total = 0.0
-        active_brokers = [b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker)]
-        for b in active_brokers:
+        unique_brokers = set(b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker))
+        for b in unique_brokers:
             if hasattr(b, "get_liquid_capital"):
                 total += b.get_liquid_capital()
-        logger.debug("[ROUTED] Total Capital: %.2f", total)
+        
+        # [ANTIGRAVITY] Authoritative Total Log for UI
+        logger.info(f"[TOTAL] Liquidity available: ${total:.2f}")
+        logger.debug("[ROUTED] Total Capital Breakdown completed: %.2f", total)
         return total
 
 
