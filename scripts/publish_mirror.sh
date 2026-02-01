@@ -65,12 +65,6 @@ rsync -av --delete \
     --exclude='*' \
     . "$EXPORT_DIR/"
 
-# 3.5 Sync GUI to root as well (User Request)
-echo "Syncing GUI to top-level 'gui' folder..."
-rsync -av --delete \
-    --exclude='node_modules/' \
-    src/tradebot_sci/electron_gui/ "$EXPORT_DIR/gui/"
-
 # 4. Commit and Push
 cd "$EXPORT_DIR"
 
