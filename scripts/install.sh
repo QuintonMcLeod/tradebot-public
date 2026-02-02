@@ -137,6 +137,25 @@ fi
 
 info "Using Python executable: $PYTHON_EXEC"
 
+# 3.6 Python Sanity Check (Crucial for Windows)
+info "Verifying Python environment stability..."
+if ! "$PYTHON_EXEC" -c "import encodings; import json; print('Python Sanity Check Passed')" >/dev/null 2>&1; then
+    echo ""
+    error "CRITICAL: Your Python installation is CORRUPTED."
+    echo -e "${RED}Reason: Failed to import standard libraries (encodings/json).${NC}"
+    echo -e "${YELLOW}Detected Path: $(command -v "$PYTHON_EXEC" || echo "$PYTHON_EXEC")${NC}"
+    echo ""
+    echo -e "This often happens with unstable versions (e.g., Python 3.14 Alpha) or bad installs."
+    echo -e "---------------------------------------------------------------------"
+    echo -e "FIX INSTRUCTIONS:"
+    echo -e "1. Uninstall your current Python version fully."
+    echo -e "2. Go to https://www.python.org/downloads/"
+    echo -e "3. Download and Install **Python 3.12 (Stable)**."
+    echo -e "4. IMPORTANT: Check the box 'Add Python to PATH' during install."
+    echo -e "---------------------------------------------------------------------"
+    exit 1
+fi
+
 # 4. Check/Install Poetry
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring  # Prevent hangs on Linux during install
 
