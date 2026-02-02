@@ -73,9 +73,9 @@ install_sys_deps() {
             info "Installing dependencies via Homebrew..."
             brew install tmux git rsync curl wget python node
             ;;
-        msys*|cygwin*|mingw*)
-            info "Windows detected (Git Bash/MSYS). Assuming dependencies are managed manually or via Chocolatey/Scoop."
-            info "Ensure Python 3.10+, Node.js 20+, and Git are installed."
+        msys*|cygwin*|mingw*|windows)
+            info "Windows detected. Assuming dependencies are managed manually."
+            info "Ensure Python 3.10+, Node.js 20+, and Git are installed via installer."
             ;;
         *)
             warn "Unsupported distribution '$OS'. Please install tmux, git, and python3-dev manually."
@@ -113,6 +113,26 @@ else
     info "Node.js $(node -v) already installed."
 fi
 
+# 3.5 Detect Python Executable (Robust)
+PYTHON_EXEC=""
+if command -v python3.11 >/dev/null 2>&1; then
+    PYTHON_EXEC="python3.11"
+elif command -v python3.12 >/dev/null 2>&1; then
+    PYTHON_EXEC="python3.12"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_EXEC="python3"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_EXEC="python"
+elif command -v py >/dev/null 2>&1; then
+    PYTHON_EXEC="py"
+fi
+
+if [ -z "$PYTHON_EXEC" ]; then
+    error "Python environment not found. Please install Python 3.11+."
+fi
+
+info "Using Python executable: $PYTHON_EXEC"
+
 # 4. Check/Install Poetry
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring  # Prevent hangs on Linux during install
 
@@ -120,25 +140,30 @@ export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring  # Prevent hangs on 
 if [ -f "$HOME/.local/bin/poetry" ]; then
     info "Poetry found at $HOME/.local/bin/poetry. Adding to PATH..."
     export PATH="$HOME/.local/bin:$PATH"
+elif [ -f "$APPDATA/Python/Scripts/poetry.exe" ]; then
+    # Common windows path
+    info "Poetry found in Windows APPDATA. Adding to PATH..."
+    export PATH="$APPDATA/Python/Scripts:$PATH"
 fi
 
 if ! command -v poetry >/dev/null 2>&1; then
     info "Poetry not found. Installing Poetry via pip (more robust)..."
     
     # Ensure pip is available
-    if ! command -v pip3 >/dev/null 2>&1; then
-        info "Installing python3-pip..."
-        if [ -n "$(command -v apt)" ]; then
-            sudo apt install -y python3-pip
-        elif [ -n "$(command -v dnf)" ]; then
-            sudo dnf install -y python3-pip
-        elif [ -n "$(command -v pacman)" ]; then
-            sudo pacman -S --noconfirm python-pip
-        fi
+    if ! "$PYTHON_EXEC" -m pip --version >/dev/null 2>&1; then
+         info "pip not found. Attempting to install pip..."
+         case "$OS" in
+            ubuntu|debian|pop|mint|linuxmint) sudo apt install -y python3-pip ;;
+            fedora) sudo dnf install -y python3-pip ;;
+            arch|manjaro) sudo pacman -S --noconfirm python-pip ;;
+         esac
     fi
 
     # Install poetry specific version to avoid breaking changes, or latest
-    python3 -m pip install --user poetry
+    "$PYTHON_EXEC" -m pip install --user poetry || {
+        warn "Pip install failed. Trying global install..."
+        "$PYTHON_EXEC" -m pip install poetry
+    }
     
     export PATH="$HOME/.local/bin:$PATH"
     # Add to bashrc if not present
@@ -152,34 +177,34 @@ fi
 # 5. Application Initialization
 info "Initializing application environment..."
 
-# Detect proper python version (Require 3.11+)
-PYTHON_EXEC="python3"
-if command -v python3.11 >/dev/null 2>&1; then
-    PYTHON_EXEC="python3.11"
-    info "Using specific Python executable: $PYTHON_EXEC"
-elif command -v python3.12 >/dev/null 2>&1; then
-    PYTHON_EXEC="python3.12"
-    info "Using specific Python executable: $PYTHON_EXEC"
+# Python venv and dependencies
+# Check for venv (bin for Linux/Mac, Scripts for Windows)
+ACTIVATE_SCRIPT=".venv/bin/activate"
+if [ -f ".venv/Scripts/activate" ]; then
+    ACTIVATE_SCRIPT=".venv/Scripts/activate"
 fi
 
-# Python venv and dependencies
-if [ ! -d ".venv" ] || [ ! -f ".venv/bin/activate" ]; then
+if [ ! -d ".venv" ] || [ ! -f "$ACTIVATE_SCRIPT" ]; then
     info "Creating Python virtual environment using $PYTHON_EXEC..."
     "$PYTHON_EXEC" -m venv .venv || {
         error "Failed to create virtual environment with $PYTHON_EXEC."
     }
+    # Re-check activation script location after creation
+    if [ -f ".venv/Scripts/activate" ]; then
+        ACTIVATE_SCRIPT=".venv/Scripts/activate"
+    fi
 fi
 
 info "Installing Python dependencies via Poetry..."
-if [ -f ".venv/bin/activate" ]; then
-    source .venv/bin/activate
+if [ -f "$ACTIVATE_SCRIPT" ]; then
+    source "$ACTIVATE_SCRIPT"
 else
-    error "Virtual environment not found at .venv/bin/activate. Setup failed."
+    error "Virtual environment activation script not found ($ACTIVATE_SCRIPT). Setup failed."
 fi
 
 # We use the full path to poetry just in case it was just installed
-POETRY_BIN="$HOME/.local/bin/poetry"
-if [ ! -f "$POETRY_BIN" ]; then POETRY_BIN="poetry"; fi
+POETRY_BIN="poetry"
+if [ -f "$HOME/.local/bin/poetry" ]; then POETRY_BIN="$HOME/.local/bin/poetry"; fi
 
 $POETRY_BIN env use "$PYTHON_EXEC"
 $POETRY_BIN install --with gui
