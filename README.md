@@ -1,6 +1,6 @@
 # Tradebot SCI Enterprise - Multi-Strategy Trading System
 
-![Tradebot Dashboard](Documentation/images/new_sleek_uiv2.png)
+![Tradebot Dashboard](Documentation/images/new_sleek_ui.png)
 
 > **"9 Strategies. 6 Asset Classes. One Unified Platform."**
 >
@@ -160,7 +160,7 @@ This opens the dashboard where you can:
 ./scripts/tradebot.sh --settings
 ```
 
-![Settings Window](Documentation/images/new_sleek_settings_windowv2.png)
+![Settings Window](Documentation/images/settings_window.png)
 
 ### Headless / Terminal Mode
 
