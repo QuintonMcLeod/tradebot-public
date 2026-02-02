@@ -39,7 +39,7 @@ info "Detected OS: $OS"
 install_sys_deps() {
     info "Installing system dependencies for $OS..."
     case "$OS" in
-        ubuntu|debian|pop|mint)
+        ubuntu|debian|pop|mint|linuxmint)
             sudo apt update
             sudo apt install -y tmux git rsync curl wget build-essential python3-dev python3-venv \
                 libnss3 libatk-bridge2.0-0 libxss1 libasound2 libgbm1
@@ -78,7 +78,7 @@ install_sys_deps
 if ! command -v node >/dev/null 2>&1; then
     info "Node.js not found. Installing Node.js 20 (LTS)..."
     case "$OS" in
-        ubuntu|debian|pop|mint)
+        ubuntu|debian|pop|mint|linuxmint)
             curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
             sudo apt install -y nodejs
             ;;
@@ -119,13 +119,21 @@ fi
 info "Initializing application environment..."
 
 # Python venv and dependencies
-if [ ! -d ".venv" ]; then
+if [ ! -d ".venv" ] || [ ! -f ".venv/bin/activate" ]; then
     info "Creating Python virtual environment..."
-    python3 -m venv .venv
+    # Ensure ensuring pip works
+    python3 -m venv .venv || {
+        error "Failed to create virtual environment. Ensure python3-venv is installed (e.g., sudo apt install python3-venv)."
+    }
 fi
 
 info "Installing Python dependencies via Poetry..."
-source .venv/bin/activate
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+else
+    error "Virtual environment not found at .venv/bin/activate. Setup failed."
+fi
+
 # We use the full path to poetry just in case it was just installed
 POETRY_BIN="$HOME/.local/bin/poetry"
 if [ ! -f "$POETRY_BIN" ]; then POETRY_BIN="poetry"; fi
