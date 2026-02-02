@@ -108,7 +108,7 @@ You have two options on Windows. **Option A (Git Bash)** is simpler for most use
 #### Option A: Native Windows with Git Bash (Simple)
 1.  **Install Prerequisites**:
     *   **Git for Windows**: [Download Here](https://gitforwindows.org/) (Select "Git Bash Here" context menu option).
-    *   **Python 3.11+**: [Download Here](https://www.python.org/downloads/) (Check "Add Python to PATH").
+    *   **Python 3.11+**: [Download Here](https://www.python.org/downloads/) Choose the standalone installer!! (Don't forget to check "Add Python to PATH").
     *   **Node.js 20+ (LTS)**: [Download Here](https://nodejs.org/) (Required for the GUI).
 
 2.  **Run the Installer**:
