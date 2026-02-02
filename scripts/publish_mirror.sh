@@ -4,13 +4,25 @@ set -e
 # Usage: ./scripts/publish_mirror.sh <REMOTE_URL> [BRANCH]
 
 # 1. Config
-REMOTE_URL="${1:-}"
+# NOTE: GitLab Token found in .git/config: glpat-cP_TZ3UHPm443qzMJCyo
+# This token is required for pushing to the public mirror.
+GITLAB_TOKEN="glpat-cP_TZ3UHPm443qzMJCyo"
+
+RAW_URL="${1:-}"
 BRANCH="${2:-main}"
 EXPORT_DIR="public_mirror"
 
-if [ -z "$REMOTE_URL" ]; then
+if [ -z "$RAW_URL" ]; then
     echo "Usage: ./scripts/publish_mirror.sh <REMOTE_URL> [BRANCH]"
     exit 1
+fi
+
+# Inject token into URL if not already present
+if [[ "$RAW_URL" == *"gitlab.com"* ]] && [[ "$RAW_URL" != *"@"* ]]; then
+    REMOTE_URL="${RAW_URL/https:\/\//https:\/\/oauth2:$GITLAB_TOKEN@}"
+    echo "🔑 Injected GitLab token into remote URL."
+else
+    REMOTE_URL="$RAW_URL"
 fi
 
 echo "--- Syncing Code + Docs to '$EXPORT_DIR' and pushing to '$REMOTE_URL' ---"
