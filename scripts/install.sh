@@ -103,7 +103,7 @@ else
 fi
 
 # 4. Check/Install Poetry
-export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring  # Prevent hangs on Linux
+export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring  # Prevent hangs on Linux during install
 
 # Check if already installed in ~/.local/bin but not in PATH
 if [ -f "$HOME/.local/bin/poetry" ]; then
@@ -113,7 +113,8 @@ fi
 
 if ! command -v poetry >/dev/null 2>&1; then
     info "Poetry not found. Installing Poetry..."
-    curl -sSL https://install.python-poetry.org | python3 -
+    # Force null keyring backend to prevent hangs on 'Retrieving Poetry metadata'
+    curl -sSL https://install.python-poetry.org | PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring python3 -
     export PATH="$HOME/.local/bin:$PATH"
     # Add to bashrc if not present
     if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" ~/.bashrc; then
