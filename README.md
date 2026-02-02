@@ -103,28 +103,18 @@ chmod +x scripts/install.sh && ./scripts/install.sh
 > **macOS Note**: The installer uses Homebrew (`brew`) to install dependencies and creates a clickable `.command` launcher on your Desktop.
 
 ### 🪟 Windows (Installation Guide)
-You have two options on Windows. **Option A (Git Bash)** is simpler for most users.
+**The Easy Way (One-Click Installer)**
 
-#### Option A: Native Windows with Git Bash (Simple)
-1.  **Install Prerequisites**:
-    *   **Git for Windows**: [Download Here](https://gitforwindows.org/) (Select "Git Bash Here" context menu option).
-    *   **Python 3.11+**: [Download Here](https://www.python.org/downloads/) Choose the standalone installer!! (Don't forget to check "Add Python to PATH").
-    *   **Node.js 20+ (LTS)**: [Download Here](https://nodejs.org/) (Required for the GUI).
+1.  **Download the Code**:
+    *   If you have Git: `git clone https://gitlab.com/ultraedge/tradebot-public.git`
+    *   **Or Download ZIP**: [Download ZIP](https://gitlab.com/ultraedge/tradebot-public/-/archive/main/tradebot-public-main.zip), extract it, and open the folder.
 
 2.  **Run the Installer**:
-    *   Open **Git Bash**.
-    *   Run the following commands:
-        ```bash
-        git clone https://gitlab.com/ultraedge/tradebot-public.git
-        cd tradebot-public
-        ./scripts/install.sh
-        ```
-    *   ✅ **Done!** A shortcut named `Tradebot SCI.bat` will be created on your Desktop. Double-click it to launch.
+    *   Right-click `scripts/windows_installer.ps1`
+    *   Select **"Run with PowerShell"**
+    *   *The script will automatically install Python, Node.js, and everything else you need.*
 
-#### Option B: WSL 2 (Advanced/Developer)
-*   Install Ubuntu via WSL (`wsl --install`).
-*   Follow the **Linux** instructions above inside the Ubuntu terminal.
-*   This is recommended if you plan to modify the bot's core code.
+3.  **Done!** Double-click the `Tradebot SCI` icon on your desktop.
 
 ### Manual Configuration (Advanced)
 If you prefer to set up manually, please refer to the [Legacy Installation Guide](Documentation/installation_manual.md) (or use `poetry install --with gui`).
