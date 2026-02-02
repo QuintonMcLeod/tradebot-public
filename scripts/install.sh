@@ -114,18 +114,22 @@ else
 fi
 
 # 3.5 Detect Python Executable (Robust)
-PYTHON_EXEC=""
-if command -v python3.11 >/dev/null 2>&1; then
-    PYTHON_EXEC="python3.11"
-elif command -v python3.12 >/dev/null 2>&1; then
-    PYTHON_EXEC="python3.12"
-elif command -v python3 >/dev/null 2>&1; then
-    PYTHON_EXEC="python3"
-elif command -v python >/dev/null 2>&1; then
-    PYTHON_EXEC="python"
-elif command -v py >/dev/null 2>&1; then
-    PYTHON_EXEC="py"
-fi
+find_valid_python() {
+    # On Windows, 'python3' is often a broken App Execution Alias for the Windows Store.
+    # We must try running '--version' to ensure it's a real interpreter.
+    # We check specific versions first, then 'python' (standard on Windows), then 'python3' (standard on Linux), then 'py'.
+    for cmd in python3.12 python3.11 python python3 py; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            if "$cmd" --version >/dev/null 2>&1; then
+                echo "$cmd"
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
+PYTHON_EXEC=$(find_valid_python)
 
 if [ -z "$PYTHON_EXEC" ]; then
     error "Python environment not found. Please install Python 3.11+."
