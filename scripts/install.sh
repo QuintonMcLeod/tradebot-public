@@ -123,9 +123,23 @@ if [ -f "$HOME/.local/bin/poetry" ]; then
 fi
 
 if ! command -v poetry >/dev/null 2>&1; then
-    info "Poetry not found. Installing Poetry..."
-    # Force null keyring backend to prevent hangs on 'Retrieving Poetry metadata'
-    curl -sSL https://install.python-poetry.org | PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring python3 -
+    info "Poetry not found. Installing Poetry via pip (more robust)..."
+    
+    # Ensure pip is available
+    if ! command -v pip3 >/dev/null 2>&1; then
+        info "Installing python3-pip..."
+        if [ -n "$(command -v apt)" ]; then
+            sudo apt install -y python3-pip
+        elif [ -n "$(command -v dnf)" ]; then
+            sudo dnf install -y python3-pip
+        elif [ -n "$(command -v pacman)" ]; then
+            sudo pacman -S --noconfirm python-pip
+        fi
+    fi
+
+    # Install poetry specific version to avoid breaking changes, or latest
+    python3 -m pip install --user poetry
+    
     export PATH="$HOME/.local/bin:$PATH"
     # Add to bashrc if not present
     if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" ~/.bashrc; then
