@@ -77,6 +77,10 @@ rsync -av --delete \
     --exclude='*' \
     . "$EXPORT_DIR/"
 
+# PARANOID CLEANUP: Ensure no .env files ever get committed
+rm -f "$EXPORT_DIR/.env" "$EXPORT_DIR/.env.prod" "$EXPORT_DIR/.env.staging"
+echo "🔒 Secured: Removed .env files from export directory."
+
 # 4. Commit and Push
 cd "$EXPORT_DIR"
 
