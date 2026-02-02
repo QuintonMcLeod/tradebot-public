@@ -160,6 +160,12 @@ if ! command -v poetry >/dev/null 2>&1; then
             ubuntu|debian|pop|mint|linuxmint) sudo apt install -y python3-pip ;;
             fedora) sudo dnf install -y python3-pip ;;
             arch|manjaro) sudo pacman -S --noconfirm python-pip ;;
+            windows) 
+                info "Attempting to bootstrap pip via ensurepip..."
+                "$PYTHON_EXEC" -m ensurepip --upgrade --default-pip || {
+                    error "CRITICAL: Your Python installation at $(command -v "$PYTHON_EXEC") appears corrupted (missing pip/libraries). Please reinstall Python 3.12 (Stable) from python.org and check 'Add to PATH' and 'Install pip'."
+                }
+                ;;
          esac
     fi
 
