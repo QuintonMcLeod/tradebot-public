@@ -40,9 +40,20 @@ install_sys_deps() {
     info "Installing system dependencies for $OS..."
     case "$OS" in
         ubuntu|debian|pop|mint|linuxmint)
+            info "Adding deadsnakes PPA to ensure Python 3.11+ is available..."
+            # Keep silent if possible, catch errors
+            if ! command -v add-apt-repository >/dev/null 2>&1; then
+                sudo apt install -y software-properties-common
+            fi
+            # Add PPA if not present (heuristic check)
+            if ! grep -q "deadsnakes/ppa" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
+                 sudo add-apt-repository -y ppa:deadsnakes/ppa
+            fi
+            
             sudo apt update
-            sudo apt install -y tmux git rsync curl wget build-essential python3-dev python3-venv \
-                libnss3 libatk-bridge2.0-0 libxss1 libasound2 libgbm1
+            sudo apt install -y tmux git rsync curl wget build-essential \
+                 python3.11 python3.11-venv python3.11-dev \
+                 libnss3 libatk-bridge2.0-0 libxss1 libasound2 libgbm1
             ;;
         fedora)
             sudo dnf install -y tmux git rsync curl wget gcc python3-devel python3-pip \
@@ -127,12 +138,21 @@ fi
 # 5. Application Initialization
 info "Initializing application environment..."
 
+# Detect proper python version (Require 3.11+)
+PYTHON_EXEC="python3"
+if command -v python3.11 >/dev/null 2>&1; then
+    PYTHON_EXEC="python3.11"
+    info "Using specific Python executable: $PYTHON_EXEC"
+elif command -v python3.12 >/dev/null 2>&1; then
+    PYTHON_EXEC="python3.12"
+    info "Using specific Python executable: $PYTHON_EXEC"
+fi
+
 # Python venv and dependencies
 if [ ! -d ".venv" ] || [ ! -f ".venv/bin/activate" ]; then
-    info "Creating Python virtual environment..."
-    # Ensure ensuring pip works
-    python3 -m venv .venv || {
-        error "Failed to create virtual environment. Ensure python3-venv is installed (e.g., sudo apt install python3-venv)."
+    info "Creating Python virtual environment using $PYTHON_EXEC..."
+    "$PYTHON_EXEC" -m venv .venv || {
+        error "Failed to create virtual environment with $PYTHON_EXEC."
     }
 fi
 
@@ -147,6 +167,7 @@ fi
 POETRY_BIN="$HOME/.local/bin/poetry"
 if [ ! -f "$POETRY_BIN" ]; then POETRY_BIN="poetry"; fi
 
+$POETRY_BIN env use "$PYTHON_EXEC"
 $POETRY_BIN install --with gui
 
 # GUI dependencies
