@@ -82,10 +82,9 @@ class StrategyEngine:
             from tradebot_sci.strategy.variants.supply_demand import SupplyDemandStrategy
             return SupplyDemandStrategy()
         elif variant == "meta_sci":
-            # For the base variant, we keep the engine on Meta mode.
-            # Initial setup detection will happen in decide()
-            from tradebot_sci.strategy.variants.base import BaseStrategy
-            return BaseStrategy("meta_sci")
+            # [ANTIGRAVITY] Updated to use the true Adaptive Meta-SCI Strategy
+            from tradebot_sci.strategy.variants.meta_sci import MetaSCIStrategy
+            return MetaSCIStrategy(profile_settings=self.profile)
         else:
             # Fallback
             from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
@@ -210,76 +209,10 @@ class StrategyEngine:
             "grade": grade
         }
 
-        # [META-SCI] Auto-Strategy Ensemble Master
-        if self._strategy.name == "meta_sci" and not open_position:
-            logger.info(f" [META-SCI] Executing Ensemble Pulse for {self.symbol}...")
-            
-            # 1. Load sub-strategies
-            strats_to_run = ["supply_demand", "robocop", "evolution", "london_breakout", "orb_breakout", "rubberband_reaper", "icc_core"]
-            exclude = getattr(self.profile, 'meta_sci_exclude_list', [])
-            consensus_needed = getattr(self.profile, 'meta_sci_min_consensus', 1)
-            
-            signals = []
-            for s_name in strats_to_run:
-                if s_name in exclude: continue
-                # Dynamic load
-                try:
-                    s_inst = self._load_specific_variant(s_name)
-                    sig = s_inst.check_entry_signal(snapshot, gates, open_position=None, current_capital=current_capital, trade_history=history)
-                    if sig and sig.action in ("enter_long", "enter_short"):
-                        sig.notes = (sig.notes or "") + f" | [META] Sourced via {s_name.upper()}"
-                        # Attach the strategy name for dynamic adoption
-                        sig.gates = sig.gates or {}
-                        sig.gates["meta_source"] = s_name
-                        signals.append(sig)
-                except Exception as e:
-                    logger.error(f"[META-SCI] Sub-strategy {s_name} failed: {e}")
+        # [META-SCI] Auto-Strategy handled by MetaSCIStrategy class transparently below.
+        
+        # 3. Request Decisions from Strategy (Standard Path or Adopted Meta Path)
 
-            if signals:
-                # Ranking logic: Winner is the highest score
-                # Consensus logic: Directional agreement check
-                long_sigs = [s for s in signals if s.bias == "long"]
-                short_sigs = [s for s in signals if s.bias == "short"]
-                
-                winner = None
-                if len(long_sigs) >= consensus_needed:
-                    winner = max(long_sigs, key=lambda x: x.score or 0)
-                elif len(short_sigs) >= consensus_needed:
-                    winner = max(short_sigs, key=lambda x: x.score or 0)
-                
-                if winner:
-                   logger.info(f" [META-SCI] Winner Selected: {winner.gates.get('meta_source').upper()} with score {winner.score or 'N/A'}")
-                   from tradebot_sci.strategy.safety_guard import SafetyGuard
-                   
-                   # [META-SCI FIX] Ensure the high confidence score from the winner is propagated
-                   # to the final decision so the UI (Decisions Panel) reflects the actual strength.
-                   winner_score = winner.score if winner.score is not None else score
-                   winner_grade = winner.grade if winner.grade is not None else grade
-                   
-                   final_decision = SafetyGuard.augment_entry_decision(
-                       winner, 
-                       winner_score, 
-                       gates.get("htf_strength", 0.0), 
-                       snapshot,
-                       ai_client=self.ai_client
-                   )
-                   # Force the winning score and grade into the final augmented decision
-                   final_decision.score = winner_score
-                   final_decision.grade = winner_grade
-                   final_decision.notes = (final_decision.notes or "") + f" | [WINNER: {winner.gates.get('meta_source').upper()}]"
-                   return final_decision
-                else:
-                   from tradebot_sci.strategy.decisions import stand_aside_decision
-                   return stand_aside_decision(snapshot.symbol, timeframe, f"Meta-SCI Consensus Not Met ({len(signals)} sigs vs {consensus_needed} needed)")
-            else:
-                from tradebot_sci.strategy.decisions import stand_aside_decision
-                return stand_aside_decision(snapshot.symbol, timeframe, "Meta-SCI: No sub-strategy signals detected.")
-
-        # [META-SCI] Dynamic Adoption for Exits
-        if open_position and isinstance(open_position, dict) and self._strategy.name == "meta_sci":
-            source = open_position.get("meta_source") or "supply_demand" # Default fallback
-            self._strategy = self._load_specific_variant(source)
-            logger.info(f" [META-SCI] Adopted {source.upper()} for exit management of {self.symbol}")
 
         # 3. Request Decisions from Strategy (Standard Path or Adopted Meta Path)
         # A. Check for EXIT if we have a position
