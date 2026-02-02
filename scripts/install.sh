@@ -103,6 +103,14 @@ else
 fi
 
 # 4. Check/Install Poetry
+export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring  # Prevent hangs on Linux
+
+# Check if already installed in ~/.local/bin but not in PATH
+if [ -f "$HOME/.local/bin/poetry" ]; then
+    info "Poetry found at $HOME/.local/bin/poetry. Adding to PATH..."
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
 if ! command -v poetry >/dev/null 2>&1; then
     info "Poetry not found. Installing Poetry..."
     curl -sSL https://install.python-poetry.org | python3 -
