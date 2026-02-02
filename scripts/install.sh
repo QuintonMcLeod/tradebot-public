@@ -144,10 +144,17 @@ export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring  # Prevent hangs on 
 if [ -f "$HOME/.local/bin/poetry" ]; then
     info "Poetry found at $HOME/.local/bin/poetry. Adding to PATH..."
     export PATH="$HOME/.local/bin:$PATH"
-elif [ -f "$APPDATA/Python/Scripts/poetry.exe" ]; then
-    # Common windows path
-    info "Poetry found in Windows APPDATA. Adding to PATH..."
-    export PATH="$APPDATA/Python/Scripts:$PATH"
+else
+    # Windows: It might be in a versioned folder like .../Python314/Scripts
+    # Search for poetry.exe in APPDATA
+    if [ -n "$APPDATA" ]; then
+        FOUND_POETRY=$(find "$APPDATA/Python" -name "poetry.exe" -print -quit 2>/dev/null)
+        if [ -n "$FOUND_POETRY" ]; then
+            POETRY_DIR=$(dirname "$FOUND_POETRY")
+            info "Poetry found at $FOUND_POETRY. Adding $POETRY_DIR to PATH..."
+            export PATH="$POETRY_DIR:$PATH"
+        fi
+    fi
 fi
 
 if ! command -v poetry >/dev/null 2>&1; then
@@ -176,7 +183,20 @@ if ! command -v poetry >/dev/null 2>&1; then
     }
     
     export PATH="$HOME/.local/bin:$PATH"
+    
+    # Windows Post-Install Path Hunt
+    if [ "$OS" == "windows" ] || [[ "$OSTYPE" == "msys" ]]; then
+        if [ -n "$APPDATA" ]; then
+            FOUND_POETRY=$(find "$APPDATA/Python" -name "poetry.exe" -print -quit 2>/dev/null)
+            if [ -n "$FOUND_POETRY" ]; then
+                 POETRY_DIR=$(dirname "$FOUND_POETRY")
+                 export PATH="$POETRY_DIR:$PATH"
+            fi
+        fi
+    fi
+
     # Add to bashrc if not present
+    touch ~/.bashrc
     if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" ~/.bashrc; then
         echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
     fi
