@@ -208,8 +208,37 @@ EOF
         fi
         return
     elif [[ "$OS" == "windows" ]]; then
-         warn "Desktop shortcut creation on Windows (Git Bash) is manual. Create a shortcut to 'scripts/tradebot.sh --gui'."
-         return
+        info "Creating Windows Desktop shortcut (via Git Bash)..."
+        # Attempt to find desktop
+        DESKTOP_PATH="$HOME/Desktop"
+        # If running in MINGW/Git Bash, $HOME might be /c/Users/Name
+        # Verify it exists
+        if [ ! -d "$DESKTOP_PATH" ]; then
+             DESKTOP_PATH="/c/Users/$USERNAME/Desktop"
+        fi
+        
+        if [ -d "$DESKTOP_PATH" ]; then
+            # Convert ROOT_DIR to Windows format for valid .bat
+            # Use cygpath if available
+            if command -v cygpath >/dev/null 2>&1; then
+                WIN_ROOT=$(cygpath -w "$ROOT_DIR")
+            else
+                # Fallback naive conversion
+                WIN_ROOT=$(echo "$ROOT_DIR" | sed 's|^/\([a-z]\)/|\1:/|' | sed 's|/|\\|g')
+            fi
+            
+            BAT_FILE="$DESKTOP_PATH/Tradebot SCI.bat"
+            cat <<EOF > "$BAT_FILE"
+@echo off
+cd /d "$WIN_ROOT"
+bash scripts/tradebot.sh --gui
+pause
+EOF
+            success "Created Windows shortcut: $BAT_FILE"
+        else
+            warn "Could not find Desktop folder. Please create a shortcut manually."
+        fi
+        return
     fi
 
     # Linux .desktop file
