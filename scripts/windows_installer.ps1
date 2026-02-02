@@ -49,122 +49,148 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     exit
 }
 
-Write-Header "Tradebot SCI - Windows Auto-Installer"
+try {
+    Write-Header "Tradebot SCI - Windows Auto-Installer"
 
-# 2. Check/Install Python 3.12
-$PythonPath = Get-Command "python" -ErrorAction SilentlyContinue
-$PythonVersion = ""
-if ($PythonPath) {
-    $PythonVersion = python --version 2>&1
-}
+    # 2. Check/Install Python 3.12
+    Write-Info "Checking for Python..."
+    $PythonPath = Get-Command "python" -ErrorAction SilentlyContinue
+    $PythonVersion = ""
+    
+    if ($PythonPath) {
+        try {
+            # Try to run python --version. If it's corrupted, this might throw or exit code != 0
+            $ProcessInfo = Start-Process "python" -ArgumentList "--version" -NoNewWindow -Wait -PassThru -ErrorAction SilentlyContinue
+            if ($ProcessInfo.ExitCode -eq 0) {
+                 $PythonVersion = python --version 2>&1
+            } else {
+                 Write-Info "Existing Python found but returned error code $($ProcessInfo.ExitCode). Treating as missing/broken."
+            }
+        } catch {
+            Write-Info "Existing Python is broken (caused error during check). Ignoring."
+        }
+    }
 
-# Logic: If no python, OR python is weird store shim, OR python is not 3.11+
-$NeedPython = $true
-if ($PythonPath) {
+    # Logic: If no python, OR python is weird store shim, OR python is not 3.11+
+    $NeedPython = $true
     if ($PythonVersion -match "3\.(11|12|13)") {
         Write-Success "Python found: $PythonVersion"
         $NeedPython = $false
     } else {
-        Write-Info "Python found but version ($PythonVersion) is not 3.11+. Upgrading..."
+        if ($PythonVersion) {
+            Write-Info "Python found but version ($PythonVersion) is not 3.11+. Upgrading..."
+        }
     }
-}
 
-if ($NeedPython) {
-    Write-Header "Installing Python 3.12..."
-    $PyInstaller = "$env:TEMP\python-3.12.1-amd64.exe"
-    $PyUrl = "https://www.python.org/ftp/python/3.12.1/python-3.12.1-amd64.exe"
-    
-    Write-Info "Downloading Python 3.12 (25MB)..."
-    Invoke-WebRequest -Uri $PyUrl -OutFile $PyInstaller
-    
-    Write-Info "Installing Python (Silent)... This may take a minute."
-    # Install with AllUsers=1 PrependPath=1 to fix PATH issues
-    Start-Process -FilePath $PyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
-    
-    # Refresh Env Vars
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-    Write-Success "Python 3.12 Installed."
-}
+    if ($NeedPython) {
+        Write-Header "Installing Python 3.12..."
+        $PyInstaller = "$env:TEMP\python-3.12.1-amd64.exe"
+        $PyUrl = "https://www.python.org/ftp/python/3.12.1/python-3.12.1-amd64.exe"
+        
+        Write-Info "Downloading Python 3.12 (25MB)..."
+        Invoke-WebRequest -Uri $PyUrl -OutFile $PyInstaller
+        
+        Write-Info "Installing Python (Silent)... This may take a minute."
+        # Install with AllUsers=1 PrependPath=1 to fix PATH issues
+        Start-Process -FilePath $PyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
+        
+        # Refresh Env Vars
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Write-Success "Python 3.12 Installed."
+    }
 
-# 3. Check/Install Node.js
-if (-not (Get-Command "node" -ErrorAction SilentlyContinue)) {
-    Write-Header "Installing Node.js (LTS)..."
-    # Use Winget if available, else MSI
-    if (Get-Command "winget" -ErrorAction SilentlyContinue) {
-        Write-Info "Using Winget to install Node.js..."
-        winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --silent
+    # 3. Check/Install Node.js
+    if (-not (Get-Command "node" -ErrorAction SilentlyContinue)) {
+        Write-Header "Installing Node.js (LTS)..."
+        # Use Winget if available, else MSI
+        if (Get-Command "winget" -ErrorAction SilentlyContinue) {
+            Write-Info "Using Winget to install Node.js..."
+            winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --silent
+        } else {
+            $NodeMsi = "$env:TEMP\node-v20.msi"
+            $NodeUrl = "https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi"
+            Write-Info "Downloading Node.js..."
+            Invoke-WebRequest -Uri $NodeUrl -OutFile $NodeMsi
+            Write-Info "Installing Node.js..."
+            Start-Process msiexec.exe -ArgumentList "/i `"$NodeMsi`" /qn" -Wait
+        }
+        # Refresh Path
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Write-Success "Node.js Installed."
     } else {
-        $NodeMsi = "$env:TEMP\node-v20.msi"
-        $NodeUrl = "https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi"
-        Write-Info "Downloading Node.js..."
-        Invoke-WebRequest -Uri $NodeUrl -OutFile $NodeMsi
-        Write-Info "Installing Node.js..."
-        Start-Process msiexec.exe -ArgumentList "/i `"$NodeMsi`" /qn" -Wait
+        Write-Success "Node.js is already installed."
     }
-    # Refresh Path
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-    Write-Success "Node.js Installed."
-} else {
-    Write-Success "Node.js is already installed."
-}
 
-# 4. Bootstrap Project
-Write-Header "Setting up Trade Bot..."
+    # 4. Bootstrap Project
+    Write-Header "Setting up Trade Bot..."
 
-# Ensure Pip
-python -m ensurepip --default-pip
-python -m pip install --upgrade pip
+    # Ensure Pip
+    Write-Info "Bootstrapping pip..."
+    python -m ensurepip --default-pip
+    python -m pip install --upgrade pip
 
-# Install Poetry
-Write-Info "Installing Poetry..."
-python -m pip install poetry
+    # Install Poetry
+    Write-Info "Installing Poetry..."
+    python -m pip install poetry
 
-# Setup Virtual Env
-if (-not (Test-Path ".venv")) {
-    Write-Info "Creating virtual environment..."
-    python -m venv .venv
-}
+    # Setup Virtual Env
+    if (-not (Test-Path ".venv")) {
+        Write-Info "Creating virtual environment..."
+        python -m venv .venv
+    }
 
-# Install Dependencies
-Write-Info "Installing Dependencies via Poetry..."
-$Poetry = Get-Command "poetry" -ErrorAction SilentlyContinue
-if ($Poetry) {
-    poetry install --with gui
-} else {
-    # Fallback absolute path check
-    $PoetryPath = "$env:APPDATA\Python\Scripts\poetry.exe"
-    if (Test-Path $PoetryPath) {
-        & $PoetryPath install --with gui
+    # Install Dependencies
+    Write-Info "Installing Dependencies via Poetry..."
+    $Poetry = Get-Command "poetry" -ErrorAction SilentlyContinue
+    if ($Poetry) {
+        poetry install --with gui
     } else {
-        Write-ErrorMsg "Poetry installed but not found in PATH. Please restart PowerShell and run again."
-        Read-Host "Press Enter to Exit"
-        exit
+        # Fallback absolute path check
+        $PoetryPath = "$env:APPDATA\Python\Scripts\poetry.exe"
+        if (Test-Path $PoetryPath) {
+            & $PoetryPath install --with gui
+        } else {
+            # Try to find it dynamically like in bash script
+            $Found = Get-ChildItem "$env:APPDATA\Python" -Filter "poetry.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($Found) {
+                 & $Found.FullName install --with gui
+            } else {
+                throw "Poetry installed but not found. Please restart PowerShell."
+            }
+        }
     }
+
+    # 5. Create Shortcut
+    Write-Header "Creating Shortcuts..."
+
+    $TargetScript = "$PWD\scripts\tradebot.sh"
+    $WinDir = "$PWD".Replace("/", "\")
+    $BashPath = Get-Command "bash.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+
+    $BatFile = "$env:USERPROFILE\Desktop\Tradebot SCI.bat"
+    $Content = "@echo off`r`ncd /d `"$WinDir`"`r`nbash scripts/tradebot.sh --gui`r`npause"
+    if (-not $BashPath) {
+        # If no git bash, try simple python launch
+        $Content = "@echo off`r`ncd /d `"$WinDir`"`r`ncall .venv\Scripts\activate`r`npython -m tradebot_sci --mode gui`r`npause"
+    }
+
+    Set-Content -Path $BatFile -Value $Content
+    Write-Success "Shortcut created on Desktop: $BatFile"
+
+    # 6. Setup .env
+    if (-not (Test-Path ".env")) {
+        Copy-Item ".env.example" ".env"
+        Write-Info "Created .env file. Please edit it with your API keys!"
+    }
+
+    Write-Header "INSTALLATION COMPLETE"
+    Write-Success "You can now double-click the 'Tradebot SCI' icon on your desktop!"
+
+} catch {
+    Write-ErrorMsg "Installation Failed!"
+    Write-ErrorMsg $_.Exception.Message
+    Write-Host "StackTrace:"
+    Write-Host $_.ScriptStackTrace
 }
 
-# 5. Create Shortcut
-Write-Header "Creating Shortcuts..."
-
-$TargetScript = "$PWD\scripts\tradebot.sh"
-$WinDir = "$PWD".Replace("/", "\")
-$BashPath = Get-Command "bash.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-
-$BatFile = "$env:USERPROFILE\Desktop\Tradebot SCI.bat"
-$Content = "@echo off`r`ncd /d `"$WinDir`"`r`nbash scripts/tradebot.sh --gui`r`npause"
-if (-not $BashPath) {
-    # If no git bash, try simple python launch
-    $Content = "@echo off`r`ncd /d `"$WinDir`"`r`ncall .venv\Scripts\activate`r`npython -m tradebot_sci --mode gui`r`npause"
-}
-
-Set-Content -Path $BatFile -Value $Content
-Write-Success "Shortcut created on Desktop: $BatFile"
-
-# 6. Setup .env
-if (-not (Test-Path ".env")) {
-    Copy-Item ".env.example" ".env"
-    Write-Info "Created .env file. Please edit it with your API keys!"
-}
-
-Write-Header "INSTALLATION COMPLETE"
-Write-Success "You can now double-click the 'Tradebot SCI' icon on your desktop!"
 Read-Host "Press Enter to exit..."
