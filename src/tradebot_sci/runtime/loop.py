@@ -14,7 +14,6 @@ import traceback
 from collections import defaultdict
 from datetime import datetime, timedelta, time as datetime_time, timezone
 from zoneinfo import ZoneInfo
-print("ANTIGRAVITY LOADED SRC/LOOP.PY")
 
 from tradebot_sci.ai.client import TradeSciAIClient
 from tradebot_sci.broker.execution import ExecutionOutcomeType, ExecutionResult, ExecutionStatus
@@ -416,6 +415,7 @@ def _log_build_info(sabbath_context: SabbathContext) -> None:
 def run_bot(
     iterations: int | None = None,
     sabbath_override: bool | None = None,
+    skip_schedule: bool = False,
 ):
     settings = get_settings()
     setup_logging(settings.logging)
@@ -610,8 +610,8 @@ def run_bot(
                 # [ANTIGRAVITY] Periodic Capital Check (Increased frequency to 30s)
                 if now_ts - last_capital_check_ts >= 30.0:
                     try:
-                         # Force a fresh check
-                         cap = executor.get_liquid_capital()
+                         # Force a fresh check of Total Equity for UI consistency
+                         cap = executor.get_total_balance_value()
                          logger.info(f"[HEARTBEAT] Capital available: ${cap:.2f}")
                          last_capital_check_ts = now_ts
                     except Exception as e:

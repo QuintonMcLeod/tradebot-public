@@ -488,8 +488,13 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null) {
 }
 
 // --- IPC / Socket Logic ---
+let capitalDisplayMode = 'equity';
 window.api.on('env-updated', (updates) => {
     console.log("[UI] Environment updated:", updates);
+    if (updates.GUI_CAPITAL_DISPLAY_MODE) {
+        capitalDisplayMode = updates.GUI_CAPITAL_DISPLAY_MODE;
+        // Optionally trigger a redraw if we have data
+    }
     if (updates.APP_PROFILE) {
         const profileEl = document.getElementById('status-profile');
         if (profileEl) {
@@ -760,30 +765,81 @@ function parseLogLine(line) {
     // Matches: [CCXT] get_liquid_capital... winner=$180.83
     // Matches: [HEARTBEAT] Capital available: $100.00
 
-    let capVal = null;
+    // [ANTIGRAVITY AGGREGATION] 
+    // Maintain a global map of capital by source to prevent flip-flopping
+    // and show a unified "big Capital amount" as requested.
+    if (!window.capitalCache) window.capitalCache = {};
 
-    // 1. [TOTAL] Source (Aggregated by RoutedExchangeBroker - Highest Priority)
+    // 1. [TOTAL] Source (Aggregated by RoutedExchangeBroker - Authoritative)
     if (line.includes('[TOTAL] Liquidity available:')) {
         const totalMatch = line.match(/available: \$([\d\.,\-]+)/);
         if (totalMatch) {
-            capVal = parseFloat(totalMatch[1].replace(/,/g, ''));
+            const val = parseFloat(totalMatch[1].replace(/,/g, ''));
+            window.capitalCache['TOTAL'] = val;
         }
     }
-    // 2. [HEARTBEAT] Source (Aggregated, generally trusted)
+    // 2. [HEARTBEAT] Source
     else if (line.includes('[HEARTBEAT] Capital available:')) {
         const hbMatch = line.match(/Capital available: \$([\d\.,\-]+)/);
         if (hbMatch) {
-            capVal = parseFloat(hbMatch[1].replace(/,/g, ''));
+            const val = parseFloat(hbMatch[1].replace(/,/g, ''));
+            window.capitalCache['HEARTBEAT'] = val;
         }
     }
-    // 3. Fallbacks for individual reports (respect profile context to avoid flip-flopping)
-    // [ANTIGRAVITY] Actually, we remove OANDA/CCXT individual parsers here because they cause
-    // flip-flopping in multi-broker setups. [TOTAL] and [HEARTBEAT] are authoritative.
+    // 3. Broker Specifics (OANDA/CCXT/IBKR)
+    else if (line.includes('[OANDA] Account Summary:')) {
+        const oMatch = line.match(/NAV=([\d\.,\-]+)/);
+        if (oMatch) window.capitalCache['OANDA'] = parseFloat(oMatch[1].replace(/,/g, ''));
+    }
+    else if (line.includes('[CCXT] get_liquid_capital')) {
+        const cMatch = line.match(/winner=\$([\d\.,\-]+)/);
+        if (cMatch) window.capitalCache['CCXT'] = parseFloat(cMatch[1].replace(/,/g, ''));
+    }
+    else if (line.includes('[IBKR] Account Summary') || line.includes('TotalCashValue=')) {
+        const iMatch = line.match(/TotalCashValue=([\d\.,\-]+)/);
+        if (iMatch) window.capitalCache['IBKR'] = parseFloat(iMatch[1].replace(/,/g, ''));
+    }
+    // 4. [CASH] Source (Raw Buying Power / Available Cash)
+    else if (line.includes('[CASH] Buying Power:')) {
+        const cashMatch = line.match(/Power: \$([\d\.,\-]+)/);
+        if (cashMatch) {
+            const val = parseFloat(cashMatch[1].replace(/,/g, ''));
+            window.capitalCache['CASH'] = val;
+        }
+    }
 
-    if (capVal !== null) {
+    // Determine the most robust value based on user preference
+    let capVal = null;
+    let labelText = "Overall Capital:";
+
+    // Check global mode (updated from env-updated)
+    const displayMode = capitalDisplayMode || 'equity';
+
+    if (displayMode === 'cash') {
+        labelText = "Buying Power:";
+        // Prefer explicit [CASH] log, fallback to summed broker totals if needed
+        capVal = window.capitalCache['CASH'];
+        if (capVal === undefined || capVal === null) {
+            // Fallback to summing up individual broker cash sources
+            const total = (window.capitalCache['OANDA'] || 0) +
+                (window.capitalCache['CCXT'] || 0) +
+                (window.capitalCache['IBKR'] || 0);
+            if (total > 0) capVal = total;
+        }
+    } else {
+        labelText = "Overall Capital:";
+        // [HEARTBEAT] and [TOTAL] are now Equity-authoritative
+        capVal = window.capitalCache['TOTAL'] || window.capitalCache['HEARTBEAT'];
+    }
+
+    if (capVal !== null && capVal !== undefined) {
         const capitalEl = document.getElementById('account-capital');
+        const labelEl = document.getElementById('capital-label');
         if (capitalEl) {
             capitalEl.innerText = capVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        if (labelEl) {
+            labelEl.innerText = labelText;
         }
     }
 
@@ -1223,13 +1279,17 @@ window.profilesModule = (function () {
     const STRATEGY_OPTIONS = [
         { value: 'rubberband_reaper', label: 'Rubberband Reaper' },
         { value: 'robocop', label: 'RoboCop' },
+        { value: 'evolution', label: 'Robot Evolution' },
         { value: 'quantum', label: 'Quantum' },
-        { value: 'evolution', label: 'Evolution' },
         { value: 'mean_reversion', label: 'Mean Reversion' },
-        { value: 'hyper_scalper', label: 'Hyper Scalper' },
+        { value: 'hyper_scalper', label: 'HyperScalper' },
+        { value: 'london_breakout', label: 'London Breakout' },
+        { value: 'orb_breakout', label: 'ORB' },
         { value: 'volatility_breakout', label: 'Volatility Breakout' },
-        { value: 'aggregator', label: 'Aggregator' },
-        { value: 'supply_demand', label: 'Supply & Demand' },
+        { value: 'aggregator', label: 'Singularity Aggregator' },
+        { value: 'meta_sci', label: 'Meta-SCI (AI Ensemble)' },
+        { value: 'icc_core', label: 'ICC (Standard)' },
+        { value: 'supply_demand', label: 'Supply & Demand' }
     ];
 
     const TIMEFRAME_OPTIONS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];

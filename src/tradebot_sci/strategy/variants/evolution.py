@@ -125,5 +125,13 @@ class RobotEvolutionStrategy(BaseStrategy):
                     notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
                 )
 
+        # [NEW] Take Profit Check
+        tp_target = float(open_position.get("take_profit") or 0.0)
+        if tp_target > 0:
+            if (pos_dir == "long" and current_price >= tp_target) or \
+               (pos_dir == "short" and current_price <= tp_target):
+                return close_position_decision(snapshot.symbol, snapshot.timeframe, f"Evolution TP: Target Hit @ {tp_target:.4f}")
+
         # [SAFETY] Managed by StrategyEngine via SafetyGuard
         return None
+

@@ -171,8 +171,16 @@ class RoboCopStrategy(BaseStrategy):
 
         # [SAFETY] Managed by StrategyEngine via SafetyGuard
         
+        # [NEW] Take Profit Check
+        tp_target = float(open_position.get("take_profit") or 0.0)
+        if tp_target > 0:
+            if (pos_dir == "long" and last_close >= tp_target) or \
+               (pos_dir == "short" and last_close <= tp_target):
+                return close_position_decision(snapshot.symbol, snapshot.timeframe, f"Sniper TP: Target Hit @ {tp_target:.4f}")
+
         # 5. [THE LOAD] - Compound at 1R profit (Surefire stacking) - PRESERVED!
         # Only check if in profit
+        profit_dist = (last_close - entry_price) if pos_dir == "long" else (entry_price - last_close)
         if profit_dist > 0:
             one_r_dollars = capital * self.FEET_WET_RISK
             current_pnl = float(open_position.get("unrealized_pnl", 0))

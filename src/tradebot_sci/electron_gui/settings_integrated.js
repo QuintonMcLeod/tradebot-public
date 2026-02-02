@@ -54,10 +54,10 @@ const TOOLTIPS = {
     RISK_PER_TRADE_DOLLARS: "Fixed dollar amount to risk per trade instead of percentage. Useful if you want consistent $50 or $100 risk regardless of account size.",
     MAX_LOSS_PER_TRADE_DOLLARS: "Absolute maximum dollars you can lose on any single trade, even if percentage calculation says otherwise. A hard safety cap.",
 
-    // Position Management
+    // Safety & Shields
     MULTI_POSITION_ENABLED: "Allow the bot to have multiple trades open at the same time across different symbols. When disabled, it finishes one trade before starting another.",
     MAX_CONCURRENT_POSITIONS: "Maximum number of trades that can be open simultaneously. More positions = more diversification but also more complexity and capital required.",
-    SMART_POSITIONS_ENABLED: "Prevents opening new trades unless your current open profits are high enough to 'pay for' the risk of the new position. Ensures you only scale up using profit, not principal.",
+    SMART_POSITIONS_ENABLED: "The core safety filter: only opens a new trade if your current open profits are high enough to 'pay for' the risk of the next trade. This ensures you only scale up using profit, protecting your principal capital.",
 
     // Pyramiding
     MAX_PYRAMID_ENTRIES: "Maximum times the bot can add to a winning position. 'Pyramiding' means buying more as a trade goes in your favor. 1 = no adding, just the initial entry.",
@@ -149,6 +149,7 @@ const TOOLTIPS = {
     COMMENTARY_INTERVAL_MINUTES: "Time between AI updates when using 'Fixed Interval' policy. Range: 1-60 minutes.",
     COMMENTARY_LLM_DAILY_SLOTS: "Specific times to request AI commentary when using 'Scheduled Times' policy. Format: HH:MM, comma-separated.",
     COMMENTARY_LLM_MAX_CALLS_PER_DAY: "Hard limit on AI API calls per day. Prevents runaway costs regardless of policy.",
+    GUI_CAPITAL_DISPLAY_MODE: "Choose what to show in the main 'Overall Capital' dashboard display. 'Overall Liquidity' shows your total net worth (Cash + Assets). 'Buying Power' shows only your available cash for trading.",
 
     // Sabbath Settings
     SABBATH_ENABLED: "Block new trade entries during the Jewish Sabbath (Friday sunset to Saturday sunset). Existing positions are managed but no new trades opened.",
@@ -180,6 +181,7 @@ const TOOLTIPS = {
     SAFETY_STREAK_BREAKER_ENABLED: "Tilt Prevention. Pauses a specific symbol for 4 hours after 3 consecutive losses.",
     SAFETY_STREAK_BREAKER_ENABLED: "Tilt Prevention. Pauses a specific symbol for 4 hours after 3 consecutive losses.",
     SAFETY_OPENING_SENTRY_ENABLED: "Morning Guard. Blocks all entries during the first 15 minutes of the market open (9:30-9:45 AM ET) to avoid volatility.",
+    SAFETY_SENTIMENT_SHIELD_ENABLED: "AI Veto Shield. Uses your configured AI Model to inspect every potential entry. If the AI detects 'DANGEROUS' market structure, the trade is blocked regardless of the strategy signal. Smart Defense.",
 
     // Performance & Profits (Wealth Creation) - Detailed Layman Tooltips
     PERFORMANCE_MODE_NONE: "<strong>Safe Mode (Standard):</strong> No account acceleration. The bot operates with its core risk management and standard position sizing. Recommended for initial testing.",
@@ -206,6 +208,17 @@ const TOOLTIPS = {
     PERFORMANCE_MODE_SENTIMENT: "<strong>AI Sentiment Fusion:</strong> Hype Train. Only allows high-risk trades when your configured AI confirms that global news sentiment for the asset is 'Highly Bullish'.",
     PERFORMANCE_MODE_GHOST: "<strong>Harmonic Ghost:</strong> Order Flow. Only takes trades that align with 'Hidden Institutional Liquidity' levels filtered through specialized flow analysis.",
     PERFORMANCE_MODE_PHOENIX: "<strong>The Phoenix:</strong> Reversion Scaling. After the 'Streak Breaker' pause ends, the bot takes the next signal at Double Risk, assuming a win is mathematically overdue.",
+
+    // Advanced Exit Shields
+    SAFETY_STALE_SNIPER_ENABLED: "Kills positions that haven't hit a target within a set number of bars. Prevents 'Zombie' trades from tying up capital.",
+    SAFETY_STALE_SNIPER_BARS: "Max candle bars to hold a sideways trade before the Sniper terminates it at market price.",
+    SAFETY_FLASH_TRAP_ENABLED: "Volatility Protection. Instantly closes trades if ATR spikes by 2.5x average, protecting you from flash-crashes.",
+    SAFETY_REGIME_FLIP_ENABLED: "HTF Trend Alignment. If the 4h trend turns against your 15m trade, the bot exits immediately to avoid a mismatch.",
+
+    // Wealth Weapons Exits
+    WEALTH_EXIT_GAMMA_ENABLED: "Velocity Trail. Tightens trailing stops exponentially during vertical moves to capture 90% of the squeeze.",
+    WEALTH_EXIT_MOONSHOT_ENABLED: "Target Elevator. If a trade hits 1R target in under 3 bars, the TP is doubled automatically for a massive swing.",
+    WEALTH_EXIT_BLOWOFF_ENABLED: "V-Top Seller. Sells 100% at market if volatility hits a 100-bar high while price is vertically extended.",
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -330,6 +343,15 @@ function isOverridden(key) {
 // ═══════════════════════════════════════════════════════════
 
 const STRATEGIES = {
+    orb_breakout: {
+        name: "ORB (Opening Range Breakout)",
+        shortDesc: "NY Opening Range Breakout",
+        description: "The Opening Range Breakout (ORB) strategy. It watches the first 15 minutes of the New York Stock Market open (9:30 AM ET) to see where the big money is moving. It waits for the price to break out of that range, come back to test the level for safety, and form a 'flag' pattern before entering. Very safe, very precise.",
+        style: "Breakout",
+        risk: "Low-Medium",
+        bestFor: "NY Open (9:30-11:00 ET)",
+        stats: { verified: "Simulated", winRate: "High", riskReward: "2:1" }
+    },
     rubberband_reaper: {
         name: "Rubberband Reaper",
         shortDesc: "Anti-Martingale Mean Reversion",
@@ -430,13 +452,14 @@ const STRATEGIES = {
         stats: { method: "SND Zones", confirmation: "Zone Tap", trend: "BOS Based" }
     },
     meta_sci: {
-        name: "Meta-SCI (Auto Strategy)",
-        shortDesc: "The Ensemble Master",
-        description: "The ultimate AI orchestration layer. Instead of running one strategy, Meta-SCI runs THEM ALL in parallel. It analyzes setups from SND, RoboCop, and Evolution simultaneously, then deploys capital only to the strategy with the highest A+ confidence score.",
-        style: "Ensemble / Macro",
+        name: 'Meta-SCI',
+        icon: 'auto_awesome',
+        shortDesc: 'AI-Enhanced Ensemble Strategy',
+        description: "The ultimate AI Brain. It runs multiple trading strategies at the same time and uses an AI ensemble (Meta-SCI) to decide which one has the best chance of winning right now. It's like having a team of expert traders in a room, and the AI acts as the manager who only listens to the most successful ones for each specific trade.",
+        style: "AI Ensemble",
         risk: "Dynamic",
-        bestFor: "All market regimes (Trend/Chop/Reversal)",
-        stats: { strategies: "All-in-One", selection: "Score-Based", mode: "Autonomous" }
+        bestFor: "Complex markets, regime changes",
+        stats: { method: "Ensemble", ai: "Gemini Pro", strategies: "8+" }
     }
 };
 
@@ -886,8 +909,10 @@ function renderSystemTab(container) {
             { value: 'mean_reversion', label: 'Mean Reversion (Bollinger/RSI)' },
             { value: 'hyper_scalper', label: 'HyperScalper (EMA Crossover)' },
             { value: 'london_breakout', label: 'London Breakout (Session)' },
+            { value: 'orb_breakout', label: 'ORB (NY Session Break & Retest)' },
             { value: 'volatility_breakout', label: 'Volatility Breakout' },
             { value: 'aggregator', label: 'Singularity Aggregator (Multi-Strategy)' },
+            { value: 'meta_sci', label: 'Meta-SCI (AI-Enhanced Ensemble)' },
             { value: 'icc_core', label: 'ICC (Indication, Correction, Continuation)' },
             { value: 'supply_demand', label: 'Supply & Demand (Institutional)' }
         ],
@@ -908,6 +933,14 @@ function renderSystemTab(container) {
     section.appendChild(createCard('Friday Fade Damper', 'Risk cap after 12:00 PM EST Fri (Forex Only)', 'FRIDAY_FADE_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('WebConnect URL', 'Remote bot connection address', 'GUI_WS_URL', 'input', { default: 'ws://localhost:8080/ws' }));
     section.appendChild(createCard('Bot Listening Port', 'Port the bot server listens on', 'WS_SERVER_PORT', 'input', { default: '8080' }));
+
+    section.appendChild(createCard('Capital Display Mode', 'Toggle dashboard capital between Overall Equity and Buying Power', 'GUI_CAPITAL_DISPLAY_MODE', 'dropdown', {
+        items: [
+            { value: 'equity', label: 'Overall Liquidity (Net Worth)' },
+            { value: 'cash', label: 'Buying Power (Cash)' }
+        ],
+        default: 'equity'
+    }));
 
     section.appendChild(createDivider());
 
@@ -1120,9 +1153,12 @@ function renderStrategyTab(container) {
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Position Management', 'layers'));
 
-        section.appendChild(createCard('Multi-Position', 'Trade multiple symbols simultaneously', 'MULTI_POSITION_ENABLED', 'toggle'));
-        section.appendChild(createCard('Max Concurrent Positions', 'Maximum open positions', 'MAX_CONCURRENT_POSITIONS', 'input', { number: true, default: '1', min: 1, max: 10 }));
-        section.appendChild(createCard('Smart Positions', 'Fund new risk with open profits', 'SMART_POSITIONS_ENABLED', 'toggle'));
+        const grid2 = document.createElement('div');
+        grid2.className = 'card-grid';
+        // (Moved Multi-Position and Smart Positions to Safety Tab)
+        section.appendChild(grid2);
+        section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle'));
+        section.appendChild(createCard('AI Sentiment Shield', 'Smart Veto. AI blocks "Dangerous" setups.', 'SAFETY_SENTIMENT_SHIELD_ENABLED', 'toggle'));
 
         // Initialize Financed Risk state
         setTimeout(() => {
@@ -1562,9 +1598,13 @@ function renderSafetyTab(container) {
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    section.appendChild(createSectionHeader('Account Safety & Shields', 'shield'));
+    section.appendChild(createSectionHeader('Position Protection', 'layers'));
+    section.appendChild(createCard('Multi-Position', 'Trade multiple symbols simultaneously', 'MULTI_POSITION_ENABLED', 'toggle'));
+    section.appendChild(createCard('Max Concurrent Positions', 'Maximum open positions', 'MAX_CONCURRENT_POSITIONS', 'input', { number: true, default: '1', min: 1, max: 10 }));
+    section.appendChild(createCard('Smart Positions', 'Fund new risk with open profits', 'SMART_POSITIONS_ENABLED', 'toggle'));
 
-    section.appendChild(createWarningBox('<strong>Safety First:</strong> These shields protect your principal from catastrophic drawdowns. When a shield triggers, the bot will prioritize safety over profits.'));
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Account Safety & Shields', 'shield'));
 
     section.appendChild(createCard('Staircase Floor', 'Principle Protection via No-Body-Close zones', 'SAFETY_FLOOR_ENABLED', 'toggle'));
     section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle'));
@@ -1601,6 +1641,19 @@ function renderSafetyTab(container) {
     }));
     section.appendChild(createCard('Streak Breaker', 'Pause Symbol 4h after 3 Consecutive Losses', 'SAFETY_STREAK_BREAKER_ENABLED', 'toggle'));
     section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle'));
+    section.appendChild(createCard('AI Sentiment Shield', 'Smart Veto. AI blocks "Dangerous" setups.', 'SAFETY_SENTIMENT_SHIELD_ENABLED', 'toggle'));
+
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Advanced Exit Shields', 'cancel_schedule'));
+
+    section.appendChild(createCard('Stale Sniper', 'Terminate trades after N bars of no progress', 'SAFETY_STALE_SNIPER_ENABLED', 'toggle'));
+    section.appendChild(createCard('Sniper Bars', 'Maximum bars to hold a trade', 'SAFETY_STALE_SNIPER_BARS', 'input', {
+        number: true,
+        placeholder: '20',
+        default: '20'
+    }));
+    section.appendChild(createCard('Flash-Trap Shield', 'Exit instantly on extreme ATR spikes', 'SAFETY_FLASH_TRAP_ENABLED', 'toggle'));
+    section.appendChild(createCard('Regime-Flip Veto', 'Exit if HTF trend turns against position', 'SAFETY_REGIME_FLIP_ENABLED', 'toggle'));
 
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('☢️ NUCLEAR OVERRIDES', 'emergency_home'));
@@ -1671,62 +1724,141 @@ function renderPerformanceTab(container) {
     section.className = 'settings-section';
 
     section.appendChild(createSectionHeader('Performance & Profits', 'trending_up'));
+    section.appendChild(createWarningBox('<strong>Stackable Architecture:</strong> Select ONE Base Risk Foundation, then stack compatible Multipliers to boost performance.'));
 
-    section.appendChild(createWarningBox('<strong>High Octane Mode:</strong> These tools are designed to accelerate account growth. Unlike Safety Shields, these are "Offensive" tools. <strong>Note:</strong> Only one Wealth Mode can be active at a time.'));
+    // 1. RISK FOUNDATION (Radio - Select One)
+    const foundationGroup = document.createElement('div');
+    foundationGroup.innerHTML = `<div class="text-sm text-slate-400 mb-2 font-bold uppercase tracking-wider">Step 1: Risk Foundation (Base Sizing)</div>`;
+    section.appendChild(foundationGroup);
 
-    section.appendChild(createPerformanceToggle('Standard Mode', 'No acceleration. Standard risk rules apply.', 'none'));
-    section.appendChild(createPerformanceToggle('House Money Accelerator', 'Unlock capital for new trades once profit > 2R', 'house_money'));
-    section.appendChild(createPerformanceToggle('The Sniper (A+)', 'Risk 5% only on high-confidence (Score > 90) signals', 'sniper'));
-    section.appendChild(createPerformanceToggle('The Runner', 'Scale 50% profit; trail moonshots', 'runner'));
-    section.appendChild(createPerformanceToggle('Regime Sync', 'Adaptive risk based on HTF trend strength', 'regime_sync'));
-    section.appendChild(createPerformanceToggle('Compound Flywheel', 'Accelerate risk per trade at profit milestones', 'flywheel'));
-    section.appendChild(createPerformanceToggle('Signal Stacker', 'Double risk for strategy confluence', 'stacker'));
+    // Foundations
+    section.appendChild(createPerformanceToggle('Standard Mode', 'Fixed risk per trade (Default)', 'none', 'foundation',
+        'The classic approach. Risks a fixed percentage (e.g., 1.5%) of your account balance on every trade. Boring, predictable, and safe.'));
+
+    section.appendChild(createPerformanceToggle('Kelly Criterion', 'Mathematical optimal sizing via win-rate analytics', 'kelly', 'foundation',
+        'The Gambler\'s Math. Uses your historical Win Rate and Reward Ratio to calculate the mathematically optimal bet size to maximize long-term wealth growth.'));
+
+    section.appendChild(createPerformanceToggle('Compound Flywheel', 'Accelerate risk per trade at profit milestones', 'flywheel', 'foundation',
+        'The Snowball Effect. Starts with standard risk, but as your daily profits grow, it slightly increases risk to accelerate the "good days".'));
+
+    section.appendChild(createPerformanceToggle('Equity Smoothing', 'Anti-tilt: boost on highs, slash on lows', 'smooth', 'foundation',
+        'The Tilt-Killer. If you are losing money today, it drastically cuts risk (Defensive). If you are winning, it slightly boosts it (Offensive).'));
 
     section.appendChild(createDivider());
-    section.appendChild(createSectionHeader('Pro Trading Algorithms', 'model_training'));
 
-    section.appendChild(createPerformanceToggle('Kelly Criterion', 'Mathematical optimal sizing via win-rate analytics', 'kelly'));
-    section.appendChild(createPerformanceToggle('Correlation Hydra', 'Cross-asset basket risk coordination', 'hydra'));
-    section.appendChild(createPerformanceToggle('Volatility Coil', 'Triple risk on quiet-market breakouts', 'coil'));
-    section.appendChild(createPerformanceToggle('Liquidity Vacuum', 'Trap hunter - high risk on fake-outs', 'vacuum'));
-    section.appendChild(createPerformanceToggle('Power Hour Alpha', 'Leverage session-specific volume overlaps', 'alpha'));
-    section.appendChild(createPerformanceToggle('Gamma Squeeze', 'Leverage vertical price velocity', 'gamma'));
-    section.appendChild(createPerformanceToggle('Equity Smoothing', 'Anti-tilt: boost on highs, slash on lows', 'smooth'));
-    section.appendChild(createPerformanceToggle('AI Hype Fusion', 'Sentiment confirmation via configured AI', 'sentiment'));
-    section.appendChild(createPerformanceToggle('Harmonic Ghost', 'Institutional Order Flow filtering', 'ghost'));
-    section.appendChild(createPerformanceToggle('Phoenix Protocol', 'Double risk after streak-recovery', 'phoenix'));
+    // 2. MULTIPLIERS (Checkbox - Stackable)
+    const multiplierGroup = document.createElement('div');
+    multiplierGroup.innerHTML = `<div class="text-sm text-slate-400 mb-2 font-bold uppercase tracking-wider">Step 2: Active Multipliers (Stackable Boosts)</div>`;
+    section.appendChild(multiplierGroup);
+
+    section.appendChild(createPerformanceToggle('The Sniper (A+)', 'Risk 1.5x on high-confidence (Score > 90) signals', 'sniper', 'multiplier',
+        'Precision strike. If the AI Score is >90 (A+ Setup), we boost risk by 1.5x because the probability of winning is higher.'));
+
+    section.appendChild(createPerformanceToggle('Regime Sync', 'Adaptive risk based on HTF trend strength (0.5x - 1.5x)', 'regime_sync', 'multiplier',
+        'Go with the flow. If the Higher Timeframe is trending strongly in your direction, we boost risk. If fighting the trend, we dampen it.'));
+
+    section.appendChild(createPerformanceToggle('House Money', 'Risk 1.5x if trade is financed by locked profit', 'house_money', 'multiplier',
+        'Playing with the casino\'s money. If you have another trade already in profit (2R+), we boost risk on this new trade by 1.5x.'));
+
+    section.appendChild(createPerformanceToggle('The Whale Watcher', '1.3x Boost on Volume Profile support', 'whale', 'multiplier',
+        'Follow the big money. If Volume is 2x the average, it means institutions are interested. We boost risk by 1.3x to ride their wave.'));
+
+    section.appendChild(createPerformanceToggle('The Contrarian', '1.5x Boost on RSI Reversals (Fade)', 'contrarian', 'multiplier',
+        'Fade the retail herd. When everyone else is FOMO-buying (RSI Overbought) but the price stalls, we short big (1.5x Risk).'));
+
+    section.appendChild(createPerformanceToggle('The News Surfer', '2.0x Boost on Post-News Compression', 'surfer', 'multiplier',
+        'Catch the breakout. After a news event, markets get quiet (Volatility Squeeze). We bet double (2.0x) on the explosive move that follows.'));
+
+    section.appendChild(createPerformanceToggle('Correlation Hydra', 'Basket coordination scaling', 'hydra', 'multiplier',
+        'Calculates risk based on your exposure to correlated assets (e.g., EURUSD and GBPUSD). Prevents accidental double-risk.'));
+
+    section.appendChild(createPerformanceToggle('Volatility Coil', 'Double risk on quiet-market breakouts', 'coil', 'multiplier',
+        'The Spring-Load. If the market has been flat (coiling) for a long time, the breakout is usually massive. We double risk to catch it.'));
+
+    section.appendChild(createPerformanceToggle('Power Hour Alpha', '1.2x Boost during key session overlaps', 'alpha', 'multiplier',
+        'Session overlap trading. Markets are most active when London and NY sessions overlap (09:00-11:00 EST). We boost risk by 1.2x.'));
+
+    section.appendChild(createPerformanceToggle('Gamma Squeeze', '1.2x Boost on vertical velocity', 'gamma', 'multiplier',
+        'Vertical Velocity. If price moves exceptionally fast in a short time, we boost risk to capture the momentum surge.'));
+
+    section.appendChild(createPerformanceToggle('AI Hype Fusion', '1.5x Boost if AI Sentiment aligns', 'sentiment', 'multiplier',
+        'Sentiment Confirmation. If our LLM (Claude/GPT) analyzes the news and says "BULLISH", we boost our Long entries.'));
+
+    section.appendChild(createPerformanceToggle('Harmonic Ghost', '1.5x Boost on psychological levels', 'ghost', 'multiplier',
+        'Smart Money Levels. Boosts risk if price reacts at a key psychological level (e.g., 50000) or Institutional Order Block.'));
+
+    section.appendChild(createPerformanceToggle('Phoenix Protocol', 'Recovery protocol after streaks', 'phoenix', 'multiplier',
+        'Recovery Mode. If you lost 3 trades in a row and the "Streak Breaker" paused you, this mode slightly boosts the first trade back.'));
+
+    // The Runner is unique (Exit Logic)
+    section.appendChild(createDivider());
+    section.appendChild(createPerformanceToggle('The Runner', 'Scale 50% profit; trail moonshots (Exit Logic)', 'runner', 'multiplier',
+        'Let it ride. Instead of closing all profit at the target, we leave 50% open with a trailing stop to catch "Moonshots".'));
+
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Wealth Weapons (Advanced Exits)', 'rocket_launch'));
+
+    section.appendChild(createCard('Gamma Squeeze Trail', 'Exponentially tighter trail on vertical moves', 'WEALTH_EXIT_GAMMA_ENABLED', 'toggle'));
+    section.appendChild(createCard('Moonshot Elevator', 'Double target if 1R is hit in <3 bars', 'WEALTH_EXIT_MOONSHOT_ENABLED', 'toggle'));
+    section.appendChild(createCard('Blow-off Seller', 'Sell peak on volatility exhaustion', 'WEALTH_EXIT_BLOWOFF_ENABLED', 'toggle'));
 
     container.appendChild(section);
 }
 
 /**
  * Assistant to renderPerformanceTab for complex toggle behavior.
+ * type: 'foundation' (Radio Behavior) or 'multiplier' (Checkbox Behavior)
+ * tooltip: Detailed layman explanation.
  */
-function createPerformanceToggle(title, desc, modeValue) {
-    const activeMode = envData['PERFORMANCE_MODE'] || 'none';
-    const card = createCard(title, desc, `PERFORMANCE_MODE_${modeValue.toUpperCase()}`, 'toggle', {
-        default: activeMode === modeValue ? 'true' : 'false'
+function createPerformanceToggle(title, desc, modeValue, type = 'foundation', tooltip = '') {
+    const rawMode = envData['PERFORMANCE_MODE'] || 'none';
+    const activeModes = rawMode.split(',').map(s => s.trim().toLowerCase());
+
+    let isActive = false;
+    if (type === 'foundation') {
+        // If mode is "none" (Standard), and list is empty or has 'none', it's active
+        if (modeValue === 'none' && (activeModes.includes('none') || activeModes.length === 0)) isActive = true;
+        else isActive = activeModes.includes(modeValue);
+    } else {
+        isActive = activeModes.includes(modeValue);
+    }
+
+    const card = createCard(title, desc, `PERF_${modeValue.toUpperCase()}`, 'toggle', {
+        default: isActive ? 'true' : 'false',
+        tooltip: tooltip // Pass the tooltip here
     });
 
     const toggle = card.querySelector('.toggle');
     const newToggle = toggle.cloneNode(true);
-    toggle.parentNode.replaceChild(newToggle, toggle);
+    toggle.parentNode.replaceChild(newToggle, toggle); // Remove old listeners
 
     newToggle.addEventListener('click', (e) => {
         e.stopPropagation();
-        const isActive = newToggle.classList.contains('toggle-active');
 
-        if (!isActive) {
-            // Check for conflicts before proceeding
-            const intercepted = checkConflicts('PERFORMANCE_MODE', modeValue);
-            if (!intercepted) {
-                updateValue('PERFORMANCE_MODE', modeValue);
-                renderTab();
-            }
-        } else {
-            updateValue('PERFORMANCE_MODE', 'none');
-            renderTab();
+        let currentRaw = envData['PERFORMANCE_MODE'] || 'none';
+        let currentList = currentRaw.split(',').map(s => s.trim().toLowerCase()).filter(s => s);
+
+        // Remove 'none' from list if we are adding something else
+        if (currentList.includes('none')) currentList = currentList.filter(s => s !== 'none');
+
+        if (type === 'foundation') {
+            // Radio Logic: Remove other foundations, add this one
+            const foundations = ['kelly', 'flywheel', 'smooth', 'none'];
+            currentList = currentList.filter(m => !foundations.includes(m)); // Clear existing foundation
+            if (modeValue !== 'none') currentList.push(modeValue);
         }
+        else {
+            // Checkbox Logic: Toggle
+            if (currentList.includes(modeValue)) {
+                currentList = currentList.filter(m => m !== modeValue);
+            } else {
+                currentList.push(modeValue);
+            }
+        }
+
+        const newValue = currentList.length > 0 ? currentList.join(',') : 'none';
+        updateValue('PERFORMANCE_MODE', newValue);
+        renderTab(); // Re-render to show updates
     });
 
     return card;
@@ -1864,6 +1996,7 @@ function renderStrategyToolbox(container) {
         { id: 'volatility_breakout', label: 'Volatility Breakout', icon: 'show_chart', color: '#06b6d4' },
         { id: 'aggregator', label: 'Aggregator', icon: 'hub', color: '#a855f7' },
         { id: 'supply_demand', label: 'Supply & Demand', icon: 'layers', color: '#eab308' },
+        { id: 'orb_breakout', label: 'ORB (Break & Retest)', icon: 'rule', color: '#6366f1' },
         { id: 'meta_sci', label: 'Meta-SCI Alpha', icon: 'hub', color: '#14b8a6' }
     ];
 
@@ -2039,9 +2172,35 @@ function renderStrategyToolbox(container) {
         }));
 
         section.appendChild(createCard('Strategy Blacklist', 'Comma-separated IDs to ignore', 'META_SCI_EXCLUDE_LIST', 'input', {
-            placeholder: 'evolution, quantum',
-            tooltip: 'Strategies listed here will be completely ignored by the Meta-SCI ensemble. Useful for filtering out strategies that you haven\'t yet tuned.'
+            default: '',
+            tooltip: 'Strategies to exclude from consensus.'
         }));
+
+    } else if (toolboxTab === 'orb_breakout') {
+        const stratInfo = STRATEGIES.orb_breakout;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'rule'));
+
+        section.appendChild(createWarningBox(`
+            <strong>Break & Retest Strategy:</strong><br>
+            Trades the NY Opening Range (09:30 - 09:45 ET). Waits for Break -> Retest -> Flag pattern.
+        `));
+
+        section.appendChild(createCard('Session Start', 'Range start time (ET)', 'ORB_START_TIME', 'input', {
+            default: '09:30',
+            tooltip: 'The time the Opening Range begins. Usually 09:30 AM ET (NY Open).'
+        }));
+        section.appendChild(createCard('Duration (Min)', 'Length of the Range', 'ORB_DURATION', 'input', {
+            number: true,
+            default: '15',
+            tooltip: 'How long the Opening Range lasts in minutes. Standard is 15 minutes (09:30-09:45).'
+        }));
+        section.appendChild(createCard('Risk %', 'Risk per trade', 'ORB_RISK_PCT', 'input', {
+            number: true,
+            default: '1.0',
+            tooltip: 'Percentage of account to risk on this strategy.'
+        }));
+
+
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Meta-SCI Strategy Feed', 'rss_feed'));

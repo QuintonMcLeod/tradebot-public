@@ -21,11 +21,16 @@ cd "$ROOT_DIR"
 info "Starting Tradebot SCI Universal Installer..."
 
 # 1. Detect Distribution
-if [ -f /etc/os-release ]; then
+# 1. Detect Distribution
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    OS="darwin"
+elif [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+    OS="windows"
+elif [ -f /etc/os-release ]; then
     . /etc/os-release
     OS=$ID
 else
-    error "Cannot detect Linux distribution. /etc/os-release missing."
+    error "Cannot detect OS. /etc/os-release missing and OSTYPE unknown."
 fi
 
 info "Detected OS: $OS"
@@ -46,6 +51,20 @@ install_sys_deps() {
         arch|manjaro)
             sudo pacman -Syu --noconfirm tmux git rsync curl wget base-devel python nss \
                 at-spi2-atk libxss alsa-lib mesa
+            ;;
+        darwin)
+            if ! command -v brew >/dev/null 2>&1; then
+                info "Homebrew not found. Installing Homebrew..."
+                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            fi
+            info "Updating Homebrew..."
+            brew update
+            info "Installing dependencies via Homebrew..."
+            brew install tmux git rsync curl wget python node
+            ;;
+        msys*|cygwin*|mingw*)
+            info "Windows detected (Git Bash/MSYS). Assuming dependencies are managed manually or via Chocolatey/Scoop."
+            info "Ensure Python 3.10+, Node.js 20+, and Git are installed."
             ;;
         *)
             warn "Unsupported distribution '$OS'. Please install tmux, git, and python3-dev manually."
@@ -68,6 +87,15 @@ if ! command -v node >/dev/null 2>&1; then
             ;;
         arch|manjaro)
             sudo pacman -S --noconfirm nodejs npm
+            ;;
+        darwin)
+            # Already installed via brew in sys_deps, checking again just in case
+            if ! command -v node >/dev/null 2>&1; then
+                brew install node
+            fi
+            ;;
+        windows)
+            warn "On Windows, please install Node.js manually or via 'winget install OpenJS.NodeJS.LTS'"
             ;;
     esac
 else
@@ -120,6 +148,33 @@ fi
 # 6. Desktop Shortcut
 create_shortcut() {
     info "Creating desktop shortcut..."
+
+    if [[ "$OS" == "darwin" ]]; then
+        # Mac Shortcut (AppleScript)
+        local APP_NAME="Tradebot SCI"
+        local SCRIPT_PATH="$ROOT_DIR/scripts/tradebot.sh"
+        local ICON_PATH="$ROOT_DIR/src/tradebot_sci/electron_gui/assets/icon.png"
+        
+        # Create a simple .app wrapper or just a desktop command file
+        # Check if user has a Desktop
+        if [ -d "$HOME/Desktop" ]; then
+             cat <<EOF > "$HOME/Desktop/$APP_NAME.command"
+#!/bin/bash
+cd "$ROOT_DIR"
+./scripts/tradebot.sh --gui
+EOF
+             chmod +x "$HOME/Desktop/$APP_NAME.command"
+             success "Created macOS launcher on Desktop: $HOME/Desktop/$APP_NAME.command"
+        else
+             warn "No Desktop folder found, skipping shortcut creation."
+        fi
+        return
+    elif [[ "$OS" == "windows" ]]; then
+         warn "Desktop shortcut creation on Windows (Git Bash) is manual. Create a shortcut to 'scripts/tradebot.sh --gui'."
+         return
+    fi
+
+    # Linux .desktop file
     local DESKTOP_FILE="tradebot.desktop"
     local ICON_PATH="$ROOT_DIR/src/tradebot_sci/electron_gui/assets/icon.png"
     local EXEC_PATH="$ROOT_DIR/scripts/tradebot.sh --gui"

@@ -254,7 +254,7 @@ class SupplyDemandStrategy(BaseStrategy):
         # 1. Breakeven Stop (Move to entry if 1R reached)
         is_breakeven = False
         if direction == "long":
-            is_breakeven = current_stop >= entry_price
+            is_breakeven = current_stop >= (entry_price - 0.0001)
             if not is_breakeven and r_multiple >= 1.0:
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -266,7 +266,7 @@ class SupplyDemandStrategy(BaseStrategy):
                     management_instructions="Update Stop Loss"
                 )
         else: # short
-            is_breakeven = current_stop <= entry_price
+            is_breakeven = current_stop <= (entry_price + 0.0001)
             if not is_breakeven and r_multiple >= 1.0:
                  return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -278,8 +278,21 @@ class SupplyDemandStrategy(BaseStrategy):
                     management_instructions="Update Stop Loss"
                 )
 
+        # 2. Take Profit Check (Static Target)
+        tp_target = float(open_position.get("take_profit") or 0.0)
+        if tp_target > 0:
+            if (direction == "long" and current_price >= tp_target) or \
+               (direction == "short" and current_price <= tp_target):
+                return close_position_decision(
+                    snapshot.symbol, 
+                    snapshot.timeframe, 
+                    reason=f"SND: Take Profit Hit @ {tp_target:.4f}"
+                )
 
         return None
+
+
+
 
     def _find_base_zone(self, candles: list[Candle], bos) -> Optional[SNDZone]:
         """

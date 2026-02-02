@@ -485,8 +485,8 @@ def detect_indication(
             swing_high = recent[swing_idx].close
             # Check if any candle after this swing closed above it with CONVICTION
             # [ALGORITHMIC PRECISION] Noise Filter
-            atr = calculate_atr(recent, period=14) or 0.0001
-            conviction_buffer = atr * 0.05
+            atr = calculate_atr(recent, period=14)
+            conviction_buffer = (atr * 0.05) if atr is not None else 0.0
             
             for i in range(swing_idx + 1, len(recent)):
                 if recent[i].close > (swing_high + conviction_buffer):
@@ -500,8 +500,8 @@ def detect_indication(
             swing_low = recent[swing_idx].close
             # Check if any candle after this swing closed below it with CONVICTION
             # [ALGORITHMIC PRECISION] Noise Filter
-            atr = calculate_atr(recent, period=14) or 0.0001
-            conviction_buffer = atr * 0.05
+            atr = calculate_atr(recent, period=14)
+            conviction_buffer = (atr * 0.05) if atr is not None else 0.0
             
             for i in range(swing_idx + 1, len(recent)):
                 if recent[i].close < (swing_low - conviction_buffer):

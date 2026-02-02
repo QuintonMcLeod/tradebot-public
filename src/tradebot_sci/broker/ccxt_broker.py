@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable
@@ -614,24 +615,51 @@ class CCXTExchangeBroker:
 
             amount = 0.0
             found_types = []
-            for i, bal in enumerate(balances):
-                val = self._extract_balance_amount(bal, target_quote)
-                # Fallback: Check USDC if the target is USD and we have 0
-                if val <= 0 and target_quote == "USD":
-                    val = self._extract_balance_amount(bal, "USDC")
-                
-                # [ANTIGRAVITY FIX] Fallback: Check USD if target is USDC (Coinbase Collateral)
-                if val <= 0 and target_quote == "USDC":
-                    val = self._extract_balance_amount(bal, "USD")
-                
-                if val > 0:
-                    found_types.append(f"idx_{i}:${val:.2f}")
-                amount = max(amount, val)
             
-            if found_types:
-                logger.info(f"[CCXT] get_liquid_capital({symbol}) -> sources: {', '.join(found_types)} | winner=${amount:.2f}")
+            # [ANTIGRAVITY FIX] Multi-account aggregation for Gemini
+            account_types = ["exchange", "trading"] if self.exchange_id == "gemini" else [None]
+            
+            observed_amounts = []
+            for acc_type in account_types:
+                # [ANTIGRAVITY FIX] Nonce resync retry loop
+                for attempt in range(3):
+                    try:
+                        params = {"type": acc_type} if acc_type else {}
+                        bal = self.exchange.fetch_balance(params=params)
+                        val = self._extract_balance_amount(bal, target_quote)
+                        
+                        # Fallback: Check USDC if the target is USD and we have 0
+                        if val <= 0 and target_quote == "USD":
+                            val = self._extract_balance_amount(bal, "USDC")
+                        
+                        if val > 0:
+                            # [ANTIGRAVITY FIX] Deduplicate mirrored balances (common on Gemini)
+                            if any(abs(val - prev) < 0.01 for prev in observed_amounts):
+                                logger.debug(f"[CCXT] Gemini {acc_type} balance ${val:.2f} is a mirror of previous account; skipping.")
+                            else:
+                                amount += val
+                                observed_amounts.append(val)
+                                found_types.append(f"{acc_type or 'spot'}:${val:.2f}")
+                            
+                        break # Success, exit retry loop
+                    except Exception as e:
+                        if "Nonce" in str(e) and attempt < 2:
+                            logger.warning(f"[CCXT] Gemini Nonce collision on {acc_type}, retrying {attempt+1}/3...")
+                            time.sleep(1.0) # Explicitly wait for clock to clear
+                            continue
+                        if acc_type:
+                            logger.warning(f"[CCXT] fetch_balance({acc_type}) failed for {self.exchange_id}: {e}")
+                        if attempt == 2:
+                            logger.warning(f"[CCXT] fetch_balance({acc_type}) failed after retries: {e}")
+                        break
+            
+            if amount > 0:
+                 logger.info(f"[CCXT] get_liquid_capital({symbol}) -> sources: { ' | '.join(found_types)} | Cash=${amount:.2f}")
             else:
-                logger.debug(f"[CCXT] get_liquid_capital({symbol}) -> no {target_quote} (or USDC) found in {len(balances)} balance objects")
+                 # Fallback to default balance if specific types failed
+                 val = self._extract_balance_amount(balances[0] if balances else {}, target_quote)
+                 logger.info(f"[CCXT] get_liquid_capital({symbol}) -> default fallback: ${val:.2f}")
+                 return val
 
             # [ANTIGRAVITY FIX] Reset latch if we have funds
             if amount >= 1.10:
@@ -645,6 +673,48 @@ class CCXTExchangeBroker:
             logger.warning("[CCXT] get_liquid_capital failed: %s", exc)
             return 0.0
 
+    def get_total_balance_value(self) -> float:
+        """Return total Net Worth (Cash + Asset Value) in USD for display."""
+        try:
+            cash = self.get_liquid_capital(None) # Get strict cash first
+            asset_value = 0.0
+            
+            # Fetch fresh balance for assets
+            bal = self.exchange.fetch_balance()
+            if "total" in bal:
+                # logger.info(f"[CCXT] DEBUG Total Assets: {bal['total']}")
+                for curr, qty in bal["total"].items():
+                    qty = float(qty or 0)
+                    if qty > 0 and curr != "USD" and curr != "USDT" and curr != "USDC":
+                        # Try to get price
+                        ticker_sym = None
+                        if "gemini" in self.exchange_id:
+                            ticker_sym = f"{curr}/USD"
+                        elif "coinbase" in self.exchange_id:
+                            ticker_sym = f"{curr}/USD" 
+                        else:
+                            ticker_sym = f"{curr}/USD"
+
+                        # Quick ticker check
+                        px = 0.0
+                        try:
+                            # Use cached ticker if available
+                             t = self._safe_fetch_ticker(ticker_sym)
+                             if t and t.last:
+                                 px = float(t.last)
+                        except Exception:
+                            pass
+                        
+                        if px > 0:
+                            val = qty * px
+                            if val > 1.0:
+                                asset_value += val
+                                # logger.info(f"[CCXT] +Asset {curr}: {qty} * ${px:.2f} = ${val:.2f}")
+            
+            return cash + asset_value
+        except Exception as e:
+            logger.error(f"[CCXT] get_total_balance_value failed: {e}")
+            return self.get_liquid_capital(None)
 
     def update_position_metadata(self, symbol: str, snapshot) -> None:
         """Update trailing stop metadata for open positions."""
@@ -1386,12 +1456,21 @@ class CCXTExchangeBroker:
                                 limit_price = None
                                 stop_params = {"stopPrice": sl_price}
                                 
-                                if "coinbase" in self.exchange_id.lower():
+                                is_coinbase = "coinbase" in self.exchange_id.lower()
+                                is_gemini = "gemini" in self.exchange_id.lower()
+                                
+                                if is_coinbase or is_gemini:
                                     order_type = "limit"
+                                    # For stops, we want to be slightly beyond the stop price to guarantee fill if triggered
                                     raw_limit = sl_price * 0.95 if side == "sell" else sl_price * 1.05
                                     limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
-                                    stop_params["stop_price"] = self._exchange.price_to_precision(sym, sl_price)
-                                    stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if side == "sell" else "STOP_DIRECTION_STOP_UP"
+                                    
+                                    if is_coinbase:
+                                        stop_params["stop_price"] = self._exchange.price_to_precision(sym, sl_price)
+                                        stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if side == "sell" else "STOP_DIRECTION_STOP_UP"
+                                    else: # Gemini
+                                        stop_params["stopPrice"] = sl_price
+                                        stop_params["type"] = "stop-limit"
 
                                 stop_qty = float(self._exchange.amount_to_precision(sym, abs(state.get("position_shares"))))
                                 self._exchange.create_order(sym, order_type, side, stop_qty, limit_price, stop_params)
@@ -1533,6 +1612,14 @@ class CCXTExchangeBroker:
             if not api_key: api_key = os.getenv("KRAKEN_API_KEY")
             if not secret: secret = os.getenv("KRAKEN_API_SECRET")
             
+        # [ANTIGRAVITY FIX] Gemini Specific Credential Mapping
+        if "gemini" in self.exchange_id.lower():
+            # Always prefer specific Gemini keys if available, even if CCXT_API_KEY is set
+            gem_key = os.getenv("GEMINI_API_KEY")
+            if gem_key:
+                api_key = gem_key
+                secret = os.getenv("GEMINI_API_SECRET")
+
         options = {}
         # [ANTIGRAVITY FIX] Coinbase specific fix for market orders
         if "coinbase" in self.exchange_id.lower():
@@ -1561,6 +1648,19 @@ class CCXTExchangeBroker:
                 "options": options,
             }
         )
+        # [ANTIGRAVITY FIX] Gemini Nonce collision mitigation
+        if self.exchange_id == "gemini":
+            ex.milliseconds = lambda: int(time.time() * 1000)
+            # Use nanosecond resolution to absolutely prevent multi-instance collisions
+            def get_gemini_nonce():
+                curr = time.time_ns()
+                if not hasattr(ex, "_last_nonce"):
+                    ex._last_nonce = 0
+                if curr <= ex._last_nonce:
+                    curr = ex._last_nonce + 1
+                ex._last_nonce = curr
+                return curr
+            ex.nonce = get_gemini_nonce
         try:
             ex.load_markets()
         except Exception as e:

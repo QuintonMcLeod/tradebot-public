@@ -112,6 +112,9 @@ class StrategyEngine:
         elif v == "icc_core":
             from tradebot_sci.strategy.variants.icc_core import ICCCoreStrategy
             return ICCCoreStrategy()
+        elif v == "orb_breakout":
+            from tradebot_sci.strategy.variants.orb_breakout import ORBStrategy
+            return ORBStrategy()
         return None
 
     def score_icc_grade(self, snapshot: MarketSnapshot) -> tuple[float, str]:
@@ -176,15 +179,13 @@ class StrategyEngine:
             self.symbol, 
             timeframe, 
             current_capital_val,
-            latest_snapshot
+            latest_snapshot,
+            ai_client=self.ai_client
         )
 
         # [WEALTH MODE] Register current positions for House Money checks
-        if open_position and isinstance(open_position, dict):
-            SafetyGuard.set_current_positions([open_position]) 
-            # In a real multi-symbol setup, we'd pass ALL positions from the cycle.
-            # But for per-engine logic, we pass self.
-        
+        # [SMART POSITIONS FIX] Use the global registry to track across Forex & Crypto
+        SafetyGuard.update_position(self.symbol, open_position)
         if safety_decision:
             logger.info(f"[SAFETY] Blocked {self.symbol}: {safety_decision.notes}")
             return safety_decision
@@ -214,7 +215,7 @@ class StrategyEngine:
             logger.info(f" [META-SCI] Executing Ensemble Pulse for {self.symbol}...")
             
             # 1. Load sub-strategies
-            strats_to_run = ["supply_demand", "robocop", "evolution", "london_breakout", "rubberband_reaper", "icc_core"]
+            strats_to_run = ["supply_demand", "robocop", "evolution", "london_breakout", "orb_breakout", "rubberband_reaper", "icc_core"]
             exclude = getattr(self.profile, 'meta_sci_exclude_list', [])
             consensus_needed = getattr(self.profile, 'meta_sci_min_consensus', 1)
             
@@ -248,8 +249,25 @@ class StrategyEngine:
                 
                 if winner:
                    logger.info(f" [META-SCI] Winner Selected: {winner.gates.get('meta_source').upper()} with score {winner.score or 'N/A'}")
-                   decision = winner
-                   # Proceed to safety augmentation below
+                   from tradebot_sci.strategy.safety_guard import SafetyGuard
+                   
+                   # [META-SCI FIX] Ensure the high confidence score from the winner is propagated
+                   # to the final decision so the UI (Decisions Panel) reflects the actual strength.
+                   winner_score = winner.score if winner.score is not None else score
+                   winner_grade = winner.grade if winner.grade is not None else grade
+                   
+                   final_decision = SafetyGuard.augment_entry_decision(
+                       winner, 
+                       winner_score, 
+                       gates.get("htf_strength", 0.0), 
+                       snapshot,
+                       ai_client=self.ai_client
+                   )
+                   # Force the winning score and grade into the final augmented decision
+                   final_decision.score = winner_score
+                   final_decision.grade = winner_grade
+                   final_decision.notes = (final_decision.notes or "") + f" | [WINNER: {winner.gates.get('meta_source').upper()}]"
+                   return final_decision
                 else:
                    from tradebot_sci.strategy.decisions import stand_aside_decision
                    return stand_aside_decision(snapshot.symbol, timeframe, f"Meta-SCI Consensus Not Met ({len(signals)} sigs vs {consensus_needed} needed)")
@@ -333,9 +351,8 @@ class StrategyEngine:
                             logger.info(f"[DAMPER] Capping {self.symbol} risk from {old_risk} to 0.0025 due to Friday afternoon liquidity.")
 
                 if UserConfig.SMART_POSITIONS_ENABLED:
-                    caps = execution_capabilities or {}
-                    pnl = caps.get("total_unrealized_pnl", 0.0)
-                    pos_count = caps.get("open_position_count", 0)
+                    # [ANTIGRAVITY FIX] Use Global Aggregation across all Brokers (Forex + Crypto)
+                    pnl, pos_count = SafetyGuard.get_financed_risk_stats()
 
                     # If we have no positions open, we allow the first trade to start the cycle
                     if pos_count == 0:
@@ -355,7 +372,7 @@ class StrategyEngine:
                     if pnl < risk_amt:
                         logger.info(f"[SMART_POSITIONS] Blocked {decision.action} on {self.symbol}. Global PnL (${pnl:.2f}) < New Risk (${risk_amt:.2f})")
                         from tradebot_sci.strategy.decisions import stand_aside_decision
-                        decision = stand_aside_decision(snapshot.symbol, timeframe, f"[SMART] Financing Required: PnL ${pnl:.2f} < Risk ${risk_amt:.2f}")
+                        decision = stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"[SMART] Financing Required: PnL ${pnl:.2f} < Risk ${risk_amt:.2f}")
                         decision.score = score
                         decision.grade = grade
                         return decision

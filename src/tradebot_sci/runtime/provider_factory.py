@@ -187,7 +187,7 @@ class RoutedExchangeBroker(IExchangeBroker):
             if hasattr(b, "refresh_account_summary"):
                 b.refresh_account_summary()
         # [ANTIGRAVITY] Log aggregated total so UI stays in sync after individual refreshes
-        self.get_liquid_capital()
+        self.get_total_balance_value()
 
     def summarize_pnl(self) -> None:
         unique_brokers = set(b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker))
@@ -203,11 +203,31 @@ class RoutedExchangeBroker(IExchangeBroker):
         unique_brokers = set(b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker))
         for b in unique_brokers:
             if hasattr(b, "get_liquid_capital"):
+                b_cap = b.get_liquid_capital()
+                logger.debug(f"[ROUTED] Broker {type(b).__name__} contributed ${b_cap:.2f}")
+                total += b_cap
+        
+        # [ANTIGRAVITY] Log for internal awareness (not UI aggregate)
+        logger.info(f"[CASH] Buying Power: ${total:.2f}")
+        logger.debug("[ROUTED] Total Cash Breakdown completed: %.2f", total)
+        return total
+
+    def get_total_balance_value(self) -> float:
+        """Return aggregated Net Worth (Cash + Assets) across all brokers."""
+        total = 0.0
+        unique_brokers = set(b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker))
+        for b in unique_brokers:
+            if hasattr(b, "get_total_balance_value"):
+                val = b.get_total_balance_value()
+                logger.debug(f"[ROUTED] Broker {type(b).__name__} equity: ${val:.2f}")
+                total += val
+            elif hasattr(b, "get_liquid_capital"):
+                # Fallback to cash if equity method missing
                 total += b.get_liquid_capital()
         
         # [ANTIGRAVITY] Authoritative Total Log for UI
         logger.info(f"[TOTAL] Liquidity available: ${total:.2f}")
-        logger.debug("[ROUTED] Total Capital Breakdown completed: %.2f", total)
+        logger.debug("[ROUTED] Total Equity Breakdown completed: %.2f", total)
         return total
 
 
@@ -508,15 +528,8 @@ def build_exchange_broker(
         def get_b(mode, asset_class=None):
             if mode in cache: return cache[mode]
             
-            # Optimization: If we have allowed_symbols, check if this broker is actually needed
-            if allowed_symbols and asset_class:
-                has_class = any(_get_asset_key(s) == asset_class for s in allowed_symbols)
-                if not has_class:
-                    logger.debug(f"[ROUTED-EXEC] Skipping {asset_class} broker ({mode}) - no symbols assigned.")
-                    from tradebot_sci.broker.interfaces import NoOpExchangeBroker
-                    cache[mode] = NoOpExchangeBroker()
-                    return cache[mode]
-
+            # [ANTIGRAVITY FIX] Don't skip broker instantiation based on allowed_symbols
+            # We need them for get_liquid_capital even if no symbols match this cycle.
             b = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols)
             if b: cache[mode] = b
             return b

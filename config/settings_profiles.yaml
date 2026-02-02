@@ -68,6 +68,11 @@ profiles:
     - BTCUSD
     - ETHUSD
     - SOLUSD
+    - XRPUSD
+    - LINKUSD
+    - LTCUSD
+    - DOGEUSD
+    - SOLUSD
     strategies:
       crypto: supply_demand
       forex: rubberband_reaper
@@ -245,6 +250,11 @@ profiles:
     - ETHUSD
     - SOLUSD
     - XRPUSD
+    - LINKUSD
+    - LTCUSD
+    - DOGEUSD
+    - SOLUSD
+    - XRPUSD
     - ZECUSD
     - BCHUSD
     strategies:
@@ -334,6 +344,11 @@ profiles:
     - ETHUSD
     - SOLUSD
     - XRPUSD
+    - LINKUSD
+    - LTCUSD
+    - DOGEUSD
+    - SOLUSD
+    - XRPUSD
     - ZECUSD
     - BCHUSD
     - EURUSD
@@ -390,6 +405,11 @@ profiles:
     symbols:
     - BTCUSD
     - ETHUSD
+    - SOLUSD
+    - XRPUSD
+    - LINKUSD
+    - LTCUSD
+    - DOGEUSD
     - LTCUSD
     - BCHUSD
     - XRPUSD
@@ -444,8 +464,8 @@ profiles:
     auto_schedule_enabled: true
     sabbath_enabled: true
     sabbath_timezone: America/New_York
-    sabbath_start_local: "18:00"
-    sabbath_end_local: "18:00"
+    sabbath_start_local: 18:00
+    sabbath_end_local: 18:00
     session_gate_enabled: false
     multi_position_enabled: false
     pair_selector_enabled: true
@@ -528,9 +548,28 @@ profiles:
     multi_position_enabled: true
   forex_crypto_hybrid:
     symbols:
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+    - AUDUSD
+    - USDCAD
+    - USDCHF
+    - NZDUSD
+    - GBPJPY
+    - EURJPY
+    - AUDJPY
+    - BTCUSD
+    - ETHUSD
+    - SOLUSD
+    - XRPUSD
+    - LINKUSD
+    - LTCUSD
+    - DOGEUSD
+    - ZECUSD
+    - BCHUSD
     strategies:
-      crypto: supply_demand
-      forex: supply_demand
+      crypto: orb_breakout
+      forex: orb_breakout
     strategy_variant: aggregator
     candle_timeframe: 15m
     htf_timeframe: 15m
@@ -548,3 +587,4 @@ profiles:
     multi_position_enabled: true
     max_pyramid_entries: 4
     sabbath_enabled: true
+    crypto_only: false

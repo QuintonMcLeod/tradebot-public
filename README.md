@@ -90,18 +90,27 @@ Before you clone anything, ensure you have:
 
 ---
 
-## 2. One-Click Installation (Recommended)
+## 2. Installation (Multi-Platform)
 
-The easiest way to get started is using our universal installer. It handles all system dependencies, Python, Node.js, and even creates a **Desktop Shortcut** for one-click access.
+The easiest way to get started is using our **Universal Installer**. It handles system dependencies, Python environment, Node.js, and creating shortcuts.
 
+### 🐧 Linux (Ubuntu, Debian, Fedora, Arch) & 🍎 macOS
 ```bash
 git clone https://gitlab.com/ultraedge/tradebot-public.git
 cd tradebot-public
 chmod +x scripts/install.sh && ./scripts/install.sh
 ```
+> **macOS Note**: The installer uses Homebrew (`brew`) to install dependencies and creates a clickable `.command` launcher on your Desktop.
+
+### 🪟 Windows (WSL 2 or Git Bash)
+1. **Recommended**: Run via **WSL 2** (Ubuntu) and follow the Linux instructions above. This provides the best stability.
+2. **Native (Git Bash)**:
+   - Install **Python 3.11+**, **Node.js 20+**, and **Git** manually.
+   - Run `./scripts/install.sh` in Git Bash to set up the environment.
+   - Launch via `./scripts/tradebot.sh --gui`.
 
 > [!TIP]
-> Once finished, you can launch the bot directly from your **Applications Menu** or **Desktop**!
+> Once installed, you can launch the dashboard using the Desktop Shortcut (Linux/Mac) or by running `./scripts/tradebot.sh --gui`.
 
 ### Manual Configuration (Advanced)
 If you prefer to set up manually, please refer to the [Legacy Installation Guide](Documentation/installation_manual.md) (or use `poetry install --with gui`).

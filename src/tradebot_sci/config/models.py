@@ -4,7 +4,7 @@ import os
 from functools import lru_cache
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field, HttpUrl, NonNegativeInt, PositiveInt
+from pydantic import BaseModel, Field, HttpUrl, NonNegativeInt, PositiveInt, field_validator
 from tradebot_sci.config.broker import BrokerSettings, OandaSettings, PaxosSettings, KrakenSettings
 
 
@@ -532,14 +532,24 @@ class TradingProfileSettings(BaseModel):
         default="America/New_York",
         description="Timezone used to compute Sabbath start/end hours",
     )
-    sabbath_start_local: str = Field(
+    sabbath_start_local: Any = Field(
         default="18:00",
         description="Local time (HH:MM) when Sabbath entry blocks start on Friday",
     )
-    sabbath_end_local: str = Field(
+    sabbath_end_local: Any = Field(
         default="18:00",
         description="Local time (HH:MM) when Sabbath entry blocks end on Saturday",
     )
+
+    @field_validator("sabbath_start_local", "sabbath_end_local", mode="before")
+    @classmethod
+    def validate_sabbath_time(cls, v: Any) -> str:
+        if isinstance(v, int):
+            # YAML parses "18:00" as 1080 (18 * 60)
+            hours = v // 60
+            minutes = v % 60
+            return f"{hours:02d}:{minutes:02d}"
+        return str(v)
     sabbath_lat: float | None = Field(
         default=None,
         description="Optional latitude for astronomical Sabbath calculations",
@@ -694,8 +704,17 @@ class AppSettings(BaseModel):
 
 class ScheduleSession(BaseModel):
     name: str
-    start: str  # "HH:MM"
-    end: str    # "HH:MM"
+    start: Any  # "HH:MM"
+    end: Any    # "HH:MM"
+
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def validate_time_string(cls, v: Any) -> str:
+        if isinstance(v, int):
+            hours = v // 60
+            minutes = v % 60
+            return f"{hours:02d}:{minutes:02d}"
+        return str(v)
 
 
 class ScheduleSettings(BaseModel):
@@ -833,6 +852,10 @@ class RuntimeSettings(BaseModel):
     friday_fade_enabled: bool = Field(
         default_factory=lambda: os.getenv("FRIDAY_FADE_ENABLED", "True").lower() == "true",
         description="Global safety: Drops Forex risk to 0.25% after 12PM EST on Fridays."
+    )
+    gui_capital_display_mode: Literal["equity", "cash"] = Field(
+        default_factory=lambda: os.getenv("GUI_CAPITAL_DISPLAY_MODE", "equity"),
+        description="Dashboard display preference: 'equity' for total net worth, 'cash' for buying power."
     )
 
 

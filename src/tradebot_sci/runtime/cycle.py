@@ -282,8 +282,8 @@ def process_candidate_cycle(
                     success_symbol = symbol
                     if stop_after_submit:
                         break
-        except Exception as e:
-            logger.error(f"[CYCLE] Fatal error processing {symbol}: {e}")
+        except Exception:
+            logger.exception(f"[CYCLE] Fatal error processing {symbol}")
             continue
 
     return success_symbol, attempts, blocked, skipped
