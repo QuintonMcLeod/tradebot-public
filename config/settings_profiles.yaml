@@ -568,9 +568,13 @@ profiles:
     - ZECUSD
     - BCHUSD
     strategies:
-      crypto: orb_breakout
-      forex: orb_breakout
-    strategy_variant: aggregator
+      crypto: meta_sci
+      forex: meta_sci
+      stocks: meta_sci
+      etf: meta_sci
+      metals: meta_sci
+      futures: meta_sci
+    strategy_variant: meta_sci
     candle_timeframe: 15m
     htf_timeframe: 15m
     ltf_timeframe: 5m

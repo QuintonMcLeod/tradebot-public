@@ -57,6 +57,7 @@ rsync -av --delete \
     --exclude='.git*' \
     --exclude='__pycache__' \
     --exclude='.venv' \
+    --include='.env.example' \
     --exclude='.env*' \
     --exclude='node_modules/' \
     --exclude='config/broker_*.yaml' \
