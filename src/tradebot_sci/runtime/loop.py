@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from tradebot_sci.ai.client import TradeSciAIClient
 from tradebot_sci.broker.execution import ExecutionOutcomeType, ExecutionResult, ExecutionStatus
-from tradebot_sci.config.loader import get_settings
+from tradebot_sci.config.loader import get_settings, reload_settings
 from tradebot_sci.config.models import Settings
 from tradebot_sci.logging.setup import setup_logging
 from tradebot_sci.market.models import MarketSnapshot
@@ -582,8 +582,62 @@ def run_bot(
     consecutive_error_iterations = 0
     loop_iter = itertools.count() if iterations is None else range(iterations)
     start_ts = time.time()
+    
+    # [ANTIGRAVITY] Hot-Reload State
+    from pathlib import Path
+    config_path = Path("config/settings_profiles.yaml")
+    last_config_mtime = config_path.stat().st_mtime if config_path.exists() else 0
+    
     try:
         for _ in loop_iter:
+            # [ANTIGRAVITY] Hot-Reload Check
+            try:
+                if config_path.exists():
+                    current_mtime = config_path.stat().st_mtime
+                    if current_mtime > last_config_mtime:
+                        last_config_mtime = current_mtime
+                        logger.info("[HOT-RELOAD] Detected configuration change. Reloading...")
+                        
+                        # 1. Reload Settings
+                        settings = reload_settings()
+                        
+                        # 2. Update Profile & Context
+                        # We assume the profile name doesn't change mid-stream, just its content
+                        profile_settings = settings.get_active_profile()
+                        controller.settings = settings
+                        controller.profile_settings = profile_settings
+                        
+                        # 3. Resolve New Symbols
+                        new_symbols = _resolve_symbol_universe(settings, profile_settings, profile_name)
+                        
+                        # 4. Update Engine Map
+                        # Add new symbols
+                        for sym in new_symbols:
+                            if sym not in engines:
+                                logger.info(f"[HOT-RELOAD] Initializing engine for NEW symbol: {sym}")
+                                engines[sym] = StrategyEngine(
+                                    ai_client=ai_client,
+                                    market_provider=provider,
+                                    profile=profile_settings,
+                                    symbol=sym,
+                                    trade_results=trade_results,
+                                )
+                        
+                        # Remove dropped symbols (optional, but good for cleanup)
+                        current_keys = list(engines.keys())
+                        for sym in current_keys:
+                            if sym not in new_symbols:
+                                logger.info(f"[HOT-RELOAD] Removing engine for DROPPED symbol: {sym}")
+                                del engines[sym]
+                                
+                        symbols = new_symbols
+                        
+                        # 5. Broadcast new state to UI
+                        controller.broadcast_state(executor, force=True)
+                        logger.info(f"[HOT-RELOAD] Complete. Active symbols: {len(symbols)}")
+            except Exception as e:
+                logger.error(f"[HOT-RELOAD] Failed to reload settings: {e}")
+
             # [ANTIGRAVITY] Check for Halt Signal
             if controller.is_halted():
                 logger.debug("[LOOP] Bot is HALTED via signal. Waiting...")

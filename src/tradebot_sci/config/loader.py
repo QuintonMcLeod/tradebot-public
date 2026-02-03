@@ -152,3 +152,9 @@ def load_settings() -> Settings:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return load_settings()
+
+def reload_settings() -> Settings:
+    """Forces a reload of settings from disk (clears cache)."""
+    get_settings.cache_clear()
+    logger.info("[CONFIG] Reloading settings from disk...")
+    return get_settings()
