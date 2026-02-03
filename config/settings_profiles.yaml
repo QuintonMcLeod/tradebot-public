@@ -571,7 +571,7 @@ profiles:
     - COMPUSD
     - MATICUSD
     strategies:
-      crypto: meta_sci
+      crypto: supply_demand
       forex: meta_sci
       stocks: meta_sci
       etf: meta_sci
