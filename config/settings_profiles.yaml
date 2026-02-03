@@ -567,6 +567,9 @@ profiles:
     - DOGEUSD
     - ZECUSD
     - BCHUSD
+    - AAVEUSD
+    - COMPUSD
+    - MATICUSD
     strategies:
       crypto: meta_sci
       forex: meta_sci
