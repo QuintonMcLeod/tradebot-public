@@ -50,6 +50,10 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 try {
+    # Fix Working Directory (Admin elevation defaults to System32)
+    # We want to be in the project root (one level up from scripts/)
+    Set-Location -Path "$PSScriptRoot\.."
+    
     Write-Header "Tradebot SCI - Windows Auto-Installer"
 
     # 2. Check/Install Python 3.12
