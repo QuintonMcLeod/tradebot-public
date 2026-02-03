@@ -172,10 +172,27 @@ try {
     $BashPath = Get-Command "bash.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
 
     $BatFile = "$env:USERPROFILE\Desktop\Tradebot SCI.bat"
-    $Content = "@echo off`r`ncd /d `"$WinDir`"`r`nbash scripts/tradebot.sh --gui`r`npause"
+    
+    # Logic: Tradebot GUI on Windows is launched via npm start in the electron_gui folder
+    # This matches scripts/tradebot.sh --gui behavior
+    $Content = "@echo off`r`n"
+    $Content += "cd /d `"$WinDir`"`r`n"
+    
     if (-not $BashPath) {
-        # If no git bash, try simple python launch
-        $Content = "@echo off`r`ncd /d `"$WinDir`"`r`ncall .venv\Scripts\activate`r`npython -m tradebot_sci --mode gui`r`npause"
+        # Native Windows Launch (No Git Bash)
+        # We need to go into the electron folder and run npm start
+        # npm start will invoke the python backend internally
+        $Content += "cd src\tradebot_sci\electron_gui`r`n"
+        $Content += "npm start`r`n"
+        $Content += "if %errorlevel% neq 0 (`r`n"
+        $Content += "  echo GUI Launch Failed. Installing dependencies...`r`n"
+        $Content += "  npm install && npm start`r`n"
+        $Content += ")`r`n"
+        $Content += "pause"
+    } else {
+        # Git Bash Launch (Preferred if available)
+        $Content += "bash scripts/tradebot.sh --gui`r`n"
+        $Content += "pause"
     }
 
     Set-Content -Path $BatFile -Value $Content
