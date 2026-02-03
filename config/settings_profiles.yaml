@@ -571,17 +571,17 @@ profiles:
     - COMPUSD
     - MATICUSD
     strategies:
-      crypto: supply_demand
+      crypto: meta_sci
       forex: meta_sci
       stocks: meta_sci
       etf: meta_sci
       metals: meta_sci
       futures: meta_sci
     strategy_variant: meta_sci
-    candle_timeframe: 15m
+    candle_timeframe: 5m
     htf_timeframe: 15m
     ltf_timeframe: 5m
-    market_poll_interval_seconds: 15
+    market_poll_interval_seconds: 5
     ai_decision_interval_seconds: 60
     trend_window: 12
     ltf_trend_window: 8
