@@ -114,7 +114,40 @@ class MetaSCIStrategy(BaseStrategy):
             if name in exclude_list: continue
             
             try:
-                sig = strat.check_entry_signal(snapshot, gates, open_position, current_capital, trade_history)
+                # [ANTIGRAVITY FIX] Multi-Timeframe Routing
+                # Route specific candle sets based on strategy preference.
+                # RoboCop/Scalpers -> LTF (5m)
+                # SupplyDemand/Swing -> HTF (15m)
+                
+                strat_snap = snapshot # Default
+                
+                # Check for cached dedicated snapshots or create them on fly
+                if name in ("robocop", "hyper_scalper", "orb_breakout"):
+                    # These WANT the fast timeframe (LTF)
+                    # The main loop snapshot IS ltf_candles by default (since we set candle_tf=5m)
+                    # So we use it as is.
+                    pass
+                    
+                elif name in ("supply_demand", "mean_reversion"):
+                    # These WANT the slow timeframe (HTF - 15m)
+                    # We must verify we have HTF candles
+                    if snapshot.htf_candles and len(snapshot.htf_candles) > 10:
+                        # Construct a proxy snapshot for the definition of "candles"
+                        # We keep trend_htf/ltf as is for context
+                        strat_snap = MarketSnapshot(
+                            symbol=snapshot.symbol,
+                            timeframe=snapshot.htf_timeframe, # 15m
+                            candles=snapshot.htf_candles,     # 15m data
+                            trend_htf=snapshot.trend_htf,
+                            trend_ltf=snapshot.trend_ltf,
+                            htf_candles=snapshot.htf_candles,
+                            ltf_candles=snapshot.ltf_candles,
+                            htf_timeframe=snapshot.htf_timeframe,
+                            ltf_timeframe=snapshot.ltf_timeframe,
+                        )
+                        # logger.debug(f"[META-TF] Routing HTF ({snapshot.htf_timeframe}) to {name}")
+
+                sig = strat.check_entry_signal(strat_snap, gates, open_position, current_capital, trade_history)
                 if sig and sig.action in ("enter_long", "enter_short"):
                     sig.gates = sig.gates or {}
                     sig.gates["meta_source"] = name
