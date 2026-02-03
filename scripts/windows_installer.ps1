@@ -144,7 +144,7 @@ try {
     }
 
     # Install Dependencies
-    Write-Info "Installing Dependencies via Poetry..."
+    Write-Info "Installing Python Dependencies via Poetry..."
     $Poetry = Get-Command "poetry" -ErrorAction SilentlyContinue
     if ($Poetry) {
         poetry install --with gui
@@ -163,6 +163,21 @@ try {
             }
         }
     }
+
+    # Install GUI Dependencies (NPM) - CRITICAL FOR ELECTRON
+    Write-Info "Installing GUI Dependencies (npm)..."
+    Push-Location "src/tradebot_sci/electron_gui"
+    try {
+        if (Get-Command "npm" -ErrorAction SilentlyContinue) {
+             # /c /q makes it a bit quieter, but we want to see errors if any
+             Start-Process "npm.cmd" -ArgumentList "install" -NoNewWindow -Wait
+        } else {
+             Write-ErrorMsg "npm not found! GUI will not work."
+        }
+    } catch {
+        Write-ErrorMsg "Failed to run npm install: $($_.Exception.Message)"
+    }
+    Pop-Location
 
     # 5. Create Launch Script & Shortcut
     Write-Header "Creating Shortcuts..."
