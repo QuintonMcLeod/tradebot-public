@@ -1196,8 +1196,8 @@ function renderStrategyTab(container) {
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Trailing Stop', 'trending_down'));
 
-        section.appendChild(createCard('trailing_stop_enabled', 'Enable trailing stop logic', 'TRAILING_STOP_ENABLED', 'toggle'));
-        section.appendChild(createCard('risk_reward_ratio', 'Target Reward Ratio (e.g. 2.0 = 2x Risk)', 'RISK_REWARD_RATIO', 'input', {
+        section.appendChild(createCard('The "Greedy Exit" (Trailing Stop)', 'Enable trailing stop logic', 'TRAILING_STOP_ENABLED', 'toggle'));
+        section.appendChild(createCard('The "Sniper Target" (Hard Take Profit)', 'Target Reward Ratio (e.g. 2.0 = 2x Risk)', 'RISK_REWARD_RATIO', 'input', {
             number: true,
             placeholder: '2.0',
             default: '2.0'
@@ -1613,7 +1613,7 @@ function renderSafetyTab(container) {
 
     section.appendChild(createCard('Staircase Floor', 'Principle Protection via No-Body-Close zones', 'SAFETY_FLOOR_ENABLED', 'toggle'));
     section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle'));
-    section.appendChild(createCard('breakeven_trail_pct', 'Lock Risk-Free at this profit level (e.g. 0.003 = 0.3%)', 'BREAKEVEN_TRAIL_PCT', 'input', {
+    section.appendChild(createCard('The "Lock-In" (Breakeven Trail)', 'Lock Risk-Free at this profit level (e.g. 0.003 = 0.3%)', 'BREAKEVEN_TRAIL_PCT', 'input', {
         number: true,
         placeholder: '0.003',
         default: '0.003',
