@@ -1196,8 +1196,13 @@ function renderStrategyTab(container) {
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Trailing Stop', 'trending_down'));
 
-        section.appendChild(createCard('Trailing Stop Enabled', 'Enable trailing stop logic', 'TRAILING_STOP_ENABLED', 'toggle'));
-        section.appendChild(createCard('Min Profit to Trail', 'Activate at this profit %', 'TRAILING_STOP_MIN_PROFIT_PCT', 'input', { number: true, default: '1.0', min: 0, max: 10, step: 0.5 }));
+        section.appendChild(createCard('trailing_stop_enabled', 'Enable trailing stop logic', 'TRAILING_STOP_ENABLED', 'toggle'));
+        section.appendChild(createCard('risk_reward_ratio', 'Target Reward Ratio (e.g. 2.0 = 2x Risk)', 'RISK_REWARD_RATIO', 'input', {
+            number: true,
+            placeholder: '2.0',
+            default: '2.0'
+        }));
+        section.appendChild(createCard('Trailing Stop Min Profit %', 'Min profit to activate trail', 'TRAILING_STOP_MIN_PROFIT_PCT', 'input', { number: true, default: '1.0', min: 0, max: 10, step: 0.5 }));
         section.appendChild(createCard('Stop ATR Multiplier', 'Distance from structure', 'STOP_ATR_MULTIPLIER', 'input', { number: true, default: '1.5', min: 0.5, max: 3, step: 0.1 }));
 
         section.appendChild(createDivider());
@@ -1608,7 +1613,7 @@ function renderSafetyTab(container) {
 
     section.appendChild(createCard('Staircase Floor', 'Principle Protection via No-Body-Close zones', 'SAFETY_FLOOR_ENABLED', 'toggle'));
     section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle'));
-    section.appendChild(createCard('Breakeven Trail %', 'Lock Risk-Free at this profit level (e.g. 0.003 = 0.3%)', 'BREAKEVEN_TRAIL_PCT', 'input', {
+    section.appendChild(createCard('breakeven_trail_pct', 'Lock Risk-Free at this profit level (e.g. 0.003 = 0.3%)', 'BREAKEVEN_TRAIL_PCT', 'input', {
         number: true,
         placeholder: '0.003',
         default: '0.003',
