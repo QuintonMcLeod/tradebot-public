@@ -164,39 +164,59 @@ try {
         }
     }
 
-    # 5. Create Shortcut
+    # 5. Create Launch Script & Shortcut
     Write-Header "Creating Shortcuts..."
 
-    $TargetScript = "$PWD\scripts\tradebot.sh"
     $WinDir = "$PWD".Replace("/", "\")
     $BashPath = Get-Command "bash.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-
-    $BatFile = "$env:USERPROFILE\Desktop\Tradebot SCI.bat"
     
-    # Logic: Tradebot GUI on Windows is launched via npm start in the electron_gui folder
-    # This matches scripts/tradebot.sh --gui behavior
+    # 5a. Create launch_windows.bat in scripts folder (not desktop)
+    $LauncherBat = "$PWD\scripts\launch_windows.bat"
+    
     $Content = "@echo off`r`n"
     $Content += "cd /d `"$WinDir`"`r`n"
     
     if (-not $BashPath) {
-        # Native Windows Launch (No Git Bash)
-        # We need to go into the electron folder and run npm start
-        # npm start will invoke the python backend internally
+        # Native Windows Launch
         $Content += "cd src\tradebot_sci\electron_gui`r`n"
         $Content += "npm start`r`n"
         $Content += "if %errorlevel% neq 0 (`r`n"
         $Content += "  echo GUI Launch Failed. Installing dependencies...`r`n"
         $Content += "  npm install && npm start`r`n"
         $Content += ")`r`n"
-        $Content += "pause"
     } else {
-        # Git Bash Launch (Preferred if available)
+        # Git Bash Launch
         $Content += "bash scripts/tradebot.sh --gui`r`n"
-        $Content += "pause"
     }
+    # Pause only on error
+    $Content += "if %errorlevel% neq 0 pause`r`n"
 
-    Set-Content -Path $BatFile -Value $Content
-    Write-Success "Shortcut created on Desktop: $BatFile"
+    Set-Content -Path $LauncherBat -Value $Content
+    Write-Success "Created Launcher Script: $LauncherBat"
+
+    # 5b. Create proper .lnk Shortcut on Desktop
+    $DesktopPath = [Environment]::GetFolderPath("Desktop")
+    $ShortcutFile = "$DesktopPath\Tradebot SCI.lnk"
+    
+    $WScriptShell = New-Object -ComObject WScript.Shell
+    $Shortcut = $WScriptShell.CreateShortcut($ShortcutFile)
+    
+    # Target is the batch file
+    $Shortcut.TargetPath = $LauncherBat
+    $Shortcut.WorkingDirectory = $WinDir
+    $Shortcut.Description = "Launch Tradebot SCI"
+    
+    # Icon: Try to use the PNG (might work on Win10/11) or fallback to node
+    # Note: Windows .lnk usually wants .ico or .exe. 
+    # We point to icon.png knowing it might not render perfectly for everyone, 
+    # but it's what exists.
+    $IconPath = "$WinDir\src\tradebot_sci\electron_gui\assets\icon.png"
+    if (Test-Path $IconPath) {
+        $Shortcut.IconLocation = $IconPath
+    }
+    
+    $Shortcut.Save()
+    Write-Success "Shortcut created on Desktop: $ShortcutFile"
 
     # 6. Setup .env
     if (-not (Test-Path ".env")) {
