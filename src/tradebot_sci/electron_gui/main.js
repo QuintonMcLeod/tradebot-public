@@ -236,43 +236,60 @@ function createWindow() {
 
     ipcMain.on('start-bot', () => {
         console.log('[MAIN] Start signal received.');
-        const scriptPath = path.join(__dirname, '../../../scripts/tradebot.sh');
 
-        // Check if already running
-        exec('pgrep -f run_dev_bot.py', (err, stdout) => {
-            if (stdout && stdout.trim().length > 0) {
-                console.log('[MAIN] Bot already running. Ignoring start command.');
-                return;
-            }
-            console.log(`[MAIN] No existing process found. Starting bot via ${scriptPath}...`);
-            exec(`bash "${scriptPath}" --daemon`, (error) => {
-                if (error) console.error(`[MAIN] Start error: ${error}`);
-                // Check status immediately after start attempt
-                setTimeout(() => checkBotStatus(mainWindow, true), 1000);
-            });
+        // Define Command based on OS
+        let spawnCmd = '';
+        if (isWindows()) {
+            // Windows: Use python directly from root
+            // We assume 'python' is in PATH or .venv is active in this session (unlikely in GUI spawn)
+            // Best bet: Try ".venv\Scripts\python" then "python"
+            const venvPy = path.join(__dirname, '../../../.venv/Scripts/python.exe');
+            const targetScript = "tradebot_sci.runtime.controller"; // Module execution
+
+            // Note: We need to set cwd to project root for module import to work
+            const projectRoot = path.join(__dirname, '../../../');
+
+            const pyExe = fs.existsSync(venvPy) ? `"${venvPy}"` : "python";
+
+            // Construct command: python -m tradebot_sci.runtime.controller --daemon
+            spawnCmd = `cd /d "${projectRoot}" && ${pyExe} -m ${targetScript} --daemon`;
+        } else {
+            const scriptPath = path.join(__dirname, '../../../scripts/tradebot.sh');
+            spawnCmd = `bash "${scriptPath}" --daemon`;
+        }
+
+        // Check status first
+        checkBotStatus(null, true); // Update state internally
+        if (botRunning) {
+            console.log('[MAIN] Bot seems running. Ignoring start.');
+            return;
+        }
+
+        console.log(`[MAIN] Starting bot with: ${spawnCmd}`);
+        exec(spawnCmd, (error) => {
+            if (error) console.error(`[MAIN] Start error: ${error}`);
+            setTimeout(() => checkBotStatus(mainWindow, true), 2000);
         });
     });
 
     ipcMain.on('stop-bot', () => {
         console.log('[MAIN] Stopping bot...');
-        exec('pkill -f run_dev_bot.py', (error) => {
-            // pkill returns 1 if no process found, which is fine
-            if (error && error.code !== 1) console.error(`[MAIN] Stop error: ${error}`);
+        const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f run_dev_bot.py';
+
+        exec(cmd, (error) => {
+            if (error && error.code !== 1 && error.code !== 128) console.error(`[MAIN] Stop error: ${error}`);
             setTimeout(() => checkBotStatus(mainWindow, true), 1000);
         });
     });
 
     ipcMain.on('restart-bot', () => {
-        console.log('[MAIN] Restarting bot (Workflow: Kill -> Wait -> Start)...');
-        const scriptPath = path.join(__dirname, '../../../scripts/tradebot.sh');
+        console.log('[MAIN] Restarting bot...');
+        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f run_dev_bot.py';
 
-        exec('pkill -f run_dev_bot.py', () => {
-            // Wait 2 seconds for clean shutdown
+        exec(killCmd, () => {
             setTimeout(() => {
-                exec(`bash "${scriptPath}" --daemon`, (error) => {
-                    if (error) console.error(`[MAIN] Restart-Start error: ${error}`);
-                    checkBotStatus(mainWindow, true);
-                });
+                // Re-trigger start logic
+                ipcMain.emit('start-bot');
             }, 2000);
         });
     });
