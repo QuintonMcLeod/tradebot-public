@@ -1608,6 +1608,12 @@ function renderSafetyTab(container) {
 
     section.appendChild(createCard('Staircase Floor', 'Principle Protection via No-Body-Close zones', 'SAFETY_FLOOR_ENABLED', 'toggle'));
     section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle'));
+    section.appendChild(createCard('Breakeven Trail %', 'Lock Risk-Free at this profit level (e.g. 0.003 = 0.3%)', 'BREAKEVEN_TRAIL_PCT', 'input', {
+        number: true,
+        placeholder: '0.003',
+        default: '0.003',
+        step: 0.001
+    }));
     section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker (5% Daily Cap)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle'));
     section.appendChild(createCard('Session Lockout', 'Stops signals after 12:00 PM EST', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle'));
     section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock (Quit while ahead)', 'SAFETY_GREED_GUARD_ENABLED', 'toggle'));
