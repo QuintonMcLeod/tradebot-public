@@ -695,7 +695,18 @@ function parseLogLine(line) {
             let reason = "Evaluation complete";
 
             const actionMatch = body.match(/action=([^\s|]+)/i) || body.match(/gate=([^\s|]+)/i) || body.match(/Switched to\s+([^\s|]+)/i);
-            if (actionMatch) action = actionMatch[1].toUpperCase().replace("STAND_ASIDE", "HOLD").replace("SWEEP", "HOLD");
+            if (actionMatch) {
+                action = actionMatch[1].toUpperCase().replace("STAND_ASIDE", "HOLD").replace("SWEEP", "HOLD");
+            } else {
+                // Fallback: If no explicit key "action=", try to find standalone keywords if needed
+                // But Meta-SCI logs use "action=HOLD" consistently
+            }
+
+            // [ANTIGRAVITY FIX] Force "HOLD" to display if it comes from a Decision log
+            // Previous logic might have been too strict.
+            if (!actionMatch && body.includes("Decision:") && body.includes("HOLD")) {
+                action = "HOLD";
+            }
 
             const scoreMatch = body.match(/icc_score=([\d\.]+)/i) ||
                 body.match(/ICC score\s+([\d\.]+)/i) ||
