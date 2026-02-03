@@ -206,11 +206,8 @@ try {
     $Shortcut.WorkingDirectory = $WinDir
     $Shortcut.Description = "Launch Tradebot SCI"
     
-    # Icon: Try to use the PNG (might work on Win10/11) or fallback to node
-    # Note: Windows .lnk usually wants .ico or .exe. 
-    # We point to icon.png knowing it might not render perfectly for everyone, 
-    # but it's what exists.
-    $IconPath = "$WinDir\src\tradebot_sci\electron_gui\assets\icon.png"
+    # Icon: Use the .ico file for Windows compatibility
+    $IconPath = "$WinDir\src\tradebot_sci\electron_gui\assets\icon.ico"
     if (Test-Path $IconPath) {
         $Shortcut.IconLocation = $IconPath
     }
