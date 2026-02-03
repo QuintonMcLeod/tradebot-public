@@ -130,40 +130,52 @@ async function connectWebSocket() {
                 }
             } else if (msg.type === 'history') {
                 // Initialize Chart with real historical data
-                const currentSym = document.getElementById('chart-symbol-label')?.innerText;
-                const currentTfRaw = document.getElementById('chart-tf-label')?.innerText || '15m';
+                const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
+                const currentTfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
 
-                // [ANTIGRAVITY FIX] Normalize TF for comparison (UI often uses UPPERCASE or different formats)
-                // We assume backend sends '5m', '15m'. UI might have '5M', '15m'.
                 const normalizeTf = (t) => t.toLowerCase().trim();
 
                 if (msg.symbol === currentSym && normalizeTf(msg.tf) === normalizeTf(currentTfRaw)) {
-                    console.log(`Received history for ${msg.symbol} ${msg.tf} (${msg.data.length} candles)`);
-                    const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
+                    console.log(`[CHART] Received history for ${msg.symbol} ${msg.tf} (${msg.data.length} candles). Rendering...`);
+
+                    // [ANTIGRAVITY FIX] Timezone consistency
+                    // Lightweight Charts expects seconds (Unix Timestamp). 
+                    // If backend sends UTC timestamp, we adjust for local viewing if needed, 
+                    // BUT Lightweight charts handles timeScale relatively.
+                    // Let's ensure we just pass the timestamp from backend directly if it's already correct.
+                    // The previous code subtracted timezone offset, which shifts UTC to "Local Time" value but in UTC variable.
+                    // Let's stick to the convention: Backend sends UTC Unix Seconds. Browser renders it.
+                    // If chart is frozen, it's often because time is 5 hours off.
+
+                    // const tzOffsetSeconds = new Date().getTimezoneOffset() * 60; 
+                    // REMOVED OFFSET: Let's try raw UTC first. 
+                    // If the backend sends 12:00 UTC, and we subtract 5h, we get 07:00. 
+                    // If the user wants to see their local time on the axis, Lightweight charts has 'timeVisible: true'.
+
+                    // New Approach: Pass raw time.
                     const fixedData = msg.data.map(c => ({
-                        ...c,
-                        time: c.time - tzOffsetSeconds
+                        time: c.time,
+                        open: c.open, high: c.high, low: c.low, close: c.close
                     }));
                     candleSeries.setData(fixedData);
+                    chart.timeScale().fitContent(); // Ensure data is visible!
                 } else {
-                    console.log(`[UI] Ignoring history for ${msg.symbol} ${msg.tf} (Current: ${currentSym} ${currentTfRaw})`);
+                    console.warn(`[CHART] Ignored history for ${msg.symbol} ${msg.tf} (UI wants: ${currentSym} ${currentTfRaw})`);
                 }
             } else if (msg.type === 'candle') {
                 // Update Chart ONLY if it matches current symbol AND timeframe
-                const currentSym = document.getElementById('chart-symbol-label')?.innerText;
-                const currentTfRaw = document.getElementById('chart-tf-label')?.innerText || '15m';
+                const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
+                const currentTfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
 
                 const normalizeTf = (t) => t.toLowerCase().trim();
 
                 if (msg.symbol === currentSym && normalizeTf(msg.tf) === normalizeTf(currentTfRaw)) {
-
-                    // [ANTIGRAVITY FIX] Filter by provider if present (avoids flickering)
-                    // If msg.provider is set, we could filter here.
-                    // For now, we rely on the backend only sending routed data.
-
-                    // [ANTIGRAVITY FIX] Dynamic Timezone Sync
-                    const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
-                    const fixedData = { ...msg.data, time: msg.data.time - tzOffsetSeconds };
+                    // console.log(`[CHART] Update ${msg.symbol}: ${msg.data.close}`);
+                    // Use raw time same as history
+                    const fixedData = {
+                        time: msg.data.time,
+                        open: msg.data.open, high: msg.data.high, low: msg.data.low, close: msg.data.close
+                    };
                     candleSeries.update(fixedData);
                 }
             } else if (msg.type === 'log') {
