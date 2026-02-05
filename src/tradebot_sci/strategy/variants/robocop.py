@@ -12,6 +12,7 @@ from tradebot_sci.strategy.icc_signals import (
     detect_structure_invalidation,
     calculate_atr
 )
+from tradebot_sci.config.models import UserConfig
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +121,8 @@ class RoboCopStrategy(BaseStrategy):
         # [ARMOR] 2x ATR Stops & Targets
         atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
         
-        # Stop = Entry +/- 2 ATR
-        dist = atr * 2.0
+        # [ARMOR] Dynamic Stops based on UserConfig
+        dist = atr * UserConfig.STOP_ATR_MULTIPLIER
         
         if target_dir == "long":
             stop_loss = last_close - dist
@@ -137,7 +138,7 @@ class RoboCopStrategy(BaseStrategy):
             risk_per_trade_pct=self.FEET_WET_RISK,
             structure_summary=f"RoboCop Scorer: {score:.0f}/100 ({', '.join(score_breakdown)})",
             invalidation_conditions=f"ATR Armor ({stop_loss:.2f}) breached",
-            management_instructions="Net-Zero at 1xATR, Rising Floors at 5%",
+            management_instructions=f"Net-Zero at 1xATR, Rising Floors at 5% (Using {UserConfig.STOP_ATR_MULTIPLIER}x ATR Stop)",
             notes=f"Score {score:.0f}: {', '.join(score_breakdown)}",
             urgency="high"
         )

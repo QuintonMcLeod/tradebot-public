@@ -155,6 +155,7 @@ class OandaExchangeBroker(IExchangeBroker):
                         symbol=symbol,
                         closed_at=datetime.now(timezone.utc).isoformat(),
                         pnl_pct=pnl_pct,
+                        pnl_usd=pnl_val,
                         is_win=pnl_val > 0,
                         tier="100%",
                         capital_at_close=self._liquid_capital
@@ -345,6 +346,8 @@ class OandaExchangeBroker(IExchangeBroker):
                 logger.warning(f"[OANDA] Could not fetch detailed margin info: {e}")
 
             logger.info(f"[OANDA] Placing {decision.action} order for {decision.symbol}: {units} units")
+            # [ANTIGRAVITY FIX] Log specific tags for GUI parsing (Arrows & Tables)
+            logger.info(f"[ENTRY] {decision.symbol} side={'buy' if units > 0 else 'sell'} amount={abs(units)}")
             r = orders.OrderCreate(self.account_id, data=order_data)
             self.client.request(r)
 
@@ -352,6 +355,9 @@ class OandaExchangeBroker(IExchangeBroker):
             res = r.response
             if "orderFillTransaction" in res:
                 fill = res["orderFillTransaction"]
+                avg_fill = float(fill.get("price") or 0.0)
+                if avg_fill > 0:
+                    logger.info(f"[FILL] {decision.symbol} @ {avg_fill} (ID: {fill['id']})")
                 logger.info(f"[OANDA] Order filled: {fill['id']} at {fill['price']}")
                 return ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, f"filled {fill['id']}"), ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, decision.symbol, order_ids=[fill['id']])
             else:

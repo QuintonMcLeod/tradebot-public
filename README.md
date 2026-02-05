@@ -164,7 +164,7 @@ This opens the dashboard where you can:
 ./scripts/tradebot.sh --settings
 ```
 
-![Settings Window](Documentation/images/settings_window.png)
+![Settings Window](Documentation/images/new_sleek_ui.png)
 
 ### Headless / Terminal Mode
 

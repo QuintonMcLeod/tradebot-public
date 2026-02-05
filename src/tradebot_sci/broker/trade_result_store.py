@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -15,6 +15,7 @@ class TradeResult:
     symbol: str
     closed_at: str
     pnl_pct: float
+    pnl_usd: float
     is_win: bool
     tier: str  # e.g. "10%", "20%", "1%"
     capital_at_close: float
@@ -28,6 +29,7 @@ class TradeResult:
             symbol=data["symbol"],
             closed_at=data["closed_at"],
             pnl_pct=float(data["pnl_pct"]),
+            pnl_usd=float(data.get("pnl_usd", 0.0)),
             is_win=bool(data["is_win"]),
             tier=data.get("tier", "unknown"),
             capital_at_close=float(data.get("capital_at_close", 0.0))
@@ -77,12 +79,61 @@ class TradeResultStore:
 
     def get_stats(self) -> dict:
         if not self.results:
-            return {"total_trades": 0, "win_rate": 0.0}
+            return {"total_trades": 0, "win_rate": 0.0, "pnl_usd": 0.0}
         
         wins = sum(1 for r in self.results if r.is_win)
         total = len(self.results)
+        total_pnl = sum(r.pnl_usd for r in self.results)
         return {
             "total_trades": total,
             "wins": wins,
-            "win_rate": wins / total
+            "win_rate": wins / total,
+            "pnl_usd": total_pnl
+        }
+
+    def get_stats_for_timeframe(self, timeframe_code: str) -> dict:
+        """
+        Calculates stats for a given timeframe ('24h', 'week', 'month', 'year', 'all').
+        """
+        if not self.results:
+            return {"total_trades": 0, "win_rate": 0.0, "pnl_usd": 0.0}
+
+        now = datetime.now(timezone.utc)
+        if timeframe_code == '24h':
+            delta = timedelta(days=1)
+        elif timeframe_code == 'week':
+            delta = timedelta(days=7)
+        elif timeframe_code == 'month':
+            delta = timedelta(days=30)
+        elif timeframe_code == 'year':
+            delta = timedelta(days=365)
+        else: # 'all'
+            delta = None
+
+        filtered = []
+        for r in self.results:
+            try:
+                # closed_at is expected to be ISO format
+                closed_dt = datetime.fromisoformat(r.closed_at.replace("Z", "+00:00"))
+                if closed_dt.tzinfo is None:
+                    closed_dt = closed_dt.replace(tzinfo=timezone.utc)
+                
+                if delta is None or (now - closed_dt) <= delta:
+                    filtered.append(r)
+            except Exception:
+                # If we can't parse date, assume it's old and ignore if delta is set
+                if delta is None:
+                    filtered.append(r)
+
+        if not filtered:
+            return {"total_trades": 0, "win_rate": 0.0, "pnl_usd": 0.0}
+
+        wins = sum(1 for r in filtered if r.is_win)
+        total = len(filtered)
+        total_pnl = sum(r.pnl_usd for r in filtered)
+        return {
+            "total_trades": total,
+            "wins": wins,
+            "win_rate": wins / total,
+            "pnl_usd": total_pnl
         }

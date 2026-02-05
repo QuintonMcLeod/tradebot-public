@@ -427,6 +427,16 @@ class TradingProfileSettings(BaseModel):
         default=None,
         description="Alias for max_concurrent_positions; used in many existing YAML configs.",
     )
+    stop_atr_multiplier: float = Field(
+        default=1.5,
+        ge=0.5,
+        le=5.0,
+        description="Standard stop distance as a multiple of ATR.",
+    )
+    stability_mode_active: bool = Field(
+        default=False,
+        description="When true, enforces ultra-conservative risk and entry filters.",
+    )
     pdt_guard_enabled: bool = Field(
         default=False,
         description="Enable lightweight PDT roundtrip guarding for equities",
@@ -613,6 +623,39 @@ class TradingProfileSettings(BaseModel):
         ge=0.0,
         le=1.0,
         description="Max daily loss as a fraction of starting equity before blocking new entries (aggressive mode).",
+    )
+    limit_loss_daily_pct: float = Field(
+        default=0.06,
+        ge=0.0,
+        le=1.0,
+        description="Maximum loss allowed for the daily interval (0.05 = 5%).",
+    )
+    limit_loss_weekly_pct: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Maximum loss allowed for the weekly interval (0.15 = 15%).",
+    )
+    limit_loss_monthly_pct: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description="Maximum loss allowed for the monthly interval (0.25 = 25%).",
+    )
+    target_profit_daily_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Profit target for the daily interval (0.02 = 2%). 0 disables.",
+    )
+    target_profit_weekly_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Profit target for the weekly interval (0.05 = 5%). 0 disables.",
+    )
+    target_profit_monthly_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Profit target for the monthly interval (0.10 = 10%). 0 disables.",
     )
     max_exposure_pct: float = Field(
         default=0.4,
@@ -980,6 +1023,26 @@ class UserConfig:
     def SMART_POSITIONS_ENABLED(self): return self._settings().risk.smart_positions_enabled
     @property
     def FRIDAY_FADE_ENABLED(self): return self._settings().runtime.friday_fade_enabled
+    @property
+    def STOP_ATR_MULTIPLIER(self) -> float:
+        env_val = os.getenv("STOP_ATR_MULTIPLIER")
+        if env_val is not None:
+            try:
+                return float(env_val)
+            except ValueError:
+                pass
+        s = self._settings()
+        profile = s.profiles.get(s.app.profile_name)
+        return getattr(profile, "stop_atr_multiplier", 1.5)
+
+    @property
+    def STABILITY_MODE_ACTIVE(self) -> bool:
+        env_val = os.getenv("SAFETY_STABILITY_MODE_ENABLED")
+        if env_val is not None:
+            return env_val.lower() == "true"
+        s = self._settings()
+        profile = s.profiles.get(s.app.profile_name)
+        return getattr(profile, "stability_mode_active", False)
 
 # Create a singleton instance to keep legacy code working
 UserConfig = UserConfig()

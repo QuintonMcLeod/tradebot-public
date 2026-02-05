@@ -7,6 +7,7 @@ from tradebot_sci.strategy.variants.base import BaseStrategy
 from tradebot_sci.market.indicators import calculate_sma
 from tradebot_sci.strategy.icc_signals import calculate_atr
 from tradebot_sci.market.trend import infer_trend_from_swings
+from tradebot_sci.config.models import UserConfig
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +43,9 @@ class QuantumStrategy(BaseStrategy):
         # Bullish Pullback: Price was above SMA, pulled back to it, then closed above prev bar
         if htf_dir == "long":
             if prev_close < sma * 1.001 and last_close > prev_close:
-                # [ARMOR] 2x ATR Dynamic Stops
-                stop_loss = last_close - (atr * 2.0)
-                target = last_close + (atr * 2.0)
+                # [ARMOR] Dynamic Stops based on UserConfig
+                stop_loss = last_close - (atr * UserConfig.STOP_ATR_MULTIPLIER)
+                target = last_close + (atr * UserConfig.STOP_ATR_MULTIPLIER)
                 
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -53,16 +54,16 @@ class QuantumStrategy(BaseStrategy):
                     structure_summary=f"Quantum Long: HTF/LTF Aligned + SMA {self.sma_period} Pullback",
                     invalidation_conditions="HTF trend reversal",
                     management_instructions="Net-Zero at 1xATR",
-                    notes="Armor Entry (2x ATR)",
+                    notes=f"Armor Entry ({UserConfig.STOP_ATR_MULTIPLIER}x ATR)",
                     urgency="medium"
                 )
 
         # Bearish Pullback
         if htf_dir == "short":
             if prev_close > sma * 0.999 and last_close < prev_close:
-                # [ARMOR] 2x ATR Dynamic Stops
-                stop_loss = last_close + (atr * 2.0)
-                target = last_close - (atr * 2.0)
+                # [ARMOR] Dynamic Stops based on UserConfig
+                stop_loss = last_close + (atr * UserConfig.STOP_ATR_MULTIPLIER)
+                target = last_close - (atr * UserConfig.STOP_ATR_MULTIPLIER)
                 
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,

@@ -78,10 +78,20 @@ class WebSocketServer:
         
         payload = json.dumps(message)
         for ws in list(self.clients):
+            if ws.closed:
+                self.clients.discard(ws)
+                continue
             try:
                 await ws.send_str(payload)
+            except (aiohttp.ClientConnectionResetError, RuntimeError) as e:
+                # [ANTIGRAVITY FIX] Suppress noisy 'closing transport' errors during disconnects
+                if "closing transport" in str(e).lower() or "closed" in str(e).lower():
+                    logger.debug(f"WebSocket client disconnected during broadcast: {e}")
+                else:
+                    logger.warning(f"Failed to send to WebSocket client: {e}")
+                self.clients.discard(ws)
             except Exception as e:
-                logger.error(f"Failed to send to client: {e}")
+                logger.error(f"Unexpected WebSocket broadcast error: {e}")
                 self.clients.discard(ws)
 
     def start_in_thread(self):

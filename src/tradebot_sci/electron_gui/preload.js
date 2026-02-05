@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('api', {
     // Profiles IPC
     readProfiles: () => ipcRenderer.invoke('read-profiles'),
     saveProfiles: (content) => ipcRenderer.invoke('save-profiles', content),
+    readProfilesJson: () => ipcRenderer.invoke('read-profiles-json'),
+    saveProfilesJson: (data) => ipcRenderer.invoke('save-profiles-json', data),
+    onProfilesUpdated: (callback) => ipcRenderer.on('profiles-updated', (event, data) => callback(data)),
 
     // Settings IPC (mirrors settings_preload.js for integrated settings UI)
     readEnv: () => ipcRenderer.invoke('read-env'),

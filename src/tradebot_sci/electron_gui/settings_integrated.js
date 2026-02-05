@@ -12,10 +12,12 @@ let settingsInitialized = false;
 
 let envData = {};
 let profilesContent = "";
+let profilesObj = {}; // Structured YAML data
 let currentTab = 'system';
 let subTabs = { brokers: 'ibkr', strategy: 'assets' };
 let localChanges = {};
 let changeCount = 0;
+let autoSaveTimeout;
 
 // ═══════════════════════════════════════════════════════════
 // TOOLTIP LIBRARY - Detailed, layman-friendly explanations
@@ -53,6 +55,12 @@ const TOOLTIPS = {
     MAX_DAILY_LOSS_PCT: "Safety circuit breaker - if you lose this percentage of your account in one day, the bot stops trading to prevent catastrophic losses. Like a daily loss limit at a casino.",
     RISK_PER_TRADE_DOLLARS: "Fixed dollar amount to risk per trade instead of percentage. Useful if you want consistent $50 or $100 risk regardless of account size.",
     MAX_LOSS_PER_TRADE_DOLLARS: "Absolute maximum dollars you can lose on any single trade, even if percentage calculation says otherwise. A hard safety cap.",
+    LIMIT_LOSS_DAILY_PCT: "Maximum loss allowed for the daily interval (e.g. 0.06 = 6%). The bot will stop trading for the day if reached. (Aggressive circuit breaker).",
+    LIMIT_LOSS_WEEKLY_PCT: "Maximum loss allowed for the weekly interval (e.g. 0.15 = 15%). The bot will stop trading for the week if reached.",
+    LIMIT_LOSS_MONTHLY_PCT: "Maximum loss allowed for the monthly interval (e.g. 0.25 = 25%). The bot will stop trading for the month if reached.",
+    TARGET_PROFIT_DAILY_PCT: "Profit target for the daily interval (e.g. 0.02 = 2%). Once hit, the bot stops for the day to lock in profits and prevent 'giving it back'. 0 disables.",
+    TARGET_PROFIT_WEEKLY_PCT: "Profit target for the weekly interval (e.g. 0.05 = 5%). Once hit, the bot stops for the week to protect gains. 0 disables.",
+    TARGET_PROFIT_MONTHLY_PCT: "Profit target for the monthly interval (e.g. 0.10 = 10%). Once hit, the bot stops for the month for wealth retention. 0 disables.",
 
     // Safety & Shields
     MULTI_POSITION_ENABLED: "Allow the bot to have multiple trades open at the same time across different symbols. When disabled, it finishes one trade before starting another.",
@@ -88,7 +96,8 @@ const TOOLTIPS = {
     AUTO_FLATTEN_ON_CLOSE: "Automatically close all positions at the end of the trading session. Prevents overnight/weekend risk.",
     TRAILING_STOP_ENABLED: "Enable trailing stops that follow price up (for longs) or down (for shorts), locking in profits as the trade moves in your favor.",
     TRAILING_STOP_MIN_PROFIT_PCT: "Minimum profit percentage before the trailing stop activates. Prevents premature stop-outs on normal price fluctuations.",
-    STOP_ATR_MULTIPLIER: "Stop distance as multiple of ATR (Average True Range). ATR measures volatility - higher multiplier = wider stops, more room for price to move.",
+    STOP_ATR_MULTIPLIER: "<strong>The 'Safe Distance' Calculator.</strong> Average True Range (ATR) measures how much a market normally 'breathes' or wiggles. A 1.5 multiplier means your stop-loss will be placed 1.5x that normal wiggle distance away from your entry. Tighter (1.0-1.2) = smaller losses but higher chance of getting 'shaken out'. Wider (2.0-3.0) = more breathing room but larger losses when it fails.",
+    SAFETY_STABILITY_MODE_ENABLED: "<strong>Master Survival Protocol.</strong> When your account is 'bleeding' or market conditions are uncertain, this is your primary shield. It enforces three strict rules: (1) It caps your risk at 1% per trade, (2) It ignores all low-quality signals, only taking setups that score 75/100 or higher, and (3) It resets aggressive performance modes back to Standard. Use this to protect your capital during rough patches.",
     MIN_HOLD_HOURS: "Minimum hours to hold a position before allowing exits. Prevents panic-selling or premature exits. 0 = no minimum.",
     MAX_HOLD_HOURS: "Maximum hours to hold a position - force exit after this time regardless of profit/loss. 0 = hold forever if needed.",
     HTF_NEUTRAL_EXIT_BARS: "Exit if higher timeframe stays neutral (no clear trend) for this many bars. Prevents capital from being tied up in directionless markets.",
@@ -257,6 +266,11 @@ const CONFLICT_MAP = {
         targets: ['RISK_PER_TRADE_PCT', 'RISK_PER_TRADE_DOLLARS'],
         message: "<strong>Kelly Criterion</strong> uses math-based optimal sizing. This ghosts your standard risk percentage/dollar settings.",
         type: 'ghost'
+    },
+    'SAFETY_STABILITY_MODE_ENABLED:true': {
+        targets: ['PERFORMANCE_MODE'],
+        message: "<strong>Stability Mode</strong> is a survival-first protocol. Enabling it will reset your Performance Mode to 'Standard' and enforce a strict 1% risk ceiling.",
+        type: 'modal'
     }
 };
 
@@ -334,6 +348,19 @@ function showConflictModal(title, message, onConfirm) {
  * Determines if a setting key is currently overridden by an active mode.
  */
 function isOverridden(key) {
+    // [STABILITY] Global override for aggressive performance modes and risk settings
+    if (envData['SAFETY_STABILITY_MODE_ENABLED'] === 'true') {
+        const stabilityGhosted = [
+            'PERFORMANCE_MODE',
+            'RISK_PER_TRADE_PCT',
+            'RISK_PER_TRADE_DOLLARS',
+            'ICC_ENTRY_SCORE_THRESHOLD'
+        ];
+        if (stabilityGhosted.includes(key) || (typeof key === 'string' && key.startsWith('PERF_') && key !== 'PERF_STABILITY')) {
+            return true;
+        }
+    }
+
     const activePerformance = `performance:${envData['PERFORMANCE_MODE']}`;
     const config = CONFLICT_MAP[activePerformance];
     return config && config.targets.includes(key);
@@ -523,12 +550,117 @@ async function init() {
         if (window.api) {
             envData = await window.api.readEnv() || {};
             profilesContent = await window.api.readProfiles() || "";
+            if (window.api.readProfilesJson) {
+                profilesObj = await window.api.readProfilesJson() || {};
+            }
+
+            // Listen for external YAML changes
+            if (window.api.onProfilesUpdated) {
+                window.api.onProfilesUpdated((newProfiles) => {
+                    console.log("[SETTINGS] Syncing with external YAML change...");
+                    profilesObj = newProfiles;
+                    syncProfilesToEnv();
+                    // Trigger conflict check on new data
+                    if (checkAllConflicts()) {
+                        console.log("[SETTINGS] Conflicts resolved in external YAML, saving back...");
+                        autoSave();
+                    }
+                    renderTab();
+                    showNotice("YAML Synced", "purple");
+                });
+            }
         }
     } catch (e) {
         console.error("Data load failed:", e);
     }
 
+    syncProfilesToEnv();
     switchTab('system');
+}
+
+/**
+ * Pushes values from the active profile in profilesObj into envData
+ * so the UI components (cards, toggles) show the correct values.
+ */
+function syncProfilesToEnv() {
+    const activeProfileName = envData['APP_PROFILE'] || 'auto_schedule';
+    const profile = profilesObj?.profiles?.[activeProfileName];
+
+    // First, strip PROFILE_ prefix from .env keys to normalize for UI
+    // The .env may have PROFILE_PDT_GUARD_ENABLED but UI expects PDT_GUARD_ENABLED
+    for (const key of Object.keys(envData)) {
+        if (key.startsWith('PROFILE_')) {
+            const strippedKey = key.replace('PROFILE_', '');
+            if (!envData[strippedKey]) {
+                envData[strippedKey] = envData[key];
+            }
+        }
+    }
+
+    // Then overlay profile-specific values (YAML takes precedence over .env for settings that exist in profile)
+    if (profile) {
+        for (const [key, val] of Object.entries(profile)) {
+            if (typeof val === 'object') continue; // Skip strategies, symbols, etc
+            const envKey = key.toUpperCase();
+            envData[envKey] = String(val);
+        }
+
+        // Special handling for stability mode boolean specifically
+        if (profile.stability_mode_active !== undefined) {
+            envData['SAFETY_STABILITY_MODE_ENABLED'] = profile.stability_mode_active ? 'true' : 'false';
+        }
+    }
+}
+
+/**
+ * Checks all settings for structural conflicts (e.g. Stability Mode vs Kelly)
+ * Returns true if any changes were made.
+ */
+function checkAllConflicts() {
+    let changed = false;
+    const activeProfileName = envData['APP_PROFILE'] || 'auto_schedule';
+    const profile = profilesObj?.profiles?.[activeProfileName];
+    if (!profile) return false;
+
+    // 1. Stability Mode Conflict Logic
+    const stabilityEnabled = envData['SAFETY_STABILITY_MODE_ENABLED'] === 'true' || profile.stability_mode_active === true;
+
+    if (stabilityEnabled) {
+        // Enforce Performance Mode = Standard
+        let currentPerf = envData['PERFORMANCE_MODE'] || 'none';
+        if (currentPerf.includes('kelly') || currentPerf.includes('flywheel')) {
+            console.warn("[CONFLICT] Stability Mode active; resetting aggressive performance modes.");
+            let perfList = currentPerf.split(',').map(s => s.trim().toLowerCase());
+            const foundations = ['kelly', 'flywheel', 'smooth', 'stability', 'none'];
+            perfList = perfList.filter(m => !foundations.includes(m));
+            perfList.push('stability');
+            envData['PERFORMANCE_MODE'] = perfList.join(',') || 'none';
+            localChanges['PERFORMANCE_MODE'] = envData['PERFORMANCE_MODE'];
+            changed = true;
+        }
+
+        // Enforce Risk Ceiling (1%)
+        const riskPct = parseFloat(envData['RISK_PER_TRADE_PCT'] || profile.risk_per_trade_pct || 0);
+        if (riskPct > 0.01) {
+            console.warn("[CONFLICT] Stability Mode active; clamping risk to 1%.");
+            envData['RISK_PER_TRADE_PCT'] = '0.01';
+            localChanges['RISK_PER_TRADE_PCT'] = '0.01';
+            if (profile.risk_per_trade_pct !== undefined) profile.risk_per_trade_pct = 0.01;
+            changed = true;
+        }
+
+        // Enforce Score Threshold (75)
+        const scoreThreshold = parseFloat(envData['ICC_ENTRY_SCORE_THRESHOLD'] || profile.icc_entry_score_threshold || 0);
+        if (scoreThreshold < 75) {
+            console.warn("[CONFLICT] Stability Mode active; raising score threshold to 75.");
+            envData['ICC_ENTRY_SCORE_THRESHOLD'] = '75';
+            localChanges['ICC_ENTRY_SCORE_THRESHOLD'] = '75';
+            if (profile.icc_entry_score_threshold !== undefined) profile.icc_entry_score_threshold = 75;
+            changed = true;
+        }
+    }
+
+    return changed;
 }
 
 function setupGlobalEvents() {
@@ -768,9 +900,17 @@ function createCard(title, desc, key, controlType, options = {}) {
     if (controlType === 'toggle') {
         const toggle = document.createElement('div');
         toggle.className = `toggle ${value === 'true' ? 'toggle-active' : ''}`;
-        toggle.addEventListener('click', () => {
-            const active = toggle.classList.toggle('toggle-active');
-            updateValue(key, active ? 'true' : 'false');
+        toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isNowActive = !toggle.classList.contains('toggle-active');
+            const strVal = isNowActive ? 'true' : 'false';
+
+            // Check for conflicts (Modals/Auto-Ghosting)
+            if (checkConflicts(key, strVal)) return;
+
+            toggle.classList.toggle('toggle-active', isNowActive);
+            updateValue(key, strVal);
+            renderTab(); // Refresh to apply UI overrides (ghosting)
         });
         controlContainer.appendChild(toggle);
     }
@@ -946,9 +1086,9 @@ function renderSystemTab(container) {
     section.appendChild(createCard('PnL Timeframe', 'Select performance measurement period for the dashboard', 'GUI_PNL_TIMEFRAME', 'dropdown', {
         items: [
             { value: '24h', label: 'Last 24 Hours' },
-            { value: '7d', label: 'Last 7 Days' },
-            { value: '30d', label: 'Last 30 Days' },
-            { value: '1y', label: 'Last Year' },
+            { value: 'week', label: 'Last 7 Days' },
+            { value: 'month', label: 'Last 30 Days' },
+            { value: 'year', label: 'Last Year' },
             { value: 'all', label: 'All Time' }
         ],
         default: '24h'
@@ -1624,7 +1764,18 @@ function renderSafetyTab(container) {
     section.appendChild(createSectionHeader('Account Safety & Shields', 'shield'));
 
     section.appendChild(createCard('Staircase Floor', 'Principle Protection via No-Body-Close zones', 'SAFETY_FLOOR_ENABLED', 'toggle'));
+    section.appendChild(createCard('Stability Mode', 'Ultra-safe risk management & quality filters (1% Cap)', 'SAFETY_STABILITY_MODE_ENABLED', 'toggle', {
+        tooltip: "<strong>Survival First.</strong> This is your emergency brake. It forces 1% max risk and a 75+ quality score floor. Perfect for preventing account 'bleeding' during choppy or unpredictable market regimes."
+    }));
     section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle'));
+    section.appendChild(createCard('Stop ATR Multiplier', 'Standard stop distance as a multiple of ATR', 'STOP_ATR_MULTIPLIER', 'input', {
+        number: true,
+        placeholder: '1.5',
+        default: '1.5',
+        step: 0.1,
+        min: 0.5,
+        max: 5.0
+    }));
     section.appendChild(createCard('The "Lock-In"', 'Lock Risk-Free at this profit level - e.g. 0.003 = 0.3%', 'BREAKEVEN_TRAIL_PCT', 'input', {
         number: true,
         placeholder: '0.003',
@@ -1756,7 +1907,10 @@ function renderPerformanceTab(container) {
 
     // Foundations
     section.appendChild(createPerformanceToggle('Standard Mode', 'Fixed risk per trade (Default)', 'none', 'foundation',
-        'The classic approach. Risks a fixed percentage (e.g., 1.5%) of your account balance on every trade. Boring, predictable, and safe.'));
+        "<strong>The Baseline.</strong> Risks a fixed percentage (e.g., 1.5%) of your account balance on every trade. This is the foundation of professional trading: consistent, predictable, and devoid of emotional 'revenge' sizing. Best for scaling new accounts safely."));
+
+    section.appendChild(createPerformanceToggle('Stability Mode', 'Survival first: 1% risk cap & 75+ score setup', 'stability', 'foundation',
+        "<strong>Account Guardian.</strong> The ultimate defense against drawdown. If your account is 'bleeding' or you are experiencing a streak of losses, switch to this. It enforces a strict 1.0% risk ceiling and vetoes every trade setup that doesn't reach a Tier-1 Quality Score of 75+. It prioritizes total capital preservation above all else."));
 
     section.appendChild(createPerformanceToggle('Kelly Criterion', 'Mathematical optimal sizing via win-rate analytics', 'kelly', 'foundation',
         'The Gambler\'s Math. Uses your historical Win Rate and Reward Ratio to calculate the mathematically optimal bet size to maximize long-term wealth growth.'));
@@ -1825,6 +1979,22 @@ function renderPerformanceTab(container) {
     section.appendChild(createCard('Moonshot Elevator', 'Double target if 1R is hit in <3 bars', 'WEALTH_EXIT_MOONSHOT_ENABLED', 'toggle'));
     section.appendChild(createCard('Blow-off Seller', 'Sell peak on volatility exhaustion', 'WEALTH_EXIT_BLOWOFF_ENABLED', 'toggle'));
 
+    section.appendChild(createDivider());
+
+    // 3. P&L REWARDS & RETENTION (NEW)
+    const pnlGroup = document.createElement('div');
+    pnlGroup.innerHTML = `<div class="text-sm text-slate-400 mb-2 font-bold uppercase tracking-wider">Step 3: P&L Rewards & Retention (Targets & Limits)</div>`;
+    section.appendChild(pnlGroup);
+
+    section.appendChild(createCard('Daily Profit Target %', 'Stop for the day once this % profit is reached (e.g. 0.02 = 2%)', 'TARGET_PROFIT_DAILY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
+    section.appendChild(createCard('Daily Loss Limit %', 'Hard stop for the day if this % loss is hit (e.g. 0.06 = 6%)', 'LIMIT_LOSS_DAILY_PCT', 'input', { number: true, default: '0.06', step: 0.001 }));
+
+    section.appendChild(createCard('Weekly Profit Target %', 'Lock in weekly gains once reached (e.g. 0.05 = 5%)', 'TARGET_PROFIT_WEEKLY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
+    section.appendChild(createCard('Weekly Loss Limit %', 'Protect capital: stop for the week if hit (e.g. 0.15 = 15%)', 'LIMIT_LOSS_WEEKLY_PCT', 'input', { number: true, default: '0.15', step: 0.001 }));
+
+    section.appendChild(createCard('Monthly Profit Target %', 'Monthly wealth goal: stop if reached (e.g. 0.10 = 10%)', 'TARGET_PROFIT_MONTHLY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
+    section.appendChild(createCard('Monthly Loss Limit %', 'Emergency floor: stop for the month if reached (e.g. 0.25 = 25%)', 'LIMIT_LOSS_MONTHLY_PCT', 'input', { number: true, default: '0.25', step: 0.001 }));
+
     container.appendChild(section);
 }
 
@@ -1861,6 +2031,9 @@ function createPerformanceToggle(title, desc, modeValue, type = 'foundation', to
         let currentRaw = envData['PERFORMANCE_MODE'] || 'none';
         let currentList = currentRaw.split(',').map(s => s.trim().toLowerCase()).filter(s => s);
 
+        // [STABILITY] Check for conflicts before proceeding
+        if (checkConflicts('PERFORMANCE_MODE', modeValue)) return;
+
         // Remove 'none' from list if we are adding something else
         if (currentList.includes('none')) currentList = currentList.filter(s => s !== 'none');
 
@@ -1880,6 +2053,14 @@ function createPerformanceToggle(title, desc, modeValue, type = 'foundation', to
         }
 
         const newValue = currentList.length > 0 ? currentList.join(',') : 'none';
+
+        // [STABILITY] Sync performance mode 'stability' with the boolean flag
+        if (modeValue === 'stability') {
+            updateValue('SAFETY_STABILITY_MODE_ENABLED', 'true');
+        } else if (type === 'foundation') {
+            updateValue('SAFETY_STABILITY_MODE_ENABLED', 'false');
+        }
+
         updateValue('PERFORMANCE_MODE', newValue);
         renderTab(); // Re-render to show updates
     });
@@ -1893,6 +2074,27 @@ function updateValue(key, value) {
     localChanges[key] = value;
     updateChangeCounter();
 
+    // [STABILITY] Intercept toggle from Safety tab to sync with Performance foundation
+    if (key === 'SAFETY_STABILITY_MODE_ENABLED') {
+        let currentPerf = envData['PERFORMANCE_MODE'] || 'none';
+        let perfList = currentPerf.split(',').map(s => s.trim().toLowerCase());
+        const foundations = ['kelly', 'flywheel', 'smooth', 'stability', 'none'];
+
+        if (value === 'true') {
+            // Switch foundation to stability
+            perfList = perfList.filter(m => !foundations.includes(m));
+            perfList.push('stability');
+        } else {
+            // Revert foundation if it was stability
+            if (perfList.includes('stability')) {
+                perfList = perfList.filter(m => m !== 'stability');
+                if (!perfList.some(m => foundations.includes(m))) perfList.push('none');
+            }
+        }
+        envData['PERFORMANCE_MODE'] = perfList.join(',') || 'none';
+        localChanges['PERFORMANCE_MODE'] = envData['PERFORMANCE_MODE'];
+    }
+
     if (key === 'MULTI_POSITION_ENABLED') {
         const smartToggle = document.querySelector('.control-card[data-key="SMART_POSITIONS_ENABLED"]');
         if (smartToggle) {
@@ -1903,6 +2105,52 @@ function updateValue(key, value) {
             }
         }
     }
+
+    // [YAML SYNC] Update the profile object if it's a profile setting
+    const activeProfileName = envData['APP_PROFILE'] || 'auto_schedule';
+    if (profilesObj?.profiles?.[activeProfileName]) {
+        const profile = profilesObj.profiles[activeProfileName];
+
+        // Map UI keys to YAML snake_case keys
+        const yamlMappings = {
+            'SAFETY_STABILITY_MODE_ENABLED': 'stability_mode_active',
+            'STOP_ATR_MULTIPLIER': 'stop_atr_multiplier',
+            'ICC_ENTRY_SCORE_THRESHOLD': 'icc_entry_score_threshold',
+            'RISK_PER_TRADE_PCT': 'risk_per_trade_pct',
+            'RISK_PER_TRADE_DOLLARS': 'risk_per_trade_dollars',
+            'CANDLE_TIMEFRAME': 'candle_timeframe',
+            'BOT_MODE': 'bot_mode'
+        };
+
+        const yamlKey = yamlMappings[key] || key.toLowerCase();
+
+        // Check if key exists in profile or is a risk setting that should live there
+        if (profile[yamlKey] !== undefined || (key.startsWith('RISK_') && !key.includes('DAILY'))) {
+            // Convert types if necessary
+            let typedVal = value;
+            if (value === 'true') typedVal = true;
+            else if (value === 'false') typedVal = false;
+            else if (!isNaN(value) && value.trim() !== "" && typeof value === 'string') {
+                typedVal = parseFloat(value);
+            }
+
+            profile[yamlKey] = typedVal;
+            console.log(`[YAML-SYNC] Updated ${activeProfileName}.${yamlKey} = ${typedVal}`);
+        }
+    }
+
+    autoSave();
+}
+
+/**
+ * Debounced save to both .env and YAML
+ */
+function autoSave() {
+    clearTimeout(autoSaveTimeout);
+    autoSaveTimeout = setTimeout(async () => {
+        console.log("[SETTINGS] Auto-saving changes...");
+        await saveAll();
+    }, 1000);
 }
 
 function updateChangeCounter() {
@@ -1938,8 +2186,8 @@ async function saveAll() {
         if (Object.keys(envUpdates).length > 0 && window.api.saveEnv) {
             await window.api.saveEnv(envUpdates);
         }
-        if (localChanges['_profiles_'] && window.api.saveProfiles) {
-            await window.api.saveProfiles(profilesContent);
+        if (profilesObj && window.api.saveProfilesJson) {
+            await window.api.saveProfilesJson(profilesObj);
         }
 
         localChanges = {};

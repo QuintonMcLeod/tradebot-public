@@ -44,8 +44,8 @@ class HyperScalperStrategy(BaseStrategy):
         # Long Entry: Fast EMA cross above Slow EMA AND Price > EMA 200 AND RSI > 55
         if fast_ema_prev <= slow_ema_prev and fast_ema_curr > slow_ema_curr:
             if last_close > trend_ema and rsi > 55:
-                # Stop loss at the slow EMA or 2.0 ATR (ARMOR)
-                stop_dist = max(atr * 2.0, last_close * 0.0005) 
+                # Stop loss at the slow EMA or UserConfig ATR (ARMOR)
+                stop_dist = max(atr * UserConfig.STOP_ATR_MULTIPLIER, last_close * 0.0005) 
                 stop_loss = last_close - stop_dist
                 target = last_close + (stop_dist * 3.0) # Aim for 3R to hit 100%+
                 
@@ -64,7 +64,7 @@ class HyperScalperStrategy(BaseStrategy):
         # Short Entry: Fast EMA cross below Slow EMA AND Price < EMA 200 AND RSI < 45
         if fast_ema_prev >= slow_ema_prev and fast_ema_curr < slow_ema_curr:
             if last_close < trend_ema and rsi < 45:
-                stop_dist = max(atr * 2.0, last_close * 0.0005)
+                stop_dist = max(atr * UserConfig.STOP_ATR_MULTIPLIER, last_close * 0.0005)
                 stop_loss = last_close + stop_dist
                 target = last_close - (stop_dist * 3.0)
                 

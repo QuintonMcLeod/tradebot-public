@@ -44,7 +44,7 @@ class RobotEvolutionStrategy(BaseStrategy):
         # [ARMOR] 2.0 ATR Stops
         atr_floor = current_price * 0.002
         effective_atr = max(atr, atr_floor)
-        stop_dist = effective_atr * 2.0
+        stop_dist = effective_atr * UserConfig.STOP_ATR_MULTIPLIER
         
         rejection_reasons = []
 
@@ -56,7 +56,7 @@ class RobotEvolutionStrategy(BaseStrategy):
                     stop_loss = lowest_recent - stop_dist
                     target = current_price + (stop_dist * 2.0)
                     
-                    notes = f"Robot Evolution Long: 1.5ATR Stop / 2.0R Target (Effective ATR: {effective_atr:.4f})"
+                    notes = f"Robot Evolution Long: {UserConfig.STOP_ATR_MULTIPLIER}ATR Stop / 2.0R Target (Effective ATR: {effective_atr:.4f})"
                     return AITradeDecision(
                         symbol=snapshot.symbol,
                         timeframe=snapshot.timeframe,
@@ -80,7 +80,7 @@ class RobotEvolutionStrategy(BaseStrategy):
                     stop_loss = highest_recent + stop_dist
                     target = current_price - (stop_dist * 2.0)
                     
-                    notes = f"Robot Evolution Short: 1.5ATR Stop / 2.0R Target (Effective ATR: {effective_atr:.4f})"
+                    notes = f"Robot Evolution Short: {UserConfig.STOP_ATR_MULTIPLIER}ATR Stop / 2.0R Target (Effective ATR: {effective_atr:.4f})"
                     return AITradeDecision(
                         symbol=snapshot.symbol,
                         timeframe=snapshot.timeframe,

@@ -15,6 +15,8 @@ from tradebot_sci.strategy.decisions import (
     hold_decision
 )
 from tradebot_sci.strategy.icc_signals import calculate_atr
+from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
+from tradebot_sci.config.models import UserConfig
 
 logger = logging.getLogger(__name__)
 
@@ -46,20 +48,28 @@ class SafetyGuard:
     10. [NEW] Opening Range Sentry (15-min avoidance)
     """
 
-    # Global State for Safety Measures
-    HWM_CAPITAL = 0.0
-    DRAWDOWN_PAUSE_UNTIL = None
+    # Global State for Safety Measures (Isolated per Asset Class)
+    HWM_CAPITAL = {} # {AssetClass: float}
+    DRAWDOWN_PAUSE_UNTIL = {} # {AssetClass: datetime}
     
-    # State Tracking for New Features
-    DAILY_START_CAPITAL = None
-    DAILY_PNL = 0.0
-    LAST_RESET_DATE = None
+    # State Tracking for New Features (Isolated per Asset Class)
+    DAILY_START_CAPITAL = {} # {AssetClass: float}
+    DAILY_PNL = {} # {AssetClass: float}
+    WEEKLY_START_CAPITAL = {} # {AssetClass: float}
+    WEEKLY_PNL = {} # {AssetClass: float}
+    MONTHLY_START_CAPITAL = {} # {AssetClass: float}
+    MONTHLY_PNL = {} # {AssetClass: float}
+    LAST_RESET_DATE = {} # {AssetClass: date}
+    LAST_RESET_WEEK = {} # {AssetClass: (year, week)}
+    LAST_RESET_MONTH = {} # {AssetClass: (year, month)}
     
     SYMBOL_LOSS_STREAKS = {} # {symbol: count}
     SYMBOL_PAUSE_UNTIL = {} # {symbol: datetime}
     
-    TRADE_TIMESTAMPS = [] # List of datetimes for Churn Burner
-    SENTIMENT_CACHE = {} # {(symbol): (timestamp, sentiment)}
+    TRADE_TIMESTAMPS = {} # {AssetClass: list[datetime]} for Churn Burner
+    SENTIMENT_CACHE = {} # {AssetClass: {symbol: (timestamp, sentiment)}}
+    WIN_RATE = {} # {AssetClass: float}
+    OPEN_POSITIONS = [] # Legacy list of open position dicts
 
     # [WEALTH MODE] State Tracking - GLOBAL REGISTRY
     # {symbol: position_dict} - Tracks all open trades across OANDA, Gemini, etc.
@@ -90,19 +100,20 @@ class SafetyGuard:
             if sym: cls.update_position(sym, p)
 
     @classmethod
-    def _update_daily_stats(cls, current_capital: float):
+    def _update_daily_stats(cls, current_capital: float, asset_class: AssetClass):
         """Updates daily PnL tracking for Greed Guard."""
         today = datetime.now().date()
-        if cls.LAST_RESET_DATE != today:
-            cls.DAILY_START_CAPITAL = current_capital
-            cls.DAILY_PNL = 0.0
-            cls.LAST_RESET_DATE = today
-            cls.TRADE_TIMESTAMPS = [] # Reset churn counter
-            cls.SENTIMENT_CACHE = {} # Reset daily sentiment cache
-            logger.info(f"[SAFETY] New Day Detected. Resetting Daily PnL. Start Capital: ${current_capital:.2f}")
+        if cls.LAST_RESET_DATE.get(asset_class) != today:
+            cls.DAILY_START_CAPITAL[asset_class] = current_capital
+            cls.DAILY_PNL[asset_class] = 0.0
+            cls.LAST_RESET_DATE[asset_class] = today
+            cls.TRADE_TIMESTAMPS[asset_class] = [] # Reset churn counter
+            cls.SENTIMENT_CACHE[asset_class] = {} # Fix: Dictionary for symbols
+            logger.info(f"[SAFETY] New Day Detected for {asset_class.value}. Resetting Daily PnL. Start Capital: ${current_capital:.2f}")
         else:
-            if cls.DAILY_START_CAPITAL:
-                cls.DAILY_PNL = current_capital - cls.DAILY_START_CAPITAL
+            start_cap = cls.DAILY_START_CAPITAL.get(asset_class)
+            if start_cap:
+                cls.DAILY_PNL[asset_class] = current_capital - start_cap
 
     @classmethod
     def register_trade_completion(cls, symbol: str, is_win: bool):
@@ -116,33 +127,67 @@ class SafetyGuard:
             cls.SYMBOL_LOSS_STREAKS[symbol] = 0
 
     @classmethod
-    def check_entry_safety(cls, symbol: str, timeframe: str, current_capital: float, snapshot: MarketSnapshot, ai_client: Optional[Any] = None) -> Optional[AITradeDecision]:
+    def check_entry_safety(cls, symbol: str, timeframe: str, current_capital: float, snapshot: MarketSnapshot, ai_client: Optional[Any] = None, settings: Optional[Any] = None, trade_results: Optional[Any] = None) -> Optional[AITradeDecision]:
         """
         Runs ALL pre-entry checks.
         Returns a stand_aside_decision if unsafe. Returns None if safe to proceed.
         """
         now = datetime.now()
         est_now = datetime.now(ZoneInfo("America/New_York"))
+        asset_class = classify_symbol(symbol)
 
         # 0. State Updates
-        if current_capital > cls.HWM_CAPITAL:
-            cls.HWM_CAPITAL = current_capital
-        cls._update_daily_stats(current_capital)
+        hwm = cls.HWM_CAPITAL.get(asset_class, 0.0)
+        if current_capital > hwm:
+            cls.HWM_CAPITAL[asset_class] = current_capital
+        cls._update_daily_stats(current_capital, asset_class)
+
+        # -------------------------------------------------------------
+        # P&L PERFORMANCE TARGETS & LIMITS (NEW)
+        # -------------------------------------------------------------
+        if settings and trade_results:
+            # Check Daily, Weekly, Monthly P&L
+            for tf_code, interval_name in [('24h', 'Daily'), ('week', 'Weekly'), ('month', 'Monthly')]:
+                stats = trade_results.get_stats_for_timeframe(tf_code)
+                realized_pnl = stats.get('pnl_usd', 0.0)
+                
+                # Check Limits (Losses)
+                limit_attr = f"limit_loss_{tf_code if tf_code != '24h' else 'daily'}_pct"
+                limit_pct = getattr(settings, limit_attr, 0.0)
+                if limit_pct > 0:
+                    start_cap = current_capital - realized_pnl # Approximation of start capital for interval
+                    if start_cap > 0:
+                        max_loss = start_cap * limit_pct
+                        if realized_pnl < -max_loss:
+                            return stand_aside_decision(symbol, timeframe, f"{interval_name} Loss Limit Reached ({realized_pnl:.0f} < -{max_loss:.0f})")
+
+                # Check Targets (Profits)
+                target_attr = f"target_profit_{tf_code if tf_code != '24h' else 'daily'}_pct"
+                target_pct = getattr(settings, target_attr, 0.0)
+                if target_pct > 0:
+                    start_cap = current_capital - realized_pnl
+                    if start_cap > 0:
+                        target_profit = start_cap * target_pct
+                        if realized_pnl >= target_profit:
+                             return stand_aside_decision(symbol, timeframe, f"{interval_name} Profit Target Reached ({realized_pnl:.0f} >= {target_profit:.0f})")
 
         # -------------------------------------------------------------
         # 1. DRAWDOWN BREAKER (Account Circuit Breaker)
         # -------------------------------------------------------------
         # Check active pause
-        if cls.DRAWDOWN_PAUSE_UNTIL and now < cls.DRAWDOWN_PAUSE_UNTIL:
-            return stand_aside_decision(symbol, timeframe, f"Drawdown Breaker Active until {cls.DRAWDOWN_PAUSE_UNTIL.strftime('%H:%M')}")
+        pause_until = cls.DRAWDOWN_PAUSE_UNTIL.get(asset_class)
+        if pause_until and now < pause_until:
+            return stand_aside_decision(symbol, timeframe, f"Drawdown Breaker ({asset_class.value.upper()}) active until {pause_until.strftime('%H:%M')}")
             
         # Check trigger
-        if os.getenv("SAFETY_DRAWDOWN_BREAKER_ENABLED", "false").lower() == "true" and cls.HWM_CAPITAL > 0:
-            drawdown = (cls.HWM_CAPITAL - current_capital) / cls.HWM_CAPITAL
-            if drawdown > 0.05: # 5% Hard Limit
-                 cls.DRAWDOWN_PAUSE_UNTIL = now + timedelta(hours=24)
-                 logger.critical(f"[SAFETY] Drawdown Breaker Triggered ({drawdown*100:.1f}%). Pausing 24h.")
-                 return stand_aside_decision(symbol, timeframe, f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
+        if os.getenv("SAFETY_DRAWDOWN_BREAKER_ENABLED", "false").lower() == "true":
+            hwm = cls.HWM_CAPITAL.get(asset_class, 0.0)
+            if hwm > 0:
+                drawdown = (hwm - current_capital) / hwm
+                if drawdown > 0.05: # 5% Hard Limit
+                     cls.DRAWDOWN_PAUSE_UNTIL[asset_class] = now + timedelta(hours=24)
+                     logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}%). Pausing 24h.")
+                     return stand_aside_decision(symbol, timeframe, f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
 
         # -------------------------------------------------------------
         # 2. SESSION LOCKOUT (Time Manager)
@@ -166,8 +211,9 @@ class SafetyGuard:
         # -------------------------------------------------------------
         if os.getenv("SAFETY_GREED_GUARD_ENABLED", "false").lower() == "true":
             target = float(os.getenv("SAFETY_GREED_GUARD_TARGET", "100.0"))
-            if cls.DAILY_PNL >= target:
-                return stand_aside_decision(symbol, timeframe, f"Greed Guard Active (Daily Goal ${target:.2f} Met)")
+            daily_pnl = cls.DAILY_PNL.get(asset_class, 0.0)
+            if daily_pnl >= target:
+                return stand_aside_decision(symbol, timeframe, f"Greed Guard Active for {asset_class.value} (Daily Goal ${target:.2f} Met)")
 
         # -------------------------------------------------------------
         # 5. [NEW] STREAK BREAKER (Symbol Cooldown)
@@ -194,9 +240,11 @@ class SafetyGuard:
             max_hourly = int(os.getenv("SAFETY_CHURN_BURNER_MAX", "5"))
             cutoff = now - timedelta(hours=1)
             # Prune old timestamps
-            cls.TRADE_TIMESTAMPS = [t for t in cls.TRADE_TIMESTAMPS if t > cutoff]
-            if len(cls.TRADE_TIMESTAMPS) >= max_hourly:
-                return stand_aside_decision(symbol, timeframe, f"Churn Burner Active (Max {max_hourly}/hr)")
+            timestamps = cls.TRADE_TIMESTAMPS.get(asset_class, [])
+            timestamps = [t for t in timestamps if t > cutoff]
+            cls.TRADE_TIMESTAMPS[asset_class] = timestamps
+            if len(timestamps) >= max_hourly:
+                return stand_aside_decision(symbol, timeframe, f"Churn Burner ({asset_class.value.upper()}) Active (Max {max_hourly}/hr)")
 
         # -------------------------------------------------------------
         # 7. [NEW] VOLATILITY VETO (ATR Filter)
@@ -222,7 +270,8 @@ class SafetyGuard:
         if os.getenv("SAFETY_SENTIMENT_SHIELD_ENABLED", "false").lower() == "true" and ai_client:
              try:
                  # [ANTIGRAVITY CACHE] Prevent "Itchy Trigger Finger" / excessive API calls
-                 cached = cls.SENTIMENT_CACHE.get(symbol)
+                 class_cache = cls.SENTIMENT_CACHE.get(asset_class, {})
+                 cached = class_cache.get(symbol)
                  cache_valid = False
                  if cached:
                      ts, sentiment_val = cached
@@ -236,46 +285,55 @@ class SafetyGuard:
                      # Simple prompt to avoid complex analysis cost
                      sentiment = ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]).upper()
                      # Update Cache
-                     cls.SENTIMENT_CACHE[symbol] = (now, sentiment)
+                     class_cache[symbol] = (now, sentiment)
+                     cls.SENTIMENT_CACHE[asset_class] = class_cache
                      logger.info(f"[SAFETY] AI Shield Refreshed for {symbol}: {sentiment}")
                  
                  if "DANGEROUS" in sentiment:
                       if not cache_valid: logger.warning(f"[SAFETY] AI Sentiment Shield blocked {symbol}: {sentiment}")
                       return stand_aside_decision(symbol, timeframe, f"AI Sentiment Shield: {sentiment}")
-                      
+                       
              except Exception as e:
                  logger.warning(f"[SAFETY] AI Shield failed request: {e}")
 
         # -------------------------------------------------------------
-        # 9. [NEW] LEVERAGE SENTRY (Max Account Leverage)
+        # 9. [NEW] SEGMENTED LEVERAGE SENTRY (Max Account Leverage)
         # -------------------------------------------------------------
         # Prevents "Account Blowing Up" by capping total notional leverage
+        # [ANTIGRAVITY FIX] Isolated per asset class (Forex entries only care about Forex leverage)
         if os.getenv("SAFETY_LEVERAGE_SENTRY_ENABLED", "true").lower() == "true":
-            max_leverage = float(os.getenv("SAFETY_MAX_TOTAL_LEVERAGE", "3.0")) # Conservative default 3x
+            # Determine asset class of the symbol being checked
+            target_class = classify_symbol(symbol)
             
-            # Calculate total notional value of all open positions
+            # [ANTIGRAVITY] Default to general cap, but check for class-specific overrides (e.g. SAFETY_MAX_FOREX_LEVERAGE)
+            default_cap = float(os.getenv("SAFETY_MAX_TOTAL_LEVERAGE", "3.0"))
+            class_cap_env = f"SAFETY_MAX_{target_class.value.upper()}_LEVERAGE"
+            max_leverage = float(os.getenv(class_cap_env, str(default_cap)))
+            
+            # Calculate total notional value only for positions in the same asset class
             total_notional = 0.0
-            for pos in cls.GLOBAL_POSITIONS.values():
-                price = float(pos.get("avg_price") or pos.get("entry_price") or 0)
-                size = abs(float(pos.get("size") or 0))
-                total_notional += (price * size)
+            for pos_symbol, pos in cls.GLOBAL_POSITIONS.items():
+                if classify_symbol(pos_symbol) == target_class:
+                    price = float(pos.get("avg_price") or pos.get("entry_price") or 0)
+                    size = abs(float(pos.get("size") or 0))
+                    total_notional += (price * size)
             
-            # Add the projected entry notional if we have the decision
-            # (Though at this point we haven't calculated the units for the NEW entry yet,
-            # so we'll check again in a secondary pass or use a conservative estimate)
-            
+            # current_capital is passed per-broker (already isolated)
             current_leverage = total_notional / current_capital if current_capital > 0 else 0
             if current_leverage > max_leverage:
-                logger.warning(f"[SAFETY] Leverage Sentry VETO: Current Leverage {current_leverage:.1f}x exceeds Cap {max_leverage}x")
-                return stand_aside_decision(symbol, timeframe, f"Leverage Sentry: {current_leverage:.1f}x > {max_leverage}x")
+                logger.warning(f"[SAFETY] Leverage Sentry VETO for {target_class.value}: Current Leverage {current_leverage:.1f}x exceeds Cap {max_leverage}x")
+                return stand_aside_decision(symbol, timeframe, f"Leverage Sentry ({target_class.value.upper()}): {current_leverage:.1f}x > {max_leverage}x")
 
         return None
 
 
     @classmethod
-    def notify_entry(cls):
+    def notify_entry(cls, symbol: str):
         """Call this when a trade is effectively entered to update rate limits."""
-        cls.TRADE_TIMESTAMPS.append(datetime.now())
+        asset_class = classify_symbol(symbol)
+        if asset_class not in cls.TRADE_TIMESTAMPS:
+            cls.TRADE_TIMESTAMPS[asset_class] = []
+        cls.TRADE_TIMESTAMPS[asset_class].append(datetime.now())
 
     @classmethod
     def augment_exit_decision(cls, decision: Optional[AITradeDecision], open_position: dict, snapshot: MarketSnapshot) -> AITradeDecision:
@@ -532,25 +590,40 @@ class SafetyGuard:
     # PERFORMANCE & PROFITS (WEALTH CREATION)
     # =========================================================================
     # [WEALTH MODE] State Tracking
-    OPEN_POSITIONS = [] # List of open position dicts
-    WIN_RATE = 0.55 # Default win rate for Kelly
-    
     @classmethod
-    def set_win_rate(cls, wr: float):
-        cls.WIN_RATE = wr
+    def set_win_rate(cls, wr: float, asset_class: Optional[AssetClass] = None):
+        if asset_class:
+            cls.WIN_RATE[asset_class] = wr
+        else:
+            # Fallback: Apply to all
+            for ac in AssetClass:
+                cls.WIN_RATE[ac] = wr
 
     @classmethod
     def set_current_positions(cls, positions: list[dict]):
         """Updates the global view of positions for risk-based calculations."""
+        # This updates GLOBAL_POSITIONS via set_current_positions(legacy) logic
+        # But we also have OPEN_POSITIONS which might be redundant now. 
+        # Let's keep them in sync if used by legacy performance modes.
         cls.OPEN_POSITIONS = positions
+        for p in positions:
+            sym = p.get("symbol")
+            if sym: cls.update_position(sym, p)
 
     @classmethod
     def get_active_wealth_modes(cls) -> list[str]:
         """Returns a list of active performance modes from the env var (comma-separated)."""
         raw = os.getenv("PERFORMANCE_MODE", "none").lower()
-        if not raw or raw == "none":
-            return []
-        return [m.strip() for m in raw.split(",") if m.strip()]
+        modes = []
+        if raw and raw != "none":
+            modes = [m.strip() for m in raw.split(",") if m.strip()]
+        
+        # [STABILITY] Force stability mode if active in config
+        if UserConfig.STABILITY_MODE_ACTIVE:
+            if "stability" not in modes:
+                modes.insert(0, "stability")
+        
+        return modes
 
     @classmethod
     def get_wealth_mode(cls) -> str | None:
@@ -572,6 +645,12 @@ class SafetyGuard:
             return decision
 
         # -------------------------------------------------------------
+        # 0. RESOLVE ASSET CLASS
+        # -------------------------------------------------------------
+        asset_class = classify_symbol(snapshot.symbol)
+
+        # -------------------------------------------------------------
+        # -------------------------------------------------------------
         # 1. ESTABLISH BASE RISK (The Foundation)
         # -------------------------------------------------------------
         # Default if no foundation is found
@@ -582,30 +661,38 @@ class SafetyGuard:
         
         # A. KELLY CRITERION (Math Edge)
         if "kelly" in modes:
-            w = cls.WIN_RATE
+            w = cls.WIN_RATE.get(asset_class, 0.55)
             r = 2.0 # Assume 2:1 RR conservative average
             kelly_f = w - (1 - w) / r
             if kelly_f > 0:
                 base_risk = kelly_f * 0.5 # Half-Kelly for safety
-                decision.notes = (decision.notes or "") + f" [WEALTH] Kelly Base: {base_risk*100:.1f}%"
+                decision.notes = (decision.notes or "") + f" [WEALTH] Kelly Base ({asset_class.value}): {base_risk*100:.1f}%"
         
         # B. COMPOUND FLYWHEEL (Growth Based)
         elif "flywheel" in modes:
-             if cls.DAILY_PNL > 0:
+             daily_pnl = cls.DAILY_PNL.get(asset_class, 0.0)
+             if daily_pnl > 0:
                   milestone = 200.0
-                  boost = (cls.DAILY_PNL // milestone) * 0.001
+                  boost = (daily_pnl // milestone) * 0.001
                   base_risk = min(0.015 + boost, 0.05) # Cap base at 5%
-                  decision.notes = (decision.notes or "") + f" [WEALTH] Flywheel Base: {base_risk*100:.1f}%"
+                  decision.notes = (decision.notes or "") + f" [WEALTH] Flywheel Base ({asset_class.value}): {base_risk*100:.1f}%"
 
         # C. EQUITY SMOOTHING (Anti-Tilt / Mean Reversion)
         elif "smooth" in modes:
             # Boost if at ATH, slash if in drawdown
-            if cls.DAILY_PNL < -0.02 * cls.HWM_CAPITAL: # 2% Daily Drawdown
+            hwm = cls.HWM_CAPITAL.get(asset_class, 0.0)
+            daily_pnl = cls.DAILY_PNL.get(asset_class, 0.0)
+            if hwm > 0 and daily_pnl < -0.02 * hwm: # 2% Daily Drawdown
                 base_risk = 0.005 # Slash to 0.5%
-                decision.notes = (decision.notes or "") + " [WEALTH] Anti-Tilt Base (Defensive)"
-            elif cls.HWM_CAPITAL > 0 and cls.DAILY_PNL > 0:
+                decision.notes = (decision.notes or "") + f" [WEALTH] Anti-Tilt Base ({asset_class.value}) (Defensive)"
+            elif hwm > 0 and daily_pnl > 0:
                 base_risk = 0.02 # Boost to 2%
-                decision.notes = (decision.notes or "") + " [WEALTH] Momentum Base"
+                decision.notes = (decision.notes or "") + f" [WEALTH] Momentum Base ({asset_class.value})"
+
+        # D. STABILITY MODE (Ultra Conservative Foundation)
+        if "stability" in modes:
+            base_risk = min(base_risk, 0.01)
+            decision.notes = (decision.notes or "") + f" [STABILITY] Foundation Risk: {base_risk*100:.1f}%"
 
         # Apply the determined base
         decision.risk_per_trade_pct = base_risk
@@ -716,6 +803,18 @@ class SafetyGuard:
                 elif is_long and pct_change < -0.03:
                      decision.risk_per_trade_pct *= 1.5
                      decision.notes = (decision.notes or "") + " | Contrarian Catch Bottom (1.5x)"
+
+        # L. STABILITY OVERRIDE (Final Clamp)
+        if "stability" in modes:
+            # Enforce max 1% regardless of boosters
+            if decision.risk_per_trade_pct > 0.01:
+                decision.risk_per_trade_pct = 0.01
+                decision.notes = (decision.notes or "") + " | Stability Override (Capped @ 1%)"
+            
+            # Enhance Score Requirement (Veto if score below 75 in stability mode)
+            if score < 75.0:
+                 logger.warning(f"[STABILITY] Vetoing {decision.symbol} entry: Score {score} < 75 (Stability Enabled)")
+                 return stand_aside_decision(decision.symbol, decision.timeframe, f"Stability Veto: Score {score} < 75")
 
         # K. THE NEWS SURFER (Volatility Compression)
         if "surfer" in modes and snapshot.candles:

@@ -8,6 +8,9 @@ let mainWindow;
 let settingsWindow;
 let botRunning = false;
 
+// Helper to determine OS
+const isWindows = () => process.platform === 'win32';
+
 // Helper to find repo root reliably
 const DOTENV_PATH = path.join(__dirname, '../../../.env');
 const PROFILES_PATH = path.join(__dirname, '../../../config/settings_profiles.yaml');
@@ -61,6 +64,30 @@ function setupIpcHandlers() {
     ipcMain.handle('save-profiles', async (event, content) => {
         fs.writeFileSync(PROFILES_PATH, content);
         return { success: true };
+    });
+
+    ipcMain.handle('read-profiles-json', async () => {
+        const yaml = require('js-yaml');
+        if (!fs.existsSync(PROFILES_PATH)) return {};
+        try {
+            const content = fs.readFileSync(PROFILES_PATH, 'utf8');
+            return yaml.load(content) || {};
+        } catch (e) {
+            console.error("[MAIN] YAML Load Error:", e);
+            return {};
+        }
+    });
+
+    ipcMain.handle('save-profiles-json', async (event, data) => {
+        const yaml = require('js-yaml');
+        try {
+            const content = yaml.dump(data, { lineWidth: -1, noRefs: true });
+            fs.writeFileSync(PROFILES_PATH, content);
+            return { success: true };
+        } catch (e) {
+            console.error("[MAIN] YAML Save Error:", e);
+            return { success: false, error: e.message };
+        }
     });
 
     // City / Location Resolver (Ported Logic)
@@ -136,6 +163,32 @@ function setupIpcHandlers() {
     });
 }
 
+// Watch profiles for external changes
+function startProfilesWatcher(win) {
+    if (!fs.existsSync(PROFILES_PATH)) return;
+
+    let watchTimeout;
+    fs.watch(PROFILES_PATH, (event) => {
+        if (event === 'change') {
+            // Debounce to avoid multiple triggers during one write
+            clearTimeout(watchTimeout);
+            watchTimeout = setTimeout(async () => {
+                const yaml = require('js-yaml');
+                try {
+                    const content = fs.readFileSync(PROFILES_PATH, 'utf8');
+                    const json = yaml.load(content);
+                    console.log("[MAIN] Profiles YAML changed externally, notifying UI...");
+                    if (win) win.webContents.send('profiles-updated', json);
+                    // Also notify settings window if open
+                    if (settingsWindow) settingsWindow.webContents.send('profiles-updated', json);
+                } catch (e) {
+                    console.error("[MAIN] Error reading profiles on change:", e);
+                }
+            }, 100);
+        }
+    });
+}
+
 // Handle Log Tailing
 function startLogWatcher(win) {
     const logPath = path.join(__dirname, '../../../logs/tradebot.log');
@@ -167,9 +220,11 @@ function startLogWatcher(win) {
 
 function checkBotStatus(win, force = false) {
     exec('pgrep -f run_dev_bot.py', (err, stdout) => {
-        const isRunning = !!stdout.trimmed || !!stdout.trim();
+        // [ANTIGRAVITY FIX] More robust status check
+        const isRunning = !!(stdout && stdout.trim());
         if (force || isRunning !== botRunning) {
             botRunning = isRunning;
+            console.log(`[MAIN] Bot Status changed: ${botRunning ? 'RUNNING' : 'STOPPED'}`);
             if (win) win.webContents.send('bot-status', { running: botRunning });
         }
     });
@@ -231,6 +286,7 @@ function createWindow() {
 
     win.webContents.once('did-finish-load', () => {
         startLogWatcher(win);
+        startProfilesWatcher(win);
         setInterval(() => checkBotStatus(win), 2000);
     });
 
@@ -266,9 +322,11 @@ function createWindow() {
         }
 
         console.log(`[MAIN] Starting bot with: ${spawnCmd}`);
-        exec(spawnCmd, (error) => {
+        const botProcess = exec(spawnCmd, (error, stdout, stderr) => {
             if (error) console.error(`[MAIN] Start error: ${error}`);
-            setTimeout(() => checkBotStatus(mainWindow, true), 2000);
+            if (stdout) console.log(`[MAIN] Start stdout: ${stdout}`);
+            if (stderr) console.error(`[MAIN] Start stderr: ${stderr}`);
+            setTimeout(() => checkBotStatus(mainWindow, true), 3000);
         });
     });
 
@@ -321,6 +379,7 @@ function createWindow() {
 app.whenReady().then(() => {
     setupIpcHandlers();
     createWindow();
+    startProfilesWatcher(null); // Will be attached in createWindow
 });
 
 app.on('window-all-closed', () => {

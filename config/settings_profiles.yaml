@@ -160,7 +160,7 @@ profiles:
     icc_auto_entry_min_htf_strength: 0
     icc_auto_entry_require_sweep: true
     auto_flatten_on_close: false
-    pdt_guard_enabled: true
+    pdt_guard_enabled: false
     cooldown_enabled: true
     cooldown_cycles_after_block: 3
     cooldown_cycles_after_success: 0
@@ -385,7 +385,7 @@ profiles:
     icc_entry_score_threshold: 60
     icc_score_continuation_points: 60
     auto_flatten_on_close: false
-    pdt_guard_enabled: true
+    pdt_guard_enabled: false
     max_equity_roundtrips_per_day: 1
     continuous_mode: true
     cooldown_enabled: true
@@ -588,11 +588,11 @@ profiles:
     trend_swing_lookback: 2
     trend_min_swings: 2
     trend_strength_floor: 0.25
-    structure_score_threshold: 0.05
+    structure_score_threshold: 0.15
     breakeven_trail_pct: 0.003
     trailing_stop_enabled: true
     risk_reward_ratio: 2.0
-    risk_per_trade_pct: 0.05
+    risk_per_trade_pct: 0.01
     max_concurrent_positions: 6
     multi_position_enabled: true
     max_pyramid_entries: 4

@@ -1614,38 +1614,31 @@ function setupInteractiveElements() {
             e.stopPropagation();
         });
     });
-    // EMA Toggle - Use click on label parent instead of change event to overcome chart overlay
+    // EMA Toggle - Use standard 'change' event for reliable visual state
     const emaCheckbox = document.getElementById('toggle-ema');
     const smaCheckbox = document.getElementById('toggle-sma');
 
-    // Find parent labels and add click handlers
-    emaCheckbox?.parentElement?.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        emaCheckbox.checked = !emaCheckbox.checked;
-        console.log(`[UI] EMA Toggle clicked: ${emaCheckbox.checked}, emaSeries exists: ${!!emaSeries}, candleData length: ${candleData?.length || 0}`);
+    emaCheckbox?.addEventListener('change', (e) => {
+        console.log(`[UI] EMA Toggle changed: ${emaCheckbox.checked}, emaSeries exists: ${!!emaSeries}`);
         if (emaSeries) {
-            updateIndicators(); // Ensure data is populated
+            updateIndicators();
             emaSeries.applyOptions({ visible: emaCheckbox.checked });
             appendLog("INFO", `[UI] EMA (21) ${emaCheckbox.checked ? 'enabled' : 'disabled'}`);
-        } else {
-            console.warn('[UI] emaSeries not initialized!');
         }
     });
 
-    smaCheckbox?.parentElement?.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        smaCheckbox.checked = !smaCheckbox.checked;
-        console.log(`[UI] SMA Toggle clicked: ${smaCheckbox.checked}, smaSeries exists: ${!!smaSeries}, candleData length: ${candleData?.length || 0}`);
+    smaCheckbox?.addEventListener('change', (e) => {
+        console.log(`[UI] SMA Toggle changed: ${smaCheckbox.checked}, smaSeries exists: ${!!smaSeries}`);
         if (smaSeries) {
-            updateIndicators(); // Ensure data is populated
+            updateIndicators();
             smaSeries.applyOptions({ visible: smaCheckbox.checked });
             appendLog("INFO", `[UI] SMA (50) ${smaCheckbox.checked ? 'enabled' : 'disabled'}`);
-        } else {
-            console.warn('[UI] smaSeries not initialized!');
         }
     });
+
+    // Ensure parents don't interfere with standard checkbox behavior but still stop propagation to chart
+    emaCheckbox?.parentElement?.addEventListener('click', (e) => e.stopPropagation());
+    smaCheckbox?.parentElement?.addEventListener('click', (e) => e.stopPropagation());
 
     // Window Controls
     document.getElementById('btn-minimize')?.addEventListener('click', () => {

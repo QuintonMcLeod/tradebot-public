@@ -172,14 +172,18 @@ class StrategyEngine:
             stats = self.trade_results.get_stats()
             # If we have enough trades, update win rate for Kelly
             if stats.get('total_trades', 0) >= 5:
-                 SafetyGuard.set_win_rate(stats.get('win_rate', 0.55))
+                 from tradebot_sci.utils.symbol_classifier import classify_symbol
+                 ac = classify_symbol(self.symbol)
+                 SafetyGuard.set_win_rate(stats.get('win_rate', 0.55), asset_class=ac)
 
         safety_decision = SafetyGuard.check_entry_safety(
             self.symbol, 
             timeframe, 
             current_capital_val,
             latest_snapshot,
-            ai_client=self.ai_client
+            ai_client=self.ai_client,
+            settings=self.profile,
+            trade_results=self.trade_results
         )
 
         # [WEALTH MODE] Register current positions for House Money checks
@@ -312,7 +316,7 @@ class StrategyEngine:
 
             # [SAFETY GUARD] Notify of Entry (for Churn Burner)
             if decision.action in ("enter_long", "enter_short", "scale_in"):
-                 SafetyGuard.notify_entry()
+                 SafetyGuard.notify_entry(self.symbol)
 
             logger.info(f"[PHOENIX] {self.symbol} Strategy {decision.action.upper()} triggered: {decision.summary()}")
             # 4. Final Safety Patch (Margin/Venue Only)

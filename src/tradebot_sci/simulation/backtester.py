@@ -630,6 +630,7 @@ class Backtester:
                         symbol=symbol,
                         closed_at=current_time.isoformat(),
                         pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                        pnl_usd=pnl,
                         is_win=pnl > 0,
                         tier="backtest",
                         capital_at_close=capital
@@ -663,6 +664,7 @@ class Backtester:
                             symbol=symbol,
                             closed_at=current_time.isoformat(),
                             pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                            pnl_usd=pnl,
                             is_win=pnl > 0,
                             tier="backtest",
                             capital_at_close=capital
@@ -701,6 +703,7 @@ class Backtester:
                             symbol=symbol,
                             closed_at=current_time.isoformat(),
                             pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                            pnl_usd=pnl,
                             is_win=pnl > 0,
                             tier="backtest",
                             capital_at_close=capital
@@ -754,6 +757,7 @@ class Backtester:
                             symbol=symbol,
                             closed_at=current_time.isoformat(),
                             pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                            pnl_usd=pnl,
                             is_win=pnl > 0,
                             tier="backtest",
                             capital_at_close=capital
@@ -804,6 +808,7 @@ class Backtester:
                         symbol=symbol,
                         closed_at=current_time.isoformat(),
                         pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                        pnl_usd=pnl,
                         is_win=pnl > 0,
                         tier="backtest",
                         capital_at_close=capital
@@ -847,6 +852,7 @@ class Backtester:
                         symbol=symbol,
                         closed_at=current_time.isoformat(),
                         pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                        pnl_usd=pnl,
                         is_win=pnl > 0,
                         tier="backtest",
                         capital_at_close=capital
@@ -892,6 +898,7 @@ class Backtester:
                                 symbol=symbol,
                                 closed_at=current_time.isoformat(),
                                 pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                                pnl_usd=pnl,
                                 is_win=pnl > 0,
                                 tier="backtest",
                                 capital_at_close=capital

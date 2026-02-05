@@ -61,6 +61,19 @@ class RuntimeController:
 
             sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
 
+            # [ANTIGRAVITY FIX] Refresh profile_name from settings each time to catch hot-reloads
+            current_profile = getattr(self.settings.app, 'profile_name', self.profile_name)
+            if current_profile != self.profile_name:
+                logger.info(f"[CONTROLLER] Profile changed: {self.profile_name} -> {current_profile}")
+                self.profile_name = current_profile
+
+            # [ANTIGRAVITY] Multi-interval PnL Tracking
+            pnl_stats = {}
+            if executor and hasattr(executor, "trade_results"):
+                store = executor.trade_results
+                for tf_code in ['24h', 'week', 'month', 'year', 'all']:
+                    pnl_stats[tf_code] = store.get_stats_for_timeframe(tf_code).get('pnl_usd', 0.0)
+
             state_data = {
                 "equity": cap,
                 "capital": cap,
@@ -68,9 +81,10 @@ class RuntimeController:
                 "profile": self.profile_name,
                 "symbols": getattr(self.profile_settings, "symbols", []),
                 "is_sabbath": sabbath_active,
-                "halted": self.ws_server.is_halted()
+                "halted": self.ws_server.is_halted(),
+                "pnl_stats": pnl_stats
             }
-            logger.info(f"[PRODB-STATE] Broadcasting state: profile={self.profile_name}")
+            logger.info(f"[PRODB-STATE] Broadcasting state: profile={self.profile_name} pnl_24h={pnl_stats.get('24h', 0.0)}")
             self.ws_server.broadcast_state_sync(state_data)
             self.last_capital_sync_ts = now
         except Exception as e:

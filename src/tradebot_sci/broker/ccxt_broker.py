@@ -246,27 +246,20 @@ class CCXTExchangeBroker:
                 record = self.position_hold_store.get(symbol)
                 if record and record.entry_price:
                     entry_price = record.entry_price
-                    # Note: side is the CLOSE side. If side is 'sell', we were long.
-                    if side == "sell": # Closing long
-                        pnl_val = (pos.get("avg_price", entry_price) - entry_price) * qty # This is wrong, Pos avg_price is current entry
-                        # Let's use current market price if available, or just assume the fill was at current price
-                        # Better yet, since we just did a market order, we can try to get the fill price
-                        # But for simplicity and consistency with the GUI parser, 
-                        # we can log the estimated PnL or fetch the fill price.
-                        # Wait, the GUI parser expects [EXIT] ... +$X.XX
-                        
-                        # Re-calculating correctly:
-                        # Realized PnL = (Exit Price - Entry Price) * Quantity
-                        # We don't have the exact exit price yet without fetching the order, 
-                        # but we can use the current price as a close approximation for the log.
-                        current_price = pos.get("current_price") or entry_price
-                        pnl_val = (current_price - entry_price) * qty
-                    else: # Closing short
-                        current_price = pos.get("current_price") or entry_price
-                        pnl_val = (entry_price - current_price) * qty
-                    
-                    if entry_price > 0:
-                        pnl_pct = (pnl_val / (entry_price * qty)) * 100
+                else:
+                    # Fallback to position-reported avg_price/entry_price
+                    entry_price = float(pos.get("entry_price") or pos.get("avg_price") or 0.0)
+
+            if entry_price > 0:
+                current_price = float(pos.get("current_price") or pos.get("close") or entry_price)
+                if side == "sell": # Closing long
+                    pnl_val = (current_price - entry_price) * qty
+                else: # Closing short
+                    pnl_val = (entry_price - current_price) * qty
+                
+                pnl_pct = (pnl_val / (entry_price * qty)) * 100
+            else:
+                logger.warning(f"[CCXT] Could not determine entry price for {symbol} PnL calculation.")
             
             pnl_str = f"{'+' if pnl_val >= 0 else ''}${pnl_val:.2f}"
             logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%)")
@@ -277,6 +270,7 @@ class CCXTExchangeBroker:
                     symbol=symbol,
                     closed_at=_utc_now().isoformat(),
                     pnl_pct=pnl_pct,
+                    pnl_usd=pnl_val,
                     is_win=pnl_val > 0,
                     tier="100%", # Default for full flatten
                     capital_at_close=0.0 # Will be updated by balance sync
@@ -1260,12 +1254,16 @@ class CCXTExchangeBroker:
                 order = self._ccxt_create_order(sym, "market", side, send_amount)
                 self._track_local_order(sym, order)
                 entry_id = str(order.get("id"))
+                
+                # [ANTIGRAVITY FIX] Log specific tags for GUI parsing (Arrows & Tables)
+                avg_fill = float(order.get("average") or order.get("price") or 0.0)
+                logger.info(f"[ENTRY] {decision.symbol} side={side} amount={send_amount}")
+                if avg_fill > 0:
+                    logger.info(f"[FILL] {decision.symbol} @ {avg_fill} (ID: {entry_id})")
+                
                 logger.info(f"[CCXT] Placed {side} market order {entry_id} for {send_amount} {sym}")
                 
                 # [ANTIGRAVITY FIX] Persist Position in Store with Entry Price
-                avg_fill = float(order.get("average") or order.get("price") or 0.0)
-                # [ANTIGRAVITY FIX] Persist Position in Store (will be updated again after SL check)
-                avg_fill = float(order.get("average") or order.get("price") or 0.0)
                 if self.position_hold_store:
                     self.position_hold_store.upsert(
                         decision.symbol, 

@@ -86,7 +86,7 @@ class MeanReversionStrategy(BaseStrategy):
         # 2. Handle Initial Entry
         # Long Entry: Close below lower band + oversold RSI
         if last_close < lower and rsi < self.rsi_oversold:
-            stop_dist = atr * 2.0
+            stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close - stop_dist
             target = upper # TARGET OPPOSITE BAND
             
@@ -107,7 +107,7 @@ class MeanReversionStrategy(BaseStrategy):
 
         # Short Entry: Close above upper band + overbought RSI
         if last_close > upper and rsi > self.rsi_overbought:
-            stop_dist = atr * 2.0
+            stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close + stop_dist
             target = lower # TARGET OPPOSITE BAND
             
