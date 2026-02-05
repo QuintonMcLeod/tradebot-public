@@ -267,7 +267,8 @@ def process_candidate_cycle(
                     "open_position_count": global_open_count
                 }
             )
-            if not decision or decision.action == "stand_aside":
+            # [ANTIGRAVITY FIX] Include 'hold' in decision logging to ensure the Decisions Panel is populated for existing positions
+            if not decision or decision.action in ("stand_aside", "hold"):
                 reason = decision.notes if decision else "No strategy signal"
                 d_score = (decision.score * 100.0) if (decision and decision.score is not None) else 0.0
                 d_grade = (decision.grade) if (decision and decision.grade is not None) else "N/A"

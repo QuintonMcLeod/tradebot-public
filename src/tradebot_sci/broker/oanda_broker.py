@@ -21,6 +21,7 @@ from tradebot_sci.broker.execution import (
 from tradebot_sci.broker.interfaces import IExchangeBroker
 from tradebot_sci.config.models import TradingProfileSettings
 from tradebot_sci.strategy.decisions import AITradeDecision
+from tradebot_sci.broker.trade_result_store import TradeResultStore, TradeResult
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,8 @@ class OandaExchangeBroker(IExchangeBroker):
         api_key: str,
         profile_settings: TradingProfileSettings,
         environment: str = "practice",
-        read_only: bool = True
+        read_only: bool = True,
+        trade_results: TradeResultStore | None = None
     ):
         if not HAS_OANDA:
             raise ImportError("OANDA dependencies missing. Please install oandapyV20.")
@@ -45,8 +47,14 @@ class OandaExchangeBroker(IExchangeBroker):
         self.account_id = account_id
         self.profile = profile_settings
         self.read_only = read_only
+        self.trade_results = trade_results
         self._liquid_capital = 0.0
         self.refresh_account_summary()
+
+    def sync_profile(self, profile: TradingProfileSettings) -> None:
+        """Update internal profile pointer to latest settings (Hot-Reload)."""
+        logger.info(f"[OANDA] Syncing new Profile settings... (Risk: ${getattr(profile, 'risk_per_trade_dollars', 'N/A')})")
+        self.profile = profile
 
     def _normalize_symbol(self, symbol: str) -> str:
         """Converts EURUSD to EUR_USD, handles Crypto mappings."""
@@ -120,7 +128,39 @@ class OandaExchangeBroker(IExchangeBroker):
             if close_data:
                 r_close = oanda_positions.PositionClose(self.account_id, instrument=oanda_sym, data=close_data)
                 self.client.request(r_close)
-                logger.info(f"[OANDA] Flattened {symbol}. Response: {r_close.response}")
+                
+                # [ANTIGRAVITY FIX] Calculate PnL and Log for GUI
+                pnl_val = float(pos.get("unrealizedPL", 0.0)) # Since we are closing at current market price
+                # For Oanda, we can try to find the actual realized PnL in the response
+                resp = r_close.response
+                if "longOrderFillTransaction" in resp:
+                    pnl_val = float(resp["longOrderFillTransaction"].get("pl", 0.0))
+                elif "shortOrderFillTransaction" in resp:
+                    pnl_val = float(resp["shortOrderFillTransaction"].get("pl", 0.0))
+                
+                # Calculate Pct
+                units = abs(float(pos.get("long", {}).get("units", 0)) + float(pos.get("short", {}).get("units", 0)))
+                avg_price = float(pos.get("long", {}).get("averagePrice", 0)) if units > 0 else float(pos.get("short", {}).get("averagePrice", 0))
+                pnl_pct = 0.0
+                if units > 0 and avg_price > 0:
+                    pnl_pct = (pnl_val / (avg_price * units)) * 100
+
+                pnl_str = f"{'+' if pnl_val >= 0 else ''}${pnl_val:.2f}"
+                logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%)")
+                
+                # Add to TradeResultStore
+                if self.trade_results:
+                    from datetime import datetime, timezone
+                    self.trade_results.add_result(TradeResult(
+                        symbol=symbol,
+                        closed_at=datetime.now(timezone.utc).isoformat(),
+                        pnl_pct=pnl_pct,
+                        is_win=pnl_val > 0,
+                        tier="100%",
+                        capital_at_close=self._liquid_capital
+                    ))
+
+                logger.info(f"[OANDA] Flattened {symbol}. Response: {resp}")
         except Exception as e:
             logger.error(f"[OANDA] Failed to flatten {symbol}: {e}")
 
@@ -143,15 +183,43 @@ class OandaExchangeBroker(IExchangeBroker):
             side = "long" if units > 0 else "short"
             avg_price = float(pos.get("long", {}).get("averagePrice", 0)) if units > 0 else float(pos.get("short", {}).get("averagePrice", 0))
             
-            return {
+            # [ANTIGRAVITY FIX] Fetch SL/TP and Entry Time from trade details
+            stop_loss = None
+            take_profit = None
+            entry_time = None
+            try:
+                trade_ids = pos.get("long" if side == "long" else "short", {}).get("tradeIDs", [])
+                if trade_ids:
+                    # Get details of the first (primary) trade
+                    r_trade = trades.TradeDetails(self.account_id, tradeID=trade_ids[0])
+                    self.client.request(r_trade)
+                    trade = r_trade.response.get("trade", {})
+                    if "stopLossOrder" in trade:
+                        stop_loss = float(trade["stopLossOrder"].get("price", 0))
+                    if "takeProfitOrder" in trade:
+                        take_profit = float(trade["takeProfitOrder"].get("price", 0))
+                    if "openTime" in trade:
+                        entry_time = trade["openTime"] # ISO format OANDA string
+            except Exception as e:
+                logger.debug(f"[OANDA] Could not fetch SL/TP or Entry Time for {symbol}: {e}")
+            
+            result = {
                 "symbol": symbol.upper(),
                 "size": units,
                 "side": side,
                 "direction": side, # Alias
                 "avg_price": avg_price,
                 "entry_price": avg_price, # Alias
+                "entry_time": entry_time, # [ANTIGRAVITY] Added entry time
                 "unrealized_pnl": float(pos.get("unrealizedPL", 0))
             }
+            
+            if stop_loss and stop_loss > 0:
+                result["stop_loss"] = stop_loss
+            if take_profit and take_profit > 0:
+                result["take_profit"] = take_profit
+            
+            return result
         except Exception:
             return None
 
@@ -212,6 +280,17 @@ class OandaExchangeBroker(IExchangeBroker):
                 
             # units = risk / stop_dist
             units = risk_amount / stop_dist
+            
+            # [ANTIGRAVITY] Leverage-based sizing Cap
+            # Prevent units from exceeding account_equity * target_leverage
+            target_leverage = getattr(self.profile, "target_leverage", 1.0)
+            if target_leverage > 0:
+                max_notional = self._liquid_capital * target_leverage
+                max_units = max_notional / price if price > 0 else 0
+                if abs(units) > max_units and max_units > 0:
+                    logger.warning(f"[OANDA] Sizing Cap: Calculated units {abs(units):.2f} exceeds leverage cap {max_units:.2f} (Leverage={target_leverage}x)")
+                    units = max_units if units > 0 else -max_units
+
             if is_short:
                 units = -units
             
@@ -250,9 +329,25 @@ class OandaExchangeBroker(IExchangeBroker):
             if take_profit:
                 order_data["order"]["takeProfitOnFill"] = {"price": f"{take_profit:{fmt}}"}
 
+            # Refresh account summary to get latest margin info
+            self.refresh_account_summary()
+            
+            # Additional Margin Logging
+            try:
+                r_summary = accounts.AccountSummary(self.account_id)
+                self.client.request(r_summary)
+                summ = r_summary.response.get("account", {})
+                margin_used = summ.get("marginUsed", "0")
+                margin_avail = summ.get("marginAvailable", "0")
+                margin_rate = summ.get("marginRate", "0")
+                logger.info(f"[OANDA] Pre-order Margin Check: Used=${margin_used}, Available=${margin_avail}, Leverage={1/float(margin_rate) if float(margin_rate) > 0 else 'N/A'}:1")
+            except Exception as e:
+                logger.warning(f"[OANDA] Could not fetch detailed margin info: {e}")
+
             logger.info(f"[OANDA] Placing {decision.action} order for {decision.symbol}: {units} units")
             r = orders.OrderCreate(self.account_id, data=order_data)
             self.client.request(r)
+
             
             res = r.response
             if "orderFillTransaction" in res:

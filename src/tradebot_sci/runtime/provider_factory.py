@@ -181,6 +181,13 @@ class RoutedExchangeBroker(IExchangeBroker):
     def _has_active_orders_or_position(self, symbol: str, state: dict | None = None) -> bool:
         return self._get_broker(symbol)._has_active_orders_or_position(symbol, state)
 
+    def sync_profile(self, profile: TradingProfileSettings) -> None:
+        """Propagate profile update to all underlying brokers (Hot-Reload)."""
+        unique_brokers = set(self.brokers.values())
+        for b in unique_brokers:
+            if hasattr(b, "sync_profile"):
+                b.sync_profile(profile)
+
     def refresh_account_summary(self) -> None:
         unique_brokers = set(b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker))
         for b in unique_brokers:
@@ -293,7 +300,7 @@ def _get_effective_setting(key: str, settings: Settings, profile_settings: Tradi
         
     return ""
 
-def _create_single_broker(name: str, settings: Settings, profile_settings, shared_ib, allowed_symbols):
+def _create_single_broker(name: str, settings: Settings, profile_settings, shared_ib, allowed_symbols, trade_results=None):
     """Helper to instantiate a broker by name."""
     name = name.lower().strip()
     
@@ -304,7 +311,7 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
         # Resolve what 'alternative' actually means here
         alt_name = _get_effective_setting("alternative_broker", settings, profile_settings)
         if alt_name and alt_name != "alternative":
-            return _create_single_broker(alt_name, settings, profile_settings, shared_ib, allowed_symbols)
+            return _create_single_broker(alt_name, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
         name = "ccxt" # Default alternative for broker is CCXT
 
     if name == "ibkr" or name == "primary":
@@ -325,7 +332,8 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
             api_key=settings.oanda.api_key,
             profile_settings=profile_settings,
             environment=settings.oanda.environment,
-            read_only=settings.oanda.read_only
+            read_only=settings.oanda.read_only,
+            trade_results=trade_results
         )
     elif name == "paxos" or name == "itbit":
         if not settings.paxos:
@@ -340,7 +348,8 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
     elif name == "ccxt" or name == "coinbase":
          return CCXTExchangeBroker(
             profile_settings,
-            position_hold_store_path=settings.runtime.position_hold_store_path
+            position_hold_store_path=settings.runtime.position_hold_store_path,
+            trade_results=trade_results
         )
     elif name == "gemini":
         # Gemini specific CCXT initialization
@@ -357,7 +366,8 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
 
         return CCXTExchangeBroker(
             profile_settings,
-            position_hold_store_path=settings.runtime.position_hold_store_path
+            position_hold_store_path=settings.runtime.position_hold_store_path,
+            trade_results=trade_results
         )
     elif name == "kraken":
         # Kraken specific CCXT initialization
@@ -372,7 +382,8 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
 
         return CCXTExchangeBroker(
             profile_settings,
-            position_hold_store_path=settings.runtime.position_hold_store_path
+            position_hold_store_path=settings.runtime.position_hold_store_path,
+            trade_results=trade_results
         )
     # Fallback to Mock?
     return NoOpExchangeBroker()
@@ -508,6 +519,7 @@ def build_exchange_broker(
     *,
     shared_ib: object | None,
     allowed_symbols: set[str] | None,
+    trade_results = None,
 ) -> IExchangeBroker:
     """Builds an exchange broker with per-asset routing support."""
     
@@ -530,7 +542,7 @@ def build_exchange_broker(
             
             # [ANTIGRAVITY FIX] Don't skip broker instantiation based on allowed_symbols
             # We need them for get_liquid_capital even if no symbols match this cycle.
-            b = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols)
+            b = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
             if b: cache[mode] = b
             return b
 
@@ -551,8 +563,8 @@ def build_exchange_broker(
         mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
     
     if mode == "hybrid":
-        b_primary = _create_single_broker("primary", settings, profile_settings, shared_ib, allowed_symbols)
-        b_alt = _create_single_broker("alternative", settings, profile_settings, shared_ib, allowed_symbols)
+        b_primary = _create_single_broker("primary", settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
+        b_alt = _create_single_broker("alternative", settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
         
         return RoutedExchangeBroker({
             "crypto": b_alt,
@@ -560,7 +572,7 @@ def build_exchange_broker(
             "equity": b_primary
         })
 
-    p = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols)
+    p = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
 
     # [ANTIGRAVITY] Final safety check: if we are in crypto_only but ended up with Oanda/IBKR
     if p and allowed_symbols:

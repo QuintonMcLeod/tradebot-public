@@ -5,7 +5,7 @@ from typing import Literal, Optional, Tuple
 from pydantic import BaseModel, Field
 
 Bias = Literal["long", "short", "neutral"]
-Phase = Literal["trend", "indication", "correction", "continuation", "chop", "range"]
+Phase = Literal["trend", "indication", "correction", "continuation", "chop", "range", "management"]
 Action = Literal[
     "enter_long",
     "enter_short",
@@ -236,6 +236,7 @@ def hold_decision(
     bias: Bias = "neutral",
     phase: Phase = "chop",
     reason: str = "Holding position.",
+    stop_loss: Optional[float] = None,
 ) -> AITradeDecision:
     """Creates a hold decision without relying on the LLM."""
     return AITradeDecision(
@@ -246,7 +247,7 @@ def hold_decision(
         action="hold",
         entry_price=None,
         entry_zone=None,
-        stop_loss=None,
+        stop_loss=stop_loss,
         take_profit=None,
         risk_per_trade_pct=None,
         max_position_size_pct=None,

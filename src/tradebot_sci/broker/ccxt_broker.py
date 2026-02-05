@@ -16,6 +16,7 @@ from tradebot_sci.market.models import Ticker
 from tradebot_sci.broker.position_hold_store import PositionHoldStore
 from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.market.symbols import AssetClass, SYMBOL_METADATA
+from tradebot_sci.broker.trade_result_store import TradeResultStore, TradeResult
 from tradebot_sci.strategy.icc_signals import last_structure_range
 
 logger = logging.getLogger(__name__)
@@ -52,8 +53,9 @@ class CCXTExchangeBroker:
     This is wired under `market.exchange_provider=alternative` + `market.alternative_broker=ccxt`.
     """
 
-    def __init__(self, profile: TradingProfileSettings, position_hold_store_path: str | None = None, default_type: str | None = None) -> None:
+    def __init__(self, profile: TradingProfileSettings, position_hold_store_path: str | None = None, default_type: str | None = None, trade_results: TradeResultStore | None = None) -> None:
         self.profile = profile
+        self.trade_results = trade_results
         # Auto-detect futures mode if profile name suggests it, unless explicitly overridden
         if default_type is None:
             if (os.getenv("PROFILE_NAME") or "").strip().lower() == "coinbase_futures":
@@ -128,6 +130,11 @@ class CCXTExchangeBroker:
         self._last_error_ts: float | None = None
         self._scale_in_counts: dict[str, int] = {}
         self._dust_warned: set[str] = set()  # Track which symbols we've warned about being dust
+
+    def sync_profile(self, profile: TradingProfileSettings) -> None:
+        """Update internal profile pointer to latest settings (Hot-Reload)."""
+        logger.info(f"[CCXT] Syncing new Profile settings... (Cap: {getattr(profile, 'balance_cap_pct', 'N/A')}, Lev: {getattr(profile, 'target_leverage', 'N/A')})")
+        self.profile = profile
 
     @property
     def exchange(self) -> ccxt.Exchange:
@@ -230,9 +237,54 @@ class CCXTExchangeBroker:
 
             self._ccxt_create_order(sym, "market", side, qty, params=params)
             
+            # [ANTIGRAVITY FIX] Calculate PnL and Log for GUI
+            pnl_val = 0.0
+            pnl_pct = 0.0
+            entry_price = 0.0
+            
+            if self.position_hold_store:
+                record = self.position_hold_store.get(symbol)
+                if record and record.entry_price:
+                    entry_price = record.entry_price
+                    # Note: side is the CLOSE side. If side is 'sell', we were long.
+                    if side == "sell": # Closing long
+                        pnl_val = (pos.get("avg_price", entry_price) - entry_price) * qty # This is wrong, Pos avg_price is current entry
+                        # Let's use current market price if available, or just assume the fill was at current price
+                        # Better yet, since we just did a market order, we can try to get the fill price
+                        # But for simplicity and consistency with the GUI parser, 
+                        # we can log the estimated PnL or fetch the fill price.
+                        # Wait, the GUI parser expects [EXIT] ... +$X.XX
+                        
+                        # Re-calculating correctly:
+                        # Realized PnL = (Exit Price - Entry Price) * Quantity
+                        # We don't have the exact exit price yet without fetching the order, 
+                        # but we can use the current price as a close approximation for the log.
+                        current_price = pos.get("current_price") or entry_price
+                        pnl_val = (current_price - entry_price) * qty
+                    else: # Closing short
+                        current_price = pos.get("current_price") or entry_price
+                        pnl_val = (entry_price - current_price) * qty
+                    
+                    if entry_price > 0:
+                        pnl_pct = (pnl_val / (entry_price * qty)) * 100
+            
+            pnl_str = f"{'+' if pnl_val >= 0 else ''}${pnl_val:.2f}"
+            logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%)")
+            
+            # Add to TradeResultStore
+            if self.trade_results:
+                self.trade_results.add_result(TradeResult(
+                    symbol=symbol,
+                    closed_at=_utc_now().isoformat(),
+                    pnl_pct=pnl_pct,
+                    is_win=pnl_val > 0,
+                    tier="100%", # Default for full flatten
+                    capital_at_close=0.0 # Will be updated by balance sync
+                ))
+
             # [ANTIGRAVITY FIX] Clear Position from Store
             if self.position_hold_store:
-                self.position_hold_store.remove(decision.symbol if 'decision' in locals() else symbol)
+                self.position_hold_store.remove(symbol)
         except Exception as exc:
             # Check if it's a dust position error (minimum amount)
             exc_str = str(exc).lower()
@@ -489,6 +541,11 @@ class CCXTExchangeBroker:
             self._scale_in_counts[symbol.upper()] = 0
             return None
             
+        # [ANTIGRAVITY FIX] Include entry_time for GUI markers
+        entry_time = None
+        if record and record.opened_at:
+            entry_time = record.opened_at  # ISO format string
+            
         return {
             "symbol": symbol.upper(),
             "side": "long" if size > 0 else "short",
@@ -496,6 +553,7 @@ class CCXTExchangeBroker:
             "size": size,
             "avg_price": avg_price,
             "entry_price": avg_price,
+            "entry_time": entry_time,  # ISO timestamp for GUI markers
             "stop_loss": float(record.stop_loss) if record and record.stop_loss else None,
             "take_profit": float(record.take_profit) if record and record.take_profit else None,
             "unrealized_pnl": unrealized_pnl,
@@ -1007,6 +1065,17 @@ class CCXTExchangeBroker:
                      shares = risk_amount / dist
                      pos_size_usd = shares * entry_price
 
+            # [ANTIGRAVITY FIX] Leverage Cap
+            # For Spot, leverage is capped at 1.0. For Futures, we use profile setting.
+            max_leverage = 1.0
+            if is_future:
+                 # Default to 3x if not specified for futures to avoid 'infinite' leverage from tight stops
+                 max_leverage = float(getattr(self.profile, "target_leverage", 3.0))
+            
+            if pos_size_usd > (liq_cap * max_leverage):
+                 logger.info(f"[CCXT] Leverage Cap ({max_leverage}x) triggered for {decision.symbol}: ${pos_size_usd:.2f} -> ${liq_cap * max_leverage:.2f}")
+                 pos_size_usd = liq_cap * max_leverage
+
             # 4. Apply Constraints (Min/Max Notional)
             min_notional = float(getattr(self.profile, "crypto_min_notional_usd", 20.0))
             max_notional = float(getattr(self.profile, "crypto_max_notional_usd", 10000.0) or 10000.0)
@@ -1413,6 +1482,7 @@ class CCXTExchangeBroker:
                 # Iterate through active symbols that we are trading
                 symbols_to_check = set(list(self.symbol_map.keys()))
                 for sys_sym in symbols_to_check:
+                    logger.debug(f"[CCXT-DEBUG] Checking protection for {sys_sym}...")
                     # [ANTIGRAVITY FIX] Ignore stablecoins and cash-like assets for protection check
                     if any(x in sys_sym.upper() for x in ("USDT", "USDC", "DAI")):
                          continue
@@ -1421,7 +1491,12 @@ class CCXTExchangeBroker:
                          
                     # Skip if we already have a pending action or recent entry
                     # Actually, the loop handles the candidate cycle. Here we just want to re-arm.
-                    state = self._fetch_symbol_state(sys_sym)
+                    try:
+                        state = self._fetch_symbol_state(sys_sym)
+                    except Exception as e:
+                        logger.error(f"[CCXT-DEBUG] fetch_symbol_state failed for {sys_sym}: {e}", exc_info=True)
+                        continue
+
                     pos_size = abs(state.get("position_shares", 0))
                     
                     # [ANTIGRAVITY FIX] Robust position check for re-arm
@@ -1469,7 +1544,7 @@ class CCXTExchangeBroker:
                                         stop_params["stop_price"] = self._exchange.price_to_precision(sym, sl_price)
                                         stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if side == "sell" else "STOP_DIRECTION_STOP_UP"
                                     else: # Gemini
-                                        stop_params["stopPrice"] = sl_price
+                                        stop_params["stopPrice"] = float(self._exchange.price_to_precision(sym, sl_price))
                                         stop_params["type"] = "stop-limit"
 
                                 stop_qty = float(self._exchange.amount_to_precision(sym, abs(state.get("position_shares"))))
@@ -1600,10 +1675,9 @@ class CCXTExchangeBroker:
         secret = os.getenv("CCXT_SECRET", "")
         
         # [ANTIGRAVITY] Diagnostic logging for Gemini authentication
+        # [ANTIGRAVITY] Diagnostic logging for Gemini authentication
         if self.exchange_id == "gemini":
-            logger.info(f"[CCXT] Gemini API Key check: prefix='{api_key[:8] if api_key else 'NONE'}', length={len(api_key)}")
-            if api_key and "account" not in api_key:
-                 logger.warning("[CCXT] Gemini API Key missing 'account' prefix! CCXT requires it.")
+            logger.info(f"[CCXT] Gemini API Key present (len={len(api_key)})")
         password = os.getenv("CCXT_PASSWORD")
         enable_rate_limit = (os.getenv("CCXT_ENABLE_RATE_LIMIT", "true").lower() == "true")
 

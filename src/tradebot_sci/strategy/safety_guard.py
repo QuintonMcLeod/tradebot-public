@@ -4,16 +4,27 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from typing import Optional
+from typing import Optional, Any
 
 
 from tradebot_sci.market.models import MarketSnapshot
-from tradebot_sci.strategy.decisions import AITradeDecision, stand_aside_decision, close_position_decision
+from tradebot_sci.strategy.decisions import (
+    AITradeDecision, 
+    stand_aside_decision, 
+    close_position_decision,
+    hold_decision
+)
 from tradebot_sci.strategy.icc_signals import calculate_atr
-# Import AI Client type for type hinting if needed, but Optional[Any] works to avoid circular imports
-from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# [ANTIGRAVITY] New Helpers for Safety Guard
+def calculate_r_multiple(entry: float, stop: float, current: float, direction: str) -> float:
+    risk = abs(entry - stop)
+    if risk == 0: return 0.0
+    profit = (current - entry) if direction == "long" else (entry - current)
+    return profit / risk
+
 
 class SafetyGuard:
     """
@@ -235,7 +246,31 @@ class SafetyGuard:
              except Exception as e:
                  logger.warning(f"[SAFETY] AI Shield failed request: {e}")
 
+        # -------------------------------------------------------------
+        # 9. [NEW] LEVERAGE SENTRY (Max Account Leverage)
+        # -------------------------------------------------------------
+        # Prevents "Account Blowing Up" by capping total notional leverage
+        if os.getenv("SAFETY_LEVERAGE_SENTRY_ENABLED", "true").lower() == "true":
+            max_leverage = float(os.getenv("SAFETY_MAX_TOTAL_LEVERAGE", "3.0")) # Conservative default 3x
+            
+            # Calculate total notional value of all open positions
+            total_notional = 0.0
+            for pos in cls.GLOBAL_POSITIONS.values():
+                price = float(pos.get("avg_price") or pos.get("entry_price") or 0)
+                size = abs(float(pos.get("size") or 0))
+                total_notional += (price * size)
+            
+            # Add the projected entry notional if we have the decision
+            # (Though at this point we haven't calculated the units for the NEW entry yet,
+            # so we'll check again in a secondary pass or use a conservative estimate)
+            
+            current_leverage = total_notional / current_capital if current_capital > 0 else 0
+            if current_leverage > max_leverage:
+                logger.warning(f"[SAFETY] Leverage Sentry VETO: Current Leverage {current_leverage:.1f}x exceeds Cap {max_leverage}x")
+                return stand_aside_decision(symbol, timeframe, f"Leverage Sentry: {current_leverage:.1f}x > {max_leverage}x")
+
         return None
+
 
     @classmethod
     def notify_entry(cls):
@@ -306,8 +341,9 @@ class SafetyGuard:
         shield_v = os.getenv("SAFETY_FLASH_TRAP_ENABLED", "false").lower() == "true"
         weapon_v = os.getenv("WEALTH_EXIT_BLOWOFF_ENABLED", "false").lower() == "true"
         if (shield_v or weapon_v) and len(snapshot.candles) >= 14:
-            curr_atr = calculate_atr(snapshot.candles[-14:], 14)
-            hist_atr = calculate_atr(snapshot.candles[-50:], 14)
+            # [ANTIGRAVITY FIX] Usage of keyword-only period
+            curr_atr = calculate_atr(snapshot.candles[-14:], period=14)
+            hist_atr = calculate_atr(snapshot.candles[-50:], period=14)
             if curr_atr and hist_atr:
                 multiplier = 3.5 if weapon_v else 2.5
                 if curr_atr > (hist_atr * multiplier):
@@ -335,6 +371,109 @@ class SafetyGuard:
                       cls.GLOBAL_POSITIONS[snapshot.symbol]["elevated_tp"] = new_tp
                       logger.info(f"[WEALTH] Moonshot Elevator ACTIVE for {snapshot.symbol}: Target doubled to {new_tp:.4f}")
 
+        # =========================================================================
+        # 4. PROFIT RETENTION PROTOCOLS ("The Last Mile")
+        # =========================================================================
+        
+        # A. THE LOCK-IN (Breakeven Trail)
+        # -------------------------------------------------------------------------
+        # Standardizes Breakeven + Buffer Logic. 
+        # Can be configured via Env (legacy) or passed in args (future). 
+        # Currently we read Env or fallback to Defaults.
+        be_trail_pct = float(os.getenv("BREAKEVEN_TRAIL_PCT", "0.0"))
+        if be_trail_pct > 0 and r_multiple >= 1.0: # Only activate after 1R secured
+            # Calculate target lock-in price
+            if direction == "long":
+                lock_price = entry_price * (1 + be_trail_pct)
+                # If current stop is below lock price, move it UP
+                if current_stop < lock_price:
+                     if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss < lock_price)):
+                        return hold_decision(
+                            symbol=snapshot.symbol,
+                            timeframe=snapshot.timeframe,
+                            bias="long",
+                            phase="management",
+                            reason=f"[SAFETY] The Lock-In: Secured Entry + {be_trail_pct*100:.1f}%",
+                            stop_loss=lock_price
+                        )
+            else: # short
+                lock_price = entry_price * (1 - be_trail_pct)
+                # If current stop is above lock price, move it DOWN
+                if current_stop == 0 or current_stop > lock_price:
+                     if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss > lock_price)):
+                        return hold_decision(
+                            symbol=snapshot.symbol,
+                            timeframe=snapshot.timeframe,
+                            bias="short",
+                            phase="management",
+                            reason=f"[SAFETY] The Lock-In: Secured Entry + {be_trail_pct*100:.1f}%",
+                            stop_loss=lock_price
+                        )
+
+        # B. THE GREEDY EXIT (Standard Trailing Stop)
+        # -------------------------------------------------------------------------
+        # Uses ATR-based or fixed pct trails to chase runs.
+        # "Trailing Stop Enabled" in UI maps to this.
+        use_greedy_exit = os.getenv("TRAILING_STOP_ENABLED", "false").lower() == "true"
+        
+        if use_greedy_exit:
+             # Default to ATR-based if available, or fallback to fixed 0.5%
+             # [ANTIGRAVITY FIX] Usage of keyword-only period
+             atr = calculate_atr(snapshot.candles[-14:], period=14)
+             trail_dist = 0.0
+             
+             if atr:
+                 trail_dist = atr * 1.5 # Standard 1.5 ATR trail
+             else:
+                 trail_dist = current_price * 0.005 # Fallback 0.5%
+             
+             if direction == "long":
+                 potential_stop = current_price - trail_dist
+                 # Only move UP
+                 if potential_stop > current_stop:
+                      if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss < potential_stop)):
+                           return hold_decision(
+                                symbol=snapshot.symbol,
+                                timeframe=snapshot.timeframe,
+                                bias="long",
+                                phase="management",
+                                reason=f"[SAFETY] The Greedy Exit: Trailing by {trail_dist:.4f}",
+                                stop_loss=potential_stop
+                           )
+             else: # short
+                 potential_stop = current_price + trail_dist
+                 # Only move DOWN
+                 if current_stop == 0 or potential_stop < current_stop:
+                      if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss > potential_stop)):
+                           return hold_decision(
+                                symbol=snapshot.symbol,
+                                timeframe=snapshot.timeframe,
+                                bias="short",
+                                phase="management",
+                                reason=f"[SAFETY] The Greedy Exit: Trailing by {trail_dist:.4f}",
+                                stop_loss=potential_stop
+                           )
+
+
+        # C. THE SNIPER TARGET (Hard TP by R-Multiple)
+        # -------------------------------------------------------------------------
+        # If Risk/Reward Ratio is set, enforce it as a hard profit target.
+        rr_target = float(os.getenv("RISK_REWARD_RATIO", "0.0"))
+        if rr_target > 0 and initial_risk > 0:
+            target_price = 0.0
+            if direction == "long":
+                target_price = entry_price + (initial_risk * rr_target)
+                if current_price >= target_price:
+                    logger.info(f"[SAFETY] Sniper Target Hit: {current_price} >= {target_price} ({rr_target}R)")
+                    return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Sniper Target ({rr_target}R)")
+            else: # short
+                target_price = entry_price - (initial_risk * rr_target)
+                if current_price <= target_price:
+                    logger.info(f"[SAFETY] Sniper Target Hit: {current_price} <= {target_price} ({rr_target}R)")
+                    return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Sniper Target ({rr_target}R)")
+
+
+        # [ANTIGRAVITY] Enabled ATR Armor logic
         # 4. ATR ARMOR (Consolidated with Gamma Squeeze)
         if os.getenv("SAFETY_ATR_SHIELD_ENABLED", "true").lower() == "true":
             # 1. Breakeven (1R)
@@ -342,12 +481,14 @@ class SafetyGuard:
                 if (direction == "long" and current_stop < entry_price) or \
                    (direction == "short" and current_stop > entry_price):
                     if not decision: 
-                         return AITradeDecision(
-                            symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                            bias="long" if direction == "long" else "short", 
-                            phase="management", action="hold", stop_loss=entry_price,
-                            notes="[SAFETY] Armor: Breakeven (1R)"
-                        )
+                         return hold_decision(
+                             symbol=snapshot.symbol,
+                             timeframe=snapshot.timeframe,
+                             bias="long" if direction == "long" else "short", 
+                             phase="management",
+                             reason="[SAFETY] Armor: Breakeven (1R)",
+                             stop_loss=entry_price
+                         )
 
             # 2. Dynamic Trailing (with Gamma Squeeze)
             trailing_pct = 0.05
@@ -363,20 +504,26 @@ class SafetyGuard:
                     target_stop = peak * (1 - trailing_pct)
                     if target_stop > current_stop:
                         if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss < target_stop)):
-                            return AITradeDecision(
-                                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                                bias="long", phase="management", action="hold", stop_loss=target_stop,
-                                notes=f"[SAFETY] Armor: {f'Gamma Trail' if trailing_pct < 0.05 else 'Trailing'} (${peak:.2f})"
+                            return hold_decision(
+                                symbol=snapshot.symbol,
+                                timeframe=snapshot.timeframe,
+                                bias="long",
+                                phase="management",
+                                reason=f"[SAFETY] Armor: {f'Gamma Trail' if trailing_pct < 0.05 else 'Trailing'} (${peak:.2f})",
+                                stop_loss=target_stop
                             )
                 else:
                     trough = min(c.low for c in relevant)
                     target_stop = trough * (1 + trailing_pct)
                     if current_stop == 0 or target_stop < current_stop:
                         if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss > target_stop)):
-                            return AITradeDecision(
-                                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                                bias="short", phase="management", action="hold", stop_loss=target_stop,
-                                notes=f"[SAFETY] Armor: {f'Gamma Trail' if trailing_pct < 0.05 else 'Trailing'} (${trough:.2f})"
+                            return hold_decision(
+                                symbol=snapshot.symbol,
+                                timeframe=snapshot.timeframe,
+                                bias="short",
+                                phase="management",
+                                reason=f"[SAFETY] Armor: {f'Gamma Trail' if trailing_pct < 0.05 else 'Trailing'} (${trough:.2f})",
+                                stop_loss=target_stop
                             )
 
         return decision
@@ -404,6 +551,12 @@ class SafetyGuard:
         if not raw or raw == "none":
             return []
         return [m.strip() for m in raw.split(",") if m.strip()]
+
+    @classmethod
+    def get_wealth_mode(cls) -> str | None:
+        """Returns the first active wealth mode (singular), or None if no mode is active."""
+        modes = cls.get_active_wealth_modes()
+        return modes[0] if modes else None
 
     @classmethod
     def augment_entry_decision(cls, decision: AITradeDecision, score: float, htf_strength: float, snapshot: MarketSnapshot, ai_client: Optional[Any] = None) -> AITradeDecision:
@@ -498,8 +651,9 @@ class SafetyGuard:
         if "coil" in modes:
             candles = snapshot.candles
             if len(candles) >= 100:
-                recent_atr = calculate_atr(candles[-14:], 14)
-                hist_atr = calculate_atr(candles, 100)
+                # [ANTIGRAVITY FIX] Usage of keyword-only period
+                recent_atr = calculate_atr(candles[-14:], period=14)
+                hist_atr = calculate_atr(candles, period=100)
                 if recent_atr and hist_atr and recent_atr < (hist_atr * 0.6):
                     decision.risk_per_trade_pct *= 2.0
                     decision.notes = (decision.notes or "") + " | Coil Breakout (2.0x)"

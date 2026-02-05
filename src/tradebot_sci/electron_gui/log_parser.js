@@ -41,9 +41,15 @@ function parseExitLine(line, timestamp) {
     // Extract symbol and PnL from "SYMBOL +$X.XX" or "SYMBOL -$X.XX" pattern
     const pnlMatch = line.match(/([A-Z]{3,}(?:USD|JPY|CAD|EUR|GBP|CHF|AUD|NZD)?)\s*([+-]?\$[\d.,]+)/i);
     if (pnlMatch) {
-        trade.symbol = pnlMatch[1];
+        trade.symbol = pnlMatch[1].toUpperCase();
         const pnlStr = pnlMatch[2].replace(/[$,]/g, '');
         trade.pnl = parseFloat(pnlStr) || 0;
+    }
+
+    // Extract Pct if present
+    const pctMatch = line.match(/\(Pct=([+-]?[\d.,]+)%\)/i);
+    if (pctMatch) {
+        trade.pnlPct = parseFloat(pctMatch[1]) || 0;
     }
 
     // Extract position side
@@ -63,6 +69,8 @@ function parseExitLine(line, timestamp) {
         trade.reason = 'Stop Loss';
     } else if (line.includes('Take Profit')) {
         trade.reason = 'Take Profit';
+    } else if (line.includes('Manual/Signal')) {
+        trade.reason = 'Manual/Signal';
     } else {
         const reasonMatch = line.match(/\[EXIT\]\s*(.+?)(?::|$)/);
         if (reasonMatch) trade.reason = reasonMatch[1].trim();

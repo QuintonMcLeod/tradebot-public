@@ -147,11 +147,43 @@ class MetaSCIStrategy(BaseStrategy):
                         )
                         # logger.debug(f"[META-TF] Routing HTF ({snapshot.htf_timeframe}) to {name}")
 
-                sig = strat.check_entry_signal(strat_snap, gates, open_position, current_capital, trade_history)
+                # [ANTIGRAVITY FIX] Safe Dispatch using Introspection
+                # Some strategies (RoboCop) take extra args, some (LondonBreakout) do not.
+                # We inspect the signature to pass only what is accepted.
+                import inspect
+                sig_obj = inspect.signature(strat.check_entry_signal)
+                params = sig_obj.parameters
+                
+                call_args = [strat_snap, gates] # First 2 are always required (after self)
+                kwargs = {}
+                
+                # Check for optional positional/keyword parameters
+                if "open_position" in params:
+                    kwargs["open_position"] = open_position
+                if "current_capital" in params:
+                    kwargs["current_capital"] = current_capital
+                if "trade_history" in params:
+                    kwargs["trade_history"] = trade_history
+                    
+                # If the strategy accepts **kwargs, we can pass everything extra just in case
+                has_varkw = any(p.kind == p.VAR_KEYWORD for p in params.values())
+                if has_varkw:
+                    kwargs["open_position"] = open_position
+                    kwargs["current_capital"] = current_capital
+                    kwargs["trade_history"] = trade_history
+                
+                # Execute logic
+                sig = strat.check_entry_signal(*call_args, **kwargs)
+                
                 if sig and sig.action in ("enter_long", "enter_short"):
                     sig.gates = sig.gates or {}
                     sig.gates["meta_source"] = name
                     signals.append(sig)
+                    logger.info(f"[META-DEBUG] {snapshot.symbol} {name.upper()}: WIN -> {sig.action} (Score: {sig.score})")
+                else:
+                    reason = sig.notes if sig else "No decision returned"
+                    score = sig.score if sig else 0
+                    logger.info(f"[META-DEBUG] {snapshot.symbol} {name.upper()}: REJECT -> {reason} (Score: {score})")
             except Exception as e:
                 logger.error(f"[META-SCI] Strategy {name} crashed in tournament: {e}")
 
@@ -181,4 +213,32 @@ class MetaSCIStrategy(BaseStrategy):
         logger.debug(f"[META-SCI] delegating exit to {source}")
         strat = self.strategies[source]
         
-        return strat.check_exit_signal(snapshot, open_position, gates, current_capital, trade_history)
+        # [ANTIGRAVITY FIX] Safe Dispatch for Exits (Mirroring Entry Logic)
+        import inspect
+        sig_obj = inspect.signature(strat.check_exit_signal)
+        params = sig_obj.parameters
+        
+        call_args = [snapshot, open_position, gates]
+        kwargs = {}
+        
+        if "current_capital" in params:
+            kwargs["current_capital"] = current_capital
+        if "trade_history" in params:
+            kwargs["trade_history"] = trade_history
+            
+        has_varkw = any(p.kind == p.VAR_KEYWORD for p in params.values())
+        if has_varkw:
+            kwargs["current_capital"] = current_capital
+            kwargs["trade_history"] = trade_history
+
+        try:
+            sig = strat.check_exit_signal(*call_args, **kwargs)
+            if sig:
+                logger.info(f"[META-DEBUG] {snapshot.symbol} {source.upper()} (EXIT): WIN -> {sig.action}")
+                return sig
+            else:
+                logger.info(f"[META-DEBUG] {snapshot.symbol} {source.upper()} (EXIT): REJECT -> Hold")
+                return None
+        except Exception as e:
+            logger.error(f"[META-SCI] Exit strategy {source} crashed: {e}")
+            return None

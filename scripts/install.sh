@@ -258,6 +258,10 @@ if [ -f "$HOME/.local/bin/poetry" ]; then POETRY_BIN="$HOME/.local/bin/poetry"; 
 $POETRY_BIN env use "$PYTHON_EXEC"
 $POETRY_BIN install --with gui
 
+# Install additional broker dependencies not in pyproject.toml
+info "Installing additional broker dependencies..."
+pip install oandapyV20 --quiet
+
 # GUI dependencies
 info "Installing GUI dependencies (npm)..."
 cd src/tradebot_sci/electron_gui

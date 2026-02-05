@@ -51,6 +51,10 @@ class IExchangeBroker(Protocol):
     def _has_active_orders_or_position(self, symbol: str, state: dict | None = None) -> bool:
         ...
 
+    def sync_profile(self, profile: TradingProfileSettings) -> None:
+        """Dynamically update the broker's profile settings (Hot-Reload)."""
+        ...
+
 
 class NoOpExchangeBroker:
     """A Null Object implementation of IExchangeBroker that does nothing."""
@@ -96,6 +100,9 @@ class NoOpExchangeBroker:
 
     def _has_active_orders_or_position(self, symbol: str, state: dict | None = None) -> bool:
         return False
+
+    def sync_profile(self, profile: TradingProfileSettings) -> None:
+        pass
 
     @property
     def profile(self):

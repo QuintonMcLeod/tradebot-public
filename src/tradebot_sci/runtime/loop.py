@@ -489,6 +489,7 @@ def run_bot(
             profile_settings,
             shared_ib=shared_ib,
             allowed_symbols=set(symbols) if symbols else None,
+            trade_results=trade_results,
         )
         if execute_trades
         else None
@@ -607,6 +608,28 @@ def run_bot(
                         controller.settings = settings
                         controller.profile_settings = profile_settings
                         
+                        # [ANTIGRAVITY FIX] Sync Profile to Brokers (Hot-Reload)
+                        if hasattr(executor, "sync_profile"):
+                            executor.sync_profile(profile_settings)
+                        
+                        # [ANTIGRAVITY FIX] Sync Profile to Environment (so SafetyGuard consumes it immediately)
+                        logger.info("[HOT-RELOAD] Syncing new settings to OS Environment for SafetyGuard...")
+                        
+                        # Map internal settings to ENV vars used by SafetyGuard
+                        env_updates = {
+                            "BREAKEVEN_TRAIL_PCT": str(getattr(profile_settings, "breakeven_trail_pct", 0.0)),
+                            "TRAILING_STOP_ENABLED": str(getattr(profile_settings, "trailing_stop_enabled", False)).lower(),
+                            "RISK_REWARD_RATIO": str(getattr(profile_settings, "risk_reward_ratio", 0.0)),
+                            "ICC_ENTRY_SCORE_THRESHOLD": str(getattr(profile_settings, "structure_score_threshold", 75.0)),
+                            "ICC_HIGH_SCORE_OVERRIDE_THRESHOLD": str(getattr(profile_settings, "high_score_override_threshold", 85.0)),
+                        }
+                        
+                        for key, val in env_updates.items():
+                            os.environ[key] = val
+                            # Also update the running process environment if needed for subprocesses (though less likely here)
+                        
+                        logger.info(f"[HOT-RELOAD] Environment Synced: BE={env_updates['BREAKEVEN_TRAIL_PCT']}, TRAIL={env_updates['TRAILING_STOP_ENABLED']}, RR={env_updates['RISK_REWARD_RATIO']}")
+
                         # 3. Resolve New Symbols
                         new_symbols = _resolve_symbol_universe(settings, profile_settings, profile_name)
                         
@@ -964,6 +987,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
             settings,
             profile_settings,
             shared_ib=shared_ib,
+            trade_results=trade_results,
             allowed_symbols=set(symbols) if symbols else None,
         )
         if execute_trades
@@ -1384,7 +1408,7 @@ class WSLoggingHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            if self.controller.ws_server and any(marker in msg for marker in ["[STATE]", "[CYCLE]", "[RESULT]", "[AUTO-ENTRY]", "[ROBOCOP]", "[EXIT]", "[PROFILE]", "[HEARTBEAT]", "[DECISION]", "[STRUCTURE]"]):
+            if self.controller.ws_server and any(marker in msg for marker in ["[STATE]", "[CYCLE]", "[RESULT]", "[AUTO-ENTRY]", "[ROBOCOP]", "[EXIT]", "[PROFILE]", "[HEARTBEAT]", "[DECISION]", "[STRUCTURE]", "[SAFETY]", "[PHOENIX]", "[ENTRY]", "[FILL]", "[HOLD]", "[SIGNAL]", "[TRADE]", "[SCAN]"]):
                 self.controller.ws_server.broadcast_log_sync(record.levelname, msg)
         except Exception:
             self.handleError(record)

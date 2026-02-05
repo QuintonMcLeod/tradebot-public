@@ -231,6 +231,18 @@ class TradingProfileSettings(BaseModel):
         le=1.0,
         description="Standard risk per trade as a fraction of equity.",
     )
+    balance_cap_pct: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Maximum fraction of liquid balance allowed for a single asset's total exposure.",
+    )
+    target_leverage: float = Field(
+        default=1.0,
+        ge=1.0,
+        le=100.0,
+        description="Target leverage for the asset class (Asset Class dependent).",
+    )
     icc_entry_score_threshold: float = Field(
         default=60.0,
         ge=0.0,

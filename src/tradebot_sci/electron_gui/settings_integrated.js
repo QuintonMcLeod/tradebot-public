@@ -98,6 +98,7 @@ const TOOLTIPS = {
     IBKR_PORT: "Connection port for IBKR. Use 7497 for Paper Trading in TWS, 7496 for Live TWS, 4002 for Paper Gateway, 4001 for Live Gateway.",
     IBKR_CLIENT_ID: "Unique identifier for this connection. If running multiple bots, each needs a different Client ID.",
     IBKR_ACCOUNT_ID: "Your IBKR account number. Found in Account Management. Format like DU1234567 (paper) or U1234567 (live).",
+    GUI_PNL_TIMEFRAME: "Select the timeframe for calculating Profit and Loss (PnL) on the dashboard and in analytics. '24h' is standard, but you can view performance over a week, month, or year for a broader perspective.",
     IBKR_PAPER: "Enable paper trading mode - uses IBKR's simulated trading environment. Always test here before going live!",
     IBKR_READ_ONLY: "Read-only mode - bot can view positions and data but cannot place orders. Safe for monitoring.",
     IBKR_DEFAULT_CCY: "Default currency for the account. Usually USD but could be EUR, GBP, etc. for international accounts.",
@@ -578,7 +579,7 @@ function setupGlobalEvents() {
 
 function getProfileOptions() {
     if (!profilesContent) return [
-        { value: 'auto_schedule', label: 'Auto (Equities/Crypto)' },
+        { value: 'auto_schedule', label: 'Auto - Equities & Crypto' },
         { value: 'forex_intraday', label: 'Forex Intraday' },
         { value: 'forex_oanda', label: 'OANDA Forex' },
         { value: 'crypto_247', label: 'Crypto 24/7' },
@@ -608,7 +609,7 @@ function getProfileOptions() {
     }
 
     return options.length > 0 ? options : [
-        { value: 'auto_schedule', label: 'Auto (Equities/Crypto)' },
+        { value: 'auto_schedule', label: 'Auto - Equities & Crypto' },
         { value: 'forex_intraday', label: 'Forex Intraday' },
         { value: 'forex_oanda', label: 'OANDA Forex' },
         { value: 'crypto_247', label: 'Crypto 24/7' },
@@ -902,19 +903,19 @@ function renderSystemTab(container) {
 
     section.appendChild(createCard('Strategy Variant', 'Trading strategy algorithm', 'STRATEGY_VARIANT', 'dropdown', {
         items: [
-            { value: 'rubberband_reaper', label: 'Rubberband Reaper (Anti-Martingale)' },
-            { value: 'robocop', label: 'RoboCop (Aggressive ICC)' },
-            { value: 'evolution', label: 'Robot Evolution (NTZ Scalper)' },
-            { value: 'quantum', label: 'Quantum (Trend Following)' },
-            { value: 'mean_reversion', label: 'Mean Reversion (Bollinger/RSI)' },
-            { value: 'hyper_scalper', label: 'HyperScalper (EMA Crossover)' },
-            { value: 'london_breakout', label: 'London Breakout (Session)' },
-            { value: 'orb_breakout', label: 'ORB (NY Session Break & Retest)' },
+            { value: 'rubberband_reaper', label: 'Rubberband Reaper - Anti-Martingale' },
+            { value: 'robocop', label: 'RoboCop - Aggressive ICC' },
+            { value: 'evolution', label: 'Robot Evolution - NTZ Scalper' },
+            { value: 'quantum', label: 'Quantum - Trend Following' },
+            { value: 'mean_reversion', label: 'Mean Reversion - Bollinger & RSI' },
+            { value: 'hyper_scalper', label: 'HyperScalper - EMA Crossover' },
+            { value: 'london_breakout', label: 'London Breakout' },
+            { value: 'orb_breakout', label: 'ORB - NY Session Break & Retest' },
             { value: 'volatility_breakout', label: 'Volatility Breakout' },
-            { value: 'aggregator', label: 'Singularity Aggregator (Multi-Strategy)' },
-            { value: 'meta_sci', label: 'Meta-SCI (AI-Enhanced Ensemble)' },
-            { value: 'icc_core', label: 'ICC (Indication, Correction, Continuation)' },
-            { value: 'supply_demand', label: 'Supply & Demand (Institutional)' }
+            { value: 'aggregator', label: 'Singularity Aggregator - Multi-Strategy' },
+            { value: 'meta_sci', label: 'Meta-SCI - AI-Enhanced Ensemble' },
+            { value: 'icc_core', label: 'ICC - Indication, Correction, Continuation' },
+            { value: 'supply_demand', label: 'Supply & Demand - Institutional' }
         ],
         default: 'rubberband_reaper'
     }));
@@ -936,10 +937,21 @@ function renderSystemTab(container) {
 
     section.appendChild(createCard('Capital Display Mode', 'Toggle dashboard capital between Overall Equity and Buying Power', 'GUI_CAPITAL_DISPLAY_MODE', 'dropdown', {
         items: [
-            { value: 'equity', label: 'Overall Liquidity (Net Worth)' },
-            { value: 'cash', label: 'Buying Power (Cash)' }
+            { value: 'equity', label: 'Overall Liquidity - Net Worth' },
+            { value: 'cash', label: 'Buying Power - Cash' }
         ],
         default: 'equity'
+    }));
+
+    section.appendChild(createCard('PnL Timeframe', 'Select performance measurement period for the dashboard', 'GUI_PNL_TIMEFRAME', 'dropdown', {
+        items: [
+            { value: '24h', label: 'Last 24 Hours' },
+            { value: '7d', label: 'Last 7 Days' },
+            { value: '30d', label: 'Last 30 Days' },
+            { value: '1y', label: 'Last Year' },
+            { value: 'all', label: 'All Time' }
+        ],
+        default: '24h'
     }));
 
     section.appendChild(createDivider());
@@ -1147,8 +1159,8 @@ function renderStrategyTab(container) {
         grid.appendChild(createSliderCard('Max Daily Loss', 'Daily loss circuit breaker', 'MAX_DAILY_LOSS_PCT', 1, 20, 1, '%'));
         section.appendChild(grid);
 
-        section.appendChild(createCard('Fixed Risk ($)', 'Fixed dollar risk (overrides %)', 'RISK_PER_TRADE_DOLLARS', 'input', { number: true, placeholder: '0.00' }));
-        section.appendChild(createCard('Max Loss Per Trade ($)', 'Hard cap per trade', 'MAX_LOSS_PER_TRADE_DOLLARS', 'input', { number: true, default: '500' }));
+        section.appendChild(createCard('Fixed Risk USD', 'Fixed dollar risk - overrides %', 'RISK_PER_TRADE_DOLLARS', 'input', { number: true, placeholder: '0.00' }));
+        section.appendChild(createCard('Max Loss Per Trade USD', 'Hard cap per trade', 'MAX_LOSS_PER_TRADE_DOLLARS', 'input', { number: true, default: '500' }));
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Position Management', 'layers'));
@@ -1196,8 +1208,8 @@ function renderStrategyTab(container) {
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Trailing Stop', 'trending_down'));
 
-        section.appendChild(createCard('The "Greedy Exit" (Trailing Stop)', 'Enable trailing stop logic', 'TRAILING_STOP_ENABLED', 'toggle'));
-        section.appendChild(createCard('The "Sniper Target" (Hard Take Profit)', 'Target Reward Ratio (e.g. 2.0 = 2x Risk)', 'RISK_REWARD_RATIO', 'input', {
+        section.appendChild(createCard('The "Greedy Exit"', 'Enable trailing stop logic', 'TRAILING_STOP_ENABLED', 'toggle'));
+        section.appendChild(createCard('The "Sniper Target"', 'Target Reward Ratio - e.g. 2.0 = 2x Risk', 'RISK_REWARD_RATIO', 'input', {
             number: true,
             placeholder: '2.0',
             default: '2.0'
@@ -1263,8 +1275,8 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('API Key', 'OANDA API access token', 'OANDA_API_KEY', 'input', { password: true }));
         section.appendChild(createCard('Environment', 'Trading environment', 'OANDA_ENVIRONMENT', 'dropdown', {
             items: [
-                { value: 'practice', label: 'Practice (Demo)' },
-                { value: 'live', label: 'Live (Real Money)' }
+                { value: 'practice', label: 'Practice - Demo' },
+                { value: 'live', label: 'Live - Real Money' }
             ],
             default: 'practice'
         }));
@@ -1322,8 +1334,8 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('API Secret', 'Kraken API Secret', 'KRAKEN_API_SECRET', 'input', { password: true }));
         section.appendChild(createCard('Environment', 'Trading Environment', 'KRAKEN_ENVIRONMENT', 'dropdown', {
             items: [
-                { value: 'production', label: 'Production (Live)' },
-                { value: 'sandbox', label: 'Sandbox (Test)' }
+                { value: 'production', label: 'Production - Live' },
+                { value: 'sandbox', label: 'Sandbox - Test' }
             ],
             default: 'production'
         }));
@@ -1353,8 +1365,8 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('API Secret', 'Paxos API Secret', 'PAXOS_API_SECRET', 'input', { password: true }));
         section.appendChild(createCard('Environment', 'Sandbox or Production', 'PAXOS_ENVIRONMENT', 'dropdown', {
             items: [
-                { value: 'sandbox', label: 'Sandbox (Test)' },
-                { value: 'production', label: 'Production (Live)' }
+                { value: 'sandbox', label: 'Sandbox - Test' },
+                { value: 'production', label: 'Production - Live' }
             ],
             default: 'sandbox'
         }));
@@ -1387,8 +1399,8 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('Max Notional (USD)', 'Maximum trade size', 'CRYPTO_MAX_NOTIONAL_USD', 'input', { number: true, default: '1000000' }));
         section.appendChild(createCard('Order Type', 'Limit vs Market', 'CRYPTO_ORDER_TYPE', 'dropdown', {
             items: [
-                { value: 'LIMIT', label: 'Limit (Safer)' },
-                { value: 'MARKET', label: 'Market (Guaranteed Fill)' }
+                { value: 'LIMIT', label: 'Limit - Safer' },
+                { value: 'MARKET', label: 'Market - Guaranteed Fill' }
             ]
         }));
 
@@ -1413,8 +1425,8 @@ function renderBrokersTab(container) {
                 { value: 'ccxt', label: 'Coinbase / CCXT' },
                 { value: 'gemini', label: 'Gemini.com' },
                 { value: 'kraken', label: 'Kraken' },
-                { value: 'paxos', label: 'Paxos (Native API)' },
-                { value: 'oanda', label: 'OANDA (Spot via Paxos)' },
+                { value: 'paxos', label: 'Paxos - Native API' },
+                { value: 'oanda', label: 'OANDA - Spot via Paxos' },
                 { value: 'ibkr', label: 'Interactive Brokers' }
             ],
             default: 'ccxt'
@@ -1422,7 +1434,7 @@ function renderBrokersTab(container) {
 
         section.appendChild(createCard('Forex Broker', 'eur/usd, jpy', 'BROKER_FOREX', 'dropdown', {
             items: [
-                { value: 'ibkr', label: 'Interactive Brokers (Primary)' },
+                { value: 'ibkr', label: 'Interactive Brokers - Primary' },
                 { value: 'oanda', label: 'OANDA' }
             ],
             default: 'ibkr'
@@ -1451,11 +1463,11 @@ function renderAITab(container) {
     section.appendChild(createCard('AI Provider', 'Backend service', 'TRADE_SCI_PROVIDER', 'dropdown', {
         items: [
             { value: 'gemini', label: 'Google Gemini Pro' },
-            { value: 'openai', label: 'OpenAI (GPT-4)' },
+            { value: 'openai', label: 'OpenAI - GPT-4' },
             { value: 'claude', label: 'Anthropic Claude' },
             { value: 'deepseek', label: 'DeepSeek' },
             { value: 'openrouter', label: 'OpenRouter' },
-            { value: 'local', label: 'Local AI (Ollama / LM Studio)' }
+            { value: 'local', label: 'Local AI - Ollama / LM Studio' }
         ],
         onChange: () => renderTab() // Force re-render to update dependent locks
     }));
@@ -1468,7 +1480,7 @@ function renderAITab(container) {
 
     section.appendChild(createCard('Model Name', 'e.g., gemini-1.5-pro-002', 'TRADE_SCI_MODEL_NAME', 'input'));
     section.appendChild(createCard('API Key', 'Provider authentication', 'CHATGPT_KEY', 'input', { password: true }));
-    section.appendChild(createCard('Temperature', 'Response randomness (0-2)', 'AI_TEMPERATURE', 'input', { number: true, default: '0.2', min: 0, max: 2, step: 0.1 }));
+    section.appendChild(createCard('Temperature', 'Response randomness - 0-2', 'AI_TEMPERATURE', 'input', { number: true, default: '0.2', min: 0, max: 2, step: 0.1 }));
     section.appendChild(createCard('Max Tokens', 'Response length limit', 'AI_MAX_TOKENS', 'input', { number: true, default: '2048' }));
 
     section.appendChild(createDivider());
@@ -1488,7 +1500,7 @@ function renderAITab(container) {
     }));
 
     // Interval slider (shown when policy is 'interval')
-    section.appendChild(createCard('Interval (Minutes)', 'Time between AI updates', 'COMMENTARY_INTERVAL_MINUTES', 'input', {
+    section.appendChild(createCard('Interval - Minutes', 'Time between AI updates', 'COMMENTARY_INTERVAL_MINUTES', 'input', {
         number: true,
         default: '5',
         min: 1,
@@ -1528,15 +1540,15 @@ function renderScheduleTab(container) {
     section.appendChild(createCard('Timezone', 'IANA zone name', 'SABBATH_TIMEZONE', 'input', { default: 'America/New_York' }));
     section.appendChild(createCard('Latitude', 'Decimal coordinate', 'SABBATH_LAT', 'input'));
     section.appendChild(createCard('Longitude', 'Decimal coordinate', 'SABBATH_LON', 'input'));
-    section.appendChild(createCard('Start Time', 'Friday sunset (HH:MM)', 'SABBATH_START_LOCAL', 'input', { default: '18:00' }));
-    section.appendChild(createCard('End Time', 'Saturday sunset (HH:MM)', 'SABBATH_END_LOCAL', 'input', { default: '18:00' }));
+    section.appendChild(createCard('Start Time', 'Friday sunset - HH:MM', 'SABBATH_START_LOCAL', 'input', { default: '18:00' }));
+    section.appendChild(createCard('End Time', 'Saturday sunset - HH:MM', 'SABBATH_END_LOCAL', 'input', { default: '18:00' }));
 
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('Session Gate', 'access_time'));
 
     section.appendChild(createCard('Session Gate Enabled', 'Enforce session health checks', 'SESSION_GATE_ENABLED', 'toggle', { default: 'true' }));
-    section.appendChild(createCard('Overlap Start Hour', 'Active session start (0-23)', 'SESSION_OVERLAP_START_HOUR', 'input', { number: true, default: '12', min: 0, max: 23 }));
-    section.appendChild(createCard('Overlap End Hour', 'Active session end (0-23)', 'SESSION_OVERLAP_END_HOUR', 'input', { number: true, default: '16', min: 0, max: 23 }));
+    section.appendChild(createCard('Overlap Start Hour', 'Active session start - 0-23', 'SESSION_OVERLAP_START_HOUR', 'input', { number: true, default: '12', min: 0, max: 23 }));
+    section.appendChild(createCard('Overlap End Hour', 'Active session end - 0-23', 'SESSION_OVERLAP_END_HOUR', 'input', { number: true, default: '16', min: 0, max: 23 }));
     section.appendChild(createCard('Session Timezone', 'For overlap hours', 'SESSION_OVERLAP_TIMEZONE', 'input', { default: 'UTC' }));
     section.appendChild(createCard('Auto Schedule', 'Auto switch equities/crypto', 'AUTO_SCHEDULE_ENABLED', 'toggle'));
 
@@ -1613,18 +1625,18 @@ function renderSafetyTab(container) {
 
     section.appendChild(createCard('Staircase Floor', 'Principle Protection via No-Body-Close zones', 'SAFETY_FLOOR_ENABLED', 'toggle'));
     section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle'));
-    section.appendChild(createCard('The "Lock-In" (Breakeven Trail)', 'Lock Risk-Free at this profit level (e.g. 0.003 = 0.3%)', 'BREAKEVEN_TRAIL_PCT', 'input', {
+    section.appendChild(createCard('The "Lock-In"', 'Lock Risk-Free at this profit level - e.g. 0.003 = 0.3%', 'BREAKEVEN_TRAIL_PCT', 'input', {
         number: true,
         placeholder: '0.003',
         default: '0.003',
         step: 0.001
     }));
-    section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker (5% Daily Cap)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle'));
+    section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker - 5% Daily Cap', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle'));
     section.appendChild(createCard('Session Lockout', 'Stops signals after 12:00 PM EST', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle'));
-    section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock (Quit while ahead)', 'SAFETY_GREED_GUARD_ENABLED', 'toggle'));
+    section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock - Quit while ahead', 'SAFETY_GREED_GUARD_ENABLED', 'toggle'));
 
     // Greed Guard Target Input (Conditional visibility logic handled via CSS/JS later, or just always show for now)
-    section.appendChild(createCard('Greed Guard Target ($)', 'Daily profit amount to trigger lockout', 'SAFETY_GREED_GUARD_TARGET', 'input', {
+    section.appendChild(createCard('Greed Guard Target USD', 'Daily profit amount to trigger lockout', 'SAFETY_GREED_GUARD_TARGET', 'input', {
         number: true,
         placeholder: '100.00',
         default: '100.00'
@@ -1684,19 +1696,19 @@ function renderSafetyTab(container) {
     section.appendChild(nuclearWarning);
 
     section.appendChild(createCard('Nuclear Mode Active', 'Bypass all hard-coded safety ceilings', 'NUCLEAR_OVERRIDES_ENABLED', 'toggle', { default: 'false' }));
-    section.appendChild(createCard('Risk Cap Override (%)', 'New hard risk wall (e.g. 0.35 for 35%)', 'MAX_RISK_CAP_OVERRIDE', 'input', {
+    section.appendChild(createCard('Risk Cap Override %', 'New hard risk wall - e.g. 0.35 for 35%', 'MAX_RISK_CAP_OVERRIDE', 'input', {
         number: true,
         default: '0.05',
         locked: envData['NUCLEAR_OVERRIDES_ENABLED'] !== 'true',
         lockMessage: 'Requires Nuclear Mode Activation.'
     }));
-    section.appendChild(createCard('Compounding Cap Override ($)', 'New capital growth wall (e.g. 50000)', 'COMPOUNDING_CAP_OVERRIDE', 'input', {
+    section.appendChild(createCard('Compounding Cap Override USD', 'New capital growth wall - e.g. 50000', 'COMPOUNDING_CAP_OVERRIDE', 'input', {
         number: true,
         default: '10000',
         locked: envData['NUCLEAR_OVERRIDES_ENABLED'] !== 'true',
         lockMessage: 'Requires Nuclear Mode Activation.'
     }));
-    section.appendChild(createCard('Pyramid Cap Override ($)', 'New risk ceiling for pyramids', 'PYRAMID_CAP_OVERRIDE', 'input', {
+    section.appendChild(createCard('Pyramid Cap Override USD', 'New risk ceiling for pyramids', 'PYRAMID_CAP_OVERRIDE', 'input', {
         number: true,
         default: '750',
         locked: envData['NUCLEAR_OVERRIDES_ENABLED'] !== 'true',

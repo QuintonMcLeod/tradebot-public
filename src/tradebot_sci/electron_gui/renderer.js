@@ -2,11 +2,39 @@
 let chart;
 let candleSeries;
 let indicatorSeries;
-let logTerminal;
-let statusProfile;
-let statusText;
+let emaSeries;
+let smaSeries;
+let stopLossLine; // Horizontal price line for SL
+let takeProfitLine; // Horizontal price line for TP
+let entryPriceLine; // Horizontal price line for entry
+let tradeMarkers = []; // Current active markers for symbols
+let markerCache = {}; // Cache of markers per symbol: { 'BTCUSD': [markers], ... }
+let previousSymbol = null; // Track symbol shifts to clear markers selectively
+let candleData = []; // Store candle data for indicator calculations
+let currentPosition = null; // { symbol, side, entry, sl, tp, size }
+let lastHoldings = null; // Cache last holdings data for redrawing on symbol switch
 let statusDot;
 let statusLatency;
+let pnlTimeframe = '24h';
+
+function tfToSeconds(tf) {
+    if (!tf) return 900;
+    const num = parseInt(tf);
+    const unit = tf.toLowerCase().replace(/[0-9]/g, '').trim();
+    if (unit === 'm') return num * 60;
+    if (unit === 'h') return num * 3600;
+    if (unit === 'd') return num * 86400;
+    return 900;
+}
+
+function parseLogTimestamp(line) {
+    const match = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/);
+    if (match) {
+        // Log is LOCAL time, convert to Unix Seconds based on browser's locale
+        return Math.floor(new Date(match[1].replace(' ', 'T')).getTime() / 1000);
+    }
+    return Math.floor(Date.now() / 1000);
+}
 
 function initChart(intervalSeconds = 900) {
     const chartContainer = document.getElementById('chart-area');
@@ -64,6 +92,24 @@ function initChart(intervalSeconds = 900) {
         },
     });
 
+    // EMA Line (21-period, hidden by default)
+    emaSeries = chart.addLineSeries({
+        color: '#fbbf24', // Amber
+        lineWidth: 2,
+        visible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+    });
+
+    // SMA Line (50-period, hidden by default)
+    smaSeries = chart.addLineSeries({
+        color: '#a855f7', // Purple
+        lineWidth: 2,
+        visible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+    });
+
     new ResizeObserver(entries => {
         if (entries.length === 0 || !entries[0].contentRect) return;
         const width = entries[0].contentRect.width;
@@ -75,9 +121,12 @@ function initChart(intervalSeconds = 900) {
 }
 
 function subscribeToAsset(symbol, tf) {
+    console.log(`[SUBSCRIBE] Attempting to subscribe to ${symbol} (${tf}). WS state: ${ws ? ws.readyState : 'null'}`);
     if (ws && ws.readyState === WebSocket.OPEN) {
-        console.log(`Subscribing to ${symbol} (${tf})...`);
+        console.log(`[SUBSCRIBE] Sending subscription request for ${symbol} (${tf})...`);
         ws.send(JSON.stringify({ type: 'subscribe', symbol, tf }));
+    } else {
+        console.warn(`[SUBSCRIBE] WebSocket not open. Cannot subscribe to ${symbol}`);
     }
 }
 
@@ -117,6 +166,22 @@ async function connectWebSocket() {
                 ws.send(JSON.stringify({ type: 'ping' }));
             }
         }, 5000);
+
+        // [ANTIGRAVITY] Periodic chart refresh to keep data live
+        // Fetch updated history every 15 seconds since the bot only broadcasts
+        // candles during scan cycles which can be 15-60+ seconds apart
+        let chartRefreshInterval;
+        if (window._chartRefreshInterval) clearInterval(window._chartRefreshInterval);
+        window._chartRefreshInterval = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const sym = document.getElementById('chart-symbol-label')?.innerText?.trim();
+                const tf = document.getElementById('chart-tf-label')?.innerText?.trim() || '15m';
+                if (sym) {
+                    console.log(`[CHART-REFRESH] Polling history for ${sym} (${tf})...`);
+                    ws.send(JSON.stringify({ type: 'subscribe', symbol: sym, tf }));
+                }
+            }
+        }, 15000); // Refresh every 15 seconds
     };
 
     ws.onmessage = (event) => {
@@ -158,6 +223,30 @@ async function connectWebSocket() {
                         open: c.open, high: c.high, low: c.low, close: c.close
                     }));
                     candleSeries.setData(fixedData);
+                    candleData = fixedData; // Store for indicator calculations
+                    updateIndicators();
+
+                    const msgSym = msg.symbol.toUpperCase();
+                    // [ANTIGRAVITY FIX] Persistent state handling
+                    if (previousSymbol !== msgSym) {
+                        clearTradeMarkers();
+                        previousSymbol = msgSym;
+                    }
+
+                    // Re-apply cached markers for this symbol
+                    tradeMarkers = markerCache[msgSym] || [];
+                    if (candleSeries) {
+                        candleSeries.setMarkers(tradeMarkers);
+                    }
+
+                    // Draw position lines for this symbol if we have cached holdings
+                    if (lastHoldings && lastHoldings.positions) {
+                        const pos = parsePositionFromHoldings(lastHoldings.positions, msg.symbol);
+                        if (pos) {
+                            updatePositionLines(pos);
+                        }
+                    }
+
                     chart.timeScale().fitContent(); // Ensure data is visible!
                 } else {
                     console.warn(`[CHART] Ignored history for ${msg.symbol} ${msg.tf} (UI wants: ${currentSym} ${currentTfRaw})`);
@@ -186,11 +275,10 @@ async function connectWebSocket() {
                 console.log("Syncing UI state:", data);
 
                 if (data.equity !== undefined) {
-                    const equityEl = document.getElementById('account-equity');
-                    if (equityEl) {
-                        equityEl.innerText = data.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                        equityEl.className = `text-sm font-black ${data.equity >= 0 ? 'text-green-400' : 'text-red-500'}`;
-                    }
+                    // [ANTIGRAVITY FIX] Only update if it looks like a PnL value, not a capital value
+                    // Capital values are typically larger (>100), PnL values are typically smaller
+                    // Skip this update - let [HOLDINGS] be the authoritative source for unrealized PnL
+                    console.log('[STATE] Skipping equity update from state sync - using [HOLDINGS] as authority');
                 }
                 if (data.capital !== undefined) {
                     const capitalEl = document.getElementById('account-capital');
@@ -280,6 +368,206 @@ function generateDummyData(interval = 900) {
         value = close;
     }
     return res;
+}
+
+// --- Indicator Calculation Functions ---
+function calculateSMA(data, period) {
+    const result = [];
+    for (let i = period - 1; i < data.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < period; j++) {
+            sum += data[i - j].close;
+        }
+        result.push({ time: data[i].time, value: sum / period });
+    }
+    return result;
+}
+
+function calculateEMA(data, period) {
+    const result = [];
+    const multiplier = 2 / (period + 1);
+
+    // Start with SMA for the first EMA value
+    if (data.length < period) return result;
+
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+        sum += data[i].close;
+    }
+    let ema = sum / period;
+    result.push({ time: data[period - 1].time, value: ema });
+
+    for (let i = period; i < data.length; i++) {
+        ema = (data[i].close - ema) * multiplier + ema;
+        result.push({ time: data[i].time, value: ema });
+    }
+    return result;
+}
+
+function updateIndicators() {
+    if (!candleData || candleData.length < 21) return;
+
+    if (emaSeries) {
+        const emaData = calculateEMA(candleData, 21);
+        emaSeries.setData(emaData);
+    }
+    if (smaSeries) {
+        const smaData = calculateSMA(candleData, 50);
+        smaSeries.setData(smaData);
+    }
+}
+
+// --- Trade Marker Functions ---
+function addTradeMarker(time, isBuy, symbol, price, customText = null) {
+    const sym = symbol.toUpperCase();
+    if (!markerCache[sym]) markerCache[sym] = [];
+
+    // [ANTIGRAVITY] Enhanced marker styling for better visibility
+    const marker = {
+        time: time,
+        position: isBuy ? 'belowBar' : 'aboveBar',
+        color: isBuy ? '#22c55e' : '#ef4444',
+        shape: isBuy ? 'arrowUp' : 'arrowDown',
+        text: customText || (isBuy ? `▶ BUY ${price?.toFixed(2) || ''}` : `◀ SELL ${price?.toFixed(2) || ''}`),
+        size: 2,
+    };
+
+    console.log(`[MARKER-CACHE] Adding to ${sym}:`, marker);
+
+    // Deduplicate: Don't add if we already have a marker at this time with this shape
+    const exists = markerCache[sym].some(m => m.time === marker.time && m.shape === marker.shape);
+    if (!exists) {
+        markerCache[sym].push(marker);
+        markerCache[sym].sort((a, b) => a.time - b.time);
+
+        const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
+        if (sym === currentSym) {
+            tradeMarkers = markerCache[sym];
+            console.log(`[CHART-RENDER] Setting markers for ${sym} (count: ${tradeMarkers.length})`);
+            if (candleSeries) {
+                candleSeries.setMarkers(tradeMarkers);
+            }
+        }
+    }
+}
+
+// [ANTIGRAVITY] Exit marker function for closed trades
+function addExitMarker(time, isWin, symbol, price, pnlPct, customText = null) {
+    const sym = symbol.toUpperCase();
+    if (!markerCache[sym]) markerCache[sym] = [];
+
+    const pnlStr = pnlPct ? `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%` : '';
+    const marker = {
+        time: time,
+        position: 'aboveBar',
+        color: isWin ? '#10b981' : '#f43f5e',  // Emerald for win, Rose for loss
+        shape: 'square',  // Square shape for exits (different from arrows for entries)
+        text: customText || `EXIT ${price?.toFixed(2) || ''} ${pnlStr}`,
+        size: 2,
+    };
+
+    const exists = markerCache[sym].some(m => m.time === marker.time && m.shape === marker.shape);
+    if (!exists) {
+        markerCache[sym].push(marker);
+        markerCache[sym].sort((a, b) => a.time - b.time);
+
+        const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
+        if (sym === currentSym) {
+            tradeMarkers = markerCache[sym];
+            if (candleSeries) {
+                candleSeries.setMarkers(tradeMarkers);
+            }
+        }
+    }
+}
+
+function clearTradeMarkers() {
+    tradeMarkers = [];
+    if (candleSeries) {
+        candleSeries.setMarkers([]);
+    }
+}
+
+// --- Position Line Functions ---
+function updatePositionLines(position) {
+    // Always clear existing lines first to prevent duplicates
+    clearPositionLines();
+
+    if (!candleSeries || !position) {
+        return;
+    }
+
+    const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
+    if (position.symbol?.toUpperCase() !== currentSym) {
+        return;
+    }
+
+    currentPosition = position;
+
+    // Entry is shown as a MARKER (from [ENTRY] logs), not a line
+    // SL and TP remain as horizontal lines
+
+    // Stop Loss Line (Red)
+    if (position.sl) {
+        stopLossLine = candleSeries.createPriceLine({
+            price: position.sl,
+            color: '#ef4444',
+            lineWidth: 2,
+            lineStyle: 2, // Dashed
+            axisLabelVisible: true,
+            title: `SL @ ${position.sl.toFixed(4)}`,
+        });
+    }
+
+    // Take Profit Line (Green)
+    if (position.tp) {
+        takeProfitLine = candleSeries.createPriceLine({
+            price: position.tp,
+            color: '#22c55e',
+            lineWidth: 2,
+            lineStyle: 2, // Dashed
+            axisLabelVisible: true,
+            title: `TP @ ${position.tp.toFixed(4)}`,
+        });
+    }
+
+    console.log(`[CHART] Drew position lines for ${position.symbol}: SL=${position.sl}, TP=${position.tp}`);
+}
+
+function clearPositionLines() {
+    if (candleSeries) {
+        // Remove existing price lines if they exist
+        if (entryPriceLine) {
+            candleSeries.removePriceLine(entryPriceLine);
+            entryPriceLine = null;
+        }
+        if (stopLossLine) {
+            candleSeries.removePriceLine(stopLossLine);
+            stopLossLine = null;
+        }
+        if (takeProfitLine) {
+            candleSeries.removePriceLine(takeProfitLine);
+            takeProfitLine = null;
+        }
+    }
+    currentPosition = null;
+}
+
+function parsePositionFromHoldings(holdings, symbol) {
+    if (!holdings || !Array.isArray(holdings)) return null;
+
+    const pos = holdings.find(h => h.symbol?.toUpperCase() === symbol.toUpperCase());
+    if (!pos) return null;
+
+    return {
+        symbol: pos.symbol,
+        side: pos.side || pos.direction,
+        entry: pos.entry_price || pos.avg_price,
+        entryTime: pos.entry_time,  // ISO timestamp from position_hold_store
+        sl: pos.stop_loss,
+        tp: pos.take_profit,
+        size: Math.abs(pos.size || 0),
+    };
 }
 
 // --- Log Formatting Logic ---
@@ -476,12 +764,15 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null) {
 
     // Action Styling
     let actionHtml = `<span class="text-slate-500">${action}</span>`;
-    if (action === "ENTER_LONG" || action === "BUY") {
-        actionHtml = `<span class="text-green-400 font-bold text-glow-sm">ENTER_LONG</span>`;
-    } else if (action === "ENTER_SHORT" || action === "SELL") {
-        actionHtml = `<span class="text-red-500 font-bold text-glow-sm">ENTER_SHORT</span>`;
-    } else if (action === "HOLD" || action === "WAIT" || action === "CONTINUATION") {
-        actionHtml = `<span class="text-slate-400 font-bold text-glow-sm">${action}</span>`;
+    const actUpper = action.toUpperCase();
+    if (actUpper === "ENTER_LONG" || actUpper === "BUY" || actUpper === "ENTRY" || actUpper === "FILL") {
+        actionHtml = `<span class="text-green-400 font-bold text-glow-sm">${actUpper}</span>`;
+    } else if (actUpper === "ENTER_SHORT" || actUpper === "SELL" || actUpper === "EXIT") {
+        actionHtml = `<span class="text-red-500 font-bold text-glow-sm">${actUpper}</span>`;
+    } else if (actUpper === "HOLD" || actUpper === "WAIT" || actUpper === "CONTINUATION") {
+        actionHtml = `<span class="text-slate-400 font-bold text-glow-sm">${actUpper}</span>`;
+    } else {
+        actionHtml = `<span class="text-cyan-400 font-bold text-glow-sm">${actUpper}</span>`;
     }
 
     // [ANTIGRAVITY REFINE] Much larger font (text-lg / 18px), bunched rows (py-1.5)
@@ -507,6 +798,10 @@ window.api.on('env-updated', (updates) => {
         capitalDisplayMode = updates.GUI_CAPITAL_DISPLAY_MODE;
         // Optionally trigger a redraw if we have data
     }
+    if (updates.GUI_PNL_TIMEFRAME) {
+        pnlTimeframe = updates.GUI_PNL_TIMEFRAME;
+        updateRealizedPnL();
+    }
     if (updates.APP_PROFILE) {
         const profileEl = document.getElementById('status-profile');
         if (profileEl) {
@@ -519,7 +814,10 @@ window.api.on('env-updated', (updates) => {
 
 window.api.on('fromMain', (payload) => {
     if (payload.type === 'log-chunk') {
-        // Initial chunk (history)
+        // Initial chunk (history) - Reset caches to avoid duplicates
+        markerCache = {};
+        tradeMarkers = [];
+
         const lines = payload.data.split('\n');
         lines.forEach(line => {
             if (line.trim()) parseLogLine(line.trim()); // Parse content but maybe don't append ALL to UI to avoid spam?
@@ -657,20 +955,104 @@ function updateHoldingsTable(payload) {
             equityEl.classList.add('text-red-400');
         }
     }
+
+    // [ANTIGRAVITY] Cache holdings and draw SL/TP/Entry lines for current symbol
+    lastHoldings = payload;
+    const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
+    console.log(`[CHART-DEBUG] Holdings received. Looking for ${currentSym} in positions:`, payload.positions?.map(p => p.symbol));
+    if (currentSym && payload.positions) {
+        const pos = parsePositionFromHoldings(payload.positions, currentSym);
+        console.log(`[CHART-DEBUG] Parsed position for ${currentSym}:`, pos);
+
+        // Draw SL/TP lines
+        if (pos && (pos.sl || pos.tp)) {
+            console.log(`[CHART-DEBUG] Drawing lines - SL: ${pos.sl}, TP: ${pos.tp}`);
+            updatePositionLines(pos);
+        }
+
+        // [ANTIGRAVITY] Add entry marker from holdings entry_time
+        if (pos && pos.entryTime && pos.entry) {
+            let entryTimeSec = Math.floor(new Date(pos.entryTime).getTime() / 1000);
+            const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
+            const interval = tfToSeconds(tfRaw);
+
+            // Snap to candle start and shift back by one to hit the signal candle
+            const snappedTime = Math.floor(entryTimeSec / interval) * interval;
+            entryTimeSec = snappedTime - interval;
+
+            const isBuy = (pos.side === 'long');
+            addTradeMarker(entryTimeSec, isBuy, currentSym, pos.entry);
+        }
+    }
 }
 
 
 function parseLogLine(line) {
     if (!line) return;
-    console.log("[DEBUG] Parsing Line:", line);
+
+    // Check for EXIT logs to trigger PnL refresh and add exit marker
+    if (line.includes('[EXIT]')) {
+        setTimeout(updateRealizedPnL, 1000); // Small delay to let filesystem sync if needed
+
+        // [ANTIGRAVITY] Parse EXIT for exit marker with PnL
+        // Expected format: [EXIT] Manual/Signal: BTCUSD +$2.50 (Pct=1.25%)
+        const symbolMatch = line.match(/\[EXIT\][^:]*:\s*([A-Z0-9]+)/i) || line.match(/\[EXIT\]\s+([A-Z0-9]+)/i);
+        const pnlMatch = line.match(/([+-]?\$[\d.]+)/);
+        const pctMatch = line.match(/Pct=([+-]?[\d.]+)%?/i);
+
+        if (symbolMatch) {
+            let logTime = parseLogTimestamp(line);
+            const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
+            const interval = tfToSeconds(tfRaw);
+
+            // Snap to current candle start and shift back by one
+            const snappedTime = Math.floor(logTime / interval) * interval;
+            logTime = snappedTime - interval;
+
+            const pnlPct = pctMatch ? parseFloat(pctMatch[1]) : null;
+            const isWin = pnlMatch ? pnlMatch[1].startsWith('+') : (pnlPct !== null && pnlPct >= 0);
+            // Try to extract price from pnl dollar value for display
+            const priceFromPnl = pnlMatch ? Math.abs(parseFloat(pnlMatch[1].replace('$', ''))) : null;
+            addExitMarker(logTime, isWin, symbolMatch[1], priceFromPnl, pnlPct);
+
+            // [ANTIGRAVITY] Add exits to Decisions Panel
+            console.log(`[DECISION-UI] Exit logged for ${symbolMatch[1]}: ${line}`);
+            const pnlStr = pnlMatch ? pnlMatch[1] : (pnlPct ? `${pnlPct.toFixed(2)}%` : '');
+            addDecisionRow(symbolMatch[1], "EXIT", null, `PnL: ${pnlStr} | Price: ${priceFromPnl || '??'}`);
+        }
+    }
+
+    // Check for ENTRY logs for buy markers
+    if (line.includes('[ENTRY]') || line.includes('[FILL]')) {
+        const symbolMatch = line.match(/\[(?:ENTRY|FILL)\]\s+([A-Z0-9]+)/i) || line.match(/symbol[=:]?\s*([A-Z0-9]+)/i);
+        const priceMatch = line.match(/price[=:]?\s*([\d.]+)/i) || line.match(/@\s*([\d.]+)/);
+        if (symbolMatch) {
+            let logTime = parseLogTimestamp(line);
+            const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
+            const interval = tfToSeconds(tfRaw);
+
+            // Snap to current candle start and shift back by one
+            const snappedTime = Math.floor(logTime / interval) * interval;
+            logTime = snappedTime - interval;
+
+            const price = priceMatch ? parseFloat(priceMatch[1]) : null;
+            addTradeMarker(logTime, true, symbolMatch[1], price);
+
+            // [ANTIGRAVITY] Add trade entries to Decisions Panel for better visibility
+            console.log(`[DECISION-UI] Entry logged for ${symbolMatch[1]}: ${line}`);
+            addDecisionRow(symbolMatch[1], line.includes('[FILL]') ? "FILL" : "ENTRY", null, `Price: ${price || '??'}`);
+        }
+    }
 
     // 1. Neural Decision Matrix
-    if (line.includes('[STRUCTURE]') || line.includes('Decision: Decision:') || line.includes('[DECISION]')) {
+    if (line.includes('[STRUCTURE]') || line.includes('Decision: Decision:') || line.includes('[DECISION]') || line.includes('[SAFETY]') || line.includes('[PHOENIX]')) {
         try {
             let content = "";
             if (line.includes('[STRUCTURE]')) content = line.split('[STRUCTURE]')[1].trim();
             else if (line.includes('Decision: Decision:')) content = line.split('Decision: Decision:')[1].trim();
             else if (line.includes('[DECISION]')) content = line.split('[DECISION]')[1].trim();
+            else if (line.includes('[SAFETY]')) content = line.split('[SAFETY]')[1].trim();
+            else if (line.includes('[PHOENIX]')) content = line.split('[PHOENIX]')[1].trim();
 
             // [ANTIGRAVITY FIX] Handle key-value format "symbol=BTCUSD action=..."
             const parts = content.split('|');
@@ -694,9 +1076,16 @@ function parseLogLine(line) {
             let score = null;
             let reason = "Evaluation complete";
 
-            const actionMatch = body.match(/action=([^\s|]+)/i) || body.match(/gate=([^\s|]+)/i) || body.match(/Switched to\s+([^\s|]+)/i);
+            const actionMatch = body.match(/action=([^\s|]+)/i) ||
+                body.match(/gate=([^\s|]+)/i) ||
+                body.match(/Switched to\s+([^\s|]+)/i) ||
+                body.match(/Blocked\s+([A-Z0-9]+):\s+([^\s|]+)/i);
             if (actionMatch) {
-                action = actionMatch[1].toUpperCase().replace("STAND_ASIDE", "HOLD").replace("SWEEP", "HOLD");
+                if (line.includes('[SAFETY]') && actionMatch[2]) {
+                    action = "HOLD"; // Safety blocks are always holds for now
+                } else {
+                    action = actionMatch[1].toUpperCase().replace("STAND_ASIDE", "HOLD").replace("STAND-ASIDE", "HOLD").replace("SWEEP", "HOLD");
+                }
             } else {
                 // Fallback: If no explicit key "action=", try to find standalone keywords if needed
                 // But Meta-SCI logs use "action=HOLD" consistently
@@ -731,6 +1120,7 @@ function parseLogLine(line) {
             const gradeMatch = body.match(/grade=([A-F][+-]?)/i);
             const forcedGrade = gradeMatch ? gradeMatch[1] : null;
 
+            console.log(`[DECISION-UI] Decision Row for ${symbol}: action=${action}, score=${score}`);
             addDecisionRow(symbol, action, score, reason, forcedGrade);
 
             // Chart Indicator (The "Grey Bars" that should be colorful)
@@ -1175,9 +1565,86 @@ function setupInteractiveElements() {
         });
     });
 
-    // Indicator Button
-    document.getElementById('btn-indicators')?.addEventListener('click', () => {
-        appendLog("INFO", "[UI] Indicators menu toggled.");
+    // Indicator Button & Dropdown - Portal approach for chart isolation
+    const indicatorBtn = document.getElementById('btn-indicators');
+    const indicatorDropdown = document.getElementById('indicator-dropdown');
+    let dropdownOriginalParent = indicatorDropdown?.parentElement;
+
+    indicatorBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpening = indicatorDropdown?.classList.contains('hidden');
+
+        if (isOpening && indicatorDropdown) {
+            // Portal dropdown to body with fixed positioning
+            const btnRect = indicatorBtn.getBoundingClientRect();
+            indicatorDropdown.style.position = 'fixed';
+            indicatorDropdown.style.top = `${btnRect.bottom + 8}px`;
+            indicatorDropdown.style.left = `${btnRect.left}px`;
+            indicatorDropdown.style.zIndex = '9999';
+            document.body.appendChild(indicatorDropdown);
+            indicatorDropdown.classList.remove('hidden');
+            console.log('[UI] Dropdown portaled to body');
+        } else if (indicatorDropdown) {
+            indicatorDropdown.classList.add('hidden');
+        }
+    });
+
+    // Close dropdown when clicking outside and restore to original parent
+    document.addEventListener('click', (e) => {
+        if (indicatorDropdown && !indicatorDropdown.classList.contains('hidden')) {
+            // Check if click was inside dropdown
+            if (!indicatorDropdown.contains(e.target) && e.target !== indicatorBtn && !indicatorBtn?.contains(e.target)) {
+                indicatorDropdown.classList.add('hidden');
+                // Restore to original parent
+                indicatorDropdown.style.position = '';
+                indicatorDropdown.style.top = '';
+                indicatorDropdown.style.left = '';
+                indicatorDropdown.style.zIndex = '';
+                if (dropdownOriginalParent) {
+                    dropdownOriginalParent.appendChild(indicatorDropdown);
+                }
+                console.log('[UI] Dropdown closed and restored');
+            }
+        }
+    });
+
+    // Prevent dropdown from closing when clicking inside it, and stop events from reaching the chart below
+    ['click', 'mousedown', 'mousemove', 'mouseup', 'mouseover'].forEach(evt => {
+        indicatorDropdown?.addEventListener(evt, (e) => {
+            e.stopPropagation();
+        });
+    });
+    // EMA Toggle - Use click on label parent instead of change event to overcome chart overlay
+    const emaCheckbox = document.getElementById('toggle-ema');
+    const smaCheckbox = document.getElementById('toggle-sma');
+
+    // Find parent labels and add click handlers
+    emaCheckbox?.parentElement?.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        emaCheckbox.checked = !emaCheckbox.checked;
+        console.log(`[UI] EMA Toggle clicked: ${emaCheckbox.checked}, emaSeries exists: ${!!emaSeries}, candleData length: ${candleData?.length || 0}`);
+        if (emaSeries) {
+            updateIndicators(); // Ensure data is populated
+            emaSeries.applyOptions({ visible: emaCheckbox.checked });
+            appendLog("INFO", `[UI] EMA (21) ${emaCheckbox.checked ? 'enabled' : 'disabled'}`);
+        } else {
+            console.warn('[UI] emaSeries not initialized!');
+        }
+    });
+
+    smaCheckbox?.parentElement?.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        smaCheckbox.checked = !smaCheckbox.checked;
+        console.log(`[UI] SMA Toggle clicked: ${smaCheckbox.checked}, smaSeries exists: ${!!smaSeries}, candleData length: ${candleData?.length || 0}`);
+        if (smaSeries) {
+            updateIndicators(); // Ensure data is populated
+            smaSeries.applyOptions({ visible: smaCheckbox.checked });
+            appendLog("INFO", `[UI] SMA (50) ${smaCheckbox.checked ? 'enabled' : 'disabled'}`);
+        } else {
+            console.warn('[UI] smaSeries not initialized!');
+        }
     });
 
     // Window Controls
@@ -1217,12 +1684,12 @@ function loadState() {
         if (state.profile) document.getElementById('status-profile').innerText = state.profile;
         if (state.equity) document.getElementById('account-equity').innerText = state.equity;
 
-        // [ANTIGRAVITY] User Request: Wipe Decision/Commentary panels on boot
-        // We do strictly NOT restore: decisions, commentary, holdings (HTML tables)
-        // if (state.decisions) document.getElementById('decisions-table').innerHTML = state.decisions;
-        // if (state.commentary) document.getElementById('commentary-content').innerText = state.commentary;
-        // if (state.holdings) document.getElementById('holdings-table-body').innerHTML = state.holdings;
-        document.getElementById('decisions-table').innerHTML = '';
+        // [ANTIGRAVITY] Revised: Only wipe if we don't have enough rows (prevent boot clear of history)
+        const decTable = document.getElementById('decisions-table');
+        if (decTable && decTable.rows.length < 5) {
+            decTable.innerHTML = '';
+        }
+
         if (document.getElementById('commentary-content')) document.getElementById('commentary-content').innerHTML = '';
         document.getElementById('holdings-table-body').innerHTML = '';
 
@@ -1266,6 +1733,14 @@ function init() {
         // Request initial bot status
         window.api.send('get-bot-status');
 
+        // Initialize PnL Timeframe from env
+        window.api.invoke('read-env').then(env => {
+            if (env.GUI_PNL_TIMEFRAME) {
+                pnlTimeframe = env.GUI_PNL_TIMEFRAME;
+            }
+            updateRealizedPnL();
+        });
+
         // [ANTIGRAVITY FIX] Chart Refresh Interval (15 Seconds)
         setInterval(() => {
             const sym = document.getElementById('chart-symbol-label')?.innerText || 'EURUSD';
@@ -1298,6 +1773,37 @@ window.profilesModule = (function () {
     let originalProfileData = null;
     let changeCount = 0;
     let initialized = false;
+
+    /**
+     * Fetch and update Realized PnL metrics based on timeframe
+     */
+    async function updateRealizedPnL() {
+        try {
+            const result = await window.api.invoke('get-analytics-summary', pnlTimeframe);
+            if (result && result.success) {
+                const summary = result.data;
+                const pnlEl = document.getElementById('realized-pnl-chip');
+                const tradeEl = document.getElementById('trade-count-chip');
+                const labelEl = document.getElementById('pnl-timeframe-label');
+
+                if (pnlEl) {
+                    const pnlVal = summary.totalNetWorth || summary.totalPnl || 0;
+                    pnlEl.textContent = `${pnlVal >= 0 ? '+' : ''}$${pnlVal.toFixed(2)}`;
+                    pnlEl.className = `text-[10px] font-black ${pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-500'} drop-shadow-sm`;
+                }
+
+                if (tradeEl) {
+                    tradeEl.textContent = summary.totalTrades || 0;
+                }
+
+                if (labelEl) {
+                    labelEl.textContent = `${pnlTimeframe.toUpperCase()} VIEW`;
+                }
+            }
+        } catch (err) {
+            console.error('[PNL] Failed to update realized PnL:', err);
+        }
+    }
 
     const STRATEGY_OPTIONS = [
         { value: 'rubberband_reaper', label: 'Rubberband Reaper' },

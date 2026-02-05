@@ -589,9 +589,14 @@ profiles:
     trend_min_swings: 2
     trend_strength_floor: 0.25
     structure_score_threshold: 0.05
+    breakeven_trail_pct: 0.003
+    trailing_stop_enabled: true
+    risk_reward_ratio: 2.0
     risk_per_trade_pct: 0.05
     max_concurrent_positions: 6
     multi_position_enabled: true
     max_pyramid_entries: 4
     sabbath_enabled: true
     crypto_only: false
+    balance_cap_pct: 0.88
+    target_leverage: 1.0
