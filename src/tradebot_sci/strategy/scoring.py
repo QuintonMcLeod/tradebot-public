@@ -112,7 +112,12 @@ class ActionScorer:
         if continuation: score += 0.12
         if indication: score += 0.08
         if session_ok: score += 0.05
-        if not align: score *= 0.7
         
+        if not align:
+            # [ANTIGRAVITY] Sliding Penalty: If HTF is strong (>0.6), reduce penalty to 10% (0.9x). 
+            # Otherwise, keep standard 30% penalty (0.7x).
+            penalty = 0.9 if htf_strength > 0.6 else 0.7
+            score *= penalty
+
         score = min(1.0, max(0.0, score))
         return score, ActionScorer.grade_from_score(score)

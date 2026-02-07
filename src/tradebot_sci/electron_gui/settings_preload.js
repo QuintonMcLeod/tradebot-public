@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+    // Legacy env/YAML methods (kept for backwards compatibility)
     readEnv: () => ipcRenderer.invoke('read-env'),
     saveEnv: (updates) => ipcRenderer.invoke('save-env', updates),
     readProfiles: () => ipcRenderer.invoke('read-profiles'),
@@ -16,6 +17,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     closeWindow: () => ipcRenderer.send('close-window'),
     onEnvUpdated: (callback) => ipcRenderer.on('env-updated', (event, data) => callback(data)),
     onProfilesUpdated: (callback) => ipcRenderer.on('profiles-updated', (event, data) => callback(data)),
+
+    // NEW: Unified config.json API
+    readConfig: () => ipcRenderer.invoke('read-config'),
+    saveConfig: (config) => ipcRenderer.invoke('save-config', config),
+    readSecrets: () => ipcRenderer.invoke('read-secrets'),
+    saveSecrets: (secrets) => ipcRenderer.invoke('save-secrets', secrets),
+    onConfigUpdated: (callback) => ipcRenderer.on('config-updated', (event, data) => callback(data)),
 
     // Bot Lifecycle Controls
     startBot: () => ipcRenderer.send('start-bot'),

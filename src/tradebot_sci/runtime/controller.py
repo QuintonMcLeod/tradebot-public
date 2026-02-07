@@ -48,7 +48,10 @@ class RuntimeController:
             return
             
         try:
-            cap = executor.get_liquid_capital() if executor else 0.0
+            # [ANTIGRAVITY FIX] Distinguish between Liquid Cash and Total Equity
+            cash = executor.get_liquid_capital() if executor else 0.0
+            total_equity = executor.get_total_balance_value() if executor else 0.0
+            
             # Get active holdings count
             holdings_count = 0
             if executor and hasattr(executor, "list_open_position_symbols"):
@@ -75,8 +78,9 @@ class RuntimeController:
                     pnl_stats[tf_code] = store.get_stats_for_timeframe(tf_code).get('pnl_usd', 0.0)
 
             state_data = {
-                "equity": cap,
-                "capital": cap,
+                "equity": total_equity,
+                "capital": total_equity,
+                "cash": cash,
                 "holdings_count": holdings_count,
                 "profile": self.profile_name,
                 "symbols": getattr(self.profile_settings, "symbols", []),
@@ -84,7 +88,7 @@ class RuntimeController:
                 "halted": self.ws_server.is_halted(),
                 "pnl_stats": pnl_stats
             }
-            logger.info(f"[PRODB-STATE] Broadcasting state: profile={self.profile_name} pnl_24h={pnl_stats.get('24h', 0.0)}")
+            logger.info(f"[PRODB-STATE] Broadcasting state: profile={self.profile_name} equity=${total_equity:.2f} cash=${cash:.2f}")
             self.ws_server.broadcast_state_sync(state_data)
             self.last_capital_sync_ts = now
         except Exception as e:
@@ -99,10 +103,10 @@ class RuntimeController:
             "open": candle.open,
             "high": candle.high,
             "low": candle.low,
-            "close": candle.close
+            "close": candle.close,
+            "volume": getattr(candle, "volume", 0)
         }
-        # [ANTIGRAVITY DEBUG] Trace timestamp origin
-        # logger.debug(f"[WS-CANDLE] Broadcasting {symbol} {timeframe} ts={candle.timestamp} ({c_data['time']})") 
+        # [ANTIGRAVITY DEBUG] Trace volume and timestamp
         self.ws_server.broadcast_candle_sync(symbol, timeframe, c_data)
 
     def is_halted(self) -> bool:

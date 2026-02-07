@@ -314,7 +314,13 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
             return _create_single_broker(alt_name, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
         name = "ccxt" # Default alternative for broker is CCXT
 
-    if name == "ibkr" or name == "primary":
+    if name == "primary":
+        prime = settings.market.primary_broker
+        if prime and prime not in ("primary", "hybrid"):
+            return _create_single_broker(prime, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
+        name = "ibkr" # Final fallback
+
+    if name == "ibkr":
         return IbkrExecutor(
             settings.broker,
             settings.runtime,
@@ -401,7 +407,13 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
             return _create_single_provider(alt_name, settings, profile_settings, shared_ib)
         name = "coinbase" # Default alternative for market data
 
-    if name == "ibkr" or name == "primary":
+    if name == "primary":
+        prime = settings.market.primary_market_provider
+        if prime and prime not in ("primary", "hybrid"):
+            return _create_single_provider(prime, settings, profile_settings, shared_ib)
+        name = "ibkr" # Final fallback
+
+    if name == "ibkr":
          if shared_ib: return IbkrMarketDataProvider(shared_ib)
     elif name == "oanda":
         if not settings.oanda:
@@ -495,9 +507,20 @@ def build_market_provider(
     
     # --- LEGACY / GLOBAL MODE FALLBACK ---
     # Keeps original logic for backward compatibility if no overrides set
-    # (Original logic implementation omitted for brevity, but reusing helper logic would be ideal if consistent)
-    # For safety in this edit, I will reimplement the basic switch using the helpers.
+    mode = _get_effective_setting("market_data_mode", settings, profile_settings)
+    if not mode:
+        mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
     
+    if mode == "hybrid":
+        p_primary = _create_single_provider("primary", settings, profile_settings, shared_ib)
+        p_alt = _create_single_provider("alternative", settings, profile_settings, shared_ib)
+        
+        return RoutedMarketDataProvider({
+            "crypto": p_alt,
+            "forex": p_primary,
+            "equity": p_primary
+        })
+
     p = _create_single_provider(mode, settings, profile_settings, shared_ib)
     
     # [ANTIGRAVITY] Final safety check: if we are in crypto_only but ended up with Oanda/IBKR

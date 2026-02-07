@@ -28,16 +28,11 @@ I’ve rebuilt the Dashboard to prioritize what actually matters: **Profit, Loss
 
 ## 🤖 RoboCop Mode: Firing the "Emotional Human"
 
-I’ve introduced a new logic profile I call **RoboCop**. Why? Because humans have blood pressure, and blood pressure- Fixed an AI validation error where the `range` phase was causing Pydantic literal errors; it now correctly maps to `chop`.
-- **Enabled Multi-Position Management**: Unblocked the bot to handle up to 4 concurrent positions, ensuring legacy hedges (like BTC) don't stop the scanner from taking new A+ setups.
+I’ve introduced a new logic profile I call **RoboCop**. Why? Because humans have blood pressure, and blood pressure leads to hesitation. A human trader sees a dip and thinks: *"What if I lose my rent money?"*
 
-### 5. "Orphaned" Position Management (BTC Fix)
-Resolved the issue where the bot was ignoring the **BIP (Nano Bitcoin Future)** position:
-- **Symbol Re-activation**: Removed BIP/ETP from the internal blacklist.
-- **Smart Mapping**: Updated `IbkrExecutor` to recognize that `BIP` contract from IBKR maps to `BTCUSD` strategy logic.
-- **Stagnation Fallback**: Implemented a "Stagnation Kill" for orphaned positions held > 4 hours without an entry record, ensuring "zombie" trades are harvested to free up capital.
-- **Hybrid Broker Mode**: Switched to `hybrid` mode to ensure both IBKR and Coinbase/CCXT portfolios are synchronized.
-ney?"*
+- **AI Validation Fix**: Fixed an AI validation error where the `range` phase was causing Pydantic literal errors; it now correctly maps to `chop`.
+- **Enabled Multi-Position Management**: Unblocked the bot to handle up to 4 concurrent positions, ensuring legacy hedges (like BTC) don't stop the scanner from taking new A+ setups.
+>>>>>>> debug
 
 My bot sees a dip and thinks: *"Mathematical opportunity detected. Executing at 200ms."*
 

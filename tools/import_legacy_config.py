@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
 """
-Migration Script: Consolidate .env + YAML into config.json
+=============================================================================
+LEGACY CONFIG IMPORT TOOL
+=============================================================================
 
-This script:
-1. Reads current .env file
-2. Reads settings_profiles.yaml
-3. Merges them into a structured config.json
-4. Extracts secrets (API keys) to .env.secrets
-5. Creates backups of old files
+Run this script if you're upgrading from an older version of TradeBotSCI
+that used .env and YAML files for configuration.
+
+This script will:
+  1. Read your existing .env file
+  2. Read your settings_profiles.yaml and settings_base.yaml 
+  3. Merge everything into the new config.json format
+  4. Extract API keys into a separate .env.secrets file
+  5. Create backups of your old config files
+
+USAGE:
+  python tools/import_legacy_config.py
+
+After running, you can safely delete your old .env and YAML config files.
+The new system uses only config.json and .env.secrets.
+=============================================================================
 """
 
 import json

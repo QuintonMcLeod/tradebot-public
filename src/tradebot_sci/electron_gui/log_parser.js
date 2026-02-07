@@ -16,8 +16,8 @@ const LOGS_DIR = path.join(__dirname, '../../../logs');
 function parseTimestamp(line) {
     const match = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/);
     if (match) {
-        // Append 'Z' to treat as UTC
-        return new Date(match[1].replace(' ', 'T') + 'Z');
+        // Logs are local time
+        return new Date(match[1].replace(' ', 'T'));
     }
     return null;
 }
@@ -429,24 +429,24 @@ function calculateAnalyticsSummary(data) {
         totalWins,
         totalLosses,
         breakeven: breakeven.length,
-        winRate: winRate.toFixed(1),
-        totalPnl: totalPnl.toFixed(2),
-        grossProfit: grossProfit.toFixed(2),
-        grossLoss: grossLoss.toFixed(2),
+        winRate: parseFloat(winRate.toFixed(1)),
+        totalPnl: parseFloat(totalPnl.toFixed(2)),
+        grossProfit: parseFloat(grossProfit.toFixed(2)),
+        grossLoss: parseFloat(grossLoss.toFixed(2)),
 
         // Additional metrics
-        avgWin: avgWin.toFixed(2),
-        avgLoss: avgLoss.toFixed(2),
-        riskReward: isFinite(riskReward) ? riskReward.toFixed(2) : 'N/A',
-        bestTrade: bestTrade.toFixed(2),
-        worstTrade: worstTrade.toFixed(2),
-        profitFactor: isFinite(profitFactor) ? profitFactor.toFixed(2) : 'N/A',
+        avgWin: parseFloat(avgWin.toFixed(2)),
+        avgLoss: parseFloat(avgLoss.toFixed(2)),
+        riskReward: isFinite(riskReward) ? parseFloat(riskReward.toFixed(2)) : 'N/A',
+        bestTrade: parseFloat(bestTrade.toFixed(2)),
+        worstTrade: parseFloat(worstTrade.toFixed(2)),
+        profitFactor: isFinite(profitFactor) ? parseFloat(profitFactor.toFixed(2)) : 'N/A',
 
         // Capital metrics
-        capitalStart: capitalStart.toFixed(2),
-        capitalEnd: capitalEnd.toFixed(2),
-        capitalChange: capitalChange.toFixed(2),
-        capitalChangePct: capitalChangePct.toFixed(2),
+        capitalStart: parseFloat(capitalStart.toFixed(2)),
+        capitalEnd: parseFloat(capitalEnd.toFixed(2)),
+        capitalChange: parseFloat(capitalChange.toFixed(2)),
+        capitalChangePct: parseFloat(capitalChangePct.toFixed(1)),
 
         // Breakdowns
         strategyStats,

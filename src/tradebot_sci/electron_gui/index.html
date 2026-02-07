@@ -229,10 +229,16 @@
                             class="text-[10px] text-white/60 font-black uppercase tracking-widest text-shadow">Status:
                             OFFLINE</span>
                     </div>
-                    <div class="space-y-1">
-                        <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Profit and Loss:
+                    <div class="space-y-1 p-1 rounded" id="pnl-main-container">
+                        <div id="pnl-mode-label" class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                            Profits & Losses (24H):
                         </div>
                         <div class="text-sm font-black text-white">$ <span id="account-equity">0.00</span></div>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Liquid Cash:
+                        </div>
+                        <div class="text-sm font-black text-white/80">$ <span id="account-cash">0.00</span></div>
                     </div>
                     <div class="space-y-1">
                         <div id="capital-label" class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">

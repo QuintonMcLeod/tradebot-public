@@ -74,11 +74,11 @@ class MarketSettings(BaseModel):
         default_factory=lambda: os.getenv("EXCHANGE_PROVIDER", "primary"),
         description="DEPRECATED: Use market_data_mode and broker_mode instead. Selects global mode.",
     )
-    market_data_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda"] = Field(
+    market_data_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda", "gemini", "kraken"] = Field(
         default_factory=lambda: os.getenv("MARKET_DATA_MODE", os.getenv("EXCHANGE_PROVIDER", "primary")),
         description="Selects the market data provider strategy (primary=IBKR, alternative=Crypto plugin, hybrid=Mix, coinbase_futures=Coinbase V3 Futures, oanda=OANDA v20).",
     )
-    broker_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda"] = Field(
+    broker_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda", "gemini", "kraken"] = Field(
         default_factory=lambda: os.getenv("BROKER_MODE", os.getenv("EXCHANGE_PROVIDER", "primary")),
         description="Selects the broker execution strategy (primary=IBKR, alternative=CCXT, hybrid=Mix, coinbase_futures=Coinbase V3 Futures, oanda=OANDA v20).",
     )
@@ -93,6 +93,18 @@ class MarketSettings(BaseModel):
     crypto_routing: CryptoRoutingSettings = Field(
         default_factory=CryptoRoutingSettings,
         description="Routing information for crypto contracts",
+    )
+    primary_market_provider: str = Field(
+        default_factory=lambda: os.getenv("PRIMARY_PROVIDER", os.getenv("EXCHANGE_PROVIDER", "ibkr")),
+        description="The provider to use when 'primary' is requested (e.g., oanda or ibkr)."
+    )
+    primary_broker: str = Field(
+        default_factory=lambda: os.getenv("PRIMARY_BROKER", os.getenv("EXCHANGE_PROVIDER", "ibkr")),
+        description="The broker to use when 'primary' is requested (e.g., oanda or ibkr)."
+    )
+    trading_confirmation: Optional[str] = Field(
+        default=None,
+        description="User confirmation for live trading. Set to 'YES' to bypass interactive confirmation."
     )
     coinbase_futures: CoinbaseFuturesSettings = Field(
         default_factory=lambda: CoinbaseFuturesSettings(),
@@ -796,6 +808,82 @@ class RoboCopSettings(BaseModel):
     )
 
 
+class SafetySettings(BaseModel):
+    emergency_stop_pct: float = Field(
+        default_factory=lambda: float(os.getenv("EMERGENCY_STOP_PCT", "0.01")),
+        ge=0.0
+    )
+    friction_fail_safe: bool = Field(
+        default_factory=lambda: os.getenv("FRICTION_FAIL_SAFE", "False").lower() == "true"
+    )
+    friction_risk_cap: float = Field(default=0.02)
+    vix_fail_safe: bool = Field(default=False)
+    vix_risk_cap: float = Field(default=0.03)
+    sabbath_astronomical: bool = Field(default=True)
+    sabbath_city: str = Field(default="Atlanta")
+    sabbath_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SABBATH_ENABLED", "True").lower() == "true"
+    )
+    sabbath_end_local: str = Field(default="18:00")
+    sabbath_lat: float = Field(default=33.764)
+    sabbath_lon: float = Field(default=-84.386)
+    sabbath_start_local: str = Field(default="18:00")
+    sabbath_timezone: str = Field(default="America/New_York")
+    profile_pdt_guard_enabled: bool = Field(default=True)
+    disable_friction_guard: bool = Field(default=True)
+
+    # --- ATR & Armor ---
+    safety_atr_shield_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_ATR_SHIELD_ENABLED", "True").lower() == "true"
+    )
+    breakeven_trail_pct: float = Field(
+        default_factory=lambda: float(os.getenv("BREAKEVEN_TRAIL_PCT", "0.0"))
+    )
+    risk_reward_ratio: float = Field(
+        default_factory=lambda: float(os.getenv("RISK_REWARD_RATIO", "0.0"))
+    )
+
+    # --- Advanced Exit Shields ---
+    safety_sentiment_shield_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_SENTIMENT_SHIELD_ENABLED", "False").lower() == "true"
+    )
+    safety_volatility_veto_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_VOLATILITY_VETO_ENABLED", "False").lower() == "true"
+    )
+    safety_stale_sniper_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_STALE_SNIPER_ENABLED", "False").lower() == "true"
+    )
+    safety_stale_sniper_bars: int = Field(
+        default_factory=lambda: int(os.getenv("SAFETY_STALE_SNIPER_BARS", "20"))
+    )
+    safety_flash_trap_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_FLASH_TRAP_ENABLED", "False").lower() == "true"
+    )
+    wealth_exit_gamma_enabled: bool = Field(
+        default_factory=lambda: os.getenv("WEALTH_EXIT_GAMMA_ENABLED", "False").lower() == "true"
+    )
+    wealth_exit_blowoff_enabled: bool = Field(
+        default_factory=lambda: os.getenv("WEALTH_EXIT_BLOWOFF_ENABLED", "False").lower() == "true"
+    )
+    wealth_exit_moonshot_enabled: bool = Field(
+        default_factory=lambda: os.getenv("WEALTH_EXIT_MOONSHOT_ENABLED", "False").lower() == "true"
+    )
+    safety_regime_flip_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_REGIME_FLIP_ENABLED", "False").lower() == "true"
+    )
+
+
+class PerformanceSettings(BaseModel):
+    compounding_cap_override: float = Field(default=100000.0)
+    pyramid_cap_override: float = Field(default=750000.0)
+    performance_mode: str = Field(
+        default_factory=lambda: os.getenv("PERFORMANCE_MODE", "kelly,sniper,regime_sync,runner,sentiment")
+    )
+    trailing_stop_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TRAILING_STOP_ENABLED", "True").lower() == "true"
+    )
+
+
 class RiskSettings(BaseModel):
     base_risk_pct: float = Field(
         default_factory=lambda: float(os.getenv("PROFILE_AGGRESSIVE_RISK_PER_TRADE_PCT", "0.20"))
@@ -824,6 +912,10 @@ class RuntimeSettings(BaseModel):
     cancel_orders_on_start: bool = Field(
         default_factory=lambda: os.getenv("CANCEL_ORDERS_ON_START", "False").lower() == "true"
     )
+    execute_trades: bool = Field(
+        default_factory=lambda: os.getenv("EXECUTE_TRADES", "False").lower() == "true",
+        description="Master toggle for live trade execution. If false, bot runs in simulation only."
+    )
     flatten_on_exit: bool = Field(
         default_factory=lambda: os.getenv("FLATTEN_ON_EXIT", "False").lower() == "true"
     )
@@ -851,6 +943,16 @@ class RuntimeSettings(BaseModel):
     allow_inherited_position: bool = Field(
         default_factory=lambda: os.getenv("ALLOW_INHERITED_POSITION", "False").lower() == "true",
         description="Allow runs to start with an existing broker position instead of auto-flattening",
+    )
+    pnl_timeframe: str = Field(
+        default_factory=lambda: os.getenv("GUI_PNL_TIMEFRAME", "24h"),
+        description="Default timeframe for PnL display in the GUI (holdings, 24h, week, month, year, all)"
+    )
+    global_default_risk_pct: float = Field(
+        default_factory=lambda: float(os.getenv("GLOBAL_DEFAULT_RISK_PCT", "0.015")),
+        ge=0.0,
+        le=1.0,
+        description="Global floor for risk per trade as a fraction of equity (e.g. 0.04 for 4%)."
     )
     # ... rest of fields can use internal defaults unless needed ...
     infer_position_hold_from_executions: bool = Field(default=False)
@@ -955,6 +1057,8 @@ class Settings(BaseModel):
     profiles: Dict[str, TradingProfileSettings]
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
     risk: RiskSettings = Field(default_factory=RiskSettings)
+    safety: SafetySettings = Field(default_factory=SafetySettings)
+    performance: PerformanceSettings = Field(default_factory=PerformanceSettings)
     robocop: RoboCopSettings = Field(default_factory=RoboCopSettings)
     schedule: ScheduleSettings = Field(default_factory=ScheduleSettings)
     broker: Optional[BrokerSettings] = None

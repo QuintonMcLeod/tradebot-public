@@ -10,14 +10,81 @@ let settingsInitialized = false;
 // STATE MANAGEMENT
 // ═══════════════════════════════════════════════════════════
 
+let configData = {};
+let secretsData = {};
 let envData = {};
-let profilesContent = "";
-let profilesObj = {}; // Structured YAML data
-let currentTab = 'system';
-let subTabs = { brokers: 'ibkr', strategy: 'assets' };
 let localChanges = {};
 let changeCount = 0;
 let autoSaveTimeout;
+let profilesContent = "";
+let currentTab = 'system';
+let subTabs = { brokers: 'ibkr', strategy: 'assets' };
+
+// Property Mapping (Legacy Key -> JSON Path)
+const CONFIG_MAP = {
+    'APP_PROFILE': ['active_profile'],
+    'BOT_MODE': ['global', 'bot_mode'],
+    'BOT_ITERATIONS': ['global', 'bot_iterations'],
+    'EXECUTE_TRADES': ['global', 'execute_trades'],
+    'COMMITMENT_MODE': ['global', 'commitment_mode'],
+    'SABBATH_ENABLED': ['safety', 'sabbath_enabled'],
+    'SABBATH_CITY': ['safety', 'sabbath_city'],
+    'OANDA_ACCOUNT_ID': ['brokers', 'oanda', 'account_id'],
+    'OANDA_ENVIRONMENT': ['brokers', 'oanda', 'environment'],
+    'OANDA_READ_ONLY': ['brokers', 'oanda', 'read_only'],
+    'IBKR_HOST': ['brokers', 'ibkr', 'host'],
+    'IBKR_PORT': ['brokers', 'ibkr', 'port'],
+    'IBKR_CLIENT_ID': ['brokers', 'ibkr', 'client_id'],
+    'IBKR_ACCOUNT_ID': ['brokers', 'ibkr', 'account_id'],
+    'IBKR_PAPER': ['brokers', 'ibkr', 'paper'],
+    'IBKR_READ_ONLY': ['brokers', 'ibkr', 'read_only'],
+    'GEMINI_SANDBOX': ['brokers', 'gemini', 'sandbox'],
+    'CCXT_EXCHANGE': ['brokers', 'ccxt', 'exchange'],
+    'CCXT_DEFAULT_TYPE': ['brokers', 'ccxt', 'default_type'],
+    'CCXT_SANDBOX': ['brokers', 'ccxt', 'sandbox'],
+    'CCXT_ENABLE_RATE_LIMIT': ['brokers', 'ccxt', 'enable_rate_limit'],
+    'BROKER_CRYPTO': ['market', 'broker_crypto'],
+    'BROKER_FOREX': ['market', 'broker_forex'],
+    'BROKER_EQUITIES': ['market', 'broker_equities'],
+    'MARKET_DATA_MODE': ['market', 'market_data_mode'],
+    'LOG_LEVEL': ['logging', 'level'],
+    'TRADEBOT_LOG': ['logging', 'file'],
+    'WS_SERVER_PORT': ['runtime', 'ws_server_port'],
+    'GUI_WS_URL': ['runtime', 'gui_ws_url'],
+    'GUI_PNL_TIMEFRAME': ['runtime', 'pnl_timeframe'],
+    'GLOBAL_RISK_PCT': ['runtime', 'global_default_risk_pct'],
+    'FRIDAY_FADE_ENABLED': ['schedule', 'friday_fade_enabled'],
+    // Safety & Shields
+    'SAFETY_ATR_SHIELD_ENABLED': ['safety', 'safety_atr_shield_enabled'],
+    'SAFETY_SENTIMENT_SHIELD_ENABLED': ['safety', 'safety_sentiment_shield_enabled'],
+    'SAFETY_VOLATILITY_VETO_ENABLED': ['safety', 'safety_volatility_veto_enabled'],
+    'WEALTH_EXIT_GAMMA_ENABLED': ['safety', 'wealth_exit_gamma_enabled'],
+    'WEALTH_EXIT_MOONSHOT_ENABLED': ['safety', 'wealth_exit_moonshot_enabled'],
+    'WEALTH_EXIT_BLOWOFF_ENABLED': ['safety', 'wealth_exit_blowoff_enabled'],
+    'RISK_REWARD_RATIO': ['safety', 'risk_reward_ratio'],
+    'BREAKEVEN_TRAIL_PCT': ['safety', 'breakeven_trail_pct'],
+    'SAFETY_STALE_SNIPER_ENABLED': ['safety', 'safety_stale_sniper_enabled'],
+    'SAFETY_STALE_SNIPER_BARS': ['safety', 'safety_stale_sniper_bars'],
+    'SAFETY_FLASH_TRAP_ENABLED': ['safety', 'safety_flash_trap_enabled'],
+    'SAFETY_REGIME_FLIP_ENABLED': ['safety', 'safety_regime_flip_enabled'],
+    // Performance
+    'PERFORMANCE_MODE': ['performance', 'performance_mode'],
+    'TRAILING_STOP_ENABLED': ['performance', 'trailing_stop_enabled'],
+    'PYRAMID_CAP_OVERRIDE': ['performance', 'pyramid_cap_override'],
+    'COMPOUNDING_CAP_OVERRIDE': ['performance', 'compounding_cap_override'],
+};
+
+const SECRETS_MAP = {
+    'OANDA_API_KEY': 'OANDA_API_KEY',
+    'GEMINI_API_KEY': 'GEMINI_API_KEY',
+    'GEMINI_API_SECRET': 'GEMINI_API_SECRET',
+    'CCXT_API_KEY': 'CCXT_API_KEY',
+    'CCXT_SECRET': 'CCXT_SECRET',
+    'PAXOS_API_KEY': 'PAXOS_API_KEY',
+    'PAXOS_API_SECRET': 'PAXOS_API_SECRET',
+    'KRAKEN_API_KEY': 'KRAKEN_API_KEY',
+    'KRAKEN_API_SECRET': 'KRAKEN_API_SECRET',
+};
 
 // ═══════════════════════════════════════════════════════════
 // TOOLTIP LIBRARY - Detailed, layman-friendly explanations
@@ -32,6 +99,7 @@ const TOOLTIPS = {
     GUI_AUTOSTART_BOT: "When enabled, the trading bot automatically starts running as soon as you open this application. When disabled, you'll need to manually click 'Start' to begin trading.",
     CONTINUOUS_MODE: "Keeps the bot running indefinitely without stopping between trading sessions. Useful for 24/7 crypto markets. Disable this if you want the bot to pause after each session.",
     GUI_WS_URL: "The WebSocket URL for the trading bot. Change this if you are connecting to a bot running on a remote server or a different port (e.g., ws://192.168.1.10:8080/ws).",
+    GLOBAL_RISK_PCT: "The global default risk percentage used when no other risk is specified. For example, 0.04 is 4%. This acts as the manual 'floor' for all trades.",
     WS_SERVER_PORT: "The port number the trading bot should listen on for local connections. Default is 8080. If you change this, you must also update your WebConnect URL or external tools to match.",
     FRIDAY_FADE_ENABLED: "IMPORTANT (Forex Only): Automatically reduces risk to 0.25% after 12:00 PM EST on Fridays. This accounts for the sharp drop in Forex liquidity as markets approach the weekend close, preventing 'mean reversion' strategies from getting trapped in late-session drifts.",
     PDT_GUARD_ENABLED: "Enable the Pattern Day Trader guard. Prevents opening new positions if you have fewer than $25,000 Equity and have already made 3 day trades in a rolling 5-day window. (Only applies to US Equities via IBKR).",
@@ -231,6 +299,52 @@ const TOOLTIPS = {
     WEALTH_EXIT_BLOWOFF_ENABLED: "V-Top Seller. Sells 100% at market if volatility hits a 100-bar high while price is vertically extended.",
 };
 
+function getValue(key) {
+    // [ANTIGRAVITY FIX] Authority: Use the current session's timeframe from renderer.js
+    if (key === 'GUI_PNL_TIMEFRAME' && typeof window.pnlTimeframe !== 'undefined') {
+        return window.pnlTimeframe;
+    }
+    if (envData[key] !== undefined) return envData[key];
+    // Fallback search in configData if not in flattened envData
+    const mapping = CONFIG_MAP[key];
+    if (mapping) {
+        let val = configData;
+        for (const p of mapping) {
+            if (val[p] === undefined) { val = undefined; break; }
+            val = val[p];
+        }
+        if (val !== undefined) return String(val);
+    }
+    return undefined;
+}
+
+function syncEnvData() {
+    envData = {};
+    // 1. Load from Global Config
+    for (const [key, path] of Object.entries(CONFIG_MAP)) {
+        let val = configData;
+        for (const p of path) {
+            if (val && val[p] !== undefined) val = val[p];
+            else { val = undefined; break; }
+        }
+        if (val !== undefined) envData[key] = String(val);
+    }
+
+    // 2. Load from Secrets
+    for (const [envKey, secretKey] of Object.entries(SECRETS_MAP)) {
+        if (secretsData[secretKey]) envData[envKey] = secretsData[secretKey];
+    }
+
+    // 3. Load from Active Profile (Overrides)
+    const active = configData.active_profile;
+    if (active && configData.profiles && configData.profiles[active]) {
+        const profile = configData.profiles[active];
+        for (const [key, val] of Object.entries(profile)) {
+            envData[key.toUpperCase()] = String(val);
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════
 // CONFLICT RESOLUTION & CONSTRAINT ENGINE
 // ═══════════════════════════════════════════════════════════
@@ -349,7 +463,7 @@ function showConflictModal(title, message, onConfirm) {
  */
 function isOverridden(key) {
     // [STABILITY] Global override for aggressive performance modes and risk settings
-    if (envData['SAFETY_STABILITY_MODE_ENABLED'] === 'true') {
+    if (getValue('SAFETY_STABILITY_MODE_ENABLED') === 'true') {
         const stabilityGhosted = [
             'PERFORMANCE_MODE',
             'RISK_PER_TRADE_PCT',
@@ -361,7 +475,8 @@ function isOverridden(key) {
         }
     }
 
-    const activePerformance = `performance:${envData['PERFORMANCE_MODE']}`;
+    const performanceMode = getValue('PERFORMANCE_MODE');
+    const activePerformance = `performance:${performanceMode}`;
     const config = CONFLICT_MAP[activePerformance];
     return config && config.targets.includes(key);
 }
@@ -526,9 +641,13 @@ const TABS = {
 // ═══════════════════════════════════════════════════════════
 
 async function init() {
+    // Standardize API (support both window.api and window.electronAPI)
+    if (!window.api && window.electronAPI) {
+        window.api = window.electronAPI;
+    }
+
     // Prevent re-initialization
     if (settingsInitialized) {
-        // Just render the current tab if already initialized
         renderTab();
         return;
     }
@@ -541,76 +660,45 @@ async function init() {
         window.api.onBotStatus((status) => {
             updateBotStatusUI(status.running);
         });
-        // Initial check
         window.api.getBotStatus();
     }
 
-    // Load data from backend
-    try {
-        if (window.api) {
-            envData = await window.api.readEnv() || {};
-            profilesContent = await window.api.readProfiles() || "";
-            if (window.api.readProfilesJson) {
-                profilesObj = await window.api.readProfilesJson() || {};
-            }
-
-            // Listen for external YAML changes
-            if (window.api.onProfilesUpdated) {
-                window.api.onProfilesUpdated((newProfiles) => {
-                    console.log("[SETTINGS] Syncing with external YAML change...");
-                    profilesObj = newProfiles;
-                    syncProfilesToEnv();
-                    // Trigger conflict check on new data
-                    if (checkAllConflicts()) {
-                        console.log("[SETTINGS] Conflicts resolved in external YAML, saving back...");
-                        autoSave();
-                    }
-                    renderTab();
-                    showNotice("YAML Synced", "purple");
-                });
-            }
-        }
-    } catch (e) {
-        console.error("Data load failed:", e);
-    }
-
-    syncProfilesToEnv();
+    // Load data from backend (Simplified JSON loading)
+    await loadSettings();
     switchTab('system');
 }
 
-/**
- * Pushes values from the active profile in profilesObj into envData
- * so the UI components (cards, toggles) show the correct values.
- */
-function syncProfilesToEnv() {
-    const activeProfileName = envData['APP_PROFILE'] || 'auto_schedule';
-    const profile = profilesObj?.profiles?.[activeProfileName];
+async function loadSettings() {
+    if (window.api) {
+        try {
+            configData = await window.api.readConfig() || {};
+            secretsData = await window.api.readSecrets() || {};
+            syncEnvData();
+            profilesContent = JSON.stringify(configData, null, 2);
+            console.log("[SETTINGS] Config loaded and synced.");
 
-    // First, strip PROFILE_ prefix from .env keys to normalize for UI
-    // The .env may have PROFILE_PDT_GUARD_ENABLED but UI expects PDT_GUARD_ENABLED
-    for (const key of Object.keys(envData)) {
-        if (key.startsWith('PROFILE_')) {
-            const strippedKey = key.replace('PROFILE_', '');
-            if (!envData[strippedKey]) {
-                envData[strippedKey] = envData[key];
+            // Listen for external config changes
+            if (window.api.onConfigUpdated) {
+                window.api.onConfigUpdated((newConfig) => {
+                    console.log("[SETTINGS] Syncing with external config change...");
+                    configData = newConfig;
+                    syncEnvData();
+                    profilesContent = JSON.stringify(configData, null, 2);
+                    renderTab();
+                    showNotice("Config Synced", "purple");
+                });
             }
+        } catch (e) {
+            console.error("[SETTINGS] Load Error:", e);
+            showNotice("Failed to load settings", "red");
         }
-    }
-
-    // Then overlay profile-specific values (YAML takes precedence over .env for settings that exist in profile)
-    if (profile) {
-        for (const [key, val] of Object.entries(profile)) {
-            if (typeof val === 'object') continue; // Skip strategies, symbols, etc
-            const envKey = key.toUpperCase();
-            envData[envKey] = String(val);
-        }
-
-        // Special handling for stability mode boolean specifically
-        if (profile.stability_mode_active !== undefined) {
-            envData['SAFETY_STABILITY_MODE_ENABLED'] = profile.stability_mode_active ? 'true' : 'false';
-        }
+    } else {
+        console.warn("[SETTINGS] API not found. Using mock data.");
+        configData = { global: { bot_mode: 'continuous' }, profiles: {} };
+        syncEnvData();
     }
 }
+
 
 /**
  * Checks all settings for structural conflicts (e.g. Stability Mode vs Kelly)
@@ -618,44 +706,35 @@ function syncProfilesToEnv() {
  */
 function checkAllConflicts() {
     let changed = false;
-    const activeProfileName = envData['APP_PROFILE'] || 'auto_schedule';
-    const profile = profilesObj?.profiles?.[activeProfileName];
+    const active = configData.active_profile;
+    const profile = configData.profiles?.[active];
     if (!profile) return false;
 
     // 1. Stability Mode Conflict Logic
-    const stabilityEnabled = envData['SAFETY_STABILITY_MODE_ENABLED'] === 'true' || profile.stability_mode_active === true;
+    const stabilityEnabled = getValue('SAFETY_STABILITY_MODE_ENABLED') === 'true';
 
     if (stabilityEnabled) {
         // Enforce Performance Mode = Standard
-        let currentPerf = envData['PERFORMANCE_MODE'] || 'none';
+        let currentPerf = getValue('PERFORMANCE_MODE') || 'none';
         if (currentPerf.includes('kelly') || currentPerf.includes('flywheel')) {
             console.warn("[CONFLICT] Stability Mode active; resetting aggressive performance modes.");
-            let perfList = currentPerf.split(',').map(s => s.trim().toLowerCase());
-            const foundations = ['kelly', 'flywheel', 'smooth', 'stability', 'none'];
-            perfList = perfList.filter(m => !foundations.includes(m));
-            perfList.push('stability');
-            envData['PERFORMANCE_MODE'] = perfList.join(',') || 'none';
-            localChanges['PERFORMANCE_MODE'] = envData['PERFORMANCE_MODE'];
+            updateValue('PERFORMANCE_MODE', 'stability');
             changed = true;
         }
 
         // Enforce Risk Ceiling (1%)
-        const riskPct = parseFloat(envData['RISK_PER_TRADE_PCT'] || profile.risk_per_trade_pct || 0);
+        const riskPct = parseFloat(getValue('RISK_PER_TRADE_PCT') || 0);
         if (riskPct > 0.01) {
             console.warn("[CONFLICT] Stability Mode active; clamping risk to 1%.");
-            envData['RISK_PER_TRADE_PCT'] = '0.01';
-            localChanges['RISK_PER_TRADE_PCT'] = '0.01';
-            if (profile.risk_per_trade_pct !== undefined) profile.risk_per_trade_pct = 0.01;
+            updateValue('RISK_PER_TRADE_PCT', '0.01');
             changed = true;
         }
 
         // Enforce Score Threshold (75)
-        const scoreThreshold = parseFloat(envData['ICC_ENTRY_SCORE_THRESHOLD'] || profile.icc_entry_score_threshold || 0);
+        const scoreThreshold = parseFloat(getValue('ICC_ENTRY_SCORE_THRESHOLD') || 0);
         if (scoreThreshold < 75) {
             console.warn("[CONFLICT] Stability Mode active; raising score threshold to 75.");
-            envData['ICC_ENTRY_SCORE_THRESHOLD'] = '75';
-            localChanges['ICC_ENTRY_SCORE_THRESHOLD'] = '75';
-            if (profile.icc_entry_score_threshold !== undefined) profile.icc_entry_score_threshold = 75;
+            updateValue('ICC_ENTRY_SCORE_THRESHOLD', '75');
             changed = true;
         }
     }
@@ -710,45 +789,23 @@ function setupGlobalEvents() {
 }
 
 function getProfileOptions() {
-    if (!profilesContent) return [
-        { value: 'auto_schedule', label: 'Auto - Equities & Crypto' },
-        { value: 'forex_intraday', label: 'Forex Intraday' },
-        { value: 'forex_oanda', label: 'OANDA Forex' },
-        { value: 'crypto_247', label: 'Crypto 24/7' },
-        { value: 'intraday', label: 'Standard Intraday' },
-        { value: 'coinbase_futures', label: 'Coinbase Futures' },
-        { value: 'coinbase_futures_nano', label: 'Coinbase Nano Futures' }
-    ];
-
-    const options = [];
-    const lines = profilesContent.split('\n');
-    let inProfiles = false;
-
-    for (let line of lines) {
-        if (line.trim().startsWith('profiles:')) {
-            inProfiles = true;
-            continue;
-        }
-        if (inProfiles) {
-            const match = line.match(/^  ([\w-]+):/);
-            if (match) {
-                const value = match[1];
-                const label = value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                    .replace('Forex', 'Forex ').replace('Crypto', 'Crypto ').trim();
-                options.push({ value, label });
-            }
-        }
+    if (!configData.profiles) {
+        return [
+            { value: 'auto_schedule', label: 'Auto - Equities & Crypto' },
+            { value: 'forex_intraday', label: 'Forex Intraday' },
+            { value: 'forex_oanda', label: 'OANDA Forex' },
+            { value: 'crypto_247', label: 'Crypto 24/7' },
+            { value: 'intraday', label: 'Standard Intraday' },
+            { value: 'coinbase_futures', label: 'Coinbase Futures' },
+            { value: 'coinbase_futures_nano', label: 'Coinbase Nano Futures' }
+        ];
     }
 
-    return options.length > 0 ? options : [
-        { value: 'auto_schedule', label: 'Auto - Equities & Crypto' },
-        { value: 'forex_intraday', label: 'Forex Intraday' },
-        { value: 'forex_oanda', label: 'OANDA Forex' },
-        { value: 'crypto_247', label: 'Crypto 24/7' },
-        { value: 'intraday', label: 'Standard Intraday' },
-        { value: 'coinbase_futures', label: 'Coinbase Futures' },
-        { value: 'coinbase_futures_nano', label: 'Coinbase Nano Futures' }
-    ];
+    return Object.keys(configData.profiles).map(value => {
+        const label = value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+            .replace('Forex', 'Forex ').replace('Crypto', 'Crypto ').trim();
+        return { value, label };
+    });
 }
 
 /**
@@ -756,53 +813,16 @@ function getProfileOptions() {
  * This ensures the Settings UI reflects the actual running configuration.
  */
 function getActiveProfileSettings() {
-    const activeProfile = envData['APP_PROFILE'] || 'auto_schedule';
+    const activeProfile = configData.active_profile || 'auto_schedule';
     const settings = {
         strategy_variant: 'rubberband_reaper',
         strategies: {}
     };
 
-    if (!profilesContent) return settings;
-
-    const lines = profilesContent.split('\n');
-    let inTargetProfile = false;
-    let inStrategies = false;
-
-    for (let line of lines) {
-        // Match profile start (2 spaces)
-        const profileMatch = line.match(/^  ([\w_]+):$/);
-        if (profileMatch) {
-            inTargetProfile = (profileMatch[1] === activeProfile);
-            inStrategies = false;
-            continue;
-        }
-
-        if (!inTargetProfile) continue;
-
-        // Match property (4 spaces) - strip inline comments
-        const propMatch = line.match(/^    ([a-z_]+):\s*(.*)$/);
-        if (propMatch) {
-            const key = propMatch[1];
-            const rawVal = propMatch[2].split('#')[0].trim();
-
-            if (key === 'strategies') {
-                inStrategies = true;
-                continue;
-            }
-            inStrategies = false;
-
-            if (key === 'strategy_variant') {
-                settings.strategy_variant = rawVal;
-            }
-        }
-
-        // Match strategy items (6 spaces)
-        if (inStrategies) {
-            const stratMatch = line.match(/^      ([a-z_]+):\s*(.+)$/);
-            if (stratMatch) {
-                settings.strategies[stratMatch[1]] = stratMatch[2].split('#')[0].trim();
-            }
-        }
+    if (configData.profiles && configData.profiles[activeProfile]) {
+        const profile = configData.profiles[activeProfile];
+        if (profile.strategy_variant) settings.strategy_variant = profile.strategy_variant;
+        if (profile.strategies) settings.strategies = { ...profile.strategies };
     }
 
     return settings;
@@ -889,7 +909,7 @@ function createCard(title, desc, key, controlType, options = {}) {
     `;
 
     const controlContainer = card.querySelector('.card-control');
-    const value = envData[key] || options.default || '';
+    const value = getValue(key) || options.default || '';
 
     const tooltipContent = options.tooltip || TOOLTIPS[key];
     if (tooltipContent && !locked) {
@@ -949,7 +969,7 @@ function createCard(title, desc, key, controlType, options = {}) {
 function createSliderCard(title, desc, key, min, max, step, unit = '%') {
     const card = document.createElement('div');
     card.className = 'slider-card';
-    const value = envData[key] || min;
+    const value = getValue(key) || min;
 
     card.innerHTML = `
         <div class="slider-header">
@@ -1018,27 +1038,11 @@ function renderSystemTab(container) {
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    // Sync envData with active profile settings so UI reflects actual config
-    // Profile settings are authoritative - always prefer them over .env values
-    const profileSettings = getActiveProfileSettings();
-    if (profileSettings.strategy_variant) {
-        envData['STRATEGY_VARIANT'] = profileSettings.strategy_variant;
-    }
-    // Also sync per-asset strategies
-    const assetKeyMap = { crypto: 'STRATEGY_CRYPTO', forex: 'STRATEGY_FOREX', stocks: 'STRATEGY_STOCKS', etf: 'STRATEGY_ETF', metals: 'STRATEGY_METALS', futures: 'STRATEGY_FUTURES' };
-    for (const [asset, envKey] of Object.entries(assetKeyMap)) {
-        if (profileSettings.strategies[asset]) {
-            envData[envKey] = profileSettings.strategies[asset];
-        } else if (profileSettings.strategy_variant) {
-            envData[envKey] = profileSettings.strategy_variant; // Fallback to default
-        }
-    }
-
     // Core Runtime
     section.appendChild(createSectionHeader('Core Runtime', 'dashboard'));
 
     section.appendChild(createCard('Active Profile', 'Select symbol universe & trading cadence', 'APP_PROFILE', 'dropdown', {
-        items: getProfileOptions()
+        items: Object.keys(configData.profiles || {}).map(p => ({ value: p, label: p }))
     }));
 
     section.appendChild(createCard('Strategy Variant', 'Trading strategy algorithm', 'STRATEGY_VARIANT', 'dropdown', {
@@ -1075,24 +1079,19 @@ function renderSystemTab(container) {
     section.appendChild(createCard('WebConnect URL', 'Remote bot connection address', 'GUI_WS_URL', 'input', { default: 'ws://localhost:8080/ws' }));
     section.appendChild(createCard('Bot Listening Port', 'Port the bot server listens on', 'WS_SERVER_PORT', 'input', { default: '8080' }));
 
-    section.appendChild(createCard('Capital Display Mode', 'Toggle dashboard capital between Overall Equity and Buying Power', 'GUI_CAPITAL_DISPLAY_MODE', 'dropdown', {
-        items: [
-            { value: 'equity', label: 'Overall Liquidity - Net Worth' },
-            { value: 'cash', label: 'Buying Power - Cash' }
-        ],
-        default: 'equity'
-    }));
-
     section.appendChild(createCard('PnL Timeframe', 'Select performance measurement period for the dashboard', 'GUI_PNL_TIMEFRAME', 'dropdown', {
         items: [
-            { value: '24h', label: 'Last 24 Hours' },
-            { value: 'week', label: 'Last 7 Days' },
-            { value: 'month', label: 'Last 30 Days' },
-            { value: 'year', label: 'Last Year' },
-            { value: 'all', label: 'All Time' }
+            { value: 'holdings', label: 'Active Holdings Only' },
+            { value: '24h', label: 'Last 24 Hours (Realized + Unrealized)' },
+            { value: 'week', label: 'Last 7 Days (Realized + Unrealized)' },
+            { value: 'month', label: 'Last 30 Days (Realized + Unrealized)' },
+            { value: 'year', label: 'Last Year (Realized + Unrealized)' },
+            { value: 'all', label: 'All Time (Realized + Unrealized)' }
         ],
         default: '24h'
     }));
+
+    section.appendChild(createCard('Default Risk %', 'Global floor for risk per trade', 'GLOBAL_RISK_PCT', 'input', { number: true, default: '0.015' }));
 
     section.appendChild(createDivider());
 
@@ -1220,7 +1219,7 @@ function renderStrategyTab(container) {
             card.className = 'asset-strategy-card';
 
             // Get current strategy for this asset
-            const currentStrategy = envData[asset.envKey] || 'rubberband_reaper';
+            const currentStrategy = getValue(asset.envKey) || 'rubberband_reaper';
             const strategyInfo = STRATEGIES[currentStrategy] || STRATEGIES.rubberband_reaper;
 
             card.innerHTML = `
@@ -1314,7 +1313,7 @@ function renderStrategyTab(container) {
 
         // Initialize Financed Risk state
         setTimeout(() => {
-            const multiEnabled = envData['MULTI_POSITION_ENABLED'] === 'true';
+            const multiEnabled = getValue('MULTI_POSITION_ENABLED') === 'true';
             const smartToggle = section.querySelector('.control-card[data-key="SMART_POSITIONS_ENABLED"]');
             if (smartToggle && !multiEnabled) {
                 smartToggle.classList.add('opacity-50', 'pointer-events-none');
@@ -1365,15 +1364,17 @@ function renderStrategyTab(container) {
         section.appendChild(createCard('HTF Neutral Exit Bars', 'Exit after N neutral bars', 'HTF_NEUTRAL_EXIT_BARS', 'input', { number: true, default: '48', min: 0, max: 200 }));
 
     } else if (subTabs.strategy === 'yaml') {
-        section.appendChild(createSectionHeader('Profiles YAML Editor', 'code'));
-        section.appendChild(createWarningBox('<strong>Warning:</strong> Direct YAML editing. Invalid syntax will break the bot. Use the other tabs for safer configuration.'));
+        section.appendChild(createSectionHeader('Config JSON Editor', 'code'));
+        section.appendChild(createWarningBox('<strong>Warning:</strong> Direct JSON editing. Invalid syntax will break the bot.'));
 
         const editor = document.createElement('textarea');
         editor.id = 'profiles-editor';
         editor.value = profilesContent;
+        editor.style.height = '500px';
+        editor.style.fontFamily = 'monospace';
         editor.addEventListener('input', (e) => {
             profilesContent = e.target.value;
-            localChanges['_profiles_'] = true;
+            localChanges['_config_'] = true;
             updateChangeCounter();
         });
         section.appendChild(editor);
@@ -2070,9 +2071,50 @@ function createPerformanceToggle(title, desc, modeValue, type = 'foundation', to
 
 
 function updateValue(key, value) {
-    envData[key] = value;
-    localChanges[key] = value;
-    updateChangeCounter();
+    const oldValue = getValue(key);
+    if (oldValue === value) return;
+
+    // 1. Update Secrets
+    if (SECRETS_MAP[key]) {
+        secretsData[SECRETS_MAP[key]] = value;
+    }
+    // 2. Update Global Config
+    else if (CONFIG_MAP[key]) {
+        const path = CONFIG_MAP[key];
+        let current = configData;
+        for (let i = 0; i < path.length - 1; i++) {
+            if (!current[path[i]]) current[path[i]] = {};
+            current = current[path[i]];
+        }
+
+        let val = value;
+        if (value === 'true') val = true;
+        else if (value === 'false') val = false;
+        else if (!isNaN(value) && value.trim() !== "" && key !== 'OANDA_ACCOUNT_ID' && key !== 'IBKR_PORT' && key !== 'IBKR_CLIENT_ID') {
+            val = Number(value);
+        }
+
+        current[path[path.length - 1]] = val;
+
+        // [ANTIGRAVITY FIX] Sync PnL timeframe back to renderer.js if changed
+        if (key === 'GUI_PNL_TIMEFRAME' && typeof window.syncPnLTimeframe === 'function') {
+            window.syncPnLTimeframe(value);
+        }
+    }
+    // 3. Update Active Profile
+    else {
+        const active = configData.active_profile;
+        if (active && configData.profiles && configData.profiles[active]) {
+            let val = value;
+            if (value === 'true') val = true;
+            else if (value === 'false') val = false;
+            else if (!isNaN(value) && value.trim() !== "") val = Number(value);
+            configData.profiles[active][key.toLowerCase()] = val;
+        }
+    }
+
+    localChanges[key] = true;
+    envData[key] = String(value); // Keep flat map in sync
 
     // [STABILITY] Intercept toggle from Safety tab to sync with Performance foundation
     if (key === 'SAFETY_STABILITY_MODE_ENABLED') {
@@ -2091,54 +2133,17 @@ function updateValue(key, value) {
                 if (!perfList.some(m => foundations.includes(m))) perfList.push('none');
             }
         }
-        envData['PERFORMANCE_MODE'] = perfList.join(',') || 'none';
-        localChanges['PERFORMANCE_MODE'] = envData['PERFORMANCE_MODE'];
-    }
+        const newValue = perfList.join(',') || 'none';
+        envData['PERFORMANCE_MODE'] = newValue;
+        localChanges['PERFORMANCE_MODE'] = true;
 
-    if (key === 'MULTI_POSITION_ENABLED') {
-        const smartToggle = document.querySelector('.control-card[data-key="SMART_POSITIONS_ENABLED"]');
-        if (smartToggle) {
-            if (value === 'false') {
-                smartToggle.classList.add('opacity-50', 'pointer-events-none');
-            } else {
-                smartToggle.classList.remove('opacity-50', 'pointer-events-none');
-            }
+        const active = configData.active_profile;
+        if (active && configData.profiles && configData.profiles[active]) {
+            configData.profiles[active]['performance_mode'] = newValue;
         }
     }
 
-    // [YAML SYNC] Update the profile object if it's a profile setting
-    const activeProfileName = envData['APP_PROFILE'] || 'auto_schedule';
-    if (profilesObj?.profiles?.[activeProfileName]) {
-        const profile = profilesObj.profiles[activeProfileName];
-
-        // Map UI keys to YAML snake_case keys
-        const yamlMappings = {
-            'SAFETY_STABILITY_MODE_ENABLED': 'stability_mode_active',
-            'STOP_ATR_MULTIPLIER': 'stop_atr_multiplier',
-            'ICC_ENTRY_SCORE_THRESHOLD': 'icc_entry_score_threshold',
-            'RISK_PER_TRADE_PCT': 'risk_per_trade_pct',
-            'RISK_PER_TRADE_DOLLARS': 'risk_per_trade_dollars',
-            'CANDLE_TIMEFRAME': 'candle_timeframe',
-            'BOT_MODE': 'bot_mode'
-        };
-
-        const yamlKey = yamlMappings[key] || key.toLowerCase();
-
-        // Check if key exists in profile or is a risk setting that should live there
-        if (profile[yamlKey] !== undefined || (key.startsWith('RISK_') && !key.includes('DAILY'))) {
-            // Convert types if necessary
-            let typedVal = value;
-            if (value === 'true') typedVal = true;
-            else if (value === 'false') typedVal = false;
-            else if (!isNaN(value) && value.trim() !== "" && typeof value === 'string') {
-                typedVal = parseFloat(value);
-            }
-
-            profile[yamlKey] = typedVal;
-            console.log(`[YAML-SYNC] Updated ${activeProfileName}.${yamlKey} = ${typedVal}`);
-        }
-    }
-
+    updateChangeCounter();
     autoSave();
 }
 
@@ -2170,32 +2175,46 @@ function updateChangeCounter() {
 }
 
 async function saveAll() {
-    if (changeCount === 0) return;
+    if (Object.keys(localChanges).length === 0) {
+        showNotice("No changes to save");
+        return;
+    }
 
     const indicator = document.getElementById('save-indicator');
     if (indicator) indicator.style.opacity = '1';
 
-    try {
-        if (!window.api) {
-            throw new Error("Not connected to Electron backend");
+    // If Config Editor (JSON) was edited, parse it back into configData
+    if (localChanges['_config_']) {
+        try {
+            configData = JSON.parse(profilesContent);
+            console.log("[SETTINGS] Parsed updated JSON from editor");
+        } catch (e) {
+            showNotice("Invalid JSON Syntax", "red");
+            if (indicator) indicator.style.opacity = '0';
+            return;
         }
+    }
 
-        const envUpdates = { ...localChanges };
-        delete envUpdates['_profiles_'];
+    if (window.api) {
+        try {
+            // Save unified config
+            const res1 = await window.api.saveConfig(configData);
+            // Save secrets
+            const res2 = await window.api.saveSecrets(secretsData);
 
-        if (Object.keys(envUpdates).length > 0 && window.api.saveEnv) {
-            await window.api.saveEnv(envUpdates);
+            if (res1.success && res2.success) {
+                console.log("[SETTINGS] Save successful.");
+                showNotice("Settings Saved", "teal");
+                localChanges = {};
+                updateChangeCounter();
+            } else {
+                showNotice("Save Failed", "red");
+            }
+        } catch (e) {
+            console.error("[SETTINGS] Save error:", e);
+            showNotice("Save Error", "red");
         }
-        if (profilesObj && window.api.saveProfilesJson) {
-            await window.api.saveProfilesJson(profilesObj);
-        }
-
-        localChanges = {};
-        updateChangeCounter();
         setTimeout(() => { if (indicator) indicator.style.opacity = '0'; }, 2000);
-    } catch (e) {
-        alert("Save Error: " + e.message);
-        if (indicator) indicator.style.opacity = '0';
     }
 }
 
@@ -2664,27 +2683,33 @@ function updateBotStatusUI(isRunning) {
 }
 
 function showNotice(message, color = 'teal') {
-    // Create toast element
-    const toast = document.createElement('div');
-    toast.className = `fixed top-12 left-1/2 -translate-x-1/2 z-[100] px-8 py-4 rounded-2xl bg-black/80 backdrop-blur-2xl border-2 border-${color}-500/30 shadow-2xl animate-in fade-in zoom-in slide-in-from-top-4 duration-500`;
+    // 1. Log to console for paper trail
+    console.log(`[GUI-NOTICE] ${message} (${color})`);
 
-    // Convert generic colors to valid tailwind/custom classes if needed
+    // 2. Also send to main process for persistent logging if possible
+    if (window.api?.logNotice) {
+        window.api.logNotice(message, color);
+    }
+
+    // 3. Update existing toast with better visibility
+    const toast = document.createElement('div');
+    toast.className = `fixed top-24 left-1/2 -translate-x-1/2 z-[100] px-8 py-4 rounded-2xl bg-black/95 backdrop-blur-2xl border-2 border-${color}-500/50 shadow-2xl animate-in fade-in zoom-in slide-in-from-top-8 duration-500`;
+
     const colorClass = color === 'teal' ? 'teal' : (color === 'red' ? 'red' : 'purple');
 
     toast.innerHTML = `
         <div class="flex items-center gap-4">
-            <div class="w-3 h-3 rounded-full bg-${colorClass}-500 shadow-[0_0_15px_rgba(20,184,166,0.8)] animate-pulse"></div>
-            <span class="text-xs font-black uppercase tracking-[0.2em] text-${colorClass}-400">${message}</span>
+            <div class="w-3 h-3 rounded-full bg-${colorClass}-500 shadow-[0_0_20px_rgba(20,184,166,1)] animate-pulse"></div>
+            <span class="text-sm font-black uppercase tracking-[0.2em] text-${colorClass}-400">${message}</span>
         </div>
     `;
 
     document.body.appendChild(toast);
 
-    // Smooth exit
     setTimeout(() => {
-        toast.classList.add('animate-out', 'fade-out', 'zoom-out', 'slide-out-to-top-4');
+        toast.classList.add('animate-out', 'fade-out', 'zoom-out', 'slide-out-to-top-8');
         setTimeout(() => toast.remove(), 500);
-    }, 4000);
+    }, 5000);
 }
 
 // ═══════════════════════════════════════════════════════════

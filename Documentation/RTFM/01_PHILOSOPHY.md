@@ -114,4 +114,3 @@ We don't aim for smooth lines. We aim for **Lumpy Expansion Capture**:
 
 The question isn't "what did I make today?"
 The question is: **"How many A+ continuation windows did I capture this week?"**
-

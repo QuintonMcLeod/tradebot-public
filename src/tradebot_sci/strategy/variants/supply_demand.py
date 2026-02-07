@@ -96,8 +96,14 @@ class SupplyDemandStrategy(BaseStrategy):
 
         # Step 1: Find a Trend
         trend_dir = snapshot.trend_htf.direction
+        
+        # [ANTIGRAVITY] Relaxation: If HTF is neutral, check LTF. 
+        # We need at least ONE timeframe to have a directional bias.
+        if trend_dir == "neutral":
+            trend_dir = snapshot.trend_ltf.direction
+            
         if trend_dir not in {"long", "short"}:
-            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: No clear trend (HTF)")
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: No directional bias (HTF & LTF Neutral)")
 
         # Step 2: Wait for Break of Structure (BOS)
         # We use 'detect_indication' which finds breaks of recent swing highs/lows
@@ -135,9 +141,13 @@ class SupplyDemandStrategy(BaseStrategy):
 
                 action = "enter_long"
                 if open_position:
-                        # Safety: Cap at 2 pyramids for SND
-                        if open_position.get("pyramid_count", 0) >= 2:
-                             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Max Pyramids reached")
+                        # Safety: Defer to profile setting for pyramid limit (default 4 for SND)
+                        max_pyramid = 4
+                        if "profile" in gates:
+                            max_pyramid = getattr(gates["profile"], "max_pyramid_entries", 4)
+                        
+                        if open_position.get("pyramid_count", 0) >= max_pyramid:
+                             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"SND: Max Pyramids reached ({max_pyramid})")
                         
                         # Only scale in if the new zone is HIGHER than entry (for long)
                         entry_price = float(open_position.get("entry_price") or open_position.get("avg_price") or 0)
@@ -182,9 +192,13 @@ class SupplyDemandStrategy(BaseStrategy):
 
                 action = "enter_short"
                 if open_position:
-                        # Safety: Cap at 2 pyramids for SND
-                        if open_position.get("pyramid_count", 0) >= 2:
-                             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Max Pyramids reached")
+                        # Safety: Defer to profile setting for pyramid limit
+                        max_pyramid = 4
+                        if "profile" in gates:
+                            max_pyramid = getattr(gates["profile"], "max_pyramid_entries", 4)
+                        
+                        if open_position.get("pyramid_count", 0) >= max_pyramid:
+                             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"SND: Max Pyramids reached ({max_pyramid})")
                         
                         # Only scale in if the new zone is LOWER than entry (for short)
                         entry_price = float(open_position.get("entry_price") or open_position.get("avg_price") or 0)

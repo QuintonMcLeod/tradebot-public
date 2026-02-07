@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('api', {
         }
     },
     on: (channel, func) => {
-        let validChannels = ["fromMain", "bot-status", "env-updated"];
+        let validChannels = ["fromMain", "bot-status", "env-updated", "config-updated"];
         if (validChannels.includes(channel)) {
             ipcRenderer.on(channel, (event, ...args) => func(...args));
         }
@@ -20,14 +20,21 @@ contextBridge.exposeInMainWorld('api', {
     getLogFiles: () => ipcRenderer.invoke('get-log-files'),
     onEnvUpdated: (callback) => ipcRenderer.on('env-updated', (event, data) => callback(data)),
 
-    // Profiles IPC
+    // Profiles IPC (legacy - kept for backwards compatibility)
     readProfiles: () => ipcRenderer.invoke('read-profiles'),
     saveProfiles: (content) => ipcRenderer.invoke('save-profiles', content),
     readProfilesJson: () => ipcRenderer.invoke('read-profiles-json'),
     saveProfilesJson: (data) => ipcRenderer.invoke('save-profiles-json', data),
     onProfilesUpdated: (callback) => ipcRenderer.on('profiles-updated', (event, data) => callback(data)),
 
-    // Settings IPC (mirrors settings_preload.js for integrated settings UI)
+    // NEW: Unified config.json API
+    readConfig: () => ipcRenderer.invoke('read-config'),
+    saveConfig: (config) => ipcRenderer.invoke('save-config', config),
+    readSecrets: () => ipcRenderer.invoke('read-secrets'),
+    saveSecrets: (secrets) => ipcRenderer.invoke('save-secrets', secrets),
+    onConfigUpdated: (callback) => ipcRenderer.on('config-updated', (event, data) => callback(data)),
+
+    // Settings IPC (legacy - kept for backwards compatibility)
     readEnv: () => ipcRenderer.invoke('read-env'),
     saveEnv: (updates) => ipcRenderer.invoke('save-env', updates),
     resolveCity: (cityName) => ipcRenderer.invoke('resolve-city', cityName),
@@ -38,6 +45,7 @@ contextBridge.exposeInMainWorld('api', {
     restartBot: () => ipcRenderer.send('restart-bot'),
     getBotStatus: () => ipcRenderer.send('get-bot-status'),
     onBotStatus: (callback) => ipcRenderer.on('bot-status', (event, data) => callback(data)),
+    logNotice: (message, color) => ipcRenderer.send('log-notice', { message, color }),
 
     // Generic invoke for flexibility
     invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),

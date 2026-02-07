@@ -1638,6 +1638,13 @@ async function saveAll() {
 
         localChanges = {};
         updateChangeCounter();
+
+        // [ANTIGRAVITY] Auto-restart bot after save
+        if (window.electronAPI.restartBot) {
+            console.log("[SETTINGS] Triggering auto-restart...");
+            window.electronAPI.restartBot();
+        }
+
         setTimeout(() => { if (indicator) indicator.style.opacity = '0'; }, 2000);
     } catch (e) {
         alert("Save Error: " + e.message);

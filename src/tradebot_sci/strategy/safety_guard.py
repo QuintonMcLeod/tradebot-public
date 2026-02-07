@@ -17,6 +17,7 @@ from tradebot_sci.strategy.decisions import (
 from tradebot_sci.strategy.icc_signals import calculate_atr
 from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
 from tradebot_sci.config.models import UserConfig
+from tradebot_sci.config.loader import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -346,6 +347,9 @@ class SafetyGuard:
         entry_price = float(open_position.get("entry_price") or open_position.get("avg_price") or 0.0)
         if entry_price == 0: return decision
         
+        if not snapshot.candles:
+            return decision
+            
         current_price = snapshot.candles[-1].close
         direction = open_position.get("direction") or open_position.get("side")
         current_stop = float(open_position.get("stop_price") or 0.0)
@@ -387,17 +391,19 @@ class SafetyGuard:
                 logger.info(f"[SAFETY] SL TRIGGERED for {snapshot.symbol} at {current_price} (Target: {sl_target})")
                 return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"SL Hit @ {sl_target}")
 
+        settings = get_settings()
+
         # 2. DEFENSIVE SHIELDS
         # A. Stale-Position Sniper (Time Decay)
-        if os.getenv("SAFETY_STALE_SNIPER_ENABLED", "false").lower() == "true":
-            bars_limit = int(os.getenv("SAFETY_STALE_SNIPER_BARS", "20"))
+        if settings.safety.safety_stale_sniper_enabled:
+            bars_limit = settings.safety.safety_stale_sniper_bars
             if bars_since >= bars_limit:
                  logger.info(f"[SAFETY] Stale Sniper TRIGGERED for {snapshot.symbol} after {bars_since} bars.")
                  return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Stale Exit ({bars_since} bars)")
 
         # B. Flash-Trap / Blow-off Seller (Volatility Exhaustion)
-        shield_v = os.getenv("SAFETY_FLASH_TRAP_ENABLED", "false").lower() == "true"
-        weapon_v = os.getenv("WEALTH_EXIT_BLOWOFF_ENABLED", "false").lower() == "true"
+        shield_v = settings.safety.safety_flash_trap_enabled
+        weapon_v = settings.safety.wealth_exit_blowoff_enabled
         if (shield_v or weapon_v) and len(snapshot.candles) >= 14:
             # [ANTIGRAVITY FIX] Usage of keyword-only period
             curr_atr = calculate_atr(snapshot.candles[-14:], period=14)
@@ -409,7 +415,7 @@ class SafetyGuard:
                     return close_position_decision(snapshot.symbol, snapshot.timeframe, reason="Volatility Blow-off Exit")
 
         # C. Regime-Flip Veto (HTF Alignment)
-        if os.getenv("SAFETY_REGIME_FLIP_ENABLED", "false").lower() == "true":
+        if settings.safety.safety_regime_flip_enabled:
             htf_dir = snapshot.trend_htf.direction
             if htf_dir and htf_dir != "neutral":
                 is_contradiction = (direction == "long" and htf_dir == "bearish") or \
@@ -420,7 +426,7 @@ class SafetyGuard:
 
         # 3. OFFENSIVE WEALTH WEAPONS
         # A. Moonshot Target Elevator (Impulse Hold)
-        if os.getenv("WEALTH_EXIT_MOONSHOT_ENABLED", "false").lower() == "true":
+        if settings.safety.wealth_exit_moonshot_enabled:
             # If 1R hit within 3 bars, double the elevator
             if bars_since <= 3 and r_multiple >= 1.0 and not elevated_tp:
                  orig_tp = float(open_position.get("take_profit") or open_position.get("tp_price") or 0.0)
@@ -438,7 +444,7 @@ class SafetyGuard:
         # Standardizes Breakeven + Buffer Logic. 
         # Can be configured via Env (legacy) or passed in args (future). 
         # Currently we read Env or fallback to Defaults.
-        be_trail_pct = float(os.getenv("BREAKEVEN_TRAIL_PCT", "0.0"))
+        be_trail_pct = settings.safety.breakeven_trail_pct
         if be_trail_pct > 0 and r_multiple >= 1.0: # Only activate after 1R secured
             # Calculate target lock-in price
             if direction == "long":
@@ -516,7 +522,7 @@ class SafetyGuard:
         # C. THE SNIPER TARGET (Hard TP by R-Multiple)
         # -------------------------------------------------------------------------
         # If Risk/Reward Ratio is set, enforce it as a hard profit target.
-        rr_target = float(os.getenv("RISK_REWARD_RATIO", "0.0"))
+        rr_target = settings.safety.risk_reward_ratio
         if rr_target > 0 and initial_risk > 0:
             target_price = 0.0
             if direction == "long":
@@ -533,7 +539,7 @@ class SafetyGuard:
 
         # [ANTIGRAVITY] Enabled ATR Armor logic
         # 4. ATR ARMOR (Consolidated with Gamma Squeeze)
-        if os.getenv("SAFETY_ATR_SHIELD_ENABLED", "true").lower() == "true":
+        if settings.safety.safety_atr_shield_enabled:
             # 1. Breakeven (1R)
             if initial_risk > 0 and r_multiple >= 1.0:
                 if (direction == "long" and current_stop < entry_price) or \
@@ -550,7 +556,7 @@ class SafetyGuard:
 
             # 2. Dynamic Trailing (with Gamma Squeeze)
             trailing_pct = 0.05
-            if os.getenv("WEALTH_EXIT_GAMMA_ENABLED", "false").lower() == "true":
+            if settings.safety.wealth_exit_gamma_enabled:
                  # Exponential tightening if in strong profit
                  if r_multiple >= 2.0: trailing_pct = 0.02
                  elif r_multiple >= 1.0: trailing_pct = 0.035
@@ -612,8 +618,9 @@ class SafetyGuard:
 
     @classmethod
     def get_active_wealth_modes(cls) -> list[str]:
-        """Returns a list of active performance modes from the env var (comma-separated)."""
-        raw = os.getenv("PERFORMANCE_MODE", "none").lower()
+        """Returns a list of active performance modes from the settings (comma-separated)."""
+        settings = get_settings()
+        raw = settings.performance.performance_mode.lower()
         modes = []
         if raw and raw != "none":
             modes = [m.strip() for m in raw.split(",") if m.strip()]
@@ -746,7 +753,7 @@ class SafetyGuard:
                     decision.notes = (decision.notes or "") + " | Coil Breakout (2.0x)"
 
         # F. HARMONIC GHOST (Liquidity Magnet)
-        if "ghost" in modes:
+        if "ghost" in modes and snapshot.candles:
             last_price = snapshot.candles[-1].close
             if abs(last_price - round(last_price)) < (last_price * 0.001):
                 decision.risk_per_trade_pct *= 1.5

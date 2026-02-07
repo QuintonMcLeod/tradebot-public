@@ -14,6 +14,8 @@ const isWindows = () => process.platform === 'win32';
 // Helper to find repo root reliably
 const DOTENV_PATH = path.join(__dirname, '../../../.env');
 const PROFILES_PATH = path.join(__dirname, '../../../config/settings_profiles.yaml');
+const CONFIG_JSON_PATH = path.join(__dirname, '../../../config.json');
+const SECRETS_PATH = path.join(__dirname, '../../../.env.secrets');
 
 // Setup IPC handlers (called after app ready)
 function setupIpcHandlers() {
@@ -86,6 +88,67 @@ function setupIpcHandlers() {
             return { success: true };
         } catch (e) {
             console.error("[MAIN] YAML Save Error:", e);
+            return { success: false, error: e.message };
+        }
+    });
+
+    // =============================================
+    // NEW: Unified config.json handlers
+    // =============================================
+    ipcMain.handle('read-config', async () => {
+        if (!fs.existsSync(CONFIG_JSON_PATH)) {
+            console.warn("[MAIN] config.json not found, returning empty object");
+            return {};
+        }
+        try {
+            const content = fs.readFileSync(CONFIG_JSON_PATH, 'utf8');
+            return JSON.parse(content);
+        } catch (e) {
+            console.error("[MAIN] Config JSON Load Error:", e);
+            return {};
+        }
+    });
+
+    ipcMain.handle('save-config', async (event, config) => {
+        try {
+            const content = JSON.stringify(config, null, 2);
+            fs.writeFileSync(CONFIG_JSON_PATH, content);
+            console.log("[MAIN] Saved config.json");
+
+            // Notify all windows that config changed
+            BrowserWindow.getAllWindows().forEach(win => {
+                win.webContents.send('config-updated', config);
+            });
+
+            return { success: true };
+        } catch (e) {
+            console.error("[MAIN] Config JSON Save Error:", e);
+            return { success: false, error: e.message };
+        }
+    });
+
+    ipcMain.handle('read-secrets', async () => {
+        if (!fs.existsSync(SECRETS_PATH)) return {};
+        const content = fs.readFileSync(SECRETS_PATH, 'utf8');
+        const secrets = {};
+        content.split('\n').forEach(line => {
+            if (line.startsWith('#') || !line.trim()) return;
+            const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+            if (match) secrets[match[1]] = match[2];
+        });
+        return secrets;
+    });
+
+    ipcMain.handle('save-secrets', async (event, secrets) => {
+        try {
+            let content = "# API Keys and Secrets - DO NOT COMMIT TO GIT\n\n";
+            for (const [key, value] of Object.entries(secrets)) {
+                content += `${key}=${value}\n`;
+            }
+            fs.writeFileSync(SECRETS_PATH, content);
+            return { success: true };
+        } catch (e) {
+            console.error("[MAIN] Secrets Save Error:", e);
             return { success: false, error: e.message };
         }
     });
@@ -219,7 +282,7 @@ function startLogWatcher(win) {
 }
 
 function checkBotStatus(win, force = false) {
-    exec('pgrep -f run_dev_bot.py', (err, stdout) => {
+    exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
         // [ANTIGRAVITY FIX] More robust status check
         const isRunning = !!(stdout && stdout.trim());
         if (force || isRunning !== botRunning) {
@@ -290,49 +353,87 @@ function createWindow() {
         setInterval(() => checkBotStatus(win), 2000);
     });
 
-    ipcMain.on('start-bot', () => {
+    ipcMain.on('start-bot', async () => {
         console.log('[MAIN] Start signal received.');
+        const debugLogPath = path.join(__dirname, '../../../logs/gui_start_debug.log');
+        const timestamp = new Date().toISOString();
+        fs.appendFileSync(debugLogPath, `[${timestamp}] START SIGNAL RECEIVED\n`);
 
-        // Define Command based on OS
-        let spawnCmd = '';
-        if (isWindows()) {
-            // Windows: Use python directly from root
-            // We assume 'python' is in PATH or .venv is active in this session (unlikely in GUI spawn)
-            // Best bet: Try ".venv\Scripts\python" then "python"
-            const venvPy = path.join(__dirname, '../../../.venv/Scripts/python.exe');
-            const targetScript = "tradebot_sci.runtime.controller"; // Module execution
+        // 1. Check if already running
+        let isStarted = await new Promise(resolve => {
+            exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
+                resolve(!!(stdout && stdout.trim()));
+            });
+        });
 
-            // Note: We need to set cwd to project root for module import to work
-            const projectRoot = path.join(__dirname, '../../../');
-
-            const pyExe = fs.existsSync(venvPy) ? `"${venvPy}"` : "python";
-
-            // Construct command: python -m tradebot_sci.runtime.controller --daemon
-            spawnCmd = `cd /d "${projectRoot}" && ${pyExe} -m ${targetScript} --daemon`;
-        } else {
-            const scriptPath = path.join(__dirname, '../../../scripts/tradebot.sh');
-            spawnCmd = `bash "${scriptPath}" --daemon`;
-        }
-
-        // Check status first
-        checkBotStatus(null, true); // Update state internally
-        if (botRunning) {
-            console.log('[MAIN] Bot seems running. Ignoring start.');
+        if (isStarted) {
+            console.log('[MAIN] Bot already running.');
+            mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Bot already running", color: 'teal' });
             return;
         }
 
-        console.log(`[MAIN] Starting bot with: ${spawnCmd}`);
-        const botProcess = exec(spawnCmd, (error, stdout, stderr) => {
-            if (error) console.error(`[MAIN] Start error: ${error}`);
-            if (stdout) console.log(`[MAIN] Start stdout: ${stdout}`);
-            if (stderr) console.error(`[MAIN] Start stderr: ${stderr}`);
-            setTimeout(() => checkBotStatus(mainWindow, true), 3000);
+        // 2. Clear old stdout log to get fresh errors
+        const stdoutPath = path.join(__dirname, '../../../logs/bot_stdout.log');
+        try { if (fs.existsSync(stdoutPath)) fs.truncateSync(stdoutPath); } catch (e) { }
+
+        // 3. Command construction
+        let spawnCmd = isWindows()
+            ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" -m tradebot_sci.runtime.controller --daemon`
+            : `bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon`;
+
+        console.log(`[MAIN] Executing: ${spawnCmd}`);
+        fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
+
+        exec(spawnCmd, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`[MAIN] Exec Error: ${error}`);
+                mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Start Command Failed", color: 'red' });
+                return;
+            }
+
+            // 4. VERIFICATION LOOP
+            // We wait and check 3 times over 6 seconds to ensure it STICKS
+            let checks = 0;
+            const checkInterval = setInterval(() => {
+                exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
+                    const running = !!(stdout && stdout.trim());
+                    if (running) {
+                        console.log('[MAIN] Verification: Bot is running.');
+                        if (checks >= 2) {
+                            clearInterval(checkInterval);
+                            mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Bot Started Successfully", color: 'teal' });
+                            checkBotStatus(mainWindow, true);
+                        }
+                    } else {
+                        console.error('[MAIN] Verification: Bot FAILED to stay alive.');
+                        clearInterval(checkInterval);
+
+                        // Read stdout for capture
+                        let errorDetail = "Process died unexpectedly.";
+                        try {
+                            if (fs.existsSync(stdoutPath)) {
+                                const logs = fs.readFileSync(stdoutPath, 'utf8');
+                                errorDetail = logs.split('\n').filter(l => l.trim()).slice(-3).join('\n') || errorDetail;
+                            }
+                        } catch (e) { }
+
+                        mainWindow.webContents.send('fromMain', {
+                            type: 'gui-notice',
+                            message: "Bot Startup Failed",
+                            detail: errorDetail,
+                            color: 'red'
+                        });
+                        checkBotStatus(mainWindow, true);
+                    }
+                    checks++;
+                });
+            }, 2000);
         });
     });
 
     ipcMain.on('stop-bot', () => {
         console.log('[MAIN] Stopping bot...');
-        const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f run_dev_bot.py';
+        const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
 
         exec(cmd, (error) => {
             if (error && error.code !== 1 && error.code !== 128) console.error(`[MAIN] Stop error: ${error}`);
@@ -342,7 +443,7 @@ function createWindow() {
 
     ipcMain.on('restart-bot', () => {
         console.log('[MAIN] Restarting bot...');
-        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f run_dev_bot.py';
+        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
 
         exec(killCmd, () => {
             setTimeout(() => {
@@ -353,6 +454,16 @@ function createWindow() {
     });
 
     ipcMain.on('get-bot-status', () => { checkBotStatus(mainWindow, true); });
+
+    ipcMain.on('restart-bot', () => {
+        console.log('[MAIN] Restarting bot due to settings change...');
+        exec('pkill -f run_dev_bot.py', () => {
+            // Wait a moment for process to die
+            setTimeout(() => {
+                exec('bash scripts/tradebot.sh --gui --daemon');
+            }, 1000);
+        });
+    });
 
     ipcMain.on('minimize-window', (e) => {
         const win = BrowserWindow.fromWebContents(e.sender);
@@ -374,6 +485,21 @@ function createWindow() {
 
     ipcMain.on('open-settings', () => createSettingsWindow());
     ipcMain.on('close-settings', () => { if (settingsWindow) settingsWindow.close(); });
+
+    ipcMain.on('log-notice', (event, { message, color }) => {
+        const timestamp = new Date().toISOString();
+        const logMsg = `[GUI-NOTICE] [${timestamp}] ${message} (${color})\n`;
+        const debugLogPath = path.join(__dirname, '../../../logs/gui_notices.log');
+        try {
+            fs.appendFileSync(debugLogPath, logMsg);
+        } catch (e) {
+            console.error("Failed to write gui notice:", e);
+        }
+        // Echo to all windows
+        BrowserWindow.getAllWindows().forEach(win => {
+            win.webContents.send('fromMain', { type: 'gui-notice', message, color, timestamp });
+        });
+    });
 }
 
 app.whenReady().then(() => {

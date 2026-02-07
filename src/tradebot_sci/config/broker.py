@@ -46,9 +46,14 @@ class OandaSettings(BaseModel):
     read_only: bool = Field(default=True)
 
 
-def load_ibkr_broker_options(config_path: Optional[Path] = None) -> BrokerSettings:
-    """Scoops IBKR settings from YAML or env so you don't have to babysit defaults."""
-    # Try project-root config by default: ../.. from src/tradebot_sci/config -> project root/config
+def load_ibkr_broker_options(config_path: Optional[Path] = None, data: Optional[dict] = None) -> BrokerSettings:
+    """Scoops IBKR settings from JSON data, YAML, or env so you don't have to babysit defaults."""
+    if data:
+        # Use provided JSON data
+        filtered_data = {k: v for k, v in data.items() if v is not None}
+        return BrokerSettings(**filtered_data)
+
+    # Fallback to legacy YAML/Env logic
     if config_path:
         path = Path(config_path)
     else:
@@ -132,8 +137,14 @@ def load_ibkr_broker_options(config_path: Optional[Path] = None) -> BrokerSettin
     data = {k: v for k, v in data.items() if v is not None}
     return BrokerSettings(**data)
 
-def load_oanda_broker_options() -> OandaSettings:
-    """Loads OANDA credentials from environment variables."""
+def load_oanda_broker_options(data: Optional[dict] = None) -> OandaSettings:
+    """Loads OANDA credentials from provided data or environment variables."""
+    if data:
+        # Basic validation of environment
+        if "environment" in data and data["environment"] not in ["practice", "live"]:
+            data["environment"] = "practice"
+        return OandaSettings(**data)
+
     data = {
         "account_id": os.getenv("OANDA_ACCOUNT_ID", ""),
         "api_key": os.getenv("OANDA_API_KEY", ""),
@@ -153,8 +164,13 @@ class PaxosSettings(BaseModel):
     environment: Literal["sandbox", "production"] = Field(default="sandbox")
 
 
-def load_paxos_broker_options() -> PaxosSettings:
-    """Loads Paxos credentials from environment variables."""
+def load_paxos_broker_options(data: Optional[dict] = None) -> PaxosSettings:
+    """Loads Paxos credentials from provided data or environment variables."""
+    if data:
+        if "environment" in data and data["environment"] not in ["sandbox", "production"]:
+            data["environment"] = "sandbox"
+        return PaxosSettings(**data)
+
     data = {
         "api_key": os.getenv("PAXOS_API_KEY", ""),
         "api_secret": os.getenv("PAXOS_API_SECRET", ""),
@@ -172,8 +188,13 @@ class KrakenSettings(BaseModel):
     environment: Literal["sandbox", "production"] = Field(default="production")
 
 
-def load_kraken_broker_options() -> KrakenSettings:
-    """Loads Kraken credentials from environment variables."""
+def load_kraken_broker_options(data: Optional[dict] = None) -> KrakenSettings:
+    """Loads Kraken credentials from provided data or environment variables."""
+    if data:
+        if "environment" in data and data["environment"] not in ["sandbox", "production"]:
+            data["environment"] = "production"
+        return KrakenSettings(**data)
+
     data = {
         "api_key": os.getenv("KRAKEN_API_KEY", ""),
         "api_secret": os.getenv("KRAKEN_API_SECRET", ""),

@@ -34,6 +34,7 @@ from tradebot_sci.market.symbols import AssetClass, MARKET_HOURS, MarketType, SY
 from tradebot_sci.broker.trade_result_store import TradeResultStore, TradeResult
 from tradebot_sci.runtime.trackers import StrikeTracker
 from tradebot_sci.runtime.sabbath import SabbathContext
+from tradebot_sci.broker.paper_broker import PaperBroker
 from tradebot_sci.runtime.scheduling import (
     is_market_open,
     get_current_session,
@@ -74,6 +75,19 @@ def _log_holdings_snapshot(executor, *, reason: str) -> None:
         except Exception as e:
             logger.debug(f"[HOLDINGS] Failed to parse size for {sym}: {e}")
             pass
+        # [ANTIGRAVITY] Merge SL/TP/opened_at from position_hold_store when snapshot misses them
+        hold_store = getattr(executor, "position_hold_store", None)
+        if hold_store:
+            record = hold_store.get(sym)
+            if record:
+                if not snap.get("stop_loss") and record.stop_loss:
+                    snap["stop_loss"] = record.stop_loss
+                if not snap.get("take_profit") and record.take_profit:
+                    snap["take_profit"] = record.take_profit
+                if not snap.get("opened_at") and record.opened_at:
+                    snap["opened_at"] = record.opened_at
+                if not snap.get("entry_price") and record.entry_price:
+                    snap["entry_price"] = record.entry_price
         positions.append({"symbol": sym, **snap})
     
     total_pnl = sum(p.get("unrealized_pnl", 0.0) or 0.0 for p in positions)
@@ -147,6 +161,13 @@ def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool, allowed_
         market_mode = legacy_provider
 
     if broker_mode not in ("primary", "hybrid") and market_mode not in ("primary", "hybrid"):
+        return None
+
+    # [ANTIGRAVITY] Only connect IBKR if it is actually the designated 'primary' provider
+    prime_m = settings.market.primary_market_provider.lower()
+    prime_b = settings.market.primary_broker.lower()
+    if prime_m != "ibkr" and prime_b != "ibkr":
+        logger.info(f"[IBKR] Skipping connection - primary provider/broker is {prime_m}/{prime_b}")
         return None
         
     # [ANTIGRAVITY] Asset Class Guard: Only connect if Forex or Equity/Metals are active
@@ -319,7 +340,12 @@ def _instrument_classes_for_symbols(symbols: list[str]) -> list[str]:
     return instrument_classes_for_symbols(symbols)
 
 
-def _confirm_trading_universe(symbols: list[str], profile_name: str, execute_trades: bool) -> None:
+def _confirm_trading_universe(
+    symbols: list[str],
+    profile_name: str,
+    execute_trades: bool,
+    settings: Settings,
+) -> None:
     universe = ",".join(symbols)
     instrument_classes = _instrument_classes_for_symbols(symbols)
     logger.info(
@@ -332,7 +358,7 @@ def _confirm_trading_universe(symbols: list[str], profile_name: str, execute_tra
         logger.info("[PRECHECK] EXECUTE_TRADES!=true; skipping confirmation.")
         return
     expected_confirmation = f"YES:{universe}"
-    provided_confirmation = os.getenv("TRADING_CONFIRMATION")
+    provided_confirmation = os.getenv("TRADING_CONFIRMATION") or settings.market.trading_confirmation
     if provided_confirmation == expected_confirmation or provided_confirmation == "YES":
         logger.info("[PRECHECK] TRADING_CONFIRMATION matched expected universe (or wildcard YES).")
         return
@@ -434,8 +460,8 @@ def run_bot(
         settings.runtime.guard_block_threshold,
         settings.runtime.guard_block_cooldown_cycles,
     )
-    execute_trades = os.getenv("EXECUTE_TRADES", "false").lower() == "true"
-    _confirm_trading_universe(symbols, profile_name, execute_trades)
+    execute_trades = settings.runtime.execute_trades
+    _confirm_trading_universe(symbols, profile_name, execute_trades, settings)
 
     # Removed blocking run_scheduled_bot check here.
     # The main loop now handles per-symbol market hours filtering.
@@ -483,7 +509,7 @@ def run_bot(
         logger.info(f"[PHOENIX]   {sym.ljust(10)} -> Strategy: {engine._strategy.name.upper()}")
     logger.info("[PHOENIX] ==================================" + "\n")
 
-    executor = (
+    executor_real = (
         build_exchange_broker(
             settings,
             profile_settings,
@@ -494,6 +520,17 @@ def run_bot(
         if execute_trades
         else None
     )
+    executor_paper = PaperBroker(
+        profile_settings,
+        market_provider=provider,
+        trade_results=trade_results
+    )
+
+    # Initial Sabbath Check to set correct executor reference
+    now_init = datetime.now(ZoneInfo("UTC"))
+    sabbath_active_init, _, _ = sabbath_context.evaluate(now_init)
+    
+    executor = executor_paper if sabbath_active_init else executor_real
 
     if executor and settings.runtime.cancel_orders_on_start:
         for symbol in symbols:
@@ -571,7 +608,17 @@ def run_bot(
         # Push history
         hist = provider.get_latest_candles(symbol, tf, limit=200)
         if hist:
-            formatted = [{"time": int(c.timestamp.timestamp()), "open": c.open, "high": c.high, "low": c.low, "close": c.close} for c in hist]
+            formatted = [
+                {
+                    "time": int(c.timestamp.timestamp()),
+                    "open": float(c.open),
+                    "high": float(c.high),
+                    "low": float(c.low),
+                    "close": float(c.close),
+                    "volume": float(getattr(c, "volume", 0) or 0)
+                }
+                for c in hist
+            ]
             controller.ws_server.broadcast_history_sync(symbol, tf, formatted)
 
     controller.start_ws_server()
@@ -586,7 +633,7 @@ def run_bot(
     
     # [ANTIGRAVITY] Hot-Reload State
     from pathlib import Path
-    config_path = Path("config/settings_profiles.yaml")
+    config_path = Path("config.json")
     last_config_mtime = config_path.stat().st_mtime if config_path.exists() else 0
     
     try:
@@ -667,25 +714,43 @@ def run_bot(
                 time.sleep(poll_interval)
                 continue
 
+            # [ANTIGRAVITY FIX] Evaluate Sabbath Status FIRST (every loop tick)
+            # This ensures we enter Sabbath mode immediately and swap executors
+            # before ANY account summary or heartbeat calls reach external brokers.
             now = datetime.now(ZoneInfo("UTC"))
+            sabbath_active, _, _ = sabbath_context.evaluate(now)
+
+            if sabbath_active and executor != executor_paper:
+                logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading for total silence.")
+                executor = executor_paper
+            elif not sabbath_active and executor == executor_paper:
+                logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker connection.")
+                executor = executor_real
+
             if executor:
+                # refresh_account_summary for PaperBroker is local only
+                # For CCXT/IBKR/Oanda, this triggers network traffic.
                 executor.refresh_account_summary()
-                reason = _auto_restart_reason(
-                    settings=settings,
-                    start_ts=start_ts,
-                    shared_ib=shared_ib,
-                    executor=executor,
-                    consecutive_errors=consecutive_error_iterations,
-                )
-                if reason:
-                    _trigger_auto_restart(reason)
+                
+                # Only check for auto-restart on the REAL broker connection
+                if executor == executor_real:
+                    reason = _auto_restart_reason(
+                        settings=settings,
+                        start_ts=start_ts,
+                        shared_ib=shared_ib,
+                        executor=executor,
+                        consecutive_errors=consecutive_error_iterations,
+                    )
+                    if reason:
+                        _trigger_auto_restart(reason)
+                
                 now_ts = time.time()
                 if now_ts - last_holdings_log_ts >= 5.0:
                     _log_holdings_snapshot(executor, reason="heartbeat")
                     last_holdings_log_ts = now_ts
                 
-                # [ANTIGRAVITY] Periodic Capital Check (Increased frequency to 30s)
-                if now_ts - last_capital_check_ts >= 30.0:
+                # [ANTIGRAVITY] Periodic Capital Check
+                if now_ts - last_capital_check_ts >= 15.0:
                     try:
                          # Force a fresh check of Total Equity for UI consistency
                          cap = executor.get_total_balance_value()
@@ -693,7 +758,7 @@ def run_bot(
                          last_capital_check_ts = now_ts
                     except Exception as e:
                          logger.warning(f"[HEARTBEAT] Failed to check capital: {e}")
-                         last_capital_check_ts = now_ts + 60 # Retry sooner on error
+                         last_capital_check_ts = now_ts + 30 # Retry sooner on error
             if executor:
                 try:
                     for result in executor.evaluate_synthetic_stops(provider, profile_settings.candle_timeframe):
@@ -702,11 +767,9 @@ def run_bot(
                     logger.error(f"[CRASH_GUARD] Error in evaluate_synthetic_stops: {e}", exc_info=True)
             strike_tracker.advance_cycle()
             
-            # [ANTIGRAVITY FIX] Evaluate Sabbath Status ALWAYS (every loop tick)
-            # This ensures we enter Sabbath mode immediately when the time comes,
-            # regardless of whether a trading decision is pending.
-            sabbath_active, _, _ = sabbath_context.evaluate(now)
-            allow_entries = not sabbath_active
+            # [ANTIGRAVITY] Sabbath Paper Trading: Allow scanning and trading 
+            # if we have successfully swapped to the local PaperBroker.
+            allow_entries = not sabbath_active or executor == executor_paper
 
             if next_decision_in <= 0:
                 active_symbols = symbols
@@ -765,7 +828,7 @@ def run_bot(
                                     )
                                 except Exception as e:
                                     logger.debug(f"[LOOP] UI fetch failed for {sub_sym} {sub_tf}: {e}")
-                if sabbath_active:
+                if sabbath_active and executor != executor_paper:
                     if executor and hasattr(executor, "list_open_position_symbols"):
                         active_symbols = [sym for sym in executor.list_open_position_symbols() if sym in engines]
                     else:
@@ -823,10 +886,10 @@ def run_bot(
                 consecutive_error_iterations = 0
                 
                 # [ANTIGRAVITY FIX] Strictly honor Sabbath: 
-                # Block BOTH entries and exits (Zero Action).
-                if sabbath_active:
+                # Block BOTH entries and exits (Zero Action) if NO PaperBroker is active.
+                if sabbath_active and executor != executor_paper:
                     controller.broadcast_state(executor, force=True)
-                    logger.info("[SABBATH] Strict adherence active: Skipping candidate processing.")
+                    logger.info("[SABBATH] Strict adherence active (no PaperBroker): Skipping candidate processing.")
                     next_decision_in = decision_interval
                     time.sleep(poll_interval)
                     continue
@@ -949,8 +1012,8 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         settings.runtime.guard_block_threshold,
         settings.runtime.guard_block_cooldown_cycles,
     )
-    execute_trades = os.getenv("EXECUTE_TRADES", "false").lower() == "true"
-    _confirm_trading_universe(symbols, profile_name, execute_trades)
+    execute_trades = settings.runtime.execute_trades
+    _confirm_trading_universe(symbols, profile_name, execute_trades, settings)
 
     controller = RuntimeController(settings, profile_settings)
     
@@ -982,7 +1045,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         for symbol in symbols
     }
 
-    executor = (
+    executor_real = (
         build_exchange_broker(
             settings,
             profile_settings,
@@ -993,6 +1056,15 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         if execute_trades
         else None
     )
+
+    executor_paper = PaperBroker(
+        profile_settings, 
+        market_provider=provider, 
+        trade_results=trade_results
+    )
+    
+    # Active executor reference
+    executor = executor_real
 
     poll_interval = profile_settings.market_poll_interval_seconds
     decision_interval = profile_settings.ai_decision_interval_seconds
@@ -1087,24 +1159,41 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
             next_decision_in = 0
             while datetime.now(tz) < end_ts:
                 loop_now = datetime.now(tz)
+                # [ANTIGRAVITY FIX] Evaluate Sabbath Status FIRST
+                sabbath_active, _, _ = sabbath_context.evaluate(loop_now)
+                
+                # [ANTIGRAVITY] Sabbath Paper Trading Swap
+                if sabbath_active and executor != executor_paper:
+                    logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading Mode.")
+                    executor = executor_paper
+                elif not sabbath_active and executor == executor_paper:
+                    logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker.")
+                    executor = executor_real
+
                 if executor:
                     executor.refresh_account_summary()
-                    reason = _auto_restart_reason(
-                        settings=settings,
-                        start_ts=start_ts,
-                        shared_ib=shared_ib,
-                        executor=executor,
-                        consecutive_errors=consecutive_error_iterations,
-                    )
+                    
+                    # Only check auto-restart for REAL broker
+                    reason = None
+                    if executor == executor_real:
+                        reason = _auto_restart_reason(
+                            settings=settings,
+                            start_ts=start_ts,
+                            shared_ib=shared_ib,
+                            executor=executor,
+                            consecutive_errors=consecutive_error_iterations,
+                        )
                     if reason:
                         _trigger_auto_restart(reason)
+                        
                     now_ts = time.time()
                     # Fixed heartbeat: 60s
                     if now_ts - last_holdings_log_ts >= 5.0:
                         _log_holdings_snapshot(executor, reason="heartbeat")
                         last_holdings_log_ts = now_ts
-                sabbath_active, _, _ = sabbath_context.evaluate(loop_now)
-                allow_entries = not sabbath_active
+
+                # During Sabbath, we allow entries because they will be paper-traded.
+                allow_entries = execute_trades
                 if next_decision_in <= 0:
                     active_symbols = symbols
                     auto_mode: str | None = None
@@ -1408,7 +1497,7 @@ class WSLoggingHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            if self.controller.ws_server and any(marker in msg for marker in ["[STATE]", "[CYCLE]", "[RESULT]", "[AUTO-ENTRY]", "[ROBOCOP]", "[EXIT]", "[PROFILE]", "[HEARTBEAT]", "[DECISION]", "[STRUCTURE]", "[SAFETY]", "[PHOENIX]", "[ENTRY]", "[FILL]", "[HOLD]", "[SIGNAL]", "[TRADE]", "[SCAN]"]):
+            if self.controller.ws_server and any(marker in msg for marker in ["[STATE]", "[CYCLE]", "[RESULT]", "[AUTO-ENTRY]", "[ROBOCOP]", "[EXIT]", "[PROFILE]", "[HEARTBEAT]", "[DECISION]", "[STRUCTURE]", "[SAFETY]", "[PHOENIX]", "[ENTRY]", "[FILL]", "[HOLD]", "[SIGNAL]", "[TRADE]", "[SCAN]", "[HOLDINGS]"]):
                 self.controller.ws_server.broadcast_log_sync(record.levelname, msg)
         except Exception:
             self.handleError(record)

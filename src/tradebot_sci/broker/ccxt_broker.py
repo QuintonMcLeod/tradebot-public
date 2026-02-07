@@ -21,6 +21,10 @@ from tradebot_sci.strategy.icc_signals import last_structure_range
 
 logger = logging.getLogger(__name__)
 
+# [ANTIGRAVITY FIX] Suppress noisy CCXT debug logs (raw HTTP responses)
+logging.getLogger("ccxt").setLevel(logging.WARNING)
+logging.getLogger("ccxt.base.exchange").setLevel(logging.WARNING)
+
 
 def _parse_symbol_map(value: str | None) -> dict[str, str]:
     if not value:
@@ -251,11 +255,12 @@ class CCXTExchangeBroker:
                     entry_price = float(pos.get("entry_price") or pos.get("avg_price") or 0.0)
 
             if entry_price > 0:
-                current_price = float(pos.get("current_price") or pos.get("close") or entry_price)
+                # [ANTIGRAVITY FIX] Prioritize current_price from snapshot for accurate exit PnL
+                curr_px = float(pos.get("current_price") or pos.get("close") or pos.get("avg_price") or entry_price)
                 if side == "sell": # Closing long
-                    pnl_val = (current_price - entry_price) * qty
+                    pnl_val = (curr_px - entry_price) * qty
                 else: # Closing short
-                    pnl_val = (entry_price - current_price) * qty
+                    pnl_val = (entry_price - curr_px) * qty
                 
                 pnl_pct = (pnl_val / (entry_price * qty)) * 100
             else:
@@ -552,16 +557,17 @@ class CCXTExchangeBroker:
             "take_profit": float(record.take_profit) if record and record.take_profit else None,
             "unrealized_pnl": unrealized_pnl,
             "pnl_pct": pnl_pct,
+            "current_price": current_price,
             "scale_ins_taken": int(self._scale_in_counts.get(symbol.upper(), 0)),
             "max_scale_ins_per_leg": int(os.getenv("MAX_SCALE_INS_PER_LEG") or 2),
             "htf_neutral_bars": 0,
             "pyramid_count": 1,
             "htf_neutral_bars": 0,
             "pyramid_count": 1,
-            # [ANTIGRAVITY FIX] Enhanced Dust Check: Qty < Min OR Value < $2.50
+            # [ANTIGRAVITY FIX] Enhanced Dust Check: Qty < Min OR Value < $1.10 (matches CCXT MIN_ORDER_VAL)
             "is_dust": (
                 (min_amount is not None and min_amount > 0 and abs(size) < min_amount) or
-                (current_price is not None and (abs(size) * current_price) < 2.50)
+                (current_price is not None and (abs(size) * current_price) < 1.10)
             ),
         }
 
@@ -885,10 +891,10 @@ class CCXTExchangeBroker:
              action = "enter_long"
 
         # Determine direction and validation
-        default_type = (os.getenv("CCXT_DEFAULT_TYPE") or "spot").lower()
-        provider = (os.getenv("EXCHANGE_PROVIDER") or settings.market.exchange_provider or "").strip().lower()
-        broker_mode = (os.getenv("BROKER_MODE") or settings.market.broker_mode or "").strip().lower()
-        profile_name = (os.getenv("PROFILE_NAME") or "").strip().lower()
+        default_type = (os.getenv("CCXT_DEFAULT_TYPE") or self.default_type or "spot").lower()
+        provider = (os.getenv("EXCHANGE_PROVIDER") or "").strip().lower()
+        broker_mode = (os.getenv("BROKER_MODE") or "").strip().lower()
+        profile_name = (os.getenv("PROFILE_NAME") or self.profile.name or "").strip().lower()
         alt_md = (os.getenv("ALTERNATIVE_MARKET_DATA") or "").strip().lower()
         
         from tradebot_sci.market.symbols import is_coinbase_derivative
@@ -993,28 +999,6 @@ class CCXTExchangeBroker:
             # 1. Determine Risk Amount from AI pct
             risk_pct = getattr(decision, "risk_per_trade_pct", 1.0) or 1.0
             fixed_risk = float(getattr(self.profile, "risk_per_trade_dollars", 0.0) or 0.0)
-
-            # [ANTIGRAVITY FEATURE] "YOLO Ratchet": Multi-Tier Capital Scale
-            # 100% (<$500), 50% (<$2k), 30% (<$100k), 10% (<$200k), 5% (>$200k)
-            ratchet_enabled = getattr(self.profile, "ratchet_risk_enabled", True)
-            if fixed_risk <= 0 and risk_pct >= 0.99 and ratchet_enabled:
-                try:
-                    old_risk = risk_pct
-                    if liq_cap < 500.0:
-                        risk_pct = 1.0
-                    elif liq_cap < 2000.0:
-                        risk_pct = 0.50
-                    elif liq_cap < 100000.0:
-                        risk_pct = 0.30
-                    elif liq_cap < 200000.0:
-                        risk_pct = 0.10
-                    else:
-                        risk_pct = 0.05
-                    
-                    if risk_pct != old_risk:
-                        logger.info(f"[RISK RATCHET] Capital ${liq_cap:.2f}: Scaling risk to {risk_pct:.0%}")
-                except Exception as e:
-                    logger.warning(f"[RISK RATCHET] Tier logic failed: {e}. Defaulting to {risk_pct:.0%}")
 
             # 1. Determine Risk Amount
             if fixed_risk > 0:
@@ -1338,21 +1322,27 @@ class CCXTExchangeBroker:
                         order_type = "stop_market"
                         limit_price = None
 
-                        # [ANTIGRAVITY FIX] Verified Coinbase Stop-Limit Parameters
+                        # [ANTIGRAVITY FIX] Verified Gemini / Coinbase Stop-Limit Parameters
                         is_coinbase = "coinbase" in self.exchange_id.lower() or "coinbase" in getattr(self._exchange, "id", "").lower()
+                        is_gemini = "gemini" in self.exchange_id.lower() or "gemini" in getattr(self._exchange, "id", "").lower()
                         
-                        if is_coinbase:
-                            # Coinbase Advanced requires type="limit" + stop_price in params
+                        if is_coinbase or is_gemini:
+                            # Both Coinbase Advanced and Gemini require type="limit" to emulate stops efficiently via CCXT
+                            # [ANTIGRAVITY FIX] Use tighter buffer (1.5%) for Gemini/Coinbase to avoid "Invalid Price" errors
                             order_type = "limit"
-                            # Calculate aggressive limit price (5% buffer) to ensure fill (emulate market stop)
-                            raw_limit = decision.stop_loss * 0.95 if stop_side == "sell" else decision.stop_loss * 1.05
+                            raw_limit = decision.stop_loss * 0.985 if stop_side == "sell" else decision.stop_loss * 1.015
                             limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
                             
-                            # Update params with Coinbase-specific fields
-                            stop_params["stop_price"] = self._exchange.price_to_precision(sym, decision.stop_loss)
-                            stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if stop_side == "sell" else "STOP_DIRECTION_STOP_UP"
-                            
-                            logger.info(f"[CCXT] Coinbase SL: type=limit, stop={stop_params['stop_price']}, limit={limit_price}, dir={stop_params['stop_direction']}")
+                            if is_coinbase:
+                                # Update params with Coinbase-specific fields
+                                stop_params["stop_price"] = self._exchange.price_to_precision(sym, decision.stop_loss)
+                                stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if stop_side == "sell" else "STOP_DIRECTION_STOP_UP"
+                                logger.info(f"[CCXT] Coinbase SL: type=limit, stop={stop_params['stop_price']}, limit={limit_price}, dir={stop_params['stop_direction']}")
+                            elif is_gemini:
+                                # Gemini unified CCXT params: 'stopPrice' is often sufficient, but we ensure 'stopPrice' is passed.
+                                # Some CCXT versions for Gemini might also need the 'type' in params if not passed as arg.
+                                stop_params["stopPrice"] = self._exchange.price_to_precision(sym, decision.stop_loss)
+                                logger.info(f"[CCXT] Gemini SL: type=limit, stop={stop_params['stopPrice']}, limit={limit_price}")
 
                         # [ANTIGRAVITY FIX] Correct Stop Loss Quantity
                         # 1. Start with the *current trade* filled amount
@@ -1515,14 +1505,33 @@ class CCXTExchangeBroker:
                         sl_price = record.stop_loss if record else None
                         
                         if sl_price and sl_price > 0:
+                            # [ANTIGRAVITY FIX] Emergency Exit Check: If price already crossed SL, just market close!
+                            current_price = state.get("mark_price")
+                            if not current_price:
+                                try:
+                                    ticker = self._safe_fetch_ticker(sys_sym)
+                                    if ticker: current_price = ticker.last
+                                except: pass
+                            
+                            is_crossed = False
+                            if current_price:
+                                if (state.get("position_shares", 0) > 0 and current_price <= sl_price):
+                                    is_crossed = True
+                                elif (state.get("position_shares", 0) < 0 and current_price >= sl_price):
+                                    is_crossed = True
+                            
+                            if is_crossed:
+                                logger.warning(f"[CCXT-EMERGENCY] {sys_sym} price {current_price} already crossed SL {sl_price}. Executing market close.")
+                                try:
+                                    self.flatten_symbol(sys_sym)
+                                    continue
+                                except Exception as flat_e:
+                                    logger.error(f"[CCXT-EMERGENCY] Failed emergency market close for {sys_sym}: {flat_e}")
+
                             logger.warning(f"[CCXT] {sys_sym} has position but 0 working orders. Re-arming SL at {sl_price}.")
                             try:
                                 # Re-arm logic (re-uses existing create_order logic)
-                                # Note: we need to determine the side (sell for long, buy for short)
-                                # For now assume long (most common on spot)
-                                side = "sell" # Placeholder, improved logic below
-                                if state.get("position_shares", 0) < 0:
-                                    side = "buy"
+                                side = "sell" if state.get("position_shares", 0) > 0 else "buy"
                                 
                                 sym = self._map_symbol(sys_sym)
                                 order_type = "stop_market" 
@@ -1534,8 +1543,8 @@ class CCXTExchangeBroker:
                                 
                                 if is_coinbase or is_gemini:
                                     order_type = "limit"
-                                    # For stops, we want to be slightly beyond the stop price to guarantee fill if triggered
-                                    raw_limit = sl_price * 0.95 if side == "sell" else sl_price * 1.05
+                                    # Use tighter buffer (1.5%) for re-arm too
+                                    raw_limit = sl_price * 0.985 if side == "sell" else sl_price * 1.015
                                     limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
                                     
                                     if is_coinbase:

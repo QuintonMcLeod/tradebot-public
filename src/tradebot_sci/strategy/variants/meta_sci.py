@@ -175,7 +175,7 @@ class MetaSCIStrategy(BaseStrategy):
                 # Execute logic
                 sig = strat.check_entry_signal(*call_args, **kwargs)
                 
-                if sig and sig.action in ("enter_long", "enter_short"):
+                if sig and sig.action in ("enter_long", "enter_short", "scale_in"):
                     sig.gates = sig.gates or {}
                     sig.gates["meta_source"] = name
                     signals.append(sig)

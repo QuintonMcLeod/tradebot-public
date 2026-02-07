@@ -4,31 +4,52 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-# Load repo-local env defaults (quietly). This keeps CLI behavior predictable and
-# also lets the GUI persist settings via .env for future runs.
+# Load secrets from .env.secrets (API keys only)
 set -a
+[ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" >/dev/null 2>&1 || true
+# Fallback: Also try legacy .env if it exists (for transition)
 [ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" >/dev/null 2>&1 || true
-set +a
+# Robustly find Python executable
+PYTHON_EXE="python"
+if [[ -f "$ROOT_DIR/.venv/bin/python" ]]; then
+  PYTHON_EXE="\"$ROOT_DIR/.venv/bin/python\""
+elif command -v poetry >/dev/null 2>&1; then
+  PYTHON_EXE="poetry run python"
+fi
 
 # In tmux, panes are spawned via a non-interactive shell (no .bashrc),
 # so env vars like ${CHATGPT_KEY} won't exist unless we explicitly load them.
-ENV_BOOTSTRAP="source \"$HOME/.bashrc\" >/dev/null 2>&1 || true; set -a; [ -f \"$ROOT_DIR/.env\" ] && source \"$ROOT_DIR/.env\" >/dev/null 2>&1; set +a"
+ENV_BOOTSTRAP="source \"$HOME/.bashrc\" >/dev/null 2>&1 || true; set -a; [ -f \"$ROOT_DIR/.env.secrets\" ] && source \"$ROOT_DIR/.env.secrets\" >/dev/null 2>&1; [ -f \"$ROOT_DIR/.env\" ] && source \"$ROOT_DIR/.env\" >/dev/null 2>&1; set +a"
 
 list_profiles() {
-  local path="config/settings_profiles.yaml"
-  [[ -f "$path" ]] || return 1
-  awk '
-    BEGIN { in_section=0; out=""; }
-    /^profiles:[[:space:]]*$/ { in_section=1; next }
-    in_section==1 && /^[^[:space:]]/ { in_section=0 }
-    in_section==1 && /^  [A-Za-z0-9_]+:[[:space:]]*$/ {
-      key=$1
-      sub(/:$/, "", key)
-      if (out != "") out=out", "
-      out=out key
-    }
-    END { print out }
-  ' "$path"
+  # Try new config.json first, then fallback to legacy YAML
+  if [[ -f "config.json" ]]; then
+    # Extract profile names from config.json using jq or python
+    if command -v jq >/dev/null 2>&1; then
+      jq -r '.profiles | keys | join(", ")' config.json 2>/dev/null || return 1
+    elif command -v python3 >/dev/null 2>&1; then
+      python3 -c "import json; print(', '.join(json.load(open('config.json')).get('profiles', {}).keys()))" 2>/dev/null || return 1
+    else
+      echo "(install jq or python3 to list profiles)"
+      return 1
+    fi
+  elif [[ -f "config/settings_profiles.yaml" ]]; then
+    # Legacy YAML fallback
+    awk '
+      BEGIN { in_section=0; out=""; }
+      /^profiles:[[:space:]]*$/ { in_section=1; next }
+      in_section==1 && /^[^[:space:]]/ { in_section=0 }
+      in_section==1 && /^  [A-Za-z0-9_]+:[[:space:]]*$/ {
+        key=$1
+        sub(/:$/, "", key)
+        if (out != "") out=out", "
+        out=out key
+      }
+      END { print out }
+    ' "config/settings_profiles.yaml"
+  else
+    return 1
+  fi
 }
 
 profile_description() {
@@ -170,16 +191,24 @@ EOF
   echo "  - Safety still runs (local/synthetic stops and exits can still trigger)."
 }
 
-PROFILE_NAME="${PROFILE_NAME:-auto_schedule}"
+# Auto-detect profile from config.json if not set in env
+if [[ -z "${PROFILE_NAME:-}" && -f "$ROOT_DIR/config.json" ]]; then
+  if command -v jq >/dev/null 2>&1; then
+    PROFILE_NAME="$(jq -r '.active_profile' "$ROOT_DIR/config.json" 2>/dev/null)"
+  elif command -v python3 >/dev/null 2>&1; then
+    PROFILE_NAME="$(python3 -c "import json; print(json.load(open('$ROOT_DIR/config.json')).get('active_profile', ''))" 2>/dev/null)"
+  fi
+fi
+PROFILE_NAME="${PROFILE_NAME:-}"  # Will be auto-detected below if empty
 MODE="${BOT_MODE:-continuous}"
 ITERATIONS="${BOT_ITERATIONS:-120}"
-EXECUTE_TRADES="${EXECUTE_TRADES:-false}"
+EXECUTE_TRADES="${EXECUTE_TRADES:-}"
 TRADING_CONFIRMATION="${TRADING_CONFIRMATION:-}"
 SABBATH="false"
 NO_SABBATH="false"
 
 SESSION_NAME="${SESSION_NAME:-tradebot}"
-LOG_FILE="${TRADEBOT_LOG:-${LOG_FILE:-logs/tradebot.log}}"
+LOG_FILE="${TRADEBOT_LOG:-logs/tradebot.log}"
 MARKET_DATA_MODE="${MARKET_DATA_MODE:-}"
 BROKER_MODE="${BROKER_MODE:-}"
 
@@ -261,11 +290,13 @@ if [[ "$EXIT_ALL" == "true" ]]; then
 fi
 
 BOT_ARGS=()
-case "$MODE" in
-  continuous) BOT_ARGS+=(--continuous) ;;
-  scheduled) BOT_ARGS+=(--scheduled) ;;
-  iterations) BOT_ARGS+=(--iterations "$ITERATIONS") ;;
-esac
+if [[ -n "$MODE" ]]; then
+  case "$MODE" in
+    continuous) BOT_ARGS+=(--continuous) ;;
+    scheduled) BOT_ARGS+=(--scheduled) ;;
+    iterations) BOT_ARGS+=(--iterations "${ITERATIONS:-120}") ;;
+  esac
+fi
 if [[ "$SABBATH" == "true" && "$NO_SABBATH" == "true" ]]; then
   echo "ERROR: --sabbath and --no-sabbath are mutually exclusive" >&2
   exit 2
@@ -276,7 +307,15 @@ elif [[ "$NO_SABBATH" == "true" ]]; then
   BOT_ARGS+=(--no-sabbath)
 fi
 
-BOT_CMD="PROFILE_NAME=$PROFILE_NAME PYTHONPATH=src EXECUTE_TRADES=$EXECUTE_TRADES TRADING_CONFIRMATION=YES MARKET_DATA_MODE=${MARKET_DATA_MODE:-} BROKER_MODE=${BROKER_MODE:-} poetry run python scripts/run_dev_bot.py ${BOT_ARGS[*]}"
+# Build the master command string for the bot process.
+# We only inject environment variables if they are NOT empty to ensure config.json remains source of truth.
+BOT_CMD="PYTHONPATH=src "
+[[ -n "$PROFILE_NAME" ]] && BOT_CMD+="PROFILE_NAME=\"$PROFILE_NAME\" "
+[[ -n "$EXECUTE_TRADES" ]] && BOT_CMD+="EXECUTE_TRADES=\"$EXECUTE_TRADES\" "
+[[ -n "$TRADING_CONFIRMATION" ]]  && BOT_CMD+="TRADING_CONFIRMATION=\"$TRADING_CONFIRMATION\" "
+[[ -n "$MARKET_DATA_MODE" ]] && BOT_CMD+="MARKET_DATA_MODE=\"$MARKET_DATA_MODE\" "
+[[ -n "$BROKER_MODE" ]] && BOT_CMD+="BROKER_MODE=\"$BROKER_MODE\" "
+BOT_CMD+="$PYTHON_EXE scripts/run_dev_bot.py ${BOT_ARGS[*]}"
 
 export SESSION_NAME
 export LOG_FILE
@@ -316,9 +355,9 @@ restart_tmux() {
 	  mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 	  printf "%s [INFO] tradebot_sci.runtime.loop - [RESTART] requested via scripts/tradebot.sh\n" "$(date '+%Y-%m-%d %H:%M:%S')" >>"$LOG_FILE" || true
 
-	  # CRITICAL: Re-source .env to pick up changes made by the GUI/User since the script started.
-	  # Otherwise, we restart with the stale environment variables of the running shell.
+	  # CRITICAL: Re-source secrets to pick up changes made by the GUI/User since the script started.
 	  set -a
+	  [ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" >/dev/null 2>&1 || true
 	  [ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" >/dev/null 2>&1 || true
 	  set +a
 
@@ -352,7 +391,7 @@ restart_tmux() {
 	      saved_exec="$(tmux show-environment -t "$SESSION_NAME" TRADEBOT_EXECUTE_TRADES 2>/dev/null | sed -n 's/^TRADEBOT_EXECUTE_TRADES=//p' || true)"
 	      if [[ -n "$saved_exec" ]]; then
 	        EXECUTE_TRADES="$saved_exec"
-	        BOT_CMD="PROFILE_NAME=$PROFILE_NAME PYTHONPATH=src EXECUTE_TRADES=$EXECUTE_TRADES TRADING_CONFIRMATION=YES MARKET_DATA_MODE=${MARKET_DATA_MODE:-} BROKER_MODE=${BROKER_MODE:-} poetry run python scripts/run_dev_bot.py ${BOT_ARGS[*]}"
+	        BOT_CMD="PROFILE_NAME=\"$PROFILE_NAME\" PYTHONPATH=src EXECUTE_TRADES=\"$EXECUTE_TRADES\" TRADING_CONFIRMATION=YES MARKET_DATA_MODE=\"${MARKET_DATA_MODE:-}\" BROKER_MODE=\"${BROKER_MODE:-}\" $PYTHON_EXE scripts/run_dev_bot.py ${BOT_ARGS[*]}"
 	      fi
 	    fi
 	  fi
@@ -373,9 +412,9 @@ restart_tmux() {
 
 	  # Holdings window (Window 2: holdings)
 	  if tmux list-windows -t "$SESSION_NAME" -F "#{window_name}" 2>/dev/null | grep -qx "holdings"; then
-	    tmux respawn-pane -k -t "$SESSION_NAME:holdings.0" "cd \"$ROOT_DIR\" && $ENV_BOOTSTRAP; printf '\\033[2J\\033[H' && PYTHONPATH=src poetry run python tools/holdings_tail.py --log \"$LOG_FILE\" --follow --interval 3" 2>/dev/null || true
+	    tmux respawn-pane -k -t "$SESSION_NAME:holdings.0" "cd \"$ROOT_DIR\" && $ENV_BOOTSTRAP; printf '\\033[2J\\033[H' && PYTHONPATH=src $PYTHON_EXE tools/holdings_tail.py --log \"$LOG_FILE\" --follow --interval 3" 2>/dev/null || true
 	  else
-	    tmux new-window -d -t "$SESSION_NAME" -n holdings "cd \"$ROOT_DIR\" && $ENV_BOOTSTRAP; printf '\\033[2J\\033[H' && PYTHONPATH=src poetry run python tools/holdings_tail.py --log \"$LOG_FILE\" --follow --interval 3" 2>/dev/null || true
+	    tmux new-window -d -t "$SESSION_NAME" -n holdings "cd \"$ROOT_DIR\" && $ENV_BOOTSTRAP; printf '\\033[2J\\033[H' && PYTHONPATH=src $PYTHON_EXE tools/holdings_tail.py --log \"$LOG_FILE\" --follow --interval 3" 2>/dev/null || true
 	  fi
 
   local did_respawn_commentary="false"
@@ -443,18 +482,18 @@ restart_tmux() {
 
     # Respawn log + candles.
     if [[ -n "$left_top_pane" ]]; then
-      tmux respawn-pane -k -t "$left_top_pane" "cd \"$ROOT_DIR\" && $ENV_BOOTSTRAP; printf '\\033[2J\\033[H' && (PYTHONPATH=src poetry run python tools/log_tail_ui.py --log \"$LOG_FILE\" --follow --interval 0.5 || tail -F \"$LOG_FILE\")" 2>/dev/null || true
+      tmux respawn-pane -k -t "$left_top_pane" "cd \"$ROOT_DIR\" && $ENV_BOOTSTRAP; printf '\\033[2J\\033[H' && (PYTHONPATH=src $PYTHON_EXE tools/log_tail_ui.py --log \"$LOG_FILE\" --follow --interval 0.5 || tail -F \"$LOG_FILE\")" 2>/dev/null || true
     fi
     if [[ -n "$left_bottom_pane" ]]; then
         # Bottom-left: candles (IBKR or CCXT)
-        local candles_cmd="PYTHONPATH=src poetry run python tools/candles_launcher.py --log \"$LOG_FILE\" --follow --interval 15 --rotate-seconds 30 --refresh-seconds 15 --render rich"
+        local candles_cmd="PYTHONPATH=src $PYTHON_EXE tools/candles_launcher.py --log \"$LOG_FILE\" --follow --interval 15 --rotate-seconds 30 --refresh-seconds 15 --render rich"
                 tmux respawn-pane -k -t "$left_bottom_pane" "cd \"$ROOT_DIR\" && $ENV_BOOTSTRAP; printf '\\033[2J\\033[H' && $candles_cmd" 2>/dev/null || true
     fi
 
     # Commentary pane (right pane)
     if [[ -n "$right_pane" ]]; then
       local commentary_cmd
-      commentary_cmd="PYTHONPATH=src poetry run python \"tools/commentary_tail.py\" --log \"$LOG_FILE\" --follow --interval 3"
+      commentary_cmd="PYTHONPATH=src $PYTHON_EXE \"tools/commentary_tail.py\" --log \"$LOG_FILE\" --follow --interval 3"
       if [[ -z "${COMMENTARY_LLM:-}" ]]; then
         commentary_cmd="COMMENTARY_LLM=internal $commentary_cmd"
       elif [[ "${COMMENTARY_LLM:-off}" != "off" ]]; then
@@ -468,7 +507,7 @@ restart_tmux() {
   if [[ "$did_respawn_commentary" != "true" ]]; then
     # Commentary pane fallback (older 2-pane layouts)
     local commentary_cmd
-    commentary_cmd="PYTHONPATH=src poetry run python \"tools/commentary_tail.py\" --log \"$LOG_FILE\" --follow --interval 3"
+    commentary_cmd="PYTHONPATH=src $PYTHON_EXE \"tools/commentary_tail.py\" --log \"$LOG_FILE\" --follow --interval 3"
     if [[ -z "${COMMENTARY_LLM:-}" ]]; then
       commentary_cmd="COMMENTARY_LLM=internal $commentary_cmd"
     elif [[ "${COMMENTARY_LLM:-off}" != "off" ]]; then
@@ -524,12 +563,7 @@ if [[ "$GUI" == "true" ]] || [[ "$DAEMON" == "true" ]]; then
       # Ensure LOG_FILE dir exists
       mkdir -p "$(dirname "$LOG_FILE")"
       
-      # Prepare Environment
-      export EXCHANGE_PROVIDER="${EXCHANGE_PROVIDER:-}"
-      export ALTERNATIVE_MARKET_DATA="${ALTERNATIVE_MARKET_DATA:-}"
-      export ALTERNATIVE_BROKER="${ALTERNATIVE_BROKER:-}"
-      
-      # Run in background, redirect output to a separate debug log if needed, 
+      # Run in background
       # but the bot's internal logging handles the main log file.
       # We use nohup to ensure it persists after script exit if needed.
       nohup bash -c "$BOT_CMD" > "$(dirname "$LOG_FILE")/bot_stdout.log" 2>&1 &
@@ -582,7 +616,7 @@ fi
 if [[ "$SETTINGS" == "true" ]]; then
   # Launch only the settings dialog for debugging.
   if command -v poetry >/dev/null 2>&1; then
-    exec env PYTHONPATH=src poetry run python scripts/tradebot_gui.py --settings
+    exec env PYTHONPATH=src $PYTHON_EXE scripts/tradebot_gui.py --settings
   fi
   echo "ERROR: poetry not found; cannot launch settings dialog." >&2
   echo "Install deps with: poetry install --with gui" >&2

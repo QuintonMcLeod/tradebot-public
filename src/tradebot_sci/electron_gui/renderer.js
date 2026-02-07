@@ -15,7 +15,87 @@ let currentPosition = null; // { symbol, side, entry, sl, tp, size }
 let lastHoldings = null; // Cache last holdings data for redrawing on symbol switch
 let statusDot;
 let statusLatency;
-let pnlTimeframe = '24h';
+let currentRealizedPnL = 0;
+let currentUnrealizedPnL = 0;
+// [ANTIGRAVITY] pnlTimeframe is now the single source of truth for display mode too.
+// Possible values: 'holdings', '24h', 'week', 'month', 'year', 'all'
+// Authoritative source for PnL timeframe, synced with sidebar and settings
+let pnlTimeframe = localStorage.getItem('pnlTimeframe') || '24h';
+window.pnlTimeframe = pnlTimeframe;
+const pnlModes = ['1h', '4h', '24h', '7d', 'all'];
+
+function refreshMainPnlDisplay() {
+    const equityEl = document.getElementById('account-equity');
+    const pnlLabel = document.getElementById('pnl-mode-label'); // Renamed from labelEl for clarity
+    if (!equityEl) return;
+
+    let displayVal = 0;
+    let labelText = "Profits & Losses";
+
+    if (pnlTimeframe === 'holdings') {
+        displayVal = Number(currentUnrealizedPnL) || 0;
+        labelText = "Profits & Losses (Active)";
+    } else {
+        // Total (Realized for timeframe + Current Unrealized)
+        displayVal = (Number(currentRealizedPnL) || 0) + (Number(currentUnrealizedPnL) || 0);
+        labelText = `Profits & Losses (${pnlTimeframe.toUpperCase()})`;
+    }
+
+    if (pnlLabel) pnlLabel.textContent = labelText + ":";
+    equityEl.textContent = displayVal.toFixed(2);
+
+    // [ANTIGRAVITY FIX] Sync with settings dropdown if it exists and is loaded
+    // Matches the structure in settings_integrated.js
+    const timeframeDropdown = document.querySelector('.control-card[data-key="GUI_PNL_TIMEFRAME"] select');
+    if (timeframeDropdown) {
+        timeframeDropdown.value = pnlTimeframe;
+    }
+
+    if (displayVal >= 0) {
+        equityEl.classList.remove('text-red-400', 'text-rose-500');
+        equityEl.classList.add('text-emerald-400');
+    } else {
+        equityEl.classList.remove('text-emerald-400', 'text-green-400');
+        equityEl.classList.add('text-red-400');
+    }
+}
+
+function handlePnlToggle() {
+    const modes = ['holdings', '24h', 'week', 'month', 'year', 'all'];
+    let idx = modes.indexOf(pnlTimeframe);
+    if (idx === -1) idx = 1; // Default to 24h if invalid
+
+    pnlTimeframe = modes[(idx + 1) % modes.length];
+    window.pnlTimeframe = pnlTimeframe;
+    localStorage.setItem('pnlTimeframe', pnlTimeframe);
+
+    // [ANTIGRAVITY FIX] Sync with settings panel if loaded
+    if (typeof window.updateValue === 'function') {
+        window.updateValue('GUI_PNL_TIMEFRAME', pnlTimeframe);
+    }
+
+    // Trigger data refresh if not holdings (since we need realized stats from backend)
+    if (pnlTimeframe !== 'holdings') {
+        updateRealizedPnL();
+    } else {
+        refreshMainPnLDisplay();
+    }
+
+    console.log(`[PNL-UI] Mode switched to: ${pnlTimeframe}`);
+    refreshMainPnLDisplay();
+}
+
+// [ANTIGRAVITY FIX] Bridge for settings panel to update sidebar
+// [ANTIGRAVITY FIX] Sync from settings panel
+window.syncPnLTimeframe = function (newTimeframe) {
+    if (pnlTimeframe === newTimeframe) return;
+    pnlTimeframe = newTimeframe;
+    window.pnlTimeframe = newTimeframe;
+    localStorage.setItem('pnlTimeframe', pnlTimeframe);
+    updateRealizedPnL();
+    refreshMainPnLDisplay();
+    console.log(`[PNL-SYNC] Timeframe synchronized from settings: ${pnlTimeframe}`);
+};
 
 function tfToSeconds(tf) {
     if (!tf) return 900;
@@ -194,52 +274,46 @@ async function connectWebSocket() {
                     if (statusLatency) statusLatency.textContent = `${latency}ms`;
                 }
             } else if (msg.type === 'history') {
-                // Initialize Chart with real historical data
                 const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
                 const currentTfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
-
                 const normalizeTf = (t) => t.toLowerCase().trim();
 
                 if (msg.symbol === currentSym && normalizeTf(msg.tf) === normalizeTf(currentTfRaw)) {
-                    console.log(`[CHART] Received history for ${msg.symbol} ${msg.tf} (${msg.data.length} candles). Rendering...`);
+                    console.log(`[CHART] Received history for ${msg.symbol} ${msg.tf} (${msg.data.length} candles).`);
 
-                    // [ANTIGRAVITY FIX] Timezone consistency
-                    // Lightweight Charts expects seconds (Unix Timestamp). 
-                    // If backend sends UTC timestamp, we adjust for local viewing if needed, 
-                    // BUT Lightweight charts handles timeScale relatively.
-                    // Let's ensure we just pass the timestamp from backend directly if it's already correct.
-                    // The previous code subtracted timezone offset, which shifts UTC to "Local Time" value but in UTC variable.
-                    // Let's stick to the convention: Backend sends UTC Unix Seconds. Browser renders it.
-                    // If chart is frozen, it's often because time is 5 hours off.
-
-                    // const tzOffsetSeconds = new Date().getTimezoneOffset() * 60; 
-                    // REMOVED OFFSET: Let's try raw UTC first. 
-                    // If the backend sends 12:00 UTC, and we subtract 5h, we get 07:00. 
-                    // If the user wants to see their local time on the axis, Lightweight charts has 'timeVisible: true'.
-
-                    // New Approach: Pass raw time.
                     const fixedData = msg.data.map(c => ({
                         time: c.time,
                         open: c.open, high: c.high, low: c.low, close: c.close
                     }));
                     candleSeries.setData(fixedData);
-                    candleData = fixedData; // Store for indicator calculations
+                    candleData = fixedData;
+
+                    if (indicatorSeries) {
+                        const volumeData = msg.data.map(c => {
+                            const isUp = c.close >= c.open;
+                            return {
+                                time: c.time,
+                                value: c.volume || 0,
+                                color: isUp ? '#2dd4bf' : '#f43f5e'
+                            };
+                        });
+                        console.log(`[CHART-VOLUME] Setting ${volumeData.length} volume bars. Sample:`, volumeData[volumeData.length - 1]);
+                        indicatorSeries.setData(volumeData);
+                    }
+
                     updateIndicators();
 
                     const msgSym = msg.symbol.toUpperCase();
-                    // [ANTIGRAVITY FIX] Persistent state handling
                     if (previousSymbol !== msgSym) {
                         clearTradeMarkers();
                         previousSymbol = msgSym;
                     }
 
-                    // Re-apply cached markers for this symbol
                     tradeMarkers = markerCache[msgSym] || [];
                     if (candleSeries) {
                         candleSeries.setMarkers(tradeMarkers);
                     }
 
-                    // Draw position lines for this symbol if we have cached holdings
                     if (lastHoldings && lastHoldings.positions) {
                         const pos = parsePositionFromHoldings(lastHoldings.positions, msg.symbol);
                         if (pos) {
@@ -247,47 +321,47 @@ async function connectWebSocket() {
                         }
                     }
 
-                    chart.timeScale().fitContent(); // Ensure data is visible!
-                } else {
-                    console.warn(`[CHART] Ignored history for ${msg.symbol} ${msg.tf} (UI wants: ${currentSym} ${currentTfRaw})`);
+                    chart.timeScale().fitContent();
                 }
             } else if (msg.type === 'candle') {
-                // Update Chart ONLY if it matches current symbol AND timeframe
                 const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
                 const currentTfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
-
                 const normalizeTf = (t) => t.toLowerCase().trim();
 
                 if (msg.symbol === currentSym && normalizeTf(msg.tf) === normalizeTf(currentTfRaw)) {
-                    // console.log(`[CHART] Update ${msg.symbol}: ${msg.data.close}`);
-                    // Use raw time same as history
                     const fixedData = {
                         time: msg.data.time,
                         open: msg.data.open, high: msg.data.high, low: msg.data.low, close: msg.data.close
                     };
                     candleSeries.update(fixedData);
+
+                    if (indicatorSeries && typeof msg.data.volume !== 'undefined') {
+                        const isUp = msg.data.close >= msg.data.open;
+                        indicatorSeries.update({
+                            time: msg.data.time,
+                            value: msg.data.volume,
+                            color: isUp ? '#2dd4bf' : '#f43f5e'
+                        });
+                    }
                 }
             } else if (msg.type === 'log') {
                 parseLogLine(msg.data);
                 appendLog(msg.level || "INFO", msg.data);
             } else if (msg.type === 'state') {
                 const data = msg.data;
-                console.log("Syncing UI state:", data);
-
-                if (data.equity !== undefined) {
-                    // [ANTIGRAVITY FIX] Only update if it looks like a PnL value, not a capital value
-                    // Capital values are typically larger (>100), PnL values are typically smaller
-                    // Skip this update - let [HOLDINGS] be the authoritative source for unrealized PnL
-                    console.log('[STATE] Skipping equity update from state sync - using [HOLDINGS] as authority');
+                if (data.pnl_stats && data.pnl_stats[pnlTimeframe] !== undefined) {
+                    currentRealizedPnL = parseFloat(data.pnl_stats[pnlTimeframe]);
+                    refreshMainPnlDisplay();
                 }
                 if (data.capital !== undefined) {
                     const capitalEl = document.getElementById('account-capital');
-                    if (capitalEl) {
-                        capitalEl.innerText = data.capital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    }
+                    if (capitalEl) capitalEl.innerText = data.capital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                }
+                if (data.cash !== undefined) {
+                    const cashEl = document.getElementById('account-cash');
+                    if (cashEl) cashEl.innerText = data.cash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 }
                 if (data.profile) {
-                    console.log("[UI-DEBUG] Parsed profile from state sync:", data.profile);
                     const profileEl = document.getElementById('status-profile');
                     if (profileEl) {
                         profileEl.innerText = data.profile.toUpperCase();
@@ -297,33 +371,22 @@ async function connectWebSocket() {
                 if (data.is_sabbath !== undefined) {
                     const sabbathEl = document.getElementById('status-sabbath');
                     if (sabbathEl) {
-                        if (data.is_sabbath) {
-                            sabbathEl.classList.remove('hidden');
-                        } else {
-                            sabbathEl.classList.add('hidden');
-                        }
+                        if (data.is_sabbath) sabbathEl.classList.remove('hidden');
+                        else sabbathEl.classList.add('hidden');
                     }
                 }
                 if (data.symbols && Array.isArray(data.symbols) && data.symbols.length > 0) {
-                    console.log("Updating WATCHED_SYMBOLS:", data.symbols);
-                    // Update the global WATCHED_SYMBOLS list
                     WATCHED_SYMBOLS.splice(0, WATCHED_SYMBOLS.length, ...data.symbols);
-
-                    // Update current index to point to current label, or reset if missing
                     const currentSym = document.getElementById('chart-symbol-label')?.innerText;
                     const newIdx = WATCHED_SYMBOLS.indexOf(currentSym);
-                    if (newIdx !== -1) {
-                        currentSymbolIndex = newIdx;
-                    } else {
-                        // Current symbol is no longer in the set, switch to first available
+                    if (newIdx !== -1) currentSymbolIndex = newIdx;
+                    else {
                         currentSymbolIndex = 0;
                         updateSymbolDisplay();
                     }
                 }
                 saveState();
             } else if (msg.type === 'ai_commentary') {
-                // [ANTIGRAVITY] AI Commentary: Update the insight panel
-                console.log("AI Commentary received:", msg.content?.substring(0, 50) + "...");
                 updateAIInsightPanel(msg.content, msg.timestamp, msg.next_update_in);
             }
         } catch (e) {
@@ -563,9 +626,9 @@ function parsePositionFromHoldings(holdings, symbol) {
         symbol: pos.symbol,
         side: pos.side || pos.direction,
         entry: pos.entry_price || pos.avg_price,
-        entryTime: pos.entry_time,  // ISO timestamp from position_hold_store
-        sl: pos.stop_loss,
-        tp: pos.take_profit,
+        entryTime: pos.opened_at || pos.entry_time,  // ISO timestamp
+        sl: pos.stop_loss || pos.sl,
+        tp: pos.take_profit || pos.tp,
         size: Math.abs(pos.size || 0),
     };
 }
@@ -610,10 +673,15 @@ function appendLog(level, rawMessage) {
         if (!logTerminal) return;
     }
     const div = document.createElement('div');
-    div.className = "log-line text-white/90 py-0.5";
-
     const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
-    div.innerHTML = `<span class="text-slate-600 font-mono">[${ts}]</span> ${formatLogMessage(rawMessage)}`;
+
+    if (level === 'GUI') {
+        div.className = "log-line py-1 px-2 my-1 rounded bg-amber-500/10 border-l-2 border-amber-500/50 text-amber-200/90 font-bold";
+        div.innerHTML = `<span class="text-amber-500/60 font-mono text-[10px] mr-2">[GUI]</span> ${rawMessage}`;
+    } else {
+        div.className = "log-line text-white/90 py-0.5";
+        div.innerHTML = `<span class="text-slate-600 font-mono">[${ts}]</span> ${formatLogMessage(rawMessage)}`;
+    }
 
     logTerminal.appendChild(div);
     if (logTerminal.children.length > 300) logTerminal.removeChild(logTerminal.firstChild);
@@ -814,9 +882,9 @@ window.api.on('env-updated', (updates) => {
 
 window.api.on('fromMain', (payload) => {
     if (payload.type === 'log-chunk') {
-        // Initial chunk (history) - Reset caches to avoid duplicates
-        markerCache = {};
-        tradeMarkers = [];
+        // [ANTIGRAVITY FIX] DO NOT WIPE CACHE. 
+        // Wiping here causes markers to vanish when the log rotates or the bot restarts,
+        // unless the log is in the current tiny 2kb buffer.
 
         const lines = payload.data.split('\n');
         lines.forEach(line => {
@@ -837,6 +905,11 @@ window.api.on('fromMain', (payload) => {
                 }
             });
         }
+    } else if (payload.type === 'gui-notice') {
+        const level = payload.color === 'red' ? 'ERROR' : (payload.color === 'teal' ? 'GUI' : 'SYSTEM');
+        let msg = payload.message;
+        if (payload.detail) msg += `: ${payload.detail}`;
+        appendLog(level, msg);
     }
 });
 
@@ -941,19 +1014,9 @@ function updateHoldingsTable(payload) {
     }
 
     // [ANTIGRAVITY FIX] Update sidebar PNL
-    const equityEl = document.getElementById('account-equity');
-    if (equityEl && payload.total_unrealized_pnl !== undefined) {
-        const totalPnl = parseFloat(payload.total_unrealized_pnl);
-        equityEl.textContent = isNaN(totalPnl) ? "0.00" : totalPnl.toFixed(2);
-
-        // Optional: color coding for sidebar
-        if (totalPnl >= 0) {
-            equityEl.classList.remove('text-red-400');
-            equityEl.classList.add('text-emerald-400');
-        } else {
-            equityEl.classList.remove('text-emerald-400');
-            equityEl.classList.add('text-red-400');
-        }
+    if (payload.total_unrealized_pnl !== undefined) {
+        currentUnrealizedPnL = parseFloat(payload.total_unrealized_pnl);
+        refreshMainPnlDisplay();
     }
 
     // [ANTIGRAVITY] Cache holdings and draw SL/TP/Entry lines for current symbol
@@ -1471,6 +1534,12 @@ function setupInteractiveElements() {
     });
 
     // Button Handlers
+    /*
+    document.getElementById('pnl-main-container')?.addEventListener('click', (e) => {
+        handlePnlToggle();
+    });
+    */
+
     document.getElementById('btn-panic')?.addEventListener('click', (e) => {
         if (!botIsRunning) {
             // "Start Bot" mode
@@ -1726,10 +1795,11 @@ function init() {
         // Request initial bot status
         window.api.send('get-bot-status');
 
-        // Initialize PnL Timeframe from env
+        // Initialize PnL Timeframe from env (overrides stale localStorage)
         window.api.invoke('read-env').then(env => {
             if (env.GUI_PNL_TIMEFRAME) {
                 pnlTimeframe = env.GUI_PNL_TIMEFRAME;
+                localStorage.setItem('pnlTimeframe', pnlTimeframe);
             }
             updateRealizedPnL();
         });
@@ -1775,22 +1845,24 @@ window.profilesModule = (function () {
             const result = await window.api.invoke('get-analytics-summary', pnlTimeframe);
             if (result && result.success) {
                 const summary = result.data;
-                const pnlEl = document.getElementById('realized-pnl-chip');
-                const tradeEl = document.getElementById('trade-count-chip');
-                const labelEl = document.getElementById('pnl-timeframe-label');
-
-                if (pnlEl) {
+                if (summary) {
                     const pnlVal = summary.totalNetWorth || summary.totalPnl || 0;
-                    pnlEl.textContent = `${pnlVal >= 0 ? '+' : ''}$${pnlVal.toFixed(2)}`;
-                    pnlEl.className = `text-[10px] font-black ${pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-500'} drop-shadow-sm`;
-                }
 
-                if (tradeEl) {
-                    tradeEl.textContent = summary.totalTrades || 0;
-                }
+                    // Update global state for sidebar sync
+                    currentRealizedPnL = pnlVal;
+                    refreshMainPnlDisplay();
 
-                if (labelEl) {
-                    labelEl.textContent = `${pnlTimeframe.toUpperCase()} VIEW`;
+                    // Update chips if they exist (backward compatibility or future proofing)
+                    const pnlEl = document.getElementById('realized-pnl-chip');
+                    const tradeEl = document.getElementById('trade-count-chip');
+                    const labelEl = document.getElementById('pnl-timeframe-label');
+
+                    if (pnlEl) {
+                        pnlEl.textContent = `${pnlVal >= 0 ? '+' : ''}$${pnlVal.toFixed(2)}`;
+                        pnlEl.className = `text-[10px] font-black ${pnlVal >= 0 ? 'text-emerald-400' : 'text-rose-500'} drop-shadow-sm`;
+                    }
+                    if (tradeEl) tradeEl.textContent = summary.totalTrades || 0;
+                    if (labelEl) labelEl.textContent = `Profits & Losses (${pnlTimeframe.toUpperCase()})`;
                 }
             }
         } catch (err) {

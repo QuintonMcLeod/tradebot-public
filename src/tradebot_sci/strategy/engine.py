@@ -130,10 +130,14 @@ class StrategyEngine:
         trend_htf = snapshot.trend_htf.direction
         trend_ltf = snapshot.trend_ltf.direction
         
-        sweep = detect_liquidity_sweep(snapshot.candles, trend_ltf)
+        # [ANTIGRAVITY] Fallback: If LTF is neutral, use HTF as the baseline direction for signals.
+        # This prevents "barriers" during local chop if the macro trend is strong.
+        signal_dir = trend_ltf if trend_ltf != "neutral" else trend_htf
+        
+        sweep = detect_liquidity_sweep(snapshot.candles, signal_dir)
         indication = detect_indication(snapshot.candles)
         correction = detect_correction(snapshot.candles, indication)
-        continuation = detect_continuation(snapshot.candles, trend_ltf, sweep, indication, correction)
+        continuation = detect_continuation(snapshot.candles, signal_dir, sweep, indication, correction)
         
         # 2. Delegate to Scorer
         # Note: session_ok is True for this real-time check
@@ -160,38 +164,22 @@ class StrategyEngine:
         The Main Entry Point.
         Ask the strategy for a decision and return it with minimal validation.
         """
-        # 0. ACCOUNT SAFETY GUARDS (Centralized)
+        # 0. WEALTH SYNC & POSITION REGISTRATION (Always Run)
         from tradebot_sci.strategy.safety_guard import SafetyGuard
+        from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
         
-        # [CONSOLIDATED] Run all pre-entry checks (Breaker, Lockout, Greed, Churn, Veto, Streak, Sentry)
         current_capital_val = current_capital if current_capital is not None else 0.0
         latest_snapshot = snapshot or self.market_provider.get_latest_snapshot(self.symbol, timeframe)
         
-        # [WEALTH SYNC] Pass latest stats to SafetyGuard
         if self.trade_results:
             stats = self.trade_results.get_stats()
-            # If we have enough trades, update win rate for Kelly
             if stats.get('total_trades', 0) >= 5:
-                 from tradebot_sci.utils.symbol_classifier import classify_symbol
                  ac = classify_symbol(self.symbol)
                  SafetyGuard.set_win_rate(stats.get('win_rate', 0.55), asset_class=ac)
 
-        safety_decision = SafetyGuard.check_entry_safety(
-            self.symbol, 
-            timeframe, 
-            current_capital_val,
-            latest_snapshot,
-            ai_client=self.ai_client,
-            settings=self.profile,
-            trade_results=self.trade_results
-        )
-
-        # [WEALTH MODE] Register current positions for House Money checks
-        # [SMART POSITIONS FIX] Use the global registry to track across Forex & Crypto
+        # Register current position status for wealth mode / financed risk logic
+        # This must happen before any decisions are made.
         SafetyGuard.update_position(self.symbol, open_position)
-        if safety_decision:
-            logger.info(f"[SAFETY] Blocked {self.symbol}: {safety_decision.notes}")
-            return safety_decision
 
         # 1. Gather Context
         snapshot = snapshot or self.market_provider.get_latest_snapshot(self.symbol, timeframe)
@@ -215,9 +203,6 @@ class StrategyEngine:
 
         # [META-SCI] Auto-Strategy handled by MetaSCIStrategy class transparently below.
         
-        # 3. Request Decisions from Strategy (Standard Path or Adopted Meta Path)
-
-
         # 3. Request Decisions from Strategy (Standard Path or Adopted Meta Path)
         # A. Check for EXIT if we have a position
         if open_position and isinstance(open_position, dict) and abs(open_position.get("size", 0.0)) > 0:
@@ -251,6 +236,27 @@ class StrategyEngine:
                  safety_exit.grade = grade
                  return safety_exit
 
+        # 4. ACCOUNT SAFETY GUARDS (Centralized Entry Veto)
+        # [CONSOLIDATED] Run all pre-entry checks (Breaker, Lockout, Greed, Churn, Veto, Streak, Sentry)
+        # We run this AFTER exit checks so that TP/SL logic (SafetyGuard.augment_exit_decision)
+        # takes priority over account-level blocks like Leverage Sentry.
+        # [ANTIGRAVITY FIX] Use Total Equity (Cash + Unrealized PnL) for Leverage calculation.
+        # Otherwise, if we are fully invested with $0 cash, leverage spikes to infinity.
+        total_equity = current_capital_val + caps.get("total_unrealized_pnl", 0.0)
+        
+        safety_decision = SafetyGuard.check_entry_safety(
+            self.symbol, 
+            timeframe, 
+            total_equity,
+            latest_snapshot,
+            ai_client=self.ai_client,
+            settings=self.profile,
+            trade_results=self.trade_results
+        )
+        if safety_decision:
+            logger.info(f"[SAFETY] Entry Blocked for {self.symbol}: {safety_decision.notes}")
+            return safety_decision
+
         # B. Check for ENTRY / SCALE_IN
         decision = self._strategy.check_entry_signal(
             snapshot, 
@@ -275,7 +281,7 @@ class StrategyEngine:
             
             # [SMART POSITIONS] Financed Risk Check
             # Only allow new entries if we have enough open profit to cover the risk.
-            if decision.action in ("enter_long", "enter_short"):
+            if decision.action in ("enter_long", "enter_short", "scale_in"):
                 # [FRIDAY FADE DAMPER] Global Forex Protection
                 from tradebot_sci.config.models import UserConfig
                 if UserConfig.FRIDAY_FADE_ENABLED:
