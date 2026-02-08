@@ -493,6 +493,17 @@ def load_settings() -> Settings:
     configure_crypto_routing(settings.market.crypto_routing)
     _enforce_profile_guardrails(settings)
 
+    # Final safety check: Ensure profiles is not empty
+    if not settings.profiles:
+        logger.warning("[CONFIG] No profiles found in config. Adding default profile.")
+        settings.profiles["default"] = TradingProfileSettings(
+            name="default",
+            symbols=["EURUSD", "BTCUSD"],
+            strategies={"forex": "meta_sci", "crypto": "meta_sci"}
+        )
+        if settings.app.profile_name not in settings.profiles:
+            settings.app.profile_name = "default"
+
     return settings
 
 
