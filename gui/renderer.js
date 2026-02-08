@@ -479,14 +479,28 @@ function handleBackendMessage(msg) {
                         value: msg.data.volume || msg.data.value || 0,
                         color: msg.data.close >= msg.data.open ? '#22c55e' : '#ef4444'
                     });
+                    if (emaSeries && msg.data.ema) {
+                        emaSeries.update({ time: fixedData.time, value: msg.data.ema });
+                    }
+                    if (smaSeries && msg.data.sma) {
+                        smaSeries.update({ time: fixedData.time, value: msg.data.sma });
+                    }
                 }
-            }
-            break;
+                break;
         case 'history':
             if (candleSeries) {
                 const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
                 const fixedData = msg.data.map(c => ({ ...c, time: c.time - tzOffsetSeconds }));
                 candleSeries.setData(fixedData);
+
+                if (emaSeries) {
+                    const emaData = fixedData.filter(c => c.ema !== undefined).map(c => ({ time: c.time, value: c.ema }));
+                    emaSeries.setData(emaData);
+                }
+                if (smaSeries) {
+                    const smaData = fixedData.filter(c => c.sma !== undefined).map(c => ({ time: c.time, value: c.sma }));
+                    smaSeries.setData(smaData);
+                }
             }
             break;
         case 'pong':
@@ -646,10 +660,11 @@ function parseDecisionFromLog(line) {
         if (symbolMatch) {
             symbol = symbolMatch[1].toUpperCase();
         } else {
-            // Fallback: Find FIRST uppercase string (3-7 chars), ignore ENTRY, EXIT, PHASE
+            // Bug 3: Hardened Symbol Detection (Extended Ignore List)
             const regex = /\b[A-Z]{3,7}\b/g;
             const matches = content.match(regex) || [];
-            symbol = matches.find(m => !['ENTRY', 'EXIT', 'PHASE', 'TRUE', 'FALSE'].includes(m.toUpperCase()));
+            const ignoreList = ['ENTRY', 'EXIT', 'PHASE', 'TRUE', 'FALSE', 'VETO', 'SAFETY', 'INFO', 'WARN', 'ERROR', 'STATUS'];
+            symbol = matches.find(m => !ignoreList.includes(m.toUpperCase()));
         }
 
         if (!symbol || symbol.length < 3) return null;
@@ -784,10 +799,10 @@ function init() {
 }
 
 function setupInteractive() {
-    // Window Controls (IDs Fixed)
-    document.getElementById('btn-minimize')?.addEventListener('click', () => window.api.invoke('minimize-window'));
-    document.getElementById('btn-maximize')?.addEventListener('click', () => window.api.invoke('maximize-window'));
-    document.getElementById('btn-close')?.addEventListener('click', () => window.api.invoke('close-window'));
+    // Window Controls (IDs Fixed - Bug 2: Switch to window.api.send)
+    document.getElementById('btn-minimize')?.addEventListener('click', () => window.api.send('minimize-window'));
+    document.getElementById('btn-maximize')?.addEventListener('click', () => window.api.send('maximize-window'));
+    document.getElementById('btn-close')?.addEventListener('click', () => window.api.send('close-window'));
 
     // Bug 4 & 5: Chart Helpers
     document.getElementById('btn-calendar')?.addEventListener('click', () => {
@@ -795,6 +810,14 @@ function setupInteractive() {
     });
     document.getElementById('btn-indicators')?.addEventListener('click', () => {
         document.getElementById('indicator-dropdown')?.classList.toggle('hidden');
+    });
+
+    // Indicator Toggles (Bug 4)
+    document.getElementById('toggle-ema')?.addEventListener('change', (e) => {
+        if (emaSeries) emaSeries.applyOptions({ visible: e.target.checked });
+    });
+    document.getElementById('toggle-sma')?.addEventListener('change', (e) => {
+        if (smaSeries) smaSeries.applyOptions({ visible: e.target.checked });
     });
 
     // Symbol Switcher
