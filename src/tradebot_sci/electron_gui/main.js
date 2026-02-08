@@ -371,7 +371,15 @@ function createWindow() {
         console.log('[MAIN] Start signal received.');
         const debugLogPath = path.join(__dirname, '../../../logs/gui_start_debug.log');
         const timestamp = new Date().toISOString();
-        fs.appendFileSync(debugLogPath, `[${timestamp}] START SIGNAL RECEIVED\n`);
+
+        // Ensure logs directory exists
+        try {
+            const logDir = path.dirname(debugLogPath);
+            if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+            fs.appendFileSync(debugLogPath, `[${timestamp}] START SIGNAL RECEIVED\n`);
+        } catch (e) {
+            console.error("[MAIN] Failed to write to debug log:", e);
+        }
 
         let isRunning = await isProcessRunning();
         if (isRunning) {
@@ -482,6 +490,8 @@ function createWindow() {
         const logMsg = `[GUI-NOTICE] [${timestamp}] ${message} (${color})\n`;
         const debugLogPath = path.join(__dirname, '../../../logs/gui_notices.log');
         try {
+            const logDir = path.dirname(debugLogPath);
+            if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
             fs.appendFileSync(debugLogPath, logMsg);
         } catch (e) {
             console.error("Failed to write gui notice:", e);
