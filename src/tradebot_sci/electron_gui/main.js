@@ -8,8 +8,35 @@ let mainWindow;
 let settingsWindow;
 let botRunning = false;
 
-// Helper to determine OS
-const isWindows = () => process.platform === 'win32';
+/**
+ * Cross-platform helper to check if the trading bot is running.
+ */
+function isProcessRunning(pattern = "run_dev_bot[.]py") {
+    return new Promise((resolve) => {
+        const isWindows = process.platform === 'win32';
+        // On Windows, use tasklist; on Linux, use pgrep
+        const cmd = isWindows
+            ? 'tasklist /NH /FI "IMAGENAME eq python.exe"'
+            : `pgrep -f "${pattern}"`;
+
+        exec(cmd, (err, stdout) => {
+            if (isWindows) {
+                // If output contains python.exe, we assume it's running. 
+                // A more precise check would involve command line inspection.
+                resolve(!!(stdout && stdout.toLowerCase().includes('python.exe')));
+            } else {
+                resolve(!!(stdout && stdout.trim()));
+            }
+        });
+    });
+}
+
+/**
+ * Helper to determine if we are on Windows.
+ */
+function isWindows() {
+    return process.platform === 'win32';
+}
 
 // Helper to find repo root reliably
 const DOTENV_PATH = path.join(__dirname, '../../../.env');
@@ -92,9 +119,6 @@ function setupIpcHandlers() {
         }
     });
 
-    // =============================================
-    // NEW: Unified config.json handlers
-    // =============================================
     ipcMain.handle('read-config', async () => {
         if (!fs.existsSync(CONFIG_JSON_PATH)) {
             console.warn("[MAIN] config.json not found, returning empty object");
@@ -153,7 +177,7 @@ function setupIpcHandlers() {
         }
     });
 
-    // City / Location Resolver (Ported Logic)
+    // City / Location Resolver
     ipcMain.handle('resolve-city', async (event, cityName) => {
         const cities = {
             "New York": { lat: 40.7128, lon: -74.0060, tz: "America/New_York" },
@@ -191,10 +215,8 @@ function setupIpcHandlers() {
 
     // Analytics IPC Handlers
     ipcMain.handle('get-trade-history', async (event, filter = '24h') => {
-        console.log('[ANALYTICS-IPC] get-trade-history called with filter:', filter);
         try {
             const data = await logParser.getTradeHistory(filter);
-            console.log('[ANALYTICS-IPC] Trade history result - trades:', data.trades?.length, 'capital:', data.capital?.length);
             return { success: true, data };
         } catch (error) {
             console.error('[ANALYTICS-IPC] Error getting trade history:', error);
@@ -203,12 +225,9 @@ function setupIpcHandlers() {
     });
 
     ipcMain.handle('get-analytics-summary', async (event, filter = '24h') => {
-        console.log('[ANALYTICS-IPC] get-analytics-summary called with filter:', filter);
         try {
             const data = await logParser.getTradeHistory(filter);
-            console.log('[ANALYTICS-IPC] Raw data - trades:', data.trades?.length, 'capital:', data.capital?.length);
             const summary = logParser.calculateAnalyticsSummary(data);
-            console.log('[ANALYTICS-IPC] Summary calculated - totalTrades:', summary.totalTrades);
             return { success: true, data: summary };
         } catch (error) {
             console.error('[ANALYTICS-IPC] Error calculating summary:', error);
@@ -233,7 +252,6 @@ function startProfilesWatcher(win) {
     let watchTimeout;
     fs.watch(PROFILES_PATH, (event) => {
         if (event === 'change') {
-            // Debounce to avoid multiple triggers during one write
             clearTimeout(watchTimeout);
             watchTimeout = setTimeout(async () => {
                 const yaml = require('js-yaml');
@@ -242,7 +260,6 @@ function startProfilesWatcher(win) {
                     const json = yaml.load(content);
                     console.log("[MAIN] Profiles YAML changed externally, notifying UI...");
                     if (win) win.webContents.send('profiles-updated', json);
-                    // Also notify settings window if open
                     if (settingsWindow) settingsWindow.webContents.send('profiles-updated', json);
                 } catch (e) {
                     console.error("[MAIN] Error reading profiles on change:", e);
@@ -281,16 +298,13 @@ function startLogWatcher(win) {
     });
 }
 
-function checkBotStatus(win, force = false) {
-    exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
-        // [ANTIGRAVITY FIX] More robust status check
-        const isRunning = !!(stdout && stdout.trim());
-        if (force || isRunning !== botRunning) {
-            botRunning = isRunning;
-            console.log(`[MAIN] Bot Status changed: ${botRunning ? 'RUNNING' : 'STOPPED'}`);
-            if (win) win.webContents.send('bot-status', { running: botRunning });
-        }
-    });
+async function checkBotStatus(win, force = false) {
+    const isRunning = await isProcessRunning();
+    if (force || isRunning !== botRunning) {
+        botRunning = isRunning;
+        console.log(`[MAIN] Bot Status changed: ${botRunning ? 'RUNNING' : 'STOPPED'}`);
+        if (win) win.webContents.send('bot-status', { running: botRunning });
+    }
 }
 
 function createSettingsWindow() {
@@ -359,74 +373,62 @@ function createWindow() {
         const timestamp = new Date().toISOString();
         fs.appendFileSync(debugLogPath, `[${timestamp}] START SIGNAL RECEIVED\n`);
 
-        // 1. Check if already running
-        let isStarted = await new Promise(resolve => {
-            exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
-                resolve(!!(stdout && stdout.trim()));
-            });
-        });
-
-        if (isStarted) {
+        let isRunning = await isProcessRunning();
+        if (isRunning) {
             console.log('[MAIN] Bot already running.');
             mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Bot already running", color: 'teal' });
             return;
         }
 
-        // 2. Clear old stdout log to get fresh errors
         const stdoutPath = path.join(__dirname, '../../../logs/bot_stdout.log');
         try { if (fs.existsSync(stdoutPath)) fs.truncateSync(stdoutPath); } catch (e) { }
 
-        // 3. Command construction
-        let spawnCmd = isWindows()
+        const winFlag = isWindows();
+        const spawnCmd = winFlag
             ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" -m tradebot_sci.runtime.controller --daemon`
             : `bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);
         fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
 
-        exec(spawnCmd, (error, stdout, stderr) => {
+        exec(spawnCmd, (error) => {
             if (error) {
                 console.error(`[MAIN] Exec Error: ${error}`);
                 mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Start Command Failed", color: 'red' });
                 return;
             }
 
-            // 4. VERIFICATION LOOP
-            // We wait and check 3 times over 6 seconds to ensure it STICKS
             let checks = 0;
-            const checkInterval = setInterval(() => {
-                exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
-                    const running = !!(stdout && stdout.trim());
-                    if (running) {
-                        console.log('[MAIN] Verification: Bot is running.');
-                        if (checks >= 2) {
-                            clearInterval(checkInterval);
-                            mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Bot Started Successfully", color: 'teal' });
-                            checkBotStatus(mainWindow, true);
-                        }
-                    } else {
-                        console.error('[MAIN] Verification: Bot FAILED to stay alive.');
+            const checkInterval = setInterval(async () => {
+                const stillRunning = await isProcessRunning();
+                if (stillRunning) {
+                    console.log('[MAIN] Verification: Bot is running.');
+                    if (checks >= 2) {
                         clearInterval(checkInterval);
-
-                        // Read stdout for capture
-                        let errorDetail = "Process died unexpectedly.";
-                        try {
-                            if (fs.existsSync(stdoutPath)) {
-                                const logs = fs.readFileSync(stdoutPath, 'utf8');
-                                errorDetail = logs.split('\n').filter(l => l.trim()).slice(-3).join('\n') || errorDetail;
-                            }
-                        } catch (e) { }
-
-                        mainWindow.webContents.send('fromMain', {
-                            type: 'gui-notice',
-                            message: "Bot Startup Failed",
-                            detail: errorDetail,
-                            color: 'red'
-                        });
+                        mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Bot Started Successfully", color: 'teal' });
                         checkBotStatus(mainWindow, true);
                     }
-                    checks++;
-                });
+                } else {
+                    console.error('[MAIN] Verification: Bot FAILED to stay alive.');
+                    clearInterval(checkInterval);
+
+                    let errorDetail = "Process died unexpectedly.";
+                    try {
+                        if (fs.existsSync(stdoutPath)) {
+                            const logs = fs.readFileSync(stdoutPath, 'utf8');
+                            errorDetail = logs.split('\n').filter(l => l.trim()).slice(-3).join('\n') || errorDetail;
+                        }
+                    } catch (e) { }
+
+                    mainWindow.webContents.send('fromMain', {
+                        type: 'gui-notice',
+                        message: "Bot Startup Failed",
+                        detail: errorDetail,
+                        color: 'red'
+                    });
+                    checkBotStatus(mainWindow, true);
+                }
+                checks++;
             }, 2000);
         });
     });
@@ -447,23 +449,12 @@ function createWindow() {
 
         exec(killCmd, () => {
             setTimeout(() => {
-                // Re-trigger start logic
                 ipcMain.emit('start-bot');
             }, 2000);
         });
     });
 
     ipcMain.on('get-bot-status', () => { checkBotStatus(mainWindow, true); });
-
-    ipcMain.on('restart-bot', () => {
-        console.log('[MAIN] Restarting bot due to settings change...');
-        exec('pkill -f run_dev_bot.py', () => {
-            // Wait a moment for process to die
-            setTimeout(() => {
-                exec('bash scripts/tradebot.sh --gui --daemon');
-            }, 1000);
-        });
-    });
 
     ipcMain.on('minimize-window', (e) => {
         const win = BrowserWindow.fromWebContents(e.sender);
@@ -495,7 +486,6 @@ function createWindow() {
         } catch (e) {
             console.error("Failed to write gui notice:", e);
         }
-        // Echo to all windows
         BrowserWindow.getAllWindows().forEach(win => {
             win.webContents.send('fromMain', { type: 'gui-notice', message, color, timestamp });
         });
@@ -505,9 +495,9 @@ function createWindow() {
 app.whenReady().then(() => {
     setupIpcHandlers();
     createWindow();
-    startProfilesWatcher(null); // Will be attached in createWindow
 });
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
 });
+
