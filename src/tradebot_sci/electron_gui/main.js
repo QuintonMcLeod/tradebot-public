@@ -391,10 +391,10 @@ function createWindow() {
         const stdoutPath = path.join(__dirname, '../../../logs/bot_stdout.log');
         try { if (fs.existsSync(stdoutPath)) fs.truncateSync(stdoutPath); } catch (e) { }
 
-        const repoRoot = path.join(__dirname, '../../../');
+        const repoRoot = path.resolve(path.join(__dirname, '../../../'));
         const venvPath = isWindows()
-            ? path.join(repoRoot, '.venv/Scripts/python.exe')
-            : path.join(repoRoot, '.venv/bin/python');
+            ? path.join(repoRoot, '.venv', 'Scripts', 'python.exe')
+            : path.join(repoRoot, '.venv', 'bin', 'python');
 
         if (!fs.existsSync(venvPath)) {
             const msg = `Python environment not found at: ${venvPath}`;
@@ -409,10 +409,11 @@ function createWindow() {
         }
 
         const winFlag = isWindows();
-        // [ANTIGRAVITY FIX] Redirect both stdout and stderr to a file on Windows to capture crashes
+        // [ANTIGRAVITY FIX] Use the correct CLI entry point (scripts/run_dev_bot.py)
+        // Also ensure no trailing slashes in repoRoot and use backslashes for python-path
         const spawnCmd = winFlag
-            ? `cd /d "${repoRoot}" && ".venv/Scripts/python.exe" -m tradebot_sci.runtime.controller --daemon > "logs/bot_stdout.log" 2>&1`
-            : `bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon`;
+            ? `cd /d "${repoRoot}" && ".venv\\Scripts\\python.exe" scripts/run_dev_bot.py --continuous > "logs/bot_stdout.log" 2>&1`
+            : `bash "${path.join(repoRoot, 'scripts/tradebot.sh')}" --daemon`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);
         try {
