@@ -1,17 +1,10 @@
 // ═══════════════════════════════════════════════════════════
-// TRADEBOT ELECTRON GUI - CORE RENDERER
+// TRADEBOT ELECTRON GUI - CORE RENDERER (DEFINITIVE)
 // ═══════════════════════════════════════════════════════════
-// Senior Frontend Architect Stabilization & Security Hardening
+// - Architectural Refactor: State-Driven (SSOT)
+// - Security hardening: 100% textContent / createElement
+// - Idempotent Charting & Unified Time
 // ═══════════════════════════════════════════════════════════
-
-/**
- * ARCHITECTURE OVERVIEW:
- * 1. UNIFIED STATE: All UI data resides in 'dashboardState'.
- * 2. REACTIVE SYNC: 'syncUI()' is the sole writer to the DOM.
- * 3. SECURITY: Zero .innerHTML for dynamic data. textContent/createElement only.
- * 4. IDEMPOTENT CHART: initChart() reuses existing instance.
- * 5. GLOBAL TIME: formatTime() handles 12h/24h toggle across UI.
- */
 
 // --- Global Chart & Series References ---
 let chart;
@@ -22,9 +15,7 @@ let smaSeries;
 let stopLossLine;
 let takeProfitLine;
 let entryPriceLine;
-let tradeMarkers = [];
 let markerCache = {};
-let candleData = [];
 let chartResizeObserver = null;
 
 // =======================================================================
@@ -41,14 +32,13 @@ const dashboardState = {
     timeFormat: localStorage.getItem('timeFormat') || '24h',
     isSabbath: false,
     isHalted: false,
-    activeSymbol: localStorage.getItem('activeSymbol') || 'BTCUSD',
-    activeTimeframe: localStorage.getItem('activeTimeframe') || '15m',
+    activeSymbol: localStorage.getItem('tradebot_active_sym') || 'BTCUSD',
+    activeTimeframe: localStorage.getItem('tradebot_active_tf') || '15m',
     symbols: ['BTCUSD', 'ETHUSD', 'SOLUSD'],
     status: { text: 'disconnected', latency: '--' },
     positions: [],       // Array of { symbol, side, size, unrealized_pnl }
     decisions: [],       // Array of { time, symbol, action, grade, reason, actionClass, scoreClass }
     aiInsight: null,     // { content, timestamp, nextUpdateIn }
-    capitalCache: {},    // Internal cache for broker specific math
 };
 
 // Expose state for console debugging
@@ -60,6 +50,7 @@ window.dashboardState = dashboardState;
 
 /**
  * Global time formatter that honors the user's 12h/24h setting.
+ * @param {Date|number|string} input - Date object, timestamp, or ISO string
  */
 function formatTime(input) {
     const date = input instanceof Date ? input : (input ? new Date(input) : new Date());
@@ -80,20 +71,13 @@ function formatTime(input) {
     }
 }
 
-/**
- * XSS-safe text escaping
- */
-function escapeHtml(str) {
-    if (typeof str !== 'string') return String(str ?? '');
-    const d = document.createElement('div');
-    d.textContent = str;
-    return d.innerHTML;
-}
-
 // =======================================================================
 // 3. REACTIVE SYNC ENGINE (Exclusive Path for DOM Updates)
 // =======================================================================
 
+/**
+ * Main synchronization loop. Surgical updates to the DOM based on state.
+ */
 function syncUI() {
     const prev = syncUI._prev || {};
     const s = dashboardState;
@@ -105,7 +89,7 @@ function syncUI() {
         prev[id] = val;
     };
 
-    // Header Stats
+    // Header & Stats
     setText('status-profile', s.profile);
     setText('capital-label', s.capitalLabel);
     if (s.capital !== null) {
@@ -118,22 +102,20 @@ function syncUI() {
     // PnL & Equity Display
     syncPnLDisplay(s, prev);
 
-    // Sabbath/Halt logic
+    // Status Indicators
     const sabbathEl = document.getElementById('status-sabbath');
     if (sabbathEl && prev._sabbath !== s.isSabbath) {
         sabbathEl.classList.toggle('hidden', !s.isSabbath);
         prev._sabbath = s.isSabbath;
     }
-
-    // Connection Status
     syncStatusDisplay(s.status, prev);
 
-    // Charts & Labels
+    // Chart Labels
     setText('chart-symbol-label', s.activeSymbol);
     setText('chart-tf-label', s.activeTimeframe);
 
-    // Tables & Insights
-    syncHoldingsTable(s.positions, prev);
+    // Tables & Insight
+    syncHoldingsTable(s, prev);
     syncDecisionsTable(s.decisions, prev);
     syncAIInsight(s.aiInsight, prev);
 
@@ -189,14 +171,14 @@ function syncStatusDisplay(status, prev) {
     }
 }
 
-function syncHoldingsTable(positions, prev) {
+function syncHoldingsTable(s, prev) {
     const tbody = document.getElementById('holdings-table-body');
     if (!tbody) return;
-    const stateHash = JSON.stringify(positions);
+    const stateHash = JSON.stringify(s.positions);
     if (prev._holdingsHash === stateHash) return;
 
     while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
-    if (positions.length === 0) {
+    if (s.positions.length === 0) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
         td.colSpan = 4;
@@ -205,10 +187,9 @@ function syncHoldingsTable(positions, prev) {
         tr.appendChild(td);
         tbody.appendChild(tr);
     } else {
-        positions.forEach(pos => {
+        s.positions.forEach(pos => {
             const tr = document.createElement('tr');
             tr.className = "border-b border-slate-700/30 hover:bg-slate-800/20";
-
             const pnl = parseFloat(pos.unrealized_pnl || 0);
             const side = (pos.side || 'LONG').toUpperCase();
 
@@ -225,6 +206,15 @@ function syncHoldingsTable(positions, prev) {
             tbody.appendChild(tr);
         });
     }
+
+    // Surgical Chart Line Update
+    const activePos = s.positions.find(p => p.symbol === s.activeSymbol);
+    if (prev._lastActivePos !== JSON.stringify(activePos)) {
+        if (activePos) updatePositionLines(activePos);
+        else clearPositionLines();
+        prev._lastActivePos = JSON.stringify(activePos);
+    }
+
     prev._holdingsHash = stateHash;
 }
 
@@ -285,7 +275,7 @@ function syncAIInsight(insight, prev) {
 // 4. CHART CORE (Idempotent Optimization)
 // =======================================================================
 
-function initChart(intervalSeconds = 900) {
+function initChart() {
     const container = document.getElementById('chart-area');
     if (!container) return;
 
@@ -352,7 +342,7 @@ function _chartTimeFormatter(time) {
 }
 
 // =======================================================================
-// 5. WEBSOCKET & DATA FLOW
+// 5. WEBSOCKET & DATA FLOW (State Updaters)
 // =======================================================================
 
 let ws;
@@ -385,12 +375,6 @@ function handleBackendMessage(msg) {
         case 'state':
             updateGlobalState(msg.data);
             break;
-        case 'history':
-            handleChartHistory(msg);
-            break;
-        case 'candle':
-            handleChartTick(msg);
-            break;
         case 'holdings':
             updateHoldingsState(msg.data);
             break;
@@ -401,11 +385,11 @@ function handleBackendMessage(msg) {
             dashboardState.aiInsight = { content: msg.content, timestamp: msg.timestamp, nextUpdateIn: msg.next_update_in };
             syncUI();
             break;
-        case 'pong':
-            if (ws._lastPing) {
-                dashboardState.status.latency = `${Date.now() - ws._lastPing}ms`;
-                syncUI();
-            }
+        case 'candle':
+            if (candleSeries) candleSeries.update(msg.data);
+            break;
+        case 'history':
+            if (candleSeries) candleSeries.setData(msg.data);
             break;
     }
 }
@@ -416,9 +400,10 @@ function updateGlobalState(data) {
     if (data.cash !== undefined) dashboardState.cash = data.cash;
     if (data.is_sabbath !== undefined) dashboardState.isSabbath = data.is_sabbath;
     if (data.symbols) dashboardState.symbols = data.symbols;
-    if (data.pnl_stats && data.pnl_stats[dashboardState.pnlTimeframe] !== undefined) {
-        dashboardState.realizedPnL = parseFloat(data.pnl_stats[dashboardState.pnlTimeframe]);
-    }
+
+    const pnlVal = data.pnl_stats?.[dashboardState.pnlTimeframe];
+    if (pnlVal !== undefined) dashboardState.realizedPnL = parseFloat(pnlVal);
+
     syncUI();
     saveState();
 }
@@ -428,20 +413,10 @@ function updateHoldingsState(data) {
     dashboardState.positions = data.positions || [];
     dashboardState.unrealizedPnL = parseFloat(data.total_unrealized_pnl || 0);
     syncUI();
-
-    // Clear/Update chart lines
-    if (lastHoldingsSym !== dashboardState.activeSymbol) {
-        clearPositionLines();
-        lastHoldingsSym = dashboardState.activeSymbol;
-    }
-    const pos = dashboardState.positions.find(p => p.symbol === dashboardState.activeSymbol);
-    if (pos) updatePositionLines(pos);
-    else clearPositionLines();
 }
-let lastHoldingsSym = null;
 
 // =======================================================================
-// 6. LOG PROCESSING & SECURITY HARDENING
+// 6. LOG PROCESSING & UI STREAMS
 // =======================================================================
 
 function processLogLine(line, level) {
@@ -454,7 +429,7 @@ function processLogLine(line, level) {
             syncUI();
         }
     }
-    if (line.includes('[ENTRY]') || line.includes('[FILL]') || line.includes('[EXIT]')) {
+    if (line.includes('[ENTRY]') || line.includes('[EXIT]')) {
         handleTradeEventLog(line);
     }
     appendLog(level || 'INFO', line);
@@ -465,11 +440,14 @@ function appendLog(level, rawMessage) {
     if (!term) return;
     const div = document.createElement('div');
     div.className = "log-line py-0.5 text-white/90";
+
     const ts = document.createElement('span');
     ts.className = 'text-slate-600 font-mono mr-2';
     ts.textContent = `[${formatTime()}]`;
     div.appendChild(ts);
+
     div.appendChild(formatLogMessageSafe(rawMessage));
+
     term.appendChild(div);
     if (term.children.length > 300) term.removeChild(term.firstChild);
     term.scrollTop = term.scrollHeight;
@@ -479,7 +457,14 @@ function formatLogMessageSafe(msg) {
     const frag = document.createDocumentFragment();
     const tagRegex = /\[([A-Z]+)\]/g;
     let last = 0; let m;
-    const styles = { 'INFO': 'text-blue-500 font-bold', 'SUCCESS': 'text-green-500 font-bold', 'ERROR': 'text-red-500 font-bold', 'WARNING': 'text-yellow-500 font-bold', 'DECISION': 'text-purple-500 font-bold', 'STRUCTURE': 'text-teal-500 font-bold' };
+    const styles = {
+        'INFO': 'text-blue-500 font-bold',
+        'SUCCESS': 'text-green-500 font-bold',
+        'ERROR': 'text-red-500 font-bold',
+        'WARNING': 'text-yellow-500 font-bold',
+        'DECISION': 'text-purple-500 font-bold',
+        'STRUCTURE': 'text-teal-500 font-bold'
+    };
     while ((m = tagRegex.exec(msg)) !== null) {
         if (m.index > last) frag.appendChild(document.createTextNode(msg.slice(last, m.index)));
         const tag = document.createElement('span');
@@ -500,18 +485,18 @@ function updatePositionLines(pos) {
     clearPositionLines();
     if (!candleSeries || !pos) return;
 
-    if (pos.stop_loss || pos.sl) {
-        const val = pos.stop_loss || pos.sl;
+    const sl = pos.stop_loss || pos.sl;
+    if (sl) {
         stopLossLine = candleSeries.createPriceLine({
-            price: val, color: '#ef4444', lineWidth: 2, lineStyle: 2,
-            axisLabelVisible: true, title: `SL @ ${val.toFixed(4)}`
+            price: sl, color: '#ef4444', lineWidth: 2, lineStyle: 2,
+            axisLabelVisible: true, title: `SL @ ${sl.toFixed(4)}`
         });
     }
-    if (pos.take_profit || pos.tp) {
-        const val = pos.take_profit || pos.tp;
+    const tp = pos.take_profit || pos.tp;
+    if (tp) {
         takeProfitLine = candleSeries.createPriceLine({
-            price: val, color: '#22c55e', lineWidth: 2, lineStyle: 2,
-            axisLabelVisible: true, title: `TP @ ${val.toFixed(4)}`
+            price: tp, color: '#22c55e', lineWidth: 2, lineStyle: 2,
+            axisLabelVisible: true, title: `TP @ ${tp.toFixed(4)}`
         });
     }
 }
@@ -524,120 +509,113 @@ function clearPositionLines() {
 }
 
 function handleTradeEventLog(line) {
-    const isEntry = line.includes('[ENTRY]') || line.includes('[FILL]');
-    const isExit = line.includes('[EXIT]');
-    const symMatch = line.match(/\[(?:ENTRY|FILL|EXIT)\]\s+([A-Z0-9]+)/i);
+    const symMatch = line.match(/\[(?:ENTRY|EXIT)\]\s+([A-Z0-9]+)/i);
     const priceMatch = line.match(/price[=:]?\s*([\d.]+)/i) || line.match(/@\s*([\d.]+)/);
+    if (!symMatch) return;
 
-    if (symMatch) {
-        const symbol = symMatch[1].toUpperCase();
-        const price = priceMatch ? parseFloat(priceMatch[1]) : null;
-        const time = Math.floor(Date.now() / 1000); // Should parse from line for accuracy
+    const symbol = symMatch[1].toUpperCase();
+    const price = priceMatch ? parseFloat(priceMatch[1]) : null;
+    const isEntry = line.includes('[ENTRY]');
 
-        if (isEntry) addTradeMarker(time, true, symbol, price);
-        else if (isExit) addTradeMarker(time, false, symbol, price, "EXIT");
-    }
-}
-
-function addTradeMarker(time, isBuy, symbol, price, text) {
     if (!markerCache[symbol]) markerCache[symbol] = [];
     markerCache[symbol].push({
-        time: time,
-        position: isBuy ? 'belowBar' : 'aboveBar',
-        color: isBuy ? '#22c55e' : '#ef4444',
-        shape: isBuy ? 'arrowUp' : 'arrowDown',
-        text: text || (isBuy ? `BUY @ ${price}` : `SELL @ ${price}`),
+        time: Math.floor(Date.now() / 1000),
+        position: isEntry ? 'belowBar' : 'aboveBar',
+        color: isEntry ? '#22c55e' : '#ef4444',
+        shape: isEntry ? 'arrowUp' : 'arrowDown',
+        text: isEntry ? `BUY @ ${price}` : `SELL @ ${price}`,
     });
     if (symbol === dashboardState.activeSymbol) candleSeries.setMarkers(markerCache[symbol]);
 }
 
 // =======================================================================
-// 8. PROFILES MODULE (Security Hardened)
+// 8. HELPER MODULES
 // =======================================================================
 
-window.profilesModule = (function () {
-    let allProfiles = {};
-    let initialized = false;
+function parseDecisionFromLog(line) {
+    try {
+        const content = line.split(']').slice(1).join(']').trim();
+        const symbolMatch = content.match(/symbol=([A-Z0-9]+)/i) || content.match(/^([A-Z0-9]+)/);
+        const actionMatch = content.match(/action=([^\s|]+)/i) || content.match(/gate=([^\s|]+)/i);
+        const scoreMatch = content.match(/score=([\d.]+)/i);
+        const reasonMatch = content.match(/reason=([^|]+)/i) || content.match(/\(([^)]+)\)$/);
 
-    async function init() {
-        if (initialized) return;
-        const res = await window.api.invoke('read-profiles');
-        if (res) allProfiles = parseYaml(res);
-        renderProfileSidebar();
-        setupEvents();
-        initialized = true;
-    }
+        const action = (actionMatch ? actionMatch[1] : 'HOLD').toUpperCase();
+        let grade = 'N/A';
+        let scoreClass = 'text-slate-600';
+        if (scoreMatch) {
+            const s = parseFloat(scoreMatch[1]);
+            if (s >= 90) { grade = 'A'; scoreClass = 'text-green-400 text-glow'; }
+            else if (s >= 80) { grade = 'B'; scoreClass = 'text-cyan-400'; }
+            else if (s >= 70) { grade = 'C'; scoreClass = 'text-yellow-400'; }
+            else { grade = s >= 60 ? 'D' : 'F'; scoreClass = 'text-red-500'; }
+        }
 
-    function renderProfileSidebar() {
-        const list = document.getElementById('profile-list');
-        if (!list) return;
-        while (list.firstChild) list.removeChild(list.firstChild);
+        let actionClass = 'text-slate-400';
+        if (['BUY', 'LONG', 'ENTRY'].some(k => action.includes(k))) actionClass = 'text-green-400';
+        if (['SELL', 'SHORT', 'EXIT'].some(k => action.includes(k))) actionClass = 'text-red-500';
 
-        Object.keys(allProfiles).forEach(name => {
-            const item = document.createElement('div');
-            item.className = "p-3 rounded-lg hover:bg-white/5 cursor-pointer text-slate-400";
-            item.textContent = name.toUpperCase();
-            item.onclick = () => selectProfile(name);
-            list.appendChild(item);
-        });
-    }
+        return {
+            time: new Date(), symbol: symbolMatch[1].toUpperCase(),
+            action, grade, reason: reasonMatch ? reasonMatch[1].trim() : 'System Check',
+            actionClass, scoreClass
+        };
+    } catch (e) { return null; }
+}
 
-    function selectProfile(name) {
-        document.getElementById('profile-name-display').textContent = name.toUpperCase();
-        renderTab('general', allProfiles[name]);
-    }
+function parseAIContent(content) {
+    const lines = content.split('\n');
+    const sections = [];
+    let current = { title: 'Market Insight', content: [], icon: 'insights', color: 'teal' };
+    lines.forEach(line => {
+        const t = line.trim();
+        if (!t) return;
+        if (t.includes('📊')) {
+            if (current.content.length) sections.push(Object.assign({}, current));
+            current = { title: "What's Happening", content: [], icon: 'trending_up', color: 'teal' };
+        } else if (t.includes('🎯')) {
+            if (current.content.length) sections.push(Object.assign({}, current));
+            current = { title: "Strategic Watch", content: [], icon: 'visibility', color: 'purple' };
+        } else {
+            current.content.push(t.replace(/^\s*[-•]\s*/, '• '));
+        }
+    });
+    if (current.content.length) sections.push(current);
+    return sections;
+}
 
-    function renderTab(type, data) {
-        const container = document.getElementById('profile-tab-content');
-        if (!container) return;
-        while (container.firstChild) container.removeChild(container.firstChild);
+function createBubbleNode(title, text, icon, color) {
+    const bubble = document.createElement('div');
+    bubble.className = `insight-bubble bg-black/40 border border-${color}-500/30 rounded-xl p-4 backdrop-blur-sm mb-4`;
 
-        const header = document.createElement('h3');
-        header.className = "text-teal-400 font-bold mb-4";
-        header.textContent = type.toUpperCase() + " SETTINGS";
-        container.appendChild(header);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'flex items-start gap-3';
 
-        // Security Hardened Input Generation
-        Object.keys(data).forEach(key => {
-            if (typeof data[key] === 'string' || typeof data[key] === 'number') {
-                const row = document.createElement('div');
-                row.className = "mb-3 flex justify-between items-center";
-                const label = document.createElement('span');
-                label.className = "text-xs text-slate-400";
-                label.textContent = key;
-                const input = document.createElement('input');
-                input.className = "bg-black/40 border border-white/10 p-1 text-xs text-white rounded";
-                input.value = data[key];
-                row.append(label, input);
-                container.appendChild(row);
-            }
-        });
-    }
+    const iconSpan = document.createElement('span');
+    iconSpan.className = `material-symbols-outlined text-${color}-400 text-lg mt-0.5`;
+    iconSpan.textContent = icon;
 
-    function parseYaml(str) {
-        // Simple line parser for our profile structure
-        const obj = {}; let curr;
-        str.split('\n').forEach(l => {
-            const m = l.match(/^\s+([a-z0-9_]+):$/);
-            if (m) { curr = m[1]; obj[curr] = {}; }
-            else if (curr) {
-                const kv = l.match(/^\s+([a-z0-9_]+):\s*(.*)$/);
-                if (kv) obj[curr][kv[1]] = kv[2].trim();
-            }
-        });
-        return obj;
-    }
+    const content = document.createElement('div');
+    content.className = 'flex-1';
 
-    function setupEvents() {
-        const btn = document.getElementById('btn-new-profile');
-        if (btn) btn.onclick = () => appendLog("INFO", "Create New Profile triggered");
-    }
+    const titleDiv = document.createElement('div');
+    titleDiv.className = `text-[10px] font-bold uppercase tracking-wider text-${color}-400 mb-1`;
+    titleDiv.textContent = title;
 
-    return { init };
-})();
+    const textDiv = document.createElement('div');
+    textDiv.className = 'text-xs text-slate-300 leading-relaxed';
+    textDiv.textContent = text;
+
+    content.appendChild(titleDiv);
+    content.appendChild(textDiv);
+    wrapper.appendChild(iconSpan);
+    wrapper.appendChild(content);
+    bubble.appendChild(wrapper);
+    return bubble;
+}
 
 // =======================================================================
-// 9. PERSISTENCE & INIT
+// 9. PERSISTENCE & INITIALIZATION
 // =======================================================================
 
 function saveState() {
@@ -645,26 +623,19 @@ function saveState() {
     localStorage.setItem('tradebot_active_tf', dashboardState.activeTimeframe);
 }
 
-function loadState() {
-    dashboardState.activeSymbol = localStorage.getItem('tradebot_active_sym') || 'BTCUSD';
-    dashboardState.activeTimeframe = localStorage.getItem('tradebot_active_tf') || '15m';
-}
-
 function init() {
-    loadState();
     initChart();
     connectWebSocket();
     setupInteractive();
 
-    // Bridge to analytics
-    if (window.analyticsModule) window.analyticsModule.init();
+    // Auto-scroll chart heartbeat
+    setInterval(() => { if (chart) chart.timeScale().scrollToRealTime(); }, 30000);
 
     syncUI();
-    console.log("Senior Architect Stabilization Complete.");
 }
 
 function setupInteractive() {
-    // Symbol Arrows
+    // Symbol Switcher
     document.getElementById('btn-next-symbol')?.addEventListener('click', () => {
         const idx = (dashboardState.symbols.indexOf(dashboardState.activeSymbol) + 1) % dashboardState.symbols.length;
         dashboardState.activeSymbol = dashboardState.symbols[idx];
@@ -673,7 +644,7 @@ function setupInteractive() {
         saveState();
     });
 
-    // Timeframe Click
+    // Timeframe Buttons
     document.querySelectorAll('.timeframe-btn').forEach(btn => {
         btn.onclick = (e) => {
             dashboardState.activeTimeframe = e.target.textContent;
@@ -683,12 +654,11 @@ function setupInteractive() {
         };
     });
 
-    // Nav switch
+    // Sidebar Navigation
     document.querySelectorAll('[id^="nav-"]').forEach(btn => {
         btn.onclick = (e) => {
             const view = e.currentTarget.id.replace('nav-', '');
             document.querySelectorAll('[id^="view-"]').forEach(v => v.classList.toggle('hidden', v.id !== `view-${view}`));
-            if (view === 'profile') window.profilesModule.init();
         };
     });
 }
@@ -701,6 +671,9 @@ function subscribeToAsset(symbol, tf) {
     }
 }
 
-// Start
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-else init();
+// Global Start
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
