@@ -1076,10 +1076,12 @@ class Settings(BaseModel):
         if self.profiles:
             first_profile_name = next(iter(self.profiles))
             logger.warning(
-                f"[CONFIG] Profile '{profile_name}' not found. Falling back to '{first_profile_name}'."
+                f"[CONFIG] Profile '{profile_name}' not found. Falling back to '{first_profile_name}'. "
+                f"Available profiles: {list(self.profiles.keys())}"
             )
             return self.profiles[first_profile_name]
 
+        logger.error(f"[CONFIG] Profiles dictionary is EMPTY. Settings object: {self}")
         raise KeyError(f"Profile '{profile_name}' not found and no other profiles available.")
 
 

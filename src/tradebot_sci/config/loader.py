@@ -504,6 +504,9 @@ def load_settings() -> Settings:
         if settings.app.profile_name not in settings.profiles:
             settings.app.profile_name = "default"
 
+    # [ANTIGRAVITY DEBUG]
+    logger.info(f"[CONFIG] load_settings complete. Active profile: {settings.app.profile_name}. Available profiles: {list(settings.profiles.keys())}")
+
     return settings
 
 
