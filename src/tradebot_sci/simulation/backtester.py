@@ -264,7 +264,7 @@ class HistoricalMarketDataProvider:
             logger.info(f"[BACKTEST] Loading candles for {symbol} from local file: {file_path}")
             try:
                 import json
-                with open(file_path, "r") as f:
+                with open(file_path, "r", encoding="utf-8") as f:
                     raw_data = json.load(f)
                     candles = []
                     for c in raw_data:

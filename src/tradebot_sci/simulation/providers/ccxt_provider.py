@@ -55,7 +55,7 @@ class CCXTHistoricalDataProvider:
         if file_path and os.path.exists(file_path):
             logger.info(f"[BACKTEST] Loading candles for {symbol} from local file: {file_path}")
             try:
-                with open(file_path, "r") as f:
+                with open(file_path, "r", encoding="utf-8") as f:
                     raw_data = json.load(f)
                     candles = []
                     for c in raw_data:
@@ -103,7 +103,7 @@ class CCXTHistoricalDataProvider:
             if os.path.exists(cache_file):
                 logger.info(f"[BACKTEST] Loading cached data for {symbol} ({cache_file})")
                 try:
-                    with open(cache_file, "r") as f:
+                    with open(cache_file, "r", encoding="utf-8") as f:
                         raw_data = json.load(f)
                         return [
                             Candle(
@@ -187,7 +187,7 @@ class CCXTHistoricalDataProvider:
                             "v": c.volume
                         } for c in candles
                     ]
-                    with open(cache_file, "w") as f:
+                    with open(cache_file, "w", encoding="utf-8") as f:
                         json.dump(cache_data, f)
                     logger.info(f"[BACKTEST] Cached {len(candles)} candles to {cache_file}")
                 except Exception as e:

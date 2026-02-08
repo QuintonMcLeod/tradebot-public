@@ -401,7 +401,7 @@ def _persist_trading_confirmation(expected_confirmation: str) -> None:
         # Default to logs/ relative to root; if TRADEBOT_LOG is set, use that dir.
         log_file = os.getenv("TRADEBOT_LOG", "logs/tradebot.log")
         confirm_file = os.path.join(os.path.dirname(log_file), ".trading_confirmation")
-        with open(confirm_file, "w") as f:
+        with open(confirm_file, "w", encoding="utf-8") as f:
             f.write(expected_confirmation)
     except Exception as e:
         logger.debug(f"[PRECHECK] Failed to persist confirmation to file: {e}")
@@ -498,7 +498,7 @@ def run_bot(
     print("\n" + "="*60)
     motd_path = os.path.join(os.getcwd(), "Documentation", "motd.txt")
     if os.path.exists(motd_path):
-        with open(motd_path, "r") as f:
+        with open(motd_path, "r", encoding="utf-8") as f:
             print(f.read())
     else:
         print("Welcome to Tradebot SCI! (Documentation/motd.txt not found)")
