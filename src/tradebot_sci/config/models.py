@@ -1067,10 +1067,20 @@ class Settings(BaseModel):
     kraken: Optional[KrakenSettings] = None
 
     def get_active_profile(self) -> TradingProfileSettings:
-        profile = self.profiles.get(self.app.profile_name)
+        profile_name = self.app.profile_name
+        profile = self.profiles.get(profile_name)
         if profile:
             return profile
-        raise KeyError(f"Profile '{self.app.profile_name}' not found in configuration")
+
+        # [ANTIGRAVITY] Fallback to first available profile if requested one is missing
+        if self.profiles:
+            first_profile_name = next(iter(self.profiles))
+            logger.warning(
+                f"[CONFIG] Profile '{profile_name}' not found. Falling back to '{first_profile_name}'."
+            )
+            return self.profiles[first_profile_name]
+
+        raise KeyError(f"Profile '{profile_name}' not found and no other profiles available.")
 
 
 @lru_cache

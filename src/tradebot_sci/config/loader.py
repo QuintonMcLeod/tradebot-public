@@ -122,7 +122,11 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     """Map config.json dictionary to Settings model."""
     app_cfg = config.get("global", {})
     # Map 'active_profile' from root to app.profile_name
-    app_cfg["profile_name"] = config.get("active_profile", "forex_crypto_hybrid")
+    active_profile = config.get("active_profile") or config.get("APP_PROFILE")
+    
+    # If no profile specified or requested one doesn't exist in the profiles dict, 
+    # we don't crash here, get_active_profile() will handle the fallback.
+    app_cfg["profile_name"] = active_profile or "forex_crypto_hybrid"
     
     log_cfg = config.get("logging", {})
     
@@ -298,9 +302,17 @@ def _auto_migrate_legacy_config() -> None:
     }
     
     # Build new config structure
+    # Robustly determine the initial active profile from env or YAML keys
+    default_active = env_data.get("APP_PROFILE")
+    if not default_active and profiles_data:
+        # Fallback to the first profile found in YAML if no env override
+        default_active = next(iter(profiles_data))
+    
+    default_active = default_active or "forex_crypto_hybrid"
+
     secrets = {}
     config = {
-        "active_profile": env_data.get("APP_PROFILE", "forex_crypto_hybrid"),
+        "active_profile": default_active,
         "global": {},
         "brokers": {"ibkr": {}, "oanda": {}, "gemini": {}, "ccxt": {}},
         "ai": {},
