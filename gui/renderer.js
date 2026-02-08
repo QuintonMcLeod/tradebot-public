@@ -122,9 +122,48 @@ function syncUI() {
     syncDecisionsTable(s.decisions, prev);
     syncAIInsight(s.aiInsight, prev);
 
+    // Bug 6: Timeframe Highlighting
+    syncTimeframeButtons();
+
     syncUI._prev = Object.assign({}, prev);
 }
 syncUI._prev = {};
+
+/**
+ * Bug 6: Unified Timeframe Highlight Engine
+ */
+function syncTimeframeButtons() {
+    const activeTf = dashboardState.activeTimeframe;
+    const highlightClasses = ['bg-teal-500/20', 'text-teal-300', 'border-teal-500/40', 'font-bold'];
+
+    // 1. Loop through all .timeframe-btn elements
+    document.querySelectorAll('.timeframe-btn').forEach(btn => {
+        const isMatch = btn.textContent.trim().toLowerCase() === activeTf.toLowerCase();
+
+        if (isMatch) {
+            btn.classList.add(...highlightClasses);
+            btn.classList.remove('text-slate-400', 'hover:text-white', 'cursor-pointer');
+        } else {
+            btn.classList.remove(...highlightClasses);
+            btn.classList.add('text-slate-400', 'hover:text-white', 'cursor-pointer');
+        }
+    });
+
+    // 2. Handle timeframe-select dropdown
+    const select = document.getElementById('timeframe-select');
+    if (select) {
+        const options = Array.from(select.options).map(o => o.value);
+        const isMatchedInDropdown = options.includes(activeTf);
+
+        if (isMatchedInDropdown) {
+            select.classList.add('bg-teal-500/20', 'text-teal-300', 'font-bold');
+            select.value = activeTf;
+        } else {
+            select.classList.remove('bg-teal-500/20', 'text-teal-300', 'font-bold');
+            // Do not reset value to empty if it's already selected, unless we want to "reset" it
+        }
+    }
+}
 
 function syncPnLDisplay(s, prev) {
     const equityEl = document.getElementById('account-equity');
@@ -394,8 +433,18 @@ function connectWebSocket() {
         dashboardState.status.text = 'connected';
         syncUI();
         subscribeToAsset(dashboardState.activeSymbol, dashboardState.activeTimeframe);
+
+        // Bug 2: Heartbeat Ping (Every 5 seconds)
+        if (ws._heartbeat) clearInterval(ws._heartbeat);
+        ws._heartbeat = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws._lastPing = Date.now();
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 5000);
     };
     ws.onclose = () => {
+        if (ws._heartbeat) clearInterval(ws._heartbeat);
         dashboardState.status.text = 'disconnected';
         syncUI();
         setTimeout(connectWebSocket, 5000);
@@ -463,7 +512,8 @@ function updateGlobalState(data) {
 
 function updateHoldingsState(data) {
     if (!data) return;
-    dashboardState.positions = data.positions || [];
+    // Bug 1: Support direct array or object.positions
+    dashboardState.positions = Array.isArray(data) ? data : (data.positions || []);
     dashboardState.unrealizedPnL = parseFloat(data.total_unrealized_pnl || 0);
     syncUI();
 }
@@ -589,15 +639,17 @@ function parseDecisionFromLog(line) {
     try {
         const content = line.split(']').slice(1).join(']').trim();
 
-        // Robust Symbol Detection: Fallback to scanning for common 6-letter uppercase pairs
+        // Bug 10: Hardened Symbol Detection
         let symbol = null;
-        const symbolMatch = content.match(/symbol=([A-Z0-9]+)/i) ||
-            content.match(/^([A-Z0-9]{3,7})\b/) ||
-            content.match(/\b(BTCUSD|ETHUSD|SOLUSD|EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF)\b/i);
+        const symbolMatch = content.match(/symbol=([A-Z0-9]+)/i);
 
         if (symbolMatch) {
-            symbol = symbolMatch[1] || symbolMatch[0];
-            symbol = symbol.toUpperCase();
+            symbol = symbolMatch[1].toUpperCase();
+        } else {
+            // Fallback: Find FIRST uppercase string (3-7 chars), ignore ENTRY, EXIT, PHASE
+            const regex = /\b[A-Z]{3,7}\b/g;
+            const matches = content.match(regex) || [];
+            symbol = matches.find(m => !['ENTRY', 'EXIT', 'PHASE', 'TRUE', 'FALSE'].includes(m.toUpperCase()));
         }
 
         if (!symbol || symbol.length < 3) return null;
@@ -732,10 +784,18 @@ function init() {
 }
 
 function setupInteractive() {
-    // Window Controls
-    document.getElementById('btn-min')?.addEventListener('click', () => window.api.invoke('minimize-window'));
-    document.getElementById('btn-max')?.addEventListener('click', () => window.api.invoke('maximize-window'));
+    // Window Controls (IDs Fixed)
+    document.getElementById('btn-minimize')?.addEventListener('click', () => window.api.invoke('minimize-window'));
+    document.getElementById('btn-maximize')?.addEventListener('click', () => window.api.invoke('maximize-window'));
     document.getElementById('btn-close')?.addEventListener('click', () => window.api.invoke('close-window'));
+
+    // Bug 4 & 5: Chart Helpers
+    document.getElementById('btn-calendar')?.addEventListener('click', () => {
+        document.getElementById('date-picker-input')?.showPicker();
+    });
+    document.getElementById('btn-indicators')?.addEventListener('click', () => {
+        document.getElementById('indicator-dropdown')?.classList.toggle('hidden');
+    });
 
     // Symbol Switcher
     document.getElementById('btn-next-symbol')?.addEventListener('click', () => {
@@ -749,12 +809,25 @@ function setupInteractive() {
     // Timeframe Buttons
     document.querySelectorAll('.timeframe-btn').forEach(btn => {
         btn.onclick = (e) => {
-            dashboardState.activeTimeframe = e.target.textContent;
+            dashboardState.activeTimeframe = e.target.textContent.trim();
             subscribeToAsset(dashboardState.activeSymbol, dashboardState.activeTimeframe);
             syncUI();
             saveState();
         };
     });
+
+    // Bug 7: Timeframe Dropdown Select
+    const tfSelect = document.getElementById('timeframe-select');
+    if (tfSelect) {
+        tfSelect.onchange = (e) => {
+            if (e.target.value) {
+                dashboardState.activeTimeframe = e.target.value;
+                subscribeToAsset(dashboardState.activeSymbol, dashboardState.activeTimeframe);
+                syncUI();
+                saveState();
+            }
+        };
+    }
 
     // Panic Button
     document.getElementById('btn-panic')?.addEventListener('click', () => {
