@@ -855,6 +855,11 @@ function renderTab() {
     if (TABS[currentTab]) {
         try {
             TABS[currentTab].render(container);
+
+            // Safety: Try to refresh analytics if it's the analytics tab (though typically handled by renderer.js)
+            if (currentTab === 'analytics' && window.analyticsModule) {
+                try { window.analyticsModule.refresh(); } catch (e) { console.warn("Analytics refresh failed:", e); }
+            }
         } catch (e) {
             console.error("Error rendering tab:", e);
             container.innerHTML = `<div style="color: red; padding: 20px;">Error rendering tab: ${e.message}</div>`;
@@ -1037,6 +1042,15 @@ function createWarningBox(text) {
 // ═══════════════════════════════════════════════════════════
 
 function renderSystemTab(container) {
+    if (!envData || Object.keys(envData).length === 0) {
+        container.innerHTML = `
+            <div class="flex flex-col items-center justify-center p-12 text-slate-500 italic gap-4">
+                <span class="material-symbols-outlined animate-spin text-4xl">sync</span>
+                <span>Initializing system configuration...</span>
+            </div>
+        `;
+        return;
+    }
     const section = document.createElement('div');
     section.className = 'settings-section';
 
@@ -2083,6 +2097,13 @@ function createPerformanceToggle(title, desc, modeValue, type = 'foundation', to
 function updateValue(key, value) {
     const oldValue = getValue(key);
     if (oldValue === value) return;
+
+    // Instant Settings Bridge: Trigger save immediately for real-time IPC feedback to renderer
+    if (window.api && window.api.saveEnv) {
+        window.api.saveEnv({ [key]: value }).catch(err => {
+            console.error(`[SETTINGS] Instant save failed for ${key}:`, err);
+        });
+    }
 
     // 1. Update Secrets
     if (SECRETS_MAP[key]) {

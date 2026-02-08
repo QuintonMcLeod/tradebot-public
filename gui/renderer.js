@@ -352,13 +352,25 @@ function initChart() {
 
 function _chartTickMarkFormatter(time) {
     const d = new Date(time * 1000);
-    const ft = formatTime(d).split(':');
-    return `${ft[0]}:${ft[1]}`;
+    const hours24 = dashboardState.timeFormat === '24h';
+    if (hours24) {
+        const ft = formatTime(d).split(':');
+        return `${ft[0]}:${ft[1]}`;
+    } else {
+        let h = d.getHours();
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        const m = d.getMinutes().toString().padStart(2, '0');
+        return `${h}:${m} ${ampm}`;
+    }
 }
 
 function _chartTimeFormatter(time) {
-    const ft = formatTime(new Date(time * 1000));
-    return ft.includes(' ') ? ft.split(' ')[0] + ' ' + ft.split(' ')[1].slice(0, 2) : ft;
+    const d = new Date(time * 1000);
+    const ft = formatTime(d);
+    if (dashboardState.timeFormat === '24h') return ft;
+    // For 12h, ensure it looks like "h:mm:ss AM"
+    return ft;
 }
 
 // =======================================================================
@@ -576,8 +588,21 @@ function handleTradeEventLog(line) {
 function parseDecisionFromLog(line) {
     try {
         const content = line.split(']').slice(1).join(']').trim();
-        const symbolMatch = content.match(/symbol=([A-Z0-9]+)/i) || content.match(/^([A-Z0-9]+)/);
-        const actionMatch = content.match(/action=([^\s|]+)/i) || content.match(/gate=([^\s|]+)/i);
+
+        // Robust Symbol Detection: Fallback to scanning for common 6-letter uppercase pairs
+        let symbol = null;
+        const symbolMatch = content.match(/symbol=([A-Z0-9]+)/i) ||
+            content.match(/^([A-Z0-9]{3,7})\b/) ||
+            content.match(/\b(BTCUSD|ETHUSD|SOLUSD|EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF)\b/i);
+
+        if (symbolMatch) {
+            symbol = symbolMatch[1] || symbolMatch[0];
+            symbol = symbol.toUpperCase();
+        }
+
+        if (!symbol || symbol.length < 3) return null;
+
+        const actionMatch = content.match(/action=([^\s|]+)/i) || content.match(/gate=([^\s|]+)/i) || content.match(/Decision:\s+([A-Z_]+)/i);
         const scoreMatch = content.match(/icc_score=([\d.]+)/i) || content.match(/score=([\d.]+)/i);
         const reasonMatch = content.match(/reason=([^|]+)/i) || content.match(/\(([^)]+)\)$/);
 
@@ -593,11 +618,11 @@ function parseDecisionFromLog(line) {
         }
 
         let actionClass = 'text-slate-400';
-        if (['BUY', 'LONG', 'ENTRY'].some(k => action.includes(k))) actionClass = 'text-green-400';
-        if (['SELL', 'SHORT', 'EXIT'].some(k => action.includes(k))) actionClass = 'text-red-500';
+        if (['BUY', 'LONG', 'ENTRY', 'SCALE_IN'].some(k => action.includes(k))) actionClass = 'text-green-400';
+        if (['SELL', 'SHORT', 'EXIT', 'CLOSE'].some(k => action.includes(k))) actionClass = 'text-red-500';
 
         return {
-            time: new Date(), symbol: symbolMatch[1].toUpperCase(),
+            time: new Date(), symbol,
             action, grade, reason: reasonMatch ? reasonMatch[1].trim() : 'System Check',
             actionClass, scoreClass
         };
@@ -707,6 +732,11 @@ function init() {
 }
 
 function setupInteractive() {
+    // Window Controls
+    document.getElementById('btn-min')?.addEventListener('click', () => window.api.invoke('minimize-window'));
+    document.getElementById('btn-max')?.addEventListener('click', () => window.api.invoke('maximize-window'));
+    document.getElementById('btn-close')?.addEventListener('click', () => window.api.invoke('close-window'));
+
     // Symbol Switcher
     document.getElementById('btn-next-symbol')?.addEventListener('click', () => {
         const idx = (dashboardState.symbols.indexOf(dashboardState.activeSymbol) + 1) % dashboardState.symbols.length;
@@ -736,11 +766,24 @@ function setupInteractive() {
         }
     });
 
-    // Navigation
+    // Navigation (Sidebar Fix)
     document.querySelectorAll('[id^="nav-"]').forEach(btn => {
         btn.onclick = (e) => {
             const view = e.currentTarget.id.replace('nav-', '');
-            document.querySelectorAll('[id^="view-"]').forEach(v => v.classList.toggle('hidden', v.id !== `view-${view}`));
+
+            // Fix Sidebar Highlights
+            document.querySelectorAll('[id^="nav-"]').forEach(n => n.classList.remove('active', 'bg-white/10', 'text-white'));
+            e.currentTarget.classList.add('active', 'bg-white/10', 'text-white');
+
+            // Handle Dashboard vs Other Tables
+            if (view === 'dashboard' || view === 'graph') {
+                document.getElementById('view-main')?.classList.remove('hidden');
+                document.getElementById('view-profile')?.classList.add('hidden');
+                document.getElementById('view-analytics')?.classList.remove('hidden'); // Logic for Analytics
+            } else {
+                document.querySelectorAll('[id^="view-"]').forEach(v => v.classList.toggle('hidden', v.id !== `view-${view}`));
+            }
+
             if (view === 'profile' && window.profilesModule) window.profilesModule.init();
         };
     });
@@ -753,7 +796,11 @@ function setupInteractive() {
         idx = (idx + 1) % panels.length;
         dashboardState.currentPanel = panels[idx];
 
-        panels.forEach((p, i) => document.getElementById(p)?.classList.toggle('hidden', p !== dashboardState.currentPanel));
+        panels.forEach((p, i) => {
+            const el = document.getElementById(p);
+            if (el) el.classList.toggle('hidden', p !== dashboardState.currentPanel);
+        });
+
         const titleEl = document.getElementById('panel-title');
         if (titleEl) titleEl.textContent = titles[idx];
     });

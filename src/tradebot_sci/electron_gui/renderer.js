@@ -12,8 +12,8 @@ let candleSeries;
 let indicatorSeries;
 let emaSeries;
 let smaSeries;
-let stopLossLine;
-let takeProfitLine;
+let stopLossSeries;  // Restore line series for dynamic SL/TP
+let takeProfitSeries;
 let entryPriceLine;
 let markerCache = {};
 let chartResizeObserver = null;
@@ -39,6 +39,7 @@ const dashboardState = {
     positions: [],       // Array of { symbol, side, size, unrealized_pnl }
     decisions: [],       // Array of { time, symbol, action, grade, reason, actionClass, scoreClass }
     aiInsight: null,     // { content, timestamp, nextUpdateIn }
+    currentPanel: 'panel-decisions',
 };
 
 // Expose state for console debugging
@@ -323,6 +324,10 @@ function initChart() {
     emaSeries = chart.addLineSeries({ color: '#fbbf24', lineWidth: 2, visible: false, priceLineVisible: false });
     smaSeries = chart.addLineSeries({ color: '#a855f7', lineWidth: 2, visible: false, priceLineVisible: false });
 
+    // Restore specialized SL/TP Line Series
+    stopLossSeries = chart.addLineSeries({ color: '#ef4444', lineWidth: 2, lineStyle: 2, priceLineVisible: false, lastValueVisible: true });
+    takeProfitSeries = chart.addLineSeries({ color: '#22c55e', lineWidth: 2, lineStyle: 2, priceLineVisible: false, lastValueVisible: true });
+
     if (chartResizeObserver) chartResizeObserver.disconnect();
     chartResizeObserver = new ResizeObserver(entries => {
         if (entries[0]) chart.applyOptions({ width: entries[0].contentRect.width, height: entries[0].contentRect.height });
@@ -332,13 +337,33 @@ function initChart() {
 
 function _chartTickMarkFormatter(time) {
     const d = new Date(time * 1000);
-    const ft = formatTime(d).split(':');
-    return `${ft[0]}:${ft[1]}`;
+    const hours24 = dashboardState.timeFormat === '24h';
+    if (hours24) {
+        const h = d.getHours().toString().padStart(2, '0');
+        const m = d.getMinutes().toString().padStart(2, '0');
+        return `${h}:${m}`;
+    } else {
+        let h = d.getHours();
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        const m = d.getMinutes().toString().padStart(2, '0');
+        return `${h}:${m} ${ampm}`;
+    }
 }
 
 function _chartTimeFormatter(time) {
-    const ft = formatTime(new Date(time * 1000));
-    return ft.includes(' ') ? ft.split(' ')[0] + ' ' + ft.split(' ')[1].slice(0, 2) : ft;
+    const d = new Date(time * 1000);
+    const hours24 = dashboardState.timeFormat === '24h';
+    if (hours24) {
+        return formatTime(d);
+    } else {
+        let h = d.getHours();
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        const m = d.getMinutes().toString().padStart(2, '0');
+        const s = d.getSeconds().toString().padStart(2, '0');
+        return `${h}:${m}:${s} ${ampm}`;
+    }
 }
 
 // =======================================================================
@@ -386,7 +411,20 @@ function handleBackendMessage(msg) {
             syncUI();
             break;
         case 'candle':
-            if (candleSeries) candleSeries.update(msg.data);
+            if (candleSeries) {
+                const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
+                const fixedData = { ...msg.data, time: msg.data.time - tzOffsetSeconds };
+                candleSeries.update(fixedData);
+
+                // RESTORE VOLUME LOGIC
+                if (indicatorSeries) {
+                    indicatorSeries.update({
+                        time: fixedData.time,
+                        value: msg.data.volume || msg.data.value || 0,
+                        color: msg.data.close >= msg.data.open ? '#22c55e' : '#ef4444'
+                    });
+                }
+            }
             break;
         case 'history':
             if (candleSeries) candleSeries.setData(msg.data);
@@ -486,26 +524,28 @@ function updatePositionLines(pos) {
     if (!candleSeries || !pos) return;
 
     const sl = pos.stop_loss || pos.sl;
-    if (sl) {
-        stopLossLine = candleSeries.createPriceLine({
-            price: sl, color: '#ef4444', lineWidth: 2, lineStyle: 2,
-            axisLabelVisible: true, title: `SL @ ${sl.toFixed(4)}`
-        });
+    if (sl && stopLossSeries) {
+        // user requested addLineSeries style update
+        const data = candleSeries.data();
+        if (data.length > 0) {
+            const lineData = data.map(d => ({ time: d.time, value: sl }));
+            stopLossSeries.setData(lineData);
+        }
     }
     const tp = pos.take_profit || pos.tp;
-    if (tp) {
-        takeProfitLine = candleSeries.createPriceLine({
-            price: tp, color: '#22c55e', lineWidth: 2, lineStyle: 2,
-            axisLabelVisible: true, title: `TP @ ${tp.toFixed(4)}`
-        });
+    if (tp && takeProfitSeries) {
+        const data = candleSeries.data();
+        if (data.length > 0) {
+            const lineData = data.map(d => ({ time: d.time, value: tp }));
+            takeProfitSeries.setData(lineData);
+        }
     }
 }
 
 function clearPositionLines() {
-    if (!candleSeries) return;
-    if (stopLossLine) { candleSeries.removePriceLine(stopLossLine); stopLossLine = null; }
-    if (takeProfitLine) { candleSeries.removePriceLine(takeProfitLine); takeProfitLine = null; }
-    if (entryPriceLine) { candleSeries.removePriceLine(entryPriceLine); entryPriceLine = null; }
+    if (stopLossSeries) stopLossSeries.setData([]);
+    if (takeProfitSeries) takeProfitSeries.setData([]);
+    if (entryPriceLine && candleSeries) { candleSeries.removePriceLine(entryPriceLine); entryPriceLine = null; }
 }
 
 function handleTradeEventLog(line) {
@@ -517,15 +557,32 @@ function handleTradeEventLog(line) {
     const price = priceMatch ? parseFloat(priceMatch[1]) : null;
     const isEntry = line.includes('[ENTRY]');
 
-    if (!markerCache[symbol]) markerCache[symbol] = [];
-    markerCache[symbol].push({
-        time: Math.floor(Date.now() / 1000),
-        position: isEntry ? 'belowBar' : 'aboveBar',
-        color: isEntry ? '#22c55e' : '#ef4444',
-        shape: isEntry ? 'arrowUp' : 'arrowDown',
-        text: isEntry ? `BUY @ ${price}` : `SELL @ ${price}`,
+    updateChartMarkers({
+        symbol,
+        price,
+        type: isEntry ? 'buy' : 'sell',
+        time: Math.floor(Date.now() / 1000)
     });
-    if (symbol === dashboardState.activeSymbol) candleSeries.setMarkers(markerCache[symbol]);
+}
+
+/**
+ * RESTORED: Centralized marker management
+ */
+function updateChartMarkers(tradeData) {
+    const { symbol, price, type, time } = tradeData;
+    if (!markerCache[symbol]) markerCache[symbol] = [];
+
+    markerCache[symbol].push({
+        time: time,
+        position: type === 'buy' ? 'belowBar' : 'aboveBar',
+        color: type === 'buy' ? '#22c55e' : '#f43f5e',
+        shape: type === 'buy' ? 'arrowUp' : 'arrowDown',
+        text: `${type.toUpperCase()} @ ${price ? price.toFixed(2) : 'MKT'}`,
+    });
+
+    if (symbol === dashboardState.activeSymbol && candleSeries) {
+        candleSeries.setMarkers(markerCache[symbol]);
+    }
 }
 
 // =======================================================================
@@ -535,9 +592,22 @@ function handleTradeEventLog(line) {
 function parseDecisionFromLog(line) {
     try {
         const content = line.split(']').slice(1).join(']').trim();
-        const symbolMatch = content.match(/symbol=([A-Z0-9]+)/i) || content.match(/^([A-Z0-9]+)/);
-        const actionMatch = content.match(/action=([^\s|]+)/i) || content.match(/gate=([^\s|]+)/i);
-        const scoreMatch = content.match(/score=([\d.]+)/i);
+
+        // Robust Symbol Detection: Fallback to scanning for common 6-letter uppercase pairs or specific list
+        let symbol = null;
+        const symbolMatch = content.match(/symbol=([A-Z0-9]+)/i) ||
+            content.match(/^([A-Z0-9]{3,7})\b/) ||
+            content.match(/\b(BTCUSD|ETHUSD|SOLUSD|EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF)\b/i);
+
+        if (symbolMatch) {
+            symbol = symbolMatch[1] || symbolMatch[0];
+            symbol = symbol.toUpperCase();
+        }
+
+        if (!symbol || symbol.length < 3) return null;
+
+        const actionMatch = content.match(/action=([^\s|]+)/i) || content.match(/gate=([^\s|]+)/i) || content.match(/Decision:\s+([A-Z_]+)/i);
+        const scoreMatch = content.match(/score=([\d.]+)/i) || content.match(/icc_score=([\d.]+)/i);
         const reasonMatch = content.match(/reason=([^|]+)/i) || content.match(/\(([^)]+)\)$/);
 
         const action = (actionMatch ? actionMatch[1] : 'HOLD').toUpperCase();
@@ -552,11 +622,11 @@ function parseDecisionFromLog(line) {
         }
 
         let actionClass = 'text-slate-400';
-        if (['BUY', 'LONG', 'ENTRY'].some(k => action.includes(k))) actionClass = 'text-green-400';
-        if (['SELL', 'SHORT', 'EXIT'].some(k => action.includes(k))) actionClass = 'text-red-500';
+        if (['BUY', 'LONG', 'ENTRY', 'SCALE_IN'].some(k => action.includes(k))) actionClass = 'text-green-400';
+        if (['SELL', 'SHORT', 'EXIT', 'CLOSE'].some(k => action.includes(k))) actionClass = 'text-red-500';
 
         return {
-            time: new Date(), symbol: symbolMatch[1].toUpperCase(),
+            time: new Date(), symbol,
             action, grade, reason: reasonMatch ? reasonMatch[1].trim() : 'System Check',
             actionClass, scoreClass
         };
@@ -631,10 +701,35 @@ function init() {
     // Auto-scroll chart heartbeat
     setInterval(() => { if (chart) chart.timeScale().scrollToRealTime(); }, 30000);
 
+    // INSTANT SETTINGS BRIDGE
+    window.api.on('env-updated', (data) => {
+        if (!data) return;
+        // Sync specific keys that affect UI behavior
+        if (data.timeFormat || data.TIME_FORMAT) {
+            dashboardState.timeFormat = data.timeFormat || data.TIME_FORMAT;
+            localStorage.setItem('timeFormat', dashboardState.timeFormat);
+            // FIX TIME VISIBILITY: Update chart immediately without reload
+            if (chart) {
+                chart.applyOptions({
+                    timeScale: { tickMarkFormatter: _chartTickMarkFormatter },
+                    localization: { timeFormatter: _chartTimeFormatter },
+                });
+            }
+        }
+        // General state sync for any other relevant keys
+        Object.assign(dashboardState, data);
+        syncUI();
+    });
+
     syncUI();
 }
 
 function setupInteractive() {
+    // Window Controls
+    document.getElementById('btn-min')?.addEventListener('click', () => window.api.invoke('minimize-window'));
+    document.getElementById('btn-max')?.addEventListener('click', () => window.api.invoke('maximize-window'));
+    document.getElementById('btn-close')?.addEventListener('click', () => window.api.invoke('close-window'));
+
     // Symbol Switcher
     document.getElementById('btn-next-symbol')?.addEventListener('click', () => {
         const idx = (dashboardState.symbols.indexOf(dashboardState.activeSymbol) + 1) % dashboardState.symbols.length;
@@ -658,8 +753,53 @@ function setupInteractive() {
     document.querySelectorAll('[id^="nav-"]').forEach(btn => {
         btn.onclick = (e) => {
             const view = e.currentTarget.id.replace('nav-', '');
-            document.querySelectorAll('[id^="view-"]').forEach(v => v.classList.toggle('hidden', v.id !== `view-${view}`));
+
+            // Fix Sidebar Highlights
+            document.querySelectorAll('[id^="nav-"]').forEach(n => n.classList.remove('active', 'bg-teal-500/20', 'text-teal-300', 'border-2', 'border-teal-500/30', 'shadow-[0_0_20px_rgba(20,184,166,0.3)]', 'font-bold'));
+            document.querySelectorAll('[id^="nav-"]').forEach(n => n.classList.add('hover:bg-white/5', 'text-slate-400', 'font-medium'));
+
+            e.currentTarget.classList.add('active', 'bg-teal-500/20', 'text-teal-300', 'border-2', 'border-teal-500/30', 'shadow-[0_0_20px_rgba(20,184,166,0.3)]', 'font-bold');
+            e.currentTarget.classList.remove('hover:bg-white/5', 'text-slate-400', 'font-medium');
+
+            // View Toggling - Precise and Robust
+            const views = {
+                'dashboard': 'view-dashboard',
+                'graph': 'view-analytics',
+                'settings': 'view-settings',
+                'profile': 'view-profiles'
+            };
+
+            Object.keys(views).forEach(vKey => {
+                const el = document.getElementById(views[vKey]);
+                if (el) el.classList.toggle('hidden', vKey !== view);
+            });
+
+            // Module Initializers with Try/Catch
+            try {
+                if (view === 'graph' && window.analyticsModule) window.analyticsModule.init();
+                if (view === 'profile' && window.profilesModule) window.profilesModule.init();
+                if (view === 'settings' && window.settingsModule) window.settingsModule.init();
+            } catch (err) {
+                console.error(`[GUI] Error initializing module for view ${view}:`, err);
+            }
         };
+    });
+
+    // RESTORE: Panel Rotation
+    document.getElementById('btn-next-panel')?.addEventListener('click', () => {
+        const panels = ['panel-decisions', 'panel-commentary', 'panel-holdings'];
+        const titles = ['Decisions Panel', 'AI Insight', 'Holdings'];
+        let idx = panels.indexOf(dashboardState.currentPanel);
+        idx = (idx + 1) % panels.length;
+        dashboardState.currentPanel = panels[idx];
+
+        panels.forEach((p, i) => {
+            const el = document.getElementById(p);
+            if (el) el.classList.toggle('hidden', p !== dashboardState.currentPanel);
+        });
+
+        const titleEl = document.getElementById('panel-title');
+        if (titleEl) titleEl.textContent = titles[idx];
     });
 }
 
