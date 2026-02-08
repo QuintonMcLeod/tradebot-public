@@ -412,7 +412,7 @@ function createWindow() {
         // [ANTIGRAVITY FIX] Use the correct CLI entry point (scripts/run_dev_bot.py)
         // Also ensure no trailing slashes in repoRoot and use backslashes for python-path
         const spawnCmd = winFlag
-            ? `cd /d "${repoRoot}" && ".venv\\Scripts\\python.exe" scripts/run_dev_bot.py --continuous > "logs/bot_stdout.log" 2>&1`
+            ? `set PYTHONIOENCODING=utf-8 && cd /d "${repoRoot}" && ".venv\\Scripts\\python.exe" scripts/run_dev_bot.py --continuous > "logs/bot_stdout.log" 2>&1`
             : `bash "${path.join(repoRoot, 'scripts/tradebot.sh')}" --daemon`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);

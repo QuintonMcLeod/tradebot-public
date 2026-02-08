@@ -498,8 +498,16 @@ def run_bot(
     print("\n" + "="*60)
     motd_path = os.path.join(os.getcwd(), "Documentation", "motd.txt")
     if os.path.exists(motd_path):
-        with open(motd_path, "r", encoding="utf-8") as f:
-            print(f.read())
+        try:
+            with open(motd_path, "r", encoding="utf-8") as f:
+                print(f.read())
+        except UnicodeEncodeError:
+            # Fallback for Windows consoles that don't support UTF-8 stickers/emojis
+            with open(motd_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                print(content.encode('ascii', 'ignore').decode('ascii'))
+        except Exception as e:
+            logger.debug(f"[PHOENIX] MOTD load failed: {e}")
     else:
         print("Welcome to Tradebot SCI! (Documentation/motd.txt not found)")
     print("="*60 + "\n")
