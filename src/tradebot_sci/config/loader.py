@@ -199,6 +199,12 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         ccxt_data["api_key"] = os.getenv("CCXT_API_KEY", "")
     if not ccxt_data.get("secret"):
         ccxt_data["secret"] = os.getenv("CCXT_SECRET", "")
+    
+    # [ANTIGRAVITY] Sync CCXT settings to Environment Variables
+    if ccxt_data.get("exchange"):
+        os.environ["CCXT_EXCHANGE"] = ccxt_data["exchange"]
+    if ccxt_data.get("default_type"):
+        os.environ["CCXT_DEFAULT_TYPE"] = ccxt_data["default_type"]
 
     # Broker Options
     ibkr_cfg = load_ibkr_broker_options(data=ibkr_data)
