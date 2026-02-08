@@ -408,7 +408,17 @@ function handleBackendMessage(msg) {
         case 'candle':
             if (candleSeries) {
                 const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
-                candleSeries.update({ ...msg.data, time: msg.data.time - tzOffsetSeconds });
+                const fixedData = { ...msg.data, time: msg.data.time - tzOffsetSeconds };
+                candleSeries.update(fixedData);
+
+                // RESTORE VOLUME LOGIC
+                if (indicatorSeries) {
+                    indicatorSeries.update({
+                        time: fixedData.time,
+                        value: msg.data.volume || msg.data.value || 0,
+                        color: msg.data.close >= msg.data.open ? '#22c55e' : '#ef4444'
+                    });
+                }
             }
             break;
         case 'history':
@@ -671,6 +681,26 @@ function init() {
         syncUI();
     });
     window.api.send('get-bot-status');
+
+    // INSTANT SETTINGS BRIDGE
+    window.api.on('env-updated', (data) => {
+        if (!data) return;
+        // Sync specific keys that affect UI behavior
+        if (data.timeFormat || data.TIME_FORMAT) {
+            dashboardState.timeFormat = data.timeFormat || data.TIME_FORMAT;
+            localStorage.setItem('timeFormat', dashboardState.timeFormat);
+            // FIX TIME VISIBILITY: Update chart immediately without reload
+            if (chart) {
+                chart.applyOptions({
+                    timeScale: { tickMarkFormatter: _chartTickMarkFormatter },
+                    localization: { timeFormatter: _chartTimeFormatter },
+                });
+            }
+        }
+        // General state sync for any other relevant keys
+        Object.assign(dashboardState, data);
+        syncUI();
+    });
 
     syncUI();
     console.log("Senior Architect Refactor Complete (public_mirror).");

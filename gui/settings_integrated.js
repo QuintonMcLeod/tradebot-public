@@ -1738,6 +1738,13 @@ function updateValue(key, value) {
     localChanges[key] = value;
     updateChangeCounter();
 
+    // Instant Settings Bridge: Trigger save immediately for real-time IPC feedback
+    if (window.api && window.api.saveEnv) {
+        window.api.saveEnv({ [key]: value }).catch(err => {
+            console.error(`[SETTINGS] Instant save failed for ${key}:`, err);
+        });
+    }
+
     if (key === 'MULTI_POSITION_ENABLED') {
         const smartToggle = document.querySelector('.control-card[data-key="SMART_POSITIONS_ENABLED"]');
         if (smartToggle) {
