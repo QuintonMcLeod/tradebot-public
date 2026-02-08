@@ -57,6 +57,13 @@ class CCXTExchangeBroker:
     This is wired under `market.exchange_provider=alternative` + `market.alternative_broker=ccxt`.
     """
 
+    # [ANTIGRAVITY] Configurable exchange parameters (read from env with sane defaults)
+    GEMINI_LIMIT_OFFSET = float(os.getenv("GEMINI_LIMIT_OFFSET", "0.002"))  # 0.2% (was 5%)
+    GEMINI_SL_LIMIT_BUFFER = float(os.getenv("GEMINI_SL_LIMIT_BUFFER", "0.015"))  # 1.5%
+    GEMINI_FEE_RATE = float(os.getenv("GEMINI_FEE_RATE", "0.004"))  # 0.40% taker
+    COINBASE_FEE_RATE = float(os.getenv("COINBASE_FEE_RATE", "0.006"))  # 0.60% taker
+    DEFAULT_FEE_RATE = float(os.getenv("DEFAULT_FEE_RATE", "0.004"))  # 0.40% safe default
+
     def __init__(self, profile: TradingProfileSettings, position_hold_store_path: str | None = None, default_type: str | None = None, trade_results: TradeResultStore | None = None) -> None:
         self.profile = profile
         self.trade_results = trade_results
@@ -263,12 +270,17 @@ class CCXTExchangeBroker:
                 else: # Closing short
                     pnl_val = (entry_price - curr_px) * qty
                 
+                # [ANTIGRAVITY FIX] Factor in Gemini/Broker fees to prevent "bleeding" reports
+                # Gemini Taker Fee is typically 0.4%. We estimate 0.4% for entry + 0.4% for exit.
+                est_fee_pct = 0.008 # 0.8% total round trip
+                pnl_val -= (entry_price * qty * est_fee_pct)
+                
                 pnl_pct = (pnl_val / (entry_price * qty)) * 100
             else:
                 logger.warning(f"[CCXT] Could not determine entry price for {symbol} PnL calculation.")
             
             pnl_str = f"{'+' if pnl_val >= 0 else ''}${pnl_val:.2f}"
-            logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%)")
+            logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) | Est. Fees factored (0.8%)")
             
             # Add to TradeResultStore
             if self.trade_results:
@@ -770,7 +782,11 @@ class CCXTExchangeBroker:
                                 asset_value += val
                                 # logger.info(f"[CCXT] +Asset {curr}: {qty} * ${px:.2f} = ${val:.2f}")
             
-            return cash + asset_value
+            # [ANTIGRAVITY FIX] Factor in liquidation fees for assets to show net equity
+            # Taker fee is typically 0.4%.
+            net_asset_value = asset_value * 0.996
+            
+            return cash + net_asset_value
         except Exception as e:
             logger.error(f"[CCXT] get_total_balance_value failed: {e}")
             return self.get_liquid_capital(None)
@@ -851,10 +867,12 @@ class CCXTExchangeBroker:
             limit_price = None
             if "coinbase" in self.exchange_id.lower():
                 order_type = "limit"
-                raw_limit = new_stop * 0.95 if stop_side == "sell" else new_stop * 1.05
+                buf = self.GEMINI_SL_LIMIT_BUFFER  # [ANTIGRAVITY] Consistent buffer
+                raw_limit = new_stop * (1 - buf) if stop_side == "sell" else new_stop * (1 + buf)
                 limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
                 stop_params["stop_price"] = self._exchange.price_to_precision(sym, new_stop)
                 stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if stop_side == "sell" else "STOP_DIRECTION_STOP_UP"
+                stop_params["reduce_only"] = True
 
             stop_qty = float(self._exchange.amount_to_precision(sym, qty))
             self._exchange.create_order(sym, order_type, stop_side, stop_qty, limit_price, stop_params)
@@ -1176,8 +1194,8 @@ class CCXTExchangeBroker:
                 
                 est_margin_cost = true_notional / leverage_safety_factor
                 
-                # 2. Estimate Fees (Taker ~0.06% + Buffer -> 0.1% of Notional)
-                est_fees = true_notional * 0.001
+                # 2. Estimate Fees — [ANTIGRAVITY] Exchange-aware rate (was 0.1%)
+                est_fees = true_notional * self._get_fee_rate()
                 
                 # 3. Total Cash Required
                 required_cash = est_margin_cost + est_fees
@@ -1338,6 +1356,7 @@ class CCXTExchangeBroker:
                                 # Update params with Coinbase-specific fields
                                 stop_params["stop_price"] = self._exchange.price_to_precision(sym, decision.stop_loss)
                                 stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if stop_side == "sell" else "STOP_DIRECTION_STOP_UP"
+                                stop_params["reduce_only"] = True
                                 logger.info(f"[CCXT] Coinbase SL: type=limit, stop={stop_params['stop_price']}, limit={limit_price}, dir={stop_params['stop_direction']}")
                             elif is_gemini:
                                 # Gemini unified CCXT params: 'stopPrice' is often sufficient, but we ensure 'stopPrice' is passed.
@@ -1380,13 +1399,21 @@ class CCXTExchangeBroker:
                         else:
                             logger.info(f"[CCXT] Using filled amount for SL: {stop_qty:.6f}")
                         
-                        # [ANTIGRAVITY FIX] Fee Buffer for Spot
-                        # If spot trading, fees may be deducted from base asset (e.g. Coinbase).
-                        # 'filled' reports gross amount. Verify if we need to reduce qty.
+                        # [ANTIGRAVITY] Exact SL quantity using order fee data (replaces 0.99x hack)
                         if not is_future and stop_side == "sell":  # Long SL on Spot
-                            # Coinbase Taker Fee can be ~0.6%. Use 0.99 factor (1% buffer) to be safe.
-                            reduced_qty = stop_qty * 0.99
-                            logger.info(f"[CCXT] Applied spot fee buffer: {stop_qty} -> {reduced_qty} (0.99x)")
+                            fee_info = order.get("fee") or {}
+                            fee_cost = float(fee_info.get("cost", 0) or 0)
+                            fee_currency = (fee_info.get("currency") or "").upper()
+                            base_currency = sym.split("/")[0].upper() if "/" in sym else sym[:3].upper()
+                            if fee_cost > 0 and fee_currency == base_currency:
+                                # Fee was deducted from base asset (e.g. Gemini deducts BTC from BTC buy)
+                                reduced_qty = stop_qty - fee_cost
+                                logger.info(f"[CCXT] Exact fee deduction: {stop_qty:.8f} - {fee_cost:.8f} = {reduced_qty:.8f} (fee in {fee_currency})")
+                            else:
+                                # Fee was in quote currency or unknown — use exchange rate as fallback
+                                fee_rate = self._get_fee_rate()
+                                reduced_qty = stop_qty * (1 - fee_rate)
+                                logger.info(f"[CCXT] Fee-rate deduction: {stop_qty:.8f} * {1 - fee_rate:.4f} = {reduced_qty:.8f}")
                             stop_qty = reduced_qty
                         
                         # Apply amount precision
@@ -1551,6 +1578,7 @@ class CCXTExchangeBroker:
                                     if is_coinbase:
                                         stop_params["stop_price"] = self._exchange.price_to_precision(sym, sl_price)
                                         stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if side == "sell" else "STOP_DIRECTION_STOP_UP"
+                                        stop_params["reduce_only"] = True
                                     else: # Gemini
                                         stop_params["stopPrice"] = float(self._exchange.price_to_precision(sym, sl_price))
                                         stop_params["type"] = "stop-limit"
@@ -1581,20 +1609,19 @@ class CCXTExchangeBroker:
                                     order_type = "stop_market"
                                     limit_price = None
                                     stop_params = {"stopPrice": sl_price}
+                                    buf = self.GEMINI_SL_LIMIT_BUFFER  # [ANTIGRAVITY] Consistent buffer
                                     
                                     if "coinbase" in self.exchange_id.lower():
                                         order_type = "limit"
-                                        # Aggressive limit for stop-limit to ensure fill
-                                        raw_limit = sl_price * 0.95 if side == "sell" else sl_price * 1.05
+                                        raw_limit = sl_price * (1 - buf) if side == "sell" else sl_price * (1 + buf)
                                         limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
                                         stop_params["stop_price"] = self._exchange.price_to_precision(sym, sl_price)
                                         stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if side == "sell" else "STOP_DIRECTION_STOP_UP"
+                                        stop_params["reduce_only"] = True
                                     elif "gemini" in self.exchange_id.lower():
-                                        order_type = "limit" # CCXT gemini create_order will switch to stop limit if stopPrice is in params
-                                        # Gemini stop orders require a limit price (stop-limit only)
-                                        raw_limit = sl_price * 0.95 if side == "sell" else sl_price * 1.05
+                                        order_type = "limit"
+                                        raw_limit = sl_price * (1 - buf) if side == "sell" else sl_price * (1 + buf)
                                         limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
-                                        # CCXT Gemini looks for stopPrice or stop_price
                                         stop_params["stopPrice"] = self._exchange.price_to_precision(sym, sl_price)
 
                                     stop_qty = float(self._exchange.amount_to_precision(sym, abs(raw_size)))
@@ -1877,34 +1904,65 @@ class CCXTExchangeBroker:
             ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, symbol, reason, order_ids=order_ids),
         )
 
+    def _get_fee_rate(self) -> float:
+        """[ANTIGRAVITY] Return exchange-specific taker fee rate."""
+        eid = self.exchange_id.lower()
+        if "gemini" in eid:
+            return self.GEMINI_FEE_RATE
+        elif "coinbase" in eid:
+            return self.COINBASE_FEE_RATE
+        return self.DEFAULT_FEE_RATE
+
     def _ccxt_create_order(self, symbol: str, type: str, side: str, amount: float, price: float | None = None, params: dict | None = None) -> dict:
-        """Wrapper for ccxt.create_order with Gemini market->limit conversion."""
+        """Wrapper for ccxt.create_order with Gemini market->limit conversion.
+        
+        [ANTIGRAVITY] Refactored:
+        - 5% offset → configurable GEMINI_LIMIT_OFFSET (default 0.2%)
+        - Maker-first: attempts post_only limit at mid-market before falling back
+        - All SL buffers use GEMINI_SL_LIMIT_BUFFER (default 1.5%)
+        """
         params = params or {}
+        offset = self.GEMINI_LIMIT_OFFSET
+        sl_buf = self.GEMINI_SL_LIMIT_BUFFER
+
         if self.exchange_id == "gemini" and type == "market":
-            # Gemini does not support market orders; use aggressive limit
+            # Gemini does not support market orders
             ticker = self._exchange.fetch_ticker(symbol)
             last = float(ticker['last'])
-            # 5% offset for "market" fill guarantee
-            price = last * 0.95 if side == "sell" else last * 1.05
+
+            # [ANTIGRAVITY] Maker-first: try post_only at mid-market to capture maker fee tier
+            try:
+                mid_price = last  # At-market limit
+                mid_price = float(self._exchange.price_to_precision(symbol, mid_price))
+                maker_params = {**params, "options": {"postOnly": True}}
+                logger.info(f"[CCXT] Gemini Maker-First: Attempting post_only {side} at {mid_price}")
+                result = self._exchange.create_order(symbol, "limit", side, 
+                    float(self._exchange.amount_to_precision(symbol, amount)), mid_price, maker_params)
+                logger.info(f"[CCXT] Gemini Maker-First: SUCCESS (order {result.get('id')})")
+                return result
+            except Exception as maker_exc:
+                logger.info(f"[CCXT] Gemini Maker-First: Rejected ({maker_exc}). Falling back to tight limit.")
+
+            # Fallback: tight limit with configurable offset (was 5%, now 0.2%)
+            price = last * (1 - offset) if side == "sell" else last * (1 + offset)
             price = float(self._exchange.price_to_precision(symbol, price))
             type = "limit"
+            logger.info(f"[CCXT] Gemini Limit Fallback: {side} at {price} ({offset:.1%} offset from {last})")
         
         # Handle stop orders for Gemini (stopPrice requirement)
         if self.exchange_id == "gemini" and type == "stop_market":
             # Gemini only supports stop-limit
             type = "limit"
             if "stopPrice" not in params:
-                 # If we missed it somehow, use the price as stop price (though this should be handled by caller)
                  if price:
                      params["stopPrice"] = self._exchange.price_to_precision(symbol, price)
                  else:
                      ticker = self._exchange.fetch_ticker(symbol)
                      last = float(ticker['last'])
-                     # Use 5% offset for stop price if not provided
-                     sl_price = last * 0.95 if side == "sell" else last * 1.05
+                     sl_price = last * (1 - sl_buf) if side == "sell" else last * (1 + sl_buf)
                      params["stopPrice"] = self._exchange.price_to_precision(symbol, sl_price)
             if price is None and "stopPrice" in params:
-                 price = float(params["stopPrice"]) # Fallback if price was not provided
+                 price = float(params["stopPrice"])
         
         # Ensure amount and price (if present) are within exchange precision limits
         amount = float(self._exchange.amount_to_precision(symbol, amount))

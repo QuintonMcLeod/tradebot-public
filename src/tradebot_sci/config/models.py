@@ -82,11 +82,11 @@ class MarketSettings(BaseModel):
         default_factory=lambda: os.getenv("BROKER_MODE", os.getenv("EXCHANGE_PROVIDER", "primary")),
         description="Selects the broker execution strategy (primary=IBKR, alternative=CCXT, hybrid=Mix, coinbase_futures=Coinbase V3 Futures, oanda=OANDA v20).",
     )
-    alternative_market_data: Literal["mock", "coinbase", "coinbase_futures", "ccxt", "oanda"] = Field(
+    alternative_market_data: Literal["mock", "coinbase", "coinbase_futures", "ccxt", "oanda", "gemini", "kraken"] = Field(
         default="mock",
         description="Market data backend to use when exchange_provider=alternative (mock, ccxt, oanda, or coinbase).",
     )
-    alternative_broker: Literal["mock", "ccxt", "coinbase_futures", "oanda"] = Field(
+    alternative_broker: Literal["mock", "ccxt", "coinbase_futures", "oanda", "gemini", "kraken"] = Field(
         default="mock",
         description="Execution backend to use when exchange_provider=alternative and EXECUTE_TRADES=true (mock, ccxt, or oanda).",
     )
@@ -101,6 +101,18 @@ class MarketSettings(BaseModel):
     primary_broker: str = Field(
         default_factory=lambda: os.getenv("PRIMARY_BROKER", os.getenv("EXCHANGE_PROVIDER", "ibkr")),
         description="The broker to use when 'primary' is requested (e.g., oanda or ibkr)."
+    )
+    primary_forex: str = Field(
+        default_factory=lambda: os.getenv("PRIMARY_FOREX", "oanda"),
+        description="The provider/broker to use for Forex assets in routed/hybrid modes."
+    )
+    primary_crypto: str = Field(
+        default_factory=lambda: os.getenv("PRIMARY_CRYPTO", "gemini"),
+        description="The provider/broker to use for Crypto assets in routed/hybrid modes."
+    )
+    primary_equities: str = Field(
+        default_factory=lambda: os.getenv("PRIMARY_EQUITIES", "disabled"),
+        description="The provider/broker to use for Equities in routed/hybrid modes."
     )
     trading_confirmation: Optional[str] = Field(
         default=None,
@@ -947,6 +959,10 @@ class RuntimeSettings(BaseModel):
     pnl_timeframe: str = Field(
         default_factory=lambda: os.getenv("GUI_PNL_TIMEFRAME", "24h"),
         description="Default timeframe for PnL display in the GUI (holdings, 24h, week, month, year, all)"
+    )
+    time_format: str = Field(
+        default_factory=lambda: os.getenv("GUI_TIME_FORMAT", "24h"),
+        description="Time axis format for the chart display: '12h' (AM/PM) or '24h'."
     )
     global_default_risk_pct: float = Field(
         default_factory=lambda: float(os.getenv("GLOBAL_DEFAULT_RISK_PCT", "0.015")),

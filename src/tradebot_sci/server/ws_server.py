@@ -58,6 +58,11 @@ class WebSocketServer:
                                 logger.info(f"[WS] Client subscribed to {symbol} ({tf})")
                                 if self._on_subscribe_cb:
                                     self._on_subscribe_cb(symbol, tf or "15m")
+                        elif data.get('type') == 'log':
+                            # [ANTIGRAVITY] Bridge frontend logs to backend for easier debugging
+                            lvl = data.get('level', 'INFO').upper()
+                            msg = data.get('data', '')
+                            getattr(logger, lvl.lower(), logger.info)(f"[FRONTEND] {msg}")
                     except json.JSONDecodeError:
                         if msg.data == 'ping':
                             await ws.send_str(json.dumps({'type': 'pong'}))

@@ -293,6 +293,8 @@ class CCXTMarketDataProvider:
         for row in ohlcv:
             # row: [timestamp, open, high, low, close, volume]
             ts = datetime.fromtimestamp(row[0] / 1000.0, tz=timezone.utc)
+            if not candles:
+                logger.info(f"[CCXT-DEBUG] Symbol: {sym} | RawTS: {row[0]} | Parsed: {ts.isoformat()} | Epoch: {int(ts.timestamp())}")
             candles.append(
                 Candle(
                     timestamp=ts,

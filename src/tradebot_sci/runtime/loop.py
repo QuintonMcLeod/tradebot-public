@@ -610,24 +610,35 @@ def run_bot(
     logging.getLogger().addHandler(ws_handler)
     
     def on_subscribe(symbol, tf):
-        logger.info(f"[WS] Subscription for {symbol} ({tf})")
+        from tradebot_sci.runtime.provider_factory import _get_asset_key
+        asset_key = _get_asset_key(symbol)
+        logger.info(f"[WS-DEBUG] Subscription for {symbol} ({tf}) | AssetKey: {asset_key} | Provider: {type(provider).__name__}")
+        
         # Sync current state
-        controller.broadcast_state(executor, force=True)
-        # Push history
-        hist = provider.get_latest_candles(symbol, tf, limit=200)
-        if hist:
-            formatted = [
-                {
-                    "time": int(c.timestamp.timestamp()),
-                    "open": float(c.open),
-                    "high": float(c.high),
-                    "low": float(c.low),
-                    "close": float(c.close),
-                    "volume": float(getattr(c, "volume", 0) or 0)
-                }
-                for c in hist
-            ]
-            controller.ws_server.broadcast_history_sync(symbol, tf, formatted)
+        try:
+            controller.broadcast_state(executor, force=True)
+            # Push history
+            logger.info(f"[WS-DEBUG] Requesting history for {symbol} via {type(provider).__name__}...")
+            hist = provider.get_latest_candles(symbol, tf, limit=200)
+            logger.info(f"[WS-DEBUG] Received {len(hist) if hist else 0} candles for {symbol}")
+            if hist:
+                logger.info(f"[WS-DEBUG] {symbol} First: {hist[0].timestamp.isoformat()} ({int(hist[0].timestamp.timestamp())}) | Last: {hist[-1].timestamp.isoformat()} ({int(hist[-1].timestamp.timestamp())})")
+                formatted = [
+                    {
+                        "time": int(c.timestamp.timestamp()),
+                        "open": float(c.open),
+                        "high": float(c.high),
+                        "low": float(c.low),
+                        "close": float(c.close),
+                        "volume": float(getattr(c, "volume", 0) or 0)
+                    }
+                    for c in hist
+                ]
+                controller.ws_server.broadcast_history_sync(symbol, tf, formatted)
+            else:
+                logger.warning(f"[WS] No history found for {symbol} ({tf})")
+        except Exception as e:
+            logger.error(f"[WS] Error during subscription sync for {symbol}: {e}", exc_info=True)
 
     controller.start_ws_server()
     controller.ws_server.set_on_subscribe_callback(on_subscribe)

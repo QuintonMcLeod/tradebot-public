@@ -52,6 +52,7 @@ const CONFIG_MAP = {
     'WS_SERVER_PORT': ['runtime', 'ws_server_port'],
     'GUI_WS_URL': ['runtime', 'gui_ws_url'],
     'GUI_PNL_TIMEFRAME': ['runtime', 'pnl_timeframe'],
+    'GUI_TIME_FORMAT': ['runtime', 'time_format'],
     'GLOBAL_RISK_PCT': ['runtime', 'global_default_risk_pct'],
     'FRIDAY_FADE_ENABLED': ['schedule', 'friday_fade_enabled'],
     // Safety & Shields
@@ -176,6 +177,7 @@ const TOOLTIPS = {
     IBKR_CLIENT_ID: "Unique identifier for this connection. If running multiple bots, each needs a different Client ID.",
     IBKR_ACCOUNT_ID: "Your IBKR account number. Found in Account Management. Format like DU1234567 (paper) or U1234567 (live).",
     GUI_PNL_TIMEFRAME: "Select the timeframe for calculating Profit and Loss (PnL) on the dashboard and in analytics. '24h' is standard, but you can view performance over a week, month, or year for a broader perspective.",
+    GUI_TIME_FORMAT: "Choose between 12-hour (AM/PM) or 24-hour time format for the chart axis and cursor display.",
     IBKR_PAPER: "Enable paper trading mode - uses IBKR's simulated trading environment. Always test here before going live!",
     IBKR_READ_ONLY: "Read-only mode - bot can view positions and data but cannot place orders. Safe for monitoring.",
     IBKR_DEFAULT_CCY: "Default currency for the account. Usually USD but could be EUR, GBP, etc. for international accounts.",
@@ -1087,6 +1089,14 @@ function renderSystemTab(container) {
             { value: 'month', label: 'Last 30 Days (Realized + Unrealized)' },
             { value: 'year', label: 'Last Year (Realized + Unrealized)' },
             { value: 'all', label: 'All Time (Realized + Unrealized)' }
+        ],
+        default: '24h'
+    }));
+
+    section.appendChild(createCard('Time Format', 'Toggle between 12-hour and 24-hour chart clock', 'GUI_TIME_FORMAT', 'dropdown', {
+        items: [
+            { value: '24h', label: '24-Hour (00:00 - 23:59)' },
+            { value: '12h', label: '12-Hour (12:00 AM - 11:59 PM)' }
         ],
         default: '24h'
     }));
@@ -2096,9 +2106,15 @@ function updateValue(key, value) {
 
         current[path[path.length - 1]] = val;
 
-        // [ANTIGRAVITY FIX] Sync PnL timeframe back to renderer.js if changed
         if (key === 'GUI_PNL_TIMEFRAME' && typeof window.syncPnLTimeframe === 'function') {
             window.syncPnLTimeframe(value);
+        }
+        if (key === 'GUI_TIME_FORMAT' && typeof window.syncTimeFormat === 'function') {
+            window.syncTimeFormat(value);
+        }
+        // [ANTIGRAVITY] Immediate IPC notification for capital display mode
+        if (key === 'GUI_CAPITAL_DISPLAY_MODE' && typeof window.api !== 'undefined') {
+            window.api.send('updateEnv', { GUI_CAPITAL_DISPLAY_MODE: value });
         }
     }
     // 3. Update Active Profile

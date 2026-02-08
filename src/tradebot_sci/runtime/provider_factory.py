@@ -512,13 +512,14 @@ def build_market_provider(
         mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
     
     if mode == "hybrid":
-        p_primary = _create_single_provider("primary", settings, profile_settings, shared_ib)
-        p_alt = _create_single_provider("alternative", settings, profile_settings, shared_ib)
+        p_forex = _create_single_provider(settings.market.primary_forex, settings, profile_settings, shared_ib)
+        p_crypto = _create_single_provider(settings.market.primary_crypto, settings, profile_settings, shared_ib)
+        p_equity = _create_single_provider(settings.market.primary_equities, settings, profile_settings, shared_ib)
         
         return RoutedMarketDataProvider({
-            "crypto": p_alt,
-            "forex": p_primary,
-            "equity": p_primary
+            "crypto": p_crypto,
+            "forex": p_forex,
+            "equity": p_equity
         })
 
     p = _create_single_provider(mode, settings, profile_settings, shared_ib)
@@ -586,13 +587,14 @@ def build_exchange_broker(
         mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
     
     if mode == "hybrid":
-        b_primary = _create_single_broker("primary", settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
-        b_alt = _create_single_broker("alternative", settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
+        b_forex = _create_single_broker(settings.market.primary_forex, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
+        b_crypto = _create_single_broker(settings.market.primary_crypto, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
+        b_equity = _create_single_broker(settings.market.primary_equities, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
         
         return RoutedExchangeBroker({
-            "crypto": b_alt,
-            "forex": b_primary,
-            "equity": b_primary
+            "crypto": b_crypto,
+            "forex": b_forex,
+            "equity": b_equity
         })
 
     p = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)

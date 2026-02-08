@@ -785,6 +785,7 @@
     }
   },
   "runtime": {
-    "global_default_risk_pct": 0.045
+    "global_default_risk_pct": 0.045,
+    "time_format": "12h"
   }
 }

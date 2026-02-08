@@ -325,6 +325,28 @@ class SafetyGuard:
                 logger.warning(f"[SAFETY] Leverage Sentry VETO for {target_class.value}: Current Leverage {current_leverage:.1f}x exceeds Cap {max_leverage}x")
                 return stand_aside_decision(symbol, timeframe, f"Leverage Sentry ({target_class.value.upper()}): {current_leverage:.1f}x > {max_leverage}x")
 
+        # -------------------------------------------------------------
+        # 10. [NEW] FEE SHIELD (Capital Bleed Prevention)
+        # -------------------------------------------------------------
+        # Ensures the trade has enough "meat on the bone" to cover broker fees.
+        if os.getenv("SAFETY_FEE_SHIELD_ENABLED", "true").lower() == "true":
+            from tradebot_sci.strategy.decisions import AITradeDecision
+            if isinstance(ai_client, AITradeDecision): # If passed as decision for validation
+                decision = ai_client
+                entry = float(decision.entry_price or 0.0)
+                tp = float(decision.take_profit or 0.0)
+                if entry > 0 and tp > 0:
+                    potential_reward_pct = abs(tp - entry) / entry
+                    
+                    # Estimate round-trip fee (Gemini: 0.4% * 2 = 0.8%)
+                    # We add a 1.5x safety multiplier (needs to be 1.5x the fee to be worth taking)
+                    est_fee_rt = 0.008 
+                    min_edge_pct = est_fee_rt * 1.5 # 1.2% min move expected
+                    
+                    if potential_reward_pct < min_edge_pct:
+                         logger.warning(f"[SAFETY] FEE SHIELD: {symbol} Expected Reward {potential_reward_pct:.2%} < Min Edge {min_edge_pct:.2%} (Fees)")
+                         return stand_aside_decision(symbol, timeframe, f"Fee Shield: Reward {potential_reward_pct:.2%} < Fees")
+
         return None
 
 

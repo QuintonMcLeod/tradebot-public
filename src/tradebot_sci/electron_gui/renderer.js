@@ -17,12 +17,128 @@ let statusDot;
 let statusLatency;
 let currentRealizedPnL = 0;
 let currentUnrealizedPnL = 0;
+let chartResizeObserver = null; // [ANTIGRAVITY] Module-scoped to prevent leaks
 // [ANTIGRAVITY] pnlTimeframe is now the single source of truth for display mode too.
 // Possible values: 'holdings', '24h', 'week', 'month', 'year', 'all'
 // Authoritative source for PnL timeframe, synced with sidebar and settings
 let pnlTimeframe = localStorage.getItem('pnlTimeframe') || '24h';
 window.pnlTimeframe = pnlTimeframe;
+let timeFormat = localStorage.getItem('timeFormat') || '24h';
+window.timeFormat = timeFormat;
 const pnlModes = ['1h', '4h', '24h', '7d', 'all'];
+const DEFAULT_LOCALE = 'en-US'; // [ANTIGRAVITY] Force consistent locale for predictable parsing
+
+// =======================================================================
+// [ANTIGRAVITY] SINGLE SOURCE OF TRUTH — Central UI State
+// =======================================================================
+const dashboardState = {
+    profile: '',
+    capital: null,
+    capitalLabel: 'Overall Capital:',
+    capitalCache: {},         // replaces window.capitalCache
+    cash: null,
+    realizedPnL: null,
+    unrealizedPnL: null,
+    pnlTimeframe: pnlTimeframe,
+    timeFormat: timeFormat,
+    isSabbath: false,
+    isHalted: false,
+    symbols: [],
+    activeSymbol: '',
+    activeTimeframe: '15m',
+};
+// Expose for DevTools debugging
+window.dashboardState = dashboardState;
+
+// [ANTIGRAVITY] XSS-safe text escaping
+function escapeHtml(str) {
+    if (typeof str !== 'string') return String(str ?? '');
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
+// [ANTIGRAVITY] Central time formatter — honors global 12h/24h preference
+// Used by: appendLog, addDecisionRow, parseLogLine commentary, chart formatters
+function formatTime(date) {
+    if (!date) date = new Date();
+    if (timeFormat === '12h') {
+        let h = date.getHours();
+        const m = date.getMinutes().toString().padStart(2, '0');
+        const s = date.getSeconds().toString().padStart(2, '0');
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12;
+        h = h ? h : 12;
+        return `${h}:${m}:${s} ${ampm}`;
+    } else {
+        const h = date.getHours().toString().padStart(2, '0');
+        const m = date.getMinutes().toString().padStart(2, '0');
+        const s = date.getSeconds().toString().padStart(2, '0');
+        return `${h}:${m}:${s}`;
+    }
+}
+
+// [ANTIGRAVITY] Memoized DOM writer — ONLY place profile/capital/equity DOM is touched
+function syncUI() {
+    const prev = syncUI._prev || {};
+    const s = dashboardState;
+
+    const setText = (id, val) => {
+        if (prev[id] === val) return;
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+        prev[id] = val;
+    };
+
+    setText('status-profile', s.profile);
+    setText('capital-label', s.capitalLabel);
+    if (s.capital !== null) {
+        setText('account-capital', s.capital.toLocaleString('en-US', {
+            minimumFractionDigits: 2, maximumFractionDigits: 2
+        }));
+    }
+    if (s.cash !== null) {
+        const cashEl = document.getElementById('account-cash');
+        if (cashEl) {
+            const formatted = s.cash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            if (prev['account-cash'] !== formatted) {
+                cashEl.textContent = formatted;
+                prev['account-cash'] = formatted;
+            }
+        }
+    }
+
+    // Sabbath badge
+    const sabbathEl = document.getElementById('status-sabbath');
+    if (sabbathEl) {
+        const shouldHide = !s.isSabbath;
+        if (prev._sabbathHidden !== shouldHide) {
+            sabbathEl.classList.toggle('hidden', shouldHide);
+            prev._sabbathHidden = shouldHide;
+        }
+    }
+
+    syncUI._prev = prev;
+}
+syncUI._prev = {};
+
+// [ANTIGRAVITY] Forex symbols for manual 12h offset
+const FOREX_SYMBOLS = [
+    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF",
+    "GBPJPY", "EURJPY", "AUDJPY", "XAUUSD", "XAGUSD", "XPTUSD", "XPDUSD", "UNG"
+];
+
+function isForex(symbol) {
+    if (!symbol) return false;
+    const sym = symbol.toUpperCase().replace('/', '');
+    return FOREX_SYMBOLS.includes(sym);
+}
+
+function logToServer(msg, level = 'INFO') {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'log', level: level, data: `[FRONTEND] ${msg}` }));
+    }
+}
 
 function refreshMainPnlDisplay() {
     const equityEl = document.getElementById('account-equity');
@@ -97,6 +213,25 @@ window.syncPnLTimeframe = function (newTimeframe) {
     console.log(`[PNL-SYNC] Timeframe synchronized from settings: ${pnlTimeframe}`);
 };
 
+// [ANTIGRAVITY] Helper to refresh chart formatting without creating a new instance
+function refreshChartTimeFormat() {
+    if (!chart) return;
+    // [ANTIGRAVITY] Delegate to shared formatters — no duplicated logic
+    chart.applyOptions({
+        timeScale: { tickMarkFormatter: _chartTickMarkFormatter },
+        localization: { timeFormatter: _chartTimeFormatter },
+    });
+}
+
+window.syncTimeFormat = function (newFormat) {
+    if (timeFormat === newFormat) return;
+    timeFormat = newFormat;
+    window.timeFormat = newFormat;
+    localStorage.setItem('timeFormat', timeFormat);
+    refreshChartTimeFormat();
+    console.log(`[TIME-SYNC] Format synchronized from settings: ${timeFormat}`);
+};
+
 function tfToSeconds(tf) {
     if (!tf) return 900;
     const num = parseInt(tf);
@@ -120,9 +255,17 @@ function initChart(intervalSeconds = 900) {
     const chartContainer = document.getElementById('chart-area');
     if (!chartContainer) return;
 
+    // [ANTIGRAVITY] Idempotent: reuse existing chart, just refresh options
     if (chart) {
-        chart.remove();
-        chart = null;
+        chart.applyOptions({
+            timeScale: {
+                tickMarkFormatter: _chartTickMarkFormatter,
+            },
+            localization: {
+                timeFormatter: _chartTimeFormatter,
+            },
+        });
+        return;
     }
 
     chart = LightweightCharts.createChart(chartContainer, {
@@ -141,6 +284,11 @@ function initChart(intervalSeconds = 900) {
         timeScale: {
             borderColor: 'rgba(255, 255, 255, 0.05)',
             timeVisible: true,
+            secondsVisible: false,
+            tickMarkFormatter: _chartTickMarkFormatter,
+        },
+        localization: {
+            timeFormatter: _chartTimeFormatter,
         },
     });
 
@@ -190,18 +338,68 @@ function initChart(intervalSeconds = 900) {
         lastValueVisible: false,
     });
 
-    new ResizeObserver(entries => {
+    // [ANTIGRAVITY] Single ResizeObserver — module-scoped to prevent leaks
+    if (chartResizeObserver) chartResizeObserver.disconnect();
+    chartResizeObserver = new ResizeObserver(entries => {
         if (entries.length === 0 || !entries[0].contentRect) return;
         const width = entries[0].contentRect.width;
         const height = entries[0].contentRect.height;
         chart.applyOptions({ width, height });
-    }).observe(chartContainer);
+    });
+    chartResizeObserver.observe(chartContainer);
 
     // [ANTIGRAVITY] Dummy data removed. Waiting for 'history' from backend.
 }
 
+// [ANTIGRAVITY] Shared formatters (referenced by both initChart and refreshChartTimeFormat)
+function _chartTickMarkFormatter(time, tickMarkType, locale) {
+    const date = new Date(time * 1000);
+    if (timeFormat === '12h') {
+        let h = date.getHours();
+        const m = date.getMinutes().toString().padStart(2, '0');
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12;
+        h = h ? h : 12;
+        return `${h}:${m} ${ampm}`;
+    } else {
+        const h = date.getHours().toString().padStart(2, '0');
+        const m = date.getMinutes().toString().padStart(2, '0');
+        return `${h}:${m}`;
+    }
+}
+
+function _chartTimeFormatter(timestamp) {
+    const date = new Date(timestamp * 1000);
+    if (timeFormat === '12h') {
+        let h = date.getHours();
+        const m = date.getMinutes().toString().padStart(2, '0');
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12;
+        h = h ? h : 12;
+        return `${h}:${m} ${ampm}`;
+    } else {
+        const h = date.getHours().toString().padStart(2, '0');
+        const m = date.getMinutes().toString().padStart(2, '0');
+        return `${h}:${m}`;
+    }
+}
+
 function subscribeToAsset(symbol, tf) {
     console.log(`[SUBSCRIBE] Attempting to subscribe to ${symbol} (${tf}). WS state: ${ws ? ws.readyState : 'null'}`);
+
+    // [ANTIGRAVITY FIX] Clear chart immediately to prevent "stale" data from old symbol showing
+    if (candleSeries) {
+        candleSeries.setData([]);
+        if (indicatorSeries) indicatorSeries.setData([]);
+        candleData = [];
+    }
+
+    // Reset previous symbol tracking to force marker clearing on next history message
+    // Actually, clear markers NOW for better UX
+    console.log(`[SUBSCRIBE] Clearing markers for ${symbol} before subscription...`);
+    clearTradeMarkers();
+    previousSymbol = symbol.toUpperCase();
+
     if (ws && ws.readyState === WebSocket.OPEN) {
         console.log(`[SUBSCRIBE] Sending subscription request for ${symbol} (${tf})...`);
         ws.send(JSON.stringify({ type: 'subscribe', symbol, tf }));
@@ -281,8 +479,21 @@ async function connectWebSocket() {
                 if (msg.symbol === currentSym && normalizeTf(msg.tf) === normalizeTf(currentTfRaw)) {
                     console.log(`[CHART] Received history for ${msg.symbol} ${msg.tf} (${msg.data.length} candles).`);
 
+                    // [DEBUG] Log first candle to verify 12h issue
+                    if (msg.data.length > 0) {
+                        const first = msg.data[0];
+                        const date = new Date(first.time * 1000);
+                        const debugMsg = `[CHART-DEBUG] ${msg.symbol} Hist[0]: Epoch=${first.time} | Year=${date.getUTCFullYear()} | UTC=${date.toUTCString()} | Format=${timeFormat}`;
+                        console.log(debugMsg);
+                        logToServer(debugMsg);
+                    }
+
+                    const isFx = isForex(msg.symbol);
+                    const fxOffset = isFx ? (12 * 3600) : 0;
+                    if (isFx) console.log(`[CHART] Applying 12h Forex offset to ${msg.symbol}`);
+
                     const fixedData = msg.data.map(c => ({
-                        time: c.time,
+                        time: c.time + fxOffset,
                         open: c.open, high: c.high, low: c.low, close: c.close
                     }));
                     candleSeries.setData(fixedData);
@@ -292,27 +503,22 @@ async function connectWebSocket() {
                         const volumeData = msg.data.map(c => {
                             const isUp = c.close >= c.open;
                             return {
-                                time: c.time,
+                                time: c.time + fxOffset,
                                 value: c.volume || 0,
                                 color: isUp ? '#2dd4bf' : '#f43f5e'
                             };
                         });
-                        console.log(`[CHART-VOLUME] Setting ${volumeData.length} volume bars. Sample:`, volumeData[volumeData.length - 1]);
+                        console.log(`[CHART-VOLUME] Setting ${volumeData.length} volume bars.`);
                         indicatorSeries.setData(volumeData);
                     }
 
                     updateIndicators();
 
                     const msgSym = msg.symbol.toUpperCase();
-                    if (previousSymbol !== msgSym) {
-                        clearTradeMarkers();
-                        previousSymbol = msgSym;
-                    }
+                    previousSymbol = msgSym;
 
-                    tradeMarkers = markerCache[msgSym] || [];
-                    if (candleSeries) {
-                        candleSeries.setMarkers(tradeMarkers);
-                    }
+                    // [ANTIGRAVITY FIX] Refresh markers from cache using current snapped TF
+                    refreshChartMarkers(msgSym);
 
                     if (lastHoldings && lastHoldings.positions) {
                         const pos = parsePositionFromHoldings(lastHoldings.positions, msg.symbol);
@@ -321,16 +527,32 @@ async function connectWebSocket() {
                         }
                     }
 
-                    chart.timeScale().fitContent();
+                    // [ANTIGRAVITY FIX] Only fit content on FIRST load or symbol change
+                    if (!window._lastChartSymbol || window._lastChartSymbol !== msg.symbol) {
+                        chart.timeScale().fitContent();
+                        window._lastChartSymbol = msg.symbol;
+                    }
                 }
             } else if (msg.type === 'candle') {
                 const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
                 const currentTfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
-                const normalizeTf = (t) => t.toLowerCase().trim();
 
-                if (msg.symbol === currentSym && normalizeTf(msg.tf) === normalizeTf(currentTfRaw)) {
+                if (msg.symbol === currentSym) {
+                    // [DEBUG] Log candle to verify 12h issue
+                    const date = new Date(msg.data.time * 1000);
+                    const debugMsg = `[CHART-DEBUG] ${msg.symbol} Tick: Epoch=${msg.data.time} | Year=${date.getUTCFullYear()} | UTC=${date.toUTCString()} | Format=${timeFormat}`;
+                    console.log(debugMsg);
+                    // Only log real-time ticks back to server occasionally to avoid noise
+                    if (Math.random() < 0.1) logToServer(debugMsg);
+
+                    // [ANTIGRAVITY FIX] Snap candle timestamp to current chart timeframe
+                    const isFx = isForex(msg.symbol);
+                    const fxOffset = isFx ? (12 * 3600) : 0;
+                    const chartTfSeconds = tfToSeconds(currentTfRaw);
+                    const snappedTime = (Math.floor(msg.data.time / chartTfSeconds) * chartTfSeconds) + fxOffset;
+
                     const fixedData = {
-                        time: msg.data.time,
+                        time: snappedTime,
                         open: msg.data.open, high: msg.data.high, low: msg.data.low, close: msg.data.close
                     };
                     candleSeries.update(fixedData);
@@ -338,7 +560,7 @@ async function connectWebSocket() {
                     if (indicatorSeries && typeof msg.data.volume !== 'undefined') {
                         const isUp = msg.data.close >= msg.data.open;
                         indicatorSeries.update({
-                            time: msg.data.time,
+                            time: snappedTime,
                             value: msg.data.volume,
                             color: isUp ? '#2dd4bf' : '#f43f5e'
                         });
@@ -349,34 +571,37 @@ async function connectWebSocket() {
                 appendLog(msg.level || "INFO", msg.data);
             } else if (msg.type === 'state') {
                 const data = msg.data;
+                // [ANTIGRAVITY] All state updates go through dashboardState → syncUI()
+                if (data.time_format && data.time_format !== timeFormat) {
+                    console.log(`[STATE] Updating timeFormat to ${data.time_format} from backend`);
+                    timeFormat = data.time_format;
+                    window.timeFormat = data.time_format;
+                    dashboardState.timeFormat = data.time_format;
+                    localStorage.setItem('timeFormat', timeFormat);
+                    refreshChartTimeFormat();
+                }
+
                 if (data.pnl_stats && data.pnl_stats[pnlTimeframe] !== undefined) {
                     currentRealizedPnL = parseFloat(data.pnl_stats[pnlTimeframe]);
                     refreshMainPnlDisplay();
                 }
                 if (data.capital !== undefined) {
-                    const capitalEl = document.getElementById('account-capital');
-                    if (capitalEl) capitalEl.innerText = data.capital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    dashboardState.capital = data.capital;
                 }
                 if (data.cash !== undefined) {
-                    const cashEl = document.getElementById('account-cash');
-                    if (cashEl) cashEl.innerText = data.cash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    dashboardState.cash = data.cash;
                 }
                 if (data.profile) {
+                    dashboardState.profile = data.profile.toUpperCase();
                     const profileEl = document.getElementById('status-profile');
-                    if (profileEl) {
-                        profileEl.innerText = data.profile.toUpperCase();
-                        profileEl.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
-                    }
+                    if (profileEl) profileEl.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
                 }
                 if (data.is_sabbath !== undefined) {
-                    const sabbathEl = document.getElementById('status-sabbath');
-                    if (sabbathEl) {
-                        if (data.is_sabbath) sabbathEl.classList.remove('hidden');
-                        else sabbathEl.classList.add('hidden');
-                    }
+                    dashboardState.isSabbath = data.is_sabbath;
                 }
                 if (data.symbols && Array.isArray(data.symbols) && data.symbols.length > 0) {
                     WATCHED_SYMBOLS.splice(0, WATCHED_SYMBOLS.length, ...data.symbols);
+                    dashboardState.symbols = [...data.symbols];
                     const currentSym = document.getElementById('chart-symbol-label')?.innerText;
                     const newIdx = WATCHED_SYMBOLS.indexOf(currentSym);
                     if (newIdx !== -1) currentSymbolIndex = newIdx;
@@ -385,6 +610,7 @@ async function connectWebSocket() {
                         updateSymbolDisplay();
                     }
                 }
+                syncUI();
                 saveState();
             } else if (msg.type === 'ai_commentary') {
                 updateAIInsightPanel(msg.content, msg.timestamp, msg.next_update_in);
@@ -481,13 +707,56 @@ function updateIndicators() {
 }
 
 // --- Trade Marker Functions ---
+// [ANTIGRAVITY FIX] Dynamic Marker Refresher
+// Translates RAW timestamps into TF-snapped signal candle positions
+function refreshChartMarkers(symbol) {
+    const sym = (symbol || (document.getElementById('chart-symbol-label')?.innerText || "")).trim().toUpperCase();
+    if (!sym || !markerCache[sym]) return;
+
+    const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
+    const interval = tfToSeconds(tfRaw);
+
+    // Map markers to snapped positions
+    const isFx = isForex(sym);
+    const fxOffset = isFx ? (12 * 3600) : 0;
+
+    const snappedMarkers = markerCache[sym].map(m => {
+        // Snap raw log time to previous candle (signal candle)
+        const adjustedTime = m.rawTime + fxOffset;
+        const snappedTime = Math.floor(adjustedTime / interval) * interval - interval;
+        return {
+            ...m,
+            time: snappedTime
+        };
+    });
+
+    // Deduplicate by snapped time + shape (avoid stacking markers on one candle)
+    const uniqueMarkers = [];
+    const seen = new Set();
+    for (const m of snappedMarkers) {
+        const key = `${m.time}_${m.shape}`;
+        if (!seen.has(key)) {
+            uniqueMarkers.push(m);
+            seen.add(key);
+        }
+    }
+
+    tradeMarkers = uniqueMarkers;
+    console.log(`[CHART-RENDER] Refreshed markers for ${sym} (TF: ${tfRaw}). Total Unique: ${tradeMarkers.length}`);
+    if (candleSeries) {
+        candleSeries.setMarkers(tradeMarkers);
+    }
+}
+
 function addTradeMarker(time, isBuy, symbol, price, customText = null) {
     const sym = symbol.toUpperCase();
     if (!markerCache[sym]) markerCache[sym] = [];
 
-    // [ANTIGRAVITY] Enhanced marker styling for better visibility
+    // [ANTIGRAVITY FIX] Use rawTime for persistent caching
+    const rawTime = time;
+
     const marker = {
-        time: time,
+        rawTime: rawTime,
         position: isBuy ? 'belowBar' : 'aboveBar',
         color: isBuy ? '#22c55e' : '#ef4444',
         shape: isBuy ? 'arrowUp' : 'arrowDown',
@@ -495,22 +764,12 @@ function addTradeMarker(time, isBuy, symbol, price, customText = null) {
         size: 2,
     };
 
-    console.log(`[MARKER-CACHE] Adding to ${sym}:`, marker);
-
-    // Deduplicate: Don't add if we already have a marker at this time with this shape
-    const exists = markerCache[sym].some(m => m.time === marker.time && m.shape === marker.shape);
+    // Deduplicate by RAW time (avoid double-parsing same log)
+    const exists = markerCache[sym].some(m => Math.abs(m.rawTime - rawTime) < 1 && m.shape === marker.shape);
     if (!exists) {
         markerCache[sym].push(marker);
-        markerCache[sym].sort((a, b) => a.time - b.time);
-
-        const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
-        if (sym === currentSym) {
-            tradeMarkers = markerCache[sym];
-            console.log(`[CHART-RENDER] Setting markers for ${sym} (count: ${tradeMarkers.length})`);
-            if (candleSeries) {
-                candleSeries.setMarkers(tradeMarkers);
-            }
-        }
+        markerCache[sym].sort((a, b) => a.rawTime - b.rawTime);
+        refreshChartMarkers(sym);
     }
 }
 
@@ -519,28 +778,23 @@ function addExitMarker(time, isWin, symbol, price, pnlPct, customText = null) {
     const sym = symbol.toUpperCase();
     if (!markerCache[sym]) markerCache[sym] = [];
 
+    const rawTime = time;
     const pnlStr = pnlPct ? `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%` : '';
     const marker = {
-        time: time,
+        rawTime: rawTime,
         position: 'aboveBar',
         color: isWin ? '#10b981' : '#f43f5e',  // Emerald for win, Rose for loss
         shape: 'square',  // Square shape for exits (different from arrows for entries)
-        text: customText || `EXIT ${price?.toFixed(2) || ''} ${pnlStr}`,
-        size: 2,
+        text: customText || (price ? `◀ EXIT ${price?.toFixed(2) || ''} (${pnlStr})` : `◀ EXIT (${pnlStr})`),
+        size: 1,
     };
 
-    const exists = markerCache[sym].some(m => m.time === marker.time && m.shape === marker.shape);
+    // Deduplicate by RAW time
+    const exists = markerCache[sym].some(m => Math.abs(m.rawTime - rawTime) < 1 && m.shape === marker.shape);
     if (!exists) {
         markerCache[sym].push(marker);
-        markerCache[sym].sort((a, b) => a.time - b.time);
-
-        const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
-        if (sym === currentSym) {
-            tradeMarkers = markerCache[sym];
-            if (candleSeries) {
-                candleSeries.setMarkers(tradeMarkers);
-            }
-        }
+        markerCache[sym].sort((a, b) => a.rawTime - b.rawTime);
+        refreshChartMarkers(sym);
     }
 }
 
@@ -634,37 +888,91 @@ function parsePositionFromHoldings(holdings, symbol) {
 }
 
 // --- Log Formatting Logic ---
-function formatLogMessage(msg) {
-    let formatted = msg;
-    // Strip timestamps like [10:00:00] or 2024-01-01 10:00:00
-    formatted = formatted.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, "");
-    formatted = formatted.replace(/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}[,\.]\d+\s*/, "");
+// [ANTIGRAVITY] Known-safe tag whitelist for log colorization
+const LOG_TAG_STYLES = {
+    'INFO': 'text-blue-500 font-bold',
+    'SUCCESS': 'text-green-500 font-bold',
+    'WARNING': 'text-yellow-500 font-bold',
+    'ERROR': 'text-red-500 font-bold',
+    'CRITICAL': 'text-red-600 font-black italic',
+    'SYSTEM': 'text-slate-500',
+    'STRUCTURE': 'text-teal-500 font-bold',
+    'DECISION': 'text-purple-500 font-bold',
+    'HOLDINGS': 'text-orange-500 font-bold',
+    'STATE': 'text-slate-400 font-bold',
+    'FIX': 'text-cyan-400',
+    'BLOCKED': 'text-red-500 underline'
+};
 
-    const labels = {
-        'INFO': 'text-blue-500 font-bold',
-        'SUCCESS': 'text-green-500 font-bold',
-        'WARNING': 'text-yellow-500 font-bold',
-        'ERROR': 'text-red-500 font-bold',
-        'CRITICAL': 'text-red-600 font-black italic',
-        'SYSTEM': 'text-slate-500',
-        'STRUCTURE': 'text-teal-500 font-bold',
-        'DECISION': 'text-purple-500 font-bold',
-        'HOLDINGS': 'text-orange-500 font-bold',
-        'STATE': 'text-slate-400 font-bold',
-        'FIX': 'text-cyan-400',
-        'BLOCKED': 'text-red-500 underline'
-    };
+const ACTION_KEYWORDS_BUY = /\b(BUY|LONG|ENTER_LONG|A\+)\b/gi;
+const ACTION_KEYWORDS_SELL = /\b(SELL|SHORT|ENTER_SHORT)\b/gi;
+const MONEY_PATTERN = /(\$\s?[\d\.,]+)/g;
 
-    for (const [tag, color] of Object.entries(labels)) {
-        const regex = new RegExp(`\\[${tag}\\]`, 'g');
-        formatted = formatted.replace(regex, `<span class="${color}">[${tag}]</span>`);
+// [ANTIGRAVITY] Returns a DocumentFragment with XSS-safe colorized log content
+function formatLogMessageSafe(msg) {
+    const frag = document.createDocumentFragment();
+    // Strip timestamps
+    let cleaned = msg.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '')
+        .replace(/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}[,\.]\d+\s*/, '');
+
+    // Tokenize by known tags [TAG]
+    const tagRegex = /\[([A-Z]+)\]/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = tagRegex.exec(cleaned)) !== null) {
+        // Text before this tag — safe textContent
+        if (match.index > lastIndex) {
+            const textBefore = cleaned.slice(lastIndex, match.index);
+            frag.appendChild(_colorizeText(textBefore));
+        }
+        // The tag itself — only colorize if it's in our whitelist
+        const tagName = match[1];
+        const span = document.createElement('span');
+        span.className = LOG_TAG_STYLES[tagName] || 'text-slate-400';
+        span.textContent = `[${tagName}]`;
+        frag.appendChild(span);
+        lastIndex = match.index + match[0].length;
     }
+    // Remaining text after last tag
+    if (lastIndex < cleaned.length) {
+        frag.appendChild(_colorizeText(cleaned.slice(lastIndex)));
+    }
+    return frag;
+}
 
-    formatted = formatted.replace(/\b(BUY|LONG|ENTER_LONG|A\+)\b/gi, '<span class="text-green-400 font-black">$1</span>');
-    formatted = formatted.replace(/\b(SELL|SHORT|ENTER_SHORT)\b/gi, '<span class="text-red-500 font-black">$1</span>');
-    formatted = formatted.replace(/(\$\s?[\d\.,]+)/g, '<span class="text-teal-400">$1</span>');
-
-    return formatted;
+// [ANTIGRAVITY] Colorize known action keywords and dollar amounts in safe text
+function _colorizeText(text) {
+    const frag = document.createDocumentFragment();
+    // Split by action keywords and money patterns for colorization
+    const combined = /\b(BUY|LONG|ENTER_LONG|A\+|SELL|SHORT|ENTER_SHORT)\b|(\$\s?[\d\.,]+)/gi;
+    let lastIdx = 0;
+    let m;
+    while ((m = combined.exec(text)) !== null) {
+        if (m.index > lastIdx) {
+            frag.appendChild(document.createTextNode(text.slice(lastIdx, m.index)));
+        }
+        const span = document.createElement('span');
+        if (m[1]) {
+            // Action keyword
+            const kw = m[1].toUpperCase();
+            if (['BUY', 'LONG', 'ENTER_LONG', 'A+'].includes(kw)) {
+                span.className = 'text-green-400 font-black';
+            } else {
+                span.className = 'text-red-500 font-black';
+            }
+        } else {
+            // Money
+            span.className = 'text-teal-400';
+        }
+        span.textContent = m[0];
+        frag.appendChild(span);
+        lastIdx = m.index + m[0].length;
+    }
+    if (lastIdx < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+    }
+    return frag;
 }
 
 function appendLog(level, rawMessage) {
@@ -673,14 +981,23 @@ function appendLog(level, rawMessage) {
         if (!logTerminal) return;
     }
     const div = document.createElement('div');
-    const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const ts = formatTime();
 
     if (level === 'GUI') {
         div.className = "log-line py-1 px-2 my-1 rounded bg-amber-500/10 border-l-2 border-amber-500/50 text-amber-200/90 font-bold";
-        div.innerHTML = `<span class="text-amber-500/60 font-mono text-[10px] mr-2">[GUI]</span> ${rawMessage}`;
+        const guiTag = document.createElement('span');
+        guiTag.className = 'text-amber-500/60 font-mono text-[10px] mr-2';
+        guiTag.textContent = '[GUI]';
+        div.appendChild(guiTag);
+        div.appendChild(document.createTextNode(' ' + rawMessage));
     } else {
         div.className = "log-line text-white/90 py-0.5";
-        div.innerHTML = `<span class="text-slate-600 font-mono">[${ts}]</span> ${formatLogMessage(rawMessage)}`;
+        const tsSpan = document.createElement('span');
+        tsSpan.className = 'text-slate-600 font-mono';
+        tsSpan.textContent = `[${ts}]`;
+        div.appendChild(tsSpan);
+        div.appendChild(document.createTextNode(' '));
+        div.appendChild(formatLogMessageSafe(rawMessage));
     }
 
     logTerminal.appendChild(div);
@@ -696,8 +1013,8 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
     const scroller = document.getElementById('insight-scroller');
     if (!scroller || !content) return;
 
-    // Clear placeholder and existing content
-    scroller.innerHTML = '';
+    // Clear placeholder and existing content [ANTIGRAVITY] safe DOM removal
+    while (scroller.firstChild) scroller.removeChild(scroller.firstChild);
 
     // Parse markdown-like formatting from AI response
     const lines = content.split('\n');
@@ -707,15 +1024,31 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
     const createBubble = (title, text, icon, colorClass) => {
         const bubble = document.createElement('div');
         bubble.className = `insight-bubble bg-black/40 border border-${colorClass}-500/30 rounded-xl p-4 backdrop-blur-sm`;
-        bubble.innerHTML = `
-            <div class="flex items-start gap-3">
-                <span class="material-symbols-outlined text-${colorClass}-400 text-lg mt-0.5">${icon}</span>
-                <div class="flex-1">
-                    <div class="text-[10px] font-bold uppercase tracking-wider text-${colorClass}-400 mb-1">${title}</div>
-                    <div class="text-xs text-slate-300 leading-relaxed">${text}</div>
-                </div>
-            </div>
-        `;
+
+        // [ANTIGRAVITY] XSS-safe: createElement + textContent
+        const wrapper = document.createElement('div');
+        wrapper.className = 'flex items-start gap-3';
+
+        const iconEl = document.createElement('span');
+        iconEl.className = `material-symbols-outlined text-${colorClass}-400 text-lg mt-0.5`;
+        iconEl.textContent = icon;
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'flex-1';
+
+        const titleDiv = document.createElement('div');
+        titleDiv.className = `text-[10px] font-bold uppercase tracking-wider text-${colorClass}-400 mb-1`;
+        titleDiv.textContent = title;
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'text-xs text-slate-300 leading-relaxed';
+        textDiv.textContent = text;
+
+        contentDiv.appendChild(titleDiv);
+        contentDiv.appendChild(textDiv);
+        wrapper.appendChild(iconEl);
+        wrapper.appendChild(contentDiv);
+        bubble.appendChild(wrapper);
         return bubble;
     };
 
@@ -750,20 +1083,30 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
 
     // Render sections as bubbles
     for (const section of sections) {
-        const bubble = createBubble(section.title, section.content.join('<br>'), section.icon, section.color);
+        const bubble = createBubble(section.title, section.content.join('\n'), section.icon, section.color);
         scroller.appendChild(bubble);
     }
 
     // Add update timer footer
     const footer = document.createElement('div');
     footer.className = 'insight-footer flex items-center justify-between text-[10px] text-slate-500 pt-3 border-t border-white/5 mt-4';
-    footer.innerHTML = `
-        <span class="flex items-center gap-1">
-            <span class="material-symbols-outlined text-xs">schedule</span>
-            Updated ${timestamp}
-        </span>
-        <span id="ai-countdown" class="text-teal-500/70">Next update in ${Math.floor(nextUpdateIn / 60)}m</span>
-    `;
+
+    // [ANTIGRAVITY] XSS-safe footer
+    const footerLeft = document.createElement('span');
+    footerLeft.className = 'flex items-center gap-1';
+    const schedIcon = document.createElement('span');
+    schedIcon.className = 'material-symbols-outlined text-xs';
+    schedIcon.textContent = 'schedule';
+    footerLeft.appendChild(schedIcon);
+    footerLeft.appendChild(document.createTextNode(` Updated ${timestamp}`));
+
+    const footerRight = document.createElement('span');
+    footerRight.id = 'ai-countdown';
+    footerRight.className = 'text-teal-500/70';
+    footerRight.textContent = `Next update in ${Math.floor(nextUpdateIn / 60)}m`;
+
+    footer.appendChild(footerLeft);
+    footer.appendChild(footerRight);
     scroller.appendChild(footer);
 
     // Start countdown timer
@@ -814,7 +1157,7 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null) {
     // DE-DUPLICATE: Find existing row for this symbol
     let existingRow = null;
     for (let row of table.rows) {
-        if (row.cells[1].innerText === symbol) {
+        if (row.cells[1]?.textContent === symbol) {
             existingRow = row;
             break;
         }
@@ -824,36 +1167,43 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null) {
     row.className = "hover:bg-cyan-500/5 transition-colors border-b border-slate-700/20";
 
     // Time AM/PM
-    const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+    const time = formatTime();
 
     // Grade
     const grade = forcedGrade || getScoreGrade(scoreNum);
     const scoreClass = getScoreColor(grade);
 
-    // Action Styling
-    let actionHtml = `<span class="text-slate-500">${action}</span>`;
-    const actUpper = action.toUpperCase();
-    if (actUpper === "ENTER_LONG" || actUpper === "BUY" || actUpper === "ENTRY" || actUpper === "FILL") {
-        actionHtml = `<span class="text-green-400 font-bold text-glow-sm">${actUpper}</span>`;
-    } else if (actUpper === "ENTER_SHORT" || actUpper === "SELL" || actUpper === "EXIT") {
-        actionHtml = `<span class="text-red-500 font-bold text-glow-sm">${actUpper}</span>`;
-    } else if (actUpper === "HOLD" || actUpper === "WAIT" || actUpper === "CONTINUATION") {
-        actionHtml = `<span class="text-slate-400 font-bold text-glow-sm">${actUpper}</span>`;
-    } else {
-        actionHtml = `<span class="text-cyan-400 font-bold text-glow-sm">${actUpper}</span>`;
+    // Action color mapping (whitelist-validated, no raw HTML injection)
+    const actUpper = (action || '').toUpperCase();
+    let actionClass = 'text-cyan-400 font-bold text-glow-sm';
+    if (['ENTER_LONG', 'BUY', 'ENTRY', 'FILL'].includes(actUpper)) {
+        actionClass = 'text-green-400 font-bold text-glow-sm';
+    } else if (['ENTER_SHORT', 'SELL', 'EXIT'].includes(actUpper)) {
+        actionClass = 'text-red-500 font-bold text-glow-sm';
+    } else if (['HOLD', 'WAIT', 'CONTINUATION'].includes(actUpper)) {
+        actionClass = 'text-slate-400 font-bold text-glow-sm';
     }
 
-    // [ANTIGRAVITY REFINE] Much larger font (text-lg / 18px), bunched rows (py-1.5)
-    row.innerHTML = `
-        <td class="px-4 py-1.5 text-slate-500 text-left font-mono text-sm">${time}</td>
-        <td class="px-4 py-1.5 font-bold text-slate-200 text-left text-lg">${symbol}</td>
-        <td class="px-4 py-1.5 text-left text-sm uppercase tracking-wider">${actionHtml}</td>
-        <td class="px-4 py-1.5 ${scoreClass} text-left font-black text-lg">${grade}</td>
-        <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${reason}</td>
-    `;
+    // [ANTIGRAVITY] Build row with createElement/textContent (XSS-safe)
+    // Clear existing cells
+    while (row.firstChild) row.removeChild(row.firstChild);
+
+    const cellDefs = [
+        { text: time, cls: 'px-4 py-1.5 text-slate-500 text-left font-mono text-sm' },
+        { text: symbol, cls: 'px-4 py-1.5 font-bold text-slate-200 text-left text-lg' },
+        { text: actUpper, cls: `px-4 py-1.5 text-left text-sm uppercase tracking-wider ${actionClass}` },
+        { text: grade, cls: `px-4 py-1.5 ${scoreClass} text-left font-black text-lg` },
+        { text: reason, cls: 'px-4 py-1.5 text-slate-400 text-sm italic text-left' },
+    ];
+
+    cellDefs.forEach(def => {
+        const td = document.createElement('td');
+        td.className = def.cls;
+        td.textContent = def.text;
+        row.appendChild(td);
+    });
 
     if (!existingRow) {
-        // Prepend to show newest at top if it's a new symbol
         table.prepend(row);
     }
 }
@@ -864,19 +1214,18 @@ window.api.on('env-updated', (updates) => {
     console.log("[UI] Environment updated:", updates);
     if (updates.GUI_CAPITAL_DISPLAY_MODE) {
         capitalDisplayMode = updates.GUI_CAPITAL_DISPLAY_MODE;
-        // Optionally trigger a redraw if we have data
     }
     if (updates.GUI_PNL_TIMEFRAME) {
         pnlTimeframe = updates.GUI_PNL_TIMEFRAME;
+        dashboardState.pnlTimeframe = pnlTimeframe;
         updateRealizedPnL();
     }
     if (updates.APP_PROFILE) {
+        dashboardState.profile = updates.APP_PROFILE.toUpperCase();
         const profileEl = document.getElementById('status-profile');
-        if (profileEl) {
-            profileEl.innerText = updates.APP_PROFILE.toUpperCase();
-            profileEl.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
-            appendLog("SYSTEM", `Active Profile changed to ${updates.APP_PROFILE.toUpperCase()}`);
-        }
+        if (profileEl) profileEl.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
+        syncUI();
+        appendLog("SYSTEM", `Active Profile changed to ${dashboardState.profile}`);
     }
 });
 
@@ -982,35 +1331,45 @@ function updateHoldingsTable(payload) {
     const tbody = document.getElementById('holdings-table-body');
     if (!tbody || !payload.positions) return;
 
-    // Clear existing
-    tbody.innerHTML = '';
+    // [ANTIGRAVITY] Clear existing via DOM (no innerHTML)
+    while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
 
     payload.positions.forEach(pos => {
         const row = document.createElement('tr');
         row.className = "border-b border-slate-700/30 hover:bg-slate-800/20 transition-colors";
 
-        const pnlClass = (pos.unrealized_pnl >= 0) ? "text-green-400" : "text-red-500";
-        const pnlSign = (pos.unrealized_pnl >= 0) ? "+" : "";
-
-        // Determine side color/text
-        const sideClass = (pos.side && pos.side.toUpperCase() === 'SHORT') ? "text-red-400" : "text-green-400";
-
         const rawPnl = parseFloat(pos.unrealized_pnl);
+        const pnlClass = (rawPnl >= 0) ? "text-green-400" : "text-red-500";
+        const pnlSign = (rawPnl >= 0) ? "+" : "";
+        const sideClass = (pos.side && pos.side.toUpperCase() === 'SHORT') ? "text-red-400" : "text-green-400";
         const displayPnl = isNaN(rawPnl) ? "0.00" : rawPnl.toFixed(2);
         const displaySize = Math.abs(parseFloat(pos.size)).toFixed(4);
 
-        row.innerHTML = `
-            <td class="p-2 font-mono font-bold text-slate-200">${pos.symbol}</td>
-            <td class="p-2 text-center ${sideClass} font-bold text-xs">${pos.side ? pos.side.toUpperCase() : 'LONG'}</td>
-            <td class="p-2 text-right font-mono text-slate-400">${displaySize}</td>
-            <td class="p-2 text-right font-mono font-bold ${pnlClass}">${pnlSign}$${displayPnl}</td>
-        `;
+        // [ANTIGRAVITY] XSS-safe: createElement + textContent
+        const cellDefs = [
+            { text: pos.symbol || '', cls: 'p-2 font-mono font-bold text-slate-200' },
+            { text: pos.side ? pos.side.toUpperCase() : 'LONG', cls: `p-2 text-center ${sideClass} font-bold text-xs` },
+            { text: displaySize, cls: 'p-2 text-right font-mono text-slate-400' },
+            { text: `${pnlSign}$${displayPnl}`, cls: `p-2 text-right font-mono font-bold ${pnlClass}` },
+        ];
+        cellDefs.forEach(def => {
+            const td = document.createElement('td');
+            td.className = def.cls;
+            td.textContent = def.text;
+            row.appendChild(td);
+        });
         tbody.appendChild(row);
     });
 
     // Handle empty state
     if (payload.positions.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500 italic text-xs">No active positions</td></tr>`;
+        const emptyRow = document.createElement('tr');
+        const emptyTd = document.createElement('td');
+        emptyTd.colSpan = 4;
+        emptyTd.className = 'p-4 text-center text-slate-500 italic text-xs';
+        emptyTd.textContent = 'No active positions';
+        emptyRow.appendChild(emptyTd);
+        tbody.appendChild(emptyRow);
     }
 
     // [ANTIGRAVITY FIX] Update sidebar PNL
@@ -1058,27 +1417,19 @@ function parseLogLine(line) {
         setTimeout(updateRealizedPnL, 1000); // Small delay to let filesystem sync if needed
 
         // [ANTIGRAVITY] Parse EXIT for exit marker with PnL
-        // Expected format: [EXIT] Manual/Signal: BTCUSD +$2.50 (Pct=1.25%)
         const symbolMatch = line.match(/\[EXIT\][^:]*:\s*([A-Z0-9]+)/i) || line.match(/\[EXIT\]\s+([A-Z0-9]+)/i);
         const pnlMatch = line.match(/([+-]?\$[\d.]+)/);
         const pctMatch = line.match(/Pct=([+-]?[\d.]+)%?/i);
 
         if (symbolMatch) {
             let logTime = parseLogTimestamp(line);
-            const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
-            const interval = tfToSeconds(tfRaw);
-
-            // Snap to current candle start and shift back by one
-            const snappedTime = Math.floor(logTime / interval) * interval;
-            logTime = snappedTime - interval;
-
             const pnlPct = pctMatch ? parseFloat(pctMatch[1]) : null;
             const isWin = pnlMatch ? pnlMatch[1].startsWith('+') : (pnlPct !== null && pnlPct >= 0);
-            // Try to extract price from pnl dollar value for display
             const priceFromPnl = pnlMatch ? Math.abs(parseFloat(pnlMatch[1].replace('$', ''))) : null;
+
+            // [ANTIGRAVITY FIX] Pass RAW logTime, addExitMarker handles snapping
             addExitMarker(logTime, isWin, symbolMatch[1], priceFromPnl, pnlPct);
 
-            // [ANTIGRAVITY] Add exits to Decisions Panel
             console.log(`[DECISION-UI] Exit logged for ${symbolMatch[1]}: ${line}`);
             const pnlStr = pnlMatch ? pnlMatch[1] : (pnlPct ? `${pnlPct.toFixed(2)}%` : '');
             addDecisionRow(symbolMatch[1], "EXIT", null, `PnL: ${pnlStr} | Price: ${priceFromPnl || '??'}`);
@@ -1091,17 +1442,11 @@ function parseLogLine(line) {
         const priceMatch = line.match(/price[=:]?\s*([\d.]+)/i) || line.match(/@\s*([\d.]+)/);
         if (symbolMatch) {
             let logTime = parseLogTimestamp(line);
-            const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
-            const interval = tfToSeconds(tfRaw);
-
-            // Snap to current candle start and shift back by one
-            const snappedTime = Math.floor(logTime / interval) * interval;
-            logTime = snappedTime - interval;
-
             const price = priceMatch ? parseFloat(priceMatch[1]) : null;
+
+            // [ANTIGRAVITY FIX] Pass RAW logTime, addTradeMarker handles snapping
             addTradeMarker(logTime, true, symbolMatch[1], price);
 
-            // [ANTIGRAVITY] Add trade entries to Decisions Panel for better visibility
             console.log(`[DECISION-UI] Entry logged for ${symbolMatch[1]}: ${line}`);
             addDecisionRow(symbolMatch[1], line.includes('[FILL]') ? "FILL" : "ENTRY", null, `Price: ${price || '??'}`);
         }
@@ -1209,18 +1554,17 @@ function parseLogLine(line) {
         } catch (e) { console.error("Decision Parsing Error:", e); }
     }
 
-    // 2. Profile Parsing (Enhanced)
+    // 2. Profile Parsing (Enhanced) — [ANTIGRAVITY] Now writes to dashboardState only
     if (line.includes('[PROFILE]') || line.includes('profile=') || line.includes('switching to')) {
         const profileMatch = line.match(/profile[:=]\s?([\w\-]+)/i) ||
             line.match(/switching to (?:profile\s+)?([\w\-]+)/i);
         if (profileMatch) {
             const prof = profileMatch[1];
             console.log("[UI-DEBUG] Parsed profile from log:", prof);
-            if (!statusProfile) statusProfile = document.getElementById('status-profile');
-            if (statusProfile) {
-                statusProfile.innerText = prof.toUpperCase();
-                statusProfile.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
-            }
+            dashboardState.profile = prof.toUpperCase();
+            const profileEl = document.getElementById('status-profile');
+            if (profileEl) profileEl.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
+            syncUI();
             saveState();
         }
     }
@@ -1230,96 +1574,66 @@ function parseLogLine(line) {
     // [ANTIGRAVITY FIX] Strict Capital Logic
     // We ONLY update Capital, never PnL (which comes from [HOLDINGS])
 
+    // 3. P&L / Equity / Capital — [ANTIGRAVITY] Now writes to dashboardState only
     let isOandaProfile = false;
-    const currentProfile = document.getElementById('status-profile')?.innerText?.toLowerCase() || "";
+    const currentProfile = (dashboardState.profile || '').toLowerCase();
     if (currentProfile.includes("oanda") || currentProfile.includes("forex")) {
         isOandaProfile = true;
     }
 
     // Capital / NAV 
-    // Matches: [OANDA] Account Summary: Balance=123.45, NAV=100.00
-    // Matches: [CCXT] get_liquid_capital... winner=$180.83
-    // Matches: [HEARTBEAT] Capital available: $100.00
-
-    // [ANTIGRAVITY AGGREGATION] 
-    // Maintain a global map of capital by source to prevent flip-flopping
-    // and show a unified "big Capital amount" as requested.
-    if (!window.capitalCache) window.capitalCache = {};
+    // [ANTIGRAVITY] Use dashboardState.capitalCache instead of window.capitalCache
+    const cc = dashboardState.capitalCache;
 
     // 1. [TOTAL] Source (Aggregated by RoutedExchangeBroker - Authoritative)
     if (line.includes('[TOTAL] Liquidity available:')) {
         const totalMatch = line.match(/available: \$([\d\.,\-]+)/);
-        if (totalMatch) {
-            const val = parseFloat(totalMatch[1].replace(/,/g, ''));
-            window.capitalCache['TOTAL'] = val;
-        }
+        if (totalMatch) cc['TOTAL'] = parseFloat(totalMatch[1].replace(/,/g, ''));
     }
     // 2. [HEARTBEAT] Source
     else if (line.includes('[HEARTBEAT] Capital available:')) {
         const hbMatch = line.match(/Capital available: \$([\d\.,\-]+)/);
-        if (hbMatch) {
-            const val = parseFloat(hbMatch[1].replace(/,/g, ''));
-            window.capitalCache['HEARTBEAT'] = val;
-        }
+        if (hbMatch) cc['HEARTBEAT'] = parseFloat(hbMatch[1].replace(/,/g, ''));
     }
     // 3. Broker Specifics (OANDA/CCXT/IBKR)
     else if (line.includes('[OANDA] Account Summary:')) {
         const oMatch = line.match(/NAV=([\d\.,\-]+)/);
-        if (oMatch) window.capitalCache['OANDA'] = parseFloat(oMatch[1].replace(/,/g, ''));
+        if (oMatch) cc['OANDA'] = parseFloat(oMatch[1].replace(/,/g, ''));
     }
     else if (line.includes('[CCXT] get_liquid_capital')) {
         const cMatch = line.match(/winner=\$([\d\.,\-]+)/);
-        if (cMatch) window.capitalCache['CCXT'] = parseFloat(cMatch[1].replace(/,/g, ''));
+        if (cMatch) cc['CCXT'] = parseFloat(cMatch[1].replace(/,/g, ''));
     }
     else if (line.includes('[IBKR] Account Summary') || line.includes('TotalCashValue=')) {
         const iMatch = line.match(/TotalCashValue=([\d\.,\-]+)/);
-        if (iMatch) window.capitalCache['IBKR'] = parseFloat(iMatch[1].replace(/,/g, ''));
+        if (iMatch) cc['IBKR'] = parseFloat(iMatch[1].replace(/,/g, ''));
     }
     // 4. [CASH] Source (Raw Buying Power / Available Cash)
     else if (line.includes('[CASH] Buying Power:')) {
         const cashMatch = line.match(/Power: \$([\d\.,\-]+)/);
-        if (cashMatch) {
-            const val = parseFloat(cashMatch[1].replace(/,/g, ''));
-            window.capitalCache['CASH'] = val;
-        }
+        if (cashMatch) cc['CASH'] = parseFloat(cashMatch[1].replace(/,/g, ''));
     }
 
     // Determine the most robust value based on user preference
-    let capVal = null;
-    let labelText = "Overall Capital:";
-
-    // Check global mode (updated from env-updated)
     const displayMode = capitalDisplayMode || 'equity';
 
     if (displayMode === 'cash') {
-        labelText = "Buying Power:";
-        // Prefer explicit [CASH] log, fallback to summed broker totals if needed
-        capVal = window.capitalCache['CASH'];
+        dashboardState.capitalLabel = "Buying Power:";
+        let capVal = cc['CASH'];
         if (capVal === undefined || capVal === null) {
-            // Fallback to summing up individual broker cash sources
-            const total = (window.capitalCache['OANDA'] || 0) +
-                (window.capitalCache['CCXT'] || 0) +
-                (window.capitalCache['IBKR'] || 0);
+            const total = (cc['OANDA'] || 0) + (cc['CCXT'] || 0) + (cc['IBKR'] || 0);
             if (total > 0) capVal = total;
         }
+        if (capVal !== null && capVal !== undefined) dashboardState.capital = capVal;
     } else {
-        labelText = "Overall Capital:";
-        // [HEARTBEAT] and [TOTAL] are now Equity-authoritative
-        capVal = window.capitalCache['TOTAL'] || window.capitalCache['HEARTBEAT'];
+        dashboardState.capitalLabel = "Overall Capital:";
+        const capVal = cc['TOTAL'] || cc['HEARTBEAT'];
+        if (capVal !== null && capVal !== undefined) dashboardState.capital = capVal;
     }
 
-    if (capVal !== null && capVal !== undefined) {
-        const capitalEl = document.getElementById('account-capital');
-        const labelEl = document.getElementById('capital-label');
-        if (capitalEl) {
-            capitalEl.innerText = capVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        }
-        if (labelEl) {
-            labelEl.innerText = labelText;
-        }
-    }
+    syncUI();
 
-    // 4. AI Insight (Timestamped Bubbles)
+    // 4. AI Insight (Timestamped Bubbles) — [ANTIGRAVITY] XSS-safe with createElement
     if (line.includes('[COMMENTARY]') || line.includes('commentary:') || line.includes('Insight:')) {
         const textParts = line.split(/\[COMMENTARY\]|commentary:|Insight:/i);
         if (textParts.length > 1) {
@@ -1327,22 +1641,35 @@ function parseLogLine(line) {
             const scroller = document.getElementById('insight-scroller');
             if (scroller) {
                 // Clear initial placeholder if this is the first real message
-                if (scroller.querySelector('.italic.text-slate-500')) {
-                    scroller.innerHTML = '';
+                const placeholder = scroller.querySelector('.italic.text-slate-500');
+                if (placeholder) {
+                    while (scroller.firstChild) scroller.removeChild(scroller.firstChild);
                 }
 
                 const div = document.createElement('div');
                 div.className = "insight-bubble bg-teal-500/5 border border-teal-500/20 rounded-xl p-4 mb-4 animate-in fade-in slide-in-from-bottom-2 duration-500";
 
-                const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
-                div.innerHTML = `
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="text-[9px] font-black uppercase tracking-widest text-teal-400 opacity-70">AI Signal Analysis</span>
-                        <span class="text-[9px] font-mono text-slate-500">${ts}</span>
-                    </div>
-                    <div class="text-slate-200 text-sm leading-relaxed">${text}</div>
-                `;
+                const ts = formatTime();
 
+                // Header row
+                const header = document.createElement('div');
+                header.className = 'flex justify-between items-center mb-2';
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'text-[9px] font-black uppercase tracking-widest text-teal-400 opacity-70';
+                titleSpan.textContent = 'AI Signal Analysis';
+                const tsSpan = document.createElement('span');
+                tsSpan.className = 'text-[9px] font-mono text-slate-500';
+                tsSpan.textContent = ts;
+                header.appendChild(titleSpan);
+                header.appendChild(tsSpan);
+
+                // Body
+                const body = document.createElement('div');
+                body.className = 'text-slate-200 text-sm leading-relaxed';
+                body.textContent = text;
+
+                div.appendChild(header);
+                div.appendChild(body);
                 scroller.appendChild(div);
                 scroller.scrollTop = scroller.scrollHeight;
             }
@@ -1372,18 +1699,27 @@ function upsertHoldingRow(symbol, side) {
     if (!tbody) return;
 
     // Check if exists
-    let row = Array.from(tbody.rows).find(r => r.cells[0].innerText === symbol);
+    let row = Array.from(tbody.rows).find(r => r.cells[0]?.textContent === symbol);
     if (!row) {
         row = tbody.insertRow(0);
         row.className = "border-b border-slate-700/30 hover:bg-slate-800/20 transition-colors";
-        row.innerHTML = `<td class="p-4 font-mono font-bold text-slate-200">${symbol}</td>
-                         <td class="p-4 text-center font-bold text-xs"></td>
-                         <td class="p-4 text-right font-mono text-slate-400">---</td>
-                         <td class="p-4 text-right font-mono font-bold text-green-400">---</td>`;
+        // [ANTIGRAVITY] XSS-safe: createElement + textContent
+        const cellDefs = [
+            { text: symbol, cls: 'p-4 font-mono font-bold text-slate-200' },
+            { text: '', cls: 'p-4 text-center font-bold text-xs' },
+            { text: '---', cls: 'p-4 text-right font-mono text-slate-400' },
+            { text: '---', cls: 'p-4 text-right font-mono font-bold text-green-400' },
+        ];
+        cellDefs.forEach(def => {
+            const td = document.createElement('td');
+            td.className = def.cls;
+            td.textContent = def.text;
+            row.appendChild(td);
+        });
     }
 
     const sideCell = row.cells[1];
-    sideCell.innerText = side.toUpperCase();
+    sideCell.textContent = side.toUpperCase();
     sideCell.className = `p-4 text-center font-bold text-xs ${side.toLowerCase() === 'short' ? 'text-red-400' : 'text-green-400'}`;
 }
 
@@ -1483,7 +1819,7 @@ function setupInteractiveElements() {
         if (WATCHED_SYMBOLS.length === 0) return;
         const sym = WATCHED_SYMBOLS[currentSymbolIndex];
         if (symbolLabel) {
-            symbolLabel.innerHTML = `${sym}`;
+            symbolLabel.textContent = sym;
         }
         appendLog("INFO", `[UI] Switched chart to ${sym}`);
 
@@ -1511,8 +1847,11 @@ function setupInteractiveElements() {
             if (document.getElementById('chart-tf-label')) document.getElementById('chart-tf-label').innerText = tf;
 
             console.log(`Switching chart to ${tf}`);
-            const sym = document.getElementById('chart-symbol-label')?.innerText;
-            if (sym) subscribeToAsset(sym, tf);
+            const sym = (document.getElementById('chart-symbol-label')?.innerText || "").trim();
+            if (sym) {
+                subscribeToAsset(sym, tf);
+                refreshChartMarkers(sym); // [ANTIGRAVITY FIX] Refresh markers on TF change
+            }
         });
     });
 
@@ -1529,8 +1868,11 @@ function setupInteractiveElements() {
         if (document.getElementById('chart-tf-label')) document.getElementById('chart-tf-label').innerText = tf;
 
         console.log(`Switching chart to ${tf} via dropdown`);
-        const sym = document.getElementById('chart-symbol-label')?.innerText;
-        if (sym) subscribeToAsset(sym, tf);
+        const sym = (document.getElementById('chart-symbol-label')?.innerText || "").trim();
+        if (sym) {
+            subscribeToAsset(sym, tf);
+            refreshChartMarkers(sym); // [ANTIGRAVITY FIX] Refresh markers on TF change
+        }
     });
 
     // Button Handlers
@@ -1724,16 +2066,15 @@ function setupInteractiveElements() {
 
 // --- Main Initialization ---
 // --- Persistence Logic ---
+// [ANTIGRAVITY] Phase 4: Config-only persistence (no innerHTML serialization)
 function saveState() {
     const state = {
-        profile: document.getElementById('status-profile')?.innerText,
-        equity: document.getElementById('account-equity')?.innerText,
-        decisions: document.getElementById('decisions-table')?.innerHTML,
-        commentary: document.getElementById('commentary-content')?.innerText,
-        holdings: document.getElementById('holdings-table-body')?.innerHTML,
-        symbol: document.getElementById('chart-symbol-label')?.innerText,
-        timeframe: document.getElementById('chart-tf-label')?.innerText,
-        isHalted: document.getElementById('btn-panic')?.classList.contains('bg-emerald-500')
+        profile: dashboardState.profile,
+        symbol: document.getElementById('chart-symbol-label')?.innerText || dashboardState.activeSymbol,
+        timeframe: document.getElementById('chart-tf-label')?.innerText || dashboardState.activeTimeframe,
+        isHalted: dashboardState.isHalted || document.getElementById('btn-panic')?.classList.contains('bg-emerald-500'),
+        timeFormat: dashboardState.timeFormat,
+        pnlTimeframe: dashboardState.pnlTimeframe,
     };
     localStorage.setItem('tradebot_state', JSON.stringify(state));
 }
@@ -1743,24 +2084,28 @@ function loadState() {
     if (!raw) return;
     try {
         const state = JSON.parse(raw);
-        if (state.profile) document.getElementById('status-profile').innerText = state.profile;
-        if (state.equity) document.getElementById('account-equity').innerText = state.equity;
-
-        // [ANTIGRAVITY] Revised: Only wipe if we don't have enough rows (prevent boot clear of history)
-        const decTable = document.getElementById('decisions-table');
-        if (decTable && decTable.rows.length < 5) {
-            decTable.innerHTML = '';
+        if (state.profile) dashboardState.profile = state.profile;
+        if (state.symbol) {
+            dashboardState.activeSymbol = state.symbol;
+            const symEl = document.getElementById('chart-symbol-label');
+            if (symEl) symEl.textContent = state.symbol;
         }
-
-        if (document.getElementById('commentary-content')) document.getElementById('commentary-content').innerHTML = '';
-        document.getElementById('holdings-table-body').innerHTML = '';
-
-        if (state.symbol) document.getElementById('chart-symbol-label').innerText = state.symbol;
-        if (state.timeframe) document.getElementById('chart-tf-label').innerText = state.timeframe;
-
-        if (state.isHalted) {
-            setPanicState(true);
+        if (state.timeframe) {
+            dashboardState.activeTimeframe = state.timeframe;
+            const tfEl = document.getElementById('chart-tf-label');
+            if (tfEl) tfEl.textContent = state.timeframe;
         }
+        if (state.timeFormat) {
+            timeFormat = state.timeFormat;
+            window.timeFormat = timeFormat;
+            dashboardState.timeFormat = timeFormat;
+        }
+        if (state.pnlTimeframe) {
+            pnlTimeframe = state.pnlTimeframe;
+            dashboardState.pnlTimeframe = pnlTimeframe;
+        }
+        if (state.isHalted) setPanicState(true);
+        syncUI();
     } catch (e) { console.error("Load State Error:", e); }
 }
 
@@ -1798,8 +2143,10 @@ function init() {
         // Initialize PnL Timeframe from env (overrides stale localStorage)
         window.api.invoke('read-env').then(env => {
             if (env.GUI_PNL_TIMEFRAME) {
-                pnlTimeframe = env.GUI_PNL_TIMEFRAME;
-                localStorage.setItem('pnlTimeframe', pnlTimeframe);
+                window.syncPnLTimeframe(env.GUI_PNL_TIMEFRAME);
+            }
+            if (env.GUI_TIME_FORMAT) {
+                window.syncTimeFormat(env.GUI_TIME_FORMAT);
             }
             updateRealizedPnL();
         });

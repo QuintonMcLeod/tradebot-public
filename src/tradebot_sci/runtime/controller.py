@@ -86,7 +86,8 @@ class RuntimeController:
                 "symbols": getattr(self.profile_settings, "symbols", []),
                 "is_sabbath": sabbath_active,
                 "halted": self.ws_server.is_halted(),
-                "pnl_stats": pnl_stats
+                "pnl_stats": pnl_stats,
+                "time_format": getattr(self.settings.runtime, "time_format", "24h")
             }
             logger.info(f"[PRODB-STATE] Broadcasting state: profile={self.profile_name} equity=${total_equity:.2f} cash=${cash:.2f}")
             self.ws_server.broadcast_state_sync(state_data)

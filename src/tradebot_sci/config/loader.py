@@ -161,6 +161,9 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         "exchange_provider": exchange_provider,
         "primary_market_provider": primary_market_provider,
         "primary_broker": primary_broker,
+        "primary_forex": b_cfg.get("primary_forex") or m_cfg.get("primary_forex") or g_cfg.get("primary_forex") or os.getenv("PRIMARY_FOREX", "oanda"),
+        "primary_crypto": b_cfg.get("primary_crypto") or m_cfg.get("primary_crypto") or g_cfg.get("primary_crypto") or os.getenv("PRIMARY_CRYPTO", "gemini"),
+        "primary_equities": b_cfg.get("primary_equities") or m_cfg.get("primary_equities") or g_cfg.get("primary_equities") or os.getenv("PRIMARY_EQUITIES", "disabled"),
         "alternative_market_data": m_cfg.get("alternative_market_data") or g_cfg.get("alternative_market_data") or "ccxt",
         "alternative_broker": m_cfg.get("alternative_broker") or g_cfg.get("alternative_broker") or "ccxt",
         "default_symbol": m_cfg.get("default_symbol") or g_cfg.get("market_default_symbol") or "SPY",
@@ -170,6 +173,10 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     }
 
     runtime_cfg = config.get("global", {}) # Many runtime settings are in global
+    # [ANTIGRAVITY FIX] The settings UI writes runtime fields (time_format,
+    # pnl_timeframe, global_default_risk_pct, etc.) to config["runtime"].
+    # Merge those in so they aren't silently dropped.
+    runtime_cfg.update(config.get("runtime", {}))
     risk_model_cfg = config.get("risk", {})
     schedule_cfg = config.get("schedule", {})
     

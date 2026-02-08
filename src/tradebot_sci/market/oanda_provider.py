@@ -60,31 +60,67 @@ class OandaMarketDataProvider:
         return mapping.get(tf, "M5")
 
     def get_latest_candles(self, symbol: str, timeframe: str, limit: int) -> List[Candle]:
+        logger.info(f"[OANDA-DEBUG] Fetching {limit} candles for {symbol} ({timeframe})")
         oanda_sym = self._normalize_symbol(symbol)
         oanda_tf = self._map_timeframe(timeframe)
         
         params = {
             "count": limit,
             "granularity": oanda_tf,
-            "price": "M"  # Midpoint
+            "price": "M",  # Midpoint
+            "alignmentTimezone": "UTC" # [ANTIGRAVITY] Explicitly enforce UTC
         }
         
         try:
             r = instruments.InstrumentsCandles(instrument=oanda_sym, params=params)
             self.client.request(r)
             
+            raw_candles = r.response.get("candles", [])
+            logger.info(f"[OANDA-DEBUG] Received {len(raw_candles)} candles from API")
+            
             candles = []
-            for c in r.response.get("candles", []):
-                if not c.get("complete"):
-                    continue
+            for c in raw_candles:
                 mid = c.get("mid")
                 if not mid:
                     continue
                     
-                # OANDA timestamp is "2024-01-22T10:00:00.000000000Z"
-                ts_str = c["time"].split(".")[0].replace("Z", "")
-                ts = datetime.fromisoformat(ts_str).replace(tzinfo=timezone.utc)
+                # OANDA timestamp is often "2024-01-22T10:00:00.000000000Z"
+                # Newer Python fromisoformat handles 'Z', but may struggle with 9-digit nanos.
+                # We normalize to 6-digit micros for robust parsing.
+                raw_time = c["time"]
+                if "." in raw_time:
+                    base, rest = raw_time.split(".", 1)
+                    # rest is "NNNNNNNNNZ" or "NNNNNNNNN+00:00"
+                    suffix = ""
+                    if "Z" in rest:
+                        suffix = "Z"
+                        rest = rest.replace("Z", "")
+                    elif "+" in rest:
+                        rest, offset = rest.split("+", 1)
+                        suffix = "+" + offset
+                    elif "-" in rest:
+                        rest, offset = rest.split("-", 1)
+                        suffix = "-" + offset
+                    
+                    # Truncate nanos to micros (6 digits)
+                    raw_time = f"{base}.{rest[:6]}{suffix}"
                 
+                # Use a robust parsing method
+                if raw_time.endswith("Z"):
+                    ts = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+                else:
+                    ts = datetime.fromisoformat(raw_time)
+                
+                # Ensure it's UTC aware even if parsed as naive (though Z/+00:00 makes it aware)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                else:
+                    ts = ts.astimezone(timezone.utc)
+                
+                # [DEBUG] Log the first candle time to verify 12h issue
+                if not candles:
+                    logger.info(f"[OANDA-DEBUG] Raw: {c['time']} | Normalized: {raw_time} | Parsed: {ts.isoformat()} | Epoch: {int(ts.timestamp())}")
+
                 candles.append(Candle(
                     timestamp=ts,
                     open=float(mid["o"]),

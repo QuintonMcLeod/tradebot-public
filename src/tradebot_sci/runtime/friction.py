@@ -52,9 +52,12 @@ class FrictionModel:
     when conditions make the expected edge non-viable.
     """
 
-    def __init__(self, *, max_spread_bps: float = 25.0, min_rr: float = 1.2) -> None:
+    def __init__(self, *, max_spread_bps: float = 25.0, min_rr: float = 1.2,
+                 max_fee_to_reward_ratio: float = 0.25, default_fee_rate: float = 0.004) -> None:
         self.max_spread_bps = max_spread_bps
         self.min_rr = min_rr
+        self.max_fee_to_reward_ratio = max_fee_to_reward_ratio
+        self.default_fee_rate = default_fee_rate
 
     def evaluate(self, provider, decision: AITradeDecision) -> FrictionDecision:
         if decision.action not in {"enter_long", "enter_short", "scale_in"}:
@@ -73,6 +76,25 @@ class FrictionModel:
             return FrictionDecision(allow=True, reason="no spread (skip friction gate)", rr=rr)
         if spread > self.max_spread_bps:
             return FrictionDecision(allow=False, reason=f"spread_bps>{self.max_spread_bps}", spread_bps=spread, rr=rr)
+
+        # [ANTIGRAVITY] Fee-cost-to-reward gate: block trades where fees eat the edge
+        if decision.entry_price and decision.take_profit:
+            entry = float(decision.entry_price)
+            tp = float(decision.take_profit)
+            expected_reward = abs(tp - entry)
+            if expected_reward > 0:
+                round_trip_cost = entry * 2 * self.default_fee_rate  # Buy + Sell fees
+                fee_ratio = round_trip_cost / expected_reward
+                if fee_ratio > self.max_fee_to_reward_ratio:
+                    logger.info(
+                        f"[FRICTION] Fee-to-Reward BLOCK: {decision.symbol} "
+                        f"fees=${round_trip_cost:.4f} / reward=${expected_reward:.4f} = {fee_ratio:.1%} > {self.max_fee_to_reward_ratio:.0%}"
+                    )
+                    return FrictionDecision(
+                        allow=False,
+                        reason=f"fee_ratio={fee_ratio:.2f}>{self.max_fee_to_reward_ratio}",
+                        spread_bps=spread, rr=rr,
+                    )
 
         return FrictionDecision(allow=True, reason="ok", spread_bps=spread, rr=rr)
 
