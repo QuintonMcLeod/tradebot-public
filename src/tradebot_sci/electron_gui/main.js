@@ -391,13 +391,34 @@ function createWindow() {
         const stdoutPath = path.join(__dirname, '../../../logs/bot_stdout.log');
         try { if (fs.existsSync(stdoutPath)) fs.truncateSync(stdoutPath); } catch (e) { }
 
+        const repoRoot = path.join(__dirname, '../../../');
+        const venvPath = isWindows()
+            ? path.join(repoRoot, '.venv/Scripts/python.exe')
+            : path.join(repoRoot, '.venv/bin/python');
+
+        if (!fs.existsSync(venvPath)) {
+            const msg = `Python environment not found at: ${venvPath}`;
+            console.error(`[MAIN] ${msg}`);
+            mainWindow.webContents.send('fromMain', {
+                type: 'gui-notice',
+                message: "Startup Error",
+                detail: msg,
+                color: 'red'
+            });
+            return;
+        }
+
         const winFlag = isWindows();
+        // [ANTIGRAVITY FIX] Redirect both stdout and stderr to a file on Windows to capture crashes
         const spawnCmd = winFlag
-            ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" -m tradebot_sci.runtime.controller --daemon`
+            ? `cd /d "${repoRoot}" && ".venv/Scripts/python.exe" -m tradebot_sci.runtime.controller --daemon > "logs/bot_stdout.log" 2>&1`
             : `bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);
-        fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
+        try {
+            const debugLogPath = path.join(__dirname, '../../../logs/gui_start_debug.log');
+            fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
+        } catch (e) { }
 
         exec(spawnCmd, (error) => {
             if (error) {
@@ -423,17 +444,34 @@ function createWindow() {
                     let errorDetail = "Process died unexpectedly.";
                     try {
                         if (fs.existsSync(stdoutPath)) {
-                            const logs = fs.readFileSync(stdoutPath, 'utf8');
-                            errorDetail = logs.split('\n').filter(l => l.trim()).slice(-3).join('\n') || errorDetail;
+                            // Give it a tiny bit of time to flush the file
+                            setTimeout(() => {
+                                const logs = fs.readFileSync(stdoutPath, 'utf8');
+                                // Take the last 5 lines for better context on Windows
+                                errorDetail = logs.split('\n').filter(l => l.trim()).slice(-5).join('\n') || errorDetail;
+                                mainWindow.webContents.send('fromMain', {
+                                    type: 'gui-notice',
+                                    message: "Bot Startup Failed",
+                                    detail: errorDetail,
+                                    color: 'red'
+                                });
+                            }, 500);
+                        } else {
+                            mainWindow.webContents.send('fromMain', {
+                                type: 'gui-notice',
+                                message: "Bot Startup Failed",
+                                detail: errorDetail,
+                                color: 'red'
+                            });
                         }
-                    } catch (e) { }
-
-                    mainWindow.webContents.send('fromMain', {
-                        type: 'gui-notice',
-                        message: "Bot Startup Failed",
-                        detail: errorDetail,
-                        color: 'red'
-                    });
+                    } catch (e) {
+                        mainWindow.webContents.send('fromMain', {
+                            type: 'gui-notice',
+                            message: "Bot Startup Failed",
+                            detail: errorDetail,
+                            color: 'red'
+                        });
+                    }
                     checkBotStatus(mainWindow, true);
                 }
                 checks++;
