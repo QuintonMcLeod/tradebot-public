@@ -98,6 +98,7 @@ class CCXTExchangeBroker:
                 "ETH/USD:USD-260130": "ETH/USD:USD-260130",
                 "SOL/USD:USD-260130": "SOL/USD:USD-260130",
                 "LTC/USD:USD-260130": "LTC/USD:USD-260130",
+                "ZECUSD": "ZEC/USD", "BCHUSD": "BCH/USD",
                 "DOGE/USD:USD-260130": "DOGE/USD:USD-260130",
                 "AVAX/USD:USD-260130": "AVAX/USD:USD-260130",
                 "LINK/USD:USD-260130": "LINK/USD:USD-260130",
@@ -1662,14 +1663,40 @@ class CCXTExchangeBroker:
             logger.debug(f"[CCXT] mapped {symbol} -> {res}")
             return res
         
-        # [ANTIGRAVITY FIX] Fallback to dynamic lookup in loaded markets
+        # [ANTIGRAVITY FIX] Fallback to dynamic lookup or pattern matching
         try:
             if not self._exchange.markets:
                 self._exchange.load_markets()
+            
+            # 1. Exact match in markets
             if key in self._exchange.markets:
-                return key # CCXT ID matches symbol name for dated futures
-        except Exception:
-            pass
+                return key
+            
+            # 2. Try common slash patterns (e.g. BTCUSD -> BTC/USD)
+            if len(key) >= 6:
+                # Try 3/3 split
+                base, quote = key[:-3], key[-3:]
+                pattern1 = f"{base}/{quote}"
+                if pattern1 in self._exchange.markets:
+                    logger.info(f"[CCXT] Auto-detected mapping {symbol} -> {pattern1}")
+                    return pattern1
+                
+                # Try 4/3 split (for DAI, USDT, USDC etc)
+                if len(key) >= 7:
+                    base, quote = key[:-4], key[-4:]
+                    pattern2 = f"{base}/{quote}"
+                    if pattern2 in self._exchange.markets:
+                        logger.info(f"[CCXT] Auto-detected mapping {symbol} -> {pattern2}")
+                        return pattern2
+
+            # 3. Match by base/quote suffix in markets keys
+            for m_key in self._exchange.markets:
+                if m_key.replace("/", "").replace(":", "").upper() == key:
+                    logger.info(f"[CCXT] Auto-detected mapping {symbol} -> {m_key} (fuzzy match)")
+                    return m_key
+
+        except Exception as e:
+            logger.debug(f"[CCXT] Fallback mapping error for {symbol}: {e}")
             
         logger.warning(f"[CCXT] No mapping for {symbol}")
         raise ValueError(f"No CCXT symbol mapping for {symbol}. Set CCXT_SYMBOL_MAP.")
