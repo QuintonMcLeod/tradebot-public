@@ -781,7 +781,9 @@
       "target_leverage": 1,
       "name": "crypto_247",
       "session_overlap_timezone": "America/New_York",
-      "gui_pnl_timeframe": "24h"
+      "gui_pnl_timeframe": "24h",
+      "icc_auto_entry_min_htf_strength": 0.5,
+      "limit_loss_daily_pct": 0.6
     }
   },
   "runtime": {

@@ -845,20 +845,14 @@
                     <!-- Tab content will be rendered here -->
                 </div>
 
-                <!-- Action Footer -->
-                <div class="h-20 border-t border-white/5 bg-black/60 flex items-center px-12 justify-between">
-                    <div class="flex flex-col">
-                        <div class="text-[10px] text-teal-400 font-black uppercase tracking-[0.2em]">Session Changes
+                <!-- Auto-Save Status Footer -->
+                <div class="h-14 border-t border-white/5 bg-black/60 flex items-center px-12 justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="material-symbols-outlined text-emerald-400/50 text-base">sync</span>
+                        <div class="flex flex-col">
+                            <div class="text-[10px] text-teal-400 font-black uppercase tracking-[0.2em]">Auto-Save</div>
+                            <div id="change-counter" class="text-xs text-emerald-400/70 font-bold">All settings synced to disk</div>
                         </div>
-                        <div id="change-counter" class="text-xs text-slate-500 font-bold">0 unsaved changes
-                            detected</div>
-                    </div>
-                    <div class="flex gap-4">
-                        <button id="btn-revert"
-                            class="px-8 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold transition-all border border-white/5">Revert</button>
-                        <button id="btn-save"
-                            class="px-10 py-3 rounded-xl bg-teal-500 hover:bg-teal-600 text-black text-xs font-black uppercase tracking-widest transition-all shadow-[0_0_30px_rgba(20,184,166,0.2)]">Save
-                            Changes</button>
                     </div>
                 </div>
             </div>

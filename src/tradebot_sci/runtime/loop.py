@@ -528,17 +528,23 @@ def run_bot(
         if execute_trades
         else None
     )
-    executor_paper = PaperBroker(
-        profile_settings,
-        market_provider=provider,
-        trade_results=trade_results
-    )
+    # [ANTIGRAVITY FIX] Only create PaperBroker if Sabbath is enabled (its only use case)
+    executor_paper = None
+    if sabbath_context.enabled:
+        executor_paper = PaperBroker(
+            profile_settings,
+            market_provider=provider,
+            trade_results=trade_results
+        )
+        logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
+    else:
+        logger.info("[PAPER] Paper Broker disabled (Sabbath not enabled).")
 
     # Initial Sabbath Check to set correct executor reference
     now_init = datetime.now(ZoneInfo("UTC"))
     sabbath_active_init, _, _ = sabbath_context.evaluate(now_init)
     
-    executor = executor_paper if sabbath_active_init else executor_real
+    executor = executor_paper if (sabbath_active_init and executor_paper) else executor_real
 
     if executor and settings.runtime.cancel_orders_on_start:
         for symbol in symbols:
@@ -711,6 +717,9 @@ def run_bot(
                                     symbol=sym,
                                     trade_results=trade_results,
                                 )
+                            else:
+                                # [ANTIGRAVITY FIX] Sync profile to EXISTING engines
+                                engines[sym].profile = profile_settings
                         
                         # Remove dropped symbols (optional, but good for cleanup)
                         current_keys = list(engines.keys())
@@ -739,10 +748,10 @@ def run_bot(
             now = datetime.now(ZoneInfo("UTC"))
             sabbath_active, _, _ = sabbath_context.evaluate(now)
 
-            if sabbath_active and executor != executor_paper:
+            if sabbath_active and executor_paper and executor != executor_paper:
                 logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading for total silence.")
                 executor = executor_paper
-            elif not sabbath_active and executor == executor_paper:
+            elif not sabbath_active and executor_paper and executor == executor_paper:
                 logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker connection.")
                 executor = executor_real
 
@@ -847,7 +856,7 @@ def run_bot(
                                     )
                                 except Exception as e:
                                     logger.debug(f"[LOOP] UI fetch failed for {sub_sym} {sub_tf}: {e}")
-                if sabbath_active and executor != executor_paper:
+                if sabbath_active and (not executor_paper or executor != executor_paper):
                     if executor and hasattr(executor, "list_open_position_symbols"):
                         active_symbols = [sym for sym in executor.list_open_position_symbols() if sym in engines]
                     else:
@@ -1076,11 +1085,17 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         else None
     )
 
-    executor_paper = PaperBroker(
-        profile_settings, 
-        market_provider=provider, 
-        trade_results=trade_results
-    )
+    # [ANTIGRAVITY FIX] Only create PaperBroker if Sabbath is enabled
+    executor_paper = None
+    if sabbath_context.enabled:
+        executor_paper = PaperBroker(
+            profile_settings, 
+            market_provider=provider, 
+            trade_results=trade_results
+        )
+        logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
+    else:
+        logger.info("[PAPER] Paper Broker disabled (Sabbath not enabled).")
     
     # Active executor reference
     executor = executor_real
@@ -1182,10 +1197,10 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                 sabbath_active, _, _ = sabbath_context.evaluate(loop_now)
                 
                 # [ANTIGRAVITY] Sabbath Paper Trading Swap
-                if sabbath_active and executor != executor_paper:
+                if sabbath_active and executor_paper and executor != executor_paper:
                     logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading Mode.")
                     executor = executor_paper
-                elif not sabbath_active and executor == executor_paper:
+                elif not sabbath_active and executor_paper and executor == executor_paper:
                     logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker.")
                     executor = executor_real
 

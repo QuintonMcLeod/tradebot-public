@@ -110,10 +110,31 @@ function tfToSeconds(tf) {
 function parseLogTimestamp(line) {
     const match = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/);
     if (match) {
-        // Log is LOCAL time, convert to Unix Seconds based on browser's locale
-        return Math.floor(new Date(match[1].replace(' ', 'T')).getTime() / 1000);
+        // Log is LOCAL time, convert to Unix Seconds.
+        // Then shift to match chart's utcToLocal scale.
+        const utcEpoch = Math.floor(new Date(match[1].replace(' ', 'T')).getTime() / 1000);
+        return utcToLocal(utcEpoch);
     }
-    return Math.floor(Date.now() / 1000);
+    return utcToLocal(Math.floor(Date.now() / 1000));
+}
+
+// [ANTIGRAVITY] Timezone offset helper.
+// LightweightCharts treats all timestamps as UTC.
+// To display local time, we shift UTC epoch seconds by the browser's TZ offset.
+const _tzOffsetSec = -(new Date().getTimezoneOffset() * 60); // positive for EST(-5) = -(-300*60) = +18000? No: getTimezoneOffset returns minutes AHEAD of UTC. EST = +300. So offset = -300*60 = -18000. We ADD this to shift UTC->local.
+function utcToLocal(epochSec) {
+    return epochSec - (new Date().getTimezoneOffset() * 60);
+}
+
+// [ANTIGRAVITY] 12-hour tick formatter for the X-axis labels
+function formatTime12h(epochSec) {
+    // epochSec has already been shifted to local, so treat as-is
+    const d = new Date(epochSec * 1000);
+    let h = d.getUTCHours();     // Use UTC since we already shifted
+    const m = d.getUTCMinutes();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
 function initChart(intervalSeconds = 900) {
@@ -141,6 +162,35 @@ function initChart(intervalSeconds = 900) {
         timeScale: {
             borderColor: 'rgba(255, 255, 255, 0.05)',
             timeVisible: true,
+            tickMarkFormatter: (time, tickMarkType, locale) => {
+                // tickMarkType: 0=Year, 1=Month, 2=DayOfMonth, 3=Time, 4=TimeWithSeconds
+                const d = new Date(time * 1000);
+                const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+                const day = d.getUTCDate();
+                if (tickMarkType <= 2) {
+                    // Date-level ticks: show "Jan 15" etc.
+                    return `${month} ${day}`;
+                }
+                // Time-level ticks: show 12-hour format
+                let h = d.getUTCHours();
+                const m = d.getUTCMinutes();
+                const ampm = h >= 12 ? 'PM' : 'AM';
+                h = h % 12 || 12;
+                return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
+            },
+        },
+        localization: {
+            timeFormatter: (time) => {
+                // Crosshair tooltip time format (12-hour)
+                const d = new Date(time * 1000);
+                const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+                const day = d.getUTCDate();
+                let h = d.getUTCHours();
+                const m = d.getUTCMinutes();
+                const ampm = h >= 12 ? 'PM' : 'AM';
+                h = h % 12 || 12;
+                return `${month} ${day}, ${h}:${m.toString().padStart(2, '0')} ${ampm}`;
+            },
         },
     });
 
@@ -282,7 +332,7 @@ async function connectWebSocket() {
                     console.log(`[CHART] Received history for ${msg.symbol} ${msg.tf} (${msg.data.length} candles).`);
 
                     const fixedData = msg.data.map(c => ({
-                        time: c.time,
+                        time: utcToLocal(c.time),
                         open: c.open, high: c.high, low: c.low, close: c.close
                     }));
                     candleSeries.setData(fixedData);
@@ -292,7 +342,7 @@ async function connectWebSocket() {
                         const volumeData = msg.data.map(c => {
                             const isUp = c.close >= c.open;
                             return {
-                                time: c.time,
+                                time: utcToLocal(c.time),
                                 value: c.volume || 0,
                                 color: isUp ? '#2dd4bf' : '#f43f5e'
                             };
@@ -330,7 +380,7 @@ async function connectWebSocket() {
 
                 if (msg.symbol === currentSym && normalizeTf(msg.tf) === normalizeTf(currentTfRaw)) {
                     const fixedData = {
-                        time: msg.data.time,
+                        time: utcToLocal(msg.data.time),
                         open: msg.data.open, high: msg.data.high, low: msg.data.low, close: msg.data.close
                     };
                     candleSeries.update(fixedData);
@@ -338,7 +388,7 @@ async function connectWebSocket() {
                     if (indicatorSeries && typeof msg.data.volume !== 'undefined') {
                         const isUp = msg.data.close >= msg.data.open;
                         indicatorSeries.update({
-                            time: msg.data.time,
+                            time: utcToLocal(msg.data.time),
                             value: msg.data.volume,
                             color: isUp ? '#2dd4bf' : '#f43f5e'
                         });
@@ -1035,7 +1085,7 @@ function updateHoldingsTable(payload) {
 
         // [ANTIGRAVITY] Add entry marker from holdings entry_time
         if (pos && pos.entryTime && pos.entry) {
-            let entryTimeSec = Math.floor(new Date(pos.entryTime).getTime() / 1000);
+            let entryTimeSec = utcToLocal(Math.floor(new Date(pos.entryTime).getTime() / 1000));
             const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
             const interval = tfToSeconds(tfRaw);
 
@@ -1122,14 +1172,20 @@ function parseLogLine(line) {
             let head = parts[0].trim();
 
             let symbol = "UNKNOWN";
-            // Try key-value parse first
+            // Try key-value parse first (e.g. "symbol=BTCUSD")
             const kvSymbolMatch = content.match(/symbol=([A-Z0-9]+)/i);
             if (kvSymbolMatch) {
                 symbol = kvSymbolMatch[1].toUpperCase();
             } else {
-                // Fallback to old "BTCUSD | ..." format
-                const headMatch = head.match(/^([A-Z0-9]+)/);
-                if (headMatch) symbol = headMatch[1];
+                // Try "for SYMBOL:" or "Blocked SYMBOL:" format (from [SAFETY] logs)
+                const forMatch = content.match(/(?:for|Blocked)\s+([A-Z][A-Z0-9]{2,})/);
+                if (forMatch) {
+                    symbol = forMatch[1].toUpperCase();
+                } else {
+                    // Fallback to old "BTCUSD | ..." format (require at least 3 uppercase chars)
+                    const headMatch = head.match(/^([A-Z0-9]{3,})/);
+                    if (headMatch) symbol = headMatch[1];
+                }
             }
 
             // Search ENTIRE content for action/score/reason
@@ -1189,8 +1245,7 @@ function parseLogLine(line) {
             // Chart Indicator (The "Grey Bars" that should be colorful)
             const headerSym = document.getElementById('chart-symbol-label')?.innerText;
             if (indicatorSeries && symbol === headerSym) {
-                const tzOffsetSeconds = new Date().getTimezoneOffset() * 60;
-                const nowSec = Math.floor(Date.now() / 1000) - tzOffsetSeconds;
+                const nowSec = utcToLocal(Math.floor(Date.now() / 1000));
 
                 let color = '#475569'; // Muted grey for neutral/hold
                 const act = action.toUpperCase();

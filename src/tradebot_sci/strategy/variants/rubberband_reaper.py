@@ -5,10 +5,10 @@ import os
 import re
 from typing import Optional
 from tradebot_sci.market.models import MarketSnapshot
-from tradebot_sci.strategy.decisions import AITradeDecision
+from tradebot_sci.strategy.decisions import AITradeDecision, close_position_decision
 from tradebot_sci.strategy.variants.base import BaseStrategy
 from tradebot_sci.market.indicators import calculate_bollinger_bands, calculate_rsi
-from tradebot_sci.strategy.icc_signals import calculate_atr
+from tradebot_sci.strategy.icc_signals import calculate_atr, detect_structure_invalidation
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class RubberbandReaperStrategy(BaseStrategy):
     
     def __init__(self, bb_period=20, bb_std=2.5, rsi_period=7, rsi_overbought=75, rsi_oversold=25, base_risk_pct=0.05):
         import os
-        print(f"DEBUG: Loaded RubberbandReaper from {__file__}")
+        logger.debug(f"Loaded RubberbandReaper from {__file__}")
         super().__init__("Rubberband Reaper")
         
         # CONFIG 20: THE STAIRCASE RATCHET
@@ -36,7 +36,7 @@ class RubberbandReaperStrategy(BaseStrategy):
         self.rsi_overbought = 75      # Strict
         self.rsi_oversold = 25        # Strict
         
-        print(f"DEBUG REAPER: Config 20 (Staircase Ratchet) Loaded. BB={self.bb_std}, RSI={self.rsi_oversold}/{self.rsi_overbought}")
+        logger.debug(f"Reaper Config 20 (Staircase Ratchet) Loaded. BB={self.bb_std}, RSI={self.rsi_oversold}/{self.rsi_overbought}")
 
     def _get_staircase_floor(self, hwm: float) -> float:
         """Calculate the safety floor based on staircase milestones with 2x-2.5x cushion."""
@@ -126,19 +126,24 @@ class RubberbandReaperStrategy(BaseStrategy):
             logger.info(f"[RISK] Using Real-Time Broker Capital: ${effective_capital:.2f}")
         else:
             reconstructed_capital = 100.0
-            if os.path.exists("backtest_pnl.txt"):
-                try:
-                    with open("backtest_pnl.txt", "r") as f:
-                        content = f.read()
-                        pnl_matches = re.findall(r"PnL:\s*\$([-+]?\d*\.?\d+)", content)
-                        # Filter out extreme outliers (e.g. > $1k loss on $100 seed)
-                        parsed_pnl = sum(float(p) for p in pnl_matches)
-                        if parsed_pnl < -150.0:
-                            logger.warning(f"[RISK] Ignoring extreme PnL in backtest_pnl.txt (${parsed_pnl:.2f}). Possibly corrupt.")
-                        else:
-                            reconstructed_capital += parsed_pnl
-                except Exception:
-                    pass
+            # [GUARDED] Only reconstruct from backtest file if explicitly enabled
+            if os.getenv("BACKTEST_PNL_RECONSTRUCTION_ENABLED", "false").lower() == "true":
+                if os.path.exists("backtest_pnl.txt"):
+                    try:
+                        with open("backtest_pnl.txt", "r") as f:
+                            content = f.read()
+                            pnl_matches = re.findall(r"PnL:\s*\$([-+]?\d*\.?\d+)", content)
+                            parsed_pnl = sum(float(p) for p in pnl_matches)
+                            if parsed_pnl < -150.0:
+                                logger.warning(f"[RISK] Ignoring extreme PnL in backtest_pnl.txt (${parsed_pnl:.2f}). Possibly corrupt.")
+                            else:
+                                reconstructed_capital += parsed_pnl
+                    except Exception:
+                        logger.warning("[RISK] Failed to parse backtest_pnl.txt for capital reconstruction.")
+                else:
+                    logger.warning("[RISK] backtest_pnl.txt not found. Using seed capital $100.")
+            else:
+                logger.info("[RISK] Backtest PnL reconstruction disabled. Using seed capital $100.")
             effective_capital = max(reconstructed_capital, 1.0)
             logger.info(f"[RISK] Using Reconstructed Capital: ${effective_capital:.2f}")
         
@@ -191,7 +196,7 @@ class RubberbandReaperStrategy(BaseStrategy):
                  return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias=pos_dir, phase="continuation", action="scale_in",
-                    entry_price=last_close, stop_loss=open_position.get("stop_price"), take_profit=target,
+                    entry_price=last_close, stop_loss=open_position.get("stop_loss") or open_position.get("stop_price") or (last_close - atr * 2.0 if pos_dir == "long" else last_close + atr * 2.0), take_profit=target,
                     risk_per_trade_pct=final_risk_pct,
                     structure_summary=f"STAIRCASE HAMMER ({final_risk_pct*100:.2f}%)",
                     urgency="high",
@@ -239,6 +244,28 @@ class RubberbandReaperStrategy(BaseStrategy):
         return None
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
-        # [SAFETY] Managed by StrategyEngine via SafetyGuard
-        # We only implement Reaper-specific exits here if needed (none currently, relies on SafetyGuard)
+        """Structure-based exit: close if the entry thesis is structurally invalid."""
+        if not open_position or not snapshot.candles or len(snapshot.candles) < 20:
+            return None
+
+        pos_dir = open_position.get("direction") or open_position.get("side")
+        if pos_dir not in {"long", "short"}:
+            return None
+
+        # Check for structure invalidation (swing level broken by ATR buffer)
+        inval = detect_structure_invalidation(snapshot.candles, pos_dir, atr_mult=0.5)
+        if inval:
+            logger.warning(
+                f"[REAPER] Structure Invalidation for {snapshot.symbol} ({pos_dir}): "
+                f"close={inval.last_close:.4f} broke swing={inval.swing_level:.4f} "
+                f"(buffer={inval.buffer:.4f})"
+            )
+            return close_position_decision(
+                snapshot.symbol,
+                snapshot.timeframe,
+                reason=f"Reaper: Structure Invalidation (swing={inval.swing_level:.4f})",
+                emergency_exit=True,
+            )
+
+        # [SAFETY] All other exits managed by StrategyEngine via SafetyGuard
         return None

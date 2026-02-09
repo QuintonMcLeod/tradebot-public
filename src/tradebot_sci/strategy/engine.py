@@ -96,9 +96,12 @@ class StrategyEngine:
         if v == "evolution":
             from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
             return RobotEvolutionStrategy()
-        elif v in ("robocop", "supply_demand"):
+        elif v == "supply_demand":
             from tradebot_sci.strategy.variants.supply_demand import SupplyDemandStrategy
             return SupplyDemandStrategy()
+        elif v == "robocop":
+            from tradebot_sci.strategy.variants.robocop import RoboCopStrategy
+            return RoboCopStrategy()
         elif v == "london_breakout":
             from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
             return LondonBreakoutStrategy()
@@ -254,6 +257,8 @@ class StrategyEngine:
             trade_results=self.trade_results
         )
         if safety_decision:
+            from tradebot_sci.runtime.rejection_journal import rejection_journal
+            rejection_journal.log(self.symbol, timeframe, "SafetyGuard", safety_decision.notes or "Entry blocked")
             logger.info(f"[SAFETY] Entry Blocked for {self.symbol}: {safety_decision.notes}")
             return safety_decision
 
@@ -269,6 +274,31 @@ class StrategyEngine:
         if decision:
             decision.score = score
             decision.grade = grade
+
+            # [ANTIGRAVITY] Counter-Trend Entry Block
+            # Prevents going long when HTF is bearish, or short when HTF is bullish.
+            htf_dir = gates.get("htf_dir", "neutral")
+            if getattr(self.profile, "block_counter_trend_entries", True) and decision.action in ("enter_long", "enter_short", "scale_in"):
+                # Determine effective direction for scale_in from existing position
+                effective_action = decision.action
+                if decision.action == "scale_in" and open_position:
+                    pos_size = open_position.get("size", 0)
+                    effective_action = "enter_long" if pos_size > 0 else "enter_short"
+                
+                is_counter_trend = (
+                    (htf_dir == "bearish" and effective_action == "enter_long")
+                    or (htf_dir == "bullish" and effective_action == "enter_short")
+                )
+                if is_counter_trend:
+                    reason = f"Counter-Trend Blocked: {decision.action} vs HTF={htf_dir}"
+                    logger.info(f"[TREND_GUARD] {self.symbol} {reason}")
+                    from tradebot_sci.strategy.decisions import stand_aside_decision
+                    from tradebot_sci.runtime.rejection_journal import rejection_journal
+                    rejection_journal.log(self.symbol, timeframe, "TrendGuard", reason)
+                    blocked = stand_aside_decision(snapshot.symbol, snapshot.timeframe, reason)
+                    blocked.score = score
+                    blocked.grade = grade
+                    return blocked
 
             # [WEALTH MODE] Augment with Performance Overrides (Sniper, Regime, etc.)
             decision = SafetyGuard.augment_entry_decision(
@@ -315,6 +345,8 @@ class StrategyEngine:
                     if pnl < risk_amt:
                         logger.info(f"[SMART_POSITIONS] Blocked {decision.action} on {self.symbol}. Global PnL (${pnl:.2f}) < New Risk (${risk_amt:.2f})")
                         from tradebot_sci.strategy.decisions import stand_aside_decision
+                        from tradebot_sci.runtime.rejection_journal import rejection_journal
+                        rejection_journal.log(self.symbol, timeframe, "Smart Positions", f"Financing Required: PnL ${pnl:.2f} < Risk ${risk_amt:.2f}")
                         decision = stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"[SMART] Financing Required: PnL ${pnl:.2f} < Risk ${risk_amt:.2f}")
                         decision.score = score
                         decision.grade = grade

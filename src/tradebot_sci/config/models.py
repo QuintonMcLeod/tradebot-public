@@ -232,6 +232,10 @@ class TradingProfileSettings(BaseModel):
         le=1.0,
         description="Minimum HTF trend strength required for ICC auto-entry (prevents weak trend trades).",
     )
+    block_counter_trend_entries: bool = Field(
+        default=True,
+        description="Block entries that go against the HTF trend direction (e.g., no longs in bearish HTF, no shorts in bullish HTF).",
+    )
     icc_auto_entry_require_sweep: bool = Field(
         default=False,
         description="When true, requires a liquidity sweep before ICC continuation can trigger auto-entry. Default false because backtesting shows sweep requirement prevents all entries in real market conditions.",

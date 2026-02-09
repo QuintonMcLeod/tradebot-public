@@ -199,6 +199,7 @@ const TOOLTIPS = {
     SAFETY_STALE_SNIPER_BARS: "Max candle bars to hold a sideways trade before the Sniper terminates it at market price.",
     SAFETY_FLASH_TRAP_ENABLED: "Volatility Protection. Instantly closes trades if ATR spikes by 2.5x average, protecting you from flash-crashes.",
     SAFETY_REGIME_FLIP_ENABLED: "HTF Trend Alignment. If the 4h trend turns against your 15m trade, the bot exits immediately to avoid a mismatch.",
+    BLOCK_COUNTER_TREND_ENTRIES: "Counter-Trend Entry Guard. Prevents opening long positions when the higher timeframe is bearish, and short positions when it's bullish. Stops the bot from catching falling knives.",
 
     // Wealth Weapons Exits
     WEALTH_EXIT_GAMMA_ENABLED: "Velocity Trail. Tightens trailing stops exponentially during vertical moves to capture 90% of the squeeze.",
@@ -1477,6 +1478,7 @@ function renderSafetyTab(container) {
     }));
     section.appendChild(createCard('Flash-Trap Shield', 'Exit instantly on extreme ATR spikes', 'SAFETY_FLASH_TRAP_ENABLED', 'toggle'));
     section.appendChild(createCard('Regime-Flip Veto', 'Exit if HTF trend turns against position', 'SAFETY_REGIME_FLIP_ENABLED', 'toggle'));
+    section.appendChild(createCard('Counter-Trend Block', 'Block entries against HTF trend direction', 'BLOCK_COUNTER_TREND_ENTRIES', 'toggle', { default: 'true' }));
 
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('Safety Metrics (Live Feed)', 'query_stats'));
@@ -1586,6 +1588,7 @@ function updateValue(key, value) {
     envData[key] = value;
     localChanges[key] = value;
     updateChangeCounter();
+    autoSave();
 
     if (key === 'MULTI_POSITION_ENABLED') {
         const smartToggle = document.querySelector('.control-card[data-key="SMART_POSITIONS_ENABLED"]');
@@ -1599,19 +1602,27 @@ function updateValue(key, value) {
     }
 }
 
+/**
+ * Debounced auto-save — writes to disk 1 second after the last change.
+ */
+function autoSave() {
+    clearTimeout(autoSaveTimeout);
+    autoSaveTimeout = setTimeout(async () => {
+        console.log("[SETTINGS] Auto-saving changes...");
+        await saveAll();
+    }, 1000);
+}
+
 function updateChangeCounter() {
     changeCount = Object.keys(localChanges).length;
     const el = document.getElementById('change-counter');
-    const saveBtn = document.getElementById('btn-save');
 
     if (changeCount > 0) {
-        el.textContent = `${changeCount} unsaved change${changeCount > 1 ? 's' : ''} detected`;
-        el.className = 'text-xs text-rose-400 font-bold';
-        saveBtn.classList.add('animate-pulse');
+        el.textContent = `Saving ${changeCount} change${changeCount > 1 ? 's' : ''}...`;
+        el.className = 'text-xs text-amber-400 font-bold';
     } else {
         el.textContent = 'All settings synced to disk';
-        el.className = 'text-xs text-slate-500 font-bold';
-        saveBtn.classList.remove('animate-pulse');
+        el.className = 'text-xs text-emerald-400/70 font-bold';
     }
 }
 
@@ -1640,14 +1651,14 @@ async function saveAll() {
         updateChangeCounter();
 
         // [ANTIGRAVITY] Auto-restart bot after save
-        if (window.electronAPI.restartBot) {
+        if (window.electronAPI?.restartBot) {
             console.log("[SETTINGS] Triggering auto-restart...");
             window.electronAPI.restartBot();
         }
 
         setTimeout(() => { if (indicator) indicator.style.opacity = '0'; }, 2000);
     } catch (e) {
-        alert("Save Error: " + e.message);
+        console.error("[SETTINGS] Save Error:", e.message);
         if (indicator) indicator.style.opacity = '0';
     }
 }

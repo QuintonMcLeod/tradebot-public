@@ -18,6 +18,7 @@ from tradebot_sci.strategy.icc_signals import calculate_atr
 from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
 from tradebot_sci.config.models import UserConfig
 from tradebot_sci.config.loader import get_settings
+from tradebot_sci.runtime.rejection_journal import rejection_journal
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,12 @@ class SafetyGuard:
             cls.SYMBOL_LOSS_STREAKS[symbol] = 0
 
     @classmethod
+    def _reject(cls, symbol: str, timeframe: str, gate_name: str, reason: str) -> AITradeDecision:
+        """Creates a stand-aside decision AND logs it to the rejection journal."""
+        rejection_journal.log(symbol, timeframe, gate_name, reason)
+        return stand_aside_decision(symbol, timeframe, reason)
+
+    @classmethod
     def check_entry_safety(cls, symbol: str, timeframe: str, current_capital: float, snapshot: MarketSnapshot, ai_client: Optional[Any] = None, settings: Optional[Any] = None, trade_results: Optional[Any] = None) -> Optional[AITradeDecision]:
         """
         Runs ALL pre-entry checks.
@@ -144,9 +151,13 @@ class SafetyGuard:
         cls._update_daily_stats(current_capital, asset_class)
 
         # -------------------------------------------------------------
-        # P&L PERFORMANCE TARGETS & LIMITS (NEW)
+        # P&L PERFORMANCE TARGETS & LIMITS
+        # [ANTIGRAVITY] Only activate when capital >= $250.
+        # On small accounts, percentage-based limits trip on a single
+        # trade and lock the bot out — more harm than good.
         # -------------------------------------------------------------
-        if settings and trade_results:
+        PNL_LIMIT_MIN_CAPITAL = 250.0
+        if settings and trade_results and current_capital >= PNL_LIMIT_MIN_CAPITAL:
             # Check Daily, Weekly, Monthly P&L
             for tf_code, interval_name in [('24h', 'Daily'), ('week', 'Weekly'), ('month', 'Monthly')]:
                 stats = trade_results.get_stats_for_timeframe(tf_code)
@@ -160,7 +171,7 @@ class SafetyGuard:
                     if start_cap > 0:
                         max_loss = start_cap * limit_pct
                         if realized_pnl < -max_loss:
-                            return stand_aside_decision(symbol, timeframe, f"{interval_name} Loss Limit Reached ({realized_pnl:.0f} < -{max_loss:.0f})")
+                            return cls._reject(symbol, timeframe, f"{interval_name} Loss Limit", f"{interval_name} Loss Limit Reached ({realized_pnl:.0f} < -{max_loss:.0f})")
 
                 # Check Targets (Profits)
                 target_attr = f"target_profit_{tf_code if tf_code != '24h' else 'daily'}_pct"
@@ -170,7 +181,7 @@ class SafetyGuard:
                     if start_cap > 0:
                         target_profit = start_cap * target_pct
                         if realized_pnl >= target_profit:
-                             return stand_aside_decision(symbol, timeframe, f"{interval_name} Profit Target Reached ({realized_pnl:.0f} >= {target_profit:.0f})")
+                             return cls._reject(symbol, timeframe, f"{interval_name} Profit Target", f"{interval_name} Profit Target Reached ({realized_pnl:.0f} >= {target_profit:.0f})")
 
         # -------------------------------------------------------------
         # 1. DRAWDOWN BREAKER (Account Circuit Breaker)
@@ -178,7 +189,7 @@ class SafetyGuard:
         # Check active pause
         pause_until = cls.DRAWDOWN_PAUSE_UNTIL.get(asset_class)
         if pause_until and now < pause_until:
-            return stand_aside_decision(symbol, timeframe, f"Drawdown Breaker ({asset_class.value.upper()}) active until {pause_until.strftime('%H:%M')}")
+            return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker ({asset_class.value.upper()}) active until {pause_until.strftime('%H:%M')}")
             
         # Check trigger
         if os.getenv("SAFETY_DRAWDOWN_BREAKER_ENABLED", "false").lower() == "true":
@@ -188,7 +199,7 @@ class SafetyGuard:
                 if drawdown > 0.05: # 5% Hard Limit
                      cls.DRAWDOWN_PAUSE_UNTIL[asset_class] = now + timedelta(hours=24)
                      logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}%). Pausing 24h.")
-                     return stand_aside_decision(symbol, timeframe, f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
+                     return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
 
         # -------------------------------------------------------------
         # 2. SESSION LOCKOUT (Time Manager)
@@ -196,7 +207,7 @@ class SafetyGuard:
         if os.getenv("SAFETY_SESSION_LOCKOUT_ENABLED", "false").lower() == "true":
              lockout_hour = int(os.getenv("SAFETY_SESSION_LOCKOUT_HOUR", "12"))
              if est_now.hour >= lockout_hour:
-                 return stand_aside_decision(symbol, timeframe, f"Session Lockout (After {lockout_hour}:00 EST)")
+                 return cls._reject(symbol, timeframe, "Session Lockout", f"Session Lockout (After {lockout_hour}:00 EST)")
 
         # -------------------------------------------------------------
         # 3. [NEW] OPENING RANGE SENTRY (No-Trade Zone)
@@ -205,7 +216,7 @@ class SafetyGuard:
         if os.getenv("SAFETY_OPENING_SENTRY_ENABLED", "false").lower() == "true":
             # Check 9:30-9:45 AM EST
             if est_now.hour == 9 and 30 <= est_now.minute < 45:
-                 return stand_aside_decision(symbol, timeframe, "Opening Range Sentry (9:30-9:45 AM EST)")
+                 return cls._reject(symbol, timeframe, "Opening Range Sentry", "Opening Range Sentry (9:30-9:45 AM EST)")
 
         # -------------------------------------------------------------
         # 4. [NEW] GREED GUARD (Profit Lock)
@@ -214,7 +225,7 @@ class SafetyGuard:
             target = float(os.getenv("SAFETY_GREED_GUARD_TARGET", "100.0"))
             daily_pnl = cls.DAILY_PNL.get(asset_class, 0.0)
             if daily_pnl >= target:
-                return stand_aside_decision(symbol, timeframe, f"Greed Guard Active for {asset_class.value} (Daily Goal ${target:.2f} Met)")
+                return cls._reject(symbol, timeframe, "Greed Guard", f"Greed Guard Active for {asset_class.value} (Daily Goal ${target:.2f} Met)")
 
         # -------------------------------------------------------------
         # 5. [NEW] STREAK BREAKER (Symbol Cooldown)
@@ -223,7 +234,7 @@ class SafetyGuard:
             # Check Active Pause
             if symbol in cls.SYMBOL_PAUSE_UNTIL:
                 if now < cls.SYMBOL_PAUSE_UNTIL[symbol]:
-                     return stand_aside_decision(symbol, timeframe, "Streak Breaker Cooldown Active")
+                     return cls._reject(symbol, timeframe, "Streak Breaker", "Streak Breaker Cooldown Active")
                 else:
                     del cls.SYMBOL_PAUSE_UNTIL[symbol] # Expired
             
@@ -232,7 +243,7 @@ class SafetyGuard:
                 cls.SYMBOL_PAUSE_UNTIL[symbol] = now + timedelta(hours=4)
                 cls.SYMBOL_LOSS_STREAKS[symbol] = 0 # Reset count after triggering
                 logger.warning(f"[SAFETY] Streak Breaker triggered for {symbol}. Pausing 4h.")
-                return stand_aside_decision(symbol, timeframe, "Streak Breaker Triggered (3 Losses)")
+                return cls._reject(symbol, timeframe, "Streak Breaker", "Streak Breaker Triggered (3 Losses)")
 
         # -------------------------------------------------------------
         # 6. [NEW] CHURN BURNER (Rate Limit)
@@ -245,7 +256,7 @@ class SafetyGuard:
             timestamps = [t for t in timestamps if t > cutoff]
             cls.TRADE_TIMESTAMPS[asset_class] = timestamps
             if len(timestamps) >= max_hourly:
-                return stand_aside_decision(symbol, timeframe, f"Churn Burner ({asset_class.value.upper()}) Active (Max {max_hourly}/hr)")
+                return cls._reject(symbol, timeframe, "Churn Burner", f"Churn Burner ({asset_class.value.upper()}) Active (Max {max_hourly}/hr)")
 
         # -------------------------------------------------------------
         # 7. [NEW] VOLATILITY VETO (ATR Filter)
@@ -262,9 +273,9 @@ class SafetyGuard:
                 max_vol = float(os.getenv("SAFETY_VOLATILITY_MAX_PCT", "5.0"))
                 
                 if atr_pct < min_vol:
-                     return stand_aside_decision(symbol, timeframe, f"Volatility Veto: Too Dead (ATR {atr_pct:.3f}% < {min_vol}%)")
+                     return cls._reject(symbol, timeframe, "Volatility Veto", f"Volatility Veto: Too Dead (ATR {atr_pct:.3f}% < {min_vol}%)")
                 if atr_pct > max_vol:
-                     return stand_aside_decision(symbol, timeframe, f"Volatility Veto: Too Volatile (ATR {atr_pct:.3f}% > {max_vol}%)")
+                     return cls._reject(symbol, timeframe, "Volatility Veto", f"Volatility Veto: Too Volatile (ATR {atr_pct:.3f}% > {max_vol}%)")
 
         # 8. [NEW] AI SENTIMENT SHIELD (The Independent Veto)
         # -------------------------------------------------------------
@@ -292,7 +303,7 @@ class SafetyGuard:
                  
                  if "DANGEROUS" in sentiment:
                       if not cache_valid: logger.warning(f"[SAFETY] AI Sentiment Shield blocked {symbol}: {sentiment}")
-                      return stand_aside_decision(symbol, timeframe, f"AI Sentiment Shield: {sentiment}")
+                      return cls._reject(symbol, timeframe, "AI Sentiment Shield", f"AI Sentiment Shield: {sentiment}")
                        
              except Exception as e:
                  logger.warning(f"[SAFETY] AI Shield failed request: {e}")
@@ -323,7 +334,7 @@ class SafetyGuard:
             current_leverage = total_notional / current_capital if current_capital > 0 else 0
             if current_leverage > max_leverage:
                 logger.warning(f"[SAFETY] Leverage Sentry VETO for {target_class.value}: Current Leverage {current_leverage:.1f}x exceeds Cap {max_leverage}x")
-                return stand_aside_decision(symbol, timeframe, f"Leverage Sentry ({target_class.value.upper()}): {current_leverage:.1f}x > {max_leverage}x")
+                return cls._reject(symbol, timeframe, "Leverage Sentry", f"Leverage Sentry ({target_class.value.upper()}): {current_leverage:.1f}x > {max_leverage}x")
 
         # -------------------------------------------------------------
         # 10. [NEW] FEE SHIELD (Capital Bleed Prevention)
@@ -345,7 +356,7 @@ class SafetyGuard:
                     
                     if potential_reward_pct < min_edge_pct:
                          logger.warning(f"[SAFETY] FEE SHIELD: {symbol} Expected Reward {potential_reward_pct:.2%} < Min Edge {min_edge_pct:.2%} (Fees)")
-                         return stand_aside_decision(symbol, timeframe, f"Fee Shield: Reward {potential_reward_pct:.2%} < Fees")
+                         return cls._reject(symbol, timeframe, "Fee Shield", f"Fee Shield: Reward {potential_reward_pct:.2%} < Fees")
 
         return None
 

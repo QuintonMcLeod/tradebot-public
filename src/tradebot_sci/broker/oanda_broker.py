@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Iterable
 
 try:
@@ -27,6 +28,13 @@ logger = logging.getLogger(__name__)
 
 class OandaExchangeBroker(IExchangeBroker):
     """Broker implementation for OANDA v20 API."""
+
+    # [ANTIGRAVITY] Spread cost awareness — OANDA uses spread-only pricing (no commissions).
+    # Average spread in pips; configurable via env var. Default 1.5 pips covers most major pairs.
+    AVG_SPREAD_PIPS = float(os.getenv("OANDA_AVG_SPREAD_PIPS", "1.5"))
+    # Pip value multiplier: 0.0001 for most pairs, 0.01 for JPY pairs
+    PIP_VALUE_STANDARD = 0.0001
+    PIP_VALUE_JPY = 0.01
 
     def __init__(
         self,
@@ -145,8 +153,12 @@ class OandaExchangeBroker(IExchangeBroker):
                 if units > 0 and avg_price > 0:
                     pnl_pct = (pnl_val / (avg_price * units)) * 100
 
+                # [ANTIGRAVITY] Estimate round-trip spread cost for transparency
+                pip_value = self.PIP_VALUE_JPY if "JPY" in symbol.upper() else self.PIP_VALUE_STANDARD
+                est_spread_cost = units * self.AVG_SPREAD_PIPS * pip_value * 2  # x2 for entry + exit
+
                 pnl_str = f"{'+' if pnl_val >= 0 else ''}${pnl_val:.2f}"
-                logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%)")
+                logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) | Est. Spread Cost: ${est_spread_cost:.4f} (OANDA {self.AVG_SPREAD_PIPS} pips)")
                 
                 # Add to TradeResultStore
                 if self.trade_results:
@@ -274,13 +286,21 @@ class OandaExchangeBroker(IExchangeBroker):
             stop_dist = abs(price - stop_price)
             if stop_dist < 1e-8:
                  return ExecutionResult(ExecutionStatus.ERROR, decision.symbol, "stop distance too small"), ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "stop distance too small")
+
+            # [ANTIGRAVITY] Widen effective stop distance by estimated spread cost.
+            # This prevents the bot from sizing too aggressively by accounting for the
+            # spread that will be eaten on entry (and again on exit via SL/TP).
+            pip_value = self.PIP_VALUE_JPY if "JPY" in decision.symbol.upper() else self.PIP_VALUE_STANDARD
+            spread_cost = self.AVG_SPREAD_PIPS * pip_value
+            effective_stop_dist = stop_dist + spread_cost
+            logger.debug(f"[OANDA] Spread buffer: raw_stop_dist={stop_dist:.5f} + spread={spread_cost:.5f} = effective={effective_stop_dist:.5f}")
                 
             risk_amount = self.profile.risk_per_trade_dollars
             if risk_amount <= 0:
                 risk_amount = self._liquid_capital * self.profile.risk_per_trade_pct
                 
-            # units = risk / stop_dist
-            units = risk_amount / stop_dist
+            # units = risk / effective_stop_dist (spread-adjusted)
+            units = risk_amount / effective_stop_dist
             
             # [ANTIGRAVITY] Leverage-based sizing Cap
             # Prevent units from exceeding account_equity * target_leverage

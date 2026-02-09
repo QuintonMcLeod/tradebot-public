@@ -67,6 +67,7 @@ const CONFIG_MAP = {
     'SAFETY_STALE_SNIPER_BARS': ['safety', 'safety_stale_sniper_bars'],
     'SAFETY_FLASH_TRAP_ENABLED': ['safety', 'safety_flash_trap_enabled'],
     'SAFETY_REGIME_FLIP_ENABLED': ['safety', 'safety_regime_flip_enabled'],
+    'BLOCK_COUNTER_TREND_ENTRIES': ['safety', 'block_counter_trend_entries'],
     // Performance
     'PERFORMANCE_MODE': ['performance', 'performance_mode'],
     'TRAILING_STOP_ENABLED': ['performance', 'trailing_stop_enabled'],
@@ -123,7 +124,7 @@ const TOOLTIPS = {
     MAX_DAILY_LOSS_PCT: "Safety circuit breaker - if you lose this percentage of your account in one day, the bot stops trading to prevent catastrophic losses. Like a daily loss limit at a casino.",
     RISK_PER_TRADE_DOLLARS: "Fixed dollar amount to risk per trade instead of percentage. Useful if you want consistent $50 or $100 risk regardless of account size.",
     MAX_LOSS_PER_TRADE_DOLLARS: "Absolute maximum dollars you can lose on any single trade, even if percentage calculation says otherwise. A hard safety cap.",
-    LIMIT_LOSS_DAILY_PCT: "Maximum loss allowed for the daily interval (e.g. 0.06 = 6%). The bot will stop trading for the day if reached. (Aggressive circuit breaker).",
+    LIMIT_LOSS_DAILY_PCT: "Maximum loss allowed for the daily interval (e.g. 0.06 = 6%). The bot will stop trading for the day if reached. Only activates when account capital is above $250 — on smaller accounts, this is like a fire alarm that goes off when you make toast. 🍞",
     LIMIT_LOSS_WEEKLY_PCT: "Maximum loss allowed for the weekly interval (e.g. 0.15 = 15%). The bot will stop trading for the week if reached.",
     LIMIT_LOSS_MONTHLY_PCT: "Maximum loss allowed for the monthly interval (e.g. 0.25 = 25%). The bot will stop trading for the month if reached.",
     TARGET_PROFIT_DAILY_PCT: "Profit target for the daily interval (e.g. 0.02 = 2%). Once hit, the bot stops for the day to lock in profits and prevent 'giving it back'. 0 disables.",
@@ -292,6 +293,7 @@ const TOOLTIPS = {
     SAFETY_STALE_SNIPER_BARS: "Max candle bars to hold a sideways trade before the Sniper terminates it at market price.",
     SAFETY_FLASH_TRAP_ENABLED: "Volatility Protection. Instantly closes trades if ATR spikes by 2.5x average, protecting you from flash-crashes.",
     SAFETY_REGIME_FLIP_ENABLED: "HTF Trend Alignment. If the 4h trend turns against your 15m trade, the bot exits immediately to avoid a mismatch.",
+    BLOCK_COUNTER_TREND_ENTRIES: "Counter-Trend Entry Guard. Prevents opening long positions when the higher timeframe is bearish, and short positions when it's bullish. Stops the bot from catching falling knives.",
 
     // Wealth Weapons Exits
     WEALTH_EXIT_GAMMA_ENABLED: "Velocity Trail. Tightens trailing stops exponentially during vertical moves to capture 90% of the squeeze.",
@@ -1829,6 +1831,7 @@ function renderSafetyTab(container) {
     }));
     section.appendChild(createCard('Flash-Trap Shield', 'Exit instantly on extreme ATR spikes', 'SAFETY_FLASH_TRAP_ENABLED', 'toggle'));
     section.appendChild(createCard('Regime-Flip Veto', 'Exit if HTF trend turns against position', 'SAFETY_REGIME_FLIP_ENABLED', 'toggle'));
+    section.appendChild(createCard('Counter-Trend Block', 'Block entries against HTF trend direction', 'BLOCK_COUNTER_TREND_ENTRIES', 'toggle', { default: 'true' }));
 
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('☢️ NUCLEAR OVERRIDES', 'emergency_home'));
@@ -1988,7 +1991,7 @@ function renderPerformanceTab(container) {
     section.appendChild(pnlGroup);
 
     section.appendChild(createCard('Daily Profit Target %', 'Stop for the day once this % profit is reached (e.g. 0.02 = 2%)', 'TARGET_PROFIT_DAILY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
-    section.appendChild(createCard('Daily Loss Limit %', 'Hard stop for the day if this % loss is hit (e.g. 0.06 = 6%)', 'LIMIT_LOSS_DAILY_PCT', 'input', { number: true, default: '0.06', step: 0.001 }));
+    section.appendChild(createCard('Daily Loss Limit %', 'Hard stop for the day if this % loss is hit (e.g. 0.06 = 6%). Only kicks in above $250 capital — no toast alarms on small accounts 🍞', 'LIMIT_LOSS_DAILY_PCT', 'input', { number: true, default: '0.06', step: 0.001 }));
 
     section.appendChild(createCard('Weekly Profit Target %', 'Lock in weekly gains once reached (e.g. 0.05 = 5%)', 'TARGET_PROFIT_WEEKLY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
     section.appendChild(createCard('Weekly Loss Limit %', 'Protect capital: stop for the week if hit (e.g. 0.15 = 15%)', 'LIMIT_LOSS_WEEKLY_PCT', 'input', { number: true, default: '0.15', step: 0.001 }));
@@ -2161,16 +2164,13 @@ function autoSave() {
 function updateChangeCounter() {
     changeCount = Object.keys(localChanges).length;
     const el = document.getElementById('change-counter');
-    const saveBtn = document.getElementById('btn-save');
 
     if (changeCount > 0) {
-        el.textContent = `${changeCount} unsaved change${changeCount > 1 ? 's' : ''} detected`;
-        el.className = 'text-xs text-rose-400 font-bold';
-        saveBtn.classList.add('animate-pulse');
+        el.textContent = `Saving ${changeCount} change${changeCount > 1 ? 's' : ''}...`;
+        el.className = 'text-xs text-amber-400 font-bold';
     } else {
         el.textContent = 'All settings synced to disk';
-        el.className = 'text-xs text-slate-500 font-bold';
-        saveBtn.classList.remove('animate-pulse');
+        el.className = 'text-xs text-emerald-400/70 font-bold';
     }
 }
 

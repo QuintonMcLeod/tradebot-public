@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from tradebot_sci.market.models import Ticker
 from tradebot_sci.strategy.decisions import AITradeDecision
+from tradebot_sci.runtime.rejection_journal import rejection_journal
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class FrictionModel:
 
         rr = _risk_reward_ratio(decision)
         if rr is not None and rr < self.min_rr:
+            rejection_journal.log(decision.symbol, decision.timeframe, "Friction: R:R", f"rr<{self.min_rr}")
             return FrictionDecision(allow=False, reason=f"rr<{self.min_rr}", rr=rr)
 
         ticker = self._safe_get_ticker(provider, decision.symbol)
@@ -75,6 +77,7 @@ class FrictionModel:
         if spread is None:
             return FrictionDecision(allow=True, reason="no spread (skip friction gate)", rr=rr)
         if spread > self.max_spread_bps:
+            rejection_journal.log(decision.symbol, decision.timeframe, "Friction: Spread", f"spread_bps>{self.max_spread_bps}")
             return FrictionDecision(allow=False, reason=f"spread_bps>{self.max_spread_bps}", spread_bps=spread, rr=rr)
 
         # [ANTIGRAVITY] Fee-cost-to-reward gate: block trades where fees eat the edge
@@ -90,6 +93,7 @@ class FrictionModel:
                         f"[FRICTION] Fee-to-Reward BLOCK: {decision.symbol} "
                         f"fees=${round_trip_cost:.4f} / reward=${expected_reward:.4f} = {fee_ratio:.1%} > {self.max_fee_to_reward_ratio:.0%}"
                     )
+                    rejection_journal.log(decision.symbol, decision.timeframe, "Friction: Fee Ratio", f"fee_ratio={fee_ratio:.2f}>{self.max_fee_to_reward_ratio}")
                     return FrictionDecision(
                         allow=False,
                         reason=f"fee_ratio={fee_ratio:.2f}>{self.max_fee_to_reward_ratio}",
