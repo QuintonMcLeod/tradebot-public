@@ -493,7 +493,8 @@ function updateHoldingsState(data) {
     if (!data) return;
     // Bug 1: Support direct array or object.positions
     dashboardState.positions = Array.isArray(data) ? data : (data.positions || []);
-    dashboardState.unrealizedPnL = parseFloat(data.total_unrealized_pnl || 0);
+    dashboardState.unrealizedPnL = parseFloat(data.total_unrealized_pnl || data.unrealized_pnl || 0);
+    syncHoldingsTable(dashboardState, syncUI._prev || {});
     syncUI();
 }
 
@@ -647,7 +648,7 @@ function parseDecisionFromLog(line) {
             // Bug 3: Hardened Symbol Detection (Extended Ignore List)
             const regex = /\b[A-Z]{3,7}\b/g;
             const matches = content.match(regex) || [];
-            const ignoreList = ['ENTRY', 'EXIT', 'PHASE', 'TRUE', 'FALSE', 'VETO', 'SAFETY', 'INFO', 'WARN', 'ERROR', 'STATUS'];
+            const ignoreList = ['ENTRY', 'EXIT', 'PHASE', 'TRUE', 'FALSE', 'VETO', 'SAFETY', 'INFO', 'WARN', 'ERROR', 'STATUS', 'HEARTBEAT'];
             symbol = matches.find(m => !ignoreList.includes(m.toUpperCase()));
         }
 
@@ -772,10 +773,10 @@ function init() {
 }
 
 function setupInteractive() {
-    // Window Controls (IDs Fixed - Bug 2: Switch to window.api.send)
-    document.getElementById('btn-minimize')?.addEventListener('click', () => window.api.send('minimize-window'));
-    document.getElementById('btn-maximize')?.addEventListener('click', () => window.api.send('maximize-window'));
-    document.getElementById('btn-close')?.addEventListener('click', () => window.api.send('close-window'));
+    // Window Controls (IDs Fixed - Bug 2: Revert to window.api.invoke per bridge requirements)
+    document.getElementById('btn-minimize')?.addEventListener('click', () => window.api.invoke('minimize-window'));
+    document.getElementById('btn-maximize')?.addEventListener('click', () => window.api.invoke('maximize-window'));
+    document.getElementById('btn-close')?.addEventListener('click', () => window.api.invoke('close-window'));
 
     // Bug 4 & 5: Chart Helpers
     document.getElementById('btn-calendar')?.addEventListener('click', () => {
