@@ -239,6 +239,18 @@ class StrategyEngine:
                  safety_exit.grade = grade
                  return safety_exit
 
+            # [POSITION LOCK] If we have an open position and NO exit was triggered above,
+            # HOLD. Do NOT fall through to entry checks. This prevents the Meta-SCI
+            # tournament from flip-flopping between strategies (rubberband says long,
+            # volatility says short, etc.) and bleeding capital via constant reversals.
+            # The position lives or dies by its own SL/TP/exit logic.
+            from tradebot_sci.strategy.decisions import stand_aside_decision
+            hold = stand_aside_decision(self.symbol, timeframe, "[POSITION LOCK] Holding — position managed by SL/TP")
+            hold.action = "hold"
+            hold.score = score
+            hold.grade = grade
+            return hold
+
         # 4. ACCOUNT SAFETY GUARDS (Centralized Entry Veto)
         # [CONSOLIDATED] Run all pre-entry checks (Breaker, Lockout, Greed, Churn, Veto, Streak, Sentry)
         # We run this AFTER exit checks so that TP/SL logic (SafetyGuard.augment_exit_decision)
