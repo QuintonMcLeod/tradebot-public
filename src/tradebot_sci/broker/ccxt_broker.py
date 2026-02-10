@@ -1015,8 +1015,9 @@ class CCXTExchangeBroker:
             self.capital_exhausted = False
 
             # [ANTIGRAVITY FIX] Risk-Based Sizing
-            # 1. Determine Risk Amount from AI pct
-            risk_pct = getattr(decision, "risk_per_trade_pct", 1.0) or 1.0
+            # 1. Determine Risk Amount: decision -> profile -> fallback 1.5%
+            profile_risk = float(getattr(self.profile, "risk_per_trade_pct", 0.015) or 0.015)
+            risk_pct = getattr(decision, "risk_per_trade_pct", None) or profile_risk
             fixed_risk = float(getattr(self.profile, "risk_per_trade_dollars", 0.0) or 0.0)
 
             # 1. Determine Risk Amount

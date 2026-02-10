@@ -1303,6 +1303,7 @@ function renderStrategyTab(container) {
         grid.appendChild(createSliderCard('Default Risk %', 'Fallback equity risk', 'RISK_PER_TRADE_PCT', 0.1, 20.0, 0.1, '%'));
         grid.appendChild(createSliderCard('Short Risk', 'Risk for short positions', 'SHORT_RISK_PCT', 0.1, 20.0, 0.1, '%'));
         grid.appendChild(createSliderCard('Max Exposure', 'Total open risk limit', 'MAX_EXPOSURE_PCT', 5, 100, 5, '%'));
+        grid.appendChild(createSliderCard('Daily Loss Limit', 'Circuit breaker — stops trading for the day 🍞', 'LIMIT_LOSS_DAILY_PCT', 1, 20, 1, '%'));
         section.appendChild(grid);
 
         section.appendChild(createCard('Fixed Risk USD', 'Fixed dollar risk - overrides %', 'RISK_PER_TRADE_DOLLARS', 'input', { number: true, placeholder: '0.00' }));
@@ -1996,7 +1997,7 @@ function renderPerformanceTab(container) {
     section.appendChild(pnlGroup);
 
     section.appendChild(createCard('Daily Profit Target %', 'Stop for the day once this % profit is reached (e.g. 0.02 = 2%)', 'TARGET_PROFIT_DAILY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
-    section.appendChild(createCard('Daily Loss Limit %', 'Hard stop for the day if this % loss is hit (e.g. 0.06 = 6%). Only kicks in above $250 capital — no toast alarms on small accounts 🍞', 'LIMIT_LOSS_DAILY_PCT', 'input', { number: true, default: '0.06', step: 0.001 }));
+    // Daily Loss Limit slider is in Strategy Workshop → Global Risk tab
 
     section.appendChild(createCard('Weekly Profit Target %', 'Lock in weekly gains once reached (e.g. 0.05 = 5%)', 'TARGET_PROFIT_WEEKLY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
     section.appendChild(createCard('Weekly Loss Limit %', 'Protect capital: stop for the week if hit (e.g. 0.15 = 15%)', 'LIMIT_LOSS_WEEKLY_PCT', 'input', { number: true, default: '0.15', step: 0.001 }));

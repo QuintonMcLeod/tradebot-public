@@ -672,7 +672,7 @@ class SafetyGuard:
         return modes[0] if modes else None
 
     @classmethod
-    def augment_entry_decision(cls, decision: AITradeDecision, score: float, htf_strength: float, snapshot: MarketSnapshot, ai_client: Optional[Any] = None) -> AITradeDecision:
+    def augment_entry_decision(cls, decision: AITradeDecision, score: float, htf_strength: float, snapshot: MarketSnapshot, ai_client: Optional[Any] = None, settings=None) -> AITradeDecision:
         """
         Applies "Offensive" performance overrides to an entry decision.
         Supports STACKING: Foundation (Base) + Multipliers (Boosts).
@@ -693,8 +693,10 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # 1. ESTABLISH BASE RISK (The Foundation)
         # -------------------------------------------------------------
-        # Default if no foundation is found
-        base_risk = decision.risk_per_trade_pct or 0.015 
+        # [ANTIGRAVITY FIX] Read from profile settings first, then decision, then fallback.
+        # This ensures the user's configured risk_per_trade_pct is actually respected.
+        profile_risk = getattr(settings, 'risk_per_trade_pct', None) if settings else None
+        base_risk = decision.risk_per_trade_pct or profile_risk or 0.015 
         
         # Priority Check: Detect which Foundation is active (start with "simplicity" default)
         # If multiple foundations are accidentally set, we pick priority: Kelly > Flywheel > Smooth > Simplicity

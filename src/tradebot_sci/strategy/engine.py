@@ -306,7 +306,8 @@ class StrategyEngine:
                 score, 
                 gates["htf_strength"], 
                 snapshot,
-                ai_client=self.ai_client
+                ai_client=self.ai_client,
+                settings=self.profile_settings
             )
             
             # [SMART POSITIONS] Financed Risk Check
