@@ -767,7 +767,7 @@
       "breakeven_trail_pct": 0.003,
       "trailing_stop_enabled": true,
       "risk_reward_ratio": 2,
-      "risk_per_trade_pct": 0.01,
+      "risk_per_trade_pct": 0.045,
       "max_concurrent_positions": 6,
       "multi_position_enabled": true,
       "icc_aggressive_mode": true,
@@ -783,7 +783,8 @@
       "session_overlap_timezone": "America/New_York",
       "gui_pnl_timeframe": "24h",
       "icc_auto_entry_min_htf_strength": 0.5,
-      "limit_loss_daily_pct": 0.6
+      "limit_loss_daily_pct": 0.6,
+      "short_risk_pct": 0.045
     }
   },
   "runtime": {

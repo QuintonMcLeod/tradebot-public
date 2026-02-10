@@ -971,7 +971,13 @@ function createCard(title, desc, key, controlType, options = {}) {
 function createSliderCard(title, desc, key, min, max, step, unit = '%') {
     const card = document.createElement('div');
     card.className = 'slider-card';
-    const value = getValue(key) || min;
+    let rawValue = getValue(key) || min;
+
+    // [ANTIGRAVITY FIX] The model stores fractions (0.045 = 4.5%).
+    // The slider displays human-friendly percentages (4.5%).
+    // Convert stored fraction → display % on load, and display % → fraction on save.
+    const isPct = (unit === '%');
+    const displayValue = isPct && rawValue < 1 ? (rawValue * 100).toFixed(1) : rawValue;
 
     card.innerHTML = `
         <div class="slider-header">
@@ -979,9 +985,9 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%') {
                 <div class="slider-title">${title}</div>
                 <div class="slider-desc">${desc}</div>
             </div>
-            <div class="slider-value">${value}<span class="slider-value-small">${unit}</span></div>
+            <div class="slider-value">${displayValue}<span class="slider-value-small">${unit}</span></div>
         </div>
-        <input type="range" class="slider-input" min="${min}" max="${max}" step="${step}" value="${value}">
+        <input type="range" class="slider-input" min="${min}" max="${max}" step="${step}" value="${displayValue}">
         <div class="slider-key">${key}</div>
     `;
 
@@ -995,7 +1001,9 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%') {
 
     slider.addEventListener('input', (e) => {
         valueDisplay.innerHTML = `${e.target.value}<span class="slider-value-small">${unit}</span>`;
-        updateValue(key, e.target.value);
+        // Save as fraction if unit is '%' (e.g. slider 4.5 → save 0.045)
+        const saveValue = isPct ? (parseFloat(e.target.value) / 100).toString() : e.target.value;
+        updateValue(key, saveValue);
     });
 
     return card;
@@ -1093,9 +1101,7 @@ function renderSystemTab(container) {
         default: '24h'
     }));
 
-    section.appendChild(createCard('Default Risk %', 'Global floor for risk per trade', 'GLOBAL_RISK_PCT', 'input', { number: true, default: '0.015' }));
 
-    section.appendChild(createDivider());
 
     // Runtime Control (Start/Stop/Restart)
     section.appendChild(createSectionHeader('Runtime Control', 'play_circle'));
@@ -1294,10 +1300,9 @@ function renderStrategyTab(container) {
         // Slider Grid
         const grid = document.createElement('div');
         grid.className = 'card-grid';
-        grid.appendChild(createSliderCard('Default Risk %', 'Fallback equity risk', 'RISK_PER_TRADE_PCT', 0.1, 5.0, 0.1, '%'));
-        grid.appendChild(createSliderCard('Short Risk', 'Risk for short positions', 'SHORT_RISK_PCT', 0.1, 5.0, 0.1, '%'));
+        grid.appendChild(createSliderCard('Default Risk %', 'Fallback equity risk', 'RISK_PER_TRADE_PCT', 0.1, 20.0, 0.1, '%'));
+        grid.appendChild(createSliderCard('Short Risk', 'Risk for short positions', 'SHORT_RISK_PCT', 0.1, 20.0, 0.1, '%'));
         grid.appendChild(createSliderCard('Max Exposure', 'Total open risk limit', 'MAX_EXPOSURE_PCT', 5, 100, 5, '%'));
-        grid.appendChild(createSliderCard('Max Daily Loss', 'Daily loss circuit breaker', 'MAX_DAILY_LOSS_PCT', 1, 20, 1, '%'));
         section.appendChild(grid);
 
         section.appendChild(createCard('Fixed Risk USD', 'Fixed dollar risk - overrides %', 'RISK_PER_TRADE_DOLLARS', 'input', { number: true, placeholder: '0.00' }));

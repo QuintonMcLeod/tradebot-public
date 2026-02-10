@@ -166,7 +166,7 @@ if [ -f "$HOME/.local/bin/poetry" ]; then
 else
     # Windows: It might be in a versioned folder like .../Python314/Scripts
     # Search for poetry.exe in APPDATA
-    if [ -n "$APPDATA" ]; then
+    if [ -n "${APPDATA:-}" ]; then
         FOUND_POETRY=$(find "$APPDATA/Python" -name "poetry.exe" -print -quit 2>/dev/null)
         if [ -n "$FOUND_POETRY" ]; then
             POETRY_DIR=$(dirname "$FOUND_POETRY")
@@ -205,7 +205,7 @@ if ! command -v poetry >/dev/null 2>&1; then
     
     # Windows Post-Install Path Hunt
     if [ "$OS" == "windows" ] || [[ "$OSTYPE" == "msys" ]]; then
-        if [ -n "$APPDATA" ]; then
+        if [ -n "${APPDATA:-}" ]; then
             FOUND_POETRY=$(find "$APPDATA/Python" -name "poetry.exe" -print -quit 2>/dev/null)
             if [ -n "$FOUND_POETRY" ]; then
                  POETRY_DIR=$(dirname "$FOUND_POETRY")
