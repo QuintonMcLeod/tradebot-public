@@ -17,11 +17,19 @@ class AggregatorStrategy(BaseStrategy):
     Yields 400%+ by ensuring the bot is always 'loaded' with the best available signals.
     """
     
-    def __init__(self, base_risk_pct=0.10):
+    def __init__(self):
         super().__init__("Singularity Aggregator")
-        self.base_risk_pct = base_risk_pct
-        self.mean_rev = MeanReversionStrategy(bb_period=15, bb_std=2.5, rsi_oversold=25, rsi_overbought=75, base_risk_pct=base_risk_pct)
-        self.scalper = HyperScalperStrategy(fast_ema=13, slow_ema=50, base_risk_pct=base_risk_pct)
+        self.mean_rev = MeanReversionStrategy(bb_period=15, bb_std=2.5, rsi_oversold=25, rsi_overbought=75)
+        self.scalper = HyperScalperStrategy(fast_ema=13, slow_ema=50)
+
+    def __setattr__(self, name, value):
+        super().__setattr__(name, value)
+        # Propagate risk to sub-strategies when set by engine/meta
+        if name == 'profile_risk_pct':
+            if hasattr(self, 'mean_rev'):
+                self.mean_rev.profile_risk_pct = value
+            if hasattr(self, 'scalper'):
+                self.scalper.profile_risk_pct = value
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         # Priority 1: Scale-in if position exists (aggressive load)

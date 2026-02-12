@@ -50,7 +50,7 @@ class VolatilityBreakoutStrategy(BaseStrategy):
                 management_instructions="Net-Zero at 1xATR",
                 notes="Armor Entry (2x ATR)",
                 urgency="high",
-                risk_per_trade_pct=0.10
+                risk_per_trade_pct=self.get_risk_pct()
             )
 
         # Short Entry: Breakout of range low + RSI < 40
@@ -69,7 +69,7 @@ class VolatilityBreakoutStrategy(BaseStrategy):
                 management_instructions="Net-Zero at 1xATR",
                 notes="Armor Entry (2x ATR)",
                 urgency="high",
-                risk_per_trade_pct=0.10
+                risk_per_trade_pct=self.get_risk_pct()
             )
 
         return None
@@ -79,10 +79,10 @@ class VolatilityBreakoutStrategy(BaseStrategy):
         rsi = calculate_rsi([c.close for c in snapshot.candles], 14)
         pos_dir = open_position.get("direction")
         
-        if pos_dir == "long" and rsi < 45:
-             return close_position_decision(snapshot.symbol, snapshot.timeframe, "Volatility Breakout: Momentum Reversal (RSI < 45)")
-        if pos_dir == "short" and rsi > 55:
-             return close_position_decision(snapshot.symbol, snapshot.timeframe, "Volatility Breakout: Momentum Reversal (RSI > 55)")
+        if pos_dir == "long" and rsi < 35:
+             return close_position_decision(snapshot.symbol, snapshot.timeframe, "Volatility Breakout: Momentum Reversal (RSI < 35)")
+        if pos_dir == "short" and rsi > 65:
+             return close_position_decision(snapshot.symbol, snapshot.timeframe, "Volatility Breakout: Momentum Reversal (RSI > 65)")
 
         # [SAFETY] Managed by StrategyEngine via SafetyGuard
         return None

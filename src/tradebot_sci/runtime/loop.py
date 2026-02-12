@@ -438,6 +438,80 @@ def _log_build_info(sabbath_context: SabbathContext) -> None:
 
 # Candidate list building moved to cycle.py
 
+
+def _preflight_broker_check(settings) -> None:
+    """Verify at least one broker has valid API credentials before starting.
+    
+    Checks all supported brokers (OANDA, CCXT, IBKR, Gemini, Kraken, Paxos)
+    for valid API keys. If none are configured, prints a clear error message
+    and exits with code 2.
+    """
+    configured_brokers = []
+    
+    # OANDA — needs api_key + account_id
+    if hasattr(settings, 'oanda') and settings.oanda.api_key and settings.oanda.account_id:
+        configured_brokers.append(f"OANDA ({settings.oanda.environment})")
+    
+    # CCXT — needs api_key (from env or config)
+    ccxt_key = os.getenv("CCXT_API_KEY", "")
+    if ccxt_key:
+        exchange = os.getenv("CCXT_EXCHANGE", "unknown")
+        configured_brokers.append(f"CCXT/{exchange}")
+    
+    # Gemini — needs api_key
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if gemini_key:
+        configured_brokers.append("Gemini")
+    
+    # IBKR — needs a non-default account_id and execution_mode != simulate
+    if (hasattr(settings, 'broker')
+            and settings.broker.account_id
+            and settings.broker.account_id != "DU1234567"
+            and settings.broker.execution_mode != "simulate"):
+        mode = "paper" if settings.broker.use_paper_trading else "live"
+        configured_brokers.append(f"IBKR ({mode})")
+    
+    # Kraken — needs api_key
+    if hasattr(settings, 'kraken') and settings.kraken.api_key:
+        configured_brokers.append("Kraken")
+    
+    # Paxos — needs api_key
+    if hasattr(settings, 'paxos') and settings.paxos.api_key:
+        configured_brokers.append("Paxos")
+    
+    if configured_brokers:
+        logger.info("[PREFLIGHT] ✅ Broker(s) configured: %s", ", ".join(configured_brokers))
+        return
+    
+    # No broker found — refuse to start
+    banner = (
+        "\n"
+        "╔══════════════════════════════════════════════════════════════╗\n"
+        "║  ❌  NO BROKER CONFIGURED — CANNOT START                    ║\n"
+        "╠══════════════════════════════════════════════════════════════╣\n"
+        "║                                                            ║\n"
+        "║  The bot requires at least ONE broker with valid API keys.  ║\n"
+        "║                                                            ║\n"
+        "║  Supported brokers:                                        ║\n"
+        "║    • OANDA  → Settings → Brokers → OANDA (Account + Key)   ║\n"
+        "║    • Gemini → Settings → Brokers → CCXT (Gemini exchange)   ║\n"
+        "║    • CCXT   → Settings → Brokers → CCXT (Any exchange)     ║\n"
+        "║    • IBKR   → Settings → Brokers → IBKR (TWS/Gateway)      ║\n"
+        "║    • Kraken → Settings → Brokers → Kraken                  ║\n"
+        "║                                                            ║\n"
+        "║  Quick start: Open the GUI, go to Settings → Brokers,      ║\n"
+        "║  and enter your API credentials for any broker above.       ║\n"
+        "║                                                            ║\n"
+        "║  See: Documentation/HOW_TO_USE.md (Step 2)                 ║\n"
+        "║  See: Documentation/RTFM/08_API_SETUP.md                   ║\n"
+        "║                                                            ║\n"
+        "╚══════════════════════════════════════════════════════════════╝\n"
+    )
+    print(banner)
+    logger.critical("[PREFLIGHT] No broker configured. Exiting.")
+    sys.exit(2)
+
+
 def run_bot(
     iterations: int | None = None,
     sabbath_override: bool | None = None,
@@ -445,6 +519,7 @@ def run_bot(
 ):
     settings = get_settings()
     setup_logging(settings.logging)
+    _preflight_broker_check(settings)
     profile_settings = settings.get_active_profile()
     profile_name = settings.app.profile_name
     auto_schedule_enabled = bool(getattr(profile_settings, "auto_schedule_enabled", False))
@@ -1024,6 +1099,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
     """Runs the bot only during configured schedule windows so cron isn't required."""
     settings = get_settings()
     setup_logging(settings.logging)
+    _preflight_broker_check(settings)
 
     profile_settings = settings.get_active_profile()
     profile_name = settings.app.profile_name

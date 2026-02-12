@@ -61,15 +61,16 @@ class LondonBreakoutStrategy(BaseStrategy):
         if prev_close <= high and last_close > high:
             stop_loss = low
             risk = high - low
-            target = high + (risk * 1.5)
+            target = high + (risk * 2.0)  # 2:1 R:R
             
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                 bias="long", phase="trend", action="enter_long",
                 entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                risk_per_trade_pct=self.get_risk_pct(),
                 structure_summary=f"London Breakout High (@{high:.4f})",
                 invalidation_conditions="Close back inside range",
-                management_instructions="Target 1.5R",
+                management_instructions="Target 2R",
                 notes="Standard London Breakout strategy",
                 urgency="high"
             )
@@ -78,15 +79,16 @@ class LondonBreakoutStrategy(BaseStrategy):
         if prev_close >= low and last_close < low:
             stop_loss = high
             risk = high - low
-            target = low - (risk * 1.5)
+            target = low - (risk * 2.0)  # 2:1 R:R
             
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                 bias="short", phase="trend", action="enter_short",
                 entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                risk_per_trade_pct=self.get_risk_pct(),
                 structure_summary=f"London Breakout Low (@{low:.4f})",
                 invalidation_conditions="Close back inside range",
-                management_instructions="Target 1.5R",
+                management_instructions="Target 2R",
                 notes="Standard London Breakout strategy",
                 urgency="high"
             )

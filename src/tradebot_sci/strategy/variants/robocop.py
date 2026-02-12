@@ -29,10 +29,6 @@ class RoboCopStrategy(BaseStrategy):
     
     def __init__(self):
         super().__init__("RoboCop")
-        self.FEET_WET_RISK = 0.02   # 2% Probe
-        self.LOAD_RISK_PCT = 0.05   # 5% Load (Sustainable)
-        self.BREAKEVEN_R = 1.0      # Be very safe
-        self.TARGET_R = 3.0         # 3:1 Sustainable RR
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, **kwargs) -> Optional[AITradeDecision]:
         if open_position and float(open_position.get("size", 0)) > 0:
@@ -126,16 +122,16 @@ class RoboCopStrategy(BaseStrategy):
         
         if target_dir == "long":
             stop_loss = last_close - dist
-            take_profit = last_close + dist # 1:1 R/R initially, but we rely on trail
+            take_profit = last_close + (dist * 2.0)  # 2:1 R:R
         else:
             stop_loss = last_close + dist
-            take_profit = last_close - dist
+            take_profit = last_close - (dist * 2.0)  # 2:1 R:R
         
         return AITradeDecision(
             symbol=snapshot.symbol, timeframe=snapshot.timeframe,
             bias=target_dir, phase="continuation", action="enter_long" if target_dir == "long" else "enter_short",
             entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
-            risk_per_trade_pct=self.FEET_WET_RISK,
+            risk_per_trade_pct=self.get_risk_pct(),
             structure_summary=f"RoboCop Scorer: {score:.0f}/100 ({', '.join(score_breakdown)})",
             invalidation_conditions=f"ATR Armor ({stop_loss:.2f}) breached",
             management_instructions=f"Net-Zero at 1xATR, Rising Floors at 5% (Using {UserConfig.STOP_ATR_MULTIPLIER}x ATR Stop)",
@@ -178,31 +174,5 @@ class RoboCopStrategy(BaseStrategy):
             if (pos_dir == "long" and last_close >= tp_target) or \
                (pos_dir == "short" and last_close <= tp_target):
                 return close_position_decision(snapshot.symbol, snapshot.timeframe, f"Sniper TP: Target Hit @ {tp_target:.4f}")
-
-        # 5. [THE LOAD] - Compound at 1R profit (Surefire stacking) - PRESERVED!
-        # Only check if in profit
-        profit_dist = (last_close - entry_price) if pos_dir == "long" else (entry_price - last_close)
-        if profit_dist > 0:
-            one_r_dollars = capital * self.FEET_WET_RISK
-            current_pnl = float(open_position.get("unrealized_pnl", 0))
-            if current_pnl > one_r_dollars:
-                 # Check we haven't already pyramided max times (Config usually handles this)
-                 return AITradeDecision(
-                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias=pos_dir, phase="trend", action="add_to_position",
-                    entry_price=last_close, 
-                    # Use CURRENT stop (which might be the trail from above if engine processed it, 
-                    # but here we return action. The Engine will use the NEW stop from the Hold decision if we returned it?
-                    # Wait, we can't return TWO decisions. 
-                    # If we need to Trail AND Compound, Compound takes precedence as it's a new order.
-                    # We should pass the updated stop in this decision.
-                    stop_loss=current_stop, # Use current stop for now, trail will update next tick
-                    risk_per_trade_pct=self.LOAD_RISK_PCT,
-                    structure_summary=f"RoboCop LOAD: Surefire Compound ${current_pnl:.2f}",
-                    invalidation_conditions="Existing SL hit",
-                    management_instructions="Maintain Trail",
-                    notes="Absolute Sniper Load",
-                    urgency="high"
-                )
 
         return None

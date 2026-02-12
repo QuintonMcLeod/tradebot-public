@@ -64,3 +64,109 @@ def calculate_rsi(data: List[float], period: int = 14) -> float:
         
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
+
+
+def calculate_macd(data: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[float, float, float]:
+    """
+    Calculate MACD indicator.
+    Returns (macd_line, signal_line, histogram).
+    """
+    if len(data) < slow + signal:
+        return 0.0, 0.0, 0.0
+
+    # Calculate fast and slow EMAs
+    fast_ema = calculate_ema(data, fast)
+    slow_ema = calculate_ema(data, slow)
+    macd_line = fast_ema - slow_ema
+
+    # Build MACD line series for signal EMA
+    macd_series = []
+    alpha_fast = 2 / (fast + 1)
+    alpha_slow = 2 / (slow + 1)
+
+    ema_f = sum(data[:fast]) / fast
+    ema_s = sum(data[:slow]) / slow
+
+    for i in range(slow, len(data)):
+        if i >= fast:
+            ema_f = (data[i] * alpha_fast) + (ema_f * (1 - alpha_fast))
+        ema_s = (data[i] * alpha_slow) + (ema_s * (1 - alpha_slow))
+        macd_series.append(ema_f - ema_s)
+
+    if len(macd_series) < signal:
+        return macd_line, 0.0, macd_line
+
+    # Signal line = EMA of MACD series
+    sig_alpha = 2 / (signal + 1)
+    sig_ema = sum(macd_series[:signal]) / signal
+    for val in macd_series[signal:]:
+        sig_ema = (val * sig_alpha) + (sig_ema * (1 - sig_alpha))
+
+    histogram = macd_line - sig_ema
+    return macd_line, sig_ema, histogram
+
+
+def calculate_macd_series(data: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[List[float], List[float], List[float]]:
+    """
+    Calculate full MACD series for crossover detection.
+    Returns (macd_lines[], signal_lines[], histograms[]).
+    """
+    if len(data) < slow + signal:
+        return [], [], []
+
+    alpha_fast = 2 / (fast + 1)
+    alpha_slow = 2 / (slow + 1)
+    sig_alpha = 2 / (signal + 1)
+
+    ema_f = sum(data[:fast]) / fast
+    ema_s = sum(data[:slow]) / slow
+
+    macd_series = []
+    for i in range(slow, len(data)):
+        if i >= fast:
+            ema_f = (data[i] * alpha_fast) + (ema_f * (1 - alpha_fast))
+        ema_s = (data[i] * alpha_slow) + (ema_s * (1 - alpha_slow))
+        macd_series.append(ema_f - ema_s)
+
+    if len(macd_series) < signal:
+        return macd_series, [], []
+
+    # Build signal series
+    sig_ema = sum(macd_series[:signal]) / signal
+    signal_series = [sig_ema]
+    for val in macd_series[signal:]:
+        sig_ema = (val * sig_alpha) + (sig_ema * (1 - sig_alpha))
+        signal_series.append(sig_ema)
+
+    # Align: trim macd_series to match signal_series length
+    aligned_macd = macd_series[signal - 1:]
+    histograms = [m - s for m, s in zip(aligned_macd, signal_series)]
+
+    return aligned_macd, signal_series, histograms
+
+
+def calculate_vwap(candles: List[Candle]) -> float:
+    """
+    Calculate Volume-Weighted Average Price from candle data.
+    Uses typical price (H+L+C)/3 weighted by volume.
+    """
+    if not candles:
+        return 0.0
+
+    total_vp = 0.0
+    total_volume = 0.0
+
+    for c in candles:
+        vol = getattr(c, 'volume', 0) or 0
+        if vol <= 0:
+            continue
+        typical_price = (c.high + c.low + c.close) / 3.0
+        total_vp += typical_price * vol
+        total_volume += vol
+
+    if total_volume == 0:
+        # Fallback: simple average of closes
+        closes = [c.close for c in candles]
+        return sum(closes) / len(closes) if closes else 0.0
+
+    return total_vp / total_volume

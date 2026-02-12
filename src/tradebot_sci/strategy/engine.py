@@ -46,10 +46,62 @@ class StrategyEngine:
         
         # Load the Strategy Variant
         self._strategy = self._load_strategy_variant()
+        
+        # Propagate profile risk to the strategy
+        risk_pct = getattr(self.profile, 'risk_per_trade_pct', None)
+        if risk_pct and hasattr(self._strategy, 'profile_risk_pct'):
+            self._strategy.profile_risk_pct = float(risk_pct)
+        
         logger.info(f" [PHOENIX] === ENGINE LOADED === Symbol: {symbol} | Variant: {self._strategy.name.upper()} ")
 
     def _load_strategy_variant(self):
-        """Factory method for loading strategy variants."""
+        """Factory method for loading strategy variants.
+        
+        ╔══════════════════════════════════════════════════════════════════╗
+        ║  HOW TO ADD A NEW STRATEGY — FULL CHECKLIST                    ║
+        ╠══════════════════════════════════════════════════════════════════╣
+        ║                                                                ║
+        ║  1. Create strategy class:                                     ║
+        ║     src/tradebot_sci/strategy/variants/your_strategy.py        ║
+        ║     - Extend BaseStrategy, implement evaluate() + get_signal() ║
+        ║                                                                ║
+        ║  2. Register HERE (this file, engine.py):                      ║
+        ║     Add elif block below with import + instantiation           ║
+        ║                                                                ║
+        ║  3. Add to Meta-SCI ensemble (if applicable):                  ║
+        ║     src/tradebot_sci/strategy/variants/meta_sci.py             ║
+        ║     - Import class in _ensure_strategies_loaded()              ║
+        ║     - Add to self.strategies dict                              ║
+        ║     - Add to appropriate REGIME_GROUPS                         ║
+        ║     - If crypto-only, add to self.CRYPTO_STRATEGIES set        ║
+        ║     - Optionally add to self.STRATEGY_WEIGHTS                  ║
+        ║                                                                ║
+        ║  4. Add to UI — Profile Editor dropdown:                       ║
+        ║     src/tradebot_sci/electron_gui/renderer.js                  ║
+        ║     - Add to STRATEGY_OPTIONS array                            ║
+        ║                                                                ║
+        ║  5. Add to UI — System Tab dropdown (settings.js):             ║
+        ║     src/tradebot_sci/electron_gui/settings.js                  ║
+        ║     - Add to STRATEGY_VARIANT dropdown items                   ║
+        ║                                                                ║
+        ║  6. Add to UI — System Tab dropdown (settings_integrated.js):  ║
+        ║     src/tradebot_sci/electron_gui/settings_integrated.js       ║
+        ║     - Add to STRATEGY_VARIANT dropdown items in                ║
+        ║       renderSystemTab()                                        ║
+        ║                                                                ║
+        ║  7. Add to UI — Strategy descriptions (STRATEGIES object):     ║
+        ║     src/tradebot_sci/electron_gui/settings_integrated.js       ║
+        ║     - Add to const STRATEGIES = { ... } near top of file       ║
+        ║     - Include: name, shortDesc, description, style, risk,      ║
+        ║       bestFor, stats                                           ║
+        ║                                                                ║
+        ║  8. Add to UI — Strategy Toolbox grid:                         ║
+        ║     src/tradebot_sci/electron_gui/settings_integrated.js       ║
+        ║     - Add to strategies array in renderStrategyToolbox()        ║
+        ║     - Include: id, label, icon (Material Symbols), color       ║
+        ║                                                                ║
+        ╚══════════════════════════════════════════════════════════════════╝
+        """
         # Note: We maintain compatibility with the legacy loading logic
         from tradebot_sci.config.models import UserConfig
         
@@ -63,9 +115,8 @@ class StrategyEngine:
             from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
             return RobotEvolutionStrategy()
         elif variant == "robocop":
-            # [RENT GOAL] Standardized to Supply/Demand for maximum aggression
-            from tradebot_sci.strategy.variants.supply_demand import SupplyDemandStrategy
-            return SupplyDemandStrategy()
+            from tradebot_sci.strategy.variants.robocop import RoboCopStrategy
+            return RoboCopStrategy()
         elif variant == "london_breakout":
             from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
             return LondonBreakoutStrategy()
@@ -85,8 +136,45 @@ class StrategyEngine:
             # [ANTIGRAVITY] Updated to use the true Adaptive Meta-SCI Strategy
             from tradebot_sci.strategy.variants.meta_sci import MetaSCIStrategy
             return MetaSCIStrategy(profile_settings=self.profile)
+        elif variant == "trend_rider":
+            from tradebot_sci.strategy.variants.trend_rider import TrendRiderStrategy
+            return TrendRiderStrategy()
+        elif variant == "session_momentum":
+            from tradebot_sci.strategy.variants.session_momentum import SessionMomentumStrategy
+            return SessionMomentumStrategy()
+        elif variant == "bearish_engulfing":
+            from tradebot_sci.strategy.variants.bearish_engulfing import BearishEngulfingStrategy
+            return BearishEngulfingStrategy()
+        elif variant == "hyper_scalper":
+            from tradebot_sci.strategy.variants.hyper_scalper import HyperScalperStrategy
+            return HyperScalperStrategy()
+        elif variant == "orb_breakout":
+            from tradebot_sci.strategy.variants.orb_breakout import ORBStrategy
+            return ORBStrategy()
+        elif variant == "quantum":
+            from tradebot_sci.strategy.variants.quantum import QuantumStrategy
+            return QuantumStrategy()
+        elif variant == "mean_reversion":
+            from tradebot_sci.strategy.variants.mean_reversion import MeanReversionStrategy
+            return MeanReversionStrategy()
+        elif variant == "crypto_rsi_macd":
+            from tradebot_sci.strategy.variants.crypto_rsi_macd import CryptoRSIMACDStrategy
+            return CryptoRSIMACDStrategy()
+        elif variant == "crypto_vwap_reversion":
+            from tradebot_sci.strategy.variants.crypto_vwap_reversion import CryptoVWAPReversionStrategy
+            return CryptoVWAPReversionStrategy()
+        elif variant == "crypto_double_macd":
+            from tradebot_sci.strategy.variants.crypto_double_macd import CryptoDoubleMACDStrategy
+            return CryptoDoubleMACDStrategy()
+        elif variant == "crypto_grid":
+            from tradebot_sci.strategy.variants.crypto_grid import CryptoGridStrategy
+            return CryptoGridStrategy()
+        elif variant == "aggregator":
+            from tradebot_sci.strategy.variants.aggregator import AggregatorStrategy
+            return AggregatorStrategy()
         else:
             # Fallback
+            logger.warning(f"[ENGINE] Unknown strategy variant '{variant}', falling back to Evolution")
             from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
             return RobotEvolutionStrategy()
 

@@ -272,7 +272,7 @@ class TradingProfileSettings(BaseModel):
         description="Target leverage for the asset class (Asset Class dependent).",
     )
     icc_entry_score_threshold: float = Field(
-        default=60.0,
+        default=70.0,
         ge=0.0,
         description="Minimum ICC points required to allow a new entry (replaces hard ICC gates).",
     )

@@ -784,7 +784,9 @@
       "gui_pnl_timeframe": "24h",
       "icc_auto_entry_min_htf_strength": 0.5,
       "limit_loss_daily_pct": 0.6,
-      "short_risk_pct": 0.045
+      "short_risk_pct": 0.045,
+      "strategy_stocks": "bearish_engulfing",
+      "strategy_etf": "crypto_grid"
     }
   },
   "runtime": {

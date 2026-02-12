@@ -39,7 +39,9 @@ MARKET_HOURS: Dict[MarketType, dict[str, str]] = {
         "close": "15:00",
     },
     MarketType.FOREX: {"timezone": "UTC", "open": "22:00", "close": "22:00"},
-    MarketType.CRYPTO: {"timezone": "UTC", "open": "00:00", "close": "23:59"},
+    # [ANTIGRAVITY] Data-driven crypto hours: Open 12PM–6AM EST, Closed 6AM–12PM EST
+    # The "Morning Kill Zone" (6AM–12PM EST) lost -$2,000+ across all strategies in 30-day backtest
+    MarketType.CRYPTO: {"timezone": "America/New_York", "open": "12:00", "close": "06:00"},
     MarketType.FUTURE: {"timezone": "UTC", "open": "00:00", "close": "00:00"},
     MarketType.COMMODITY: {"timezone": "UTC", "open": "23:00", "close": "22:00"},
 }

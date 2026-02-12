@@ -45,12 +45,13 @@ class QuantumStrategy(BaseStrategy):
             if prev_close < sma * 1.001 and last_close > prev_close:
                 # [ARMOR] Dynamic Stops based on UserConfig
                 stop_loss = last_close - (atr * UserConfig.STOP_ATR_MULTIPLIER)
-                target = last_close + (atr * UserConfig.STOP_ATR_MULTIPLIER)
+                target = last_close + (atr * UserConfig.STOP_ATR_MULTIPLIER * 2.0)  # 2:1 R:R
                 
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias="long", phase="trend", action="enter_long",
                     entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                    risk_per_trade_pct=self.get_risk_pct(),
                     structure_summary=f"Quantum Long: HTF/LTF Aligned + SMA {self.sma_period} Pullback",
                     invalidation_conditions="HTF trend reversal",
                     management_instructions="Net-Zero at 1xATR",
@@ -63,12 +64,13 @@ class QuantumStrategy(BaseStrategy):
             if prev_close > sma * 0.999 and last_close < prev_close:
                 # [ARMOR] Dynamic Stops based on UserConfig
                 stop_loss = last_close + (atr * UserConfig.STOP_ATR_MULTIPLIER)
-                target = last_close - (atr * UserConfig.STOP_ATR_MULTIPLIER)
+                target = last_close - (atr * UserConfig.STOP_ATR_MULTIPLIER * 2.0)  # 2:1 R:R
                 
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias="short", phase="trend", action="enter_short",
                     entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                    risk_per_trade_pct=self.get_risk_pct(),
                     structure_summary=f"Quantum Short: HTF/LTF Aligned + SMA {self.sma_period} Pullback",
                     invalidation_conditions="HTF trend reversal",
                     management_instructions="Net-Zero at 1xATR",
@@ -83,6 +85,8 @@ class QuantumStrategy(BaseStrategy):
         htf_dir = snapshot.trend_htf.direction
         pos_dir = open_position.get("direction")
         
+        if pos_dir == "long" and htf_dir == "short":
+            return close_position_decision(snapshot.symbol, snapshot.timeframe, "Quantum Exit: HTF trend flip to short")
         if pos_dir == "short" and htf_dir == "long":
             return close_position_decision(snapshot.symbol, snapshot.timeframe, "Quantum Exit: HTF trend flip to long")
             

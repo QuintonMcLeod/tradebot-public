@@ -328,7 +328,70 @@ const STRATEGIES = {
         style: "AI Ensemble",
         risk: "Dynamic",
         bestFor: "Complex markets, regime changes",
-        stats: { method: "Ensemble", ai: "Gemini Pro", strategies: "8+" }
+        stats: { method: "Ensemble", ai: "Gemini Pro", strategies: "10+" }
+    },
+    trend_rider: {
+        name: 'Trend Rider',
+        shortDesc: 'EMA Pullback in Strong Trend',
+        description: "Proven institutional method. Waits for price to pull back to the 21 EMA during a confirmed strong trend, then enters on the bounce. Requires HTF trend strength ≥ 0.5 and RSI between 40-60 to confirm a pullback, not a reversal. Targets 2:1 R:R with trailing to EMA after 1R profit.",
+        style: "Trend Following",
+        risk: "Medium",
+        bestFor: "Strong trending markets, forex & crypto",
+        stats: { indicator: "21 EMA", target: "2.0R", filter: "HTF ≥ 0.5" }
+    },
+    session_momentum: {
+        name: 'Session Momentum',
+        shortDesc: 'VWAP + Volume Surge at Open',
+        description: "Captures the initial directional move during the highest-volume period of the trading day. Active only in the first 30 minutes of London (08:00-08:30 UTC) or New York (09:30-10:00 ET) session. Requires a VWAP break with 2× average volume surge for entry.",
+        style: "Momentum / Session",
+        risk: "Medium-High",
+        bestFor: "London & NY session opens",
+        stats: { indicator: "VWAP", volume: "2× avg", target: "2.0R" }
+    },
+    bearish_engulfing: {
+        name: 'Engulfing Reversal',
+        shortDesc: 'Candle Pattern at Key Structure',
+        description: "Classic price action reversal pattern. Enters when a bullish or bearish engulfing candle forms at a key structural level (swing high/low) with HTF alignment. Optional RSI divergence detection for higher probability setups. Stop placed beyond the engulfing candle's wick.",
+        style: "Price Action / Reversal",
+        risk: "Medium",
+        bestFor: "Reversal zones, supply/demand levels",
+        stats: { pattern: "Engulfing", target: "2.0R", bonus: "RSI Divergence" }
+    },
+    crypto_rsi_macd: {
+        name: 'RSI + MACD',
+        shortDesc: 'Dual Confirmation (Crypto)',
+        description: "Crypto-optimized dual-indicator strategy. Enters when RSI hits oversold/overbought zones AND MACD confirms with a crossover — two independent confirmations required. Uses fast MACD (8/21/5) tuned for crypto volatility. Backtested at 77% win rate on BTC 1hr.",
+        style: "Indicator Fusion",
+        risk: "Medium",
+        bestFor: "BTC, ETH, high-cap crypto",
+        stats: { rsi: "10p (30/70)", macd: "8/21/5", target: "2.0R" }
+    },
+    crypto_vwap_reversion: {
+        name: 'VWAP Reversion',
+        shortDesc: 'Mean Reversion to VWAP (Crypto)',
+        description: "Buys below VWAP in uptrending markets, sells above VWAP in downtrending. Uses EMA-20 as trend filter and RSI for confirmation. Targets reversion back to VWAP with extension. Volume-weighted for accurate institutional price levels.",
+        style: "Mean Reversion",
+        risk: "Medium",
+        bestFor: "Ranging crypto, high-volume pairs",
+        stats: { indicator: "VWAP + EMA-20", rsi: "<40/>60", target: "VWAP+" }
+    },
+    crypto_double_macd: {
+        name: 'Double MACD',
+        shortDesc: 'Dual-Timeframe MACD Scalper (Crypto)',
+        description: "Uses slow MACD (26/52/18) for trend direction and fast MACD (5/13/4) for precise entry timing on pullbacks. RSI filter ensures entries occur during pullback zones. Tight 1.5:1 RR for quick scalp exits. Designed for crypto's fast-moving markets.",
+        style: "Scalping",
+        risk: "Medium-High",
+        bestFor: "Trending crypto, BTC/ETH scalps",
+        stats: { slowMACD: "26/52/18", fastMACD: "5/13/4", target: "1.5R" }
+    },
+    crypto_grid: {
+        name: 'Virtual Grid',
+        shortDesc: 'ATR Grid Trading (Crypto)',
+        description: "Places virtual grid levels based on ATR and triggers entries when price crosses levels. Profits from ranging/choppy markets where other strategies struggle. Automatically disabled during strong trends via HTF trend guard. Targets next grid level for consistent captures.",
+        style: "Grid / Range",
+        risk: "Medium",
+        bestFor: "Sideways crypto, consolidation",
+        stats: { gridSize: "1.5× ATR", levels: "5+5", guard: "HTF > 0.5" }
     }
 };
 
@@ -752,6 +815,15 @@ function renderSystemTab(container) {
         items: getProfileOptions()
     }));
 
+    // ──────────────────────────────────────────────────────────────
+    // STRATEGY_VARIANT dropdown — System Tab strategy selector.
+    // HOW TO ADD A NEW STRATEGY:
+    //   1. Add { value: 'your_key', label: 'Display Name' } below
+    //   2. Also add to: settings_integrated.js (System Tab + Strategy Toolbox + STRATEGIES object)
+    //   3. Also add to: renderer.js Profile Editor (STRATEGY_OPTIONS array)
+    //   4. Register in: src/tradebot_sci/strategy/engine.py (_load_strategy_variant)
+    //   5. Add to Meta-SCI if applicable: strategy/variants/meta_sci.py
+    // ──────────────────────────────────────────────────────────────
     section.appendChild(createCard('Strategy Variant', 'Trading strategy algorithm', 'STRATEGY_VARIANT', 'dropdown', {
         items: [
             { value: 'rubberband_reaper', label: 'Rubberband Reaper (Anti-Martingale)' },
@@ -766,7 +838,14 @@ function renderSystemTab(container) {
             { value: 'aggregator', label: 'Singularity Aggregator (Multi-Strategy)' },
             { value: 'meta_sci', label: 'Meta-SCI (AI-Enhanced Ensemble)' },
             { value: 'icc_core', label: 'ICC (Indication, Correction, Continuation)' },
-            { value: 'supply_demand', label: 'Supply & Demand (Institutional)' }
+            { value: 'supply_demand', label: 'Supply & Demand (Institutional)' },
+            { value: 'trend_rider', label: 'Trend Rider (EMA Pullback)' },
+            { value: 'session_momentum', label: 'Session Momentum (VWAP at Open)' },
+            { value: 'bearish_engulfing', label: 'Engulfing Reversal (Key Structure)' },
+            { value: 'crypto_rsi_macd', label: '🪙 RSI + MACD (Crypto)' },
+            { value: 'crypto_vwap_reversion', label: '🪙 VWAP Reversion (Crypto)' },
+            { value: 'crypto_double_macd', label: '🪙 Double MACD Scalper (Crypto)' },
+            { value: 'crypto_grid', label: '🪙 Virtual Grid (Crypto)' }
         ],
         default: 'rubberband_reaper'
     }));
@@ -864,10 +943,11 @@ function renderSystemTab(container) {
 
 function renderStrategyTab(container) {
     // Sync envData with active profile settings so UI reflects actual config
-    // Profile settings are authoritative - always prefer them over .env values
+    // Profile settings are authoritative - but skip keys with pending local changes
     const profileSettings = getActiveProfileSettings();
     const assetKeyMap = { crypto: 'STRATEGY_CRYPTO', forex: 'STRATEGY_FOREX', stocks: 'STRATEGY_STOCKS', etf: 'STRATEGY_ETF', metals: 'STRATEGY_METALS', futures: 'STRATEGY_FUTURES' };
     for (const [asset, envKey] of Object.entries(assetKeyMap)) {
+        if (localChanges[envKey]) continue; // Preserve unsaved user selection
         if (profileSettings.strategies[asset]) {
             envData[envKey] = profileSettings.strategies[asset];
         } else if (profileSettings.strategy_variant) {
@@ -1730,7 +1810,14 @@ function renderStrategyToolbox(container) {
         { id: 'london_breakout', label: 'London Breakout', icon: 'location_city', color: '#f97316' },
         { id: 'volatility_breakout', label: 'Volatility Breakout', icon: 'show_chart', color: '#06b6d4' },
         { id: 'aggregator', label: 'Aggregator', icon: 'hub', color: '#a855f7' },
-        { id: 'supply_demand', label: 'Supply & Demand', icon: 'layers', color: '#eab308' }
+        { id: 'supply_demand', label: 'Supply & Demand', icon: 'layers', color: '#eab308' },
+        { id: 'trend_rider', label: 'Trend Rider', icon: 'trending_up', color: '#10b981' },
+        { id: 'session_momentum', label: 'Session Momentum', icon: 'schedule_send', color: '#f43f5e' },
+        { id: 'bearish_engulfing', label: 'Engulfing Reversal', icon: 'candlestick_chart', color: '#d946ef' },
+        { id: 'crypto_rsi_macd', label: 'RSI+MACD (Crypto)', icon: 'currency_bitcoin', color: '#f7931a' },
+        { id: 'crypto_vwap_reversion', label: 'VWAP Reversion (Crypto)', icon: 'swap_calls', color: '#627eea' },
+        { id: 'crypto_double_macd', label: 'Double MACD (Crypto)', icon: 'bolt', color: '#00d395' },
+        { id: 'crypto_grid', label: 'Grid Trading (Crypto)', icon: 'grid_on', color: '#ff6b35' }
     ];
 
     strategies.forEach(s => {

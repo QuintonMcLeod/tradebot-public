@@ -17,12 +17,11 @@ class HyperScalperStrategy(BaseStrategy):
     Designed for 100%+ weekly returns.
     """
     
-    def __init__(self, fast_ema=9, slow_ema=21, trend_ema=200, base_risk_pct=0.01):
+    def __init__(self, fast_ema=9, slow_ema=21, trend_ema=200):
         super().__init__("HyperScalper")
         self.fast_ema_period = fast_ema
         self.slow_ema_period = slow_ema
         self.trend_ema_period = trend_ema
-        self.base_risk_pct = base_risk_pct
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         closes = [c.close for c in snapshot.candles]
@@ -56,7 +55,7 @@ class HyperScalperStrategy(BaseStrategy):
                     structure_summary=f"HyperScalper Hardened Long (Trend={trend_ema:.4f})",
                     invalidation_conditions="Bearish EMA cross",
                     management_instructions="Target 3R. Filtered by EMA 200 + RSI.",
-                    risk_per_trade_pct=self.base_risk_pct,
+                    risk_per_trade_pct=self.get_risk_pct(),
                     notes="Aggressive compounding scalper",
                     urgency="high"
                 )
@@ -75,7 +74,7 @@ class HyperScalperStrategy(BaseStrategy):
                     structure_summary=f"HyperScalper Hardened Short (Trend={trend_ema:.4f})",
                     invalidation_conditions="Bullish EMA cross",
                     management_instructions="Target 3R. Filtered by EMA 200 + RSI.",
-                    risk_per_trade_pct=self.base_risk_pct,
+                    risk_per_trade_pct=self.get_risk_pct(),
                     notes="Aggressive compounding scalper",
                     urgency="high"
                 )

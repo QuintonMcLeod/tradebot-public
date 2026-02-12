@@ -8,6 +8,11 @@ class BaseStrategy:
     
     def __init__(self, name: str):
         self.name = name
+        self.profile_risk_pct: float | None = None  # Set by Meta-SCI or engine
+
+    def get_risk_pct(self, fallback: float = 0.015) -> float:
+        """Return the profile-configured risk, or a safe fallback."""
+        return self.profile_risk_pct or fallback
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
         """Check for a new trade entry signal."""

@@ -13,7 +13,20 @@ logger = logging.getLogger(__name__)
 def is_market_open(symbol: str, now: datetime, settings: Optional[Any] = None) -> bool:
     """Determine if the market for a given symbol is currently open."""
     if is_crypto(symbol):
-        return True
+        # [ANTIGRAVITY] Crypto has data-driven trading hours (Morning Kill Zone avoidance)
+        hours = MARKET_HOURS.get(MarketType.CRYPTO)
+        if not hours:
+            return True  # Fallback: always open if no hours defined
+        tz = ZoneInfo(hours["timezone"])
+        local = now.astimezone(tz)
+        open_h, open_m = map(int, hours["open"].split(":"))
+        close_h, close_m = map(int, hours["close"].split(":"))
+        open_dt = local.replace(hour=open_h, minute=open_m, second=0, microsecond=0)
+        close_dt = local.replace(hour=close_h, minute=close_m, second=0, microsecond=0)
+        # Overnight window: open 12PM, close 6AM next day
+        if open_dt <= close_dt:
+            return open_dt <= local < close_dt
+        return local >= open_dt or local < close_dt
 
     metadata = SYMBOL_METADATA.get(symbol.strip().upper())
     if not metadata:
@@ -45,8 +58,8 @@ def is_market_open(symbol: str, now: datetime, settings: Optional[Any] = None) -
     if not is_ccxt_data and symbol in {"XPTUSD", "XPDUSD"}:
         return False
 
-    if metadata.market_type == MarketType.CRYPTO:
-        return True
+    # [ANTIGRAVITY] Crypto market hours are now handled above via MARKET_HOURS
+    # (removed unconditional return True for MarketType.CRYPTO)
         
     if is_ccxt_data and (metadata.market_type == MarketType.FOREX or metadata.market_type == MarketType.COMMODITY):
         # [ANTIGRAVITY FIX] OANDA is NOT 24/7 for Forex, but it IS for Crypto.

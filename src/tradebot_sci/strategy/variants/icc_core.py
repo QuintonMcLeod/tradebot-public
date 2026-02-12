@@ -146,6 +146,7 @@ class ICCCoreStrategy(BaseStrategy):
             entry_price=last_close,
             stop_loss=stop_loss,
             take_profit=take_profit,
+            risk_per_trade_pct=self.get_risk_pct(),
             phase=phase,
             structure_summary=f"ICC Core {action} (Score={score})",
             urgency="medium",

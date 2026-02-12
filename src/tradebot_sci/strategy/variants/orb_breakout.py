@@ -197,6 +197,7 @@ class ORBStrategy(BaseStrategy):
             entry_price=entry,
             stop_loss=stop,
             take_profit=target,
+            risk_per_trade_pct=self.get_risk_pct(),
             structure_summary=f"ORB {direction.title()} (Flag Break @ {entry:.2f})",
             invalidation_conditions="Close back inside ORB range",
             management_instructions="Target 2R, Trail Stop below Flag",

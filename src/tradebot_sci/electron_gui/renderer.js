@@ -1925,6 +1925,15 @@ window.profilesModule = (function () {
         }
     }
 
+    // ──────────────────────────────────────────────────────────────
+    // STRATEGY_OPTIONS — master list for Profile Editor dropdowns.
+    // HOW TO ADD A NEW STRATEGY:
+    //   1. Add { value: 'your_key', label: 'Display Name' } below
+    //   2. Also add to: settings_integrated.js (System Tab + Strategy Toolbox + STRATEGIES object)
+    //   3. Also add to: settings.js (System Tab dropdown)
+    //   4. Register in: src/tradebot_sci/strategy/engine.py STRATEGY_MAP
+    //   5. Add to Meta-SCI regime groups if applicable: strategy/variants/meta_sci.py
+    // ──────────────────────────────────────────────────────────────
     const STRATEGY_OPTIONS = [
         { value: 'rubberband_reaper', label: 'Rubberband Reaper' },
         { value: 'robocop', label: 'RoboCop' },
@@ -1938,7 +1947,15 @@ window.profilesModule = (function () {
         { value: 'aggregator', label: 'Singularity Aggregator' },
         { value: 'meta_sci', label: 'Meta-SCI (AI Ensemble)' },
         { value: 'icc_core', label: 'ICC (Standard)' },
-        { value: 'supply_demand', label: 'Supply & Demand' }
+        { value: 'supply_demand', label: 'Supply & Demand' },
+        { value: 'trend_rider', label: 'Trend Rider (EMA Pullback)' },
+        { value: 'session_momentum', label: 'Session Momentum (VWAP)' },
+        { value: 'bearish_engulfing', label: 'Engulfing Reversal' },
+        // 🪙 Crypto-Specific Strategies
+        { value: 'crypto_rsi_macd', label: '🪙 RSI + MACD (Crypto)' },
+        { value: 'crypto_vwap_reversion', label: '🪙 VWAP Reversion (Crypto)' },
+        { value: 'crypto_double_macd', label: '🪙 Double MACD Scalper (Crypto)' },
+        { value: 'crypto_grid', label: '🪙 Virtual Grid (Crypto)' }
     ];
 
     const TIMEFRAME_OPTIONS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];

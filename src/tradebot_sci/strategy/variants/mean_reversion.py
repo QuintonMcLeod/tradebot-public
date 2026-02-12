@@ -16,14 +16,13 @@ class MeanReversionStrategy(BaseStrategy):
     Entries occur when price is overextended outside bands and RSI shows exhaustion.
     """
     
-    def __init__(self, bb_period=15, bb_std=2.5, rsi_period=14, rsi_overbought=75, rsi_oversold=25, base_risk_pct=0.10):
+    def __init__(self, bb_period=15, bb_std=2.5, rsi_period=14, rsi_overbought=75, rsi_oversold=25):
         super().__init__("Mean Reversion")
         self.bb_period = bb_period
         self.bb_std = bb_std
         self.rsi_period = rsi_period
         self.rsi_overbought = rsi_overbought
         self.rsi_oversold = rsi_oversold
-        self.base_risk_pct = base_risk_pct
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         closes = [c.close for c in snapshot.candles]
@@ -59,7 +58,7 @@ class MeanReversionStrategy(BaseStrategy):
                         symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                         bias="long", phase="correction", action="scale_in",
                         entry_price=last_close, stop_loss=open_position.get("stop_loss"), take_profit=upper,
-                        risk_per_trade_pct=self.base_risk_pct * 2.0,  # Always 2x on super-extreme
+                        risk_per_trade_pct=self.get_risk_pct(),
                         structure_summary=f"Mean Reversal SUPER-SCALE (RSI={rsi:.1f})",
                         invalidation_conditions=f"Close below stop {open_position.get('stop_loss')}",
                         management_instructions="Target Opposite Bollinger Band (Scaled).",
@@ -74,7 +73,7 @@ class MeanReversionStrategy(BaseStrategy):
                         symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                         bias="short", phase="correction", action="scale_in",
                         entry_price=last_close, stop_loss=open_position.get("stop_loss"), take_profit=lower,
-                        risk_per_trade_pct=self.base_risk_pct * 2.0,  # Always 2x on super-extreme
+                        risk_per_trade_pct=self.get_risk_pct(),
                         structure_summary=f"Mean Reversal SUPER-SCALE (RSI={rsi:.1f})",
                         invalidation_conditions=f"Close above stop {open_position.get('stop_loss')}",
                         management_instructions="Target Opposite Bollinger Band (Scaled).",
@@ -88,20 +87,21 @@ class MeanReversionStrategy(BaseStrategy):
         if last_close < lower and rsi < self.rsi_oversold:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close - stop_dist
-            target = upper # TARGET OPPOSITE BAND
+            # Target opposite BB, but enforce minimum 2:1 R:R
+            min_target = last_close + (stop_dist * 2.0)
+            target = max(upper, min_target)
             
-            # [EXTREME SCALE] Double risk if RSI is super-oversold (<20)
-            risk_mult = 2.0 if rsi < 20 else 1.0
+            # Risk from profile
             
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                 bias="long", phase="correction", action="enter_long",
                 entry_price=last_close, stop_loss=stop_loss, take_profit=target,
-                structure_summary=f"Mean Reversal (RSI={rsi:.1f}, Scaling={risk_mult}x)",
+                structure_summary=f"Mean Reversal (RSI={rsi:.1f})",
                 invalidation_conditions=f"Close below stop {stop_loss:.4f}",
-                management_instructions="Target Opposite Bollinger Band.",
-                risk_per_trade_pct=self.base_risk_pct * risk_mult,
-                notes="Extreme Mean Reversion variant",
+                management_instructions="Target Opposite Bollinger Band (min 2:1 R:R).",
+                risk_per_trade_pct=self.get_risk_pct(),
+                notes="Mean Reversion variant",
                 urgency="high" if rsi < 20 else "medium"
             )
 
@@ -109,20 +109,21 @@ class MeanReversionStrategy(BaseStrategy):
         if last_close > upper and rsi > self.rsi_overbought:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close + stop_dist
-            target = lower # TARGET OPPOSITE BAND
+            # Target opposite BB, but enforce minimum 2:1 R:R
+            min_target = last_close - (stop_dist * 2.0)
+            target = min(lower, min_target)
             
-            # [EXTREME SCALE] Double risk if RSI is super-overbought (>80)
-            risk_mult = 2.0 if rsi > 80 else 1.0
+            # Risk from profile
             
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                 bias="short", phase="correction", action="enter_short",
                 entry_price=last_close, stop_loss=stop_loss, take_profit=target,
-                structure_summary=f"Mean Reversal (RSI={rsi:.1f}, Scaling={risk_mult}x)",
+                structure_summary=f"Mean Reversal (RSI={rsi:.1f})",
                 invalidation_conditions=f"Close above stop {stop_loss:.4f}",
-                management_instructions="Target Opposite Bollinger Band.",
-                risk_per_trade_pct=self.base_risk_pct * risk_mult,
-                notes="Extreme Mean Reversion variant",
+                management_instructions="Target Opposite Bollinger Band (min 2:1 R:R).",
+                risk_per_trade_pct=self.get_risk_pct(),
+                notes="Mean Reversion variant",
                 urgency="high" if rsi > 80 else "medium"
             )
 

@@ -94,6 +94,11 @@ class OandaExchangeBroker(IExchangeBroker):
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         return self._liquid_capital
 
+    def get_total_balance_value(self) -> float:
+        """Returns total account NAV (used by controller for state broadcasts)."""
+        self.refresh_account_summary()
+        return self._liquid_capital
+
     def cancel_all_orders_for_symbol(self, symbol: str) -> None:
         """OANDA doesn't have 'resting' orders in the same way for market trades, but we cancel pending limit orders."""
         if self.read_only:

@@ -710,18 +710,6 @@ class Backtester:
                         ))
                         del positions[symbol]
                         logger.info(f"[BACKTEST] {symbol} stop hit: PnL=${pnl:.2f}")
-                        # [FEET WET] Update risk after trade close
-                        try:
-                            from tradebot_sci.strategy.variants.supply_demand import feet_wet_on_trade_closed
-                            # ☢️ NUCLEAR OVERRIDES
-                            risk_cap = 0.05
-                            if self.settings.app.profile_name:
-                                p = self.settings.profiles.get(self.settings.app.profile_name)
-                                if p and p.nuclear_overrides_enabled:
-                                    risk_cap = p.max_risk_cap_override
-                            feet_wet_on_trade_closed(pnl, risk_cap=risk_cap)
-                        except Exception:
-                            pass
                         continue
 
                 # Check take profit
@@ -764,18 +752,6 @@ class Backtester:
                         ))
                         del positions[symbol]
                         logger.info(f"[BACKTEST] {symbol} target hit: PnL=${pnl:.2f}")
-                        # [FEET WET] Update risk after trade close
-                        try:
-                            from tradebot_sci.strategy.variants.supply_demand import feet_wet_on_trade_closed
-                            # ☢️ NUCLEAR OVERRIDES
-                            risk_cap = 0.05
-                            if self.settings.app.profile_name:
-                                p = self.settings.profiles.get(self.settings.app.profile_name)
-                                if p and p.nuclear_overrides_enabled:
-                                    risk_cap = p.max_risk_cap_override
-                            feet_wet_on_trade_closed(pnl, risk_cap=risk_cap)
-                        except Exception:
-                            pass
                         continue
 
                 # Update unrealized P&L

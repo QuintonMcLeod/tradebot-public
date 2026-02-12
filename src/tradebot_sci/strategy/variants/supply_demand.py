@@ -26,23 +26,6 @@ class SNDZone(BaseModel):
 # [SAFEGUARD] Global Persistence for Strategy Instances
 GLOBAL_DAILY_COUNTS = {}
 
-# [SECURE MODE] Balanced Risk Model
-FEET_WET_RISK = 0.01     # Start at 1% Risk (Scout)
-FEET_WET_MIN = 0.01      # Reset to 1% after WIN
-FEET_WET_STEP = 0.005    # +0.5% per LOSS (gentle recovery)
-FEET_WET_MAX = 0.05      # Cap at 5% (Safety Ceiling)
-
-def feet_wet_on_trade_closed(pnl: float, risk_cap: float = 0.05):
-    """RECOVERY MARTINGALE: Increase risk after loss to recover. Reset on win."""
-    global FEET_WET_RISK
-    if pnl > 0:
-        # WIN: Reset to base (we recovered)
-        FEET_WET_RISK = FEET_WET_MIN
-    else:
-        # LOSS: Increase risk to recover (capped at max)
-        FEET_WET_RISK = min(FEET_WET_RISK + FEET_WET_STEP, risk_cap)
-    logger.info(f"[MARTINGALE] PnL={pnl:.2f} -> Risk={FEET_WET_RISK*100:.1f}% (Cap: {risk_cap*100:.1f}%)")
-
 class SupplyDemandStrategy(BaseStrategy):
     """
     Supply and Demand Strategy (Her Trading Methodology)
@@ -56,7 +39,6 @@ class SupplyDemandStrategy(BaseStrategy):
     
     def __init__(self):
         super().__init__("SupplyDemand")
-        self.RISK_PCT = 0.01  # 1% Risk (Profitable)
         self.RR_TARGET = 2.0  # 2R Target - OPTIMAL
         self.ZONE_WINDOW = 100
 
@@ -165,8 +147,8 @@ class SupplyDemandStrategy(BaseStrategy):
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias="long", phase="trend", action=action,
                     entry_price=last_candle.close, stop_loss=stop_loss, take_profit=take_profit,
-                    risk_per_trade_pct=FEET_WET_RISK,
-                    structure_summary=f"SND: Demand Zone Tap & Break (BOS at idx {zone.bos_index}) [FW:{FEET_WET_RISK*100:.0f}%]",
+                    risk_per_trade_pct=self.get_risk_pct(),
+                    structure_summary=f"SND: Demand Zone Tap & Break (BOS at idx {zone.bos_index})",
                     invalidation_conditions="Zone Break / Structure Invalidation",
                     management_instructions="SND Target or Trailing Stop",
                     urgency="medium",
@@ -216,8 +198,8 @@ class SupplyDemandStrategy(BaseStrategy):
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias="short", phase="trend", action=action,
                     entry_price=last_candle.close, stop_loss=stop_loss, take_profit=take_profit,
-                    risk_per_trade_pct=FEET_WET_RISK,
-                    structure_summary=f"SND: Supply Zone Tap & Break (BOS at idx {zone.bos_index}) [FW:{FEET_WET_RISK*100:.0f}%]",
+                    risk_per_trade_pct=self.get_risk_pct(),
+                    structure_summary=f"SND: Supply Zone Tap & Break (BOS at idx {zone.bos_index})",
                     invalidation_conditions="Zone Break / Structure Invalidation",
                     management_instructions="SND Target or Trailing Stop",
                     urgency="medium",
@@ -247,6 +229,8 @@ class SupplyDemandStrategy(BaseStrategy):
             if entry_price == 0:
                 return None
 
+            if not snapshot.candles:
+                return None
             current_price = snapshot.candles[-1].close
             # Support both 'direction' and 'side'
             direction = open_position.get("direction") or open_position.get("side")
