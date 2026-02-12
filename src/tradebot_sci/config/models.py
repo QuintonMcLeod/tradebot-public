@@ -887,6 +887,12 @@ class SafetySettings(BaseModel):
     safety_regime_flip_enabled: bool = Field(
         default_factory=lambda: os.getenv("SAFETY_REGIME_FLIP_ENABLED", "False").lower() == "true"
     )
+    greedy_exit_max_hold_hours: float = Field(
+        default_factory=lambda: float(os.getenv("GREEDY_EXIT_MAX_HOLD_HOURS", "8.0")),
+        ge=0.0,
+        description="Maximum hours before Greedy Exit forces a close (0 disables). "
+                    "Trail tightens in the second half of this window.",
+    )
 
 
 class PerformanceSettings(BaseModel):

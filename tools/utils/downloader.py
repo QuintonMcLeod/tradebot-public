@@ -16,6 +16,9 @@ FOREX_MAP = {
     "USDCAD": "USD/CAD",
     "USDCHF": "USD/CHF",
     "NZDUSD": "NZD/USD",
+    "GBPJPY": "GBP/JPY",
+    "EURJPY": "EUR/JPY",
+    "AUDJPY": "AUD/JPY",
 }
 
 def get_exchange_for_symbol(symbol):

@@ -235,6 +235,7 @@ def process_candidate_cycle(
     # to avoid slamming the API with requests inside the loop (N * 3 calls).
     global_pnl = 0.0
     global_open_count = 0
+    global_position_notional = 0.0
     if executor and hasattr(executor, "list_open_position_symbols"):
         try:
             open_syms = executor.list_open_position_symbols()
@@ -243,6 +244,11 @@ def process_candidate_cycle(
                 p = executor.get_open_position_snapshot(s)
                 if p:
                     global_pnl += (p.get("unrealized_pnl", 0.0) or 0.0)
+                    # [ANTIGRAVITY FIX] Track total position notional value
+                    # On spot exchanges, capital in positions IS equity.
+                    price = float(p.get("current_price") or p.get("avg_price") or p.get("entry_price") or 0)
+                    size = abs(float(p.get("size") or 0))
+                    global_position_notional += (price * size)
         except Exception as e:
             logger.warning(f"[CYCLE] Global PnL fetch failed: {e}")
 
@@ -264,6 +270,7 @@ def process_candidate_cycle(
                 current_capital=liq_cap,
                 execution_capabilities={
                     "total_unrealized_pnl": global_pnl,
+                    "total_position_notional": global_position_notional,
                     "open_position_count": global_open_count
                 }
             )

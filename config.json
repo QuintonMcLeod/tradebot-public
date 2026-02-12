@@ -735,14 +735,10 @@
         "EURJPY",
         "AUDJPY",
         "BTCUSD",
-        "ETHUSD",
-        "SOLUSD",
         "XRPUSD",
         "LINKUSD",
         "LTCUSD",
-        "DOGEUSD",
-        "ZECUSD",
-        "BCHUSD"
+        "ZECUSD"
       ],
       "strategies": {
         "crypto": "meta_sci",

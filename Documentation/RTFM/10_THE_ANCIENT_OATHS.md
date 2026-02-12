@@ -9,7 +9,7 @@ These are not "suggestions." These are the hard-coded guardrails that keep this 
 ---
 
 ## 1. The Strategies are Sacred
-The **9 Trading Strategies** (found in `src/tradebot_sci/strategy/variants/`) are masterpieces of quantitative geometry. They have been perfected through blood, sweat, and thousands of simulated candles.
+The **20 Trading Strategies** (found in `src/tradebot_sci/strategy/variants/`) are masterpieces of quantitative geometry. They have been perfected through blood, sweat, and thousands of simulated candles.
 
 *   **DO NOT** rewrite the core scoring logic of any strategy.
 *   **DO NOT** "improve" trend detection windows unless you have a signed letter from the User.
@@ -17,16 +17,37 @@ The **9 Trading Strategies** (found in `src/tradebot_sci/strategy/variants/`) ar
 *   **THE OATH:** "I shall not play god with the Brain."
 
 ### The Sacred Strategies
+
+#### Core Arsenal
 | Strategy | File | Status |
 |----------|------|--------|
+| Meta-SCI | `meta_sci.py` | SACRED |
 | Rubberband Reaper | `rubberband_reaper.py` | SACRED |
 | RoboCop | `robocop.py` | SACRED |
+| Mean Reversion | `mean_reversion.py` | SACRED |
+| Supply & Demand | `supply_demand.py` | SACRED |
+| Trend Rider | `trend_rider.py` | SACRED |
+| Session Momentum | `session_momentum.py` | SACRED |
+| Engulfing Reversal | `bearish_engulfing.py` | SACRED |
+| ICC Core | `icc_core.py` | SACRED |
+| ORB Breakout | `orb_breakout.py` | SACRED |
+
+#### Crypto-Specific
+| Strategy | File | Status |
+|----------|------|--------|
+| RSI + MACD | `crypto_rsi_macd.py` | SACRED |
+| VWAP Reversion | `crypto_vwap_reversion.py` | SACRED |
+| Double MACD | `crypto_double_macd.py` | SACRED |
+| Virtual Grid | `crypto_grid.py` | SACRED |
+
+#### Legacy
+| Strategy | File | Status |
+|----------|------|--------|
 | Evolution | `evolution.py` | SACRED |
 | Quantum | `quantum.py` | SACRED |
-| Mean Reversion | `mean_reversion.py` | SACRED |
 | HyperScalper | `hyper_scalper.py` | SACRED |
 | London Breakout | `london_breakout.py` | SACRED |
-| Volatility Breakout | `volatility_breakout.py` | SACRED |
+| Volatility Breakout | `breakout.py` | SACRED |
 | Aggregator | `aggregator.py` | SACRED |
 
 ---
@@ -40,14 +61,23 @@ We utilize a **Futures-Style Capital Model**. This is not a choice; it is the fu
 ---
 
 ## 3. The Broker Layer is Delicate
-Each broker (`ibkr_broker.py`, `oanda_broker.py`, `ccxt_broker.py`) has been tuned for its specific API quirks.
+Each broker (`ibkr_broker.py`, `oanda_broker.py`, `ccxt_broker.py`, `paxos_broker.py`) has been tuned for its specific API quirks.
 *   **DO NOT** "unify" the broker interfaces unless explicitly asked.
 *   **DO NOT** add new brokers without understanding the existing patterns.
 *   **THE OATH:** "I shall respect the diversity of APIs."
 
 ---
 
-## 4. Incrementalism is the Way
+## 4. The Safety Layer is Sacrosanct
+Position Lock, Leverage Sentry, Daily Loss Limit, and Breakeven Trail exist for a reason.
+*   **DO NOT** bypass safety guards. They are not suggestions.
+*   **DO NOT** make Position Lock optional. It is always on.
+*   **DO NOT** lower the Daily Loss Limit below 5%. That's the floor.
+*   **THE OATH:** "The guards exist to save the user from themselves. I shall not weaken them."
+
+---
+
+## 5. Incrementalism is the Way
 The human who owns this machine does not appreciate "Total Re-Architectures."
 *   Change **one thing** at a time.
 *   Verify **three times**.
@@ -59,7 +89,8 @@ The human who owns this machine does not appreciate "Total Re-Architectures."
 > 1.  **DO NOT RE-ARCHITECT.** You are a maintenance bot, not a visionary.
 > 2.  **FUTURE PHYSICS ONLY.** If you touch capital accounting, you must use the `capital -= fee` / `capital += pnl` model. No exceptions.
 > 3.  **STANDBY MEANS DEAD.** If the user says "Standby," your process must enter a state of absolute non-action.
-> 4.  **RESPECT THE ARSENAL.** The 9 strategies are individually optimized. Do not blend them without permission.
+> 4.  **RESPECT THE ARSENAL.** The 20 strategies are individually optimized. Do not blend them without permission.
+> 5.  **RESPECT THE GUARDS.** Position Lock and Leverage Sentry are non-negotiable safety features.
 
 ---
 

@@ -1373,34 +1373,34 @@ class CCXTExchangeBroker:
                         
                         stop_qty = current_fill
 
-                        # 2. If Scale-In, add existing position size to cover EVERYTHING
+                        # 2. If Scale-In, use the ACTUAL exchange balance as the stop size
+                        #    (covers the full position — old + new)
                         if action == "scale_in":
                             try:
-                                # We need the *previous* size (before this trade update propagates entirely? or refetch?)
-                                # Better to fetch fresh snapshot or use tracking
-                                # But we just placed an order. The snapshot might not reflect it yet, OR it might.
-                                # Let's fetch snapshot again or rely on what we know.
-                                # Safest: Fetch account position size (if real-time) or estimate.
-                                # Since we just placed the order, the exchange info should be mostly up to date if we fetch now.
-                                # Or better: fetch_position specifically.
-                                # Simplified: Use `get_open_position_snapshot` loop logic? That caches.
-                                # Let's try to fetch fresh balance/position if possible.
-                                # For now, let's rely on `self.get_open_position_snapshot(decision.symbol)` which called before this block?
-                                # That snapshot was pre-entry.
-                                pre_entry_pos = self.get_open_position_snapshot(decision.symbol)
-                                pre_size = abs(float(pre_entry_pos.get("size", 0.0))) if pre_entry_pos else 0.0
+                                # [ANTIGRAVITY FIX] Fetch real balance directly instead of
+                                # using get_open_position_snapshot (which can double-count
+                                # because it calls fetch_balance AFTER the fill has settled).
+                                base_currency = sym.split("/")[0] if "/" in sym else sym[:3]
+                                bal = self._exchange.fetch_balance()
+                                real_balance = float((bal.get("total") or {}).get(base_currency, 0.0) or 0.0)
                                 
-                                total_qty = pre_size + stop_qty
-                                logger.info(f"[CCXT] Pyramiding: Consolidating Stop Size: {pre_size} (Existing) + {stop_qty} (New) = {total_qty}")
-                                stop_qty = total_qty
+                                if real_balance > 0:
+                                    logger.info(f"[CCXT] Pyramiding: Using exchange balance for SL size: {real_balance:.8f} {base_currency}")
+                                    stop_qty = real_balance
+                                else:
+                                    # Fallback: old position from hold store + new fill
+                                    record = self.position_hold_store.get(decision.symbol) if self.position_hold_store else None
+                                    old_size = abs(record.size) if record and record.size else 0.0
+                                    stop_qty = old_size + current_fill
+                                    logger.info(f"[CCXT] Pyramiding: Balance=0, using store fallback: {old_size:.8f} + {current_fill:.8f} = {stop_qty:.8f}")
                             except Exception as e:
-                                logger.error(f"[CCXT] Failed to calculate total scale_in size: {e}")
-                                # Fallback to just protecting new chunk to allow *something*
+                                logger.error(f"[CCXT] Failed to fetch balance for scale_in SL size: {e}")
+                                # Fallback to just protecting new chunk
                         
                         else:
                             logger.info(f"[CCXT] Using filled amount for SL: {stop_qty:.6f}")
                         
-                        # [ANTIGRAVITY] Exact SL quantity using order fee data (replaces 0.99x hack)
+                        # [ANTIGRAVITY] Exact SL quantity using order fee data
                         if not is_future and stop_side == "sell":  # Long SL on Spot
                             fee_info = order.get("fee") or {}
                             fee_cost = float(fee_info.get("cost", 0) or 0)
@@ -1408,14 +1408,18 @@ class CCXTExchangeBroker:
                             base_currency = sym.split("/")[0].upper() if "/" in sym else sym[:3].upper()
                             if fee_cost > 0 and fee_currency == base_currency:
                                 # Fee was deducted from base asset (e.g. Gemini deducts BTC from BTC buy)
-                                reduced_qty = stop_qty - fee_cost
-                                logger.info(f"[CCXT] Exact fee deduction: {stop_qty:.8f} - {fee_cost:.8f} = {reduced_qty:.8f} (fee in {fee_currency})")
+                                # Only apply to non-scale-in (scale_in already uses real balance which has fees deducted)
+                                if action != "scale_in":
+                                    reduced_qty = stop_qty - fee_cost
+                                    logger.info(f"[CCXT] Exact fee deduction: {stop_qty:.8f} - {fee_cost:.8f} = {reduced_qty:.8f} (fee in {fee_currency})")
+                                    stop_qty = reduced_qty
                             else:
-                                # Fee was in quote currency or unknown — use exchange rate as fallback
-                                fee_rate = self._get_fee_rate()
-                                reduced_qty = stop_qty * (1 - fee_rate)
-                                logger.info(f"[CCXT] Fee-rate deduction: {stop_qty:.8f} * {1 - fee_rate:.4f} = {reduced_qty:.8f}")
-                            stop_qty = reduced_qty
+                                if action != "scale_in":
+                                    # Fee was in quote currency or unknown — use exchange rate as fallback
+                                    fee_rate = self._get_fee_rate()
+                                    reduced_qty = stop_qty * (1 - fee_rate)
+                                    logger.info(f"[CCXT] Fee-rate deduction: {stop_qty:.8f} * {1 - fee_rate:.4f} = {reduced_qty:.8f}")
+                                    stop_qty = reduced_qty
                         
                         # Apply amount precision
                         stop_qty = float(self._exchange.amount_to_precision(sym, stop_qty))
@@ -1645,6 +1649,51 @@ class CCXTExchangeBroker:
                                         logger.error(f"[CCXT] Auto-protection failed for {sys_sym}: {e}")
                             else:
                                 logger.warning(f"[CCXT] Could not auto-protect {sys_sym}: No ticker price.")
+                    
+                    # [ANTIGRAVITY FIX] Gapped Stop-Limit Failsafe
+                    # Even when working_orders > 0, the stop-limit order may be
+                    # unfillable if price gapped past the limit price. Detect and
+                    # force-close when the SL has been breached beyond the limit buffer.
+                    elif pos_size > 0 and state.get("working_orders", 0) > 0:
+                        record = self.position_hold_store.get(sys_sym) if self.position_hold_store else None
+                        sl_price = record.stop_loss if record else None
+                        if sl_price and sl_price > 0:
+                            current_price = None
+                            try:
+                                ticker = self._safe_fetch_ticker(self._map_symbol(sys_sym))
+                                if ticker: current_price = ticker.last
+                            except: pass
+
+                            if current_price:
+                                # For longs: breached if price fell below SL minus the limit buffer
+                                # For shorts: breached if price rose above SL plus the limit buffer
+                                raw_size = state.get("position_shares", 0)
+                                buf = self.GEMINI_SL_LIMIT_BUFFER  # 1.5%
+                                if raw_size > 0 and current_price < sl_price * (1 - buf):
+                                    logger.warning(
+                                        f"[CCXT-EMERGENCY] {sys_sym} GAPPED STOP: price {current_price:.4f} "
+                                        f"< SL {sl_price:.4f} × (1-{buf}) = {sl_price*(1-buf):.4f}. "
+                                        f"Stop-limit is unfillable. Cancelling orders and market closing."
+                                    )
+                                    try:
+                                        self.cancel_all_orders_for_symbol(sys_sym)
+                                        self.flatten_symbol(sys_sym)
+                                        continue
+                                    except Exception as gap_e:
+                                        logger.error(f"[CCXT-EMERGENCY] Gapped stop failsafe failed for {sys_sym}: {gap_e}")
+                                elif raw_size < 0 and current_price > sl_price * (1 + buf):
+                                    logger.warning(
+                                        f"[CCXT-EMERGENCY] {sys_sym} GAPPED STOP (short): price {current_price:.4f} "
+                                        f"> SL {sl_price:.4f} × (1+{buf}) = {sl_price*(1+buf):.4f}. "
+                                        f"Stop-limit is unfillable. Cancelling orders and market closing."
+                                    )
+                                    try:
+                                        self.cancel_all_orders_for_symbol(sys_sym)
+                                        self.flatten_symbol(sys_sym)
+                                        continue
+                                    except Exception as gap_e:
+                                        logger.error(f"[CCXT-EMERGENCY] Gapped stop failsafe failed for {sys_sym}: {gap_e}")
+
         except Exception as e:
             logger.error(f"[CCXT] Error in stop loss re-arming check: {e}")
 

@@ -14,99 +14,117 @@ This document explains the **anatomy** of the application. If `01_PHILOSOPHY.md`
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │   ┌─────────────┐     ┌─────────────────────────────────────────────┐  │
-│   │   Profile   │────▶│              Strategy Arsenal               │  │
-│   │   Loader    │     │  ┌─────────┬─────────┬─────────┬─────────┐  │  │
-│   └─────────────┘     │  │ Crypto  │ Forex   │ Stocks  │ Futures │  │  │
-│                       │  │ Strategy│ Strategy│ Strategy│ Strategy│  │  │
-│                       │  └────┬────┴────┬────┴────┬────┴────┬────┘  │  │
-│                       └───────┼─────────┼─────────┼─────────┼───────┘  │
-│                               │         │         │         │          │
-│   ┌─────────────┐     ┌───────▼─────────▼─────────▼─────────▼───────┐  │
-│   │   Market    │────▶│            Strategy Engine                  │  │
-│   │   Snapshot  │     │         (Symbol Classification)             │  │
-│   └─────────────┘     └──────────────────┬──────────────────────────┘  │
-│                                          │                             │
-│                                          ▼                             │
-│                              ┌───────────────────────┐                 │
-│                              │   Trade Decision      │                 │
-│                              │   (Buy/Sell/Hold)     │                 │
-│                              └───────────┬───────────┘                 │
-│                                          │                             │
-│   ┌──────────────────────────────────────┼─────────────────────────┐  │
-│   │                   Broker Layer        ▼                        │  │
-│   │  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐        │  │
-│   │  │  IBKR   │   │  OANDA  │   │  CCXT   │   │  Hybrid │        │  │
-│   │  │ Broker  │   │ Broker  │   │ Broker  │   │  Mode   │        │  │
-│   │  └─────────┘   └─────────┘   └─────────┘   └─────────┘        │  │
+│   │   Profile   │────▶│         Multi-Strategy Arsenal              │  │
+│   │   Loader    │     │  ┌───────────────────────────────────────┐  │  │
+│   └─────────────┘     │  │         Meta-SCI Ensemble ⭐          │  │  │
+│                       │  │  ┌─────────┬─────────┬─────────────┐  │  │  │
+│   ┌─────────────┐     │  │  │ Regime  │ Tourna- │  Winner     │  │  │  │
+│   │   Safety    │     │  │  │ Detect  │   ment  │ Selection   │  │  │  │
+│   │   Layer     │     │  │  └─────────┴─────────┴─────────────┘  │  │  │
+│   │ ┌─────────┐ │     │  ├───────────────────────────────────────┤  │  │
+│   │ │Position │ │     │  │  20 Individual Strategy Variants      │  │  │
+│   │ │  Lock   │ │     │  │  Universal + Crypto-Specific + Legacy │  │  │
+│   │ ├─────────┤ │     │  └───────────┬───────────────────────────┘  │  │
+│   │ │Leverage │ │     └──────────────┼──────────────────────────────┘  │
+│   │ │ Sentry  │ │                    │                                 │
+│   │ ├─────────┤ │     ┌──────────────▼──────────────────────────────┐  │
+│   │ │ Daily   │ │     │             Strategy Engine                 │  │
+│   │ │ Loss    │ │     │  (Symbol Classification + ICC Scoring)      │  │
+│   │ │ Limit   │ │     └──────────────┬──────────────────────────────┘  │
+│   │ ├─────────┤ │                    │                                 │
+│   │ │Breakeven│ │                    ▼                                 │
+│   │ │ Trail   │ │     ┌───────────────────────┐                       │
+│   │ └─────────┘ │     │   Trade Decision      │                       │
+│   └──────┬──────┘     │   (Buy/Sell/Hold)     │                       │
+│          │            └───────────┬───────────┘                       │
+│          │                       │                                     │
+│          └──────────────────────►│ (guards applied before execution)   │
+│                                  │                                     │
+│   ┌──────────────────────────────┼─────────────────────────────────┐  │
+│   │                  Broker Layer │                                 │  │
+│   │  ┌─────────┐  ┌─────────┐  ┌▼────────┐  ┌─────────┐          │  │
+│   │  │  IBKR   │  │  OANDA  │  │  CCXT   │  │  Paxos  │          │  │
+│   │  │ Broker  │  │ Broker  │  │ Broker  │  │ Broker  │          │  │
+│   │  └─────────┘  └─────────┘  └─────────┘  └─────────┘          │  │
 │   └────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## The Loop (`runtime/loop.py`)
 This is the heartbeat.
-1.  **Wake Up:** Reads `settings_profiles.yaml`, picks a profile (e.g., `forex_continuous`).
-2.  **Initialize Strategies:** Loads the per-asset strategy configuration and caches strategy instances.
-3.  **Cycle:** Every X seconds (defined in profile), it screams "NEXT CYCLE!"
-4.  **Scan:** Iterates through every symbol in your list:
+1.  **Pre-Flight Check:** Verifies at least one broker is configured. Refuses to start otherwise.
+2.  **Wake Up:** Reads config (JSON or YAML), picks a profile (e.g., `forex_continuous`).
+3.  **Initialize Strategies:** Loads the per-asset strategy configuration and caches strategy instances.
+4.  **Cycle:** Every X seconds (defined in profile), it starts a new scan cycle.
+5.  **Scan:** Iterates through every symbol in your list:
     *   "Hey Symbol Classifier, what asset class is EUR/USD?" → `forex`
-    *   "Hey Strategy Cache, give me the strategy for `forex`" → `rubberband_reaper`
+    *   "Hey Strategy Cache, give me the strategy for `forex`" → `meta_sci`
     *   "Hey Market, what's EUR/USD doing?"
-    *   "Hey Strategy, do we like this setup?"
-    *   "Hey Broker, execute if Strategy said yes."
-5.  **Sleep:** Naps until the next cycle.
+    *   "Hey Strategy, do we like this setup?" → Meta-SCI runs tournament
+    *   "Hey Safety Layer, is this trade allowed?" → Position Lock, Leverage Sentry check
+    *   "Hey Broker, execute if everything passed."
+6.  **Sleep:** Naps until the next cycle.
 
 **Key Files:**
 *   `src/tradebot_sci/main.py`: The entry point.
-*   `src/tradebot_sci/runtime/loop.py`: The infinite `while True` loop.
+*   `src/tradebot_sci/runtime/loop.py`: The infinite `while True` loop + preflight broker check.
 
 ---
 
 ## The Strategy Arsenal
 
-### Multi-Strategy Architecture
+### Meta-SCI: The Adaptive Ensemble ⭐
 
-The bot supports **9 distinct trading strategies**, each optimized for different market conditions:
+The recommended default. Instead of committing to a single strategy, Meta-SCI runs a **tournament** every cycle:
+
+1. **Detects market regime** (trending, ranging, choppy)
+2. **Selects eligible strategies** for that regime
+3. **Runs them all in parallel** — each generates a signal
+4. **Picks the winner** — highest-scoring signal becomes the decision
+5. **Falls back gracefully** — no qualifying signal = STAND ASIDE
+
+See `09_FEET_WET_STRATEGY.md` for the full tournament flow.
+
+### The 20-Strategy Arsenal
 
 | Strategy | Key | Style |
 |----------|-----|-------|
-| Rubberband Reaper | `rubberband_reaper` | Mean reversion with anti-martingale |
-| RoboCop | `robocop` | Ultra-aggressive trending |
-| Robot Evolution | `evolution` | No-Trade-Zone scalping |
-| Quantum | `quantum` | Trend following with SMA |
-| Mean Reversion | `mean_reversion` | Classic Bollinger Band reversion |
-| HyperScalper | `hyper_scalper` | Fast EMA crossover |
-| London Breakout | `london_breakout` | Session-based breakout |
-| Volatility Breakout | `volatility_breakout` | Range compression breakout |
-| Singularity Aggregator | `aggregator` | Multi-strategy parallel |
+| **Meta-SCI** ⭐ | `meta_sci` | AI Ensemble (auto-selects best) |
+| **Rubberband Reaper** | `rubberband_reaper` | Mean Reversion + Anti-Martingale |
+| **RoboCop** | `robocop` | Sniper Precision |
+| **Mean Reversion** | `mean_reversion` | Bollinger + RSI |
+| **Supply & Demand** | `supply_demand` | Institutional Zones |
+| **Trend Rider** | `trend_rider` | EMA Pullback |
+| **Session Momentum** | `session_momentum` | VWAP at Session Open |
+| **Engulfing Reversal** | `bearish_engulfing` | Candlestick Patterns |
+| **ICC Core** | `icc_core` | Pure Structure Trading |
+| **ORB Breakout** | `orb_breakout` | Opening Range Breakout |
+| **Robot Evolution** | `evolution` | NTZ Scalping |
+| **Quantum** | `quantum` | SMA Trend Following |
+| **HyperScalper** | `hyper_scalper` | Fast EMA Crossover |
+| **London Breakout** | `london_breakout` | Session Breakout |
+| **Volatility Breakout** | `volatility_breakout` | Range Compression |
+| **Aggregator** | `aggregator` | Multi-Strategy Parallel |
+| 🪙 **RSI + MACD** | `crypto_rsi_macd` | Crypto Momentum |
+| 🪙 **VWAP Reversion** | `crypto_vwap_reversion` | Crypto Mean Reversion |
+| 🪙 **Double MACD** | `crypto_double_macd` | Crypto Scalping |
+| 🪙 **Virtual Grid** | `crypto_grid` | Crypto Grid Trading |
 
 ### Per-Asset Strategy Selection
 
-Instead of one strategy for everything, different strategies run for different asset classes:
-
-```yaml
-strategies:
-  crypto: rubberband_reaper    # BTC, ETH, altcoins
-  forex: rubberband_reaper     # EUR/USD, GBP/JPY
-  stocks: quantum              # Individual equities
-  etf: quantum                 # SPY, QQQ
-  metals: mean_reversion       # Gold, Silver
-  futures: volatility_breakout # ES, NQ
-```
-
-### Symbol Classification
-
 When a symbol is evaluated, the system:
 1. **Classifies** the symbol → `BTC/USD` → `crypto`
-2. **Retrieves** the strategy for that class → `rubberband_reaper`
+2. **Retrieves** the strategy for that class → `meta_sci`
 3. **Caches** the strategy instance for performance
-4. **Evaluates** using that strategy's logic
+4. **Evaluates** using that strategy's logic (or Meta-SCI tournament)
 
 **Key Files:**
-*   `src/tradebot_sci/strategy/factory.py`: Strategy instantiation.
-*   `src/tradebot_sci/strategy/variants/`: Individual strategy implementations.
+*   `src/tradebot_sci/strategy/engine.py`: Strategy loading + decision orchestration.
+*   `src/tradebot_sci/strategy/variants/`: Individual strategy implementations (20 files).
+*   `src/tradebot_sci/strategy/variants/meta_sci.py`: The Meta-SCI ensemble.
 *   `src/tradebot_sci/utils/symbol_classifier.py`: Asset class detection.
 
 ---
@@ -121,26 +139,30 @@ This is where the magic (or hallucination) happens.
     4.  **Score:** Assign an ICC score (0-100). If Score > Threshold, it's a "Go".
 *   **Output:** An `AITradeDecision` (Buy/Sell/Hold/StandAside).
 
-### Strategy Variants
-
-Each strategy implements its own logic:
-
-| Strategy | Entry Logic |
-|----------|-------------|
-| Rubberband Reaper | Bollinger Band break + RSI confirmation |
-| RoboCop | 1-bar confirmation, any micro-signal |
-| Evolution | NTZ edge sweep + reversal |
-| Quantum | SMA pullback + HTF/LTF alignment |
-| Mean Reversion | BB + RSI with pyramiding |
-| HyperScalper | EMA 9/21 crossover + 200 EMA filter |
-| London Breakout | Session range break (08:00-09:00 GMT) |
-| Volatility Breakout | Range compression + RSI momentum |
-| Aggregator | Mean Reversion + HyperScalper parallel |
-
 **Key Files:**
 *   `src/tradebot_sci/strategy/engine.py`: The decision orchestrator.
 *   `src/tradebot_sci/strategy/profiles.py`: Profile-specific overrides.
 *   `src/tradebot_sci/strategy/variants/*.py`: Individual strategy implementations.
+
+---
+
+## The Safety Layer (`runtime/safety.py` + `runtime/loop.py`)
+
+The guardrail system that protects you from bad trades and from yourself.
+
+| Guard | What It Prevents | When It Acts |
+|-------|-----------------|--------------|
+| **Position Lock** | Whipsaw flipping (long→short→long) | Before entry — blocks if position already open for symbol |
+| **Leverage Sentry** | Over-leveraging | Before entry — blocks if leverage exceeds cap |
+| **Daily Loss Limit** | Tilt spirals | Before entry — stops all trading if daily loss hits circuit breaker |
+| **Breakeven Trail** | Giving back profits | After entry — moves SL to breakeven after configurable profit |
+| **Trailing Stop** | Letting winners become losers | After entry — ratchets SL up as price advances |
+| **ICC Gatekeeper** | Low-quality trades | Before entry — rejects setups below ICC score threshold |
+| **Preflight Broker Check** | Running without a broker | On startup — refuses to start if no broker configured |
+
+**Key Files:**
+*   `src/tradebot_sci/runtime/safety.py`: Decision validation.
+*   `src/tradebot_sci/runtime/loop.py`: Preflight check + position lock logic.
 
 ---
 
@@ -153,7 +175,9 @@ The executioner. Talks to exchanges/brokers via API.
 |--------|--------|---------|
 | **IBKR** | `ibkr_broker.py` | Stocks, Options, Futures, Forex |
 | **OANDA** | `oanda_broker.py` | Forex, CFDs |
-| **CCXT** | `ccxt_broker.py` | Crypto (Coinbase, Kraken, Binance, etc.) |
+| **CCXT** | `ccxt_broker.py` | Crypto (Gemini, Coinbase, Kraken, etc.) |
+| **Paxos** | `paxos_broker.py` | Crypto (Paxos/itBit) |
+| **Kraken** | `kraken_broker.py` | Crypto (Kraken direct) |
 
 ### Broker Responsibilities
 *   **Translation:** Converts "Buy EUR/USD" to broker-specific API calls.
@@ -173,6 +197,7 @@ Configure via `MARKET_DATA_MODE` and `BROKER_MODE` environment variables.
 *   `src/tradebot_sci/broker/ibkr_broker.py`: Interactive Brokers.
 *   `src/tradebot_sci/broker/oanda_broker.py`: OANDA forex.
 *   `src/tradebot_sci/broker/ccxt_broker.py`: CCXT crypto exchanges.
+*   `src/tradebot_sci/broker/paxos_broker.py`: Paxos/itBit crypto.
 *   `src/tradebot_sci/broker/broker_factory.py`: Broker instantiation.
 
 ---
@@ -206,32 +231,35 @@ A high-fidelity dashboard for monitoring and configuration.
 
 | Window | Purpose |
 |--------|---------|
-| **Dashboard** | Real-time P&L, positions, trade log |
-| **Settings** | Profile selection, strategy config, broker setup |
-| **Charts** | Candlestick visualization with indicators |
+| **Dashboard** | Real-time chart, positions, live P&L, trade decisions, logs |
+| **Profile Editor** | Profile selection, symbol lists, strategy assignment |
+| **Strategy Toolbox** | Browse all 20 strategies with descriptions and stats |
+| **Settings** | Broker config, AI setup, risk management, safety controls |
 
 ### Settings GUI Tabs
 
 | Tab | Purpose |
 |-----|---------|
-| System | Profile, execution mode, timeframes |
-| Strategy Workshop | Per-asset strategies, risk, pyramiding |
-| Broker Suite | IBKR, OANDA, CCXT configuration |
-| Intelligence | AI provider, commentary policy |
-| Hours & Sabbath | Session gates, timezone |
+| System | Profile, execution mode, timeframes, trend detection |
+| Strategy Workshop | Browse strategies, per-asset assignment, ICC scoring |
+| Broker Suite | IBKR, OANDA, CCXT, Paxos, Kraken configuration |
+| Intelligence | AI provider, model settings, commentary policy |
+| Safety & Shields | Position Lock, Leverage Sentry, Breakeven Trail, Daily Loss |
+| Hours & Sabbath | Session gates, Sabbath blocking, timezone |
 | Advanced | Raw environment editor |
 
 **Key Files:**
 *   `src/tradebot_sci/electron_gui/main.js`: Electron main process.
-*   `src/tradebot_sci/electron_gui/settings.html`: Settings window.
+*   `src/tradebot_sci/electron_gui/index.html`: Dashboard + Profile Editor.
 *   `src/tradebot_sci/electron_gui/renderer.js`: Dashboard logic.
+*   `src/tradebot_sci/electron_gui/settings_integrated.js`: Settings logic.
 
 ---
 
 ## Configuration Flow
 
 ```
-settings_profiles.yaml
+config.json (primary)  ←or→  settings_profiles.yaml (legacy)
         │
         ▼
 ┌─────────────────┐
@@ -242,8 +270,8 @@ settings_profiles.yaml
 ┌─────────────────────────────────────────────────────┐
 │                  Profile Config                      │
 │  ┌────────────┐  ┌────────────┐  ┌────────────┐    │
-│  │ strategies │  │ risk_mgmt  │  │  pyramiding │    │
-│  │  per-asset │  │  settings  │  │   config    │    │
+│  │ strategies │  │ risk_mgmt  │  │   safety   │    │
+│  │  per-asset │  │  settings  │  │   guards   │    │
 │  └────────────┘  └────────────┘  └────────────┘    │
 └─────────────────────────────────────────────────────┘
          │
@@ -262,15 +290,19 @@ settings_profiles.yaml
 
 ### Why Per-Asset Strategies?
 Different asset classes behave differently:
-- **Crypto:** High volatility, 24/7 → Mean reversion works well
-- **Forex:** Session-based, trending → Trend following or session breakouts
+- **Crypto:** High volatility, 24/7 → Mean reversion and momentum work well
+- **Forex:** Session-based, trending → Trend following or session strategies
 - **Stocks:** News-driven, gappy → Safer trend following
 - **Metals:** Range-bound → Mean reversion
+
+### Why Meta-SCI as Default?
+Users don't need to know which strategy is best for which market. Meta-SCI detects the regime and selects the best strategy automatically. It adapts as market conditions change.
 
 ### Why Multiple Brokers?
 - **IBKR:** Best for stocks/options/futures, professional-grade
 - **OANDA:** Best for forex, great API, competitive spreads
 - **CCXT:** Best for crypto, supports 100+ exchanges
+- **Paxos:** Specialized crypto (itBit)
 
 ### Why Electron GUI?
 - Cross-platform (Windows, Mac, Linux)

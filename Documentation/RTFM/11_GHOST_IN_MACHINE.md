@@ -3,27 +3,51 @@
 > *"I think, therefore I trade."*
 
 You know the bot trades. But *how* does it decide?
-This document explains the **Brain** (`strategy/engine.py`), the **Strategy Arsenal** (9 strategies), and the **Soul** (The AI Backup).
+This document explains the **Brain** (`strategy/engine.py`), the **Strategy Arsenal** (20 strategies), and the **Soul** (The AI Backup).
 
 ---
 
 ## The Multi-Strategy Arsenal
 
-The bot isn't locked to one strategy. It has **9 distinct trading strategies**, each optimized for different market conditions. You can assign different strategies to different asset classes.
+The bot isn't locked to one strategy. It has **20 distinct trading strategies**, each optimized for different market conditions. You can assign different strategies per asset class — or use **Meta-SCI** to let the bot choose automatically.
+
+### Recommended: Meta-SCI Ensemble
 
 | Strategy | Style | Best For |
 |----------|-------|----------|
-| **Rubberband Reaper** | Mean reversion + anti-martingale | Ranging markets, volatile crypto |
-| **RoboCop** | Ultra-aggressive trending | Strong trends, high volatility |
-| **Evolution** | NTZ scalping | Sideways/consolidation |
-| **Quantum** | Trend following with SMA | Strong trending forex/stocks |
-| **Mean Reversion** | Classic Bollinger + RSI | Ranging crypto and forex |
-| **HyperScalper** | Fast EMA crossover | Liquid forex, fast markets |
-| **London Breakout** | Session breakout | GBP pairs, European session |
-| **Volatility Breakout** | Range compression breakout | Compressed markets |
-| **Aggregator** | Multi-strategy parallel | Maximum capital efficiency |
+| **Meta-SCI** ⭐ | AI Ensemble (auto-selects best strategy) | All markets — the default |
 
-See `09_TRADING_STRATEGIES.md` for detailed explanations of each strategy.
+Meta-SCI runs a **tournament** every scan cycle:
+1. **Detects market regime** — Trending? Ranging? Choppy?
+2. **Selects eligible strategies** — Only strategies that match the current regime compete
+3. **Runs them all** — Each generates a signal independently (milliseconds)
+4. **Picks the winner** — Highest-scoring signal becomes the trade decision
+5. **Falls back gracefully** — No qualifying signal = STAND ASIDE
+
+### Universal Strategies
+
+| Strategy | Style | Best For |
+|----------|-------|----------|
+| **Rubberband Reaper** | Mean Reversion + Anti-Martingale | Ranging markets, volatile crypto |
+| **RoboCop** | Sniper Precision | High-conviction setups |
+| **Mean Reversion** | Bollinger + RSI | Ranging crypto and forex |
+| **Supply & Demand** | Institutional Zones | Support/resistance plays |
+| **Trend Rider** | EMA Pullback | Strong trending markets |
+| **Session Momentum** | VWAP at Session Open | London/NY session opens |
+| **Engulfing Reversal** | Candlestick Patterns | Key reversal levels |
+| **ICC Core** | Pure ICC Structure | Structure-first patience |
+| **ORB Breakout** | Opening Range Breakout | First-hour range breaks |
+
+### Crypto-Specific Strategies
+
+| Strategy | Style | Best For |
+|----------|-------|----------|
+| 🪙 **RSI + MACD** | Momentum Crossover | Crypto trending |
+| 🪙 **VWAP Reversion** | Mean Reversion to VWAP | Crypto ranging |
+| 🪙 **Double MACD** | Dual-TF Scalping | Crypto scalping |
+| 🪙 **Virtual Grid** | Grid Trading | Crypto sideways |
+
+See `09_FEET_WET_STRATEGY.md` for full details on all 20 strategies.
 
 ---
 
@@ -55,47 +79,65 @@ The price rips back up, breaking local structure.
 
 Different assets behave differently. That's why you can assign different strategies per asset class:
 
-```yaml
-strategies:
-  crypto: rubberband_reaper    # Mean reversion for volatile crypto
-  forex: rubberband_reaper     # Proven +7,036% on forex
-  stocks: quantum              # Trend-following for equities
-  etf: quantum                 # Works on SPY, QQQ
-  metals: mean_reversion       # Gold/Silver tend to range
-  futures: volatility_breakout # Catch breakouts on ES, NQ
+```json
+{
+  "profiles": {
+    "my_profile": {
+      "strategy": "meta_sci",
+      "strategies": {
+        "crypto": "meta_sci",
+        "forex": "rubberband_reaper",
+        "stocks": "trend_rider",
+        "metals": "mean_reversion"
+      }
+    }
+  }
+}
 ```
 
 When the bot evaluates a symbol:
 1. **Classify** → `EUR/USD` is `forex`
-2. **Select** → Use `rubberband_reaper` strategy
+2. **Select** → Use `rubberband_reaper` for forex
 3. **Evaluate** → Apply that strategy's logic
+
+With `meta_sci`: Step 2 becomes "run a tournament of all eligible strategies."
 
 ---
 
 ## The AI Backup
-The hard-coded algorithm handles 90% of the work. But sometimes, the chart is messy.
+The hard-coded algorithm handles 90% of the work. But sometimes, the chart needs a second opinion.
 
 ### When the AI Steps In
-If the Algorithm is unsure (Score between 40-59), it packages the chart data into a prompt and sends it to the LLM (Large Language Model).
+The AI provides market commentary and decision validation. It doesn't replace the strategy — it augments it.
 
-**The Prompt:**
-> "Here is the chart for BTC. Trend is Bullish. We just swept the lows. But volume is low. Would you take this trade? Y/N."
-
-**The Response:**
-The AI analyzes the context—Time of Day, recent volatility, vibes—and returns a verdict.
-*   *"Yes, because we are in the London Session and the sweep is clean."* -> **Trade Approved.**
-*   *"No, volume is dying and it looks like a trap."* -> **Stand Aside.**
-
-This "Second Opinion" is designed to catch profitable setups that rigorous code might miss, or save you from "technically correct but stupid" trades.
+**The Flow:**
+> Strategy signals ENTER_LONG on EURUSD → AI reviews the context → "Market structure is clean, volume supports the move. Confirmed." → Trade executes.
 
 ### Supported AI Providers
 | Provider | Notes |
 |----------|-------|
-| **Gemini** | Recommended. Good balance of quality & cost. |
-| **OpenAI** | GPT-4, GPT-4 Turbo |
-| **Claude** | Anthropic's Claude 3 |
+| **Gemini** | Recommended. Fast, cheap, good quality. |
+| **OpenAI** | GPT-4, GPT-4 Turbo — premium analysis |
+| **Claude** | Anthropic's Claude 3.5 — nuanced reasoning |
 | **DeepSeek** | Cost-effective alternative |
-| **OpenRouter** | Access multiple models |
+| **OpenRouter** | Access multiple models via one API key |
+| **Local (Ollama)** | Free, private, runs on your machine |
+
+---
+
+## The Safety Layer
+
+Between the strategy's decision and execution, an entire safety layer validates the trade:
+
+| Guard | What It Checks |
+|-------|---------------|
+| **Position Lock** | Is there already an open position on this symbol? → Block |
+| **Leverage Sentry** | Would this trade exceed the leverage cap? → Block |
+| **Daily Loss Limit** | Have daily losses hit the circuit breaker? → Block all trading |
+| **ICC Gatekeeper** | Is the ICC score above the minimum threshold? → Block if too low |
+| **Affordability** | Is there enough capital for the position size? → Block if insufficient |
+
+These guards fire in sequence. If any one fails, the trade is blocked and logged with a clear reason.
 
 ---
 
@@ -103,7 +145,9 @@ This "Second Opinion" is designed to catch profitable setups that rigorous code 
 This system guarantees **process**, not outcome.
 *   It *guarantees* you won't buy the top (because it waits for Correction).
 *   It *guarantees* you won't sell the bottom (because it waits for Indication).
-*   It *guarantees* you won't trade blindly (because the AI double-checks).
-*   It *guarantees* the right strategy for the right asset class.
+*   It *guarantees* you won't flip positions recklessly (Position Lock).
+*   It *guarantees* the right strategy for the right market (Meta-SCI).
+*   It *guarantees* you won't over-leverage (Leverage Sentry).
+*   It *guarantees* you won't blow up in one day (Daily Loss Limit).
 
 In a chaotic market, a solid process is the closest thing to a money printer you will find.

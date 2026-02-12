@@ -327,7 +327,25 @@ class StrategyEngine:
                  safety_exit.grade = grade
                  return safety_exit
 
-            # [POSITION LOCK] If we have an open position and NO exit was triggered above,
+            # [PYRAMID CHECK] Before applying the position lock, give the strategy
+            # a chance to emit a scale_in/add_to_position if it sees a new setup
+            # in the SAME direction as the existing position. This allows pyramiding
+            # while still protecting against flip-flopping.
+            gates["profile"] = self.profile  # Pass profile for max_pyramid_entries access
+            pyramid_decision = self._strategy.check_entry_signal(
+                snapshot,
+                gates,
+                open_position=open_position,
+                current_capital=current_capital,
+                trade_history=history,
+            )
+            if pyramid_decision and pyramid_decision.action in ("scale_in", "add_to_position"):
+                pyramid_decision.score = score
+                pyramid_decision.grade = grade
+                logger.info(f"[PHOENIX] {self.symbol} PYRAMID signal: {pyramid_decision.summary()}")
+                return pyramid_decision
+
+            # [POSITION LOCK] If we have an open position and NO exit or pyramid was triggered,
             # HOLD. Do NOT fall through to entry checks. This prevents the Meta-SCI
             # tournament from flip-flopping between strategies (rubberband says long,
             # volatility says short, etc.) and bleeding capital via constant reversals.
@@ -343,9 +361,15 @@ class StrategyEngine:
         # [CONSOLIDATED] Run all pre-entry checks (Breaker, Lockout, Greed, Churn, Veto, Streak, Sentry)
         # We run this AFTER exit checks so that TP/SL logic (SafetyGuard.augment_exit_decision)
         # takes priority over account-level blocks like Leverage Sentry.
-        # [ANTIGRAVITY FIX] Use Total Equity (Cash + Unrealized PnL) for Leverage calculation.
-        # Otherwise, if we are fully invested with $0 cash, leverage spikes to infinity.
-        total_equity = current_capital_val + caps.get("total_unrealized_pnl", 0.0)
+        # [ANTIGRAVITY FIX] Use Total Equity (Cash + Position Value) for Leverage calculation.
+        # On spot exchanges, capital tied up in positions IS equity — not just the PnL delta.
+        # E.g. $1.17 cash + $12 in LTC = $13.17 equity, NOT $1.17 + (-$0.50 pnl) = $0.67.
+        position_value = caps.get("total_position_notional", 0.0)
+        if position_value > 0:
+            total_equity = current_capital_val + position_value
+        else:
+            # Fallback to old method if notional not available
+            total_equity = current_capital_val + caps.get("total_unrealized_pnl", 0.0)
         
         safety_decision = SafetyGuard.check_entry_safety(
             self.symbol, 

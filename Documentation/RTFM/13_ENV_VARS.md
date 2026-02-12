@@ -141,7 +141,7 @@ This document provides comprehensive details for each environment variable used 
 
 | Environment Variable | Description |
 |----------------------|-------------|
-| `STRATEGY_VARIANT` | **Default Strategy.**<br>Fallback when per-asset strategies not configured.<br>Options: `rubberband_reaper`, `robocop`, `evolution`, `quantum`, `mean_reversion`, `hyper_scalper`, `london_breakout`, `volatility_breakout`, `aggregator`. |
+| `STRATEGY_VARIANT` | **Default Strategy.**<br>Fallback when per-asset strategies not configured.<br>Options: `meta_sci` ⭐ (recommended), `rubberband_reaper`, `robocop`, `mean_reversion`, `supply_demand`, `trend_rider`, `session_momentum`, `bearish_engulfing`, `icc_core`, `orb_breakout`, `evolution`, `quantum`, `hyper_scalper`, `london_breakout`, `volatility_breakout`, `aggregator`, `crypto_rsi_macd`, `crypto_vwap_reversion`, `crypto_double_macd`, `crypto_grid`. |
 | `STRATEGY_CRYPTO` | **Crypto Strategy.**<br>Strategy for BTC, ETH, altcoins. Overrides `STRATEGY_VARIANT` for crypto symbols. |
 | `STRATEGY_FOREX` | **Forex Strategy.**<br>Strategy for EUR/USD, GBP/JPY, etc. Overrides `STRATEGY_VARIANT` for forex pairs. |
 | `STRATEGY_STOCKS` | **Stocks Strategy.**<br>Strategy for individual equities. |

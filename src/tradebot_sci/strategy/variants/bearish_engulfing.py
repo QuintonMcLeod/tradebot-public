@@ -111,8 +111,17 @@ class BearishEngulfingStrategy(BaseStrategy):
         open_position: Optional[dict] = None,
         **kwargs,
     ) -> Optional[AITradeDecision]:
+        # If we have an open position, check for pyramid opportunity instead of blocking
+        is_pyramid = False
         if open_position:
-            return None
+            pos_dir = open_position.get("direction", "")
+            pyramid_count = open_position.get("pyramid_count", 1)
+            max_pyramid = 3  # Conservative default
+            if "profile" in gates:
+                max_pyramid = getattr(gates["profile"], "max_pyramid_entries", 3)
+            if pyramid_count >= max_pyramid:
+                return None  # Max pyramids reached
+            is_pyramid = True
 
         if len(snapshot.candles) < self.swing_lookback + 3:
             return None
@@ -140,26 +149,37 @@ class BearishEngulfingStrategy(BaseStrategy):
             if htf_dir in ("long", "bullish"):
                 return None
 
+            # Pyramid check: only scale into SHORT positions
+            if is_pyramid:
+                if pos_dir != "short":
+                    return None  # Can't pyramid short signal into long position
+                # Ensure we're entering at a LOWER price (better for shorts)
+                entry_price = float(open_position.get("entry_price") or open_position.get("avg_price") or 0)
+                if entry_price > 0 and curr.close >= entry_price:
+                    return None  # Not at a better price for shorts
+
             stop_loss = curr.high + (atr * 0.25)  # Above the engulfing candle wick
             stop_dist = stop_loss - curr.close
             take_profit = curr.close - (stop_dist * 2.0)  # 2:1 R:R
 
             div_note = " + RSI Divergence" if has_divergence else ""
+            action = "scale_in" if is_pyramid else "enter_short"
+            pyramid_note = f" (Pyramid #{pyramid_count + 1})" if is_pyramid else ""
 
             return AITradeDecision(
                 symbol=snapshot.symbol,
                 timeframe=snapshot.timeframe,
                 bias="short",
                 phase="correction",
-                action="enter_short",
+                action=action,
                 entry_price=curr.close,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 risk_per_trade_pct=self.get_risk_pct(),
-                structure_summary=f"Bearish Engulfing at Resistance (RSI={rsi:.1f}{div_note})",
+                structure_summary=f"Bearish Engulfing at Resistance{pyramid_note} (RSI={rsi:.1f}{div_note})",
                 invalidation_conditions=f"Close above engulfing high {curr.high:.4f}",
                 management_instructions="Target 2R. Classic reversal pattern.",
-                notes=f"Engulfing candle reversal{div_note}",
+                notes=f"Engulfing candle reversal{div_note}{pyramid_note}",
                 urgency="high" if has_divergence else "medium",
             )
 
@@ -169,26 +189,37 @@ class BearishEngulfingStrategy(BaseStrategy):
             if htf_dir in ("short", "bearish"):
                 return None
 
+            # Pyramid check: only scale into LONG positions
+            if is_pyramid:
+                if pos_dir != "long":
+                    return None  # Can't pyramid long signal into short position
+                # Ensure we're entering at a HIGHER price (better for longs — price is moving)
+                entry_price = float(open_position.get("entry_price") or open_position.get("avg_price") or 0)
+                if entry_price > 0 and curr.close <= entry_price:
+                    return None  # Not at a better price for longs
+
             stop_loss = curr.low - (atr * 0.25)  # Below the engulfing candle wick
             stop_dist = curr.close - stop_loss
             take_profit = curr.close + (stop_dist * 2.0)  # 2:1 R:R
 
             div_note = " + RSI Divergence" if has_divergence else ""
+            action = "scale_in" if is_pyramid else "enter_long"
+            pyramid_note = f" (Pyramid #{pyramid_count + 1})" if is_pyramid else ""
 
             return AITradeDecision(
                 symbol=snapshot.symbol,
                 timeframe=snapshot.timeframe,
                 bias="long",
                 phase="correction",
-                action="enter_long",
+                action=action,
                 entry_price=curr.close,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 risk_per_trade_pct=self.get_risk_pct(),
-                structure_summary=f"Bullish Engulfing at Support (RSI={rsi:.1f}{div_note})",
+                structure_summary=f"Bullish Engulfing at Support{pyramid_note} (RSI={rsi:.1f}{div_note})",
                 invalidation_conditions=f"Close below engulfing low {curr.low:.4f}",
                 management_instructions="Target 2R. Classic reversal pattern.",
-                notes=f"Engulfing candle reversal{div_note}",
+                notes=f"Engulfing candle reversal{div_note}{pyramid_note}",
                 urgency="high" if has_divergence else "medium",
             )
 

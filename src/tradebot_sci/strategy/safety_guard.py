@@ -328,12 +328,14 @@ class SafetyGuard:
                 if classify_symbol(pos_symbol) == target_class:
                     price = float(pos.get("avg_price") or pos.get("entry_price") or 0)
                     size = abs(float(pos.get("size") or 0))
-                    total_notional += (price * size)
+                    contrib = price * size
+                    total_notional += contrib
+                    logger.debug(f"[SAFETY-LEV] {pos_symbol}: price={price} size={size} notional=${contrib:.2f}")
             
             # current_capital is passed per-broker (already isolated)
             current_leverage = total_notional / current_capital if current_capital > 0 else 0
             if current_leverage > max_leverage:
-                logger.warning(f"[SAFETY] Leverage Sentry VETO for {target_class.value}: Current Leverage {current_leverage:.1f}x exceeds Cap {max_leverage}x")
+                logger.warning(f"[SAFETY] Leverage Sentry VETO for {target_class.value}: Current Leverage {current_leverage:.1f}x exceeds Cap {max_leverage}x (notional=${total_notional:.2f} / equity=${current_capital:.2f})")
                 return cls._reject(symbol, timeframe, "Leverage Sentry", f"Leverage Sentry ({target_class.value.upper()}): {current_leverage:.1f}x > {max_leverage}x")
 
         # -------------------------------------------------------------
@@ -507,20 +509,44 @@ class SafetyGuard:
                             stop_loss=lock_price
                         )
 
-        # B. THE GREEDY EXIT (Standard Trailing Stop)
+        # B. THE GREEDY EXIT (Standard Trailing Stop + Time Decay)
         # -------------------------------------------------------------------------
         # Uses ATR-based or fixed pct trails to chase runs.
         # "Trailing Stop Enabled" in UI maps to this.
+        # [ANTIGRAVITY FIX] 3-phase time-bounded escalation prevents infinite holds:
+        #   Phase 1 (0 → max/2): Normal 1.5× ATR trail
+        #   Phase 2 (max/2 → max): Trail tightens linearly from 1.5× → 0.5× ATR
+        #   Phase 3 (> max): Force close — capital is freed
         use_greedy_exit = os.getenv("TRAILING_STOP_ENABLED", "false").lower() == "true"
         
         if use_greedy_exit:
+             # Time-bounded escalation
+             greedy_max_hours = settings.safety.greedy_exit_max_hold_hours if settings else 8.0
+             hours_held = 0.0
+             if entry_time and isinstance(entry_time, datetime):
+                 now_tz = datetime.now(entry_time.tzinfo or ZoneInfo("UTC"))
+                 hours_held = (now_tz - entry_time).total_seconds() / 3600
+
+             # Phase 3: Force close after max hold
+             if greedy_max_hours > 0 and hours_held >= greedy_max_hours:
+                 logger.info(f"[SAFETY] Greedy Exit TIMEOUT: {snapshot.symbol} held {hours_held:.1f}h >= {greedy_max_hours}h. Forcing close.")
+                 return close_position_decision(snapshot.symbol, snapshot.timeframe,
+                                                reason=f"Greedy Exit Timeout ({hours_held:.1f}h)")
+
+             # Phase 2: Tighten trail multiplier (linear decay from 1.5 to 0.5 ATR)
+             trail_multiplier = 1.5  # Phase 1 default
+             if greedy_max_hours > 0 and hours_held > greedy_max_hours * 0.5:
+                 progress = (hours_held - greedy_max_hours * 0.5) / (greedy_max_hours * 0.5)
+                 trail_multiplier = max(0.5, 1.5 - (1.0 * min(progress, 1.0)))
+                 logger.debug(f"[SAFETY] Greedy Exit TIGHTENING: {snapshot.symbol} trail={trail_multiplier:.2f}x ATR ({hours_held:.1f}h held)")
+
              # Default to ATR-based if available, or fallback to fixed 0.5%
              # [ANTIGRAVITY FIX] Usage of keyword-only period
              atr = calculate_atr(snapshot.candles[-14:], period=14)
              trail_dist = 0.0
              
              if atr:
-                 trail_dist = atr * 1.5 # Standard 1.5 ATR trail
+                 trail_dist = atr * trail_multiplier
              else:
                  trail_dist = current_price * 0.005 # Fallback 0.5%
              
@@ -534,7 +560,7 @@ class SafetyGuard:
                                 timeframe=snapshot.timeframe,
                                 bias="long",
                                 phase="management",
-                                reason=f"[SAFETY] The Greedy Exit: Trailing by {trail_dist:.4f}",
+                                reason=f"[SAFETY] The Greedy Exit: Trailing by {trail_dist:.4f} ({trail_multiplier:.1f}x ATR, {hours_held:.1f}h held)",
                                 stop_loss=potential_stop
                            )
              else: # short
@@ -547,7 +573,7 @@ class SafetyGuard:
                                 timeframe=snapshot.timeframe,
                                 bias="short",
                                 phase="management",
-                                reason=f"[SAFETY] The Greedy Exit: Trailing by {trail_dist:.4f}",
+                                reason=f"[SAFETY] The Greedy Exit: Trailing by {trail_dist:.4f} ({trail_multiplier:.1f}x ATR, {hours_held:.1f}h held)",
                                 stop_loss=potential_stop
                            )
 

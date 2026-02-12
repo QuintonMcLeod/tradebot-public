@@ -60,9 +60,9 @@ This is the original script designed to talk to TWS/Gateway.
 
 The backtester respects your **per-asset strategy configuration**. When backtesting:
 
-1. **Profile Settings Apply:** Your `strategies:` block in `settings_profiles.yaml` is used.
+1. **Profile Settings Apply:** Your strategy configuration in `config.json` (or `settings_profiles.yaml`) is used.
 2. **Symbol Classification:** Each symbol is classified into an asset class.
-3. **Strategy Selection:** The correct strategy for that asset class is used.
+3. **Strategy Selection:** The correct strategy for that asset class is used (including Meta-SCI tournaments if configured).
 
 ### Example
 If your profile has:
@@ -115,6 +115,6 @@ The Time Machine operates on **Futures Physics**. If you attempt to apply **Spot
 > 1.  **Law of Fees:** Entry = `-= fees`. Principal stays in the wallet.
 > 2.  **Law of PnL:** Exit = `+= net_pnl`. No principal recovery.
 > 3.  **Law of Direction:** Shorts are not backwards Longs. They are their own reality (use `_calculate_pnl`).
-> 4.  **Law of Strategy:** Use the correct strategy for the asset class. Don't mix strategies mid-backtest.
+> 4.  **Law of Strategy:** Use the correct strategy for the asset class. Don't mix strategies mid-backtest. The bot has 20 strategies — Meta-SCI will auto-select the best one if configured.
 
 Violating these laws breaks the simulation. Don't be the bot that broke the universe.

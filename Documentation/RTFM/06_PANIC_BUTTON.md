@@ -38,21 +38,27 @@ Don't panic. Read this.
 *   Maybe you hit your `max_daily_loss`?
 *   Maybe you have too many open positions?
 **Fix:**
-*   Check `config/settings_profiles.yaml`. Raise `max_exposure_pct` if you feel lucky.
+*   Check your profile settings. Raise `max_exposure_pct` if you feel comfortable.
+*   Review the Leverage Sentry cap in Settings → Safety & Shields.
 
 ---
 
 ## 4. "It's Not Trading!" (The Silent Treatment)
 **Symptom:** The bot is running, scanning, but never entering.
 **Cause:**
-*   **The Market Sucks:** If the `selection_score` is 45.0 and your threshold is 60.0, the bot is doing its job. It is saving you from losing money in chop.
+*   **Position Lock:** Is there already an open position for that symbol? Position Lock blocks ALL new entries until that position closes.
+*   **Leverage Sentry:** Is your total leverage over the cap? Check for `[SAFETY] Entry Blocked: Leverage Sentry` in logs.
+*   **The Market Sucks:** If the `selection_score` is 45.0 and your threshold is 55.0, the bot is doing its job. It is saving you from losing money in chop.
+*   **Meta-SCI Tournament:** If using Meta-SCI, check for `[META-SCI] Tournament: No qualifying signals found`. This means all strategies evaluated the market and none saw a high-quality setup.
 *   **Sabbath Mode:** Is it Friday night? The bot might be resting.
 *   **Balance:** See "Insufficient Funds".
 *   **Wrong Strategy:** The assigned strategy for that asset class might not be firing in current conditions.
 **Fix:**
-*   Check the logs for `[SELECT]`. If it sees candidates but scores them low, be patient.
+*   Check the logs for `[POSITION LOCK]` — if locked, wait for position to close or restart bot.
+*   Check for `[SAFETY]` entries — these show exactly what guard blocked the trade.
+*   Check `[SELECT]` logs. If it sees candidates but scores them low, be patient.
 *   If it sees *nothing*, check your `symbols` list.
-*   Check `[STRATEGY]` logs to confirm the right strategy is being used.
+*   Check `[META-SCI]` logs to see tournament results.
 
 ---
 
@@ -119,8 +125,22 @@ Don't panic. Read this.
 If the bot goes rogue (Skynet scenario):
 1.  **Ctrl+C** in the terminal.
 2.  **`./scripts/tradebot.sh --exit-all`** (The Nuclear Option).
-3.  **Log into your Broker (Coinbase, Kraken, IBKR, OANDA, etc.)** and manually close positions.
+3.  **Log into your Broker (Coinbase, Kraken, IBKR, OANDA, Gemini, Paxos, etc.)** and manually close positions.
     *   *Note:* Killing the bot does **not** automatically sell your bags. It just stops the bot from buying more.
+    *   *Note:* If you manually close a position, the bot's Position Lock won't know. Restart the bot to clear it.
+
+---
+
+## 9. "NO BROKER CONFIGURED" (Preflight Failure)
+**Symptom:** The bot prints a big error box saying `❌ NO BROKER CONFIGURED — CANNOT START` and exits.
+**Cause:** You haven't configured any broker API keys yet.
+**Fix:**
+1.  Open the GUI: `./scripts/tradebot.sh --gui`
+2.  Go to Settings → **Brokers** tab.
+3.  Enter API credentials for at least ONE broker (OANDA, IBKR, CCXT, etc.).
+4.  Save and restart.
+
+See `08_API_SETUP.md` for step-by-step broker setup.
 
 ---
 
@@ -128,8 +148,12 @@ If the bot goes rogue (Skynet scenario):
 
 | Issue | Check |
 |-------|-------|
-| No trades | Logs for `[SELECT]` score, strategy assigned |
+| No trades | Logs for `[SELECT]` score, `[POSITION LOCK]`, `[SAFETY]` |
+| No trades (Meta-SCI) | Logs for `[META-SCI] Tournament` results |
+| Position Lock blocking | Open position exists? Wait for SL/TP or restart bot |
+| Leverage Sentry blocking | Total leverage over cap? Reduce positions or raise cap |
 | Connection error | Broker running? Port correct? API enabled? |
 | Insufficient funds | Balance in correct wallet? Margin requirements? |
-| Wrong strategy | Profile has `strategies:` block with correct assignments? |
+| Wrong strategy | Profile has correct strategy assignment? |
 | API errors | Key/secret correct? Not expired? Has trade permissions? |
+| Won't start | No broker configured? See Preflight Check error above |

@@ -2,7 +2,7 @@
 
 > *"What does this button do?" — Last words of a former trader.*
 
-The bot is configured through the **Settings GUI** or directly via `config/settings_profiles.yaml` and `.env` files. This guide covers the most important controls.
+The bot is configured through the **Settings GUI**, `config.json`, or `config/settings_profiles.yaml` (legacy). This guide covers the most important controls.
 
 ---
 
@@ -10,7 +10,7 @@ The bot is configured through the **Settings GUI** or directly via `config/setti
 
 Launch the visual Settings interface:
 ```bash
-./scripts/tradebot.sh --settings
+./scripts/tradebot.sh --gui
 ```
 
 Or from within the GUI dashboard, click the **Settings** button.
@@ -20,9 +20,10 @@ Or from within the GUI dashboard, click the **Settings** button.
 | Tab | Purpose |
 |-----|---------|
 | **System** | Profile selection, execution mode, timeframes, trend detection |
-| **Strategy Workshop** | Asset strategies, risk management, pyramiding, ICC scoring, exits |
-| **Broker Suite** | IBKR, OANDA, Coinbase/CCXT configuration |
+| **Strategy Workshop** | Browse all 20 strategies, per-asset assignment, ICC scoring |
+| **Broker Suite** | IBKR, OANDA, CCXT, Paxos, Kraken configuration |
 | **Intelligence** | AI provider, model settings, commentary policy |
+| **Safety & Shields** | Position Lock, Leverage Sentry, Breakeven Trail, Daily Loss Limit |
 | **Hours & Sabbath** | Session gates, Sabbath blocking, timezone |
 | **Advanced** | Raw environment variable editor |
 
@@ -32,88 +33,140 @@ Or from within the GUI dashboard, click the **Settings** button.
 
 ### Per-Asset Strategy Assignment
 
-The most important new control: **different strategies for different asset classes**.
+The most important control: **different strategies for different asset classes**.
 
 **In GUI:** Settings → Strategy Workshop → Asset Strategies
 
-**In YAML:**
-```yaml
-strategies:
-  crypto: rubberband_reaper    # Mean reversion for volatile crypto
-  forex: rubberband_reaper     # Proven +7,036% on forex
-  stocks: quantum              # Trend-following for equities
-  etf: quantum                 # Works well on SPY, QQQ
-  metals: mean_reversion       # Gold/Silver tend to range
-  futures: volatility_breakout # Catch breakouts on ES, NQ
+**In config.json:**
+```json
+{
+  "profiles": {
+    "forex_continuous": {
+      "strategy": "meta_sci",
+      "strategies": {
+        "crypto": "meta_sci",
+        "forex": "rubberband_reaper",
+        "stocks": "trend_rider",
+        "metals": "mean_reversion"
+      }
+    }
+  }
+}
 ```
 
-### Available Strategies
+### Available Strategies (20)
 
 | Strategy | Key | Best For |
 |----------|-----|----------|
-| Rubberband Reaper | `rubberband_reaper` | Ranging markets, anti-martingale |
-| RoboCop | `robocop` | Aggressive trending markets |
-| Robot Evolution | `evolution` | Sideways/consolidation |
-| Quantum | `quantum` | Strong trending pairs |
-| Mean Reversion | `mean_reversion` | Ranging crypto/forex |
-| HyperScalper | `hyper_scalper` | Fast markets, scalping |
-| London Breakout | `london_breakout` | GBP pairs, European session |
-| Volatility Breakout | `volatility_breakout` | Compressed markets |
-| Singularity Aggregator | `aggregator` | Multi-strategy parallel |
+| **Meta-SCI** ⭐ | `meta_sci` | All markets — auto-selects best strategy |
+| **Rubberband Reaper** | `rubberband_reaper` | Ranging markets, anti-martingale |
+| **RoboCop** | `robocop` | Sniper precision, high-conviction |
+| **Mean Reversion** | `mean_reversion` | Ranging crypto/forex |
+| **Supply & Demand** | `supply_demand` | Institutional zone trading |
+| **Trend Rider** | `trend_rider` | Strong trending markets |
+| **Session Momentum** | `session_momentum` | London/NY session opens |
+| **Engulfing Reversal** | `bearish_engulfing` | Candlestick reversal patterns |
+| **ICC Core** | `icc_core` | Pure structure trading |
+| **ORB Breakout** | `orb_breakout` | Opening range breakouts |
+| **Robot Evolution** | `evolution` | NTZ edge scalping |
+| **Quantum** | `quantum` | SMA trend following |
+| **HyperScalper** | `hyper_scalper` | Fast EMA crossover |
+| **London Breakout** | `london_breakout` | GBP pairs, European session |
+| **Volatility Breakout** | `volatility_breakout` | Range compression |
+| **Aggregator** | `aggregator` | Multi-strategy parallel |
+| 🪙 **RSI + MACD** | `crypto_rsi_macd` | Crypto trending |
+| 🪙 **VWAP Reversion** | `crypto_vwap_reversion` | Crypto ranging |
+| 🪙 **Double MACD** | `crypto_double_macd` | Crypto scalping |
+| 🪙 **Virtual Grid** | `crypto_grid` | Crypto sideways markets |
+
+See `09_FEET_WET_STRATEGY.md` for detailed explanations of each strategy.
 
 ---
 
 ## The "Aggression" Levers
 
-### `icc_entry_score_threshold` (Default: `35.0`)
+### `icc_entry_score_threshold` (Default: `55.0`)
 - **What it does:** Sets the quality bar for trade entries (0-100 scale)
-- **Higher (e.g., 60.0):** Only A+ setups. May wait days for a trade.
-- **Lower (e.g., 25.0):** More trades, lower quality. Higher risk.
-- **Danger Zone:** Below 20.0 is basically random.
+- **Higher (e.g., 70.0):** Only A+ setups. May wait days for a trade.
+- **Lower (e.g., 40.0):** More trades, lower quality. Higher risk.
+- **Danger Zone:** Below 30.0 is basically random.
 
-### `icc_aggressive_mode` (Default: `true`)
-- **What it does:** Enables aggressive sizing and pyramiding
-- **On:** Uses larger positions on high-confidence setups
-- **Off:** Conservative fixed sizing
-
-### `risk_per_trade_pct` (Default: `0.01` = 1%)
+### `risk_per_trade_pct` (Default: `0.02` = 2%)
 - **What it does:** How much of your account to risk per trade
-- **Conservative:** 0.5% - 1%
-- **Moderate:** 2% - 3%
-- **Aggressive:** 5%+ (not recommended for beginners)
+- **Conservative:** 1-2%
+- **Moderate:** 2-3%
+- **Aggressive:** 4-5% (not recommended for beginners)
 
 ---
 
-## The "Safety" Levers
+## Safety & Shields
+
+These are your protective guardrails. Most are enabled by default.
+
+### Position Lock (Always On)
+- **What it does:** Once a position is open on a symbol, ALL new entry signals for that symbol are rejected until the position closes naturally (SL/TP/exit logic).
+- **Why:** Prevents whipsaw flipping (long→short→long) which destroys accounts.
+- **Override:** Cannot be disabled. This is by design.
+- **Important:** If you manually close a bot-managed trade, Position Lock won't know. Restart the bot to clear it.
+
+### Leverage Sentry
+- **What it does:** Blocks new trades if total leverage exceeds your cap
+- **Default:** 3.0x for forex, varies by asset class
+- **Configure:** Settings → System → Max Leverage
+- **Logs:** `[SAFETY] Entry Blocked: Leverage Sentry (FOREX): 4.0x > 3.0x cap`
+
+### Daily Loss Limit
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `max_daily_loss_pct` | `0.10` (10%) | Circuit breaker — stops all trading |
+- **What it does:** If daily losses exceed this % of equity, ALL trading stops
+- **Why:** Prevents "tilt" spirals during bad days
+- **Reset:** Resets automatically at midnight (UTC) or on restart
+
+### Breakeven Trail
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `breakeven_enabled` | `true` | Move SL to breakeven after profit threshold |
+| `breakeven_trigger_pct` | `0.005` (0.5%) | Minimum unrealized profit to trigger |
+- **What it does:** After price moves X% in your favor, moves stop-loss to entry price (breakeven)
+- **Why:** Ensures you can't lose money once a trade has shown sufficient profit
+
+### Trailing Stop
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `trailing_stop_enabled` | `true` | Ratchet SL up as price advances |
+| `trailing_stop_pct` | `0.01` (1%) | Trail distance from current price |
+- **What it does:** As price moves in your favor, the stop-loss follows behind
+- **Why:** Locks in profits without capping upside
+
+---
+
+## The "Safety" Master Switches
 
 ### `EXECUTE_TRADES` (Default: `false`)
 - **THE MASTER SWITCH:** Must be `true` to place real orders
-- **`false`:** Simulation mode - logs decisions but doesn't trade
-- **`true`:** Live trading - real money at risk
+- **`false`:** Simulation mode — logs decisions but doesn't trade
+- **`true`:** Live trading — real money at risk
 
-### `max_daily_loss_pct` (Default: `0.06` = 6%)
-- **What it does:** Circuit breaker. Bot stops if daily loss exceeds this.
-- **Advice:** Keep this enabled. It saves you from "tilt" spirals.
-
-### `max_concurrent_positions` (Default: `1`)
+### `max_concurrent_positions` (Default: `5`)
 - **What it does:** How many symbols can be traded simultaneously
-- **Safe:** 1-2 positions
-- **Advanced:** 3-5 positions (requires more capital)
+- **Safe:** 3-4 positions
+- **Advanced:** 5-8 positions (requires more capital)
 
 ---
 
 ## The "Time" Levers
 
-### `candle_timeframe` (Default: `5m`)
+### `candle_timeframe` (Default: `1h`)
 - **What it does:** Main chart resolution
-- **1m:** Scalping. High noise, fast action.
-- **5m:** Standard intraday.
-- **15m:** Slower intraday, cleaner signals.
-- **1h:** Swing trading.
+- **5m:** Scalping. High noise, fast action.
+- **15m:** Intraday, cleaner signals.
+- **1h:** Swing trading (recommended).
+- **4h:** Position trading.
 
 ### `htf_timeframe` / `ltf_timeframe`
-- **HTF:** Higher timeframe for trend direction (e.g., `15m`, `1h`)
-- **LTF:** Lower timeframe for entry precision (e.g., `5m`)
+- **HTF:** Higher timeframe for trend direction (e.g., `4h`)
+- **LTF:** Lower timeframe for entry precision (e.g., `15m`)
 
 ### `sabbath_enabled` (Default: `true`)
 - **What it does:** Blocks new entries Friday sunset to Saturday sunset
@@ -133,7 +186,7 @@ strategies:
 | `IBKR_PAPER` | Enable paper trading mode |
 | `IBKR_READ_ONLY` | Monitor only, no orders |
 
-### OANDA Settings (NEW)
+### OANDA Settings
 | Setting | Purpose |
 |---------|---------|
 | `OANDA_ACCOUNT_ID` | Your OANDA account number |
@@ -141,10 +194,10 @@ strategies:
 | `OANDA_ENVIRONMENT` | `practice` or `live` |
 | `OANDA_READ_ONLY` | Monitor only, no orders |
 
-### Coinbase/CCXT Settings
+### CCXT / Crypto Exchange Settings
 | Setting | Purpose |
 |---------|---------|
-| `CCXT_EXCHANGE` | Exchange ID (e.g., `coinbase`) |
+| `CCXT_EXCHANGE` | Exchange ID (e.g., `gemini`, `coinbase`, `kraken`) |
 | `CCXT_API_KEY` | API key |
 | `CCXT_SECRET` | API secret |
 | `CCXT_SANDBOX` | Enable testnet |
@@ -157,29 +210,10 @@ strategies:
 
 ---
 
-## Pyramiding Controls
-
-### `max_pyramid_entries` (Default: `6`)
-- **What it does:** Maximum times to add to a winning position
-- **1:** No pyramiding (single entry only)
-- **3-6:** Moderate scaling
-- **10+:** Aggressive (requires strong trends)
-
-### `pyramid_profit_buffer_pct` (Default: `0.0015` = 0.15%)
-- **What it does:** Minimum profit required before first add
-- **Why:** Prevents adding to trades that haven't proven themselves
-
-### `breakeven_trail_after_pyramids` (Default: `1`)
-- **What it does:** Move stop to breakeven after N pyramid entries
-- **0:** Disabled
-- **1:** After first add, protect capital
-
----
-
 ## AI/Commentary Controls
 
 ### `TRADE_SCI_PROVIDER`
-- **Options:** `gemini`, `openai`, `claude`, `deepseek`, `openrouter`
+- **Options:** `gemini`, `openai`, `claude`, `deepseek`, `openrouter`, `local`
 - **Recommended:** `gemini` (good balance of quality and cost)
 
 ### `COMMENTARY_LLM_POLICY`
@@ -191,22 +225,24 @@ strategies:
 
 ## Control Summary
 
-### Green Levers (Safe to Adjust)
-- `icc_entry_score_threshold` - Quality filter
-- `sabbath_enabled` - Weekend blocking
-- `candle_timeframe` - Chart resolution
-- `strategies.*` - Per-asset strategy assignment
-- `risk_per_trade_pct` - Position sizing
+### Green Levers ✅ (Safe to Adjust)
+- `icc_entry_score_threshold` — Quality filter
+- `sabbath_enabled` — Weekend blocking
+- `candle_timeframe` — Chart resolution
+- Strategy assignment per asset class
+- `risk_per_trade_pct` — Position sizing
+- `breakeven_enabled` / `breakeven_trigger_pct` — Profit protection
 
-### Yellow Levers (Understand Before Changing)
-- `max_pyramid_entries` - Scaling aggressiveness
-- `icc_aggressive_mode` - Position sizing mode
-- `max_concurrent_positions` - Multi-symbol trading
+### Yellow Levers ⚠️ (Understand Before Changing)
+- `max_concurrent_positions` — Multi-symbol trading
+- `trailing_stop_pct` — Trail distance affects hold duration
+- `max_daily_loss_pct` — Circuit breaker threshold
 
-### Red Levers (Danger - Expert Only)
-- `EXECUTE_TRADES` - Live trading toggle
-- `IBKR_PORT` - Wrong port = wrong account
-- `market_poll_interval_seconds` - Too low = API ban
+### Red Levers 🔴 (Danger — Expert Only)
+- `EXECUTE_TRADES` — Live trading toggle
+- `IBKR_PORT` — Wrong port = wrong account
+- `market_poll_interval_seconds` — Too low = API ban
+- Lowering `icc_entry_score_threshold` below 35 — Nearly random trades
 
 ---
 

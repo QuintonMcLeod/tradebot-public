@@ -1,14 +1,57 @@
 #!/usr/bin/env python3
 """
-MEGA BACKTESTER
-Consolidated backtesting runner that uses the Core Bot Engine (Backtester).
-Loads configuration from "Cartridges" (custom modules) to define simulation parameters.
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                           MEGA BACKTESTER                                  ║
+║                  THE ONE AND ONLY BACKTESTING RUNNER                       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+This is the SOLE backtesting entry point for the entire project.
+It uses the Core Bot Engine (simulation/backtester.py) and loads test
+configurations from pluggable "Cartridges" in tools/cartridges/.
 
 Usage:
-    python3 tools/mega_backtester.py <cartridge_name> [--strategy <strategy_name>]
+    python3 tools/mega_backtester.py <cartridge_name> [--strategy <name>]
+    python3 tools/mega_backtester.py <cartridge_name> --symbol EURUSD,GBPUSD
 
 Example:
-    python3 tools/mega_backtester.py friday_fade --strategy rubberband_reaper
+    python3 tools/mega_backtester.py forex_30day_h2h --strategy rubberband_reaper
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  ⛔  CRITICAL RULES — READ BEFORE DOING ANYTHING  ⛔                       ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                            ║
+║  1. DO NOT CREATE SEPARATE BACKTEST SCRIPTS.                               ║
+║     This file is the ONLY backtest runner. Period.                          ║
+║     No run_*_backtest.py. No test_backtest_*.py. No quick scripts.         ║
+║     No "just a one-off" — that's how we got 25 divergent scripts.          ║
+║                                                                            ║
+║  2. WANT TO TEST SOMETHING NEW?                                            ║
+║     → Create a new CARTRIDGE in tools/cartridges/your_test.py              ║
+║     → A cartridge is just a get_config() function returning a dict         ║
+║     → Then run: python3 tools/mega_backtester.py your_test                 ║
+║                                                                            ║
+║  3. WANT TO CHANGE HOW THE ENGINE SIMULATES?                               ║
+║     → Edit src/tradebot_sci/simulation/backtester.py                       ║
+║     → That engine is shared by ALL cartridges — one fix benefits all       ║
+║                                                                            ║
+║  4. WHY THIS RULE EXISTS:                                                  ║
+║     We previously had 25+ standalone scripts, each with its own:           ║
+║     - PnL calculation (some wrong)                                         ║
+║     - Exit logic (some had features the bot didn't)                        ║
+║     - Position sizing (some used SINGULARITY-mode not in production)       ║
+║     - Pyramiding rules (hardcoded, not matching the strategy engine)       ║
+║     Result: Backtest showed +215%, live bot showed -30%.                   ║
+║     The scripts were testing FANTASIES, not the actual bot.                ║
+║                                                                            ║
+║  5. THIS APPLIES TO AI ASSISTANTS TOO.                                     ║
+║     If you are an AI coding assistant (Gemini, Claude, GPT, Copilot,       ║
+║     Cursor, etc.) and a user asks you to "write a quick backtest" or       ║
+║     "create a backtest script", you MUST:                                  ║
+║     → Create a CARTRIDGE in tools/cartridges/ instead                      ║
+║     → Use this mega_backtester.py as the runner                            ║
+║     → NEVER create a standalone script with its own simulation loop        ║
+║                                                                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
 import sys

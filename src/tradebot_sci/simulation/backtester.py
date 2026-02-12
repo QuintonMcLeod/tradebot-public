@@ -1,9 +1,46 @@
-"""Historical simulation engine for backtesting ICC strategy.
+"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║              CORE BACKTESTING ENGINE — SINGLE SOURCE OF TRUTH              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 
-This module provides a backtesting framework that replays historical market data
-through the bot's existing strategy logic to validate performance without risking
-real capital. It fetches historical candles from IBKR, simulates trade execution
-with realistic fill assumptions, and tracks P&L over the specified timeframe.
+Historical simulation engine for backtesting trading strategies.
+
+This module provides the ONLY backtesting framework for the project. It replays
+historical market data through the bot's actual StrategyEngine to validate
+performance without risking real capital. It handles: candle fetching (IBKR or
+local JSON), trade execution simulation, stop/target logic, PnL tracking, and
+performance metrics.
+
+HOW TO USE:
+    → Run via: python3 tools/mega_backtester.py <cartridge>
+    → Create test configs as cartridges in tools/cartridges/
+    → mega_backtester.py instantiates THIS engine with cartridge settings
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  ⛔  ANTI-DUPLICATION RULES  ⛔                                             ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                            ║
+║  This is the ONLY simulation engine. DO NOT:                               ║
+║                                                                            ║
+║  ✗ Create standalone scripts with their own PnL calculation                ║
+║  ✗ Build separate "quick backtest" scripts with custom exit logic          ║
+║  ✗ Write one-off scripts that bypass this engine                           ║
+║  ✗ Add pyramiding/exits in a script that don't exist HERE                  ║
+║                                                                            ║
+║  If this engine is missing a feature you need (pyramiding, custom          ║
+║  exits, structure-based stops), ADD IT HERE so ALL tests benefit.          ║
+║                                                                            ║
+║  HISTORY: 25+ standalone scripts were deleted because each had its        ║
+║  own simulation logic. One showed +215% returns using features             ║
+║  (SINGULARITY pyramiding, stagnation kills) that weren't in the            ║
+║  production bot. This created false confidence and masked the              ║
+║  bot's true performance. Never again.                                      ║
+║                                                                            ║
+║  AI ASSISTANTS: If asked to "run a quick backtest" or "write a test        ║
+║  script", create a CARTRIDGE in tools/cartridges/ and use                  ║
+║  mega_backtester.py. Do NOT create a new standalone script.                ║
+║                                                                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
 from __future__ import annotations

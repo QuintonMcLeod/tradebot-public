@@ -46,12 +46,13 @@ The TradeBot is a multi-market, multi-asset, **multi-strategy** predator.
 *   **ETFs?** Yes. SPY, QQQ, sector funds.
 *   **Metals?** Yes. Gold, Silver, Platinum.
 
-**9 Trading Strategies.** Each optimized for different market conditions. You can assign different strategies to different asset classes — mean reversion for crypto, trend-following for stocks, breakout for futures.
+**20 Trading Strategies.** Each optimized for different market conditions. Or use **Meta-SCI** — the recommended default — which runs a tournament of all eligible strategies and automatically picks the best one for the current conditions. You can also assign different strategies to different asset classes — mean reversion for crypto, trend-following for stocks, breakout for futures.
 
 It supports:
 - **IBKR** (Interactive Brokers) for stocks, options, futures
 - **OANDA** for forex (the easy way)
-- **CCXT** for crypto (Coinbase, Kraken, Binance, etc.)
+- **CCXT** for crypto (Gemini, Coinbase, Kraken, etc.)
+- **Paxos** for crypto (itBit)
 
 It connects to everything, trades everything, and doesn't ask for permission.
 
