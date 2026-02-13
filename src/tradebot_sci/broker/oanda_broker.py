@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Iterable
 
 try:
@@ -59,12 +61,60 @@ class OandaExchangeBroker(IExchangeBroker):
         self._liquid_capital = 0.0
         self._tracked_positions: dict[str, dict] = {}  # symbol -> position snapshot
         self._prev_balance: float | None = None  # for PnL calc on vanished positions
+        self._tracked_path = Path("data/oanda_tracked_positions.json")
+        self._load_tracked_positions()
         self.refresh_account_summary()
+        self._bootstrap_tracked_positions()
 
     def sync_profile(self, profile: TradingProfileSettings) -> None:
         """Update internal profile pointer to latest settings (Hot-Reload)."""
         logger.info(f"[OANDA] Syncing new Profile settings... (Risk: ${getattr(profile, 'risk_per_trade_dollars', 'N/A')})")
         self.profile = profile
+
+    # ── Tracked Position Persistence ──────────────────────────────────
+
+    def _load_tracked_positions(self) -> None:
+        """Load tracked positions from disk (survives restarts)."""
+        if self._tracked_path.exists():
+            try:
+                with self._tracked_path.open("r") as f:
+                    self._tracked_positions = json.load(f)
+                logger.info(f"[OANDA] Loaded {len(self._tracked_positions)} tracked position(s) from disk")
+            except Exception as e:
+                logger.warning(f"[OANDA] Failed to load tracked positions: {e}")
+
+    def _save_tracked_positions(self) -> None:
+        """Persist tracked positions to disk."""
+        try:
+            self._tracked_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._tracked_path.open("w") as f:
+                json.dump(self._tracked_positions, f, indent=2)
+        except Exception as e:
+            logger.error(f"[OANDA] Failed to save tracked positions: {e}")
+
+    def _bootstrap_tracked_positions(self) -> None:
+        """Seed tracked positions from OANDA's current open positions on startup."""
+        try:
+            current_symbols = set(self.list_open_position_symbols())
+            bootstrapped = 0
+            for sym in current_symbols:
+                if sym not in self._tracked_positions:
+                    snap = self.get_open_position_snapshot(sym)
+                    if snap and abs(snap.get("size", 0)) > 1e-8:
+                        self._tracked_positions[sym] = snap
+                        bootstrapped += 1
+            if bootstrapped:
+                logger.info(f"[OANDA] Bootstrapped {bootstrapped} position(s) for exit tracking: {list(current_symbols)}")
+                self._save_tracked_positions()
+            # Clean up stale tracked positions that no longer exist on OANDA
+            stale = [s for s in self._tracked_positions if s not in current_symbols]
+            if stale:
+                for s in stale:
+                    logger.info(f"[OANDA] Removing stale tracked position: {s} (no longer on OANDA)")
+                    del self._tracked_positions[s]
+                self._save_tracked_positions()
+        except Exception as e:
+            logger.warning(f"[OANDA] Bootstrap tracked positions failed: {e}")
 
     def _normalize_symbol(self, symbol: str) -> str:
         """Converts EURUSD to EUR_USD, handles Crypto mappings."""
@@ -509,6 +559,9 @@ class OandaExchangeBroker(IExchangeBroker):
             # Update previous balance for next cycle
             if current_balance is not None:
                 self._prev_balance = current_balance
+
+            # Persist tracked positions to disk
+            self._save_tracked_positions()
 
         except Exception as e:
             logger.error(f"[OANDA] evaluate_synthetic_stops error: {e}")

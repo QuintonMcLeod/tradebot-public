@@ -36,7 +36,7 @@ except ImportError:
 # [EXIT] Manual/Signal: USDCAD +$0.01 (Pct=0.01%) | Est. Spread Cost: $0.0180 (OANDA 1.5 pips)
 RE_EXIT = re.compile(
     r"\[EXIT\]\s+(?P<reason>[^:]+):\s+"
-    r"(?P<symbol>[A-Z]{3,10})\s+"
+    r"(?P<symbol>[A-Z_]{3,10})\s+"
     r"(?P<pnl_sign>[+-])\$(?P<pnl_val>[\d.]+)"
     r"(?:\s+\(Pct=(?P<pct>[+-]?[\d.]+)%\))?"
     r"(?:.*?Est\.\s*Spread\s*Cost:\s*\$(?P<spread>[\d.]+))?"
