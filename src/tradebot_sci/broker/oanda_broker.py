@@ -93,9 +93,12 @@ class OandaExchangeBroker(IExchangeBroker):
             logger.error(f"[OANDA] Failed to save tracked positions: {e}")
 
     def _bootstrap_tracked_positions(self) -> None:
-        """Seed tracked positions from OANDA's current open positions on startup."""
+        """Seed tracked positions from OANDA's current open positions on startup,
+        and backfill [EXIT] lines for positions that closed while bot was offline."""
         try:
             current_symbols = set(self.list_open_position_symbols())
+
+            # ── Add new open positions to tracking ──
             bootstrapped = 0
             for sym in current_symbols:
                 if sym not in self._tracked_positions:
@@ -105,14 +108,122 @@ class OandaExchangeBroker(IExchangeBroker):
                         bootstrapped += 1
             if bootstrapped:
                 logger.info(f"[OANDA] Bootstrapped {bootstrapped} position(s) for exit tracking: {list(current_symbols)}")
-                self._save_tracked_positions()
-            # Clean up stale tracked positions that no longer exist on OANDA
+
+            # ── Backfill exits for positions that vanished while bot was offline ──
             stale = [s for s in self._tracked_positions if s not in current_symbols]
             if stale:
-                for s in stale:
-                    logger.info(f"[OANDA] Removing stale tracked position: {s} (no longer on OANDA)")
-                    del self._tracked_positions[s]
-                self._save_tracked_positions()
+                # Load set of already-backfilled trade IDs to prevent duplicates
+                bf_path = Path("data/oanda_backfilled_trades.json")
+                backfilled_ids: set = set()
+                if bf_path.exists():
+                    try:
+                        backfilled_ids = set(json.loads(bf_path.read_text()))
+                    except Exception:
+                        pass
+
+                for sym in stale:
+                    prev = self._tracked_positions[sym]
+                    try:
+                        r_closed = trades.TradesList(
+                            self.account_id,
+                            params={"state": "CLOSED", "instrument": sym, "count": 10}
+                        )
+                        closed_resp = self.client.request(r_closed)
+                        closed_trades = closed_resp.get("trades", [])
+
+                        for ct in closed_trades:
+                            trade_id = ct.get("id", "")
+                            if trade_id in backfilled_ids:
+                                continue  # Already logged
+
+                            pnl = float(ct.get("realizedPL", 0))
+                            initial_units = float(ct.get("initialUnits", 0))
+                            price = float(ct.get("price", 0))
+                            pnl_pct = 0.0
+                            if initial_units != 0 and price > 0:
+                                pnl_pct = (pnl / (abs(initial_units) * price)) * 100
+                            side = "SHORT" if initial_units < 0 else "LONG"
+
+                            pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
+                            est_spread = abs(initial_units) * self.AVG_SPREAD_PIPS * pip_value * 2
+
+                            pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
+                            logger.info(
+                                f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
+                                f"(Pct={pnl_pct:.2f}%) position={side} | "
+                                f"Est. Spread Cost: ${est_spread:.4f}"
+                            )
+                            backfilled_ids.add(trade_id)
+                            logger.info(f"[OANDA] Backfilled missed exit: {sym} trade#{trade_id} PnL=${pnl:.4f}")
+
+                    except Exception as e:
+                        logger.warning(f"[OANDA] Backfill query failed for {sym}: {e}")
+
+                    del self._tracked_positions[sym]
+
+                # Save backfilled IDs to prevent duplicates on next restart
+                try:
+                    bf_path.parent.mkdir(parents=True, exist_ok=True)
+                    bf_path.write_text(json.dumps(list(backfilled_ids)))
+                except Exception:
+                    pass
+
+            # ── Catch-all: backfill ALL recent closed trades not yet logged ──
+            # This covers trades that were never tracked (before persistence existed)
+            bf_path = Path("data/oanda_backfilled_trades.json")
+            backfilled_ids: set = set()
+            if bf_path.exists():
+                try:
+                    backfilled_ids = set(json.loads(bf_path.read_text()))
+                except Exception:
+                    pass
+
+            try:
+                r_all = trades.TradesList(
+                    self.account_id,
+                    params={"state": "CLOSED", "count": 50}
+                )
+                all_resp = self.client.request(r_all)
+                new_backfills = 0
+                for ct in all_resp.get("trades", []):
+                    trade_id = ct.get("id", "")
+                    if trade_id in backfilled_ids:
+                        continue
+
+                    sym = ct.get("instrument", "")
+                    pnl = float(ct.get("realizedPL", 0))
+                    initial_units = float(ct.get("initialUnits", 0))
+                    price = float(ct.get("price", 0))
+                    pnl_pct = 0.0
+                    if initial_units != 0 and price > 0:
+                        pnl_pct = (pnl / (abs(initial_units) * price)) * 100
+                    side = "SHORT" if initial_units < 0 else "LONG"
+
+                    pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
+                    est_spread = abs(initial_units) * self.AVG_SPREAD_PIPS * pip_value * 2
+
+                    pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
+                    logger.info(
+                        f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
+                        f"(Pct={pnl_pct:.2f}%) position={side} | "
+                        f"Est. Spread Cost: ${est_spread:.4f}"
+                    )
+                    backfilled_ids.add(trade_id)
+                    new_backfills += 1
+
+                if new_backfills:
+                    logger.info(f"[OANDA] Backfilled {new_backfills} missed trade(s) from OANDA history")
+
+                # Persist updated backfill IDs
+                try:
+                    bf_path.parent.mkdir(parents=True, exist_ok=True)
+                    bf_path.write_text(json.dumps(list(backfilled_ids)))
+                except Exception:
+                    pass
+
+            except Exception as e:
+                logger.warning(f"[OANDA] Catch-all backfill failed: {e}")
+            self._save_tracked_positions()
         except Exception as e:
             logger.warning(f"[OANDA] Bootstrap tracked positions failed: {e}")
 
