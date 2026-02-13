@@ -145,18 +145,23 @@ try {
 
     # Install Dependencies
     Write-Info "Installing Python Dependencies via Poetry..."
+    # [ANTIGRAVITY] Auto-fix stale poetry.lock (common after git pull)
+    Write-Info "Syncing poetry.lock with pyproject.toml..."
     $Poetry = Get-Command "poetry" -ErrorAction SilentlyContinue
     if ($Poetry) {
+        poetry lock
         poetry install --with gui
     } else {
         # Fallback absolute path check
         $PoetryPath = "$env:APPDATA\Python\Scripts\poetry.exe"
         if (Test-Path $PoetryPath) {
+            & $PoetryPath lock
             & $PoetryPath install --with gui
         } else {
             # Try to find it dynamically like in bash script
             $Found = Get-ChildItem "$env:APPDATA\Python" -Filter "poetry.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($Found) {
+                 & $Found.FullName lock
                  & $Found.FullName install --with gui
             } else {
                 throw "Poetry installed but not found. Please restart PowerShell."
