@@ -1731,8 +1731,8 @@ function setupInteractiveElements() {
             if (result.available) {
                 btn.classList.remove('hidden');
                 btn.style.display = 'flex';
-                btnText.innerText = `Update Available (${result.behind} commit${result.behind > 1 ? 's' : ''})`;
-                appendLog("INFO", `[UPDATE] ${result.behind} update(s) available from origin/master`);
+                btnText.innerText = 'Update Available — Click Here';
+                appendLog("INFO", "[UPDATE] Update available from remote");
             } else {
                 btn.classList.add('hidden');
                 btn.style.display = '';
