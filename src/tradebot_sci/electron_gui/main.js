@@ -238,31 +238,60 @@ function setupIpcHandlers() {
                     return resolve({ available: false, error: fetchErr.message });
                 }
 
-                // Compare local HEAD vs origin/master
-                exec('git rev-list HEAD..origin/master --count', { cwd: REPO_ROOT }, (err, stdout) => {
-                    if (err) {
-                        console.error('[MAIN] git rev-list failed:', err.message);
-                        return resolve({ available: false, error: err.message });
+                // Detect the remote's default branch (main for public, master for private)
+                exec('git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo ""', { cwd: REPO_ROOT }, (brErr, brOut) => {
+                    let branch = brOut.trim().replace('refs/remotes/origin/', '');
+                    if (!branch) {
+                        // Fallback: check if origin/main exists, else origin/master
+                        exec('git rev-parse --verify origin/main 2>/dev/null && echo main || echo master', { cwd: REPO_ROOT }, (fbErr, fbOut) => {
+                            branch = fbOut.trim().split('\n').pop();
+                            compareWithBranch(branch, resolve);
+                        });
+                        return;
                     }
-
-                    const behind = parseInt(stdout.trim(), 10) || 0;
-                    if (behind === 0) {
-                        return resolve({ available: false, behind: 0 });
-                    }
-
-                    // Get summary of incoming commits
-                    exec('git log HEAD..origin/master --oneline --max-count=10', { cwd: REPO_ROOT }, (logErr, logOut) => {
-                        const summary = logErr ? '' : logOut.trim();
-                        console.log(`[MAIN] Updates available: ${behind} commits behind origin/master`);
-                        resolve({ available: true, behind, summary });
-                    });
+                    compareWithBranch(branch, resolve);
                 });
             });
         });
+
+        function compareWithBranch(branch, resolve) {
+            exec(`git rev-list HEAD..origin/${branch} --count`, { cwd: REPO_ROOT }, (err, stdout) => {
+                if (err) {
+                    console.error('[MAIN] git rev-list failed:', err.message);
+                    return resolve({ available: false, error: err.message });
+                }
+
+                const behind = parseInt(stdout.trim(), 10) || 0;
+                if (behind === 0) {
+                    return resolve({ available: false, behind: 0 });
+                }
+
+                exec(`git log HEAD..origin/${branch} --oneline --max-count=10`, { cwd: REPO_ROOT }, (logErr, logOut) => {
+                    const summary = logErr ? '' : logOut.trim();
+                    console.log(`[MAIN] Updates available: ${behind} commits behind origin/${branch}`);
+                    resolve({ available: true, behind, summary, branch });
+                });
+            });
+        }
     });
 
     ipcMain.handle('apply-update', async () => {
         console.log('[MAIN] Applying update...');
+
+        // Detect the remote's default branch
+        const branch = await new Promise((resolve) => {
+            exec('git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo ""', { cwd: REPO_ROOT }, (brErr, brOut) => {
+                let b = brOut.trim().replace('refs/remotes/origin/', '');
+                if (!b) {
+                    exec('git rev-parse --verify origin/main 2>/dev/null && echo main || echo master', { cwd: REPO_ROOT }, (fbErr, fbOut) => {
+                        resolve(fbOut.trim().split('\n').pop());
+                    });
+                    return;
+                }
+                resolve(b);
+            });
+        });
+        console.log(`[MAIN] Detected branch for update: ${branch}`);
 
         // Step 1: Stop bot if running
         const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
@@ -273,9 +302,9 @@ function setupIpcHandlers() {
             });
         });
 
-        // Step 2: Git pull
+        // Step 2: Git pull using detected branch
         const pullResult = await new Promise((resolve) => {
-            exec('git pull --ff-only origin master', { cwd: REPO_ROOT, timeout: 30000 }, (err, stdout, stderr) => {
+            exec(`git pull --ff-only origin ${branch}`, { cwd: REPO_ROOT, timeout: 30000 }, (err, stdout, stderr) => {
                 if (err) {
                     console.error('[MAIN] git pull failed:', err.message);
                     return resolve({ success: false, error: stderr || err.message });
