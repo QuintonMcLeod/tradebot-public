@@ -63,6 +63,7 @@ rsync -av --delete \
     --exclude='config/broker_*.yaml' \
     --exclude='logs/' \
     --exclude='data/' \
+    --exclude='scripts/deploy.sh' \
     --exclude='Trash/' \
     --exclude='backtest_output*.log' \
     --exclude='public_mirror/' \
