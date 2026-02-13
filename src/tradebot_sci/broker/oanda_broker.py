@@ -507,17 +507,46 @@ class OandaExchangeBroker(IExchangeBroker):
             for sym, prev in list(self._tracked_positions.items()):
                 if sym not in current_symbols:
                     # Position is gone — OANDA closed it (SL/TP or manual)
+                    # Query OANDA API for the actual realized PnL
                     pnl = 0.0
                     pnl_pct = 0.0
+                    side = "short" if prev.get("size", 0) < 0 else "long"
 
-                    # Method 1: Balance delta
-                    if current_balance is not None and self._prev_balance is not None:
-                        pnl = current_balance - self._prev_balance
-                        # If multiple positions vanished simultaneously, this is approximate
-                        entry_price = prev.get("avg_price") or prev.get("entry_price", 0)
-                        units = abs(prev.get("size", 0))
-                        if entry_price > 0 and units > 0:
-                            pnl_pct = (pnl / (entry_price * units)) * 100
+                    try:
+                        r_closed = trades.TradesList(
+                            self.account_id,
+                            params={"state": "CLOSED", "instrument": sym, "count": 5}
+                        )
+                        closed_resp = self.client.request(r_closed)
+                        closed_trades = closed_resp.get("trades", [])
+                        if closed_trades:
+                            # Use the most recent closed trade for this instrument
+                            latest = closed_trades[0]
+                            pnl = float(latest.get("realizedPL", 0))
+                            initial_units = float(latest.get("initialUnits", 0))
+                            price = float(latest.get("price", 0))
+                            if initial_units != 0 and price > 0:
+                                pnl_pct = (pnl / (abs(initial_units) * price)) * 100
+                            side = "short" if initial_units < 0 else "long"
+                            logger.info(f"[OANDA] Closed trade found via API: {sym} PnL=${pnl:.4f}")
+                        else:
+                            logger.warning(f"[OANDA] No closed trades found for {sym}, skipping exit log")
+                            del self._tracked_positions[sym]
+                            continue
+                    except Exception as e:
+                        logger.warning(f"[OANDA] Could not query closed trades for {sym}: {e}")
+                        # Fall back to balance delta if API fails
+                        if current_balance is not None and self._prev_balance is not None:
+                            pnl = current_balance - self._prev_balance
+                            entry_price = prev.get("avg_price") or prev.get("entry_price", 0)
+                            units = abs(prev.get("size", 0))
+                            if entry_price > 0 and units > 0:
+                                pnl_pct = (pnl / (entry_price * units)) * 100
+                        else:
+                            # Cannot determine PnL at all — skip this exit
+                            logger.warning(f"[OANDA] Cannot determine PnL for {sym}, skipping exit log")
+                            del self._tracked_positions[sym]
+                            continue
 
                     # Estimate spread cost for logging
                     pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
@@ -527,7 +556,7 @@ class OandaExchangeBroker(IExchangeBroker):
                     pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
                     logger.info(
                         f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
-                        f"(Pct={pnl_pct:.2f}%) | "
+                        f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
                         f"Est. Spread Cost: ${est_spread:.4f}"
                     )
 
