@@ -1502,6 +1502,73 @@ class CCXTExchangeBroker:
                 logger.info(f"[CCXT] Evaluation cycle: checking protection for active symbols...")
                 # Iterate through active symbols that we are trading
                 symbols_to_check = set(list(self.symbol_map.keys()))
+
+                # ── SOFTWARE TP/SL GUARD ──
+                # For every open position with stored SL or TP, check if the
+                # current price has breached either level and force-close.
+                # This is a safety net that works regardless of whether native
+                # exchange stop orders were placed successfully.
+                if self.position_hold_store:
+                    for sys_sym in list(symbols_to_check):
+                        # Skip stablecoins/cash
+                        if any(x in sys_sym.upper() for x in ("USDT", "USDC", "DAI")):
+                            continue
+                        if sys_sym.upper() in ("USD", "EUR", "GBP"):
+                            continue
+
+                        record = self.position_hold_store.get(sys_sym)
+                        if not record or not record.size:
+                            continue
+                        sl = record.stop_loss
+                        tp = record.take_profit
+                        if not sl and not tp:
+                            continue
+
+                        # Fetch current price
+                        try:
+                            ticker = self._safe_fetch_ticker(self._map_symbol(sys_sym))
+                        except Exception:
+                            continue
+                        if not ticker or not ticker.last:
+                            continue
+                        price = float(ticker.last)
+                        direction = "long" if record.size > 0 else "short"
+
+                        # SL Check
+                        if sl and sl > 0:
+                            breached = (direction == "long" and price <= sl) or \
+                                       (direction == "short" and price >= sl)
+                            if breached:
+                                logger.warning(
+                                    f"[SOFTWARE-SL] {sys_sym} STOP HIT: "
+                                    f"price={price:.6f} {'<=' if direction == 'long' else '>='} "
+                                    f"SL={sl:.6f}. Executing market close."
+                                )
+                                try:
+                                    self.cancel_all_orders_for_symbol(sys_sym)
+                                    self.flatten_symbol(sys_sym)
+                                except Exception as sw_e:
+                                    logger.error(f"[SOFTWARE-SL] Failed to close {sys_sym}: {sw_e}")
+                                continue
+
+                        # TP Check
+                        if tp and tp > 0:
+                            hit = (direction == "long" and price >= tp) or \
+                                  (direction == "short" and price <= tp)
+                            if hit:
+                                logger.warning(
+                                    f"[SOFTWARE-TP] {sys_sym} TARGET HIT: "
+                                    f"price={price:.6f} {'>=' if direction == 'long' else '<='} "
+                                    f"TP={tp:.6f}. Executing market close."
+                                )
+                                try:
+                                    self.cancel_all_orders_for_symbol(sys_sym)
+                                    self.flatten_symbol(sys_sym)
+                                except Exception as sw_e:
+                                    logger.error(f"[SOFTWARE-TP] Failed to close {sys_sym}: {sw_e}")
+                                continue
+
+                # ── NATIVE STOP RE-ARMING ──
                 for sys_sym in symbols_to_check:
                     logger.debug(f"[CCXT-DEBUG] Checking protection for {sys_sym}...")
                     # [ANTIGRAVITY FIX] Ignore stablecoins and cash-like assets for protection check
