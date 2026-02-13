@@ -303,3 +303,4 @@ This software is provided as-is. Trading involves substantial risk of loss. Past
 ---
 
 > *"The goal is not to be right. The goal is to make money when you're right and lose little when you're wrong."*
+
