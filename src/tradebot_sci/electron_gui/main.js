@@ -224,6 +224,91 @@ function setupIpcHandlers() {
             return { success: false, error: error.message };
         }
     });
+
+    // =============================================
+    // [ANTIGRAVITY] Self-Update via Git Pull
+    // =============================================
+    const REPO_ROOT = path.join(__dirname, '../../../');
+
+    ipcMain.handle('check-for-updates', async () => {
+        return new Promise((resolve) => {
+            exec('git fetch origin', { cwd: REPO_ROOT }, (fetchErr) => {
+                if (fetchErr) {
+                    console.error('[MAIN] git fetch failed:', fetchErr.message);
+                    return resolve({ available: false, error: fetchErr.message });
+                }
+
+                // Compare local HEAD vs origin/master
+                exec('git rev-list HEAD..origin/master --count', { cwd: REPO_ROOT }, (err, stdout) => {
+                    if (err) {
+                        console.error('[MAIN] git rev-list failed:', err.message);
+                        return resolve({ available: false, error: err.message });
+                    }
+
+                    const behind = parseInt(stdout.trim(), 10) || 0;
+                    if (behind === 0) {
+                        return resolve({ available: false, behind: 0 });
+                    }
+
+                    // Get summary of incoming commits
+                    exec('git log HEAD..origin/master --oneline --max-count=10', { cwd: REPO_ROOT }, (logErr, logOut) => {
+                        const summary = logErr ? '' : logOut.trim();
+                        console.log(`[MAIN] Updates available: ${behind} commits behind origin/master`);
+                        resolve({ available: true, behind, summary });
+                    });
+                });
+            });
+        });
+    });
+
+    ipcMain.handle('apply-update', async () => {
+        console.log('[MAIN] Applying update...');
+
+        // Step 1: Stop bot if running
+        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
+        await new Promise((resolve) => {
+            exec(killCmd, (err) => {
+                if (err && err.code !== 1) console.warn('[MAIN] Kill during update:', err.message);
+                resolve();
+            });
+        });
+
+        // Step 2: Git pull
+        const pullResult = await new Promise((resolve) => {
+            exec('git pull --ff-only origin master', { cwd: REPO_ROOT, timeout: 30000 }, (err, stdout, stderr) => {
+                if (err) {
+                    console.error('[MAIN] git pull failed:', err.message);
+                    return resolve({ success: false, error: stderr || err.message });
+                }
+                console.log('[MAIN] git pull output:', stdout.trim());
+                resolve({ success: true, output: stdout.trim() });
+            });
+        });
+
+        if (!pullResult.success) {
+            return { success: false, error: pullResult.error };
+        }
+
+        // Step 3: Reload the Electron window (picks up new HTML/JS/CSS)
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('fromMain', {
+                type: 'gui-notice',
+                message: 'Update applied! Reloading...',
+                color: 'blue'
+            });
+
+            // Small delay so the notice is visible
+            await new Promise(r => setTimeout(r, 1500));
+            mainWindow.reload();
+        }
+
+        // Step 4: Restart bot after UI reload settles
+        setTimeout(() => {
+            ipcMain.emit('start-bot');
+        }, 4000);
+
+        return { success: true, output: pullResult.output };
+    });
 }
 
 // Watch profiles for external changes

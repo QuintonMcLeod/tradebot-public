@@ -49,6 +49,10 @@ contextBridge.exposeInMainWorld('api', {
 
     // Generic invoke for flexibility
     invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+
+    // [ANTIGRAVITY] Self-Update
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+    applyUpdate: () => ipcRenderer.invoke('apply-update'),
 });
 
 // We can also expose specific APIs for the backend connection if needed

@@ -57,6 +57,8 @@ class OandaExchangeBroker(IExchangeBroker):
         self.read_only = read_only
         self.trade_results = trade_results
         self._liquid_capital = 0.0
+        self._tracked_positions: dict[str, dict] = {}  # symbol -> position snapshot
+        self._prev_balance: float | None = None  # for PnL calc on vanished positions
         self.refresh_account_summary()
 
     def sync_profile(self, profile: TradingProfileSettings) -> None:
@@ -273,6 +275,19 @@ class OandaExchangeBroker(IExchangeBroker):
         if action not in entry_actions:
              return ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "no trade action"), ExecutionOutcome(ExecutionOutcomeType.SKIPPED, decision.symbol, "no trade action")
 
+        # [ANTIGRAVITY] Guard: block duplicate entries for symbols already held.
+        # Matches IBKR's guard at _enter_position_for_symbol L729.
+        # Without this, the bot re-submits MARKET orders every scan cycle for
+        # symbols it already holds, causing FIFO_VIOLATION rejections on OANDA US
+        # and occasional micro-position SL deaths.
+        if action not in {"scale_in", "add_to_position"}:
+            if self._has_active_orders_or_position(decision.symbol):
+                logger.info(f"[OANDA] [BLOCKED] Existing position for {decision.symbol}; skipping duplicate entry")
+                return (
+                    ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "existing position"),
+                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_EXISTING, decision.symbol, "existing position")
+                )
+
         is_short = action in ["short", "enter_short", "flip_to_short"]
 
         try:
@@ -291,6 +306,22 @@ class OandaExchangeBroker(IExchangeBroker):
             stop_dist = abs(price - stop_price)
             if stop_dist < 1e-8:
                  return ExecutionResult(ExecutionStatus.ERROR, decision.symbol, "stop distance too small"), ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "stop distance too small")
+
+            # [ANTIGRAVITY] Guard: reject trades where SL is too tight for forex spreads.
+            # OANDA spread is 1-2 pips on majors; SL distances of 4-5 pips get spread-killed
+            # within 60-180 seconds. Minimum 10 pips gives 5-10x breathing room.
+            MIN_SL_PIPS = 10
+            is_jpy = "JPY" in decision.symbol.upper()
+            min_sl_dist = MIN_SL_PIPS * (0.01 if is_jpy else 0.0001)
+            if stop_dist < min_sl_dist:
+                logger.warning(
+                    f"[OANDA] [BLOCKED] SL too tight for {decision.symbol}: "
+                    f"{stop_dist:.5f} < min {min_sl_dist:.5f} ({MIN_SL_PIPS} pips)"
+                )
+                return (
+                    ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "SL too tight"),
+                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"SL distance {stop_dist:.5f} < min {min_sl_dist:.5f}")
+                )
 
             # [ANTIGRAVITY] Widen effective stop distance by estimated spread cost.
             # This prevents the bot from sizing too aggressively by accounting for the
@@ -405,8 +436,84 @@ class OandaExchangeBroker(IExchangeBroker):
         return False, None, None
 
     def evaluate_synthetic_stops(self, market_provider, timeframe: str) -> Iterable[ExecutionResult]:
-        """OANDA handles stops on-server, so we don't need synthetic stops unless we want to."""
-        return []
+        """
+        Detect OANDA positions that disappeared (SL/TP filled server-side)
+        and log [EXIT] for the GUI/ledger to pick up.
+        """
+        results = []
+        try:
+            # Snapshot current open positions from OANDA
+            current_symbols = set(self.list_open_position_symbols())
+
+            # Get current balance for PnL calc
+            try:
+                r = accounts.AccountSummary(self.account_id)
+                self.client.request(r)
+                current_balance = float(r.response.get("account", {}).get("balance", 0))
+            except Exception:
+                current_balance = None
+
+            # ── Detect vanished positions (SL/TP filled externally) ──
+            for sym, prev in list(self._tracked_positions.items()):
+                if sym not in current_symbols:
+                    # Position is gone — OANDA closed it (SL/TP or manual)
+                    pnl = 0.0
+                    pnl_pct = 0.0
+
+                    # Method 1: Balance delta
+                    if current_balance is not None and self._prev_balance is not None:
+                        pnl = current_balance - self._prev_balance
+                        # If multiple positions vanished simultaneously, this is approximate
+                        entry_price = prev.get("avg_price") or prev.get("entry_price", 0)
+                        units = abs(prev.get("size", 0))
+                        if entry_price > 0 and units > 0:
+                            pnl_pct = (pnl / (entry_price * units)) * 100
+
+                    # Estimate spread cost for logging
+                    pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
+                    units = abs(prev.get("size", 0))
+                    est_spread = units * self.AVG_SPREAD_PIPS * pip_value * 2
+
+                    pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
+                    logger.info(
+                        f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
+                        f"(Pct={pnl_pct:.2f}%) | "
+                        f"Est. Spread Cost: ${est_spread:.4f}"
+                    )
+
+                    # Record in TradeResultStore for pnl_stats
+                    if self.trade_results:
+                        from datetime import datetime as _dt, timezone as _tz
+                        self.trade_results.add_result(TradeResult(
+                            symbol=sym,
+                            closed_at=_dt.now(_tz.utc).isoformat(),
+                            pnl_pct=pnl_pct,
+                            pnl_usd=pnl,
+                            is_win=pnl > 0,
+                            tier="100%",
+                            capital_at_close=current_balance or self._liquid_capital
+                        ))
+
+                    del self._tracked_positions[sym]
+                    results.append(ExecutionResult(
+                        ExecutionStatus.EXIT_SIGNAL, sym,
+                        f"OANDA SL/TP exit PnL={pnl:.2f}"
+                    ))
+
+            # ── Track new/existing positions ──
+            for sym in current_symbols:
+                snap = self.get_open_position_snapshot(sym)
+                if snap and abs(snap.get("size", 0)) > 1e-8:
+                    self._tracked_positions[sym] = snap
+
+            # Update previous balance for next cycle
+            if current_balance is not None:
+                self._prev_balance = current_balance
+
+        except Exception as e:
+            logger.error(f"[OANDA] evaluate_synthetic_stops error: {e}")
+
+        return results
 
     def summarize_pnl(self) -> None:
         pass

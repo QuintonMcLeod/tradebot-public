@@ -1583,6 +1583,18 @@ function setupInteractiveElements() {
         }
         appendLog("INFO", `[UI] Switched chart to ${sym}`);
 
+        // [ANTIGRAVITY] Immediately clear chart so old candles don't linger
+        // while waiting for new data (which can take 15-20 seconds)
+        if (candleSeries) {
+            candleSeries.setData([]);
+        }
+        if (indicatorSeries) {
+            indicatorSeries.setData([]);
+        }
+        candleData = [];
+        clearTradeMarkers();
+        clearPositionLines();
+
         // REFRESH CHART DATA
         console.log(`Refreshing candlestick data for ${sym}...`);
         const tf = document.getElementById('chart-tf-label')?.innerText || '15m';
@@ -1607,6 +1619,10 @@ function setupInteractiveElements() {
             if (document.getElementById('chart-tf-label')) document.getElementById('chart-tf-label').innerText = tf;
 
             console.log(`Switching chart to ${tf}`);
+            // [ANTIGRAVITY] Clear chart immediately on TF switch
+            if (candleSeries) candleSeries.setData([]);
+            if (indicatorSeries) indicatorSeries.setData([]);
+            candleData = [];
             const sym = document.getElementById('chart-symbol-label')?.innerText;
             if (sym) subscribeToAsset(sym, tf);
         });
@@ -1625,6 +1641,10 @@ function setupInteractiveElements() {
         if (document.getElementById('chart-tf-label')) document.getElementById('chart-tf-label').innerText = tf;
 
         console.log(`Switching chart to ${tf} via dropdown`);
+        // [ANTIGRAVITY] Clear chart immediately on TF switch
+        if (candleSeries) candleSeries.setData([]);
+        if (indicatorSeries) indicatorSeries.setData([]);
+        candleData = [];
         const sym = document.getElementById('chart-symbol-label')?.innerText;
         if (sym) subscribeToAsset(sym, tf);
     });
@@ -1669,6 +1689,62 @@ function setupInteractiveElements() {
         }
         saveState();
     });
+
+    // [ANTIGRAVITY] Self-Update Button
+    document.getElementById('btn-update')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-update');
+        const btnText = document.getElementById('update-btn-text');
+        if (!btn || !btnText) return;
+
+        // Show updating state
+        btnText.innerText = 'Updating...';
+        btn.classList.add('animate-pulse');
+        btn.disabled = true;
+        appendLog("INFO", "[UPDATE] Applying update... Bot will restart.");
+
+        try {
+            const result = await window.api.applyUpdate();
+            if (!result.success) {
+                btnText.innerText = 'Update Failed';
+                btn.classList.remove('animate-pulse');
+                btn.disabled = false;
+                appendLog("ERROR", `[UPDATE] Failed: ${result.error}`);
+                setTimeout(() => { btnText.innerText = 'Retry Update'; }, 3000);
+            }
+            // On success, the window will reload automatically
+        } catch (err) {
+            btnText.innerText = 'Update Error';
+            btn.classList.remove('animate-pulse');
+            btn.disabled = false;
+            appendLog("ERROR", `[UPDATE] Error: ${err.message}`);
+        }
+    });
+
+    // [ANTIGRAVITY] Periodic update check (every 30 min + on startup)
+    async function checkForUpdatesUI() {
+        try {
+            const result = await window.api.checkForUpdates();
+            const btn = document.getElementById('btn-update');
+            const btnText = document.getElementById('update-btn-text');
+            if (!btn || !btnText) return;
+
+            if (result.available) {
+                btn.classList.remove('hidden');
+                btn.style.display = 'flex';
+                btnText.innerText = `Update Available (${result.behind} commit${result.behind > 1 ? 's' : ''})`;
+                appendLog("INFO", `[UPDATE] ${result.behind} update(s) available from origin/master`);
+            } else {
+                btn.classList.add('hidden');
+                btn.style.display = '';
+            }
+        } catch (err) {
+            console.warn('[UPDATE] Check failed:', err);
+        }
+    }
+
+    // Check on startup after a short delay, then every 30 minutes
+    setTimeout(checkForUpdatesUI, 10000);
+    setInterval(checkForUpdatesUI, 30 * 60 * 1000);
 
     ['nav-dashboard', 'nav-profile', 'nav-settings', 'nav-graph'].forEach(id => {
         document.getElementById(id)?.addEventListener('click', (e) => {
