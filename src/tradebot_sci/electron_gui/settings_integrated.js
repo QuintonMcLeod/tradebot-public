@@ -1845,6 +1845,7 @@ function renderAppearanceTab(container) {
 
     const themes = window.ThemeEngine ? window.ThemeEngine.getThemes() : {};
     const activeThemeId = window.ThemeEngine ? window.ThemeEngine.getActiveThemeId() : 'obsidian';
+    const isRandom = activeThemeId === 'random';
 
     // Header
     section.appendChild(createSectionHeader('Theme', 'palette'));
@@ -1855,6 +1856,28 @@ function renderAppearanceTab(container) {
     desc.style.cssText = 'margin-bottom: 24px; font-size: 13px; line-height: 1.6;';
     desc.textContent = 'Choose a visual theme for your trading dashboard. Changes apply instantly.';
     section.appendChild(desc);
+
+    // ── 🎲 Random Theme Card ──
+    const randomCard = document.createElement('div');
+    randomCard.className = `theme-card ${isRandom ? 'active' : ''}`;
+    randomCard.style.cssText = 'margin-bottom: 24px; width: 100%; max-width: 100%;';
+    randomCard.innerHTML = `
+        <div class="theme-swatches" style="background: linear-gradient(135deg, #6366f1, #ec4899, #f59e0b, #10b981); min-height: 48px; border-radius: 8px 8px 0 0; display: flex; align-items: center; justify-content: center;">
+            <span class="material-symbols-outlined" style="font-size: 28px; color: white; text-shadow: 0 2px 8px rgba(0,0,0,0.4);">casino</span>
+        </div>
+        <div class="theme-info">
+            <div class="theme-name">🎲 Random</div>
+            <div class="theme-desc">Surprise me — pick a different theme every time the app loads</div>
+        </div>
+        ${isRandom ? '<div class="theme-active-badge"><span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span> Active</div>' : ''}
+    `;
+    randomCard.addEventListener('click', () => {
+        if (window.ThemeEngine) {
+            window.ThemeEngine.applyTheme('random');
+            renderTab();
+        }
+    });
+    section.appendChild(randomCard);
 
     // Group themes by category
     const colorThemes = Object.entries(themes).filter(([, t]) => t.category === 'color');
