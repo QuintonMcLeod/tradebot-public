@@ -1,0 +1,545 @@
+/* ═══════════════════════════════════════════════════════════
+   ANALYTICS DASHBOARD — Premium Glass Design System
+   Mirrors settings.css design tokens for visual consistency  
+   ═══════════════════════════════════════════════════════════ */
+
+/* ───── GLASS CARD BASE ───── */
+.analytics-card {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.5) 0%, rgba(15, 23, 42, 0.2) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(20px);
+    border-radius: 16px;
+    padding: 20px 24px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.35s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.analytics-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    opacity: 0;
+    transition: opacity 0.35s;
+}
+
+.analytics-card:hover {
+    border-color: var(--accent-glow);
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.5) 0%, transparent 100%);
+    transform: translateY(-2px);
+    box-shadow:
+        0 12px 40px rgba(0, 0, 0, 0.4),
+        0 0 0 1px var(--accent-dim);
+}
+
+.analytics-card:hover::before {
+    opacity: 1;
+}
+
+/* ───── ACCENT VARIANTS ───── */
+.analytics-card.accent-emerald {
+    border-color: rgba(16, 185, 129, 0.2);
+}
+
+.analytics-card.accent-emerald:hover {
+    border-color: rgba(16, 185, 129, 0.45);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(16, 185, 129, 0.06);
+}
+
+.analytics-card.accent-emerald::before {
+    background: linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.25), transparent);
+}
+
+.analytics-card.accent-teal {
+    border-color: var(--accent-dim);
+}
+
+.analytics-card.accent-teal:hover {
+    border-color: var(--accent-glow);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 30px var(--accent-dim);
+}
+
+.analytics-card.accent-teal::before {
+    background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+}
+
+.analytics-card.accent-purple {
+    border-color: rgba(139, 92, 246, 0.2);
+}
+
+.analytics-card.accent-purple:hover {
+    border-color: rgba(139, 92, 246, 0.45);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(139, 92, 246, 0.06);
+}
+
+.analytics-card.accent-purple::before {
+    background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.25), transparent);
+}
+
+.analytics-card.accent-cyan {
+    border-color: rgba(6, 182, 212, 0.2);
+}
+
+.analytics-card.accent-cyan:hover {
+    border-color: rgba(6, 182, 212, 0.45);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(6, 182, 212, 0.06);
+}
+
+.analytics-card.accent-cyan::before {
+    background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.25), transparent);
+}
+
+.analytics-card.accent-amber {
+    border-color: rgba(245, 158, 11, 0.2);
+}
+
+.analytics-card.accent-amber:hover {
+    border-color: rgba(245, 158, 11, 0.45);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(245, 158, 11, 0.06);
+}
+
+/* ───── HERO PNL CARD (double-wide, ambient glow) ───── */
+.analytics-card.hero-pnl {
+    background:
+        radial-gradient(ellipse at 20% 50%, rgba(16, 185, 129, 0.08) 0%, transparent 60%),
+        linear-gradient(135deg, rgba(15, 23, 42, 0.6) 0%, rgba(15, 23, 42, 0.25) 100%);
+    border-color: rgba(16, 185, 129, 0.25);
+    padding: 28px 32px;
+}
+
+.analytics-card.hero-pnl:hover {
+    border-color: rgba(16, 185, 129, 0.5);
+    box-shadow:
+        0 16px 48px rgba(0, 0, 0, 0.45),
+        0 0 60px rgba(16, 185, 129, 0.08);
+}
+
+/* ───── HERO VALUES ───── */
+.hero-value {
+    font-size: 42px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    letter-spacing: -0.02em;
+}
+
+.hero-value.positive {
+    color: #34d399;
+    text-shadow: 0 0 40px rgba(16, 185, 129, 0.3);
+}
+
+.hero-value.negative {
+    color: #f87171;
+    text-shadow: 0 0 40px rgba(239, 68, 68, 0.3);
+}
+
+.metric-value-lg {
+    font-size: 32px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    letter-spacing: -0.02em;
+}
+
+.metric-value-md {
+    font-size: 22px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.metric-value-sm {
+    font-size: 18px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+/* ───── LABELS ───── */
+.metric-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    line-height: 1;
+}
+
+.metric-sublabel {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    margin-top: 6px;
+}
+
+/* ───── ICON CIRCLE ───── */
+.metric-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.metric-icon .material-symbols-outlined {
+    font-size: 18px;
+}
+
+.metric-icon.emerald {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.08));
+    color: #34d399;
+}
+
+.metric-icon.teal {
+    background: linear-gradient(135deg, var(--accent-dim), var(--accent-dim));
+    color: var(--accent);
+}
+
+.metric-icon.purple {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(139, 92, 246, 0.08));
+    color: #a78bfa;
+}
+
+.metric-icon.cyan {
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(6, 182, 212, 0.08));
+    color: #22d3ee;
+}
+
+.metric-icon.amber {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0.08));
+    color: #fbbf24;
+}
+
+.metric-icon.rose {
+    background: linear-gradient(135deg, rgba(244, 63, 94, 0.2), rgba(244, 63, 94, 0.08));
+    color: #fb7185;
+}
+
+/* ───── TIME FILTER PILLS ───── */
+.time-pill-group {
+    display: flex;
+    gap: 4px;
+    padding: 5px;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.time-pill {
+    padding: 7px 14px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.time-pill:hover {
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.time-pill.active {
+    color: var(--bg-dark);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+    box-shadow: 0 4px 12px var(--accent-glow);
+    font-weight: 800;
+}
+
+/* ───── SECTION HEADERS ───── */
+.analytics-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    padding-bottom: 0;
+    margin-bottom: 0;
+}
+
+/* ───── CHART CONTAINERS ───── */
+.chart-container {
+    position: relative;
+}
+
+.chart-container .chart-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    margin-bottom: 14px;
+}
+
+.chart-container .chart-title .material-symbols-outlined {
+    font-size: 16px;
+    opacity: 0.8;
+}
+
+/* ───── DATA TABLES ───── */
+.data-table {
+    width: 100%;
+    text-align: left;
+    border-collapse: collapse;
+}
+
+.data-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+.data-table thead tr {
+    background: rgba(2, 6, 23, 0.95);
+    backdrop-filter: blur(8px);
+}
+
+.data-table th {
+    padding: 10px 16px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: #475569;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.data-table td {
+    padding: 10px 16px;
+    font-size: 12px;
+    color: #cbd5e1;
+    font-family: 'SF Mono', 'Monaco', 'Fira Code', 'Inter', monospace;
+}
+
+.data-table tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    transition: background 0.2s;
+}
+
+.data-table tbody tr:hover {
+    background: var(--accent-dim);
+}
+
+/* ───── BREAKDOWN BAR ───── */
+.breakdown-bar-track {
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.04);
+    overflow: hidden;
+}
+
+.breakdown-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.breakdown-bar-fill.positive {
+    background: linear-gradient(90deg, rgba(16, 185, 129, 0.6), rgba(16, 185, 129, 0.25));
+}
+
+.breakdown-bar-fill.negative {
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.6), rgba(239, 68, 68, 0.25));
+}
+
+.breakdown-bar-fill.purple {
+    background: linear-gradient(90deg, rgba(139, 92, 246, 0.6), rgba(139, 92, 246, 0.25));
+}
+
+/* ───── GLASS BADGES ───── */
+.badge-glass {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    backdrop-filter: blur(12px);
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    transition: all 0.25s;
+}
+
+.badge-glass.amber {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+}
+
+.badge-glass.teal {
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-dim);
+    color: var(--accent);
+}
+
+/* ───── MINI STAT CARD (for performance grid) ───── */
+.mini-stat {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.45) 0%, rgba(15, 23, 42, 0.15) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(12px);
+    border-radius: 14px;
+    padding: 16px 18px;
+    transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.mini-stat:hover {
+    border-color: var(--accent-dim);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.mini-stat .mini-label {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: #475569;
+    margin-bottom: 6px;
+}
+
+.mini-stat .mini-value {
+    font-size: 18px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ───── TABLE HEADER BAR ───── */
+.table-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: rgba(0, 0, 0, 0.3);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.table-header-bar h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    margin: 0;
+}
+
+.table-header-bar h3 .material-symbols-outlined {
+    font-size: 16px;
+    opacity: 0.8;
+}
+
+/* ───── WIN/LOSS DOT INDICATOR ───── */
+.wl-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 4px;
+}
+
+.wl-dot.win {
+    background: #10b981;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+.wl-dot.loss {
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+/* ───── SIDE/DIRECTION BADGE ───── */
+.side-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+}
+
+.side-badge.long {
+    background: rgba(16, 185, 129, 0.12);
+    color: #34d399;
+}
+
+.side-badge.short {
+    background: rgba(239, 68, 68, 0.12);
+    color: #f87171;
+}
+
+/* ───── ANIMATION: Fade Slide Up ───── */
+@keyframes analyticsSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.analytics-animate {
+    animation: analyticsSlideUp 0.45s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.analytics-animate:nth-child(1) {
+    animation-delay: 0ms;
+}
+
+.analytics-animate:nth-child(2) {
+    animation-delay: 50ms;
+}
+
+.analytics-animate:nth-child(3) {
+    animation-delay: 100ms;
+}
+
+.analytics-animate:nth-child(4) {
+    animation-delay: 150ms;
+}
+
+.analytics-animate:nth-child(5) {
+    animation-delay: 200ms;
+}
+
+.analytics-animate:nth-child(6) {
+    animation-delay: 250ms;
+}
+
+.analytics-animate:nth-child(7) {
+    animation-delay: 300ms;
+}
+
+.analytics-animate:nth-child(8) {
+    animation-delay: 350ms;
+}
+
+/* ───── RESPONSIVE ───── */
+@media (max-width: 900px) {
+    .hero-value {
+        font-size: 32px;
+    }
+
+    .metric-value-lg {
+        font-size: 24px;
+    }
+}

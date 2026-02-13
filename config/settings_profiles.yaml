@@ -33,26 +33,10 @@ profiles:
     auto_flatten_on_close: false
     pdt_guard_enabled: false
     session_gate_enabled: false
-    risk_per_trade_dollars: 0
-    risk_per_trade_pct: 0.2
-    short_risk_pct: 0.2
-    max_loss_per_trade_dollars: 500
     max_concurrent_positions: 4
     multi_position_enabled: true
     max_pyramid_entries: 6
     pyramid_profit_buffer_pct: 0.0015
-    icc_entry_score_threshold: 35
-    icc_score_continuation_points: 60
-    icc_score_sweep_points: 25
-    icc_score_htf_ltf_align_points: 20
-    icc_score_strong_htf_points: 15
-    icc_score_phase_points: 5
-    icc_auto_entry_min_htf_strength: 0
-    icc_auto_entry_enabled: true
-    icc_aggressive_mode: true
-    icc_confirmation_bars: 2
-    icc_strict_mode: true
-    icc_require_liquidity_grab: true
   forex_intraday:
     symbols:
     - EURUSD
@@ -95,10 +79,6 @@ profiles:
     auto_flatten_on_close: false
     pdt_guard_enabled: false
     session_gate_enabled: true
-    risk_per_trade_dollars: 0
-    risk_per_trade_pct: 0.01
-    short_risk_pct: 0.01
-    max_loss_per_trade_dollars: 500
     max_concurrent_positions: 4
     multi_position_enabled: true
     max_pyramid_entries: 6
@@ -109,20 +89,8 @@ profiles:
     breakeven_trail_pct: 0.003
     stop_atr_multiplier: 1.5
     exit_on_htf_flip_only_if_losing: true
-    icc_entry_score_threshold: 35
-    icc_score_continuation_points: 60
-    icc_score_sweep_points: 25
-    icc_score_htf_ltf_align_points: 20
-    icc_score_strong_htf_points: 15
-    icc_score_phase_points: 5
-    icc_auto_entry_min_htf_strength: 0
-    icc_auto_entry_enabled: true
-    icc_aggressive_mode: true
-    icc_confirmation_bars: 2
-    icc_strict_mode: true
-    icc_require_liquidity_grab: true
   scalp:
-    symbols:
+    symbols: null
     strategies:
       crypto: hyper_scalper
       forex: hyper_scalper
@@ -135,7 +103,7 @@ profiles:
     market_poll_interval_seconds: 2
     ai_decision_interval_seconds: 2
   intraday:
-    symbols:
+    symbols: null
     strategies:
       crypto: rubberband_reaper
       forex: rubberband_reaper
@@ -155,10 +123,6 @@ profiles:
     trend_min_swings: 2
     trend_strength_floor: 0.3
     structure_score_threshold: 0.05
-    icc_entry_score_threshold: 60
-    icc_auto_entry_enabled: true
-    icc_auto_entry_min_htf_strength: 0
-    icc_auto_entry_require_sweep: true
     auto_flatten_on_close: false
     pdt_guard_enabled: false
     cooldown_enabled: true
@@ -175,10 +139,8 @@ profiles:
     rearm_stop_distance_pct: 0.02
     synthetic_stop_integrity_interval: 10
     multi_position_enabled: false
-    icc_high_score_override_threshold: 30
-    icc_score_continuation_points: 60
   swing:
-    symbols:
+    symbols: null
     strategies:
       crypto: quantum
       forex: quantum
@@ -226,24 +188,8 @@ profiles:
     structure_score_threshold: 0.05
     auto_flatten_on_close: false
     crypto_only: true
-    risk_per_trade_dollars: 0.5
-    risk_per_trade_pct: 0.012
-    aggressive_risk_per_trade_pct: 0.1
-    max_loss_per_trade_dollars: 100
     max_concurrent_positions: 1
     max_pyramid_entries: 3
-    icc_confirmation_bars: 1
-    icc_max_bars_after_sweep: 30
-    icc_entry_score_threshold: 35
-    icc_score_continuation_points: 60
-    icc_score_sweep_points: 25
-    icc_score_htf_ltf_align_points: 20
-    icc_score_strong_htf_points: 15
-    icc_score_phase_points: 5
-    icc_auto_entry_require_sweep: false
-    icc_auto_entry_min_htf_strength: 0.3
-    icc_auto_entry_enabled: true
-    icc_two_signal_override_enabled: true
   crypto_247:
     symbols:
     - BTCUSD
@@ -276,9 +222,6 @@ profiles:
     trend_swing_lookback: 3
     structure_score_threshold: 0.05
     auto_flatten_on_close: false
-    icc_entry_score_threshold: 60
-    icc_score_continuation_points: 60
-    icc_auto_entry_min_htf_strength: 0.1
     pair_selector_enabled: true
     pair_selector_refresh_seconds: 300
     pair_selector_max_spread_bps: 25
@@ -306,7 +249,6 @@ profiles:
     synthetic_stop_integrity_interval: 10
     crypto_only: true
     multi_position_enabled: true
-    icc_high_score_override_threshold: 30
   all_247:
     symbols:
     - SPY
@@ -382,8 +324,6 @@ profiles:
     ltf_trend_window: 12
     trend_swing_lookback: 3
     structure_score_threshold: 0.05
-    icc_entry_score_threshold: 60
-    icc_score_continuation_points: 60
     auto_flatten_on_close: false
     pdt_guard_enabled: false
     max_equity_roundtrips_per_day: 1
@@ -434,19 +374,6 @@ profiles:
     trend_swing_lookback: 3
     trend_min_swings: 2
     structure_score_threshold: 0.02
-    icc_auto_entry_min_htf_strength: 0.1
-    icc_auto_entry_require_sweep: true
-    icc_auto_entry_enabled: true
-    icc_entry_score_threshold: 60
-    icc_score_htf_ltf_align_points: 20
-    icc_score_sweep_points: 20
-    icc_score_continuation_points: 60
-    icc_score_strong_htf_points: 25
-    icc_score_phase_points: 10
-    icc_score_htf_strength_threshold: 0.65
-    icc_high_score_override_threshold: 70
-    icc_aggressive_mode: true
-    aggressive_risk_per_trade_pct: 0.1
     max_concurrent_positions: 1
     max_pyramid_entries: 5
     pyramid_score_threshold: 50
@@ -455,7 +382,7 @@ profiles:
     htf_neutral_exit_bars: 48
     min_hold_hours: 0
     allow_loss_exit_after_hold: true
-    max_hold_hours: 120
+    max_hold_hours: 16
     trailing_stop_enabled: true
     trailing_stop_min_profit_pct: 1
     backtest_disable_stops: false
@@ -464,8 +391,8 @@ profiles:
     auto_schedule_enabled: true
     sabbath_enabled: true
     sabbath_timezone: America/New_York
-    sabbath_start_local: 18:00
-    sabbath_end_local: 18:00
+    sabbath_start_local: 1080
+    sabbath_end_local: 1080
     session_gate_enabled: false
     multi_position_enabled: false
     pair_selector_enabled: true
@@ -473,7 +400,6 @@ profiles:
     pair_selector_max_spread_bps: 25
     pair_selector_min_depth_usd: 10000
     pair_selector_max_pairs: 20
-    icc_auto_entry_min_score: 0.02
     maker_first_enabled: true
     maker_first_offset_bps: 0
     taker_max_slippage_bps: 30
@@ -483,7 +409,6 @@ profiles:
     continuous_mode: true
     cooldown_enabled: true
     cooldown_cycles_after_block: 3
-    icc_auto_entry_cooldown_minutes: 3
     cooldown_cycles_after_success: 0
     cooldown_scope: symbol
     stick_to_active_symbol_until: cycle_end
@@ -497,7 +422,7 @@ profiles:
     rearm_stop_distance_pct: 0.02
     synthetic_stop_integrity_interval: 10
   coinbase_futures_nano:
-    symbols:
+    symbols: null
     strategies:
       crypto: supply_demand
       forex: rubberband_reaper
@@ -516,24 +441,13 @@ profiles:
     htf_timeframe: 15m
     ltf_timeframe: 5m
     trend_swing_lookback: 3
-    risk_per_trade_pct: 0.015
     max_open_positions: 1
-    icc_auto_entry_min_htf_strength: 0
-    icc_score_sweep_points: 30
-    icc_score_continuation_points: 60
-    icc_entry_score_threshold: 60
-    icc_score_htf_ltf_align_points: 20
-    icc_score_strong_htf_points: 25
-    icc_score_phase_points: 10
-    icc_score_htf_strength_threshold: 0.65
-    icc_score_indication_points: 10
-    icc_two_signal_override_enabled: true
     order_type: MARKET
     crypto_min_notional_usd: 2.5
     synthetic_stop_persistence_enabled: true
     synthetic_stop_store_path: data/synthetic_stops_coinbase.json
   oanda_multi_asset:
-    symbols:
+    symbols: null
     strategies:
       crypto: rubberband_reaper
       forex: rubberband_reaper
@@ -543,7 +457,6 @@ profiles:
     ltf_timeframe: 5m
     market_poll_interval_seconds: 15
     ai_decision_interval_seconds: 60
-    risk_per_trade_pct: 0.05
     max_concurrent_positions: 5
     multi_position_enabled: true
   forex_crypto_hybrid:
@@ -588,11 +501,10 @@ profiles:
     breakeven_trail_pct: 0.003
     trailing_stop_enabled: true
     risk_reward_ratio: 2.0
-    risk_per_trade_pct: 0.01
     max_concurrent_positions: 6
     multi_position_enabled: true
     max_pyramid_entries: 4
     sabbath_enabled: true
     crypto_only: false
     balance_cap_pct: 0.88
-    target_leverage: 1.0
+    target_leverage: 50

@@ -47,10 +47,10 @@ body {
 .glass-base {
     background-attachment: fixed;
     background-image:
-        radial-gradient(ellipse at 0% 0%, rgba(20, 184, 166, 0.12) 0%, transparent 50%),
-        radial-gradient(ellipse at 100% 0%, rgba(139, 92, 246, 0.08) 0%, transparent 50%),
-        radial-gradient(ellipse at 50% 100%, rgba(20, 184, 166, 0.05) 0%, transparent 50%),
-        linear-gradient(180deg, var(--bg-dark) 0%, #0f172a 100%);
+        radial-gradient(ellipse at 0% 0%, var(--accent-dim) 0%, transparent 50%),
+        radial-gradient(ellipse at 100% 0%, var(--purple-dim) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 100%, var(--accent-dim) 0%, transparent 50%),
+        linear-gradient(180deg, var(--bg-dark) 0%, var(--bg-dark) 100%);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -110,9 +110,9 @@ body {
 }
 
 .nav-btn.active {
-    background: linear-gradient(135deg, rgba(20, 184, 166, 0.12) 0%, rgba(139, 92, 246, 0.08) 100%);
+    background: linear-gradient(135deg, var(--accent-dim) 0%, var(--purple-dim) 100%);
     color: var(--accent);
-    border-color: rgba(20, 184, 166, 0.2);
+    border-color: var(--accent-dim);
     box-shadow:
         0 4px 20px rgba(0, 0, 0, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -164,7 +164,7 @@ body {
     color: var(--accent);
     margin-bottom: 20px;
     padding-bottom: 12px;
-    border-bottom: 1px solid rgba(20, 184, 166, 0.15);
+    border-bottom: 1px solid var(--accent-dim);
     position: relative;
 }
 
@@ -220,11 +220,11 @@ body {
 
 .control-card:hover {
     border-color: var(--card-border-hover);
-    background: linear-gradient(135deg, var(--bg-card-hover) 0%, rgba(20, 184, 166, 0.03) 100%);
+    background: linear-gradient(135deg, var(--bg-card-hover) 0%, transparent 100%);
     transform: translateY(-2px);
     box-shadow:
         0 12px 40px rgba(0, 0, 0, 0.4),
-        0 0 0 1px rgba(20, 184, 166, 0.1);
+        0 0 0 1px var(--accent-dim);
 }
 
 .control-card:hover::before {
@@ -281,7 +281,7 @@ body {
 }
 
 .slider-card:hover {
-    border-color: rgba(20, 184, 166, 0.3);
+    border-color: var(--accent-glow);
     transform: translateY(-3px);
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
 }
@@ -345,20 +345,20 @@ body {
     appearance: none;
     width: 20px;
     height: 20px;
-    background: linear-gradient(135deg, var(--accent) 0%, #0d9488 100%);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
     border-radius: 50%;
     cursor: grab;
     box-shadow:
-        0 2px 8px rgba(20, 184, 166, 0.4),
-        0 0 0 4px rgba(20, 184, 166, 0.15);
+        0 2px 8px var(--accent-glow),
+        0 0 0 4px var(--accent-dim);
     transition: all 0.2s;
 }
 
 .slider-input::-webkit-slider-thumb:hover {
     transform: scale(1.15);
     box-shadow:
-        0 4px 16px rgba(20, 184, 166, 0.5),
-        0 0 0 6px rgba(20, 184, 166, 0.2);
+        0 4px 16px var(--accent-glow),
+        0 0 0 6px var(--accent-dim);
 }
 
 .slider-input::-webkit-slider-thumb:active {
@@ -369,11 +369,11 @@ body {
 .slider-input::-moz-range-thumb {
     width: 20px;
     height: 20px;
-    background: linear-gradient(135deg, var(--accent) 0%, #0d9488 100%);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
     border-radius: 50%;
     cursor: grab;
     border: none;
-    box-shadow: 0 2px 8px rgba(20, 184, 166, 0.4);
+    box-shadow: 0 2px 8px var(--accent-glow);
 }
 
 .slider-key {
@@ -459,8 +459,8 @@ select.input-field {
 }
 
 .toggle-active {
-    background: linear-gradient(135deg, var(--accent) 0%, #0d9488 100%) !important;
-    border-color: rgba(20, 184, 166, 0.5) !important;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%) !important;
+    border-color: var(--accent-glow) !important;
     box-shadow:
         inset 0 2px 4px rgba(0, 0, 0, 0.2),
         0 0 20px var(--accent-dim);
@@ -505,8 +505,8 @@ select.input-field {
 
 .sub-nav-btn.active {
     color: var(--bg-dark);
-    background: linear-gradient(135deg, var(--accent) 0%, #0d9488 100%);
-    box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+    box-shadow: 0 4px 12px var(--accent-glow);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -622,12 +622,12 @@ select.input-field {
 #btn-save {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(135deg, var(--accent) 0%, #0d9488 100%) !important;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%) !important;
     color: #000 !important;
     border: none !important;
     transition: all 0.3s var(--transition-smooth);
     box-shadow:
-        0 4px 20px rgba(20, 184, 166, 0.3),
+        0 4px 20px var(--accent-glow),
         inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
@@ -645,7 +645,7 @@ select.input-field {
 #btn-save:hover {
     transform: translateY(-3px);
     box-shadow:
-        0 8px 30px rgba(20, 184, 166, 0.5),
+        0 8px 30px var(--accent-glow),
         inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
@@ -682,7 +682,7 @@ select.input-field {
 #tooltip-popup {
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.95) 100%);
     backdrop-filter: blur(12px);
-    border: 1px solid rgba(20, 184, 166, 0.3);
+    border: 1px solid var(--accent-glow);
     box-shadow:
         0 20px 60px rgba(0, 0, 0, 0.6),
         0 0 40px var(--accent-dim);
@@ -713,7 +713,7 @@ select.input-field {
 }
 
 .asset-strategy-card:hover {
-    border-color: rgba(20, 184, 166, 0.3);
+    border-color: var(--accent-glow);
     transform: translateY(-2px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
@@ -838,8 +838,8 @@ select.input-field {
    CITY RESOLVER
    ═══════════════════════════════════════════════════════════ */
 .city-resolver {
-    background: linear-gradient(135deg, rgba(20, 184, 166, 0.08) 0%, rgba(139, 92, 246, 0.05) 100%);
-    border: 1px solid rgba(20, 184, 166, 0.2);
+    background: linear-gradient(135deg, var(--accent-dim) 0%, var(--purple-dim) 100%);
+    border: 1px solid var(--accent-dim);
     border-radius: 20px;
     padding: 24px 28px;
     margin-bottom: 32px;
@@ -854,7 +854,7 @@ select.input-field {
 
 .city-resolver button {
     padding: 12px 24px;
-    background: linear-gradient(135deg, var(--accent) 0%, #0d9488 100%);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
     color: var(--bg-dark);
     border: none;
     border-radius: 10px;
@@ -868,7 +868,7 @@ select.input-field {
 
 .city-resolver button:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(20, 184, 166, 0.3);
+    box-shadow: 0 8px 20px var(--accent-glow);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -890,9 +890,9 @@ select.input-field {
 }
 
 .time-filter-btn.active {
-    background: rgba(20, 184, 166, 0.2);
+    background: var(--accent-dim);
     color: var(--accent);
-    border: 1px solid rgba(20, 184, 166, 0.4);
+    border: 1px solid var(--accent-glow);
 }
 
 .time-filter-btn:not(.active):hover {
@@ -947,7 +947,7 @@ select.input-field {
 }
 
 #trade-history-body tr:hover {
-    background: rgba(20, 184, 166, 0.05);
+    background: var(--accent-dim);
 }
 
 /* Analytics Loading Animation */
@@ -1046,20 +1046,119 @@ select.input-field {
     transform: scale(1.1);
 }
 
-.control-btn-teal:hover { 
+.control-btn-teal:hover {
     color: var(--accent);
     border-color: var(--accent-glow);
-    box-shadow: 0 8px 32px rgba(20, 184, 166, 0.2);
+    box-shadow: 0 8px 32px var(--accent-dim);
 }
 
-.control-btn-red:hover { 
+.control-btn-red:hover {
     color: var(--error);
     border-color: rgba(239, 68, 68, 0.3);
     box-shadow: 0 8px 32px rgba(239, 68, 68, 0.2);
 }
 
-.control-btn-purple:hover { 
+.control-btn-purple:hover {
     color: var(--purple);
     border-color: var(--purple-dim);
     box-shadow: 0 8px 32px rgba(139, 92, 246, 0.2);
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/* THEME CARDS (Appearance Tab)                               */
+/* ═══════════════════════════════════════════════════════════ */
+
+.theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+}
+
+.theme-card {
+    position: relative;
+    border-radius: 16px;
+    border: 1px solid var(--card-border);
+    background: var(--bg-card);
+    backdrop-filter: var(--glass-blur);
+    cursor: pointer;
+    overflow: hidden;
+    transition: all 0.35s var(--transition-smooth);
+}
+
+.theme-card:hover {
+    border-color: var(--card-border-hover);
+    transform: translateY(-3px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.theme-card.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 24px var(--accent-glow), 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+/* Color swatch strip */
+.theme-swatches {
+    display: flex;
+    height: 80px;
+    border-radius: 15px 15px 0 0;
+    overflow: hidden;
+}
+
+.theme-swatch {
+    flex: 1;
+    transition: transform 0.3s ease;
+}
+
+.theme-card:hover .theme-swatch {
+    transform: scaleY(1.05);
+}
+
+/* Image preview thumbnail */
+.theme-preview-image {
+    height: 100px;
+    background-size: cover;
+    background-position: center;
+    border-radius: 15px 15px 0 0;
+    transition: transform 0.5s var(--transition-smooth);
+}
+
+.theme-card:hover .theme-preview-image {
+    transform: scale(1.08);
+}
+
+/* Theme info */
+.theme-info {
+    padding: 12px 14px;
+}
+
+.theme-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 2px;
+}
+
+.theme-desc {
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+}
+
+/* Active badge */
+.theme-active-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: var(--accent);
+    color: #000;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    box-shadow: 0 4px 12px var(--accent-glow);
 }

@@ -459,6 +459,133 @@ class SafetyGuard:
                     logger.info(f"[SAFETY] Regime-Flip TRIGGERED for {snapshot.symbol}. HTF is {htf_dir}.")
                     return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Regime Flip: {htf_dir.upper()}")
 
+        # ─────────────────────────────────────────────────────────────
+        # D. DAY TRADE ENFORCER (Max Hold Time)
+        # ─────────────────────────────────────────────────────────────
+        # Prevents the bot from becoming a swing trader.  Uses the
+        # profile-level `max_hold_hours` setting with 3-phase logic:
+        #   Phase 1 (0 → 70%):   Normal — strategy manages the trade
+        #   Phase 2 (70 → 100%): Grace  — profitable exits, losers get tightened stops
+        #   Phase 3 (> 100%):    Emergency — force close lost causes
+        try:
+            active_profile = settings.get_active_profile()
+            max_hold_h = float(getattr(active_profile, "max_hold_hours", 0.0) or 0.0)
+        except Exception:
+            max_hold_h = 0.0
+
+        if max_hold_h > 0 and entry_time and isinstance(entry_time, datetime):
+            now_tz = datetime.now(entry_time.tzinfo or ZoneInfo("UTC"))
+            hours_held = (now_tz - entry_time).total_seconds() / 3600
+
+            phase1_end = max_hold_h * 0.70     # normal phase ends
+            phase2_end = max_hold_h             # grace period ends
+            hard_kill   = max_hold_h * 1.30     # absolute hard kill
+
+            if hours_held >= phase1_end:
+                is_profitable = profit_dist > 0
+
+                # Phase 2 — Grace Period (70% → 100% of max_hold)
+                if hours_held < phase2_end:
+                    if is_profitable:
+                        # Profitable? Lock in gains — exit now.
+                        logger.info(
+                            f"[SAFETY] Day Trade Enforcer: {snapshot.symbol} profitable "
+                            f"after {hours_held:.1f}h (grace). Taking profit."
+                        )
+                        return close_position_decision(
+                            snapshot.symbol, snapshot.timeframe,
+                            reason=f"Day Enforcer: Profit @ {hours_held:.1f}h (grace)"
+                        )
+                    else:
+                        # Underwater — tighten stop by 50% to limit further damage
+                        if initial_risk > 0 and current_stop > 0:
+                            tighten_dist = initial_risk * 0.5
+                            if direction == "long":
+                                new_stop = max(current_stop, current_price - tighten_dist)
+                                if new_stop > current_stop:
+                                    logger.info(
+                                        f"[SAFETY] Day Trade Enforcer: {snapshot.symbol} "
+                                        f"underwater {hours_held:.1f}h — tightening stop "
+                                        f"{current_stop:.5f} → {new_stop:.5f}"
+                                    )
+                                    return hold_decision(
+                                        symbol=snapshot.symbol,
+                                        timeframe=snapshot.timeframe,
+                                        bias="long", phase="management",
+                                        reason=f"[SAFETY] Day Enforcer: Tighten stop ({hours_held:.1f}h held)",
+                                        stop_loss=new_stop
+                                    )
+                            else:  # short
+                                new_stop = min(current_stop, current_price + tighten_dist) if current_stop > 0 else current_price + tighten_dist
+                                if current_stop == 0 or new_stop < current_stop:
+                                    logger.info(
+                                        f"[SAFETY] Day Trade Enforcer: {snapshot.symbol} "
+                                        f"underwater {hours_held:.1f}h — tightening stop "
+                                        f"{current_stop:.5f} → {new_stop:.5f}"
+                                    )
+                                    return hold_decision(
+                                        symbol=snapshot.symbol,
+                                        timeframe=snapshot.timeframe,
+                                        bias="short", phase="management",
+                                        reason=f"[SAFETY] Day Enforcer: Tighten stop ({hours_held:.1f}h held)",
+                                        stop_loss=new_stop
+                                    )
+
+                # Phase 3 — Emergency Exit (> 100% of max_hold)
+                elif hours_held >= phase2_end:
+                    if not is_profitable:
+                        # Lost cause — force close immediately
+                        logger.warning(
+                            f"[SAFETY] Day Trade Enforcer: EMERGENCY EXIT {snapshot.symbol} "
+                            f"after {hours_held:.1f}h (underwater, max={max_hold_h}h). "
+                            f"P&L: {profit_dist:.4f}"
+                        )
+                        return close_position_decision(
+                            snapshot.symbol, snapshot.timeframe,
+                            reason=f"Day Enforcer: Emergency ({hours_held:.1f}h, losing)"
+                        )
+                    elif hours_held >= hard_kill:
+                        # Even profitable — time's up at 130%
+                        logger.warning(
+                            f"[SAFETY] Day Trade Enforcer: HARD KILL {snapshot.symbol} "
+                            f"after {hours_held:.1f}h (max={max_hold_h}h, hard={hard_kill:.1f}h)"
+                        )
+                        return close_position_decision(
+                            snapshot.symbol, snapshot.timeframe,
+                            reason=f"Day Enforcer: Hard Kill ({hours_held:.1f}h)"
+                        )
+                    else:
+                        # Profitable past max_hold but before hard_kill — ultra-tight trail
+                        tight_trail = current_price * 0.002  # 0.2% trail
+                        if direction == "long":
+                            tight_stop = current_price - tight_trail
+                            if tight_stop > current_stop:
+                                logger.info(
+                                    f"[SAFETY] Day Trade Enforcer: {snapshot.symbol} "
+                                    f"profitable overtime — ultra-tight trail {tight_stop:.5f}"
+                                )
+                                return hold_decision(
+                                    symbol=snapshot.symbol,
+                                    timeframe=snapshot.timeframe,
+                                    bias="long", phase="management",
+                                    reason=f"[SAFETY] Day Enforcer: Overtime trail ({hours_held:.1f}h)",
+                                    stop_loss=tight_stop
+                                )
+                        else:  # short
+                            tight_stop = current_price + tight_trail
+                            if current_stop == 0 or tight_stop < current_stop:
+                                logger.info(
+                                    f"[SAFETY] Day Trade Enforcer: {snapshot.symbol} "
+                                    f"profitable overtime — ultra-tight trail {tight_stop:.5f}"
+                                )
+                                return hold_decision(
+                                    symbol=snapshot.symbol,
+                                    timeframe=snapshot.timeframe,
+                                    bias="short", phase="management",
+                                    reason=f"[SAFETY] Day Enforcer: Overtime trail ({hours_held:.1f}h)",
+                                    stop_loss=tight_stop
+                                )
+
         # 3. OFFENSIVE WEALTH WEAPONS
         # A. Moonshot Target Elevator (Impulse Hold)
         if settings.safety.wealth_exit_moonshot_enabled:

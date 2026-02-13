@@ -207,12 +207,18 @@ function initChart(intervalSeconds = 900) {
         },
     });
 
+    // Read candle colors from the active theme
+    const activeThemeId = window.ThemeEngine ? window.ThemeEngine.getActiveThemeId() : 'obsidian';
+    const activeTheme = window.ThemeEngine ? window.ThemeEngine.THEMES[activeThemeId] || window.ThemeEngine.THEMES.obsidian : null;
+    const candleUpColor = activeTheme ? activeTheme.candleUp : '#2dd4bf';
+    const candleDownColor = activeTheme ? activeTheme.candleDown : '#f43f5e';
+
     candleSeries = chart.addCandlestickSeries({
-        upColor: '#2dd4bf',     // Teal
-        downColor: '#f43f5e',   // Rose
+        upColor: candleUpColor,
+        downColor: candleDownColor,
         borderVisible: false,
-        wickUpColor: '#2dd4bf',
-        wickDownColor: '#f43f5e',
+        wickUpColor: candleUpColor,
+        wickDownColor: candleDownColor,
     });
 
     candleSeries.priceScale().applyOptions({
@@ -249,6 +255,34 @@ function initChart(intervalSeconds = 900) {
 
     // [ANTIGRAVITY] Dummy data removed. Waiting for 'history' from backend.
 }
+
+// Listen for theme changes to update candle colors dynamically
+window.addEventListener('theme-changed', (e) => {
+    const { themeId, theme } = e.detail;
+    if (!candleSeries || !theme) return;
+
+    const upColor = theme.candleUp || '#2dd4bf';
+    const downColor = theme.candleDown || '#f43f5e';
+
+    candleSeries.applyOptions({
+        upColor,
+        downColor,
+        wickUpColor: upColor,
+        wickDownColor: downColor,
+    });
+
+    // Re-color existing volume bars
+    if (indicatorSeries && candleData.length > 0) {
+        const volumeData = candleData.map(c => ({
+            time: c.time,
+            value: 0, // volume data isn't stored in candleData, so just recolor next refresh
+            color: c.close >= c.open ? upColor : downColor,
+        }));
+        // Volume will naturally re-color on next data refresh
+    }
+
+    console.log(`[CHART] Candle colors updated: up=${upColor}, down=${downColor}`);
+});
 
 function subscribeToAsset(symbol, tf) {
     console.log(`[SUBSCRIBE] Attempting to subscribe to ${symbol} (${tf}). WS state: ${ws ? ws.readyState : 'null'}`);
@@ -339,12 +373,16 @@ async function connectWebSocket() {
                     candleData = fixedData;
 
                     if (indicatorSeries) {
+                        // Use theme candle colors for volume bars
+                        const themeNow = window.ThemeEngine ? window.ThemeEngine.THEMES[window.ThemeEngine.getActiveThemeId()] : null;
+                        const volUp = (themeNow && themeNow.candleUp) || '#2dd4bf';
+                        const volDown = (themeNow && themeNow.candleDown) || '#f43f5e';
                         const volumeData = msg.data.map(c => {
                             const isUp = c.close >= c.open;
                             return {
                                 time: utcToLocal(c.time),
                                 value: c.volume || 0,
-                                color: isUp ? '#2dd4bf' : '#f43f5e'
+                                color: isUp ? volUp : volDown
                             };
                         });
                         console.log(`[CHART-VOLUME] Setting ${volumeData.length} volume bars. Sample:`, volumeData[volumeData.length - 1]);
@@ -387,10 +425,13 @@ async function connectWebSocket() {
 
                     if (indicatorSeries && typeof msg.data.volume !== 'undefined') {
                         const isUp = msg.data.close >= msg.data.open;
+                        const themeNow = window.ThemeEngine ? window.ThemeEngine.THEMES[window.ThemeEngine.getActiveThemeId()] : null;
+                        const volUp = (themeNow && themeNow.candleUp) || '#2dd4bf';
+                        const volDown = (themeNow && themeNow.candleDown) || '#f43f5e';
                         indicatorSeries.update({
                             time: utcToLocal(msg.data.time),
                             value: msg.data.volume,
-                            color: isUp ? '#2dd4bf' : '#f43f5e'
+                            color: isUp ? volUp : volDown
                         });
                     }
                 }

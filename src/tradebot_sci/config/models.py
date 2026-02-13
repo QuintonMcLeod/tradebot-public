@@ -396,9 +396,10 @@ class TradingProfileSettings(BaseModel):
         description="When true, exit signals after min_hold_hours can close losing trades.",
     )
     max_hold_hours: float = Field(
-        default=0.0,
+        default=16.0,
         ge=0.0,
-        description="Maximum hours to hold before forcing a time-based exit (0 disables).",
+        description="Maximum hours to hold before Day Trade Enforcer activates (0 disables). "
+                    "Grace period starts at 70%, emergency exit at 100%, hard kill at 130%.",
     )
     trailing_stop_enabled: bool = Field(
         default=False,
@@ -928,6 +929,52 @@ class RiskSettings(BaseModel):
         default_factory=lambda: os.getenv("SMART_POSITIONS_ENABLED", "False").lower() == "true",
         description="Only allow new positions if Unrealized PnL > Risk of new trade."
     )
+
+    # ── Promoted from profiles (global source of truth) ─────────
+    risk_per_trade_pct: float = Field(
+        default=0.045, ge=0.0, le=1.0,
+        description="Standard risk per trade as a fraction of equity (e.g. 0.045 = 4.5%).",
+    )
+    risk_per_trade_dollars: float = Field(
+        default=0.0, ge=0.0,
+        description="Fixed risk per trade in account currency. Overrides pct when > 0.",
+    )
+    short_risk_pct: float = Field(
+        default=0.045, ge=0.0, le=1.0,
+        description="Risk percentage for short positions.",
+    )
+    aggressive_risk_per_trade_pct: float = Field(
+        default=0.10, ge=0.0, le=1.0,
+        description="Aggressive risk for high-confidence setups.",
+    )
+    max_exposure_pct: float = Field(
+        default=0.10, ge=0.0, le=1.0,
+        description="Maximum total risk across all open positions.",
+    )
+    limit_loss_daily_pct: float = Field(
+        default=0.60, ge=0.0, le=1.0,
+        description="Circuit breaker: stop trading for the day if hit.",
+    )
+    icc_auto_entry_enabled: bool = Field(default=True)
+    icc_aggressive_mode: bool = Field(default=True)
+    icc_entry_score_threshold: float = Field(default=35.0, ge=0.0, le=100.0)
+    icc_auto_entry_require_sweep: bool = Field(default=False)
+    icc_auto_entry_min_htf_strength: float = Field(default=0.25, ge=0.0, le=1.0)
+    icc_confirmation_bars: int = Field(default=2, ge=1, le=10)
+    icc_max_bars_after_sweep: int = Field(default=30, ge=1)
+    icc_require_liquidity_grab: bool = Field(default=False)
+    icc_strict_mode: bool = Field(default=False)
+    icc_high_score_override_threshold: float = Field(default=70.0, ge=0.0, le=100.0)
+    icc_two_signal_override_enabled: bool = Field(default=False)
+    icc_auto_entry_cooldown_minutes: int = Field(default=3, ge=0)
+    icc_auto_entry_min_score: float = Field(default=0.02, ge=0.0)
+    icc_score_continuation_points: float = Field(default=60.0, ge=0.0, le=100.0)
+    icc_score_sweep_points: float = Field(default=25.0, ge=0.0, le=100.0)
+    icc_score_htf_ltf_align_points: float = Field(default=20.0, ge=0.0, le=100.0)
+    icc_score_strong_htf_points: float = Field(default=15.0, ge=0.0, le=100.0)
+    icc_score_phase_points: float = Field(default=5.0, ge=0.0, le=100.0)
+    icc_score_indication_points: float = Field(default=10.0, ge=0.0, le=100.0)
+    icc_score_htf_strength_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
 
 
 class RuntimeSettings(BaseModel):

@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="./dist/output.css" rel="stylesheet">
     <link href="./settings.css" rel="stylesheet">
+    <link href="./theme-overrides.css" rel="stylesheet">
+    <link href="./analytics.css" rel="stylesheet">
     <title>Tradebot SCI</title>
     <!-- Material Symbols -->
     <link rel="stylesheet"
@@ -38,7 +40,7 @@
         }
 
         .scrollbar-thin::-webkit-scrollbar-thumb {
-            background: rgba(20, 184, 166, 0.2);
+            background: var(--accent-dim);
             border-radius: 10px;
         }
 
@@ -70,9 +72,9 @@
         }
 
         .nav-btn.active {
-            background: rgba(20, 184, 166, 0.15);
-            color: #5eead4;
-            border-color: rgba(20, 184, 166, 0.3);
+            background: var(--accent-dim);
+            color: var(--accent);
+            border-color: var(--accent-glow);
             font-weight: 700;
         }
 
@@ -94,7 +96,7 @@
 
         .settings-input:focus {
             outline: none;
-            border-color: rgba(20, 184, 166, 0.5);
+            border-color: var(--accent-glow);
         }
 
         /* Toggle Switch */
@@ -109,7 +111,7 @@
         }
 
         .toggle-switch.active {
-            background: #14b8a6;
+            background: var(--accent);
         }
 
         .toggle-switch .toggle-knob {
@@ -146,20 +148,23 @@
         }
 
         .sub-nav-btn.active {
-            background: rgba(20, 184, 166, 0.2);
-            color: #5eead4;
-            border-color: rgba(20, 184, 166, 0.3);
+            background: var(--accent-dim);
+            color: var(--accent);
+            border-color: var(--accent-glow);
         }
     </style>
 </head>
 
 <body class="text-slate-300 font-sans h-screen w-screen overflow-hidden flex flex-col select-none">
 
-    <!-- BACKGROUND GRADIENT MESH - SPOT UPPER LEFT (INTENSIFIED) -->
-    <!-- BACKGROUND GRADIENT MESH - SPOT UPPER LEFT (TEAL -> NAVY) -->
-    <div class="fixed inset-0 bg-[#020617] -z-30"></div>
-    <div
+    <!-- BACKGROUND LAYERS (Themed) -->
+    <div data-theme-bg-solid class="fixed inset-0 bg-[#020617] -z-30"></div>
+    <div data-theme-bg-mesh
         class="fixed inset-0 bg-[radial-gradient(circle_at_0%_0%,_#0d9488_0%,_#1e1b4b_60%,_transparent_100%)] opacity-50 -z-20">
+    </div>
+    <!-- Theme Background Image Layer (hidden by default, shown for image themes) -->
+    <div id="theme-bg-image"
+        style="display: none; position: fixed; inset: 0; z-index: -25; background-size: cover; background-position: center; background-repeat: no-repeat; filter: brightness(0.25) saturate(0.8);">
     </div>
 
     <!-- Title Bar (Win98 Gradient Style) -->
@@ -450,215 +455,263 @@
 
         </div>
 
-        <!-- ANALYTICS VIEW (Hidden by default) -->
-        <div id="view-analytics" class="hidden flex-1 flex flex-col gap-6 p-6 min-w-0 overflow-y-auto scrollbar-thin">
+        <!-- ANALYTICS VIEW (Graph Tab - Premium Glass Design) -->
+        <div id="view-analytics" class="hidden flex-1 flex flex-col gap-5 p-6 min-w-0 overflow-y-auto scrollbar-thin">
 
-            <!-- Analytics Header -->
-            <div class="flex items-center justify-between">
+            <!-- ═══ ROW 1: Header Bar ═══ -->
+            <div class="flex items-center justify-between analytics-animate">
                 <div class="flex items-center gap-4">
-                    <span class="material-symbols-outlined text-3xl text-teal-400">analytics</span>
+                    <div class="metric-icon teal" style="width:42px;height:42px;border-radius:12px;">
+                        <span class="material-symbols-outlined" style="font-size:22px;">analytics</span>
+                    </div>
                     <div>
-                        <h1 class="text-2xl font-black text-white tracking-tight">Trade Analytics</h1>
-                        <p class="text-xs text-slate-500">Performance metrics and trade history</p>
+                        <h1 class="text-xl font-black text-white tracking-tight" style="letter-spacing:-0.02em;">Trade
+                            Analytics</h1>
+                        <p class="text-[11px] text-slate-500 mt-0.5">Performance metrics &amp; trade history</p>
+                    </div>
+                    <!-- Sundown Badge -->
+                    <div id="analytics-sundown-badge" class="hidden badge-glass amber ml-2">
+                        <span class="material-symbols-outlined" style="font-size:13px;">wb_twilight</span>
+                        <span id="analytics-sundown-label">Day Start: --</span>
+                    </div>
+                    <!-- Source Badge -->
+                    <div id="analytics-source-badge" class="hidden badge-glass teal ml-1">
+                        <span id="analytics-source-label">Ledger</span>
                     </div>
                 </div>
 
-                <!-- Time Filter Tabs -->
-                <div class="flex gap-2 bg-black/40 p-1.5 rounded-xl border border-white/5">
-                    <button
-                        class="time-filter-btn active text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all"
-                        data-filter="1h">1H</button>
-                    <button
-                        class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white"
-                        data-filter="24h">24H</button>
-                    <button
-                        class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white"
-                        data-filter="week">Week</button>
-                    <button
-                        class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white"
-                        data-filter="month">Month</button>
-                    <button
-                        class="time-filter-btn text-[10px] px-4 py-2 rounded-lg font-bold uppercase tracking-wider transition-all text-slate-400 hover:text-white"
-                        data-filter="all">All</button>
-                </div>
-            </div>
-
-            <!-- Primary Metrics Row -->
-            <div class="grid grid-cols-6 gap-4">
-                <!-- Wins Card -->
-                <div
-                    class="metric-card bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 transition-all hover:border-emerald-500/40 hover:shadow-lg hover:shadow-emerald-500/10">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="material-symbols-outlined text-emerald-400 text-lg">trending_up</span>
-                        <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70">Wins</span>
-                    </div>
-                    <div id="metric-wins" class="text-3xl font-black text-emerald-400">0</div>
-                </div>
-
-                <!-- Losses Card -->
-                <div
-                    class="metric-card bg-gradient-to-br from-red-500/10 to-red-500/5 border border-red-500/20 rounded-2xl p-5 transition-all hover:border-red-500/40 hover:shadow-lg hover:shadow-red-500/10">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="material-symbols-outlined text-red-400 text-lg">trending_down</span>
-                        <span class="text-[10px] font-bold uppercase tracking-wider text-red-400/70">Losses</span>
-                    </div>
-                    <div id="metric-losses" class="text-3xl font-black text-red-400">0</div>
-                </div>
-
-                <!-- Win Rate Card -->
-                <div
-                    class="metric-card bg-gradient-to-br from-teal-500/10 to-teal-500/5 border border-teal-500/20 rounded-2xl p-5 transition-all hover:border-teal-500/40 hover:shadow-lg hover:shadow-teal-500/10">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="material-symbols-outlined text-teal-400 text-lg">percent</span>
-                        <span class="text-[10px] font-bold uppercase tracking-wider text-teal-400/70">Win Rate</span>
-                    </div>
-                    <div id="metric-winrate" class="text-3xl font-black text-teal-400">0%</div>
-                </div>
-
-                <!-- R:R Ratio Card -->
-                <div
-                    class="metric-card bg-gradient-to-br from-purple-500/10 to-purple-500/5 border border-purple-500/20 rounded-2xl p-5 transition-all hover:border-purple-500/40 hover:shadow-lg hover:shadow-purple-500/10">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="material-symbols-outlined text-purple-400 text-lg">balance</span>
-                        <span class="text-[10px] font-bold uppercase tracking-wider text-purple-400/70">R:R Ratio</span>
-                    </div>
-                    <div id="metric-rr" class="text-3xl font-black text-purple-400">0:1</div>
-                </div>
-
-                <!-- Total PnL Card -->
-                <div
-                    class="metric-card bg-gradient-to-br from-amber-500/10 to-amber-500/5 border border-amber-500/20 rounded-2xl p-5 transition-all hover:border-amber-500/40 hover:shadow-lg hover:shadow-amber-500/10">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="material-symbols-outlined text-amber-400 text-lg">payments</span>
-                        <span class="text-[10px] font-bold uppercase tracking-wider text-amber-400/70">Total PnL</span>
-                    </div>
-                    <div id="metric-pnl" class="text-3xl font-black text-amber-400">$0.00</div>
-                </div>
-
-                <!-- PnL % Card -->
-                <div
-                    class="metric-card bg-gradient-to-br from-cyan-500/10 to-cyan-500/5 border border-cyan-500/20 rounded-2xl p-5 transition-all hover:border-cyan-500/40 hover:shadow-lg hover:shadow-cyan-500/10">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="material-symbols-outlined text-cyan-400 text-lg">show_chart</span>
-                        <span class="text-[10px] font-bold uppercase tracking-wider text-cyan-400/70">Return %</span>
-                    </div>
-                    <div id="metric-pnl-pct" class="text-3xl font-black text-cyan-400">0%</div>
+                <!-- Time Filter Pills -->
+                <div class="time-pill-group">
+                    <button class="time-pill time-filter-btn" data-filter="1h">1H</button>
+                    <button class="time-pill time-filter-btn active" data-filter="24h">24H</button>
+                    <button class="time-pill time-filter-btn" data-filter="week">Week</button>
+                    <button class="time-pill time-filter-btn" data-filter="month">Month</button>
+                    <button class="time-pill time-filter-btn" data-filter="year">Year</button>
+                    <button class="time-pill time-filter-btn" data-filter="all">All</button>
                 </div>
             </div>
 
-            <!-- Charts Row -->
-            <div class="grid grid-cols-2 gap-6">
-                <!-- Win/Loss Pie Chart -->
-                <div class="bg-[#020617] rounded-2xl border border-teal-500/20 p-6 relative overflow-hidden">
-                    <div
-                        class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal-500/30 to-transparent">
+            <!-- ═══ ROW 2: Hero Metrics (2fr 1fr 1fr mosaic) ═══ -->
+            <div class="analytics-animate" style="display:grid; grid-template-columns: 2fr 1fr 1fr; gap:16px;">
+
+                <!-- Total PnL — Double-Wide Hero -->
+                <div class="analytics-card hero-pnl"
+                    style="display:flex; flex-direction:column; justify-content:center;">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="metric-icon emerald">
+                            <span class="material-symbols-outlined">payments</span>
+                        </div>
+                        <span class="metric-label" style="color: rgba(52, 211, 153, 0.7);">Total PnL</span>
                     </div>
-                    <h3 class="text-xs font-bold uppercase tracking-widest text-teal-400 mb-4 flex items-center gap-2">
-                        <span class="material-symbols-outlined text-base">pie_chart</span>
-                        Win/Loss Distribution
-                    </h3>
-                    <div class="h-64 flex items-center justify-center">
+                    <div id="metric-pnl" class="hero-value positive">$0.00</div>
+                    <div class="flex items-center gap-4 mt-3">
+                        <span id="metric-pnl-pct" class="text-sm font-bold"
+                            style="color: rgba(52, 211, 153, 0.55);">+0.0%</span>
+                        <span id="metric-spread-costs" class="text-[10px]" style="color:#475569;">Spread: $0.00</span>
+                    </div>
+                </div>
+
+                <!-- Win Rate -->
+                <div class="analytics-card accent-teal">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="metric-icon teal">
+                            <span class="material-symbols-outlined">percent</span>
+                        </div>
+                        <span class="metric-label" style="color: rgba(45, 212, 191, 0.7);">Win Rate</span>
+                    </div>
+                    <div id="metric-winrate" class="metric-value-lg" style="color:#2dd4bf;">0%</div>
+                    <div class="flex items-center gap-3 mt-3">
+                        <span class="text-[11px] font-bold" style="color:#34d399;"><span class="wl-dot win"></span><span
+                                id="metric-wins">0</span> W</span>
+                        <span class="text-[11px] font-bold" style="color:#f87171;"><span
+                                class="wl-dot loss"></span><span id="metric-losses">0</span> L</span>
+                    </div>
+                </div>
+
+                <!-- Total Trades -->
+                <div class="analytics-card accent-purple">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="metric-icon purple">
+                            <span class="material-symbols-outlined">swap_horiz</span>
+                        </div>
+                        <span class="metric-label" style="color: rgba(167, 139, 250, 0.7);">Trades</span>
+                    </div>
+                    <div id="metric-total-trades" class="metric-value-lg" style="color:#a78bfa;">0</div>
+                    <div class="mt-3">
+                        <span id="metric-rr" class="text-[11px] font-bold" style="color:rgba(167,139,250,0.5);">R:R
+                            N/A</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ ROW 3: Metrics Strip (4-col) ═══ -->
+            <div class="analytics-animate" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px;">
+                <div class="mini-stat">
+                    <div class="mini-label">Profit Factor</div>
+                    <div id="metric-pf" class="mini-value" style="color:#22d3ee;">0.00</div>
+                </div>
+                <div class="mini-stat">
+                    <div class="mini-label">Avg Win</div>
+                    <div id="metric-avg-win" class="mini-value" style="color:#34d399;">$0.00</div>
+                </div>
+                <div class="mini-stat">
+                    <div class="mini-label">Avg Loss</div>
+                    <div id="metric-avg-loss" class="mini-value" style="color:#f87171;">$0.00</div>
+                </div>
+                <div class="mini-stat">
+                    <div class="mini-label">Best / Worst</div>
+                    <div style="display:flex; align-items:baseline; gap:8px;">
+                        <span id="metric-best" class="mini-value" style="color:#34d399; font-size:16px;">$0</span>
+                        <span style="color:#334155;">/</span>
+                        <span id="metric-worst" class="mini-value" style="color:#f87171; font-size:16px;">$0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ ROW 4: Charts (3fr / 2fr unequal split) ═══ -->
+            <div class="analytics-animate" style="display:grid; grid-template-columns: 3fr 2fr; gap:16px;">
+
+                <!-- Equity Curve -->
+                <div class="analytics-card accent-teal chart-container" style="padding:20px;">
+                    <div class="chart-title" style="color:#2dd4bf;">
+                        <span class="material-symbols-outlined">trending_up</span>
+                        Equity Curve
+                    </div>
+                    <div id="chart-equity-curve" style="height:220px;"></div>
+                </div>
+
+                <!-- Win/Loss Pie -->
+                <div class="analytics-card accent-purple chart-container" style="padding:20px;">
+                    <div class="chart-title" style="color:#a78bfa;">
+                        <span class="material-symbols-outlined">pie_chart</span>
+                        Win / Loss
+                    </div>
+                    <div style="height:220px; display:flex; align-items:center; justify-content:center;">
                         <canvas id="chart-winloss-pie"></canvas>
                     </div>
                 </div>
+            </div>
 
-                <!-- Equity Curve -->
-                <div class="bg-[#020617] rounded-2xl border border-teal-500/20 p-6 relative overflow-hidden">
-                    <div
-                        class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal-500/30 to-transparent">
+            <!-- ═══ ROW 5: Performance Grid (6 mini cards) ═══ -->
+            <div class="analytics-animate" style="display:grid; grid-template-columns: repeat(6, 1fr); gap:10px;">
+                <div class="mini-stat">
+                    <div class="mini-label">Gross Profit</div>
+                    <div id="metric-gross-profit" class="mini-value" style="color:#34d399;">$0.00</div>
+                </div>
+                <div class="mini-stat">
+                    <div class="mini-label">Gross Loss</div>
+                    <div id="metric-gross-loss" class="mini-value" style="color:#f87171;">$0.00</div>
+                </div>
+                <div class="mini-stat">
+                    <div class="mini-label">Capital Start</div>
+                    <div id="metric-capital-start" class="mini-value" style="color:#f1f5f9;">$0.00</div>
+                </div>
+                <div class="mini-stat">
+                    <div class="mini-label">Capital Now</div>
+                    <div id="metric-capital-end" class="mini-value" style="color:#f1f5f9;">$0.00</div>
+                </div>
+                <div class="mini-stat">
+                    <div class="mini-label">Net Change</div>
+                    <div id="metric-capital-change" class="mini-value" style="color:#2dd4bf;">$0.00</div>
+                </div>
+                <div class="mini-stat">
+                    <div class="mini-label">R:R Ratio</div>
+                    <div id="metric-rr-grid" class="mini-value" style="color:#94a3b8;">N/A</div>
+                </div>
+            </div>
+
+            <!-- ═══ ROW 6: Breakdown Tables (2-col) ═══ -->
+            <div class="analytics-animate" style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+
+                <!-- Symbol Breakdown -->
+                <div class="analytics-card accent-teal" style="padding:0; overflow:hidden;">
+                    <div class="table-header-bar">
+                        <h3 style="color:#2dd4bf;">
+                            <span class="material-symbols-outlined">currency_exchange</span>
+                            Symbol Breakdown
+                        </h3>
                     </div>
-                    <h3 class="text-xs font-bold uppercase tracking-widest text-teal-400 mb-4 flex items-center gap-2">
-                        <span class="material-symbols-outlined text-base">trending_up</span>
-                        Equity Curve
-                    </h3>
-                    <div id="chart-equity-curve" class="h-64"></div>
-                </div>
-            </div>
-
-            <!-- Secondary Metrics Row -->
-            <div class="grid grid-cols-5 gap-4">
-                <!-- Avg Win -->
-                <div
-                    class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
-                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Avg Win</div>
-                    <div id="metric-avg-win" class="text-xl font-black text-emerald-400">$0.00</div>
-                </div>
-
-                <!-- Avg Loss -->
-                <div
-                    class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
-                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Avg Loss</div>
-                    <div id="metric-avg-loss" class="text-xl font-black text-red-400">$0.00</div>
-                </div>
-
-                <!-- Best Trade -->
-                <div
-                    class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
-                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Best Trade</div>
-                    <div id="metric-best" class="text-xl font-black text-emerald-400">$0.00</div>
-                </div>
-
-                <!-- Worst Trade -->
-                <div
-                    class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
-                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Worst Trade</div>
-                    <div id="metric-worst" class="text-xl font-black text-red-400">$0.00</div>
-                </div>
-
-                <!-- Profit Factor -->
-                <div
-                    class="metric-card-sm bg-black/30 border border-white/5 rounded-xl p-4 transition-all hover:border-teal-500/30">
-                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Profit Factor</div>
-                    <div id="metric-pf" class="text-xl font-black text-teal-400">0.00</div>
-                </div>
-            </div>
-
-            <!-- Capital Summary Row -->
-            <div class="grid grid-cols-3 gap-4">
-                <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/5 rounded-xl p-5">
-                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-2">Capital at Start
+                    <div style="max-height:200px; overflow-y:auto;" class="scrollbar-thin">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th style="text-align:center;">Trades</th>
+                                    <th style="text-align:center;">W/L</th>
+                                    <th style="text-align:right;">PnL</th>
+                                    <th style="width:90px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="symbol-breakdown-body">
+                                <tr>
+                                    <td colspan="5"
+                                        style="text-align:center; color:#475569; font-style:italic; padding:24px 16px;">
+                                        No symbol data yet</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
-                    <div id="metric-capital-start" class="text-2xl font-black text-white">$0.00</div>
                 </div>
-                <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/5 rounded-xl p-5">
-                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-2">Capital at End</div>
-                    <div id="metric-capital-end" class="text-2xl font-black text-white">$0.00</div>
-                </div>
-                <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/5 rounded-xl p-5">
-                    <div class="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-2">Net Change</div>
-                    <div id="metric-capital-change" class="text-2xl font-black text-teal-400">$0.00</div>
+
+                <!-- Strategy Breakdown -->
+                <div class="analytics-card accent-purple" style="padding:0; overflow:hidden;">
+                    <div class="table-header-bar">
+                        <h3 style="color:#a78bfa;">
+                            <span class="material-symbols-outlined">precision_manufacturing</span>
+                            Strategy Breakdown
+                        </h3>
+                    </div>
+                    <div style="max-height:200px; overflow-y:auto;" class="scrollbar-thin">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Strategy</th>
+                                    <th style="text-align:center;">W/L</th>
+                                    <th style="text-align:right;">PnL</th>
+                                    <th style="width:90px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="strategy-breakdown-body">
+                                <tr>
+                                    <td colspan="4"
+                                        style="text-align:center; color:#475569; font-style:italic; padding:24px 16px;">
+                                        No strategy data yet</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
-            <!-- Trade History Table -->
-            <div
-                class="bg-[#020617] rounded-2xl border border-teal-500/20 flex-1 min-h-[300px] flex flex-col overflow-hidden">
-                <div class="h-12 flex items-center justify-between px-6 border-b border-teal-500/10 bg-black/40">
-                    <h3 class="text-xs font-bold uppercase tracking-widest text-teal-400 flex items-center gap-2">
-                        <span class="material-symbols-outlined text-base">receipt_long</span>
+            <!-- ═══ ROW 7: Trade History ═══ -->
+            <div class="analytics-card accent-teal analytics-animate"
+                style="padding:0; overflow:hidden; flex:1; min-height:220px; display:flex; flex-direction:column;">
+                <div class="table-header-bar">
+                    <h3 style="color:#2dd4bf;">
+                        <span class="material-symbols-outlined">receipt_long</span>
                         Trade History
                     </h3>
-                    <span id="trade-count" class="text-[10px] text-slate-500">0 trades</span>
+                    <span id="trade-count" style="font-size:10px; color:#475569;">0 trades</span>
                 </div>
-                <div class="flex-1 overflow-auto scrollbar-thin">
-                    <table class="w-full text-left border-collapse">
-                        <thead class="sticky top-0 bg-[#020617]/95 backdrop-blur-sm z-10">
-                            <tr class="text-teal-500 font-black uppercase tracking-widest text-[10px]">
-                                <th class="px-6 py-3 w-32">Time</th>
-                                <th class="px-4 py-3 w-28">Symbol</th>
-                                <th class="px-4 py-3 w-20 text-center">Side</th>
-                                <th class="px-4 py-3 w-28 text-right">PnL</th>
-                                <th class="px-4 py-3">Reason</th>
+                <div style="flex:1; overflow-y:auto;" class="scrollbar-thin">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th style="width:110px;">Time</th>
+                                <th style="width:90px;">Symbol</th>
+                                <th style="width:56px; text-align:center;">Side</th>
+                                <th style="width:80px; text-align:right;">PnL</th>
+                                <th style="width:80px;">Duration</th>
+                                <th style="width:110px;">Strategy</th>
+                                <th>Reason</th>
                             </tr>
                         </thead>
-                        <tbody id="trade-history-body"
-                            class="divide-y divide-slate-800/50 font-mono text-xs text-slate-300">
-                            <!-- Trade rows will be inserted here -->
+                        <tbody id="trade-history-body">
                             <tr id="no-trades-row">
-                                <td colspan="5" class="px-6 py-12 text-center text-slate-500 italic">
-                                    <span
-                                        class="material-symbols-outlined text-4xl mb-2 block opacity-30">search_off</span>
-                                    No trades found in this period
+                                <td colspan="7" style="text-align:center; color:#475569; padding:40px 16px;">
+                                    <span class="material-symbols-outlined"
+                                        style="font-size:28px; display:block; margin-bottom:8px; opacity:0.25;">search_off</span>
+                                    <span style="font-style:italic;">No trades found in this period</span>
                                 </td>
                             </tr>
                         </tbody>
@@ -818,6 +871,14 @@
                     </div>
                 </button>
 
+                <button data-tab="appearance" class="nav-btn">
+                    <span class="material-symbols-outlined">palette</span>
+                    <div class="flex flex-col items-start">
+                        <span class="text-sm font-bold">Appearance</span>
+                        <span class="text-[9px] opacity-50 uppercase tracking-tighter">Themes & Colors</span>
+                    </div>
+                </button>
+
                 <div class="mt-auto pt-6 border-t border-white/5 flex flex-col gap-1">
                     <button data-tab="advanced" class="nav-btn">
                         <span class="material-symbols-outlined">terminal</span>
@@ -851,7 +912,8 @@
                         <span class="material-symbols-outlined text-emerald-400/50 text-base">sync</span>
                         <div class="flex flex-col">
                             <div class="text-[10px] text-teal-400 font-black uppercase tracking-[0.2em]">Auto-Save</div>
-                            <div id="change-counter" class="text-xs text-emerald-400/70 font-bold">All settings synced to disk</div>
+                            <div id="change-counter" class="text-xs text-emerald-400/70 font-bold">All settings synced
+                                to disk</div>
                         </div>
                     </div>
                 </div>
@@ -871,6 +933,8 @@
     <!-- Chart Libraries -->
     <script src="./lightweight-charts.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Theme Engine (loads before app logic) -->
+    <script src="themes.js"></script>
     <!-- App Logic -->
     <script src="renderer.js"></script>
     <script src="settings_integrated.js?v=smartpositions"></script>

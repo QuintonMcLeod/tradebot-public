@@ -1,0 +1,118 @@
+/* ═══════════════════════════════════════════════════════════
+   THEME OVERRIDES — Redirect Tailwind utilities to CSS vars
+   ═══════════════════════════════════════════════════════════
+   This file overrides compiled Tailwind classes so they use
+   --accent, --accent-dim, --accent-glow CSS variables set by
+   the ThemeEngine, rather than hardcoded teal hex colours.
+   
+   NOTE: Semantic colours (emerald for profit, rose for loss)
+   are intentionally NOT overridden — they must stay fixed.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── TEXT ACCENT COLOURS ────────────────────────────────── */
+.text-teal-300 {
+    color: var(--accent) !important;
+}
+
+.text-teal-400 {
+    color: var(--accent) !important;
+}
+
+.text-teal-500 {
+    color: var(--accent) !important;
+}
+
+.text-teal-500\/50 {
+    color: var(--accent) !important;
+    opacity: 0.5;
+}
+
+.text-teal-500\/70 {
+    color: var(--accent) !important;
+    opacity: 0.7;
+}
+
+.text-teal-500\/90 {
+    color: var(--accent) !important;
+    opacity: 0.9;
+}
+
+/* ── HOVER TEXT ─────────────────────────────────────────── */
+.hover\:text-teal-300:hover {
+    color: var(--accent) !important;
+}
+
+.hover\:text-teal-400:hover {
+    color: var(--accent) !important;
+}
+
+/* ── BACKGROUND ACCENT ─────────────────────────────────── */
+.bg-teal-500\/5 {
+    background-color: var(--accent-dim) !important;
+    opacity: 0.35;
+}
+
+.bg-teal-500\/10 {
+    background-color: var(--accent-dim) !important;
+    opacity: 0.65;
+}
+
+.bg-teal-500\/15 {
+    background-color: var(--accent-dim) !important;
+}
+
+.bg-teal-500\/20 {
+    background-color: var(--accent-dim) !important;
+}
+
+.bg-teal-500\/30 {
+    background-color: var(--accent-glow) !important;
+}
+
+.hover\:bg-teal-500\/30:hover {
+    background-color: var(--accent-glow) !important;
+}
+
+.bg-teal-500 {
+    background-color: var(--accent) !important;
+}
+
+/* ── BORDER ACCENT ─────────────────────────────────────── */
+.border-teal-500\/10 {
+    border-color: var(--accent-dim) !important;
+}
+
+.border-teal-500\/20 {
+    border-color: var(--accent-dim) !important;
+}
+
+.border-teal-500\/30 {
+    border-color: var(--accent-glow) !important;
+}
+
+.border-teal-500\/40 {
+    border-color: var(--accent-glow) !important;
+}
+
+/* ── BOX-SHADOW ACCENT (inline via Tailwind arbitrary) ── */
+.shadow-\[0_0_20px_rgba\(20\,184\,166\,0\.3\)\] {
+    box-shadow: 0 0 20px var(--accent-glow) !important;
+}
+
+/* ── SCROLLBAR (uses theme bg) ─────────────────────────── */
+::-webkit-scrollbar-track {
+    background: var(--bg-dark) !important;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--text-dim) !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted) !important;
+}
+
+/* ── FOCUS/BORDER ACCENTS used in search inputs ────────── */
+.focus\:border-teal-500\/50:focus {
+    border-color: var(--accent-glow) !important;
+}

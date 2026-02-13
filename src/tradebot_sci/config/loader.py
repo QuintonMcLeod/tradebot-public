@@ -179,11 +179,35 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     runtime_cfg.update(config.get("runtime", {}))
     risk_model_cfg = config.get("risk", {})
     schedule_cfg = config.get("schedule", {})
-    
-    profiles = {
-        name: TradingProfileSettings(**p_data)
-        for name, p_data in config.get("profiles", {}).items()
-    }
+
+    # ── Inject global risk/ICC values into profiles as defaults ──
+    # Risk & ICC are now stored in the global "risk" section (set by
+    # the UI's "Global Risk Limits" / "ICC Settings" panels).  We
+    # merge them into each profile as defaults so that every broker
+    # and strategy reading profile.risk_per_trade_pct etc. gets the
+    # global value automatically.  Profile-specific overrides still
+    # win if present.
+    _PROMOTED_RISK_KEYS = [
+        "risk_per_trade_pct", "risk_per_trade_dollars",
+        "aggressive_risk_per_trade_pct", "max_exposure_pct", "limit_loss_daily_pct",
+        "icc_auto_entry_enabled", "icc_aggressive_mode", "icc_entry_score_threshold",
+        "icc_auto_entry_require_sweep", "icc_auto_entry_min_htf_strength",
+        "icc_two_signal_override_enabled", "icc_auto_entry_cooldown_minutes",
+        "icc_score_continuation_points", "icc_score_sweep_points",
+        "icc_score_htf_ltf_align_points", "icc_score_strong_htf_points",
+        "icc_score_phase_points", "icc_score_indication_points",
+        "icc_score_htf_strength_threshold",
+    ]
+
+    _profile_fields = set(TradingProfileSettings.model_fields.keys())
+
+    profiles = {}
+    for name, p_data in config.get("profiles", {}).items():
+        merged = dict(p_data)  # shallow copy
+        for key in _PROMOTED_RISK_KEYS:
+            if key not in merged and key in risk_model_cfg and key in _profile_fields:
+                merged[key] = risk_model_cfg[key]
+        profiles[name] = TradingProfileSettings(**merged)
 
     brokers_cfg = config.get("brokers", {})
     

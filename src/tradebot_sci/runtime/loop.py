@@ -34,6 +34,7 @@ from tradebot_sci.market.symbols import AssetClass, MARKET_HOURS, MarketType, SY
 from tradebot_sci.broker.trade_result_store import TradeResultStore, TradeResult
 from tradebot_sci.runtime.trackers import StrikeTracker
 from tradebot_sci.runtime.sabbath import SabbathContext
+from tradebot_sci.runtime.ledger_daemon import LedgerDaemon
 from tradebot_sci.broker.paper_broker import PaperBroker
 from tradebot_sci.runtime.scheduling import (
     is_market_open,
@@ -558,6 +559,17 @@ def run_bot(
         ai_decision_interval_seconds=profile_settings.ai_decision_interval_seconds,
     )
     trade_results = TradeResultStore(os.path.join("data", "trade_results.json"))
+
+    # [LEDGER] Start PnL ledger daemon (background log scraper)
+    ledger = LedgerDaemon(
+        log_path=os.path.join("logs", "tradebot.log"),
+        ledger_path=os.path.join("data", "ledger.json"),
+        interval=60,
+        lat=getattr(profile_settings, "sabbath_lat", 33.764),
+        lon=getattr(profile_settings, "sabbath_lon", -84.386),
+        tz_name=getattr(profile_settings, "sabbath_timezone", "America/New_York"),
+    )
+    ledger.start()
     engines = {
         symbol: StrategyEngine(
             ai_client=ai_client,

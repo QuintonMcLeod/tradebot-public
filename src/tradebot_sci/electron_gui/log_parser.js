@@ -1,6 +1,7 @@
 /**
  * Log Parser Module for Analytics
- * Extracts trade data, capital history, and metrics from bot log files
+ * Reads from data/ledger.json (maintained by the Python LedgerDaemon)
+ * Falls back to direct log parsing if ledger is unavailable.
  */
 
 const fs = require('fs');
@@ -8,6 +9,354 @@ const path = require('path');
 const readline = require('readline');
 
 const LOGS_DIR = path.join(__dirname, '../../../logs');
+const LEDGER_PATH = path.join(__dirname, '../../../data/ledger.json');
+
+// ─────────────────────────────────────────────────────────────────────────
+// LEDGER-BASED DATA (preferred path — fast JSON read)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Read the ledger JSON written by the Python LedgerDaemon.
+ * Returns null if the file doesn't exist or can't be parsed.
+ */
+function readLedger() {
+    try {
+        if (!fs.existsSync(LEDGER_PATH)) return null;
+        const raw = fs.readFileSync(LEDGER_PATH, 'utf8');
+        const data = JSON.parse(raw);
+        if (data && data.version) return data;
+        return null;
+    } catch (e) {
+        console.error('[LOG_PARSER] Failed to read ledger.json:', e.message);
+        return null;
+    }
+}
+
+/**
+ * Build an analytics summary from ledger data for a given timeframe.
+ *
+ * Timeframe mapping:
+ *   'holdings' → unrealized PnL only (active positions)
+ *   '24h'      → current_day (sundown-to-sundown)
+ *   'week'     → last 7 days + current_day
+ *   'month'    → last 30 days + current_day
+ *   'year'     → last 365 days + current_day
+ *   'all'      → all days + current_day
+ */
+function summaryFromLedger(ledger, timeframe, logTrades = [], logHoldings = [], logCapital = []) {
+    const current = ledger.current_day || {};
+    const days = ledger.days || [];
+
+    // Holdings mode: just return unrealized PnL + active positions
+    if (timeframe === 'holdings') {
+        const uPnl = current.pnl_unrealized || 0;
+        // Build position entries from latest HOLDINGS snapshot
+        const positionTrades = buildHoldingsEntries(logHoldings);
+        return {
+            totalTrades: 0, totalWins: 0, totalLosses: 0, breakeven: 0,
+            winRate: 0, totalPnl: parseFloat(uPnl.toFixed(2)),
+            totalNetWorth: parseFloat(uPnl.toFixed(2)),
+            grossProfit: 0, grossLoss: 0, avgWin: 0, avgLoss: 0,
+            riskReward: 'N/A', bestTrade: 0, worstTrade: 0,
+            profitFactor: 'N/A', spreadCosts: 0,
+            capitalStart: 0, capitalEnd: 0, capitalChange: 0, capitalChangePct: 0,
+            strategyStats: {}, symbolStats: {},
+            dayStart: current.day_start || '', unrealizedPnl: uPnl,
+            trades: positionTrades, capitalHistory: [], _source: 'ledger'
+        };
+    }
+
+    let selectedDays = [];
+    if (timeframe === '24h' || timeframe === '1h' || timeframe === '4h') {
+        selectedDays = [];
+    } else if (timeframe === 'week') {
+        selectedDays = days.slice(-7);
+    } else if (timeframe === 'month') {
+        selectedDays = days.slice(-30);
+    } else if (timeframe === 'year') {
+        selectedDays = days.slice(-365);
+    } else {
+        selectedDays = [...days];
+    }
+
+    // Accumulate from historical days
+    let totalPnl = 0;
+    let totalTrades = 0;
+    let totalWins = 0;
+    let totalLosses = 0;
+    let bestTrade = 0;
+    let worstTrade = 0;
+    let totalSpreadCosts = 0;
+    const symbolStats = {};
+    const strategyStats = {};
+    const capitalHistory = [];
+
+    for (const day of selectedDays) {
+        totalPnl += day.pnl_realized || 0;
+        totalTrades += day.trades || 0;
+        totalWins += day.wins || 0;
+        totalLosses += day.losses || 0;
+        totalSpreadCosts += day.spread_costs || 0;
+
+        if ((day.best_trade || 0) > bestTrade) bestTrade = day.best_trade;
+        if ((day.worst_trade || 0) < worstTrade) worstTrade = day.worst_trade;
+
+        const bySymbol = day.by_symbol || {};
+        for (const [sym, data] of Object.entries(bySymbol)) {
+            if (!symbolStats[sym]) symbolStats[sym] = { pnl: 0, trades: 0, wins: 0, losses: 0 };
+            symbolStats[sym].pnl += data.pnl || 0;
+            symbolStats[sym].trades += data.trades || 0;
+            symbolStats[sym].wins += data.wins || 0;
+            symbolStats[sym].losses += data.losses || 0;
+        }
+
+        const byStrat = day.by_strategy || {};
+        for (const [strat, data] of Object.entries(byStrat)) {
+            if (!strategyStats[strat]) strategyStats[strat] = { pnl: 0, wins: 0, losses: 0 };
+            strategyStats[strat].pnl += data.pnl || 0;
+            strategyStats[strat].wins += data.wins || 0;
+            strategyStats[strat].losses += data.losses || 0;
+        }
+
+        if (day.capital_at_start) {
+            capitalHistory.push({
+                timestamp: day.day_start || day.date,
+                type: 'capital',
+                nav: day.capital_at_start
+            });
+        }
+    }
+
+    // Add current day ledger stats
+    totalPnl += current.pnl_realized || 0;
+    totalTrades += current.trades || 0;
+    totalWins += current.wins || 0;
+    totalLosses += current.losses || 0;
+    totalSpreadCosts += current.spread_costs || 0;
+
+    if ((current.best_trade || 0) > bestTrade) bestTrade = current.best_trade;
+    if ((current.worst_trade || 0) < worstTrade) worstTrade = current.worst_trade;
+
+    const curBySymbol = current.by_symbol || {};
+    for (const [sym, data] of Object.entries(curBySymbol)) {
+        if (!symbolStats[sym]) symbolStats[sym] = { pnl: 0, trades: 0, wins: 0, losses: 0 };
+        symbolStats[sym].pnl += data.pnl || 0;
+        symbolStats[sym].trades += data.trades || 0;
+        symbolStats[sym].wins += data.wins || 0;
+        symbolStats[sym].losses += data.losses || 0;
+    }
+
+    const curByStrat = current.by_strategy || {};
+    for (const [strat, data] of Object.entries(curByStrat)) {
+        if (!strategyStats[strat]) strategyStats[strat] = { pnl: 0, wins: 0, losses: 0 };
+        strategyStats[strat].pnl += data.pnl || 0;
+        strategyStats[strat].wins += data.wins || 0;
+        strategyStats[strat].losses += data.losses || 0;
+    }
+
+    // ── Build merged trade list from ledger + log-parsed EXIT trades ──
+    const ledgerTradeLog = (current.trade_log || []).map(t => ({
+        ...t,
+        timestamp: t.timestamp || t.time,
+        _src: 'ledger'
+    }));
+
+    // Build a lookup from log trades for strategy enrichment
+    const logTradesByKey = {};
+    for (const lt of logTrades) {
+        const key = `${lt.symbol}_${Math.round((lt.pnl || 0) * 100)}`;
+        if (lt.strategy && lt.strategy !== 'unknown') {
+            logTradesByKey[key] = lt.strategy;
+        }
+    }
+
+    // Enrich ledger trades with 'unknown' strategy from log-parsed data
+    for (const lt of ledgerTradeLog) {
+        if (!lt.strategy || lt.strategy === 'unknown') {
+            const key = `${lt.symbol}_${Math.round((lt.pnl || 0) * 100)}`;
+            if (logTradesByKey[key]) {
+                const oldStrat = lt.strategy || 'unknown';
+                lt.strategy = logTradesByKey[key];
+                // Fix strategy breakdown: move stats from 'unknown' to discovered strategy
+                if (strategyStats[oldStrat]) {
+                    const correctStrat = lt.strategy;
+                    if (!strategyStats[correctStrat]) strategyStats[correctStrat] = { pnl: 0, wins: 0, losses: 0 };
+                    strategyStats[correctStrat].pnl += lt.pnl || 0;
+                    strategyStats[correctStrat].wins += (lt.pnl > 0 ? 1 : 0);
+                    strategyStats[correctStrat].losses += (lt.pnl < 0 ? 1 : 0);
+                    strategyStats[oldStrat].pnl -= lt.pnl || 0;
+                    strategyStats[oldStrat].wins -= (lt.pnl > 0 ? 1 : 0);
+                    strategyStats[oldStrat].losses -= (lt.pnl < 0 ? 1 : 0);
+                    // Remove empty strategy entry
+                    if (strategyStats[oldStrat].wins <= 0 && strategyStats[oldStrat].losses <= 0) {
+                        delete strategyStats[oldStrat];
+                    }
+                }
+            }
+        }
+    }
+
+    // Merge log-parsed EXIT trades that the ledger missed
+    const ledgerKeys = new Set(
+        ledgerTradeLog.map(t => `${t.symbol}_${Math.round((t.pnl || 0) * 100)}`)
+    );
+
+    for (const lt of logTrades) {
+        const key = `${lt.symbol}_${Math.round((lt.pnl || 0) * 100)}`;
+        if (!ledgerKeys.has(key)) {
+            // This trade is in the logs but NOT in the ledger — add it
+            ledgerTradeLog.push({
+                time: lt.timestamp,
+                timestamp: lt.timestamp,
+                symbol: lt.symbol,
+                pnl: lt.pnl || 0,
+                side: lt.side || 'unknown',
+                reason: lt.reason || '',
+                strategy: lt.strategy || 'unknown',
+                _src: 'log'
+            });
+
+            // Also update aggregate counts since ledger missed this trade
+            totalTrades++;
+            totalPnl += lt.pnl || 0;
+            if (lt.pnl > 0) totalWins++;
+            else if (lt.pnl < 0) totalLosses++;
+
+            if (lt.pnl > bestTrade) bestTrade = lt.pnl;
+            if (lt.pnl < worstTrade) worstTrade = lt.pnl;
+
+            // Update symbol/strategy breakdowns
+            const sym = lt.symbol || 'unknown';
+            if (!symbolStats[sym]) symbolStats[sym] = { pnl: 0, trades: 0, wins: 0, losses: 0 };
+            symbolStats[sym].pnl += lt.pnl || 0;
+            symbolStats[sym].trades++;
+            if (lt.pnl > 0) symbolStats[sym].wins++;
+            else if (lt.pnl < 0) symbolStats[sym].losses++;
+
+            const strat = lt.strategy || 'unknown';
+            if (!strategyStats[strat]) strategyStats[strat] = { pnl: 0, wins: 0, losses: 0 };
+            strategyStats[strat].pnl += lt.pnl || 0;
+            if (lt.pnl > 0) strategyStats[strat].wins++;
+            else if (lt.pnl < 0) strategyStats[strat].losses++;
+        }
+    }
+
+    // Sort merged trade list by time (newest first)
+    ledgerTradeLog.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // ── Gross profit/loss from the merged trade list ──
+    let grossProfit = 0, grossLoss = 0;
+    for (const t of ledgerTradeLog) {
+        if (t.pnl > 0) grossProfit += t.pnl;
+        else if (t.pnl < 0) grossLoss += Math.abs(t.pnl);
+    }
+    // Fallback if no trades but totalPnl exists
+    if (grossProfit === 0 && grossLoss === 0) {
+        grossProfit = totalPnl > 0 ? totalPnl : 0;
+        grossLoss = totalPnl < 0 ? Math.abs(totalPnl) : 0;
+    }
+
+    // ── Add active holdings as synthetic entries in trade list ──
+    const holdingsEntries = buildHoldingsEntries(logHoldings);
+    const allTrades = [...ledgerTradeLog, ...holdingsEntries];
+
+    // ── Supplement capital history from log-parsed data ──
+    if (logCapital.length > 0) {
+        const existingTimes = new Set(capitalHistory.map(c => c.timestamp));
+        for (const cap of logCapital) {
+            if (!existingTimes.has(cap.timestamp)) {
+                capitalHistory.push(cap);
+            }
+        }
+        capitalHistory.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    }
+
+    const winRate = totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0;
+    const avgWin = totalWins > 0 ? grossProfit / totalWins : 0;
+    const avgLoss = totalLosses > 0 ? grossLoss / totalLosses : 0;
+    const riskReward = avgLoss > 0 ? avgWin / avgLoss : (avgWin > 0 ? Infinity : 0);
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : 0);
+
+    // Capital
+    const capitalStart = current.capital_at_start || (days.length > 0 ? (days[days.length - 1].capital_at_start || 0) : 0);
+    const capitalEnd = current.capital_now || capitalStart;
+    const capitalChange = capitalEnd - capitalStart;
+    const capitalChangePct = capitalStart > 0 ? (capitalChange / capitalStart) * 100 : 0;
+
+    if (capitalEnd > 0) {
+        capitalHistory.push({
+            timestamp: current.day_start || new Date().toISOString(),
+            type: 'capital',
+            nav: capitalEnd
+        });
+    }
+
+    return {
+        totalTrades,
+        totalWins,
+        totalLosses,
+        breakeven: totalTrades - totalWins - totalLosses,
+        winRate: parseFloat(winRate.toFixed(1)),
+        totalPnl: parseFloat(totalPnl.toFixed(2)),
+        totalNetWorth: parseFloat(totalPnl.toFixed(2)),
+        grossProfit: parseFloat(grossProfit.toFixed(2)),
+        grossLoss: parseFloat(grossLoss.toFixed(2)),
+
+        avgWin: parseFloat(avgWin.toFixed(2)),
+        avgLoss: parseFloat(avgLoss.toFixed(2)),
+        riskReward: isFinite(riskReward) ? parseFloat(riskReward.toFixed(2)) : 'N/A',
+        bestTrade: parseFloat(bestTrade.toFixed(2)),
+        worstTrade: parseFloat(worstTrade.toFixed(2)),
+        profitFactor: isFinite(profitFactor) ? parseFloat(profitFactor.toFixed(2)) : 'N/A',
+        spreadCosts: parseFloat(totalSpreadCosts.toFixed(4)),
+
+        capitalStart: parseFloat(capitalStart.toFixed(2)),
+        capitalEnd: parseFloat(capitalEnd.toFixed(2)),
+        capitalChange: parseFloat(capitalChange.toFixed(2)),
+        capitalChangePct: parseFloat(capitalChangePct.toFixed(1)),
+
+        strategyStats,
+        symbolStats,
+
+        dayStart: current.day_start || '',
+        unrealizedPnl: current.pnl_unrealized || 0,
+
+        trades: allTrades,
+        capitalHistory,
+
+        _source: 'ledger+logs'
+    };
+}
+
+/**
+ * Build trade-like entries from the latest HOLDINGS snapshot.
+ * These appear in the trade history as active positions (not closed trades).
+ */
+function buildHoldingsEntries(logHoldings) {
+    if (!logHoldings || logHoldings.length === 0) return [];
+
+    // Use the most recent HOLDINGS snapshot
+    const latest = logHoldings[0];
+    if (!latest || !latest.positions || latest.positions.length === 0) return [];
+
+    return latest.positions.map(pos => ({
+        timestamp: pos.entry_time || latest.timestamp,
+        symbol: pos.symbol || '??',
+        pnl: pos.unrealized_pnl || 0,
+        side: pos.side || pos.direction || 'long',
+        reason: '🟢 Active Position',
+        strategy: 'active',
+        size: pos.size || 0,
+        entry_price: pos.entry_price || pos.avg_price || 0,
+        stop_loss: pos.stop_loss || 0,
+        take_profit: pos.take_profit || 0,
+        _active: true
+    }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// LEGACY LOG PARSING (fallback path)
+// ─────────────────────────────────────────────────────────────────────────
 
 /**
  * Parse a timestamp from log line
@@ -187,7 +536,7 @@ function getLogFiles() {
     if (!fs.existsSync(LOGS_DIR)) return [];
 
     const files = fs.readdirSync(LOGS_DIR)
-        .filter(f => f.startsWith('tradebot.log'))
+        .filter(f => f.startsWith('tradebot.log') || f === 'bot_stdout.log')
         .map(f => ({
             name: f,
             path: path.join(LOGS_DIR, f),
@@ -211,6 +560,10 @@ async function parseLogFile(filePath, startTime = null, endTime = null) {
 
     if (!fs.existsSync(filePath)) return results;
 
+    // Track last strategy seen from [PHOENIX] or [META-DEBUG] lines
+    // so we can attribute it to the next [EXIT] trade
+    let lastExitStrategy = {}; // per-symbol last strategy
+
     try {
         const fileStream = fs.createReadStream(filePath);
         const rl = readline.createInterface({
@@ -229,12 +582,50 @@ async function parseLogFile(filePath, startTime = null, endTime = null) {
             // Convert timestamp to ISO string for IPC serialization
             const timestampISO = timestamp.toISOString();
 
+            // Track strategy from [PHOENIX] lines:
+            // [PHOENIX] USDCHF Strategy EXIT triggered: Decision: ...
+            if (line.includes('[PHOENIX]') && line.includes('Strategy EXIT triggered')) {
+                const phoenixMatch = line.match(/\[PHOENIX\]\s+([A-Z]{3,10})\s+Strategy EXIT triggered/);
+                if (phoenixMatch) {
+                    lastExitStrategy[phoenixMatch[1]] = 'PHOENIX_EXIT';
+                }
+            }
+
+            // Track strategy from [META-DEBUG] lines:
+            // [META-DEBUG] USDCHF SUPPLY_DEMAND (EXIT): WIN -> close_position
+            if (line.includes('[META-DEBUG]') && line.includes('(EXIT)')) {
+                const metaMatch = line.match(/\[META-DEBUG\]\s+([A-Z]{3,10})\s+(\w+)\s+\(EXIT\):\s+WIN/);
+                if (metaMatch) {
+                    lastExitStrategy[metaMatch[1]] = metaMatch[2]; // e.g. 'SUPPLY_DEMAND'
+                }
+            }
+
+            // Track strategy from Tournament Winner:
+            // Tournament Winner: SUPPLY_DEMAND
+            if (line.includes('Tournament Winner:')) {
+                const tourMatch = line.match(/Tournament Winner:\s*(\w+)/);
+                if (tourMatch) {
+                    // Global fallback strategy
+                    lastExitStrategy['_global'] = tourMatch[1];
+                }
+            }
+
             // Parse different line types
             if (line.includes('[EXIT]')) {
                 const trade = parseExitLine(line, timestamp);
                 if (trade && trade.symbol) {
                     trade.timestamp = timestampISO;
+
+                    // Attribute strategy from tracked context
+                    if (!trade.strategy || trade.strategy === 'unknown') {
+                        trade.strategy = lastExitStrategy[trade.symbol]
+                            || lastExitStrategy['_global']
+                            || 'unknown';
+                    }
+
                     results.trades.push(trade);
+                    // Clear per-symbol strategy after use
+                    delete lastExitStrategy[trade.symbol];
                 }
             }
 
@@ -306,9 +697,9 @@ function getTimeFilterBounds(filter) {
 }
 
 /**
- * Main function to get trade history with time filter
+ * Parse all log files within a time range, returning combined results.
  */
-async function getTradeHistory(filter = '24h') {
+async function parseAllLogs(filter) {
     const { startTime, endTime } = getTimeFilterBounds(filter);
     const logFiles = getLogFiles();
 
@@ -319,7 +710,7 @@ async function getTradeHistory(filter = '24h') {
         decisions: []
     };
 
-    // Parse main log file first
+    // Parse main log file
     const mainLog = path.join(LOGS_DIR, 'tradebot.log');
     if (fs.existsSync(mainLog)) {
         const results = await parseLogFile(mainLog, startTime, endTime);
@@ -329,21 +720,28 @@ async function getTradeHistory(filter = '24h') {
         allResults.decisions.push(...results.decisions);
     }
 
-    // Parse rotated logs if needed (for longer time filters)
-    if (filter === 'week' || filter === 'month' || filter === 'all') {
-        for (const logFile of logFiles) {
-            if (logFile.name === 'tradebot.log') continue;
-            if (logFile.name.startsWith('tradebot.log.')) {
-                const results = await parseLogFile(logFile.path, startTime, endTime);
-                allResults.trades.push(...results.trades);
-                allResults.holdings.push(...results.holdings);
-                allResults.capital.push(...results.capital);
-                allResults.decisions.push(...results.decisions);
-            }
+    // Always parse rotated logs AND bot_stdout.log — trades span across files
+    for (const logFile of logFiles) {
+        if (logFile.name === 'tradebot.log') continue;
+        if (logFile.name.startsWith('tradebot.log.') || logFile.name === 'bot_stdout.log') {
+            const results = await parseLogFile(logFile.path, startTime, endTime);
+            allResults.trades.push(...results.trades);
+            allResults.holdings.push(...results.holdings);
+            allResults.capital.push(...results.capital);
+            allResults.decisions.push(...results.decisions);
         }
     }
 
-    // Sort by timestamp (descending for history, ascending for capital)
+    // Deduplicate trades by timestamp+symbol
+    const seen = new Set();
+    allResults.trades = allResults.trades.filter(t => {
+        const key = `${t.timestamp}_${t.symbol}_${t.pnl}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
+    // Sort
     allResults.trades.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     allResults.holdings.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     allResults.capital.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
@@ -353,14 +751,60 @@ async function getTradeHistory(filter = '24h') {
 }
 
 /**
- * Calculate analytics summary from trade data
+ * Main function to get trade history with time filter.
+ * Uses ledger + log parsing combined for complete data.
+ */
+async function getTradeHistory(filter = '24h') {
+    const ledger = readLedger();
+
+    // Always parse logs to catch trades the ledger may have missed
+    const logData = await parseAllLogs(filter);
+    console.log('[LOG_PARSER] Parsed logs: trades=' + logData.trades.length +
+        ', holdings=' + logData.holdings.length +
+        ', capital=' + logData.capital.length);
+
+    if (ledger) {
+        console.log('[LOG_PARSER] Ledger available — will merge with log data');
+        return {
+            _fromLedger: true,
+            _ledger: ledger,
+            _filter: filter,
+            _logTrades: logData.trades,
+            _logHoldings: logData.holdings,
+            _logCapital: logData.capital
+        };
+    }
+
+    // Pure fallback
+    console.log('[LOG_PARSER] No ledger, using log parse only');
+    return logData;
+}
+
+/**
+ * Calculate analytics summary from trade data.
+ * Routes to ledger-based summary if data came from ledger.
  * Note: timestamps are ISO strings for IPC serialization
  */
 function calculateAnalyticsSummary(data) {
+    // If data came from ledger, use ledger-based summary + supplement from logs
+    if (data._fromLedger && data._ledger) {
+        const summary = summaryFromLedger(
+            data._ledger,
+            data._filter || '24h',
+            data._logTrades || [],
+            data._logHoldings || [],
+            data._logCapital || []
+        );
+        console.log('[LOG_PARSER] Ledger summary - trades:', summary.totalTrades,
+            'pnl:', summary.totalPnl, 'trade_log:', summary.trades?.length);
+        return summary;
+    }
+
+    // Legacy path: calculate from parsed log data
     const trades = data.trades || [];
     const capital = data.capital || [];
 
-    console.log('[LOG_PARSER] Calculating summary - trades:', trades.length, 'capital entries:', capital.length);
+    console.log('[LOG_PARSER] Calculating summary (legacy) - trades:', trades.length, 'capital entries:', capital.length);
 
     // Separate wins and losses
     const wins = trades.filter(t => t.pnl > 0);
@@ -431,6 +875,7 @@ function calculateAnalyticsSummary(data) {
         breakeven: breakeven.length,
         winRate: parseFloat(winRate.toFixed(1)),
         totalPnl: parseFloat(totalPnl.toFixed(2)),
+        totalNetWorth: parseFloat(totalPnl.toFixed(2)),
         grossProfit: parseFloat(grossProfit.toFixed(2)),
         grossLoss: parseFloat(grossLoss.toFixed(2)),
 
@@ -454,7 +899,10 @@ function calculateAnalyticsSummary(data) {
 
         // Raw data for charts
         trades,
-        capitalHistory: capital
+        capitalHistory: capital,
+
+        // Source marker
+        _source: 'legacy_log_parse'
     };
 }
 
@@ -463,5 +911,7 @@ module.exports = {
     calculateAnalyticsSummary,
     getLogFiles,
     parseLogFile,
-    getTimeFilterBounds
+    getTimeFilterBounds,
+    readLedger,
+    summaryFromLedger
 };

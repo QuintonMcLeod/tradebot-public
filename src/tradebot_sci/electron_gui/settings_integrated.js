@@ -73,6 +73,33 @@ const CONFIG_MAP = {
     'TRAILING_STOP_ENABLED': ['performance', 'trailing_stop_enabled'],
     'PYRAMID_CAP_OVERRIDE': ['performance', 'pyramid_cap_override'],
     'COMPOUNDING_CAP_OVERRIDE': ['performance', 'compounding_cap_override'],
+    // ── Risk & ICC (Global — not per-profile) ──────────────────
+    'RISK_PER_TRADE_PCT': ['risk', 'risk_per_trade_pct'],
+    'RISK_PER_TRADE_DOLLARS': ['risk', 'risk_per_trade_dollars'],
+    'SHORT_RISK_PCT': ['risk', 'short_risk_pct'],
+    'MAX_EXPOSURE_PCT': ['risk', 'max_exposure_pct'],
+    'LIMIT_LOSS_DAILY_PCT': ['risk', 'limit_loss_daily_pct'],
+    'AGGRESSIVE_RISK_PER_TRADE_PCT': ['risk', 'aggressive_risk_per_trade_pct'],
+    'ICC_AUTO_ENTRY_ENABLED': ['risk', 'icc_auto_entry_enabled'],
+    'ICC_AGGRESSIVE_MODE': ['risk', 'icc_aggressive_mode'],
+    'ICC_ENTRY_SCORE_THRESHOLD': ['risk', 'icc_entry_score_threshold'],
+    'ICC_AUTO_ENTRY_REQUIRE_SWEEP': ['risk', 'icc_auto_entry_require_sweep'],
+    'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH': ['risk', 'icc_auto_entry_min_htf_strength'],
+    'ICC_CONFIRMATION_BARS': ['risk', 'icc_confirmation_bars'],
+    'ICC_MAX_BARS_AFTER_SWEEP': ['risk', 'icc_max_bars_after_sweep'],
+    'ICC_REQUIRE_LIQUIDITY_GRAB': ['risk', 'icc_require_liquidity_grab'],
+    'ICC_STRICT_MODE': ['risk', 'icc_strict_mode'],
+    'ICC_HIGH_SCORE_OVERRIDE_THRESHOLD': ['risk', 'icc_high_score_override_threshold'],
+    'ICC_TWO_SIGNAL_OVERRIDE_ENABLED': ['risk', 'icc_two_signal_override_enabled'],
+    'ICC_AUTO_ENTRY_COOLDOWN_MINUTES': ['risk', 'icc_auto_entry_cooldown_minutes'],
+    'ICC_AUTO_ENTRY_MIN_SCORE': ['risk', 'icc_auto_entry_min_score'],
+    'ICC_SCORE_CONTINUATION_POINTS': ['risk', 'icc_score_continuation_points'],
+    'ICC_SCORE_SWEEP_POINTS': ['risk', 'icc_score_sweep_points'],
+    'ICC_SCORE_HTF_LTF_ALIGN_POINTS': ['risk', 'icc_score_htf_ltf_align_points'],
+    'ICC_SCORE_STRONG_HTF_POINTS': ['risk', 'icc_score_strong_htf_points'],
+    'ICC_SCORE_PHASE_POINTS': ['risk', 'icc_score_phase_points'],
+    'ICC_SCORE_INDICATION_POINTS': ['risk', 'icc_score_indication_points'],
+    'ICC_SCORE_HTF_STRENGTH_THRESHOLD': ['risk', 'icc_score_htf_strength_threshold'],
 };
 
 const SECRETS_MAP = {
@@ -709,6 +736,7 @@ const TABS = {
     brokers: { icon: 'lan', label: 'Brokers', render: renderBrokersTab },
     ai: { icon: 'auto_awesome', label: 'Intelligence', render: renderAITab },
     schedule: { icon: 'event_repeat', label: 'Schedule', render: renderScheduleTab },
+    appearance: { icon: 'palette', label: 'Appearance', render: renderAppearanceTab },
     advanced: { icon: 'terminal', label: 'Advanced', render: renderAdvancedTab }
 };
 
@@ -1807,6 +1835,97 @@ function renderScheduleTab(container) {
     });
 }
 
+// ═══════════════════════════════════════════════════════════
+// APPEARANCE TAB (Theme Selection)
+// ═══════════════════════════════════════════════════════════
+
+function renderAppearanceTab(container) {
+    const section = document.createElement('div');
+    section.className = 'settings-section';
+
+    const themes = window.ThemeEngine ? window.ThemeEngine.getThemes() : {};
+    const activeThemeId = window.ThemeEngine ? window.ThemeEngine.getActiveThemeId() : 'obsidian';
+
+    // Header
+    section.appendChild(createSectionHeader('Theme', 'palette'));
+
+    // Description
+    const desc = document.createElement('div');
+    desc.className = 'card-desc';
+    desc.style.cssText = 'margin-bottom: 24px; font-size: 13px; line-height: 1.6;';
+    desc.textContent = 'Choose a visual theme for your trading dashboard. Changes apply instantly.';
+    section.appendChild(desc);
+
+    // Group themes by category
+    const colorThemes = Object.entries(themes).filter(([, t]) => t.category === 'color');
+    const imageThemes = Object.entries(themes).filter(([, t]) => t.category === 'image');
+
+    // ── Color Themes ──
+    const colorLabel = document.createElement('div');
+    colorLabel.style.cssText = 'font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-muted); margin-bottom: 16px; margin-top: 8px;';
+    colorLabel.textContent = '🎨 Color Themes';
+    section.appendChild(colorLabel);
+
+    const colorGrid = document.createElement('div');
+    colorGrid.className = 'theme-grid';
+    colorThemes.forEach(([id, theme]) => {
+        colorGrid.appendChild(createThemeCard(id, theme, activeThemeId));
+    });
+    section.appendChild(colorGrid);
+
+    // ── Image Themes ──
+    const imageLabel = document.createElement('div');
+    imageLabel.style.cssText = 'font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-muted); margin-bottom: 16px; margin-top: 32px;';
+    imageLabel.textContent = '🖼️ Image Themes';
+    section.appendChild(imageLabel);
+
+    const imageGrid = document.createElement('div');
+    imageGrid.className = 'theme-grid';
+    imageThemes.forEach(([id, theme]) => {
+        imageGrid.appendChild(createThemeCard(id, theme, activeThemeId));
+    });
+    section.appendChild(imageGrid);
+
+    container.appendChild(section);
+}
+
+function createThemeCard(id, theme, activeId) {
+    const isActive = id === activeId;
+    const card = document.createElement('div');
+    card.className = `theme-card ${isActive ? 'active' : ''}`;
+    card.dataset.themeId = id;
+
+    // Preview: either image thumbnail or color swatches
+    let previewHTML = '';
+    if (theme.backgroundImage) {
+        previewHTML = `
+            <div class="theme-preview-image" style="background-image: url('${theme.backgroundImage}');"></div>
+        `;
+    } else {
+        const swatches = theme.preview.map(c => `<div class="theme-swatch" style="background: ${c};"></div>`).join('');
+        previewHTML = `<div class="theme-swatches">${swatches}</div>`;
+    }
+
+    card.innerHTML = `
+        ${previewHTML}
+        <div class="theme-info">
+            <div class="theme-name">${theme.name}</div>
+            <div class="theme-desc">${theme.description}</div>
+        </div>
+        ${isActive ? '<div class="theme-active-badge"><span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span> Active</div>' : ''}
+    `;
+
+    card.addEventListener('click', () => {
+        if (window.ThemeEngine) {
+            window.ThemeEngine.applyTheme(id);
+            // Re-render to update active state
+            renderTab();
+        }
+    });
+
+    return card;
+}
+
 function renderAdvancedTab(container, filter = "") {
     const section = document.createElement('div');
     section.className = 'settings-section';
@@ -2788,25 +2907,54 @@ function showNotice(message, color = 'teal') {
         window.api.logNotice(message, color);
     }
 
-    // 3. Update existing toast with better visibility
-    const toast = document.createElement('div');
-    toast.className = `fixed top-24 left-1/2 -translate-x-1/2 z-[100] px-8 py-4 rounded-2xl bg-black/95 backdrop-blur-2xl border-2 border-${color}-500/50 shadow-2xl animate-in fade-in zoom-in slide-in-from-top-8 duration-500`;
+    // 3. Color mapping for inline styles (no Tailwind dynamic classes)
+    const colors = {
+        teal: { bg: 'rgba(20, 184, 166, 0.15)', border: 'rgba(20, 184, 166, 0.5)', text: '#5eead4', dot: '#14b8a6', glow: 'rgba(20, 184, 166, 0.6)' },
+        red: { bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(239, 68, 68, 0.5)', text: '#fca5a5', dot: '#ef4444', glow: 'rgba(239, 68, 68, 0.6)' },
+        purple: { bg: 'rgba(168, 85, 247, 0.15)', border: 'rgba(168, 85, 247, 0.5)', text: '#c4b5fd', dot: '#a855f7', glow: 'rgba(168, 85, 247, 0.6)' },
+    };
+    const c = colors[color] || colors.teal;
 
-    const colorClass = color === 'teal' ? 'teal' : (color === 'red' ? 'red' : 'purple');
+    // 4. Build toast with inline styles (no broken Tailwind animate classes)
+    const toast = document.createElement('div');
+    Object.assign(toast.style, {
+        position: 'fixed',
+        top: '5.5rem',
+        left: '50%',
+        transform: 'translateX(-50%) translateY(-20px)',
+        zIndex: '9999',
+        padding: '0.875rem 2rem',
+        borderRadius: '1rem',
+        background: 'rgba(2, 6, 23, 0.95)',
+        backdropFilter: 'blur(24px)',
+        border: `2px solid ${c.border}`,
+        boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 40px ${c.glow}`,
+        opacity: '0',
+        transition: 'opacity 0.4s ease, transform 0.4s ease',
+        pointerEvents: 'none',
+    });
 
     toast.innerHTML = `
-        <div class="flex items-center gap-4">
-            <div class="w-3 h-3 rounded-full bg-${colorClass}-500 shadow-[0_0_20px_rgba(20,184,166,1)] animate-pulse"></div>
-            <span class="text-sm font-black uppercase tracking-[0.2em] text-${colorClass}-400">${message}</span>
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+            <div style="width:10px;height:10px;border-radius:50%;background:${c.dot};box-shadow:0 0 12px ${c.glow};animation:pulse 1.5s infinite;"></div>
+            <span style="font-size:0.8rem;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;color:${c.text};">${message}</span>
         </div>
     `;
 
     document.body.appendChild(toast);
 
+    // Animate in (next frame so transition triggers)
+    requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateX(-50%) translateY(0)';
+    });
+
+    // Auto-dismiss after 3 seconds
     setTimeout(() => {
-        toast.classList.add('animate-out', 'fade-out', 'zoom-out', 'slide-out-to-top-8');
-        setTimeout(() => toast.remove(), 500);
-    }, 5000);
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(-20px)';
+        setTimeout(() => toast.remove(), 400);
+    }, 3000);
 }
 
 // ═══════════════════════════════════════════════════════════
