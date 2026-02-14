@@ -15,6 +15,15 @@ PAPER_STATE_FILE = os.path.join("data", "paper_state.json")
 
 class PaperBroker:
     """A simulated broker for local-only paper trading during Sabbath."""
+
+    # [ANTIGRAVITY] Kraken-level trading friction for realistic paper results.
+    # Taker fee: 0.26% (Kraken's standard tier for market/taker orders)
+    # Half-spread: ~0.10% (typical for BTC/ETH; slightly higher for altcoins)
+    # Slippage: ~0.03% (conservative estimate for moderate-size fills)
+    # Total per-leg friction: ~0.39%  |  Round-trip: ~0.78%
+    TAKER_FEE_PCT = float(os.getenv("PAPER_TAKER_FEE_PCT", "0.0026"))     # 0.26%
+    HALF_SPREAD_PCT = float(os.getenv("PAPER_HALF_SPREAD_PCT", "0.0010"))  # 0.10%
+    SLIPPAGE_PCT = float(os.getenv("PAPER_SLIPPAGE_PCT", "0.0003"))        # 0.03%
     
     def __init__(self, profile_settings, market_provider=None, trade_results=None, initial_balance=10000.0):
         self.profile = profile_settings
@@ -143,13 +152,22 @@ class PaperBroker:
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, "Paper size zero")
                 )
 
+            # [ANTIGRAVITY] Kraken-level fill simulation: adverse price + taker fee
+            friction = self.HALF_SPREAD_PCT + self.SLIPPAGE_PCT
+            if side == "buy":
+                fill_price = price * (1 + friction)   # Buy higher
+            else:
+                fill_price = price * (1 - friction)   # Sell lower
+            fee_usd = abs(qty * fill_price) * self.TAKER_FEE_PCT
+            self.balance -= fee_usd  # Deduct taker fee immediately
+
             self.positions[symbol] = {
                 "symbol": symbol,
                 "side": "long" if side == "buy" else "short",
                 "size": qty if side == "buy" else -qty,
                 "qty": qty, # Explicit qty for easier math
-                "entry_price": price,
-                "avg_price": price,
+                "entry_price": fill_price,
+                "avg_price": fill_price,
                 "current_price": price,
                 "unrealized_pnl": 0.0,
                 "pnl_pct": 0.0,
@@ -157,7 +175,10 @@ class PaperBroker:
                 "stop_loss": getattr(decision, "stop_loss", None),
                 "take_profit": getattr(decision, "take_profit", None)
             }
-            logger.info(f"[PAPER] [FILL] {symbol} {qty:.4f} @ {price} (Risk=${risk_usd:.2f})")
+            logger.info(
+                f"[PAPER] [FILL] {symbol} {qty:.4f} @ {fill_price:.5f} "
+                f"(mid={price:.5f}, spread+slip={friction*100:.2f}%, fee=${fee_usd:.4f}, Risk=${risk_usd:.2f})"
+            )
             self._save_state()
             return (
                 ExecutionResult(ExecutionStatus.EXECUTED, symbol, f"Paper {action} executed"),
@@ -168,10 +189,21 @@ class PaperBroker:
             if symbol in self.positions:
                 pos = self.positions.pop(symbol)
                 entry_p = pos["entry_price"]
-                exit_p = price
+                # [ANTIGRAVITY] Adverse exit fill + taker fee
+                friction = self.HALF_SPREAD_PCT + self.SLIPPAGE_PCT
+                pos_side = pos.get("side", "long")
+                if pos_side == "long":
+                    exit_p = price * (1 - friction)   # Sell lower on exit
+                else:
+                    exit_p = price * (1 + friction)   # Buy higher to cover short
                 pnl_usd = (exit_p - entry_p) * pos["size"]
+                fee_usd = abs(pos["qty"] * exit_p) * self.TAKER_FEE_PCT
+                pnl_usd -= fee_usd
                 self.balance += pnl_usd
-                logger.info(f"[PAPER] [EXIT] {symbol} @ {exit_p} | PNL: ${pnl_usd:.2f} (Paper Mode)")
+                logger.info(
+                    f"[PAPER] [EXIT] {symbol} @ {exit_p:.5f} | PNL: ${pnl_usd:.2f} "
+                    f"(fee=${fee_usd:.4f}) (Paper Mode)"
+                )
                 self._save_state()
                 self.refresh_account_summary() # Immediate update
                 return (
@@ -245,15 +277,23 @@ class PaperBroker:
                     logger.warning(f"[PAPER] [GHOST GUARD] {symbol}: TP {tp} >= entry {entry_p} for SHORT — ignoring TP")
 
             if hit:
-                pnl_usd = (price - entry_p) * pos["size"]
+                # [ANTIGRAVITY] Adverse exit fill + taker fee for synthetic stops
+                friction = self.HALF_SPREAD_PCT + self.SLIPPAGE_PCT
+                if side == "long":
+                    exit_price = price * (1 - friction)   # Sell lower
+                else:
+                    exit_price = price * (1 + friction)   # Buy higher to cover
+                pnl_usd = (exit_price - entry_p) * pos["size"]
+                fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * self.TAKER_FEE_PCT
+                pnl_usd -= fee_usd
                 pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                 self.balance += pnl_usd
                 pnl_str = f"{'+' if pnl_usd >= 0 else ''}${pnl_usd:.2f}"
 
                 logger.info(
                     f"[PAPER] [EXIT] Paper {hit}: {symbol} {pnl_str} "
-                    f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
-                    f"Entry={entry_p:.5f} Exit={price:.5f}"
+                    f"(Pct={pnl_pct:.2f}%, fee=${fee_usd:.4f}) position={side.upper()} | "
+                    f"Entry={entry_p:.5f} Exit={exit_price:.5f}"
                 )
 
                 # Record in TradeResultStore for pnl_stats

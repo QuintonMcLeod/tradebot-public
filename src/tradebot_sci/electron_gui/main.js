@@ -419,7 +419,7 @@ function createSettingsWindow() {
         backgroundColor: '#020617',
         frame: false,
         resizable: true,
-        icon: path.join(__dirname, 'assets/icon_robot.svg'),
+        icon: path.join(__dirname, 'assets/icon_robot.png'),
         webPreferences: {
             preload: path.join(__dirname, 'settings_preload.js'),
             nodeIntegration: false,
@@ -448,7 +448,7 @@ function createWindow() {
         },
         backgroundColor: '#020617',
         frame: false,
-        icon: path.join(__dirname, 'assets/icon_robot.svg'),
+        icon: path.join(__dirname, 'assets/icon_robot.png'),
     });
 
     win.loadFile('index.html');
