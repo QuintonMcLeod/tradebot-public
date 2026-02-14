@@ -11,6 +11,7 @@ class ExecutionStatus(Enum):
     UNSUPPORTED_SYMBOL = "unsupported_symbol"
     UNSUPPORTED_SYMBOL_CONFIG = "unsupported_symbol_config"
     ERROR = "error"
+    EXIT_SIGNAL = "exit_signal"
 
 
 @dataclass

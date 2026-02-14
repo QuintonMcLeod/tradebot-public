@@ -117,12 +117,26 @@ class PaperBroker:
                 # Fallback: Treat risk_usd as the actual notional size (very conservative for paper)
                 qty = risk_usd / price if price > 0 else 0
             
-            # [FIX] Cap paper quantity for high-priced assets (BTC/ETH) to prevent unrealistic size
-            if symbol.upper().startswith("BTC"):
-                qty = min(qty, 0.5) # Never more than 0.5 BTC in paper mode for stability
-            elif symbol.upper().startswith("ETH"):
-                qty = min(qty, 5.0)
-            
+            # [FIX] Leverage-based sizing cap (mirrors OANDA broker L502-510)
+            target_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
+            max_notional = self.balance * target_leverage
+            max_qty = max_notional / price if price > 0 else 0
+            if qty > max_qty and max_qty > 0:
+                logger.warning(
+                    f"[PAPER] [LEVERAGE CAP] {symbol}: qty {qty:.4f} -> {max_qty:.4f} "
+                    f"(notional ${qty * price:,.0f} exceeds {target_leverage}x leverage cap ${max_notional:,.0f})"
+                )
+                qty = max_qty
+
+            # Affordability guard: reject if notional exceeds leveraged balance
+            notional = qty * price
+            if notional > self.balance * max(target_leverage, 1.0) * 1.01:
+                logger.warning(f"[PAPER] [BLOCKED] {symbol}: notional ${notional:,.0f} exceeds balance ${self.balance:.2f}")
+                return (
+                    ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: insufficient balance"),
+                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_INSUFFICIENT_EQUITY, symbol, "Paper: insufficient balance")
+                )
+
             if qty <= 0:
                 return (
                     ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper position size too small"),
@@ -212,21 +226,25 @@ class PaperBroker:
             sl = pos.get("stop_loss")
             tp = pos.get("take_profit")
             side = pos.get("side", "long")
+            entry_p = pos.get("entry_price", 0)
             hit = None
 
             if side == "long":
                 if sl and price <= sl:
                     hit = "SL"
-                elif tp and price >= tp:
+                elif tp and tp > entry_p and price >= tp:
                     hit = "TP"
+                elif tp and tp <= entry_p:
+                    logger.warning(f"[PAPER] [GHOST GUARD] {symbol}: TP {tp} <= entry {entry_p} for LONG — ignoring TP")
             else:  # short
                 if sl and price >= sl:
                     hit = "SL"
-                elif tp and price <= tp:
+                elif tp and tp < entry_p and price <= tp:
                     hit = "TP"
+                elif tp and tp >= entry_p:
+                    logger.warning(f"[PAPER] [GHOST GUARD] {symbol}: TP {tp} >= entry {entry_p} for SHORT — ignoring TP")
 
             if hit:
-                entry_p = pos["entry_price"]
                 pnl_usd = (price - entry_p) * pos["size"]
                 pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                 self.balance += pnl_usd
