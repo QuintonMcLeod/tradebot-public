@@ -71,6 +71,35 @@ class OandaExchangeBroker(IExchangeBroker):
         logger.info(f"[OANDA] Syncing new Profile settings... (Risk: ${getattr(profile, 'risk_per_trade_dollars', 'N/A')})")
         self.profile = profile
 
+    @staticmethod
+    def _format_duration(entry_time_str: str | None) -> str:
+        """Compute human-readable duration from ISO entry time to now."""
+        if not entry_time_str:
+            return "N/A"
+        try:
+            from datetime import datetime, timezone
+            # OANDA timestamps: "2026-02-14T16:03:52.123456789Z"
+            clean = entry_time_str.replace("Z", "+00:00")
+            # Truncate nanoseconds to microseconds for fromisoformat
+            if "." in clean:
+                dot_idx = clean.index(".")
+                plus_idx = clean.index("+", dot_idx) if "+" in clean[dot_idx:] else len(clean)
+                frac = clean[dot_idx+1:plus_idx]
+                frac = frac[:6]  # Keep only microseconds
+                clean = clean[:dot_idx+1] + frac + clean[plus_idx:]
+            entry_dt = datetime.fromisoformat(clean)
+            now = datetime.now(timezone.utc)
+            secs = int((now - entry_dt).total_seconds())
+            if secs < 0:
+                return "N/A"
+            mins, secs = divmod(secs, 60)
+            if mins >= 60:
+                hrs, mins = divmod(mins, 60)
+                return f"{hrs}h {mins}m {secs}s"
+            return f"{mins}m {secs}s"
+        except Exception:
+            return "N/A"
+
     # ── Tracked Position Persistence ──────────────────────────────────
 
     def _load_tracked_positions(self) -> None:
@@ -146,11 +175,13 @@ class OandaExchangeBroker(IExchangeBroker):
 
                             pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
                             est_spread = abs(initial_units) * self.AVG_SPREAD_PIPS * pip_value * 2
+                            duration_str = self._format_duration(ct.get("openTime"))
 
                             pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
                             logger.info(
                                 f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
                                 f"(Pct={pnl_pct:.2f}%) position={side} | "
+                                f"Duration={duration_str} | "
                                 f"Est. Spread Cost: ${est_spread:.4f}"
                             )
                             backfilled_ids.add(trade_id)
@@ -201,11 +232,13 @@ class OandaExchangeBroker(IExchangeBroker):
 
                     pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
                     est_spread = abs(initial_units) * self.AVG_SPREAD_PIPS * pip_value * 2
+                    duration_str = self._format_duration(ct.get("openTime"))
 
                     pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
                     logger.info(
                         f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
                         f"(Pct={pnl_pct:.2f}%) position={side} | "
+                        f"Duration={duration_str} | "
                         f"Est. Spread Cost: ${est_spread:.4f}"
                     )
                     backfilled_ids.add(trade_id)
@@ -325,8 +358,12 @@ class OandaExchangeBroker(IExchangeBroker):
                 pip_value = self.PIP_VALUE_JPY if "JPY" in symbol.upper() else self.PIP_VALUE_STANDARD
                 est_spread_cost = units * self.AVG_SPREAD_PIPS * pip_value * 2  # x2 for entry + exit
 
+                # Compute duration from tracked position entry time
+                prev_pos = self._tracked_positions.get(symbol, {})
+                duration_str = self._format_duration(prev_pos.get("entry_time"))
+
                 pnl_str = f"{'+' if pnl_val >= 0 else ''}${pnl_val:.2f}"
-                logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) | Est. Spread Cost: ${est_spread_cost:.4f} (OANDA {self.AVG_SPREAD_PIPS} pips)")
+                logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={side} | Duration={duration_str} | Est. Spread Cost: ${est_spread_cost:.4f} (OANDA {self.AVG_SPREAD_PIPS} pips)")
                 
                 # Add to TradeResultStore
                 if self.trade_results:
@@ -664,10 +701,13 @@ class OandaExchangeBroker(IExchangeBroker):
                     units = abs(prev.get("size", 0))
                     est_spread = units * self.AVG_SPREAD_PIPS * pip_value * 2
 
+                    duration_str = self._format_duration(prev.get("entry_time"))
+
                     pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
                     logger.info(
                         f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
                         f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
+                        f"Duration={duration_str} | "
                         f"Est. Spread Cost: ${est_spread:.4f}"
                     )
 

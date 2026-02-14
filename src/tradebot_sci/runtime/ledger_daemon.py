@@ -58,9 +58,9 @@ RE_HEARTBEAT = re.compile(
     r"\[HEARTBEAT\]\s*Capital available:\s*\$?(?P<capital>[\d.]+)"
 )
 
-# Tournament Winner: BEARISH_ENGULFING
+# [META-SCI] Tournament Won by BEARISH_ENGULFING (Score: 42)
 RE_TOURNAMENT = re.compile(
-    r"Tournament Winner:\s*(?P<strategy>\w+)"
+    r"Tournament Won by\s+(?P<strategy>\w+)"
 )
 
 # position=SHORT or position=LONG embedded in EXIT lines

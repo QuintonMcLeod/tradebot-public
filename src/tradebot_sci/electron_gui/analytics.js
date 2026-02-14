@@ -152,7 +152,10 @@ function updateMetrics(data) {
     set('metric-gross-profit', formatCurrency(data.grossProfit ?? 0));
     set('metric-gross-loss', formatCurrency(data.grossLoss ?? 0));
     set('metric-capital-start', formatCurrency(data.capitalStart ?? 0));
-    set('metric-capital-end', formatCurrency(data.capitalEnd ?? 0));
+    // Use live WebSocket capital if available (avoids stale ledger value)
+    const liveCapital = window.__liveCapital;
+    const effectiveCapEnd = (liveCapital && liveCapital > 0) ? liveCapital : (data.capitalEnd ?? 0);
+    set('metric-capital-end', formatCurrency(effectiveCapEnd));
 
     const capChange = parseFloat(data.capitalChange) || 0;
     const capEl = document.getElementById('metric-capital-change');
@@ -644,6 +647,81 @@ document.addEventListener('DOMContentLoaded', () => {
         badge.style.cursor = 'pointer';
         badge.addEventListener('click', () => {
             triggerAutoRefresh();
+        });
+    }
+
+    // Reset Paper Trading button — two-step confirm flow
+    const resetBtn = document.getElementById('btn-reset-paper');
+    const resetText = document.getElementById('reset-paper-text');
+    let resetConfirmTimeout = null;
+    let resetPending = false;
+
+    if (resetBtn && resetText) {
+        resetBtn.addEventListener('click', async () => {
+            if (resetPending) return; // Already executing
+
+            if (!resetBtn._confirmed) {
+                // Step 1: Show confirm state
+                resetBtn._confirmed = true;
+                resetText.textContent = 'Sure? Confirm';
+                resetBtn.style.background = 'linear-gradient(135deg, rgba(245,158,11,0.3), rgba(249,115,22,0.3))';
+                resetBtn.style.borderColor = 'rgba(245,158,11,0.6)';
+                resetBtn.style.color = '#fbbf24';
+                resetBtn.style.boxShadow = '0 0 20px rgba(245,158,11,0.25)';
+                resetBtn.style.animation = 'pulse 1.5s ease-in-out infinite';
+
+                // Auto-revert after 3s if not confirmed
+                resetConfirmTimeout = setTimeout(() => {
+                    resetBtn._confirmed = false;
+                    resetText.textContent = 'Reset Paper';
+                    resetBtn.style.background = 'linear-gradient(135deg, rgba(239,68,68,0.15), rgba(249,115,22,0.15))';
+                    resetBtn.style.borderColor = 'rgba(239,68,68,0.35)';
+                    resetBtn.style.color = '#f87171';
+                    resetBtn.style.boxShadow = '0 0 15px rgba(239,68,68,0.1)';
+                    resetBtn.style.animation = '';
+                }, 3000);
+                return;
+            }
+
+            // Step 2: Execute reset
+            clearTimeout(resetConfirmTimeout);
+            resetPending = true;
+            resetText.textContent = 'Resetting...';
+            resetBtn.style.background = 'linear-gradient(135deg, rgba(20,184,166,0.2), rgba(16,185,129,0.2))';
+            resetBtn.style.borderColor = 'rgba(20,184,166,0.4)';
+            resetBtn.style.color = '#2dd4bf';
+            resetBtn.style.boxShadow = '0 0 20px rgba(20,184,166,0.2)';
+            resetBtn.style.animation = '';
+            resetBtn.style.pointerEvents = 'none';
+
+            try {
+                const result = await window.api.resetPaperTrading();
+                if (result.success) {
+                    resetText.textContent = '✓ Reset Complete';
+                    resetBtn.style.color = '#34d399';
+                    // Refresh analytics data
+                    setTimeout(() => refreshAnalytics(), 3000);
+                } else {
+                    resetText.textContent = '✗ Failed';
+                    resetBtn.style.color = '#f87171';
+                }
+            } catch (err) {
+                console.error('[ANALYTICS] Reset paper trading error:', err);
+                resetText.textContent = '✗ Error';
+                resetBtn.style.color = '#f87171';
+            }
+
+            // Revert button after 4s
+            setTimeout(() => {
+                resetBtn._confirmed = false;
+                resetPending = false;
+                resetText.textContent = 'Reset Paper';
+                resetBtn.style.background = 'linear-gradient(135deg, rgba(239,68,68,0.15), rgba(249,115,22,0.15))';
+                resetBtn.style.borderColor = 'rgba(239,68,68,0.35)';
+                resetBtn.style.color = '#f87171';
+                resetBtn.style.boxShadow = '0 0 15px rgba(239,68,68,0.1)';
+                resetBtn.style.pointerEvents = '';
+            }, 4000);
         });
     }
 });

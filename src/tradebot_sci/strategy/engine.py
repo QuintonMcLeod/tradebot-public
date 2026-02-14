@@ -292,6 +292,10 @@ class StrategyEngine:
             "grade": grade
         }
 
+        # Per-strategy scoring (gives each strategy its own grade)
+        strat_score, strat_grade, strat_summary = self._strategy.score_signal(snapshot, gates)
+        strat_name = self._strategy.name
+
         # [META-SCI] Auto-Strategy handled by MetaSCIStrategy class transparently below.
         
         # 3. Request Decisions from Strategy (Standard Path or Adopted Meta Path)
@@ -307,6 +311,7 @@ class StrategyEngine:
             if exit_decision:
                 exit_decision.score = score
                 exit_decision.grade = grade
+
                 logger.info(f"[PHOENIX] {self.symbol} Strategy EXIT triggered: {exit_decision.summary()}")
                 return exit_decision
             
@@ -320,11 +325,13 @@ class StrategyEngine:
                 if performance_exit:
                     performance_exit.score = score
                     performance_exit.grade = grade
+
                     return performance_exit
             
             if safety_exit:
                  safety_exit.score = score
                  safety_exit.grade = grade
+
                  return safety_exit
 
             # [PYRAMID CHECK] Before applying the position lock, give the strategy
@@ -342,6 +349,7 @@ class StrategyEngine:
             if pyramid_decision and pyramid_decision.action in ("scale_in", "add_to_position"):
                 pyramid_decision.score = score
                 pyramid_decision.grade = grade
+
                 logger.info(f"[PHOENIX] {self.symbol} PYRAMID signal: {pyramid_decision.summary()}")
                 return pyramid_decision
 
@@ -355,6 +363,7 @@ class StrategyEngine:
             hold.action = "hold"
             hold.score = score
             hold.grade = grade
+
             return hold
 
         # 4. ACCOUNT SAFETY GUARDS (Centralized Entry Veto)
@@ -399,6 +408,7 @@ class StrategyEngine:
             decision.score = score
             decision.grade = grade
 
+
             # [ANTIGRAVITY] Counter-Trend Entry Block
             # Prevents going long when HTF is bearish, or short when HTF is bullish.
             htf_dir = gates.get("htf_dir", "neutral")
@@ -422,6 +432,7 @@ class StrategyEngine:
                     blocked = stand_aside_decision(snapshot.symbol, snapshot.timeframe, reason)
                     blocked.score = score
                     blocked.grade = grade
+
                     return blocked
 
             # [WEALTH MODE] Augment with Performance Overrides (Sniper, Regime, etc.)
@@ -475,6 +486,7 @@ class StrategyEngine:
                         decision = stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"[SMART] Financing Required: PnL ${pnl:.2f} < Risk ${risk_amt:.2f}")
                         decision.score = score
                         decision.grade = grade
+
                         return decision
 
             # [SAFETY GUARD] Notify of Entry (for Churn Burner)
@@ -490,6 +502,7 @@ class StrategyEngine:
         decision = stand_aside_decision(snapshot.symbol, timeframe, "No strategy signal detected.")
         decision.score = score
         decision.grade = grade
+
         return decision
 
     def build_market_context(self, snapshot: MarketSnapshot, **kwargs):

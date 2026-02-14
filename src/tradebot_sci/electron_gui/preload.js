@@ -53,6 +53,9 @@ contextBridge.exposeInMainWorld('api', {
     // Self-Update
     checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
     applyUpdate: () => ipcRenderer.invoke('apply-update'),
+
+    // Paper Trading Reset
+    resetPaperTrading: () => ipcRenderer.invoke('reset-paper-trading'),
 });
 
 // We can also expose specific APIs for the backend connection if needed

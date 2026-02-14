@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Tuple
 from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.strategy.decisions import AITradeDecision
 
@@ -13,6 +13,36 @@ class BaseStrategy:
     def get_risk_pct(self, fallback: float = 0.015) -> float:
         """Return the profile-configured risk, or a safe fallback."""
         return self.profile_risk_pct or fallback
+
+    @staticmethod
+    def grade_from_score_100(score: float) -> str:
+        """Convert a 0-100 score to a letter grade."""
+        if score >= 95: return "A+"
+        if score >= 90: return "A"
+        if score >= 85: return "A-"
+        if score >= 80: return "B+"
+        if score >= 75: return "B"
+        if score >= 70: return "B-"
+        if score >= 65: return "C+"
+        if score >= 60: return "C"
+        if score >= 55: return "C-"
+        if score >= 50: return "D"
+        if score >= 40: return "F+"
+        if score >= 30: return "F"
+        return "F-"
+
+    def score_signal(self, snapshot: MarketSnapshot, gates: dict) -> Tuple[float, str, str]:
+        """
+        Score the current setup from this strategy's perspective.
+
+        Returns:
+            (score_0_to_100, grade, summary)
+        """
+        # Default: use the ICC structure score from gates (always available)
+        icc_score = gates.get("score", 0.0)
+        pct = round(icc_score * 100, 1)
+        grade = self.grade_from_score_100(pct)
+        return pct, grade, f"{self.name}: ICC {pct:.0f}%"
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
         """Check for a new trade entry signal."""

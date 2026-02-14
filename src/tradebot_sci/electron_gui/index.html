@@ -372,11 +372,11 @@
                 <div id="chart-area" class="flex-1 w-full bg-transparent relative z-0"></div>
             </div>
 
-            <!-- BOTTOM ROTATING PANEL (Win98 Container - restored spot gradient) -->
-            <div
-                class="flex-[1.5] rounded-xl p-[3px] bg-[radial-gradient(circle_at_0%_0%,_#0f766e_0%,_#020617_70%)] shadow-2xl flex flex-col overflow-hidden min-h-[220px]">
+            <!-- BOTTOM ROTATING PANEL (Glass Card Style) -->
+            <div class="flex-[1.5] rounded-lg flex flex-col overflow-hidden min-h-[220px]"
+                style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.5) 0%, rgba(15, 23, 42, 0.2) 100%); border: 1px solid rgba(255, 255, 255, 0.06); backdrop-filter: blur(20px);">
 
-                <!-- Win98 Gradient Frame Header (Part of the Outer Gradient) -->
+                <!-- Frame Header -->
                 <div class="h-10 flex items-center justify-between px-6 shrink-0">
                     <button id="btn-prev-panel" class="text-teal-500/50 hover:text-teal-400 transition-all"><span
                             class="material-symbols-outlined text-base">chevron_left</span></button>
@@ -387,9 +387,8 @@
                             class="material-symbols-outlined text-base">chevron_right</span></button>
                 </div>
 
-                <!-- Win98 Inner Content Well (Forced 70% Transparent Black) -->
-                <div
-                    class="flex-1 translucent-black-70 rounded-b-[20px] rounded-t-lg mx-[1px] mb-[1px] overflow-hidden relative border-t border-white/5 shadow-inner">
+                <!-- Inner Content -->
+                <div class="flex-1 overflow-hidden relative border-t border-white/5">
                     <!-- Decisions Tab -->
                     <div id="panel-decisions" class="absolute inset-0 overflow-auto scrollbar-hide">
                         <table class="w-full text-left border-collapse">
@@ -445,25 +444,26 @@
                 </div>
             </div>
 
-            <!-- LOG PANEL (Win98 Container - Thinner Borders - restored spot gradient) -->
-            <div
-                class="flex-1 rounded-xl p-[2px] bg-[radial-gradient(circle_at_0%_0%,_#0f766e_0%,_#020617_70%)] shadow-2xl flex flex-col overflow-hidden min-h-[160px]">
+            <!-- LOG PANEL (Glass Card Style) -->
+            <div class="flex-1 rounded-lg flex flex-col overflow-hidden min-h-[160px]"
+                style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.5) 0%, rgba(15, 23, 42, 0.2) 100%); border: 1px solid rgba(255, 255, 255, 0.06); backdrop-filter: blur(20px);">
 
-                <!-- Win98 Frame Header -->
+                <!-- Frame Header -->
                 <div class="h-8 flex items-center justify-center shrink-0">
                     <span class="text-[10px] font-black uppercase tracking-[0.5em] text-slate-400/80">System Logs</span>
                 </div>
 
-                <!-- Win98 Inner Content Well (Forced 70% Transparent Black) -->
+                <!-- Log Content -->
                 <div id="log-terminal"
-                    class="flex-1 p-5 font-mono text-[13px] text-slate-300 overflow-y-auto overflow-x-hidden break-all leading-relaxed translucent-black-70 rounded-b-[22px] rounded-t-md mx-[1px] mb-[1px] scrollbar-thin space-y-3 shadow-inner">
+                    class="flex-1 p-5 font-mono text-[13px] text-slate-300 overflow-y-auto overflow-x-hidden break-all leading-relaxed scrollbar-thin space-y-3 border-t border-white/5">
                 </div>
             </div>
 
         </div>
 
         <!-- ANALYTICS VIEW (Graph Tab - Premium Glass Design) -->
-        <div id="view-analytics" class="hidden flex-1 flex flex-col gap-5 p-6 min-w-0 overflow-y-auto scrollbar-thin">
+        <div id="view-analytics" class="hidden flex-1 flex flex-col p-6 min-w-0 overflow-y-auto scrollbar-thin"
+            style="gap:16px;">
 
             <!-- ═══ ROW 1: Header Bar ═══ -->
             <div class="flex items-center justify-between analytics-animate">
@@ -504,10 +504,24 @@
                     </svg>
                     <span id="refresh-countdown-text" class="refresh-countdown-text">30</span>
                 </div>
+
+                <!-- Paper Trading Reset Button (Sabbath only) -->
+                <button id="btn-reset-paper"
+                    class="hidden items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-300 border cursor-pointer select-none"
+                    style="background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(249,115,22,0.15));
+                           border-color: rgba(239,68,68,0.35);
+                           color: #f87171;
+                           box-shadow: 0 0 15px rgba(239,68,68,0.1);"
+                    onmouseenter="this.style.background='linear-gradient(135deg, rgba(239,68,68,0.3), rgba(249,115,22,0.3))'; this.style.boxShadow='0 0 25px rgba(239,68,68,0.25)'; this.style.borderColor='rgba(239,68,68,0.6)'"
+                    onmouseleave="this.style.background='linear-gradient(135deg, rgba(239,68,68,0.15), rgba(249,115,22,0.15))'; this.style.boxShadow='0 0 15px rgba(239,68,68,0.1)'; this.style.borderColor='rgba(239,68,68,0.35)'"
+                    title="Stop bot, reset paper trading to $10,000, and restart">
+                    <span class="material-symbols-outlined" style="font-size:14px;">restart_alt</span>
+                    <span id="reset-paper-text">Reset Paper</span>
+                </button>
             </div>
 
             <!-- ═══ ROW 2: Hero Metrics (2fr 1fr 1fr mosaic) ═══ -->
-            <div class="analytics-animate" style="display:grid; grid-template-columns: 2fr 1fr 1fr; gap:16px;">
+            <div class="analytics-animate" style="display:grid; grid-template-columns: 2fr 1fr 1fr; gap:20px;">
 
                 <!-- Total PnL — Double-Wide Hero -->
                 <div class="analytics-card hero-pnl"
@@ -560,7 +574,7 @@
             </div>
 
             <!-- ═══ ROW 3: Metrics Strip (4-col) ═══ -->
-            <div class="analytics-animate" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px;">
+            <div class="analytics-animate" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:18px;">
                 <div class="mini-stat">
                     <div class="mini-label">Profit Factor</div>
                     <div id="metric-pf" class="mini-value" style="color:#22d3ee;">0.00</div>
@@ -584,7 +598,7 @@
             </div>
 
             <!-- ═══ ROW 4: Charts (3fr / 2fr unequal split) ═══ -->
-            <div class="analytics-animate" style="display:grid; grid-template-columns: 3fr 2fr; gap:16px;">
+            <div class="analytics-animate" style="display:grid; grid-template-columns: 3fr 2fr; gap:20px;">
 
                 <!-- Equity Curve -->
                 <div class="analytics-card accent-teal chart-container" style="padding:20px;">
@@ -608,7 +622,7 @@
             </div>
 
             <!-- ═══ ROW 5: Performance Grid (6 mini cards) ═══ -->
-            <div class="analytics-animate" style="display:grid; grid-template-columns: repeat(6, 1fr); gap:10px;">
+            <div class="analytics-animate" style="display:grid; grid-template-columns: repeat(6, 1fr); gap:16px;">
                 <div class="mini-stat">
                     <div class="mini-label">Gross Profit</div>
                     <div id="metric-gross-profit" class="mini-value" style="color:#34d399;">$0.00</div>
@@ -636,17 +650,17 @@
             </div>
 
             <!-- ═══ ROW 6: Breakdown Tables (2-col) ═══ -->
-            <div class="analytics-animate" style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+            <div class="analytics-animate" style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
 
                 <!-- Symbol Breakdown -->
-                <div class="analytics-card accent-teal" style="padding:0; overflow:hidden;">
+                <div class="analytics-card accent-teal" style="padding:0; overflow:hidden; min-height:350px;">
                     <div class="table-header-bar">
                         <h3 style="color:#2dd4bf;">
                             <span class="material-symbols-outlined">currency_exchange</span>
                             Symbol Breakdown
                         </h3>
                     </div>
-                    <div style="max-height:200px; overflow-y:auto;" class="scrollbar-thin">
+                    <div style="max-height:400px; overflow-y:auto;" class="scrollbar-thin">
                         <table class="data-table">
                             <thead>
                                 <tr>
@@ -669,14 +683,14 @@
                 </div>
 
                 <!-- Strategy Breakdown -->
-                <div class="analytics-card accent-purple" style="padding:0; overflow:hidden;">
+                <div class="analytics-card accent-purple" style="padding:0; overflow:hidden; min-height:350px;">
                     <div class="table-header-bar">
                         <h3 style="color:#a78bfa;">
                             <span class="material-symbols-outlined">precision_manufacturing</span>
                             Strategy Breakdown
                         </h3>
                     </div>
-                    <div style="max-height:200px; overflow-y:auto;" class="scrollbar-thin">
+                    <div style="max-height:400px; overflow-y:auto;" class="scrollbar-thin">
                         <table class="data-table">
                             <thead>
                                 <tr>
@@ -700,7 +714,7 @@
 
             <!-- ═══ ROW 7: Trade History ═══ -->
             <div class="analytics-card accent-teal analytics-animate"
-                style="padding:0; overflow:hidden; flex:1; min-height:220px; display:flex; flex-direction:column;">
+                style="padding:0; overflow:hidden; flex:1; min-height:500px; display:flex; flex-direction:column;">
                 <div class="table-header-bar">
                     <h3 style="color:#2dd4bf;">
                         <span class="material-symbols-outlined">receipt_long</span>

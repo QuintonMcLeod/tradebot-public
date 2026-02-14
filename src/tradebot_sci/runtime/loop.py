@@ -754,8 +754,13 @@ def run_bot(
         # Sync current state
         try:
             controller.broadcast_state(executor, force=True)
-            # Push history using DEDICATED provider (not the shared one!)
-            chart_prov = _chart_provider or provider
+            # Push history using DEDICATED provider for crypto (thread-safe),
+            # but use the main hybrid provider for forex (OANDA) since the
+            # CCXT chart provider only has crypto data.
+            if asset_key == "forex":
+                chart_prov = provider  # main provider has OANDA access
+            else:
+                chart_prov = _chart_provider or provider
             hist = chart_prov.get_latest_candles(symbol, tf, limit=200)
             logger.info(f"[WS-DEBUG] Received {len(hist) if hist else 0} candles for {symbol}")
             if hist:
@@ -781,14 +786,28 @@ def run_bot(
             logger.error(f"[WS] Error during subscription sync for {symbol}: {e}", exc_info=True)
 
     def on_tick(symbol, tf):
-        """Broadcast cached candle — NO API call (avoids concurrent CCXT access)."""
+        """Fetch fresh candle from dedicated chart provider for live chart updates."""
+        from tradebot_sci.runtime.provider_factory import _get_asset_key
         key = (symbol.upper(), tf.lower())
+        # Use main provider for forex (OANDA), dedicated CCXT for crypto
+        if _get_asset_key(symbol) == "forex":
+            chart_prov = provider
+        else:
+            chart_prov = _chart_provider or provider
+        try:
+            fresh = chart_prov.get_latest_candles(symbol, tf, limit=2)
+            if fresh:
+                candle = fresh[-1]
+                _candle_cache[key] = candle
+                controller.broadcast_candle(symbol, tf, candle)
+                return
+        except Exception as e:
+            logger.debug(f"[WS-TICK] Live fetch failed for {symbol} {tf}: {e}")
+
+        # Fallback to cache if live fetch fails
         cached = _candle_cache.get(key)
         if cached:
-            logger.info(f"[WS-TICK] Broadcasting cached candle for {symbol} {tf}: ts={cached.timestamp.isoformat()} O={cached.open} C={cached.close}")
             controller.broadcast_candle(symbol, tf, cached)
-        else:
-            logger.info(f"[WS-TICK] No cached candle for {symbol} {tf} — cache keys: {list(_candle_cache.keys())}")
 
     def update_candle_cache(symbol, tf, candle):
         """Called from the trading cycle to update the cache with fresh data."""

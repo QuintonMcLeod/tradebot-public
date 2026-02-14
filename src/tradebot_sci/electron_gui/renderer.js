@@ -80,7 +80,7 @@ function handlePnlToggle() {
 
     // Trigger data refresh if not holdings (since we need realized stats from backend)
     if (pnlTimeframe !== 'holdings') {
-        updateRealizedPnL();
+        if (typeof updateRealizedPnL === 'function') updateRealizedPnL(); else if (window.updateRealizedPnL) window.updateRealizedPnL();
     } else {
         refreshMainPnLDisplay();
     }
@@ -96,7 +96,7 @@ window.syncPnLTimeframe = function (newTimeframe) {
     pnlTimeframe = newTimeframe;
     window.pnlTimeframe = newTimeframe;
     localStorage.setItem('pnlTimeframe', pnlTimeframe);
-    updateRealizedPnL();
+    if (typeof updateRealizedPnL === 'function') updateRealizedPnL(); else if (window.updateRealizedPnL) window.updateRealizedPnL();
     refreshMainPnLDisplay();
     console.log(`[PNL-SYNC] Timeframe synchronized from settings: ${pnlTimeframe}`);
 };
@@ -354,6 +354,8 @@ async function connectWebSocket() {
         try {
             const msg = JSON.parse(event.data);
 
+
+
             if (msg.type === 'pong') {
                 if (ws._lastPing) {
                     const latency = Date.now() - ws._lastPing;
@@ -417,14 +419,16 @@ async function connectWebSocket() {
                 const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
                 const currentTfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
                 const normalizeTf = (t) => t.toLowerCase().trim();
+                const symMatch = msg.symbol === currentSym;
+                const tfMatch = normalizeTf(msg.tf) === normalizeTf(currentTfRaw);
 
-                if (msg.symbol === currentSym && normalizeTf(msg.tf) === normalizeTf(currentTfRaw)) {
+                if (symMatch && tfMatch) {
                     const localTime = utcToLocal(msg.data.time);
 
                     // Guard: skip candles older than the chart's last known bar
                     const lastTime = candleData.length > 0 ? candleData[candleData.length - 1].time : 0;
                     if (localTime < lastTime) {
-                        // Stale cached candle — skip to avoid LWC "Cannot update oldest data" error
+                        console.warn(`[CHART] Stale candle skipped: candle=${localTime} < chart=${lastTime} (diff=${lastTime - localTime}s)`);
                         return;
                     }
 
@@ -460,7 +464,7 @@ async function connectWebSocket() {
                                 color: isUp ? volUp : volDown
                             });
                         } catch (e) {
-                            // Volume update can also fail with stale time
+                            console.warn(`[CHART] Volume update failed: ${e.message}`);
                         }
                     }
                 }
@@ -476,6 +480,24 @@ async function connectWebSocket() {
                 if (data.capital !== undefined) {
                     const capitalEl = document.getElementById('account-capital');
                     if (capitalEl) capitalEl.innerText = data.capital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    // Store live capital for analytics.js to use (prevents stale ledger override)
+                    window.__liveCapital = data.capital;
+                    // Sync "Capital Now" stat card with live value
+                    const capNowEl = document.getElementById('metric-capital-end');
+                    if (capNowEl) capNowEl.innerText = '$' + data.capital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    // Seed "Capital Start" if still at default $0.00
+                    const capStartEl = document.getElementById('metric-capital-start');
+                    if (capStartEl && (capStartEl.innerText === '$0.00' || capStartEl.innerText === '$0')) {
+                        capStartEl.innerText = '$' + data.capital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    }
+                    // Update Net Change
+                    const capChangeEl = document.getElementById('metric-capital-change');
+                    if (capChangeEl && capStartEl) {
+                        const startVal = parseFloat(capStartEl.innerText.replace(/[$,]/g, '')) || 0;
+                        const change = data.capital - startVal;
+                        capChangeEl.innerText = (change >= 0 ? '+' : '') + '$' + change.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        capChangeEl.style.color = change >= 0 ? '#2dd4bf' : '#f87171';
+                    }
                 }
                 if (data.cash !== undefined) {
                     const cashEl = document.getElementById('account-cash');
@@ -493,6 +515,17 @@ async function connectWebSocket() {
                     if (sabbathEl) {
                         if (data.is_sabbath) sabbathEl.classList.remove('hidden');
                         else sabbathEl.classList.add('hidden');
+                    }
+                    // Show/hide the Reset Paper button in analytics
+                    const resetBtn = document.getElementById('btn-reset-paper');
+                    if (resetBtn) {
+                        if (data.is_sabbath) {
+                            resetBtn.classList.remove('hidden');
+                            resetBtn.classList.add('flex');
+                        } else {
+                            resetBtn.classList.add('hidden');
+                            resetBtn.classList.remove('flex');
+                        }
                     }
                 }
                 if (data.symbols && Array.isArray(data.symbols) && data.symbols.length > 0) {
@@ -927,7 +960,7 @@ function getScoreColor(grade) {
     return "text-red-500";
 }
 
-function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null) {
+function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, strategyName = null) {
     const table = document.getElementById('decisions-table');
     if (!table) return;
 
@@ -942,6 +975,7 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null) {
 
     const row = existingRow || document.createElement('tr');
     row.className = "hover:bg-cyan-500/5 transition-colors border-b border-slate-700/20";
+    row.setAttribute('data-score', scoreNum !== null && scoreNum !== undefined ? scoreNum : -1);
 
     // Time AM/PM
     const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
@@ -949,6 +983,23 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null) {
     // Grade
     const grade = forcedGrade || getScoreGrade(scoreNum);
     const scoreClass = getScoreColor(grade);
+
+    // Strategy Badge
+    let stratBadge = '';
+    if (strategyName && strategyName !== 'Unknown' && strategyName !== 'N/A') {
+        const sName = strategyName.toUpperCase().replace(/\s+/g, '');
+        const badgeColors = {
+            'ROBOCOP': 'bg-blue-500/20 text-blue-400 border-blue-500/40',
+            'RUBBERBANDREAPER': 'bg-purple-500/20 text-purple-400 border-purple-500/40',
+            'ROBOTEVOLUTION': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
+            'EVOLUTION': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
+            'META-SCI': 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+            'META_SCI': 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+            'METASCI': 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+        };
+        const badgeColor = badgeColors[sName] || 'bg-slate-500/20 text-slate-400 border-slate-500/40';
+        stratBadge = `<span class="inline-block px-1.5 py-0.5 text-[10px] font-bold rounded border ${badgeColor} mr-1">${strategyName.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()}</span>`;
+    }
 
     // Action Styling
     let actionHtml = `<span class="text-slate-500">${action}</span>`;
@@ -969,13 +1020,21 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null) {
         <td class="px-4 py-1.5 font-bold text-slate-200 text-left text-lg">${symbol}</td>
         <td class="px-4 py-1.5 text-left text-sm uppercase tracking-wider">${actionHtml}</td>
         <td class="px-4 py-1.5 ${scoreClass} text-left font-black text-lg">${grade}</td>
-        <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${reason}</td>
+        <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${stratBadge}${reason}</td>
     `;
 
     if (!existingRow) {
-        // Prepend to show newest at top if it's a new symbol
-        table.prepend(row);
+        table.appendChild(row);
     }
+
+    // Re-sort all rows: highest score at top
+    const rows = Array.from(table.rows);
+    rows.sort((a, b) => {
+        const sa = parseFloat(a.getAttribute('data-score') || -1);
+        const sb = parseFloat(b.getAttribute('data-score') || -1);
+        return sb - sa;
+    });
+    rows.forEach(r => table.appendChild(r));
 }
 
 // --- IPC / Socket Logic ---
@@ -988,7 +1047,7 @@ window.api.on('env-updated', (updates) => {
     }
     if (updates.GUI_PNL_TIMEFRAME) {
         pnlTimeframe = updates.GUI_PNL_TIMEFRAME;
-        updateRealizedPnL();
+        if (typeof updateRealizedPnL === 'function') updateRealizedPnL(); else if (window.updateRealizedPnL) window.updateRealizedPnL();
     }
     if (updates.APP_PROFILE) {
         const profileEl = document.getElementById('status-profile');
@@ -1142,14 +1201,14 @@ function updateHoldingsTable(payload) {
     // Cache holdings and draw SL/TP/Entry lines for current symbol
     lastHoldings = payload;
     const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
-    console.log(`[CHART-DEBUG] Holdings received. Looking for ${currentSym} in positions:`, payload.positions?.map(p => p.symbol));
+
     if (currentSym && payload.positions) {
         const pos = parsePositionFromHoldings(payload.positions, currentSym);
-        console.log(`[CHART-DEBUG] Parsed position for ${currentSym}:`, pos);
+
 
         // Draw SL/TP lines
         if (pos && (pos.sl || pos.tp)) {
-            console.log(`[CHART-DEBUG] Drawing lines - SL: ${pos.sl}, TP: ${pos.tp}`);
+
             updatePositionLines(pos);
         }
 
@@ -1206,7 +1265,7 @@ function parseLogLine(line) {
 
     // Check for EXIT logs to trigger PnL refresh and add exit marker
     if (line.includes('[EXIT]')) {
-        setTimeout(updateRealizedPnL, 1000); // Small delay to let filesystem sync if needed
+        setTimeout(() => { if (window.updateRealizedPnL) window.updateRealizedPnL(); }, 1000); // Small delay to let filesystem sync if needed
 
         // Parse EXIT for exit marker with PnL
         // Expected format: [EXIT] Manual/Signal: BTCUSD +$2.50 (Pct=1.25%)
@@ -1340,8 +1399,15 @@ function parseLogLine(line) {
             const gradeMatch = body.match(/grade=([A-F][+-]?)/i);
             const forcedGrade = gradeMatch ? gradeMatch[1] : null;
 
-            console.log(`[DECISION-UI] Decision Row for ${symbol}: action=${action}, score=${score}`);
-            addDecisionRow(symbol, action, score, reason, forcedGrade);
+            // Parse strategy-specific fields
+            const stratMatch = body.match(/strategy=([^\s|]+)/i);
+            const stratGradeMatch = body.match(/strat_grade=([A-F][+-]?)/i);
+            const stratName = stratMatch ? stratMatch[1] : null;
+            // Prefer strat_grade when available (strategy-specific); fall back to ICC grade
+            const displayGrade = stratGradeMatch ? stratGradeMatch[1] : forcedGrade;
+
+
+            addDecisionRow(symbol, action, score, reason, displayGrade, stratName);
 
             // Chart Indicator (The "Grey Bars" that should be colorful)
             const headerSym = document.getElementById('chart-symbol-label')?.innerText;
@@ -1978,9 +2044,9 @@ function loadState() {
         if (state.profile) document.getElementById('status-profile').innerText = state.profile;
         if (state.equity) document.getElementById('account-equity').innerText = state.equity;
 
-        // Revised: Only wipe if we don't have enough rows (prevent boot clear of history)
+        // Clear decisions table on load so fresh strategy grades populate
         const decTable = document.getElementById('decisions-table');
-        if (decTable && decTable.rows.length < 5) {
+        if (decTable) {
             decTable.innerHTML = '';
         }
 
@@ -2033,17 +2099,14 @@ function init() {
                 pnlTimeframe = env.GUI_PNL_TIMEFRAME;
                 localStorage.setItem('pnlTimeframe', pnlTimeframe);
             }
-            updateRealizedPnL();
+            if (window.updateRealizedPnL) window.updateRealizedPnL();
         });
 
         // Chart Refresh Interval (15 Seconds)
         setInterval(() => {
             const sym = document.getElementById('chart-symbol-label')?.innerText || 'EURUSD';
             const tf = document.getElementById('chart-tf-label')?.innerText || '15m';
-            console.log(`[SYSTEM] Heartbeat: Refreshing chart for ${sym} @ ${tf}`);
-            // We just trigger a visual refresh or data fetch if needed. 
-            // Since WebSocket drives updates, this interval ensures the chart stays reactive.
-            if (chart) chart.timeScale().scrollToRealTime();
+            // scrollToRealTime removed — it was causing a gap after the last candle
         }, 15000);
 
         console.log("Other UI modules initialized.");
@@ -2101,6 +2164,8 @@ window.profilesModule = (function () {
             console.error('[PNL] Failed to update realized PnL:', err);
         }
     }
+    // Expose to global scope so callers outside this IIFE can access it
+    window.updateRealizedPnL = updateRealizedPnL;
 
     // ──────────────────────────────────────────────────────────────
     // STRATEGY_OPTIONS — master list for Profile Editor dropdowns.

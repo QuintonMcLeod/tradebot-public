@@ -30,6 +30,78 @@ class RubberbandReaperStrategy(BaseStrategy):
         
         logger.debug(f"Reaper Config 20 (Staircase Ratchet) Loaded. BB={self.bb_std}, RSI={self.rsi_oversold}/{self.rsi_overbought}")
 
+    def score_signal(self, snapshot, gates=None):
+        """Reaper-specific scoring: BB Pos(25) + RSI(25) + HTF Align(20) + BB Width(15) + LTF/HTF(15)."""
+        gates = gates or {}
+        closes = [c.close for c in snapshot.candles]
+        if len(closes) < self.bb_period:
+            return 0.0, "F-", "Reaper: Insufficient data"
+
+        lower, mid, upper = calculate_bollinger_bands(closes, self.bb_period, self.bb_std)
+        rsi = calculate_rsi(closes, self.rsi_period)
+        last_close = closes[-1]
+
+        score = 0.0
+        breakdown = []
+
+        # 1. BB Position (25 pts) — how close to a band extreme
+        bb_range = upper - lower if upper > lower else 1e-9
+        if last_close <= lower:
+            score += 25.0
+            breakdown.append("BB-Low(+25)")
+        elif last_close >= upper:
+            score += 25.0
+            breakdown.append("BB-High(+25)")
+        else:
+            dist_to_edge = min(last_close - lower, upper - last_close) / bb_range
+            pts = max(0, 25 * (1 - dist_to_edge * 3))
+            if pts > 0:
+                score += pts
+                breakdown.append(f"BB-Near(+{pts:.0f})")
+
+        # 2. RSI Extremity (25 pts)
+        if rsi <= self.rsi_oversold:
+            score += 25.0
+            breakdown.append(f"RSI-OS({rsi:.0f}=+25)")
+        elif rsi >= self.rsi_overbought:
+            score += 25.0
+            breakdown.append(f"RSI-OB({rsi:.0f}=+25)")
+        else:
+            # Partial credit — closer to extremes = more points
+            dist_to_extreme = min(abs(rsi - self.rsi_oversold), abs(rsi - self.rsi_overbought))
+            mid_dist = (self.rsi_overbought - self.rsi_oversold) / 2
+            pts = max(0, 25 * (1 - dist_to_extreme / mid_dist))
+            if pts > 5:
+                score += pts
+                breakdown.append(f"RSI-Near({rsi:.0f}=+{pts:.0f})")
+
+        # 3. HTF Alignment (20 pts)
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        if htf_dir != "neutral":
+            score += 20.0
+            breakdown.append(f"HTF({htf_dir}=+20)")
+
+        # 4. BB Width / Volatility (15 pts) — wider = better for mean-reversion
+        bb_width = (upper - lower) / mid if mid > 0 else 0
+        if bb_width >= 0.03:
+            score += 15.0
+            breakdown.append(f"Width({bb_width:.3f}=+15)")
+        elif bb_width >= 0.015:
+            pts = 15 * ((bb_width - 0.01) / 0.02)
+            score += pts
+            breakdown.append(f"Width({bb_width:.3f}=+{pts:.0f})")
+
+        # 5. LTF/HTF Agreement (15 pts)
+        ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
+        if htf_dir != "neutral" and ltf_dir != "neutral" and htf_dir == ltf_dir:
+            score += 15.0
+            breakdown.append("Agree(+15)")
+
+        score = min(100.0, score)
+        grade = self.grade_from_score_100(score)
+        summary = f"Reaper {score:.0f}/100: {', '.join(breakdown)}" if breakdown else f"Reaper {score:.0f}/100"
+        return score, grade, summary
+
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
         # --- RISK GOVERNANCE ---
         # Use profile-configured risk (no more dynamic staircase/martingale)

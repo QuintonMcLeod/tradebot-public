@@ -30,61 +30,61 @@ class RoboCopStrategy(BaseStrategy):
     def __init__(self):
         super().__init__("RoboCop")
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, **kwargs) -> Optional[AITradeDecision]:
-        if open_position and float(open_position.get("size", 0)) > 0:
-            return None 
-
+    def _compute_score(self, snapshot, gates=None):
+        """Internal scoring used by both score_signal() and check_entry_signal()."""
         lookback = 2
-
-        # SCORING SYSTEM (Legacy "Engine V1" Logic)
-        # To solve the binary strength filter issue, we grade the setup on a 0-100 scale.
-        # Passing Grade: 60 Points.
-        
         score = 0.0
-        score_breakdown = []
-        
-        # 1. Alignment (+30 pts)
-        # HTF and LTF must match.
-        htf_actual_dir = snapshot.trend_htf.direction
-        ltf_actual_dir = snapshot.trend_ltf.direction
-        
-        if htf_actual_dir != "neutral" and htf_actual_dir == ltf_actual_dir:
+        breakdown = []
+
+        htf_dir = snapshot.trend_htf.direction
+        ltf_dir = snapshot.trend_ltf.direction
+
+        if htf_dir != "neutral" and htf_dir == ltf_dir:
             score += 30.0
-            score_breakdown.append("Align(+30)")
-            
-        # 2. Liquidity Sweep (+25 pts)
-        # Note: We redetect here to check existence before calculating specific entry params
-        # Use the "intended" direction (LTF) for detection
-        target_dir = ltf_actual_dir
+            breakdown.append("Align(+30)")
+
+        target_dir = ltf_dir
         if target_dir == "neutral":
-             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Sniper: Neutral LTF")
+            return score, breakdown, target_dir
 
         sweep = detect_liquidity_sweep(snapshot.candles, target_dir, swing_lookback=lookback)
         if sweep:
-            # Check freshness
             sweep_age = len(snapshot.candles) - 1 - sweep.index
-            if sweep_age <= 5: # Allow slightly wider window for "points", strict 2 for entry
+            if sweep_age <= 5:
                 score += 25.0
-                score_breakdown.append("Sweep(+25)")
+                breakdown.append("Sweep(+25)")
 
-        # 3. Indication/BOS (+25 pts)
         ind = detect_indication(snapshot.candles, swing_lookback=lookback)
         if ind and ind.direction == target_dir:
             score += 25.0
-            score_breakdown.append("BOS(+25)")
-            
-        # 4. Strong HTF Trend (+15 pts)
-        # Reward distinct trends (Strength >= 0.5)
+            breakdown.append("BOS(+25)")
+
         htf_strength = snapshot.trend_htf.strength
         if htf_strength >= 0.5:
             score += 15.0
-            score_breakdown.append(f"StrongHTF({htf_strength:.1f}=+15)")
-            
-        # 5. Good Phase (+5 pts) - Simplified
-        # If we have BOS + Sweep, we are likely not in simple chop
+            breakdown.append(f"StrongHTF({htf_strength:.1f}=+15)")
+
         if sweep and ind:
             score += 5.0
-            score_breakdown.append("Phase(+5)")
+            breakdown.append("Phase(+5)")
+
+        return score, breakdown, target_dir
+
+    def score_signal(self, snapshot, gates=None):
+        """RoboCop-specific scoring: Align(30) + Sweep(25) + BOS(25) + StrongHTF(15) + Phase(5)."""
+        score, breakdown, _ = self._compute_score(snapshot, gates)
+        grade = self.grade_from_score_100(score)
+        summary = f"RoboCop {score:.0f}/100: {', '.join(breakdown)}" if breakdown else f"RoboCop {score:.0f}/100"
+        return score, grade, summary
+
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, **kwargs) -> Optional[AITradeDecision]:
+        if open_position and float(open_position.get("size", 0)) > 0:
+            return None
+
+        score, score_breakdown, target_dir = self._compute_score(snapshot, gates)
+
+        if target_dir == "neutral":
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Sniper: Neutral LTF")
 
         # FILTER: Minimum Score 60
         if score < 60.0:
@@ -95,10 +95,11 @@ class RoboCopStrategy(BaseStrategy):
             )
 
         # --- EXECUTION LOGIC (If Score >= 60) ---
+        lookback = 2
+        sweep = detect_liquidity_sweep(snapshot.candles, target_dir, swing_lookback=lookback)
         
-        # We re-verify the STRICT entry conditions for the specific order parameters
+        # Re-verify STRICT entry conditions for the specific order parameters
         # 1. Must have Fresh Sweep (<= 2 bars) 
-        # (The score gave points for <= 5, but we want strict entry timing)
         if not sweep:
              return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Sniper: Hunting Sweep (Score Pass, No Sweep)")
              
@@ -106,8 +107,8 @@ class RoboCopStrategy(BaseStrategy):
         if sweep_age > 2:
              return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Sniper: Stale Sweep ({sweep_age} bars)")
 
-        # 2. Must have BOS (Indication) - Simple Check, NOT strict continuation
-        # Per user: "Continuations are not mandatory"
+        # 2. Must have BOS (Indication)
+        ind = detect_indication(snapshot.candles, swing_lookback=lookback)
         if not ind or ind.direction != target_dir:
              return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Sniper: Seeking BOS Alignment")
 

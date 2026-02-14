@@ -187,7 +187,9 @@ def build_candidate_list(
             if score >= profile_settings.structure_score_threshold:
                 candidates.append((symbol, snap, score, grade))
             else:
-                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={score*100:.1f} grade={grade} reason=Score {score*100:.1f} ({grade}) below threshold {profile_settings.structure_score_threshold*100:.1f}")
+                strat_name = engines[symbol]._strategy.name
+                strat_score, strat_grade, _ = engines[symbol]._strategy.score_signal(snap, {"score": score, "grade": grade, "htf_dir": snap.trend_htf.direction, "ltf_dir": snap.trend_ltf.direction, "htf_strength": float(snap.trend_htf.strength or 0), "ltf_strength": float(snap.trend_ltf.strength or 0)})
+                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={score*100:.1f} grade={grade} strategy={strat_name} strat_score={strat_score:.1f} strat_grade={strat_grade} reason=Score {score*100:.1f} ({grade}) below threshold {profile_settings.structure_score_threshold*100:.1f}")
         except Exception as e:
             logger.error(f"[CYCLE] Error fetching snapshot for {symbol}: {e}")
             continue
@@ -276,7 +278,10 @@ def process_candidate_cycle(
                 reason = decision.notes if decision else "No strategy signal"
                 d_score = (decision.score * 100.0) if (decision and decision.score is not None) else 0.0
                 d_grade = (decision.grade) if (decision and decision.grade is not None) else "N/A"
-                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} reason={reason}")
+                d_strat_name = getattr(decision, 'strategy_name', 'Unknown') if decision else 'Unknown'
+                d_strat_grade = getattr(decision, 'strat_grade', 'N/A') if decision else 'N/A'
+                d_strat_score = getattr(decision, 'strat_score', 0.0) if decision else 0.0
+                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} strategy={d_strat_name} strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} reason={reason}")
                 blocked += 1
                 continue
             

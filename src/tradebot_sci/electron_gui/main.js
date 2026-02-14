@@ -230,6 +230,80 @@ function setupIpcHandlers() {
     });
 
     // =============================================
+    // Paper Trading Reset
+    // =============================================
+    const DATA_DIR = path.join(__dirname, '../../../data');
+
+    ipcMain.handle('reset-paper-trading', async () => {
+        console.log('[MAIN] Resetting paper trading...');
+
+        // Step 1: Kill the bot
+        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
+        await new Promise((resolve) => {
+            exec(killCmd, (err) => {
+                if (err && err.code !== 1) console.warn('[MAIN] Kill during reset:', err.message);
+                resolve();
+            });
+        });
+
+        // Wait a full 2s for the process to die and flush
+        await new Promise(r => setTimeout(r, 2000));
+
+        // Step 2: Reset paper data files
+        try {
+            const now = new Date().toISOString();
+
+            // paper_state.json
+            const paperState = {
+                balance: 10000.0,
+                positions: {},
+                updated_at: now
+            };
+            fs.writeFileSync(path.join(DATA_DIR, 'paper_state.json'), JSON.stringify(paperState, null, 2));
+
+            // paper_ledger.json
+            const paperLedger = {
+                version: 1,
+                last_updated: now,
+                sundown_timezone: "America/New_York",
+                current_day: {
+                    day_start: "",
+                    pnl_realized: 0.0,
+                    pnl_unrealized: 0.0,
+                    trades: 0,
+                    wins: 0,
+                    losses: 0,
+                    capital_at_start: 10000.0,
+                    capital_now: 10000.0,
+                    best_trade: 0.0,
+                    worst_trade: 0.0,
+                    by_symbol: {},
+                    by_strategy: {},
+                    spread_costs: 0.0,
+                    trade_log: []
+                },
+                days: []
+            };
+            fs.writeFileSync(path.join(DATA_DIR, 'paper_ledger.json'), JSON.stringify(paperLedger, null, 2));
+
+            // paper_trade_results.json
+            fs.writeFileSync(path.join(DATA_DIR, 'paper_trade_results.json'), '[]');
+
+            console.log('[MAIN] Paper trading files reset to $10,000');
+        } catch (err) {
+            console.error('[MAIN] Failed to reset paper files:', err.message);
+            return { success: false, error: err.message };
+        }
+
+        // Step 3: Re-start the bot
+        setTimeout(() => {
+            ipcMain.emit('start-bot');
+        }, 1000);
+
+        return { success: true };
+    });
+
+    // =============================================
     // Self-Update via Git Pull
     // =============================================
     const REPO_ROOT = path.join(__dirname, '../../../');
