@@ -658,8 +658,18 @@ function updatePositionLines(position) {
 
     currentPosition = position;
 
-    // Entry is shown as a MARKER (from [ENTRY] logs), not a line
-    // SL and TP remain as horizontal lines
+    // Entry Price Line (Cyan) — always visible at correct Y-level
+    if (position.entry) {
+        const isBuy = (position.side === 'long');
+        entryPriceLine = candleSeries.createPriceLine({
+            price: position.entry,
+            color: isBuy ? '#06b6d4' : '#f97316',  // Cyan for long, Orange for short
+            lineWidth: 1,
+            lineStyle: 2, // Dashed
+            axisLabelVisible: true,
+            title: `Entry @ ${position.entry.toFixed(2)}`,
+        });
+    }
 
     // Stop Loss Line (Red)
     if (position.sl) {
@@ -1125,29 +1135,20 @@ function updateHoldingsTable(payload) {
         }
 
         // [ANTIGRAVITY] Add entry marker from holdings entry_time
+        // Arrow marker only shown when entry candle is within visible chart range.
+        // The entry PRICE LINE (drawn in updatePositionLines) always shows the correct Y-level.
         if (pos && pos.entryTime && pos.entry) {
             let entryTimeSec = utcToLocal(Math.floor(new Date(pos.entryTime).getTime() / 1000));
             const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
             const interval = tfToSeconds(tfRaw);
-
-            // Snap to candle boundary
             entryTimeSec = Math.floor(entryTimeSec / interval) * interval;
 
-            // Find the closest candle in the actual chart data
             const isBuy = (pos.side === 'long');
             if (candleData && candleData.length > 0) {
                 const firstCandleTime = candleData[0].time;
                 const lastCandleTime = candleData[candleData.length - 1].time;
 
-                if (entryTimeSec < firstCandleTime) {
-                    // Entry is before chart range — place marker on first candle with note
-                    console.log(`[MARKER] Entry time ${entryTimeSec} is before chart range (${firstCandleTime}), placing on first candle`);
-                    addTradeMarker(firstCandleTime, isBuy, currentSym, pos.entry,
-                        `${isBuy ? '▶ BUY' : '◀ SELL'} ${pos.entry?.toFixed(2) || ''} (older)`);
-                } else if (entryTimeSec > lastCandleTime) {
-                    // Entry is after chart range (shouldn't happen normally) — use last candle
-                    addTradeMarker(lastCandleTime, isBuy, currentSym, pos.entry);
-                } else {
+                if (entryTimeSec >= firstCandleTime && entryTimeSec <= lastCandleTime) {
                     // Entry is within chart range — find exact candle match
                     let bestTime = firstCandleTime;
                     let bestDiff = Math.abs(entryTimeSec - firstCandleTime);
@@ -1159,6 +1160,8 @@ function updateHoldingsTable(payload) {
                         }
                     }
                     addTradeMarker(bestTime, isBuy, currentSym, pos.entry);
+                } else {
+                    console.log(`[MARKER] Entry time outside chart range — price line shows entry level`);
                 }
             }
         }
