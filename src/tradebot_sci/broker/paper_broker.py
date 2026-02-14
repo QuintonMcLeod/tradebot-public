@@ -17,13 +17,13 @@ class PaperBroker:
     """A simulated broker for local-only paper trading during Sabbath."""
 
     # [ANTIGRAVITY] Kraken-level trading friction for realistic paper results.
-    # Taker fee: 0.26% (Kraken's standard tier for market/taker orders)
-    # Half-spread: ~0.10% (typical for BTC/ETH; slightly higher for altcoins)
-    # Slippage: ~0.03% (conservative estimate for moderate-size fills)
-    # Total per-leg friction: ~0.39%  |  Round-trip: ~0.78%
-    TAKER_FEE_PCT = float(os.getenv("PAPER_TAKER_FEE_PCT", "0.0026"))     # 0.26%
-    HALF_SPREAD_PCT = float(os.getenv("PAPER_HALF_SPREAD_PCT", "0.0010"))  # 0.10%
-    SLIPPAGE_PCT = float(os.getenv("PAPER_SLIPPAGE_PCT", "0.0003"))        # 0.03%
+    # Taker fee: 0.40% (Kraken Pro lowest tier, <$10K 30-day volume, as of Mar 2024)
+    # Half-spread: ~0.05% (typical for BTC/ETH majors on Kraken)
+    # Slippage: ~0.02% (conservative estimate for moderate-size fills)
+    # Total per-leg friction: ~0.47%  |  Round-trip: ~0.94%
+    TAKER_FEE_PCT = float(os.getenv("PAPER_TAKER_FEE_PCT", "0.0040"))     # 0.40%
+    HALF_SPREAD_PCT = float(os.getenv("PAPER_HALF_SPREAD_PCT", "0.0005"))  # 0.05%
+    SLIPPAGE_PCT = float(os.getenv("PAPER_SLIPPAGE_PCT", "0.0002"))        # 0.02%
     
     def __init__(self, profile_settings, market_provider=None, trade_results=None, initial_balance=10000.0):
         self.profile = profile_settings
