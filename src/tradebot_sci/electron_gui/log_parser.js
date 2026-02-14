@@ -10,6 +10,8 @@ const readline = require('readline');
 
 const LOGS_DIR = path.join(__dirname, '../../../logs');
 const LEDGER_PATH = path.join(__dirname, '../../../data/ledger.json');
+const PAPER_LEDGER_PATH = path.join(__dirname, '../../../data/paper_ledger.json');
+const SABBATH_FLAG = path.join(__dirname, '../../../data/.sabbath_active');
 
 // ─────────────────────────────────────────────────────────────────────────
 // LEDGER-BASED DATA (preferred path — fast JSON read)
@@ -21,13 +23,21 @@ const LEDGER_PATH = path.join(__dirname, '../../../data/ledger.json');
  */
 function readLedger() {
     try {
-        if (!fs.existsSync(LEDGER_PATH)) return null;
-        const raw = fs.readFileSync(LEDGER_PATH, 'utf8');
+        // [ANTIGRAVITY] During Sabbath, read from paper_ledger.json instead
+        const isSabbath = fs.existsSync(SABBATH_FLAG);
+        const targetPath = isSabbath ? PAPER_LEDGER_PATH : LEDGER_PATH;
+        if (!fs.existsSync(targetPath)) return null;
+        const raw = fs.readFileSync(targetPath, 'utf8');
         const data = JSON.parse(raw);
-        if (data && data.version) return data;
+        if (data && data.version) {
+            if (isSabbath) {
+                console.log('[LOG_PARSER] Sabbath active — reading paper_ledger.json');
+            }
+            return data;
+        }
         return null;
     } catch (e) {
-        console.error('[LOG_PARSER] Failed to read ledger.json:', e.message);
+        console.error('[LOG_PARSER] Failed to read ledger:', e.message);
         return null;
     }
 }
@@ -574,6 +584,9 @@ async function parseLogFile(filePath, startTime = null, endTime = null) {
         for await (const line of rl) {
             const timestamp = parseTimestamp(line);
             if (!timestamp) continue;
+
+            // [ANTIGRAVITY] Skip paper/Sabbath lines — they have their own ledger
+            if (line.includes('[PAPER]')) continue;
 
             // Apply time filters
             if (startTime && timestamp < startTime) continue;

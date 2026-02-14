@@ -155,6 +155,7 @@ class LedgerDaemon:
         # Track the next sundown boundary
         self._next_sundown: Optional[datetime] = None
         self._last_strategy: str = ""  # last META tournament winner seen
+        self._paper_mode: bool = False  # When True, only process [PAPER] lines
 
         # Load existing ledger if present
         self._load_ledger()
@@ -287,9 +288,15 @@ class LedgerDaemon:
             if m_tour:
                 self._last_strategy = m_tour.group("strategy")
 
-            # ── Skip paper/Sabbath trades — they must NOT pollute the live ledger ──
-            if "[PAPER]" in line:
-                continue
+            # ── Route lines by mode: live skips [PAPER], paper only reads [PAPER] ──
+            is_paper_line = "[PAPER]" in line
+            if self._paper_mode and not is_paper_line:
+                continue  # Paper ledger ignores non-paper lines
+            if not self._paper_mode and is_paper_line:
+                continue  # Live ledger ignores paper lines
+            # Strip [PAPER] tag so downstream regexes match normally
+            if is_paper_line:
+                line = line.replace("[PAPER] ", "").replace("[PAPER]", "")
 
             # ── EXIT lines — closed trades ────────────────────────
             if "[EXIT]" in line:
@@ -313,7 +320,7 @@ class LedgerDaemon:
                     current["trades"] += 1
                     if pnl_val > 0:
                         current["wins"] += 1
-                    elif pnl_val < 0:
+                    else:
                         current["losses"] += 1
 
                     current["spread_costs"] += spread

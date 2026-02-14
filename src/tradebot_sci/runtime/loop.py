@@ -50,7 +50,7 @@ from tradebot_sci.runtime.cycle import (
 logger = logging.getLogger(__name__)
 
 
-def _log_holdings_snapshot(executor, *, reason: str) -> None:
+def _log_holdings_snapshot(executor, *, reason: str, tag: str = "") -> None:
     """
     Emit a structured holdings snapshot for UI consumers (tmux/GUI).
     This line is JSON-only (no free-form filler) so it can be parsed reliably.
@@ -98,7 +98,7 @@ def _log_holdings_snapshot(executor, *, reason: str) -> None:
         "total_unrealized_pnl": total_pnl,
         "positions": positions,
     }
-    logger.info("[HOLDINGS] %s", json.dumps(payload, sort_keys=True))
+    logger.info("%s[HOLDINGS] %s", tag, json.dumps(payload, sort_keys=True))
 
 def _engine_decide(engine, timeframe: str, open_position, snapshot, execution_capabilities: dict | None):
     decide_fn = getattr(engine, "decide", None)
@@ -617,6 +617,7 @@ def run_bot(
     )
     # [ANTIGRAVITY FIX] Only create PaperBroker if Sabbath is enabled (its only use case)
     executor_paper = None
+    paper_ledger = None
     if sabbath_context.enabled:
         executor_paper = PaperBroker(
             profile_settings,
@@ -624,6 +625,19 @@ def run_bot(
             trade_results=trade_results
         )
         logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
+        # [ANTIGRAVITY] Separate paper ledger — never pollutes the live ledger
+        paper_ledger = LedgerDaemon(
+            log_path=os.path.join("logs", "tradebot.log"),
+            ledger_path=os.path.join("data", "paper_ledger.json"),
+            interval=60,
+            lat=getattr(profile_settings, "sabbath_lat", 33.764),
+            lon=getattr(profile_settings, "sabbath_lon", -84.386),
+            tz_name=getattr(profile_settings, "sabbath_timezone", "America/New_York"),
+        )
+        # Override: paper ledger only processes [PAPER] lines (inverse of live)
+        paper_ledger._paper_mode = True
+        paper_ledger.start()
+        logger.info("[PAPER] Paper ledger daemon started -> data/paper_ledger.json")
     else:
         logger.info("[PAPER] Paper Broker disabled (Sabbath not enabled).")
 
@@ -838,9 +852,19 @@ def run_bot(
             if sabbath_active and executor_paper and executor != executor_paper:
                 logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading for total silence.")
                 executor = executor_paper
+                # Flag for GUI: switch to paper ledger
+                try:
+                    Path("data/.sabbath_active").touch()
+                except Exception:
+                    pass
             elif not sabbath_active and executor_paper and executor == executor_paper:
                 logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker connection.")
                 executor = executor_real
+                # Flag for GUI: switch back to live ledger
+                try:
+                    Path("data/.sabbath_active").unlink(missing_ok=True)
+                except Exception:
+                    pass
 
             if executor:
                 # refresh_account_summary for PaperBroker is local only
@@ -861,7 +885,11 @@ def run_bot(
                 
                 now_ts = time.time()
                 if now_ts - last_holdings_log_ts >= 5.0:
-                    _log_holdings_snapshot(executor, reason="heartbeat")
+                    # [ANTIGRAVITY] Tag paper holdings so live ledger skips them
+                    if executor == executor_paper:
+                        _log_holdings_snapshot(executor, reason="heartbeat", tag="[PAPER] ")
+                    else:
+                        _log_holdings_snapshot(executor, reason="heartbeat")
                     last_holdings_log_ts = now_ts
                 
                 # [ANTIGRAVITY] Periodic Capital Check
@@ -869,7 +897,11 @@ def run_bot(
                     try:
                          # Force a fresh check of Total Equity for UI consistency
                          cap = executor.get_total_balance_value()
-                         logger.info(f"[HEARTBEAT] Capital available: ${cap:.2f}")
+                         # [ANTIGRAVITY] Paper heartbeats tagged so live ledger ignores them
+                         if executor == executor_paper:
+                             logger.info(f"[PAPER] [HEARTBEAT] Capital available: ${cap:.2f}")
+                         else:
+                             logger.info(f"[HEARTBEAT] Capital available: ${cap:.2f}")
                          last_capital_check_ts = now_ts
                     except Exception as e:
                          logger.warning(f"[HEARTBEAT] Failed to check capital: {e}")

@@ -302,14 +302,14 @@ function setupIpcHandlers() {
             });
         });
 
-        // Step 2: Git pull using detected branch
+        // Step 2: Force-reset to remote branch (download-only, no merge conflicts)
         const pullResult = await new Promise((resolve) => {
-            exec(`git pull --ff-only origin ${branch}`, { cwd: REPO_ROOT, timeout: 30000 }, (err, stdout, stderr) => {
+            exec(`git fetch origin ${branch} && git reset --hard origin/${branch}`, { cwd: REPO_ROOT, timeout: 30000 }, (err, stdout, stderr) => {
                 if (err) {
-                    console.error('[MAIN] git pull failed:', err.message);
+                    console.error('[MAIN] git reset failed:', err.message);
                     return resolve({ success: false, error: stderr || err.message });
                 }
-                console.log('[MAIN] git pull output:', stdout.trim());
+                console.log('[MAIN] git reset output:', stdout.trim());
                 resolve({ success: true, output: stdout.trim() });
             });
         });

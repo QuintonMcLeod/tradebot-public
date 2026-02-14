@@ -94,9 +94,9 @@ class PaperBroker:
         return total
 
     def refresh_account_summary(self) -> None:
-        # [ANTIGRAVITY FIX] Standardized log format to match UI's regex (removed '(PAPER)')
-        logger.info(f"[TOTAL] Liquidity available: ${self.balance:.2f}")
-        logger.info(f"[CASH] Buying Power: ${self.balance:.2f}")
+        # [ANTIGRAVITY] Prefixed with [PAPER] so ledger daemon skips these lines
+        logger.info(f"[PAPER] [TOTAL] Liquidity available: ${self.balance:.2f}")
+        logger.info(f"[PAPER] [CASH] Buying Power: ${self.balance:.2f}")
 
     def execute_decision(self, decision: AITradeDecision) -> tuple[ExecutionResult, ExecutionOutcome]:
         action = decision.action

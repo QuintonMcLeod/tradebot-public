@@ -1762,7 +1762,7 @@ function setupInteractiveElements() {
             if (result.available) {
                 btn.classList.remove('hidden');
                 btn.style.display = 'flex';
-                btnText.innerText = 'Update Available — Click Here';
+                btnText.innerText = 'Update Available';
                 appendLog("INFO", "[UPDATE] Update available from remote");
             } else {
                 btn.classList.add('hidden');
