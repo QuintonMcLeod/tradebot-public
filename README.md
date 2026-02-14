@@ -49,7 +49,7 @@ Choose from **16+ premium themes** — each with a unique background, color pale
 
 ## Features
 
-- **9 Trading Strategies** — Mean reversion, breakout, scalping, trend-following, and more
+- **17 Trading Strategies** — Mean reversion, breakout, scalping, trend-following, and more
 - **Per-Asset Strategy Selection** — Assign different strategies to forex, crypto, stocks, etc.
 - **Multi-Broker Support** — OANDA, Interactive Brokers, Gemini, Coinbase, Kraken (via CCXT)
 - **Electron GUI Dashboard** — Real-time charts, holdings, decisions panel, system logs
@@ -105,13 +105,16 @@ Choose from **16+ premium themes** — each with a unique background, color pale
 ### Per-Asset Strategy Assignment
 
 ```yaml
+# Default: meta_sci runs all strategies in a tournament and picks the best
+strategy_variant: meta_sci
+
+# Or assign specific strategies per asset class:
 strategies:
-  crypto: rubberband_reaper
-  forex: rubberband_reaper
+  crypto: meta_sci
+  forex: meta_sci
   stocks: quantum
   etf: quantum
   metals: mean_reversion
-  futures: volatility_breakout
 ```
 
 Configure in **Settings → Strategy Workshop → Asset Strategies**.
@@ -221,11 +224,16 @@ This opens the dashboard where you can:
 |---------|-------|---------|
 | `forex_continuous` | Forex pairs via OANDA | 24/7 (Sabbath pause) |
 | `forex_crypto_hybrid` | Forex + Crypto combined | 24/7 |
+| `forex_intraday` | Forex via IBKR | Market hours |
 | `crypto_247` | Crypto spot via CCXT | 24/7 |
+| `all_247` | All assets combined | 24/7 |
+| `oanda_multi_asset` | Forex + Metals via OANDA | 24/7 |
 | `coinbase_futures` | Crypto futures | 24/7 |
+| `coinbase_futures_nano` | Nano BTC/ETH futures | 24/7 |
 | `auto_schedule` | Auto-switches by market hours | Smart scheduling |
 | `intraday` | Equities intraday via IBKR | Market hours |
 | `swing` | Multi-day holds | Daily candles |
+| `scalp` | 1-minute scalping | Any |
 
 Select your profile in **Settings → System → Active Profile**.
 
