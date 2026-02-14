@@ -287,6 +287,10 @@ class LedgerDaemon:
             if m_tour:
                 self._last_strategy = m_tour.group("strategy")
 
+            # ── Skip paper/Sabbath trades — they must NOT pollute the live ledger ──
+            if "[PAPER]" in line:
+                continue
+
             # ── EXIT lines — closed trades ────────────────────────
             if "[EXIT]" in line:
                 m = RE_EXIT.search(line)

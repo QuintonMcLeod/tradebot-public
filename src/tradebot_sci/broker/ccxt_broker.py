@@ -64,6 +64,13 @@ class CCXTExchangeBroker:
     COINBASE_FEE_RATE = float(os.getenv("COINBASE_FEE_RATE", "0.006"))  # 0.60% taker
     DEFAULT_FEE_RATE = float(os.getenv("DEFAULT_FEE_RATE", "0.004"))  # 0.40% safe default
 
+    # [ANTIGRAVITY] Kraken fee/spread/slippage awareness
+    # Kraken uses tiered maker/taker: 0.16%/0.26% for <$50K monthly volume
+    KRAKEN_MAKER_FEE = float(os.getenv("KRAKEN_MAKER_FEE", "0.0016"))   # 0.16% maker
+    KRAKEN_TAKER_FEE = float(os.getenv("KRAKEN_TAKER_FEE", "0.0026"))   # 0.26% taker
+    KRAKEN_AVG_SLIPPAGE = float(os.getenv("KRAKEN_AVG_SLIPPAGE", "0.001"))  # ~0.10% est. slippage on market orders
+    KRAKEN_LIMIT_OFFSET = float(os.getenv("KRAKEN_LIMIT_OFFSET", "0.001"))  # 0.1% limit offset
+
     def __init__(self, profile: TradingProfileSettings, position_hold_store_path: str | None = None, default_type: str | None = None, trade_results: TradeResultStore | None = None) -> None:
         self.profile = profile
         self.trade_results = trade_results
@@ -2028,7 +2035,20 @@ class CCXTExchangeBroker:
             return self.GEMINI_FEE_RATE
         elif "coinbase" in eid:
             return self.COINBASE_FEE_RATE
+        elif "kraken" in eid:
+            return self.KRAKEN_TAKER_FEE
         return self.DEFAULT_FEE_RATE
+
+    def _get_maker_fee_rate(self) -> float:
+        """[ANTIGRAVITY] Return exchange-specific maker fee rate (for limit orders)."""
+        eid = self.exchange_id.lower()
+        if "kraken" in eid:
+            return self.KRAKEN_MAKER_FEE
+        elif "gemini" in eid:
+            return self.GEMINI_FEE_RATE * 0.5  # Gemini maker is roughly half taker
+        elif "coinbase" in eid:
+            return self.COINBASE_FEE_RATE * 0.67  # Coinbase maker ~0.40%
+        return self.DEFAULT_FEE_RATE * 0.5
 
     def _ccxt_create_order(self, symbol: str, type: str, side: str, amount: float, price: float | None = None, params: dict | None = None) -> dict:
         """Wrapper for ccxt.create_order with Gemini market->limit conversion.
