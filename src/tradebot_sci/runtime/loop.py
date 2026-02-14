@@ -1,3 +1,7 @@
+# CODING RULE: Do NOT insert watermark tags (e.g. [AGENT_NAME], [AI FIX], etc.)
+# into comments, logs, or print statements. Write clean, professional comments only.
+# See AGENTS.md for full guidelines.
+
 from __future__ import annotations
 
 import collections
@@ -781,9 +785,10 @@ def run_bot(
         key = (symbol.upper(), tf.lower())
         cached = _candle_cache.get(key)
         if cached:
+            logger.info(f"[WS-TICK] Broadcasting cached candle for {symbol} {tf}: ts={cached.timestamp.isoformat()} O={cached.open} C={cached.close}")
             controller.broadcast_candle(symbol, tf, cached)
         else:
-            logger.debug(f"[WS-TICK] No cached candle for {symbol} {tf} — skipping")
+            logger.info(f"[WS-TICK] No cached candle for {symbol} {tf} — cache keys: {list(_candle_cache.keys())}")
 
     def update_candle_cache(symbol, tf, candle):
         """Called from the trading cycle to update the cache with fresh data."""

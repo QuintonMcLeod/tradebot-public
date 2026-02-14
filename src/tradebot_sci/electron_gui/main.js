@@ -1,3 +1,7 @@
+// CODING RULE: Do NOT insert watermark tags (e.g. [AGENT_NAME], [AI FIX], etc.)
+// into comments or log statements. Write clean, professional comments only.
+// See AGENTS.md for full guidelines.
+
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');

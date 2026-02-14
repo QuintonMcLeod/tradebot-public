@@ -1,3 +1,7 @@
+// CODING RULE: Do NOT insert watermark tags (e.g. [AGENT_NAME], [AI FIX], etc.)
+// into comments or log statements. Write clean, professional comments only.
+// See AGENTS.md for full guidelines.
+
 // --- Chart & DOM State ---
 let chart;
 let candleSeries;
@@ -414,36 +418,50 @@ async function connectWebSocket() {
                 const currentTfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
                 const normalizeTf = (t) => t.toLowerCase().trim();
 
-                console.log(`[CANDLE-RX] msg.symbol="${msg.symbol}" msg.tf="${msg.tf}" | chart="${currentSym}" chartTf="${currentTfRaw}" | symMatch=${msg.symbol === currentSym} tfMatch=${normalizeTf(msg.tf) === normalizeTf(currentTfRaw)} | candleDataLen=${candleData.length}`);
-
                 if (msg.symbol === currentSym && normalizeTf(msg.tf) === normalizeTf(currentTfRaw)) {
                     const localTime = utcToLocal(msg.data.time);
+
+                    // Guard: skip candles older than the chart's last known bar
+                    const lastTime = candleData.length > 0 ? candleData[candleData.length - 1].time : 0;
+                    if (localTime < lastTime) {
+                        // Stale cached candle — skip to avoid LWC "Cannot update oldest data" error
+                        return;
+                    }
+
                     const newBar = {
                         time: localTime,
                         open: msg.data.open, high: msg.data.high, low: msg.data.low, close: msg.data.close
                     };
 
-                    // Merge into candleData: update last bar if same time, else append
+                    // Keep candleData in sync for indicator calculations
                     if (candleData.length > 0 && candleData[candleData.length - 1].time === localTime) {
                         candleData[candleData.length - 1] = newBar;
-                    } else if (candleData.length === 0 || localTime > candleData[candleData.length - 1].time) {
+                    } else {
                         candleData.push(newBar);
                     }
 
-                    console.log(`[CANDLE-RX] Calling setData with ${candleData.length} bars. Last bar: t=${localTime} O=${newBar.open} C=${newBar.close}`);
-                    // Full re-render — more reliable than incremental update()
-                    candleSeries.setData(candleData);
+                    // Update the chart — use try/catch as a safety net
+                    try {
+                        candleSeries.update(newBar);
+                    } catch (e) {
+                        console.warn(`[CANDLE-RX] update() failed, falling back to setData: ${e.message}`);
+                        candleSeries.setData(candleData);
+                    }
 
                     if (indicatorSeries && typeof msg.data.volume !== 'undefined') {
                         const isUp = msg.data.close >= msg.data.open;
                         const themeNow = window.ThemeEngine ? window.ThemeEngine.THEMES[window.ThemeEngine.getActiveThemeId()] : null;
                         const volUp = (themeNow && themeNow.candleUp) || '#2dd4bf';
                         const volDown = (themeNow && themeNow.candleDown) || '#f43f5e';
-                        indicatorSeries.update({
-                            time: localTime,
-                            value: msg.data.volume,
-                            color: isUp ? volUp : volDown
-                        });
+                        try {
+                            indicatorSeries.update({
+                                time: localTime,
+                                value: msg.data.volume,
+                                color: isUp ? volUp : volDown
+                            });
+                        } catch (e) {
+                            // Volume update can also fail with stale time
+                        }
                     }
                 }
             } else if (msg.type === 'log') {
