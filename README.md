@@ -1,10 +1,8 @@
-# Tradebot SCI Enterprise - Multi-Strategy Trading System
+# Tradebot SCI — Multi-Strategy Trading System
 
 ![Tradebot Dashboard](Documentation/images/theme_aurora_dashboard.png)
 
-> **"9 Strategies. 6 Asset Classes. One Unified Platform."**
->
-> An automated trading system supporting stocks, forex, crypto, ETFs, metals, and futures across Interactive Brokers, OANDA, and crypto exchanges. Choose the right strategy for each asset class — from aggressive scalping to patient trend-following.
+> An automated trading system supporting forex, crypto, metals, and more across Interactive Brokers, OANDA, Gemini, Coinbase, and Kraken. Multiple strategies, configurable risk, and a polished Electron GUI.
 
 ---
 
@@ -49,80 +47,104 @@ Choose from **16+ premium themes** — each with a unique background, color pale
 
 ---
 
-## What's New
+## Features
 
-- **9 Trading Strategies** — From mean reversion to momentum breakouts
-- **Per-Asset Strategy Selection** — Different strategies for crypto vs forex vs stocks
-- **OANDA Integration** — Full forex support via OANDA API
-- **Coinbase Futures** — Trade nano BTC/ETH futures (US compliant)
-- **Tiered Risk System** — Anti-martingale money management
-- **Beautiful Settings GUI** — Intuitive Electron-based configuration
+- **9 Trading Strategies** — Mean reversion, breakout, scalping, trend-following, and more
+- **Per-Asset Strategy Selection** — Assign different strategies to forex, crypto, stocks, etc.
+- **Multi-Broker Support** — OANDA, Interactive Brokers, Gemini, Coinbase, Kraken (via CCXT)
+- **Electron GUI Dashboard** — Real-time charts, holdings, decisions panel, system logs
+- **16+ Themes** — Premium visual themes with animated backgrounds
+- **Sabbath Mode** — Automatic trading pause with local paper-trading simulation
+- **Position Lock** — Prevents strategy whiplash on the same symbol
+- **Fee & Spread Awareness** — Per-broker fee deduction for accurate PnL
+- **Configurable Risk** — Tiered sizing, max daily loss, breakeven trailing
 
 ---
 
 ## Trading Strategies
 
-Choose the right strategy for each asset class. Each has different strengths:
+17 strategies organized by market condition. **No strategy is guaranteed to be profitable.** Backtest results do not predict live performance.
 
-| Strategy | Style | Risk | Best For |
-|----------|-------|------|----------|
-| **Rubberband Reaper** | Mean Reversion | Adaptive | Ranging markets, volatile assets. Anti-martingale sizing (+7,036% verified) |
-| **RoboCop** | Aggressive Scalping | High | Trending markets, high volatility. 1-bar confirmation, 3.0 ATR targets |
-| **Robot Evolution** | Range Trading | Low-Medium | Sideways markets. Trades NTZ (No-Trade-Zone) edges |
-| **Quantum** | Trend Following | Medium | Strong trending forex. SMA pullback entries |
-| **Mean Reversion** | Mean Reversion | Medium | Ranging crypto/forex. Bollinger + RSI extremes |
-| **HyperScalper** | Fast Scalping | High | Liquid forex, fast markets. 9/21/200 EMA crossovers |
-| **London Breakout** | Breakout | Medium | GBP pairs, European session. Opening range breakouts |
-| **Volatility Breakout** | Breakout | Medium-High | Any compressed market. Catches range expansion |
-| **Singularity Aggregator** | Multi-Strategy | Variable | Maximum capital efficiency. Runs 2 strategies in parallel |
+#### Trending Market
+| Strategy | Style | Description |
+|----------|-------|-------------|
+| **Supply & Demand** | Zone Trading | Identifies supply/demand zones for entries |
+| **RoboCop** | Aggressive Scalping | 1-bar confirmation, fast ATR targets |
+| **HyperScalper** | Fast Scalping | 9/21/200 EMA crossover system |
+| **Trend Rider** | Trend Following | Rides directional momentum |
+| **Quantum** | Trend Following | SMA pullback entries in strong trends |
+
+#### Ranging / Reversal
+| Strategy | Style | Description |
+|----------|-------|-------------|
+| **Rubberband Reaper** | Mean Reversion | Adaptive sizing for volatile ranging markets |
+| **ICC Core** | Structure Trading | Indication → Correction → Continuation framework |
+| **Mean Reversion** | Mean Reversion | Bollinger Band + RSI extreme entries |
+| **Bearish Engulfing** | Candlestick Reversal | Engulfing pattern detection with confirmation |
+
+#### Session-Based
+| Strategy | Style | Description |
+|----------|-------|-------------|
+| **London Breakout** | Breakout | European session opening range breakouts |
+| **ORB Breakout** | Breakout | Opening Range Breakout strategy |
+| **Session Momentum** | Momentum | Rides session-open momentum |
+
+#### Crypto-Specific
+| Strategy | Style | Description |
+|----------|-------|-------------|
+| **Crypto RSI/MACD** | Oscillator | RSI + MACD crossover for crypto |
+| **Crypto VWAP Reversion** | Mean Reversion | VWAP deviation entries |
+| **Crypto Double MACD** | Dual Timeframe | Multi-MACD confirmation |
+| **Crypto Grid** | Grid Trading | Range-bound grid entries |
+
+#### Meta Engine
+| Strategy | Style | Description |
+|----------|-------|-------------|
+| **Meta-SCI** | Adaptive Tournament | Runs all strategies in parallel, picks the best signal per market regime. Champion/Challenger system with regime detection |
 
 ### Per-Asset Strategy Assignment
 
-The bot can use different strategies for different asset classes:
-
 ```yaml
 strategies:
-  crypto: rubberband_reaper    # Anti-martingale for volatile crypto
-  forex: rubberband_reaper     # Proven on EUR/USD, GBP/JPY
-  stocks: quantum              # Trend-following for equities
-  etf: quantum                 # Works well on SPY, QQQ
-  metals: mean_reversion       # Gold/Silver tend to range
-  futures: volatility_breakout # Catch breakouts on ES, NQ
+  crypto: rubberband_reaper
+  forex: rubberband_reaper
+  stocks: quantum
+  etf: quantum
+  metals: mean_reversion
+  futures: volatility_breakout
 ```
 
-Configure this in the **Settings → Strategy Workshop → Asset Strategies** tab.
+Configure in **Settings → Strategy Workshop → Asset Strategies**.
 
 ---
 
 ## Supported Brokers
 
-| Broker | Asset Classes | Status |
-|--------|---------------|--------|
-| **Interactive Brokers** | Stocks, ETFs, Forex, Futures, Crypto | Full Support |
-| **OANDA** | Forex, Metals | Full Support |
-| **Coinbase (CCXT)** | Crypto Spot, Nano Futures | Full Support |
-| **Other CCXT Exchanges** | Crypto | Experimental |
+| Broker | Asset Classes | Fee Handling | Status |
+|--------|---------------|--------------|--------|
+| **OANDA** | Forex, Metals | Spread-aware (configurable avg pips) | Full Support |
+| **Interactive Brokers** | Stocks, ETFs, Forex, Futures | Commission-based | Full Support |
+| **Gemini (CCXT)** | Crypto Spot | 0.40% taker / maker-first logic | Full Support |
+| **Coinbase (CCXT)** | Crypto Spot, Nano Futures | 0.60% taker | Full Support |
+| **Kraken (CCXT)** | Crypto Spot, Margin | 0.26% taker / 0.16% maker | Ready |
+| **Other CCXT Exchanges** | Crypto | Default 0.40% | Experimental |
 
 ---
 
 ## 1. Prerequisites
 
-Before you clone anything, ensure you have:
-
-1. **Python 3.11+** — Required for modern async features
-2. **Poetry** — Dependency management: `pip install poetry`
+1. **Python 3.11+**
+2. **Poetry** — `pip install poetry`
 3. **Node.js 18+** — For the Electron GUI (optional but recommended)
 4. **Broker Access** (at least one):
    - **IBKR TWS/Gateway** — Port 7497 (paper) or 7496 (live)
    - **OANDA Account** — API key from OANDA Hub
-   - **Coinbase Advanced** — API key for crypto
+   - **Coinbase/Gemini/Kraken** — API key + secret
 5. **AI Provider Key** — OpenAI, Gemini, Claude, or DeepSeek
 
 ---
 
-## 2. Installation (Multi-Platform)
-
-The easiest way to get started is using our **Universal Installer**. It handles system dependencies, Python environment, Node.js, and creating shortcuts.
+## 2. Installation
 
 ### 🐧 Linux (Ubuntu, Debian, Fedora, Arch) & 🍎 macOS
 ```bash
@@ -132,45 +154,34 @@ chmod +x scripts/install.sh && ./scripts/install.sh
 ```
 > **macOS Note**: The installer uses Homebrew (`brew`) to install dependencies and creates a clickable `.command` launcher on your Desktop.
 
-### 🪟 Windows (Installation Guide)
-**The Easy Way (One-Click Installer)**
-
-1.  **Download the Code**:
-    *   If you have Git: `git clone https://gitlab.com/ultraedge/tradebot-public.git`
-    *   **Or Download ZIP**: [Download ZIP](https://gitlab.com/ultraedge/tradebot-public/-/archive/main/tradebot-public-main.zip), extract it, and open the folder.
-
-2.  **Run the Installer**:
-    *   Right-click `scripts/windows_installer.ps1`
-    *   Select **"Run with PowerShell"**
-    *   *The script will automatically install Python, Node.js, and everything else you need.*
-
+### 🪟 Windows
+1.  **Download**: `git clone https://gitlab.com/ultraedge/tradebot-public.git` or [Download ZIP](https://gitlab.com/ultraedge/tradebot-public/-/archive/main/tradebot-public-main.zip)
+2.  **Install**: Right-click `scripts/windows_installer.ps1` → "Run with PowerShell"
 3.  **Done!** Double-click the `Tradebot SCI` icon on your desktop.
 
-### Manual Configuration (Advanced)
-If you prefer to set up manually, please refer to the [Legacy Installation Guide](Documentation/installation_manual.md) (or use `poetry install --with gui`).
-
-### Step 3: Configure Environment
+### Manual Setup
 ```bash
+poetry install --with gui
 cp .env.example .env
 # Edit .env with your API keys
 ```
 
-Key variables to set:
+Key environment variables:
 ```bash
 # AI Provider
 TRADE_SCI_PROVIDER=gemini
 CHATGPT_KEY=your-api-key
 
 # Broker (choose one or more)
-IBKR_HOST=127.0.0.1
-IBKR_PORT=7497
-
 OANDA_ACCOUNT_ID=101-001-xxxxx-001
 OANDA_API_KEY=your-oanda-token
 
-CCXT_EXCHANGE=coinbase
-CCXT_API_KEY=your-coinbase-key
-CCXT_SECRET=your-coinbase-secret
+CCXT_EXCHANGE=gemini
+CCXT_API_KEY=your-key
+CCXT_SECRET=your-secret
+
+IBKR_HOST=127.0.0.1
+IBKR_PORT=7497
 ```
 
 ---
@@ -178,18 +189,17 @@ CCXT_SECRET=your-coinbase-secret
 ## 3. Launch
 
 ### GUI Mode (Recommended)
-
 ```bash
 ./scripts/tradebot.sh --gui
 ```
 
 This opens the dashboard where you can:
 - Start/Stop the bot
-- Monitor trades in real-time
-- Adjust settings with visual controls
+- Monitor trades, holdings, and decisions in real-time
+- Adjust all settings with visual controls
+- Switch between 16+ themes
 
 ### Settings Only
-
 ```bash
 ./scripts/tradebot.sh --settings
 ```
@@ -197,15 +207,9 @@ This opens the dashboard where you can:
 ![Settings Window](Documentation/images/theme_autumn_settings.png)
 
 ### Headless / Terminal Mode
-
 ```bash
-# Standard launch with TMUX dashboard
 ./scripts/tradebot.sh
-
-# Specific profile
 ./scripts/tradebot.sh --profile forex_continuous
-
-# Continuous crypto mode
 ./scripts/tradebot.sh --profile crypto_247 --mode continuous
 ```
 
@@ -213,19 +217,15 @@ This opens the dashboard where you can:
 
 ## 4. Configuration Profiles
 
-Pre-configured profiles for different trading styles:
-
 | Profile | Focus | Session |
 |---------|-------|---------|
-| `forex_continuous` | Forex pairs via OANDA | 24/7 (Sabbath excluded) |
-| `forex_intraday` | Forex via IBKR | Market hours |
-| `crypto_247` | Crypto spot | 24/7 |
+| `forex_continuous` | Forex pairs via OANDA | 24/7 (Sabbath pause) |
+| `forex_crypto_hybrid` | Forex + Crypto combined | 24/7 |
+| `crypto_247` | Crypto spot via CCXT | 24/7 |
 | `coinbase_futures` | Crypto futures | 24/7 |
-| `coinbase_futures_nano` | Nano BTC/ETH futures | 24/7 |
-| `auto_schedule` | Auto-switches equity/crypto | Smart scheduling |
-| `intraday` | Equities intraday | 9:30-4:00 ET |
+| `auto_schedule` | Auto-switches by market hours | Smart scheduling |
+| `intraday` | Equities intraday via IBKR | Market hours |
 | `swing` | Multi-day holds | Daily candles |
-| `scalp` | 1-minute scalping | Any |
 
 Select your profile in **Settings → System → Active Profile**.
 
@@ -233,34 +233,31 @@ Select your profile in **Settings → System → Active Profile**.
 
 ## 5. Risk Management
 
-### Tiered Anti-Martingale System
+### Tiered Risk System
 
-The bot uses adaptive risk that **increases after wins** and **decreases after losses**:
+Risk per trade scales with account size:
 
 | Account Size | Risk Per Trade |
 |--------------|----------------|
-| Below $1,000 | 20% (aggressive growth) |
-| $1,000-$5,000 | 10% (growth) |
-| Above $5,000 | 1-5% (capital preservation) |
+| Below $500 | 5% (micro account growth) |
+| $500–$2,000 | 2–3% (small account) |
+| $2,000–$10,000 | 1–2% (standard) |
+| Above $10,000 | 0.5–1% (capital preservation) |
 
-### Pyramiding (Scaling Into Winners)
-
-1. **Probe Entry** (1% risk) — "Feet Wet" initial position
-2. **Load** (30% risk) — Add when trade proves profitable
-3. **Scale** (10% risk) — Continue adding to winners
+> [!WARNING]
+> Even with tiered risk, **losses are inevitable**. No risk system eliminates losing trades. The goal is to keep losses small and let winners run.
 
 ### Safety Features
 
-- **Max Daily Loss** — Circuit breaker stops trading if exceeded
-- **Sabbath Mode** — Auto-pause Friday sunset to Saturday sunset
+- **Max Daily Loss** — Circuit breaker stops all trading if threshold exceeded
+- **Sabbath Mode** — Auto-pause Friday sunset to Saturday sunset (paper trades locally during pause)
+- **Position Lock** — Prevents conflicting signals from flipping an active position
+- **Breakeven Trailing** — Moves stops to entry price once trade is in profit
 - **Session Gates** — Only trade during liquid market hours
-- **Breakeven Trailing** — Move stops to protect profits
 
 ---
 
-## 6. The Core Logic
-
-While the bot supports multiple strategies, they share common principles:
+## 6. How It Works
 
 ### ICC Framework (Indication → Correction → Continuation)
 
@@ -274,12 +271,11 @@ While the bot supports multiple strategies, they share common principles:
 - **LTF (Lower Timeframe)** — Precision entry timing
 - **Alignment Required** — Only trade when timeframes agree
 
-### AI Integration
+### AI Integration (Optional)
 
-Optional AI commentary for:
-- Market context analysis
+- Market context analysis via LLM
 - Setup quality scoring
-- Trade journaling
+- Trade journaling and commentary
 
 ---
 
@@ -292,16 +288,16 @@ Optional AI commentary for:
 | **Controls** | [07_COCKPIT_CONTROLS.md](Documentation/RTFM/07_COCKPIT_CONTROLS.md) |
 | **Environment Vars** | [13_ENV_VARS.md](Documentation/RTFM/13_ENV_VARS.md) |
 | **Backtesting** | [12_TIME_MACHINE.md](Documentation/RTFM/12_TIME_MACHINE.md) |
-| **Multi-Strategy Plan** | [IMPLEMENTATION_PLAN_MULTI_STRATEGY.md](docs/IMPLEMENTATION_PLAN_MULTI_STRATEGY.md) |
 
 ---
 
-## 8. Key Safety Notes
+## 8. Important Notes
 
 - **`EXECUTE_TRADES=false` by default** — You must explicitly enable live trading
-- **Paper trade first** — Use IBKR paper (7497) or OANDA practice mode
-- **Start small** — Test with minimum position sizes
-- **Monitor actively** — Don't set and forget until you trust the system
+- **Paper trade first** — Use IBKR paper (7497), OANDA practice, or Sabbath mode
+- **Start small** — Test with minimum position sizes before scaling up
+- **Monitor actively** — Don't set and forget until you understand the system
+- **No guarantees** — Past backtest performance does not predict future results
 
 ---
 
@@ -328,9 +324,4 @@ cd src/tradebot_sci/electron_gui && npm start
 
 ## License & Disclaimer
 
-This software is provided as-is. Trading involves substantial risk of loss. Past performance (even verified backtests) does not guarantee future results. The developers are not financial advisors and this is not financial advice.
-
----
-
-> *"The goal is not to be right. The goal is to make money when you're right and lose little when you're wrong."*
-
+This software is provided as-is. **Trading involves substantial risk of loss.** Past performance does not guarantee future results. The developers are not financial advisors and this is not financial advice. You are solely responsible for any trades executed by this software.
