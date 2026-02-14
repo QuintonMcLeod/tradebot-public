@@ -1,10 +1,42 @@
 # Tradebot SCI Enterprise - Multi-Strategy Trading System
 
-![Tradebot Dashboard](Documentation/images/new_sleek_ui.png)
+![Tradebot Dashboard](Documentation/images/theme_aurora_dashboard.png)
 
 > **"9 Strategies. 6 Asset Classes. One Unified Platform."**
 >
 > An automated trading system supporting stocks, forex, crypto, ETFs, metals, and futures across Interactive Brokers, OANDA, and crypto exchanges. Choose the right strategy for each asset class — from aggressive scalping to patient trend-following.
+
+---
+
+## Sleek, Themeable Interface
+
+Choose from **16+ premium themes** — each with a unique background, color palette, and mood. Switch instantly from Settings → Appearance.
+
+<table>
+<tr>
+<td width="50%"><strong>Aurora Borealis</strong></td>
+<td width="50%"><strong>Magical Girl</strong></td>
+</tr>
+<tr>
+<td><img src="Documentation/images/theme_aurora_dashboard.png" alt="Aurora Borealis Dashboard"></td>
+<td><img src="Documentation/images/theme_magical_girl_dashboard.png" alt="Magical Girl Dashboard"></td>
+</tr>
+<tr>
+<td><img src="Documentation/images/theme_aurora_settings.png" alt="Aurora Borealis Settings"></td>
+<td><img src="Documentation/images/theme_magical_girl_settings.png" alt="Magical Girl Settings"></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="50%"><strong>Ember</strong></td>
+<td width="50%"><strong>Autumn Harvest</strong></td>
+</tr>
+<tr>
+<td><img src="Documentation/images/theme_ember_dashboard.png" alt="Ember Dashboard"></td>
+<td><img src="Documentation/images/theme_autumn_settings.png" alt="Autumn Harvest Settings"></td>
+</tr>
+</table>
 
 ---
 
@@ -164,7 +196,7 @@ This opens the dashboard where you can:
 ./scripts/tradebot.sh --settings
 ```
 
-![Settings Window](Documentation/images/new_sleek_ui.png)
+![Settings Window](Documentation/images/theme_autumn_settings.png)
 
 ### Headless / Terminal Mode
 
