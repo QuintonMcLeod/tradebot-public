@@ -1130,9 +1130,8 @@ function updateHoldingsTable(payload) {
             const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
             const interval = tfToSeconds(tfRaw);
 
-            // Snap to candle start and shift back by one to hit the signal candle
-            const snappedTime = Math.floor(entryTimeSec / interval) * interval;
-            entryTimeSec = snappedTime - interval;
+            // Snap to candle start (no offset — marker should land on the actual entry candle)
+            entryTimeSec = Math.floor(entryTimeSec / interval) * interval;
 
             const isBuy = (pos.side === 'long');
             addTradeMarker(entryTimeSec, isBuy, currentSym, pos.entry);
