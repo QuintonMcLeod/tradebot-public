@@ -200,7 +200,65 @@ class PaperBroker:
         return False, None, None
 
     def evaluate_synthetic_stops(self, market_provider, timeframe):
-        return []
+        """Check SL/TP for all open paper positions against current market prices."""
+        results = []
+        for symbol in list(self.positions.keys()):
+            pos = self.positions[symbol]
+            try:
+                price = self._get_current_price(symbol)
+            except Exception:
+                continue
+
+            sl = pos.get("stop_loss")
+            tp = pos.get("take_profit")
+            side = pos.get("side", "long")
+            hit = None
+
+            if side == "long":
+                if sl and price <= sl:
+                    hit = "SL"
+                elif tp and price >= tp:
+                    hit = "TP"
+            else:  # short
+                if sl and price >= sl:
+                    hit = "SL"
+                elif tp and price <= tp:
+                    hit = "TP"
+
+            if hit:
+                entry_p = pos["entry_price"]
+                pnl_usd = (price - entry_p) * pos["size"]
+                pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
+                self.balance += pnl_usd
+                pnl_str = f"{'+' if pnl_usd >= 0 else ''}${pnl_usd:.2f}"
+
+                logger.info(
+                    f"[PAPER] [EXIT] Paper {hit}: {symbol} {pnl_str} "
+                    f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
+                    f"Entry={entry_p:.5f} Exit={price:.5f}"
+                )
+
+                # Record in TradeResultStore for pnl_stats
+                if self.trade_results:
+                    self.trade_results.add_result(TradeResult(
+                        symbol=symbol,
+                        closed_at=datetime.now(timezone.utc).isoformat(),
+                        pnl_pct=pnl_pct,
+                        pnl_usd=pnl_usd,
+                        is_win=pnl_usd > 0,
+                        tier="100%",
+                        capital_at_close=self.balance
+                    ))
+
+                del self.positions[symbol]
+                self._save_state()
+                self.refresh_account_summary()
+                results.append(ExecutionResult(
+                    ExecutionStatus.EXIT_SIGNAL, symbol,
+                    f"Paper {hit} exit PnL={pnl_usd:.2f}"
+                ))
+
+        return results
 
     def summarize_pnl(self):
         logger.info(f"Session summary: Balance=${self.balance:.2f}, Open positions={len(self.positions)}")
