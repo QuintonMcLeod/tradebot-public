@@ -12,29 +12,27 @@
 
 Choose from **16+ premium themes** — each with a unique background, color palette, and mood. Switch instantly from Settings → Appearance.
 
+### Aurora Borealis
 <table>
 <tr>
-<td width="50%"><strong>Aurora Borealis</strong></td>
-<td width="50%"><strong>Magical Girl</strong></td>
-</tr>
-<tr>
-<td><img src="Documentation/images/theme_aurora_dashboard.png" alt="Aurora Borealis Dashboard"></td>
-<td><img src="Documentation/images/theme_magical_girl_dashboard.png" alt="Magical Girl Dashboard"></td>
-</tr>
-<tr>
-<td><img src="Documentation/images/theme_aurora_settings.png" alt="Aurora Borealis Settings"></td>
-<td><img src="Documentation/images/theme_magical_girl_settings.png" alt="Magical Girl Settings"></td>
+<td width="50%"><img src="Documentation/images/theme_aurora_dashboard.png" alt="Aurora Borealis Dashboard"></td>
+<td width="50%"><img src="Documentation/images/theme_aurora_settings.png" alt="Aurora Borealis Settings"></td>
 </tr>
 </table>
 
+### Magical Girl
 <table>
 <tr>
-<td width="50%"><strong>Ember</strong></td>
-<td width="50%"><strong>Autumn Harvest</strong></td>
+<td width="50%"><img src="Documentation/images/theme_magical_girl_dashboard.png" alt="Magical Girl Dashboard"></td>
+<td width="50%"><img src="Documentation/images/theme_magical_girl_settings.png" alt="Magical Girl Settings"></td>
 </tr>
+</table>
+
+### Ember / Autumn Harvest
+<table>
 <tr>
-<td><img src="Documentation/images/theme_ember_dashboard.png" alt="Ember Dashboard"></td>
-<td><img src="Documentation/images/theme_autumn_settings.png" alt="Autumn Harvest Settings"></td>
+<td width="50%"><img src="Documentation/images/theme_ember_dashboard.png" alt="Ember Dashboard"></td>
+<td width="50%"><img src="Documentation/images/theme_autumn_settings.png" alt="Autumn Harvest Settings"></td>
 </tr>
 </table>
 
