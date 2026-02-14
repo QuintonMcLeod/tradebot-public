@@ -419,6 +419,7 @@ function createSettingsWindow() {
         backgroundColor: '#020617',
         frame: false,
         resizable: true,
+        icon: path.join(__dirname, 'assets/icon.png'),
         webPreferences: {
             preload: path.join(__dirname, 'settings_preload.js'),
             nodeIntegration: false,
@@ -447,7 +448,7 @@ function createWindow() {
         },
         backgroundColor: '#020617',
         frame: false,
-        icon: path.join(__dirname, 'assets/stitch_avatar.png'),
+        icon: path.join(__dirname, 'assets/icon.png'),
     });
 
     win.loadFile('index.html');
