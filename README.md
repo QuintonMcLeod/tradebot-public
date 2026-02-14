@@ -207,7 +207,7 @@ This opens the dashboard where you can:
 ./scripts/tradebot.sh --settings
 ```
 
-![Settings Window](Documentation/images/theme_autumn_settings.png)
+![Settings Window](Documentation/images/settings_system_view.png)
 
 ### Headless / Terminal Mode
 ```bash
