@@ -9,17 +9,17 @@ import argparse
 import os
 import sys
 
-# [ANTIGRAVITY FIX] Force local source usage (overrides installed package) to pick up hotfixes
+# Force local source usage (overrides installed package) to pick up hotfixes
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
-print(f"ANTIGRAVITY: Running with sys.path[0]={sys.path[0]}")
+print(f"Running with sys.path[0]={sys.path[0]}")
 
 from tradebot_sci.runtime.loop import run_bot
 
 
 def main() -> None:
-    # [ANTIGRAVITY] Prevent multiple instances
+    # Prevent multiple instances
     lock_path = os.path.join(os.path.dirname(__file__), "..", "logs", "tradebot.lock")
     os.makedirs(os.path.dirname(lock_path), exist_ok=True)
     try:
@@ -76,7 +76,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.profile:
-        print(f"ANTIGRAVITY: Overriding profile to '{args.profile}'")
+        print(f"Overriding profile to '{args.profile}'")
         os.environ["APP_PROFILE"] = args.profile
 
     sabbath_override: bool | None

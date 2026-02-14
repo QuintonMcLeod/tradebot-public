@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Chart Debug v2</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body {
+            background: #1a1a2e;
+            color: #e0e0e0;
+            font-family: monospace;
+            margin: 0;
+            padding: 10px;
+        }
+
+        #chart {
+            width: 100%;
+            height: 400px;
+            border: 1px solid #333;
+        }
+
+        #log {
+            background: #111;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+            border: 1px solid #333;
+            margin-top: 10px;
+        }
+
+        .ok {
+            color: #2dd4bf;
+        }
+
+        .err {
+            color: #f43f5e;
+        }
+
+        .warn {
+            color: #fbbf24;
+        }
+
+        button {
+            background: #2dd4bf;
+            color: #000;
+            border: none;
+            padding: 8px 16px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: bold;
+        }
+
+        h2 {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Chart Debug v2</h2>
+    <div>
+        <button id="btn1">TEST 1: Dummy Data</button>
+        <button id="btn2">TEST 2: Backend WS</button>
+        <button id="btn3">Clear</button>
+    </div>
+    <div id="chart"></div>
+    <div id="log"></div>
+    <script>
+        (function () {
+            var logEl = document.getElementById('log');
+            function log(msg, cls) {
+                var d = document.createElement('div');
+                d.className = cls || 'ok';
+                d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+                logEl.appendChild(d);
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+
+            var chart = LightweightCharts.createChart(document.getElementById('chart'), {
+                width: document.getElementById('chart').clientWidth,
+                height: 400,
+                layout: { background: { color: '#1a1a2e' }, textColor: '#e0e0e0' },
+                grid: { vertLines: { color: '#2a2a3e' }, horzLines: { color: '#2a2a3e' } },
+                timeScale: { timeVisible: true, secondsVisible: false }
+            });
+
+            // LWC v5 uses addSeries(Type, options) instead of addCandlestickSeries(options)
+            var cs;
+            if (typeof chart.addCandlestickSeries === 'function') {
+                cs = chart.addCandlestickSeries({
+                    upColor: '#2dd4bf', downColor: '#f43f5e',
+                    borderUpColor: '#2dd4bf', borderDownColor: '#f43f5e',
+                    wickUpColor: '#2dd4bf', wickDownColor: '#f43f5e'
+                });
+            } else {
+                cs = chart.addSeries(LightweightCharts.CandlestickSeries, {
+                    upColor: '#2dd4bf', downColor: '#f43f5e',
+                    borderUpColor: '#2dd4bf', borderDownColor: '#f43f5e',
+                    wickUpColor: '#2dd4bf', wickDownColor: '#f43f5e'
+                });
+            }
+            log('Chart + CandleSeries initialized OK');
+
+            function utcToLocal(sec) { return sec - (new Date().getTimezoneOffset() * 60); }
+
+            var timer = null;
+            document.getElementById('btn1').onclick = function () {
+                log('=== TEST 1: DUMMY DATA ===', 'warn');
+                if (timer) clearInterval(timer);
+                var now = Math.floor(Date.now() / 1000);
+                var iv = 900;
+                var price = 100;
+                var hist = [];
+                for (var i = 0; i < 20; i++) {
+                    var t = utcToLocal(now - ((20 - i) * iv));
+                    var o = price, c = o + (Math.random() - 0.5) * 2;
+                    var h = Math.max(o, c) + Math.random(), l = Math.min(o, c) - Math.random();
+                    hist.push({ time: t, open: o, high: h, low: l, close: c });
+                    price = c;
+                }
+                cs.setData(hist);
+                chart.timeScale().fitContent();
+                log('setData(' + hist.length + ' candles) — chart should show bars now');
+
+                var n = 0;
+                timer = setInterval(function () {
+                    n++;
+                    var last = hist[hist.length - 1];
+                    var nc = last.close + (Math.random() - 0.5) * 0.5;
+                    var upd = { time: last.time, open: last.open, high: Math.max(last.high, nc), low: Math.min(last.low, nc), close: nc };
+                    cs.update(upd);
+                    hist[hist.length - 1] = upd;
+                    log('Tick ' + n + ': C=' + nc.toFixed(2));
+                    if (n % 10 === 0) {
+                        var nt = last.time + iv;
+                        var nb = { time: nt, open: nc, high: nc + 0.3, low: nc - 0.3, close: nc };
+                        cs.update(nb);
+                        hist.push(nb);
+                        log('NEW BAR at t=' + nt, 'warn');
+                    }
+                }, 1000);
+            };
+
+            var sock = null;
+            document.getElementById('btn2').onclick = function () {
+                log('=== TEST 2: BACKEND WS ===', 'warn');
+                if (timer) { clearInterval(timer); timer = null; }
+                if (sock) sock.close();
+
+                sock = new WebSocket('ws://localhost:8080/ws');
+                sock.onopen = function () {
+                    log('Connected!');
+                    sock.send(JSON.stringify({ type: 'subscribe', symbol: 'LTCUSD', tf: '15m' }));
+                    log('Subscribed to LTCUSD 15m');
+                    setTimeout(function () {
+                        setInterval(function () {
+                            sock.send(JSON.stringify({ type: 'tick', symbol: 'LTCUSD', tf: '15m' }));
+                        }, 3000);
+                        log('Tick polling started (3s)');
+                    }, 3000);
+                };
+                sock.onmessage = function (ev) {
+                    try {
+                        var msg = JSON.parse(ev.data);
+                        if (msg.type === 'history') {
+                            var arr = msg.data;
+                            log('HISTORY: ' + arr.length + ' candles');
+                            if (arr.length > 0) {
+                                var f = arr[0], la = arr[arr.length - 1];
+                                log('  First: t=' + f.time + ' local=' + utcToLocal(f.time) + ' O=' + f.open + ' C=' + f.close + ' V=' + f.volume);
+                                log('  Last:  t=' + la.time + ' local=' + utcToLocal(la.time) + ' O=' + la.open + ' C=' + la.close + ' V=' + la.volume);
+                                var fd = arr.map(function (c) {
+                                    return { time: utcToLocal(c.time), open: c.open, high: c.high, low: c.low, close: c.close };
+                                });
+                                cs.setData(fd);
+                                chart.timeScale().fitContent();
+                                log('setData() applied OK');
+                            }
+                        } else if (msg.type === 'candle') {
+                            var d = msg.data, lt = utcToLocal(d.time);
+                            log('CANDLE: t=' + d.time + ' local=' + lt + ' O=' + d.open + ' H=' + d.high + ' L=' + d.low + ' C=' + d.close + ' V=' + d.volume, 'warn');
+                            try {
+                                cs.update({ time: lt, open: d.open, high: d.high, low: d.low, close: d.close });
+                                log('  update() OK');
+                            } catch (e) {
+                                log('  update() FAILED: ' + e.message, 'err');
+                            }
+                        }
+                    } catch (e) { log('Parse error: ' + e.message, 'err'); }
+                };
+                sock.onerror = function () { log('WS Error', 'err'); };
+                sock.onclose = function () { log('WS Closed', 'err'); };
+            };
+
+            document.getElementById('btn3').onclick = function () { logEl.innerHTML = ''; };
+        })();
+    </script>
+</body>
+
+</html>

@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 class OandaExchangeBroker(IExchangeBroker):
     """Broker implementation for OANDA v20 API."""
 
-    # [ANTIGRAVITY] Spread cost awareness — OANDA uses spread-only pricing (no commissions).
+    # Spread cost awareness — OANDA uses spread-only pricing (no commissions).
     # Average spread in pips; configurable via env var. Default 1.5 pips covers most major pairs.
     AVG_SPREAD_PIPS = float(os.getenv("OANDA_AVG_SPREAD_PIPS", "1.5"))
     # Pip value multiplier: 0.0001 for most pairs, 0.01 for JPY pairs
@@ -305,7 +305,7 @@ class OandaExchangeBroker(IExchangeBroker):
                 r_close = oanda_positions.PositionClose(self.account_id, instrument=oanda_sym, data=close_data)
                 self.client.request(r_close)
                 
-                # [ANTIGRAVITY FIX] Calculate PnL and Log for GUI
+                # Calculate PnL and Log for GUI
                 pnl_val = float(pos.get("unrealizedPL", 0.0)) # Since we are closing at current market price
                 # For Oanda, we can try to find the actual realized PnL in the response
                 resp = r_close.response
@@ -321,7 +321,7 @@ class OandaExchangeBroker(IExchangeBroker):
                 if units > 0 and avg_price > 0:
                     pnl_pct = (pnl_val / (avg_price * units)) * 100
 
-                # [ANTIGRAVITY] Estimate round-trip spread cost for transparency
+                # Estimate round-trip spread cost for transparency
                 pip_value = self.PIP_VALUE_JPY if "JPY" in symbol.upper() else self.PIP_VALUE_STANDARD
                 est_spread_cost = units * self.AVG_SPREAD_PIPS * pip_value * 2  # x2 for entry + exit
 
@@ -360,11 +360,11 @@ class OandaExchangeBroker(IExchangeBroker):
                 return None
             
             # Use project-standard keys: size, side, avg_price, unrealized_pnl
-            # [ANTIGRAVITY FIX] Add aliases 'entry_price' and 'direction' for strategy compatibility
+            # Add aliases 'entry_price' and 'direction' for strategy compatibility
             side = "long" if units > 0 else "short"
             avg_price = float(pos.get("long", {}).get("averagePrice", 0)) if units > 0 else float(pos.get("short", {}).get("averagePrice", 0))
             
-            # [ANTIGRAVITY FIX] Fetch SL/TP and Entry Time from trade details
+            # Fetch SL/TP and Entry Time from trade details
             stop_loss = None
             take_profit = None
             entry_time = None
@@ -391,7 +391,7 @@ class OandaExchangeBroker(IExchangeBroker):
                 "direction": side, # Alias
                 "avg_price": avg_price,
                 "entry_price": avg_price, # Alias
-                "entry_time": entry_time, # [ANTIGRAVITY] Added entry time
+                "entry_time": entry_time, # Added entry time
                 "unrealized_pnl": float(pos.get("unrealizedPL", 0))
             }
             
@@ -436,7 +436,7 @@ class OandaExchangeBroker(IExchangeBroker):
         if action not in entry_actions:
              return ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "no trade action"), ExecutionOutcome(ExecutionOutcomeType.SKIPPED, decision.symbol, "no trade action")
 
-        # [ANTIGRAVITY] Guard: block duplicate entries for symbols already held.
+        # Guard: block duplicate entries for symbols already held.
         # Matches IBKR's guard at _enter_position_for_symbol L729.
         # Without this, the bot re-submits MARKET orders every scan cycle for
         # symbols it already holds, causing FIFO_VIOLATION rejections on OANDA US
@@ -468,7 +468,7 @@ class OandaExchangeBroker(IExchangeBroker):
             if stop_dist < 1e-8:
                  return ExecutionResult(ExecutionStatus.ERROR, decision.symbol, "stop distance too small"), ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "stop distance too small")
 
-            # [ANTIGRAVITY] Guard: reject trades where SL is too tight for forex spreads.
+            # Guard: reject trades where SL is too tight for forex spreads.
             # OANDA spread is 1-2 pips on majors; SL distances of 4-5 pips get spread-killed
             # within 60-180 seconds. Minimum 10 pips gives 5-10x breathing room.
             MIN_SL_PIPS = 10
@@ -484,7 +484,7 @@ class OandaExchangeBroker(IExchangeBroker):
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"SL distance {stop_dist:.5f} < min {min_sl_dist:.5f}")
                 )
 
-            # [ANTIGRAVITY] Widen effective stop distance by estimated spread cost.
+            # Widen effective stop distance by estimated spread cost.
             # This prevents the bot from sizing too aggressively by accounting for the
             # spread that will be eaten on entry (and again on exit via SL/TP).
             pip_value = self.PIP_VALUE_JPY if "JPY" in decision.symbol.upper() else self.PIP_VALUE_STANDARD
@@ -499,7 +499,7 @@ class OandaExchangeBroker(IExchangeBroker):
             # units = risk / effective_stop_dist (spread-adjusted)
             units = risk_amount / effective_stop_dist
             
-            # [ANTIGRAVITY] Leverage-based sizing Cap
+            # Leverage-based sizing Cap
             # Prevent units from exceeding account_equity * target_leverage
             target_leverage = getattr(self.profile, "target_leverage", 1.0)
             if target_leverage > 0:
@@ -563,7 +563,7 @@ class OandaExchangeBroker(IExchangeBroker):
                 logger.warning(f"[OANDA] Could not fetch detailed margin info: {e}")
 
             logger.info(f"[OANDA] Placing {decision.action} order for {decision.symbol}: {units} units")
-            # [ANTIGRAVITY FIX] Log specific tags for GUI parsing (Arrows & Tables)
+            # Log specific tags for GUI parsing (Arrows & Tables)
             logger.info(f"[ENTRY] {decision.symbol} side={'buy' if units > 0 else 'sell'} amount={abs(units)}")
             r = orders.OrderCreate(self.account_id, data=order_data)
             self.client.request(r)

@@ -21,7 +21,7 @@ from tradebot_sci.strategy.icc_signals import last_structure_range
 
 logger = logging.getLogger(__name__)
 
-# [ANTIGRAVITY FIX] Suppress noisy CCXT debug logs (raw HTTP responses)
+# Suppress noisy CCXT debug logs (raw HTTP responses)
 logging.getLogger("ccxt").setLevel(logging.WARNING)
 logging.getLogger("ccxt.base.exchange").setLevel(logging.WARNING)
 
@@ -57,14 +57,14 @@ class CCXTExchangeBroker:
     This is wired under `market.exchange_provider=alternative` + `market.alternative_broker=ccxt`.
     """
 
-    # [ANTIGRAVITY] Configurable exchange parameters (read from env with sane defaults)
+    # Configurable exchange parameters (read from env with sane defaults)
     GEMINI_LIMIT_OFFSET = float(os.getenv("GEMINI_LIMIT_OFFSET", "0.002"))  # 0.2% (was 5%)
     GEMINI_SL_LIMIT_BUFFER = float(os.getenv("GEMINI_SL_LIMIT_BUFFER", "0.015"))  # 1.5%
     GEMINI_FEE_RATE = float(os.getenv("GEMINI_FEE_RATE", "0.004"))  # 0.40% taker
     COINBASE_FEE_RATE = float(os.getenv("COINBASE_FEE_RATE", "0.006"))  # 0.60% taker
     DEFAULT_FEE_RATE = float(os.getenv("DEFAULT_FEE_RATE", "0.004"))  # 0.40% safe default
 
-    # [ANTIGRAVITY] Kraken fee/spread/slippage awareness
+    # Kraken fee/spread/slippage awareness
     # Kraken uses tiered maker/taker: 0.16%/0.26% for <$50K monthly volume
     KRAKEN_MAKER_FEE = float(os.getenv("KRAKEN_MAKER_FEE", "0.0016"))   # 0.16% maker
     KRAKEN_TAKER_FEE = float(os.getenv("KRAKEN_TAKER_FEE", "0.0026"))   # 0.26% taker
@@ -191,7 +191,7 @@ class CCXTExchangeBroker:
         logger.info(f"[CCXT] cancel_all_orders_for_symbol {symbol}...")
         sym = self._map_symbol(symbol)
         try:
-            # [ANTIGRAVITY FIX] Robust cancel_all with manual fallback
+            # Robust cancel_all with manual fallback
             try:
                 if hasattr(self._exchange, "cancel_all_orders") and self.exchange_id != "coinbase":
                      self._exchange.cancel_all_orders(sym)
@@ -239,7 +239,7 @@ class CCXTExchangeBroker:
         qty = abs(size)
         
         try:
-            # [ANTIGRAVITY FIX] Cancel all orders first to release locked balance (e.g. Stop Loss)
+            # Cancel all orders first to release locked balance (e.g. Stop Loss)
             logger.info(f"[CCXT] Cancelling all orders for {sym} before flattening.")
             try:
                 self.cancel_all_orders_for_symbol(symbol)
@@ -256,7 +256,7 @@ class CCXTExchangeBroker:
 
             self._ccxt_create_order(sym, "market", side, qty, params=params)
             
-            # [ANTIGRAVITY FIX] Calculate PnL and Log for GUI
+            # Calculate PnL and Log for GUI
             pnl_val = 0.0
             pnl_pct = 0.0
             entry_price = 0.0
@@ -270,14 +270,14 @@ class CCXTExchangeBroker:
                     entry_price = float(pos.get("entry_price") or pos.get("avg_price") or 0.0)
 
             if entry_price > 0:
-                # [ANTIGRAVITY FIX] Prioritize current_price from snapshot for accurate exit PnL
+                # Prioritize current_price from snapshot for accurate exit PnL
                 curr_px = float(pos.get("current_price") or pos.get("close") or pos.get("avg_price") or entry_price)
                 if side == "sell": # Closing long
                     pnl_val = (curr_px - entry_price) * qty
                 else: # Closing short
                     pnl_val = (entry_price - curr_px) * qty
                 
-                # [ANTIGRAVITY FIX] Factor in Gemini/Broker fees to prevent "bleeding" reports
+                # Factor in Gemini/Broker fees to prevent "bleeding" reports
                 # Gemini Taker Fee is typically 0.4%. We estimate 0.4% for entry + 0.4% for exit.
                 est_fee_pct = 0.008 # 0.8% total round trip
                 pnl_val -= (entry_price * qty * est_fee_pct)
@@ -301,7 +301,7 @@ class CCXTExchangeBroker:
                     capital_at_close=0.0 # Will be updated by balance sync
                 ))
 
-            # [ANTIGRAVITY FIX] Clear Position from Store
+            # Clear Position from Store
             if self.position_hold_store:
                 self.position_hold_store.remove(symbol)
         except Exception as exc:
@@ -425,7 +425,7 @@ class CCXTExchangeBroker:
             
         sym = self._map_symbol(symbol)
         
-        # [ANTIGRAVITY FIX] Ignore symbols not supported by the exchange to silence noisy "Symbol not found" warnings.
+        # Ignore symbols not supported by the exchange to silence noisy "Symbol not found" warnings.
         if not self._is_known_exchange_symbol(sym):
             return None
         
@@ -480,14 +480,14 @@ class CCXTExchangeBroker:
                     qty_steps = getattr(self.profile, "crypto_qty_steps", {})
                     min_amount = float(qty_steps.get(symbol, 0.0) or 0.0)
 
-                # [ANTIGRAVITY FIX] Track dust positions for management
+                # Track dust positions for management
                 if min_amount is not None and min_amount > 0 and abs(size) > 0 and abs(size) < min_amount:
                    # Only warn once per symbol to avoid log spam
                    if symbol.upper() not in self._dust_warned:
                        logger.warning(f"[CCXT] Position {sym} below minimum tradeable size: {size} < {min_amount} (cannot scale)")
                        self._dust_warned.add(symbol.upper())
 
-                # [ANTIGRAVITY FIX] Coinbase "Hidden Balance" Fallback
+                # Coinbase "Hidden Balance" Fallback
                 # If size is 0, we check if it's locked by open orders.
                 if abs(size) == 0 and "coinbase" in self.exchange_id:
                     try:
@@ -551,7 +551,7 @@ class CCXTExchangeBroker:
             return None
             
         if abs(size) == 0:
-            # [ANTIGRAVITY FIX] Reconcile Ghost Positions
+            # Reconcile Ghost Positions
             # If size is 0 but we have a record in the store, purge it.
             if self.position_hold_store and self.position_hold_store.get(symbol):
                 logger.info(f"[CCXT] Reconciling ghost position for {symbol}: Record exists but balance/orders are zero. Purging record.")
@@ -560,7 +560,7 @@ class CCXTExchangeBroker:
             self._scale_in_counts[symbol.upper()] = 0
             return None
             
-        # [ANTIGRAVITY FIX] Include entry_time for GUI markers
+        # Include entry_time for GUI markers
         entry_time = None
         if record and record.opened_at:
             entry_time = record.opened_at  # ISO format string
@@ -584,7 +584,7 @@ class CCXTExchangeBroker:
             "pyramid_count": 1,
             "htf_neutral_bars": 0,
             "pyramid_count": 1,
-            # [ANTIGRAVITY FIX] Enhanced Dust Check: Qty < Min OR Value < $1.10 (matches CCXT MIN_ORDER_VAL)
+            # Enhanced Dust Check: Qty < Min OR Value < $1.10 (matches CCXT MIN_ORDER_VAL)
             "is_dust": (
                 (min_amount is not None and min_amount > 0 and abs(size) < min_amount) or
                 (current_price is not None and (abs(size) * current_price) < 1.10)
@@ -640,7 +640,7 @@ class CCXTExchangeBroker:
         if amount:
             return amount
             
-        # [ANTIGRAVITY FIX] Coinbase Futures-specific extraction from 'info' object
+        # Coinbase Futures-specific extraction from 'info' object
         # Coinbase Advanced Trade doesn't always populate free/total for futures in fetch_balance
         if "info" in bal and "balance_summary" in bal["info"]:
             summary = bal["info"]["balance_summary"]
@@ -672,7 +672,7 @@ class CCXTExchangeBroker:
                 default_bal = self._exchange.fetch_balance()
                 balances.append(default_bal)
             except Exception as e:
-                # [ANTIGRAVITY FIX] Truncate massive HTML error responses (Cloudflare 504s)
+                # Truncate massive HTML error responses (Cloudflare 504s)
                 err_str = str(e)
                 if len(err_str) > 200: err_str = err_str[:200] + "... [TRUNCATED]"
                 logger.warning(f"[CCXT] fetch_balance(default) failed: {err_str}")
@@ -694,12 +694,12 @@ class CCXTExchangeBroker:
             amount = 0.0
             found_types = []
             
-            # [ANTIGRAVITY FIX] Multi-account aggregation for Gemini
+            # Multi-account aggregation for Gemini
             account_types = ["exchange", "trading"] if self.exchange_id == "gemini" else [None]
             
             observed_amounts = []
             for acc_type in account_types:
-                # [ANTIGRAVITY FIX] Nonce resync retry loop
+                # Nonce resync retry loop
                 for attempt in range(3):
                     try:
                         params = {"type": acc_type} if acc_type else {}
@@ -711,7 +711,7 @@ class CCXTExchangeBroker:
                             val = self._extract_balance_amount(bal, "USDC")
                         
                         if val > 0:
-                            # [ANTIGRAVITY FIX] Deduplicate mirrored balances (common on Gemini)
+                            # Deduplicate mirrored balances (common on Gemini)
                             if any(abs(val - prev) < 0.01 for prev in observed_amounts):
                                 logger.debug(f"[CCXT] Gemini {acc_type} balance ${val:.2f} is a mirror of previous account; skipping.")
                             else:
@@ -739,7 +739,7 @@ class CCXTExchangeBroker:
                  logger.info(f"[CCXT] get_liquid_capital({symbol}) -> default fallback: ${val:.2f}")
                  return val
 
-            # [ANTIGRAVITY FIX] Reset latch if we have funds
+            # Reset latch if we have funds
             if amount >= 1.10:
                 if self.capital_exhausted:
                     logger.info(f"[CCXT] Capital recovered: ${amount:.2f} available. Unlatching guard.")
@@ -789,7 +789,7 @@ class CCXTExchangeBroker:
                                 asset_value += val
                                 # logger.info(f"[CCXT] +Asset {curr}: {qty} * ${px:.2f} = ${val:.2f}")
             
-            # [ANTIGRAVITY FIX] Factor in liquidation fees for assets to show net equity
+            # Factor in liquidation fees for assets to show net equity
             # Taker fee is typically 0.4%.
             net_asset_value = asset_value * 0.996
             
@@ -874,7 +874,7 @@ class CCXTExchangeBroker:
             limit_price = None
             if "coinbase" in self.exchange_id.lower():
                 order_type = "limit"
-                buf = self.GEMINI_SL_LIMIT_BUFFER  # [ANTIGRAVITY] Consistent buffer
+                buf = self.GEMINI_SL_LIMIT_BUFFER  # Consistent buffer
                 raw_limit = new_stop * (1 - buf) if stop_side == "sell" else new_stop * (1 + buf)
                 limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
                 stop_params["stop_price"] = self._exchange.price_to_precision(sym, new_stop)
@@ -926,7 +926,7 @@ class CCXTExchangeBroker:
         from tradebot_sci.market.symbols import is_coinbase_derivative
         is_future = (default_type in {"future", "swap"} or provider == "coinbase_futures" or broker_mode == "coinbase_futures" or profile_name == "coinbase_futures" or alt_md == "coinbase_futures")
         
-        # [ANTIGRAVITY FIX] Symbol-Aware Future Check
+        # Symbol-Aware Future Check
         # Even if global default is 'future' (set for Coinbase Nano), we must NOT treat 
         # spot symbols (like BCHUSD on Gemini) as futures, otherwise sizing logic 
         # rounds up 0.1 BCH to 1.0 BCH ($600+), causing Insufficient Funds.
@@ -1008,7 +1008,7 @@ class CCXTExchangeBroker:
                     )
                 self.capital_exhausted = False
 
-            # [ANTIGRAVITY FIX] Query Balance First (Quote Currency Specific)
+            # Query Balance First (Quote Currency Specific)
             liq_cap = self.get_liquid_capital(decision.symbol)
             if liq_cap < MIN_ORDER_VAL:
                 self.capital_exhausted = True
@@ -1018,10 +1018,10 @@ class CCXTExchangeBroker:
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "capital exhausted"),
                 )
             
-            # [ANTIGRAVITY FIX] Reset latch if we have funds
+            # Reset latch if we have funds
             self.capital_exhausted = False
 
-            # [ANTIGRAVITY FIX] Risk-Based Sizing
+            # Risk-Based Sizing
             # 1. Determine Risk Amount: decision -> profile -> fallback 1.5%
             profile_risk = float(getattr(self.profile, "risk_per_trade_pct", 0.015) or 0.015)
             risk_pct = getattr(decision, "risk_per_trade_pct", None) or profile_risk
@@ -1054,7 +1054,7 @@ class CCXTExchangeBroker:
                  dist = abs(entry_price - stop_loss)
                  dist_pct = dist / entry_price
                  
-                 # [ANTIGRAVITY FIX] Sanity Check: Enforce minimum stop distance for sizing
+                 # Sanity Check: Enforce minimum stop distance for sizing
                  MIN_STOP_DIST_PCT = 0.005 # 0.5%
                  if dist_pct < MIN_STOP_DIST_PCT:
                      effective_dist = entry_price * MIN_STOP_DIST_PCT
@@ -1070,7 +1070,7 @@ class CCXTExchangeBroker:
                      shares = risk_amount / dist
                      pos_size_usd = shares * entry_price
 
-            # [ANTIGRAVITY FIX] Leverage Cap
+            # Leverage Cap
             # For Spot, leverage is capped at 1.0. For Futures, we use profile setting.
             max_leverage = 1.0
             if is_future:
@@ -1085,19 +1085,19 @@ class CCXTExchangeBroker:
             min_notional = float(getattr(self.profile, "crypto_min_notional_usd", 20.0))
             max_notional = float(getattr(self.profile, "crypto_max_notional_usd", 10000.0) or 10000.0)
             
-            # [ANTIGRAVITY FIX] Ensure we hit MIN even if it exceeds risk bucket
+            # Ensure we hit MIN even if it exceeds risk bucket
             if pos_size_usd < min_notional:
                 logger.info(f"[CCXT] Boosting size to min_notional: ${pos_size_usd:.2f} -> ${min_notional:.2f}")
                 pos_size_usd = min_notional
             
             pos_size_usd = min(pos_size_usd, max_notional)
             
-            # [ANTIGRAVITY FIX] Balance Cap (Safety Net)
+            # Balance Cap (Safety Net)
             # For Coinbase Futures, the margin is ~$85. If we have $88, we can trade 1 contract (~$300 value).
             # We bypass the 95% cap IF it's a futures contract and we are at the min_notional.
             is_futures_profile = "futures" in str(getattr(self.profile, "name", "")).lower()
             
-            # [ANTIGRAVITY CONFIG] Read from profile/env, default to 0.95 (Safety)
+            # Read from profile/env, default to 0.95 (Safety)
             # If the user sets this to 0.70 in the GUI, it will be respected here.
             cfg_cap = float(getattr(self.profile, "balance_cap_pct", 0.95))
             
@@ -1113,11 +1113,11 @@ class CCXTExchangeBroker:
                     )
                     pos_size_usd = safe_balance_cap
             
-            # [ANTIGRAVITY FIX] Minimum Order Size Guard
+            # Minimum Order Size Guard
             # Coinbase min is often $1.00. We set $1.10 to be safe.
             if pos_size_usd < MIN_ORDER_VAL:
                  self.capital_exhausted = True
-                 # [ANTIGRAVITY FEATURE] Auto-Liquidity: Check USDT
+                 # Auto-Liquidity: Check USDT
                  if self._attempt_auto_liquidation_usdt(MIN_ORDER_VAL):
                       logger.info(f"[CCXT] Auto-liquidation successful. Retrying entry for {decision.symbol}...")
                       # Recursively retry execution with new funds
@@ -1138,7 +1138,7 @@ class CCXTExchangeBroker:
             qty_base = pos_size_usd / entry_price
             min_amount_limit = None
             
-            # [ANTIGRAVITY FIX] Handle Futures Contract Sizing (e.g. 1 SHIB contract = 10,000 SHIB)
+            # Handle Futures Contract Sizing (e.g. 1 SHIB contract = 10,000 SHIB)
             if is_future:
                 market = self._exchange.market(sym)
                 c_size = market.get("contractSize")
@@ -1154,7 +1154,7 @@ class CCXTExchangeBroker:
                     )
                     qty_base = min_amount_limit
                 else:
-                    # [ANTIGRAVITY FIX] Use ceil for small positions to avoid truncation to 0
+                    # Use ceil for small positions to avoid truncation to 0
                     if qty_base > 0 and qty_base < 1.0:
                          logger.info(f"[CCXT] Sizing: Rounding {qty_base:.4f} up to 1 contract for {sym}")
                          qty_base = 1.0
@@ -1178,7 +1178,7 @@ class CCXTExchangeBroker:
                 f"Entry={entry_price:.4f} Stop={stop_loss:.4f} -> Size=${pos_size_usd:.2f}"
             )
 
-            # [ANTIGRAVITY FIX] Dynamic Affordability Check (Smart Pre-Flight)
+            # Dynamic Affordability Check (Smart Pre-Flight)
             # Prevent "INSUFFICIENT_FUNDS" by pre-calculating Margin + Fees.
             # CRITICAL: Only apply to OPENING entries (enter_long, enter_short, scale_in).
             # Closing positions (reduce_position, close_position) RELEASES margin, so never block them.
@@ -1187,13 +1187,13 @@ class CCXTExchangeBroker:
                 # We use 5x (20%) as the conservative baseline to ensure safety.
                 leverage_safety_factor = 5.0 
                 
-                # [ANTIGRAVITY FIX] Handle Multipliers (Contract Size)
+                # Handle Multipliers (Contract Size)
                 # Some futures have multipliers (e.g. LTC=5, ETH=0.1).
                 # Nanos: 1 Contract = Multiplier * Price.
                 market_info = self._exchange.market(sym)
                 c_size = market_info.get("contractSize") or 1.0
                 
-                # [ANTIGRAVITY CORRECTION] Use send_amount (Integer Contracts) for accuracy.
+                # Use send_amount (Integer Contracts) for accuracy.
                 # pos_size_usd might be $20 (min notional), but if 1 Contract = $330, send_amount will be 1.
                 # We must check if we can afford the ACTUAL rounded-up contract.
                 
@@ -1202,7 +1202,7 @@ class CCXTExchangeBroker:
                 
                 est_margin_cost = true_notional / leverage_safety_factor
                 
-                # 2. Estimate Fees — [ANTIGRAVITY] Exchange-aware rate (was 0.1%)
+                # 2. Estimate Fees — Exchange-aware rate (was 0.1%)
                 est_fees = true_notional * self._get_fee_rate()
                 
                 # 3. Total Cash Required
@@ -1211,7 +1211,7 @@ class CCXTExchangeBroker:
                 # 4. Check Real-Time Free Balance
                 # (We re-fetch specifically right before order to catch recent changes)
                 try:
-                    # [ANTIGRAVITY FIX] Coinbase Advanced uses SPOT wallet for Futures collateral.
+                    # Coinbase Advanced uses SPOT wallet for Futures collateral.
                     # We must explicitly fetch type='spot' to see the funds.
                     bal_check = self._exchange.fetch_balance({'type': 'spot'})
                     
@@ -1239,8 +1239,8 @@ class CCXTExchangeBroker:
 
             # Entry Execution
             try:
-                # [ANTIGRAVITY FIX] Strict Min Amount Check
-                # [ANTIGRAVITY FIX] Strict Min Amount Check with Safety Map
+                # Strict Min Amount Check
+                # Strict Min Amount Check with Safety Map
                 try:
                     market = self._exchange.market(sym)
                     min_amount_limit = min_amount_limit or market.get('limits', {}).get('amount', {}).get('min')
@@ -1266,7 +1266,7 @@ class CCXTExchangeBroker:
                 self._track_local_order(sym, order)
                 entry_id = str(order.get("id"))
                 
-                # [ANTIGRAVITY FIX] Log specific tags for GUI parsing (Arrows & Tables)
+                # Log specific tags for GUI parsing (Arrows & Tables)
                 avg_fill = float(order.get("average") or order.get("price") or 0.0)
                 logger.info(f"[ENTRY] {decision.symbol} side={side} amount={send_amount}")
                 if avg_fill > 0:
@@ -1274,7 +1274,7 @@ class CCXTExchangeBroker:
                 
                 logger.info(f"[CCXT] Placed {side} market order {entry_id} for {send_amount} {sym}")
                 
-                # [ANTIGRAVITY FIX] Persist Position in Store with Entry Price
+                # Persist Position in Store with Entry Price
                 if self.position_hold_store:
                     self.position_hold_store.upsert(
                         decision.symbol, 
@@ -1289,13 +1289,13 @@ class CCXTExchangeBroker:
                 if decision.stop_loss and decision.stop_loss > 0:
                     stop_side = "sell" if side == "buy" else "buy"
                     
-                    # [ANTIGRAVITY FIX] Settlement Race Condition Waiter
+                    # Settlement Race Condition Waiter
                     # Wait for funds to settle (appear in free balance) before placing stop
                     if side == "buy" and not is_future:
                         logger.info(f"[CCXT] Waiting for {sym} settlement (up to 10s)...")
                         base_curr = decision.symbol.split('/')[0]
                         # We expect at least the filled amount to be free
-                        # [ANTIGRAVITY FIX] Handle NoneType if 'filled' is None (use send_amount as fallback)
+                        # Handle NoneType if 'filled' is None (use send_amount as fallback)
                         fill_qty = order.get("filled")
                         if fill_qty is None:
                             fill_qty = send_amount
@@ -1314,7 +1314,7 @@ class CCXTExchangeBroker:
                              logger.warning(f"[CCXT] Settlement timeout. Proceeding with SL anyway (might fail).")
 
                     try:
-                        # [ANTIGRAVITY FIX] For Scale-In (Pyramiding), we MUST consolidate stops.
+                        # For Scale-In (Pyramiding), we MUST consolidate stops.
                         # 1. Cancel existing stops for this symbol
                         if action == "scale_in":
                             logger.info(f"[CCXT] Scale-In detected: Cancelling existing stops for {sym} to consolidate protection.")
@@ -1349,13 +1349,13 @@ class CCXTExchangeBroker:
                         order_type = "stop_market"
                         limit_price = None
 
-                        # [ANTIGRAVITY FIX] Verified Gemini / Coinbase Stop-Limit Parameters
+                        # Verified Gemini / Coinbase Stop-Limit Parameters
                         is_coinbase = "coinbase" in self.exchange_id.lower() or "coinbase" in getattr(self._exchange, "id", "").lower()
                         is_gemini = "gemini" in self.exchange_id.lower() or "gemini" in getattr(self._exchange, "id", "").lower()
                         
                         if is_coinbase or is_gemini:
                             # Both Coinbase Advanced and Gemini require type="limit" to emulate stops efficiently via CCXT
-                            # [ANTIGRAVITY FIX] Use tighter buffer (1.5%) for Gemini/Coinbase to avoid "Invalid Price" errors
+                            # Use tighter buffer (1.5%) for Gemini/Coinbase to avoid "Invalid Price" errors
                             order_type = "limit"
                             raw_limit = decision.stop_loss * 0.985 if stop_side == "sell" else decision.stop_loss * 1.015
                             limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
@@ -1372,7 +1372,7 @@ class CCXTExchangeBroker:
                                 stop_params["stopPrice"] = self._exchange.price_to_precision(sym, decision.stop_loss)
                                 logger.info(f"[CCXT] Gemini SL: type=limit, stop={stop_params['stopPrice']}, limit={limit_price}")
 
-                        # [ANTIGRAVITY FIX] Correct Stop Loss Quantity
+                        # Correct Stop Loss Quantity
                         # 1. Start with the *current trade* filled amount
                         current_fill = order.get("filled", 0.0)
                         if not current_fill or current_fill <= 0:
@@ -1384,7 +1384,7 @@ class CCXTExchangeBroker:
                         #    (covers the full position — old + new)
                         if action == "scale_in":
                             try:
-                                # [ANTIGRAVITY FIX] Fetch real balance directly instead of
+                                # Fetch real balance directly instead of
                                 # using get_open_position_snapshot (which can double-count
                                 # because it calls fetch_balance AFTER the fill has settled).
                                 base_currency = sym.split("/")[0] if "/" in sym else sym[:3]
@@ -1407,7 +1407,7 @@ class CCXTExchangeBroker:
                         else:
                             logger.info(f"[CCXT] Using filled amount for SL: {stop_qty:.6f}")
                         
-                        # [ANTIGRAVITY] Exact SL quantity using order fee data
+                        # Exact SL quantity using order fee data
                         if not is_future and stop_side == "sell":  # Long SL on Spot
                             fee_info = order.get("fee") or {}
                             fee_cost = float(fee_info.get("cost", 0) or 0)
@@ -1435,7 +1435,7 @@ class CCXTExchangeBroker:
                         self._track_local_order(sym, stop_order)
                         logger.info(f"[CCXT] Placed Consolidated Stop Loss {stop_side} ({order_type}) at {decision.stop_loss} (qty={stop_qty})")
                     except Exception as e:
-                         # [ANTIGRAVITY FIX] Robust Error Handling for Stop Failures
+                         # Robust Error Handling for Stop Failures
                          logger.error(f"[CCXT] FAILED TO PLACE STOP LOSS for {decision.symbol}: {e}")
                          if not self._is_permission_denied(e):
                              self._consecutive_errors += 1
@@ -1449,7 +1449,7 @@ class CCXTExchangeBroker:
                     current = int(self._scale_in_counts.get(decision.symbol.upper(), 0))
                     self._scale_in_counts[decision.symbol.upper()] = current + 1
                 
-                # [ANTIGRAVITY FIX] Final Persistence update with protected size
+                # Final Persistence update with protected size
                 if self.position_hold_store:
                      self.position_hold_store.upsert(
                          decision.symbol,
@@ -1484,7 +1484,7 @@ class CCXTExchangeBroker:
         return
 
     def evaluate_synthetic_stops(self, market_provider, timeframe: str) -> Iterable[ExecutionResult]:
-        # [ANTIGRAVITY UPGRADE] Order Lifecycle and Stop Loss Re-arming
+        # Order Lifecycle and Stop Loss Re-arming
         # 1. Cancel stale maker orders
         timeout = float(getattr(self.profile, "order_timeout_seconds", 30))
         now = time.time()
@@ -1578,7 +1578,7 @@ class CCXTExchangeBroker:
                 # ── NATIVE STOP RE-ARMING ──
                 for sys_sym in symbols_to_check:
                     logger.debug(f"[CCXT-DEBUG] Checking protection for {sys_sym}...")
-                    # [ANTIGRAVITY FIX] Ignore stablecoins and cash-like assets for protection check
+                    # Ignore stablecoins and cash-like assets for protection check
                     if any(x in sys_sym.upper() for x in ("USDT", "USDC", "DAI")):
                          continue
                     if sys_sym.upper() in ("USD", "EUR", "GBP"):
@@ -1594,7 +1594,7 @@ class CCXTExchangeBroker:
 
                     pos_size = abs(state.get("position_shares", 0))
                     
-                    # [ANTIGRAVITY FIX] Robust position check for re-arm
+                    # Robust position check for re-arm
                     if pos_size == 0 and self.position_hold_store:
                         record = self.position_hold_store.get(sys_sym)
                         if record and record.size:
@@ -1612,7 +1612,7 @@ class CCXTExchangeBroker:
                         sl_price = record.stop_loss if record else None
                         
                         if sl_price and sl_price > 0:
-                            # [ANTIGRAVITY FIX] Emergency Exit Check: If price already crossed SL, just market close!
+                            # Emergency Exit Check: If price already crossed SL, just market close!
                             current_price = state.get("mark_price")
                             if not current_price:
                                 try:
@@ -1670,7 +1670,7 @@ class CCXTExchangeBroker:
                         else:
                             logger.warning(f"[CCXT] {sys_sym} has position but 0 working orders. Auto-placing default SL...")
                             
-                            # [ANTIGRAVITY FIX] Calculate Default SL (5% risk fallback)
+                            # Calculate Default SL (5% risk fallback)
                             # Remove invalid self._last_ticker usage
                             # Fix: Map system symbol (ADAUSD) to exchange symbol (ADA/USD)
                             ticker = self._safe_fetch_ticker(self._map_symbol(sys_sym))
@@ -1688,7 +1688,7 @@ class CCXTExchangeBroker:
                                     order_type = "stop_market"
                                     limit_price = None
                                     stop_params = {"stopPrice": sl_price}
-                                    buf = self.GEMINI_SL_LIMIT_BUFFER  # [ANTIGRAVITY] Consistent buffer
+                                    buf = self.GEMINI_SL_LIMIT_BUFFER  # Consistent buffer
                                     
                                     if "coinbase" in self.exchange_id.lower():
                                         order_type = "limit"
@@ -1724,7 +1724,7 @@ class CCXTExchangeBroker:
                             else:
                                 logger.warning(f"[CCXT] Could not auto-protect {sys_sym}: No ticker price.")
                     
-                    # [ANTIGRAVITY FIX] Gapped Stop-Limit Failsafe
+                    # Gapped Stop-Limit Failsafe
                     # Even when working_orders > 0, the stop-limit order may be
                     # unfillable if price gapped past the limit price. Detect and
                     # force-close when the SL has been breached beyond the limit buffer.
@@ -1788,7 +1788,7 @@ class CCXTExchangeBroker:
             open_orders = len(self._exchange.fetch_open_orders(sym))
             logger.debug(f"[CCXT] fetch_open_orders {sym} done. count={open_orders}")
         except Exception as e:
-            # [ANTIGRAVITY] Suppress warnings for known missing symbols on Gemini to reduce log noise
+            # Suppress warnings for known missing symbols on Gemini to reduce log noise
             is_missing_symbol = "does not have market symbol" in str(e) or "Bad Request" in str(e)
             if is_missing_symbol and any(s in symbol for s in ["ADA", "NEAR", "USDP"]):
                 open_orders = 0 # Suppress warning, treat as no open orders
@@ -1802,7 +1802,7 @@ class CCXTExchangeBroker:
 
     def _has_active_orders_or_position(self, symbol: str, state: dict | None = None) -> bool:
         state = state or self._fetch_symbol_state(symbol)
-        # [ANTIGRAVITY FIX] If position is dust, return False so loop treats it as "available to trade" (or ignore)
+        # If position is dust, return False so loop treats it as "available to trade" (or ignore)
         if state.get("is_dust", False):
              return False
         return abs(state.get("position_shares", 0.0)) > 0.0 or state.get("working_orders", 0) > 0
@@ -1814,7 +1814,7 @@ class CCXTExchangeBroker:
             logger.debug(f"[CCXT] mapped {symbol} -> {res}")
             return res
         
-        # [ANTIGRAVITY FIX] Fallback to dynamic lookup or pattern matching
+        # Fallback to dynamic lookup or pattern matching
         try:
             if not self._exchange.markets:
                 self._exchange.load_markets()
@@ -1859,19 +1859,19 @@ class CCXTExchangeBroker:
         api_key = os.getenv("CCXT_API_KEY", "")
         secret = os.getenv("CCXT_SECRET", "")
         
-        # [ANTIGRAVITY] Diagnostic logging for Gemini authentication
-        # [ANTIGRAVITY] Diagnostic logging for Gemini authentication
+        # Diagnostic logging for Gemini authentication
+        # Diagnostic logging for Gemini authentication
         if self.exchange_id == "gemini":
             logger.info(f"[CCXT] Gemini API Key present (len={len(api_key)})")
         password = os.getenv("CCXT_PASSWORD")
         enable_rate_limit = (os.getenv("CCXT_ENABLE_RATE_LIMIT", "true").lower() == "true")
 
-        # [ANTIGRAVITY FIX] Kraken Specific Credential Mapping
+        # Kraken Specific Credential Mapping
         if "kraken" in self.exchange_id.lower():
             if not api_key: api_key = os.getenv("KRAKEN_API_KEY")
             if not secret: secret = os.getenv("KRAKEN_API_SECRET")
             
-        # [ANTIGRAVITY FIX] Gemini Specific Credential Mapping
+        # Gemini Specific Credential Mapping
         if "gemini" in self.exchange_id.lower():
             # Always prefer specific Gemini keys if available, even if CCXT_API_KEY is set
             gem_key = os.getenv("GEMINI_API_KEY")
@@ -1880,7 +1880,7 @@ class CCXTExchangeBroker:
                 secret = os.getenv("GEMINI_API_SECRET")
 
         options = {}
-        # [ANTIGRAVITY FIX] Coinbase specific fix for market orders
+        # Coinbase specific fix for market orders
         if "coinbase" in self.exchange_id.lower():
             options["createMarketBuyOrderRequiresPrice"] = False
 
@@ -1891,7 +1891,7 @@ class CCXTExchangeBroker:
         if not api_key or not secret:
             logger.warning("[CCXT] CCXT_API_KEY/SECRET missing. Running in public-only mode?")
         
-        # [ANTIGRAVITY FIX] Handle escaped newlines in PEM keys (common .env issue)
+        # Handle escaped newlines in PEM keys (common .env issue)
         if secret and "\\n" in secret and "\n" not in secret:
              logger.info("[CCXT] Detected escaped newlines in API Secret. Normalizing...")
              secret = secret.replace("\\n", "\n")
@@ -1907,7 +1907,7 @@ class CCXTExchangeBroker:
                 "options": options,
             }
         )
-        # [ANTIGRAVITY FIX] Gemini Nonce collision mitigation
+        # Gemini Nonce collision mitigation
         if self.exchange_id == "gemini":
             ex.milliseconds = lambda: int(time.time() * 1000)
             # Use nanosecond resolution to absolutely prevent multi-instance collisions
@@ -2006,7 +2006,7 @@ class CCXTExchangeBroker:
             return Ticker(symbol=sym, bid=bid, ask=ask, last=last, volume_24h_quote_usd=quote_volume)
         except Exception as exc:
             logger.debug("[CCXT] ticker fetch failed %s (%s)", sym, exc)
-            # [ANTIGRAVITY FIX] Graceful fallback for Commodity Derivatives (OIL/GLD/SIL)
+            # Graceful fallback for Commodity Derivatives (OIL/GLD/SIL)
             # These don't support standard ticker fetches on Coinbase but we can use our record price.
             if self.position_hold_store:
                 # We can't map back to the 'original' symbol easily here, but we can check the store
@@ -2029,7 +2029,7 @@ class CCXTExchangeBroker:
         )
 
     def _get_fee_rate(self) -> float:
-        """[ANTIGRAVITY] Return exchange-specific taker fee rate."""
+        """Return exchange-specific taker fee rate."""
         eid = self.exchange_id.lower()
         if "gemini" in eid:
             return self.GEMINI_FEE_RATE
@@ -2040,7 +2040,7 @@ class CCXTExchangeBroker:
         return self.DEFAULT_FEE_RATE
 
     def _get_maker_fee_rate(self) -> float:
-        """[ANTIGRAVITY] Return exchange-specific maker fee rate (for limit orders)."""
+        """Return exchange-specific maker fee rate (for limit orders)."""
         eid = self.exchange_id.lower()
         if "kraken" in eid:
             return self.KRAKEN_MAKER_FEE
@@ -2053,7 +2053,7 @@ class CCXTExchangeBroker:
     def _ccxt_create_order(self, symbol: str, type: str, side: str, amount: float, price: float | None = None, params: dict | None = None) -> dict:
         """Wrapper for ccxt.create_order with Gemini market->limit conversion.
         
-        [ANTIGRAVITY] Refactored:
+        Refactored:
         - 5% offset → configurable GEMINI_LIMIT_OFFSET (default 0.2%)
         - Maker-first: attempts post_only limit at mid-market before falling back
         - All SL buffers use GEMINI_SL_LIMIT_BUFFER (default 1.5%)
@@ -2067,7 +2067,7 @@ class CCXTExchangeBroker:
             ticker = self._exchange.fetch_ticker(symbol)
             last = float(ticker['last'])
 
-            # [ANTIGRAVITY] Maker-first: try post_only at mid-market to capture maker fee tier
+            # Maker-first: try post_only at mid-market to capture maker fee tier
             try:
                 mid_price = last  # At-market limit
                 mid_price = float(self._exchange.price_to_precision(symbol, mid_price))

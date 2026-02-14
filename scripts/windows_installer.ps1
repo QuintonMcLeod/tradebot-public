@@ -145,7 +145,7 @@ try {
 
     # Install Dependencies
     Write-Info "Installing Python Dependencies via Poetry..."
-    # [ANTIGRAVITY] Auto-fix stale poetry.lock (common after git pull)
+    # Auto-fix stale poetry.lock (common after git pull)
     Write-Info "Syncing poetry.lock with pyproject.toml..."
     $Poetry = Get-Command "poetry" -ErrorAction SilentlyContinue
     if ($Poetry) {

@@ -19,6 +19,8 @@ class TradeResult:
     is_win: bool
     tier: str  # e.g. "10%", "20%", "1%"
     capital_at_close: float
+    opened_at: str | None = None         # ISO timestamp of entry
+    duration_seconds: float | None = None # How long the trade was held
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -32,7 +34,9 @@ class TradeResult:
             pnl_usd=float(data.get("pnl_usd", 0.0)),
             is_win=bool(data["is_win"]),
             tier=data.get("tier", "unknown"),
-            capital_at_close=float(data.get("capital_at_close", 0.0))
+            capital_at_close=float(data.get("capital_at_close", 0.0)),
+            opened_at=data.get("opened_at"),
+            duration_seconds=float(data["duration_seconds"]) if data.get("duration_seconds") is not None else None
         )
 
 class TradeResultStore:

@@ -16,14 +16,19 @@ PAPER_STATE_FILE = os.path.join("data", "paper_state.json")
 class PaperBroker:
     """A simulated broker for local-only paper trading during Sabbath."""
 
-    # [ANTIGRAVITY] Kraken-level trading friction for realistic paper results.
+    # Kraken-level trading friction for realistic paper results.
     # Taker fee: 0.40% (Kraken Pro lowest tier, <$10K 30-day volume, as of Mar 2024)
     # Half-spread: ~0.05% (typical for BTC/ETH majors on Kraken)
     # Slippage: ~0.02% (conservative estimate for moderate-size fills)
     # Total per-leg friction: ~0.47%  |  Round-trip: ~0.94%
-    TAKER_FEE_PCT = float(os.getenv("PAPER_TAKER_FEE_PCT", "0.0040"))     # 0.40%
+    TAKER_FEE_PCT = float(os.getenv("PAPER_TAKER_FEE_PCT", "0.0025"))     # 0.25% (ActiveTrader tier)
     HALF_SPREAD_PCT = float(os.getenv("PAPER_HALF_SPREAD_PCT", "0.0005"))  # 0.05%
     SLIPPAGE_PCT = float(os.getenv("PAPER_SLIPPAGE_PCT", "0.0002"))        # 0.02%
+
+    # Hard leverage cap for paper trading.
+    # Profile target_leverage (e.g. 50x) is for OANDA forex — way too high for
+    # crypto paper trading.  Cap at 3x to prevent catastrophic position sizing.
+    PAPER_MAX_LEVERAGE = float(os.getenv("PAPER_MAX_LEVERAGE", "3.0"))
     
     def __init__(self, profile_settings, market_provider=None, trade_results=None, initial_balance=10000.0):
         self.profile = profile_settings
@@ -31,6 +36,8 @@ class PaperBroker:
         self.trade_results = trade_results
         self.positions = {} # symbol -> position_dict
         self.history = []
+        self._exit_cooldowns = {}  # symbol -> timestamp of last exit
+        self.REENTRY_COOLDOWN = float(os.getenv("PAPER_REENTRY_COOLDOWN", "300"))  # 5 min default
 
         # Load persisted state or fall back to initial balance
         default_balance = float(os.getenv("PAPER_BALANCE", initial_balance))
@@ -43,7 +50,7 @@ class PaperBroker:
             self.balance = default_balance
             logger.info(f"Initialized Paper Broker with ${self.balance:.2f} balance (no saved state).")
         
-        # [ANTIGRAVITY FIX] Immediate reporting on startup for UI visibility
+        # Immediate reporting on startup for UI visibility
         self.summarize_pnl()
         self.refresh_account_summary()
 
@@ -94,7 +101,7 @@ class PaperBroker:
         return total
 
     def refresh_account_summary(self) -> None:
-        # [ANTIGRAVITY] Prefixed with [PAPER] so ledger daemon skips these lines
+        # Prefixed with [PAPER] so ledger daemon skips these lines
         logger.info(f"[PAPER] [TOTAL] Liquidity available: ${self.balance:.2f}")
         logger.info(f"[PAPER] [CASH] Buying Power: ${self.balance:.2f}")
 
@@ -111,9 +118,25 @@ class PaperBroker:
                     ExecutionOutcome(ExecutionOutcomeType.SKIPPED, symbol, f"Paper: duplicate entry blocked")
                 )
 
+            # Re-entry cooldown — prevent churning after SL/TP exits
+            if symbol in self._exit_cooldowns:
+                elapsed = time.time() - self._exit_cooldowns[symbol]
+                remaining = self.REENTRY_COOLDOWN - elapsed
+                if remaining > 0:
+                    logger.info(
+                        f"[PAPER] [COOLDOWN] {symbol}: blocked re-entry, "
+                        f"{remaining:.0f}s remaining of {self.REENTRY_COOLDOWN:.0f}s cooldown"
+                    )
+                    return (
+                        ExecutionResult(ExecutionStatus.STAND_ASIDE, symbol, f"Paper: cooldown {remaining:.0f}s"),
+                        ExecutionOutcome(ExecutionOutcomeType.SKIPPED, symbol, f"Paper: re-entry cooldown active")
+                    )
+                else:
+                    del self._exit_cooldowns[symbol]
+
             side = "buy" if action == "enter_long" else "sell"
             
-            # [ANTIGRAVITY FIX] Dynamic Paper Sizing
+            # Dynamic Paper Sizing
             # Calculate quantity based on balance and risk_per_trade_pct
             risk_pct = getattr(decision, "risk_per_trade_pct", None) or getattr(self.profile, "risk_per_trade_pct", 0.01)
             risk_usd = self.balance * risk_pct
@@ -126,8 +149,14 @@ class PaperBroker:
                 # Fallback: Treat risk_usd as the actual notional size (very conservative for paper)
                 qty = risk_usd / price if price > 0 else 0
             
-            # [FIX] Leverage-based sizing cap (mirrors OANDA broker L502-510)
-            target_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
+            # [FIX] Leverage-based sizing cap — capped at PAPER_MAX_LEVERAGE
+            profile_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
+            target_leverage = min(profile_leverage, self.PAPER_MAX_LEVERAGE)
+            if profile_leverage > self.PAPER_MAX_LEVERAGE:
+                logger.info(
+                    f"[PAPER] [LEVERAGE] {symbol}: profile leverage {profile_leverage}x "
+                    f"capped to paper max {self.PAPER_MAX_LEVERAGE}x"
+                )
             max_notional = self.balance * target_leverage
             max_qty = max_notional / price if price > 0 else 0
             if qty > max_qty and max_qty > 0:
@@ -152,7 +181,7 @@ class PaperBroker:
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, "Paper size zero")
                 )
 
-            # [ANTIGRAVITY] Kraken-level fill simulation: adverse price + taker fee
+            # Kraken-level fill simulation: adverse price + taker fee
             friction = self.HALF_SPREAD_PCT + self.SLIPPAGE_PCT
             if side == "buy":
                 fill_price = price * (1 + friction)   # Buy higher
@@ -173,7 +202,8 @@ class PaperBroker:
                 "pnl_pct": 0.0,
                 "opened_at": datetime.now(timezone.utc).isoformat(),
                 "stop_loss": getattr(decision, "stop_loss", None),
-                "take_profit": getattr(decision, "take_profit", None)
+                "take_profit": getattr(decision, "take_profit", None),
+                "entry_fee": fee_usd
             }
             logger.info(
                 f"[PAPER] [FILL] {symbol} {qty:.4f} @ {fill_price:.5f} "
@@ -189,7 +219,7 @@ class PaperBroker:
             if symbol in self.positions:
                 pos = self.positions.pop(symbol)
                 entry_p = pos["entry_price"]
-                # [ANTIGRAVITY] Adverse exit fill + taker fee
+                # Adverse exit fill + taker fee
                 friction = self.HALF_SPREAD_PCT + self.SLIPPAGE_PCT
                 pos_side = pos.get("side", "long")
                 if pos_side == "long":
@@ -277,7 +307,7 @@ class PaperBroker:
                     logger.warning(f"[PAPER] [GHOST GUARD] {symbol}: TP {tp} >= entry {entry_p} for SHORT — ignoring TP")
 
             if hit:
-                # [ANTIGRAVITY] Adverse exit fill + taker fee for synthetic stops
+                # Adverse exit fill + taker fee for synthetic stops
                 friction = self.HALF_SPREAD_PCT + self.SLIPPAGE_PCT
                 if side == "long":
                     exit_price = price * (1 - friction)   # Sell lower
@@ -288,15 +318,47 @@ class PaperBroker:
                 pnl_usd -= fee_usd
                 pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                 self.balance += pnl_usd
-                pnl_str = f"{'+' if pnl_usd >= 0 else ''}${pnl_usd:.2f}"
+                # Format PnL as +$X.XX or -$X.XX (sign BEFORE dollar)
+                # so the LedgerDaemon RE_EXIT regex can parse it for analytics.
+                pnl_sign = "+" if pnl_usd >= 0 else "-"
+                pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
+
+                # Spread cost = entry fee + exit fee (round-trip friction)
+                entry_fee = abs(pos.get("entry_fee", 0))
+                spread_cost = entry_fee + fee_usd
+
+                # Compute trade duration
+                opened_at_str = pos.get("opened_at")
+                duration_secs = None
+                duration_str = "N/A"
+                if opened_at_str:
+                    try:
+                        opened_dt = datetime.fromisoformat(opened_at_str)
+                        closed_dt = datetime.now(timezone.utc)
+                        duration_secs = (closed_dt - opened_dt).total_seconds()
+                        # Human-readable duration
+                        mins = int(duration_secs // 60)
+                        secs = int(duration_secs % 60)
+                        if mins >= 60:
+                            hrs = mins // 60
+                            mins = mins % 60
+                            duration_str = f"{hrs}h {mins}m {secs}s"
+                        else:
+                            duration_str = f"{mins}m {secs}s"
+                    except Exception:
+                        pass
 
                 logger.info(
                     f"[PAPER] [EXIT] Paper {hit}: {symbol} {pnl_str} "
-                    f"(Pct={pnl_pct:.2f}%, fee=${fee_usd:.4f}) position={side.upper()} | "
-                    f"Entry={entry_p:.5f} Exit={exit_price:.5f}"
+                    f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
+                    f"Entry={entry_p:.5f} Exit={exit_price:.5f} | "
+                    f"Duration={duration_str} | "
+                    f"Est. Spread Cost: ${spread_cost:.2f}"
                 )
 
-                # Record in TradeResultStore for pnl_stats
+                # Record in paper-specific TradeResultStore (not the live one).
+                # The PaperBroker receives a separate store (paper_trade_results.json)
+                # so paper PnL never pollutes the live sidebar stats.
                 if self.trade_results:
                     self.trade_results.add_result(TradeResult(
                         symbol=symbol,
@@ -305,10 +367,13 @@ class PaperBroker:
                         pnl_usd=pnl_usd,
                         is_win=pnl_usd > 0,
                         tier="100%",
-                        capital_at_close=self.balance
+                        capital_at_close=self.balance,
+                        opened_at=opened_at_str,
+                        duration_seconds=duration_secs
                     ))
 
                 del self.positions[symbol]
+                self._exit_cooldowns[symbol] = time.time()  # Start re-entry cooldown
                 self._save_state()
                 self.refresh_account_summary()
                 results.append(ExecutionResult(

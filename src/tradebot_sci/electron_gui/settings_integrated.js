@@ -329,7 +329,7 @@ const TOOLTIPS = {
 };
 
 function getValue(key) {
-    // [ANTIGRAVITY FIX] Authority: Use the current session's timeframe from renderer.js
+    // Authority: Use the current session's timeframe from renderer.js
     if (key === 'GUI_PNL_TIMEFRAME' && typeof window.pnlTimeframe !== 'undefined') {
         return window.pnlTimeframe;
     }
@@ -1075,7 +1075,7 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%') {
     card.className = 'slider-card';
     let rawValue = getValue(key) || min;
 
-    // [ANTIGRAVITY FIX] The model stores fractions (0.045 = 4.5%).
+    // The model stores fractions (0.045 = 4.5%).
     // The slider displays human-friendly percentages (4.5%).
     // Convert stored fraction → display % on load, and display % → fraction on save.
     const isPct = (unit === '%');
@@ -2330,7 +2330,7 @@ function updateValue(key, value) {
 
         current[path[path.length - 1]] = val;
 
-        // [ANTIGRAVITY FIX] Sync PnL timeframe back to renderer.js if changed
+        // Sync PnL timeframe back to renderer.js if changed
         if (key === 'GUI_PNL_TIMEFRAME' && typeof window.syncPnLTimeframe === 'function') {
             window.syncPnLTimeframe(value);
         }

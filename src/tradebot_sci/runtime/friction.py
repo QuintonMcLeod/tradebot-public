@@ -80,7 +80,7 @@ class FrictionModel:
             rejection_journal.log(decision.symbol, decision.timeframe, "Friction: Spread", f"spread_bps>{self.max_spread_bps}")
             return FrictionDecision(allow=False, reason=f"spread_bps>{self.max_spread_bps}", spread_bps=spread, rr=rr)
 
-        # [ANTIGRAVITY] Fee-cost-to-reward gate: block trades where fees eat the edge
+        # Fee-cost-to-reward gate: block trades where fees eat the edge
         if decision.entry_price and decision.take_profit:
             entry = float(decision.entry_price)
             tp = float(decision.take_profit)

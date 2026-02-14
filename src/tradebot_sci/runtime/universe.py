@@ -39,7 +39,7 @@ def resolve_symbol_universe(settings, profile_settings, profile_name: str) -> li
         symbols = filter_crypto_symbols(symbols)
         logger.info(f"[UNIVERSE-DEBUG] Filtered crypto symbols: {before} -> {len(symbols)}. Result: {symbols}")
 
-    # [ANTIGRAVITY FIX] Filter out disabled symbols (e.g. BTC/ETH due to insufficient funds)
+    # Filter out disabled symbols (e.g. BTC/ETH due to insufficient funds)
     final_symbols = []
     for s in symbols:
         meta = SYMBOL_METADATA.get(str(s).upper())

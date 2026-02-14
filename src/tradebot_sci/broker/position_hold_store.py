@@ -97,7 +97,7 @@ class PositionHoldStore:
 
     def get(self, symbol: str) -> PositionHoldRecord | None:
         record = self.records.get(symbol.upper())
-        # [ANTIGRAVITY FIX] Filter out phantom positions (size=0.0)
+        # Filter out phantom positions (size=0.0)
         if record and (record.size is None or record.size <= 0):
             return None
         return record

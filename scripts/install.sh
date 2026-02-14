@@ -257,7 +257,7 @@ if [ -f "$HOME/.local/bin/poetry" ]; then POETRY_BIN="$HOME/.local/bin/poetry"; 
 
 $POETRY_BIN env use "$PYTHON_EXEC"
 
-# [ANTIGRAVITY] Auto-fix stale poetry.lock (common after git pull)
+# Auto-fix stale poetry.lock (common after git pull)
 info "Syncing poetry.lock with pyproject.toml..."
 $POETRY_BIN lock || {
     warn "poetry lock failed. You may need to run 'poetry lock' manually."

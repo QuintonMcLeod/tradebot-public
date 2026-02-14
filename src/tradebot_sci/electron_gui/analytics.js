@@ -92,7 +92,7 @@ function showErrorState(error) {
     if (tbody) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="6" style="text-align:center; color:#f87171; padding:32px 16px;">
+                <td colspan="10" style="text-align:center; color:#f87171; padding:32px 16px;">
                     <span class="material-symbols-outlined" style="font-size:28px; display:block; margin-bottom:8px; opacity:0.4;">error</span>
                     Error: ${error || 'Unknown'}
                 </td>
@@ -452,7 +452,7 @@ function updateTradeHistory(trades) {
     if (!trades || trades.length === 0) {
         tbody.innerHTML = `
             <tr id="no-trades-row">
-                <td colspan="7" style="text-align:center; color:#475569; padding:40px 16px;">
+                <td colspan="10" style="text-align:center; color:#475569; padding:40px 16px;">
                     <span class="material-symbols-outlined" style="font-size:28px; display:block; margin-bottom:8px; opacity:0.25;">search_off</span>
                     <span style="font-style:italic;">No trades found in this period</span>
                 </td>
@@ -469,7 +469,7 @@ function updateTradeHistory(trades) {
     if (active.length > 0) {
         const headerRow = document.createElement('tr');
         headerRow.innerHTML = `
-            <td colspan="7" style="padding:8px 16px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:#34d399; background:rgba(16,185,129,0.06); border-bottom:1px solid rgba(16,185,129,0.1);">
+            <td colspan="10" style="padding:8px 16px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:#34d399; background:rgba(16,185,129,0.06); border-bottom:1px solid rgba(16,185,129,0.1);">
                 <span class="material-symbols-outlined" style="font-size:13px; vertical-align:-2px; margin-right:4px;">radio_button_checked</span>
                 Active Positions (${active.length})
             </td>
@@ -495,15 +495,20 @@ function updateTradeHistory(trades) {
             const sideClass = side === 'SHORT' ? 'short' : 'long';
             const duration = formatDuration(trade.timestamp || trade.time);
             const strategy = trade.strategy ? trade.strategy.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '--';
+            const pnlPct = parseFloat(trade.pct || trade.pnlPct) || 0;
+            const spread = parseFloat(trade.spread) || 0;
 
             row.innerHTML = `
                 <td style="color:#64748b; font-size:11px;">${time}</td>
                 <td style="font-weight:700; color:#e2e8f0;">${trade.symbol || '--'} <span style="font-size:8px;padding:1px 5px;border-radius:4px;background:rgba(16,185,129,0.15);color:#34d399;font-weight:800;letter-spacing:0.05em;">LIVE</span></td>
                 <td style="text-align:center;"><span class="side-badge ${sideClass}">${side}</span></td>
+                <td style="text-align:center;"><span style="font-size:9px;padding:2px 8px;border-radius:4px;background:rgba(16,185,129,0.12);color:#34d399;font-weight:800;letter-spacing:0.05em;">OPEN</span></td>
                 <td style="text-align:right; font-weight:700; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
+                <td style="text-align:right; font-size:11px; color:${pnlPct >= 0 ? '#34d399' : '#f87171'};">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
+                <td style="text-align:right; font-size:11px; color:#475569;">--</td>
                 <td style="color:#34d399; font-size:11px; font-weight:600;">⏱ ${duration}</td>
                 <td style="color:#94a3b8; font-size:11px;">${strategy}</td>
-                <td style="color:#475569; font-size:11px;">${trade.reason || '--'}</td>
+                <td style="color:#34d399; font-size:11px; font-weight:600;">● Active Position</td>
             `;
             tbody.appendChild(row);
         });
@@ -514,7 +519,7 @@ function updateTradeHistory(trades) {
         if (active.length > 0) {
             const headerRow = document.createElement('tr');
             headerRow.innerHTML = `
-                <td colspan="7" style="padding:8px 16px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:#64748b; background:rgba(71,85,105,0.06); border-bottom:1px solid rgba(71,85,105,0.1);">
+                <td colspan="10" style="padding:8px 16px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:#64748b; background:rgba(71,85,105,0.06); border-bottom:1px solid rgba(71,85,105,0.1);">
                     <span class="material-symbols-outlined" style="font-size:13px; vertical-align:-2px; margin-right:4px;">receipt_long</span>
                     Closed Trades (${closed.length})
                 </td>
@@ -539,12 +544,27 @@ function updateTradeHistory(trades) {
             const side = (trade.side || 'long').toUpperCase();
             const sideClass = side === 'SHORT' ? 'short' : 'long';
             const strategy = trade.strategy ? trade.strategy.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '--';
+            const pnlPct = parseFloat(trade.pct || trade.pnlPct) || 0;
+            const spread = parseFloat(trade.spread) || 0;
+
+            // Result badge
+            let resultBadge;
+            if (pnl > 0) {
+                resultBadge = '<span style="font-size:9px;padding:2px 8px;border-radius:4px;background:rgba(16,185,129,0.12);color:#34d399;font-weight:800;letter-spacing:0.05em;">WIN</span>';
+            } else if (pnl < 0) {
+                resultBadge = '<span style="font-size:9px;padding:2px 8px;border-radius:4px;background:rgba(239,68,68,0.12);color:#f87171;font-weight:800;letter-spacing:0.05em;">LOSS</span>';
+            } else {
+                resultBadge = '<span style="font-size:9px;padding:2px 8px;border-radius:4px;background:rgba(71,85,105,0.15);color:#64748b;font-weight:800;letter-spacing:0.05em;">B/E</span>';
+            }
 
             row.innerHTML = `
                 <td style="color:#64748b; font-size:11px;">${time}</td>
                 <td style="font-weight:700; color:#e2e8f0;">${trade.symbol || '--'}</td>
                 <td style="text-align:center;"><span class="side-badge ${sideClass}">${side}</span></td>
+                <td style="text-align:center;">${resultBadge}</td>
                 <td style="text-align:right; font-weight:700; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
+                <td style="text-align:right; font-size:11px; color:${pnlPct >= 0 ? '#34d399' : '#f87171'};">${pnlPct !== 0 ? (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%' : '--'}</td>
+                <td style="text-align:right; font-size:11px; color:#475569;">${spread > 0 ? '$' + spread.toFixed(2) : '--'}</td>
                 <td style="color:#475569; font-size:11px;">--</td>
                 <td style="color:#94a3b8; font-size:11px;">${strategy}</td>
                 <td style="color:#475569; font-size:11px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${trade.reason || '--'}</td>
@@ -562,14 +582,84 @@ function refreshAnalytics() {
     loadAnalyticsData(currentFilter);
 }
 
+// ═══════════════════════════════════════════════════════════
+// AUTO-REFRESH TIMER (30-second countdown with ring animation)
+// ═══════════════════════════════════════════════════════════
+
+const REFRESH_INTERVAL = 30; // seconds
+const RING_CIRCUMFERENCE = 2 * Math.PI * 10; // ~62.83 (r=10 from SVG)
+let refreshCountdown = REFRESH_INTERVAL;
+let refreshTimerID = null;
+
+function startRefreshTimer() {
+    stopRefreshTimer();
+    refreshCountdown = REFRESH_INTERVAL;
+    updateCountdownUI();
+    refreshTimerID = setInterval(() => {
+        refreshCountdown--;
+        updateCountdownUI();
+        if (refreshCountdown <= 0) {
+            triggerAutoRefresh();
+        }
+    }, 1000);
+}
+
+function stopRefreshTimer() {
+    if (refreshTimerID) {
+        clearInterval(refreshTimerID);
+        refreshTimerID = null;
+    }
+}
+
+function triggerAutoRefresh() {
+    const badge = document.getElementById('analytics-refresh-badge');
+    if (badge) badge.classList.add('refreshing');
+
+    refreshAnalytics();
+
+    // Flash amber briefly then reset
+    setTimeout(() => {
+        if (badge) badge.classList.remove('refreshing');
+        refreshCountdown = REFRESH_INTERVAL;
+        updateCountdownUI();
+    }, 500);
+}
+
+function updateCountdownUI() {
+    const textEl = document.getElementById('refresh-countdown-text');
+    const ringEl = document.getElementById('refresh-ring-progress');
+    if (textEl) textEl.textContent = refreshCountdown;
+    if (ringEl) {
+        // Progress: full ring at REFRESH_INTERVAL, empty at 0
+        const progress = refreshCountdown / REFRESH_INTERVAL;
+        const offset = RING_CIRCUMFERENCE * (1 - progress);
+        ringEl.style.strokeDashoffset = offset;
+    }
+}
+
+// Clicking the badge triggers immediate refresh
+document.addEventListener('DOMContentLoaded', () => {
+    const badge = document.getElementById('analytics-refresh-badge');
+    if (badge) {
+        badge.style.cursor = 'pointer';
+        badge.addEventListener('click', () => {
+            triggerAutoRefresh();
+        });
+    }
+});
+
 window.analyticsModule = {
     init: initAnalytics,
     refresh: refreshAnalytics,
-    loadData: loadAnalyticsData
+    loadData: loadAnalyticsData,
+    startTimer: startRefreshTimer,
+    stopTimer: stopRefreshTimer
 };
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(initAnalytics, 100));
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => { initAnalytics(); startRefreshTimer(); }, 100);
+    });
 } else {
-    setTimeout(initAnalytics, 100);
+    setTimeout(() => { initAnalytics(); startRefreshTimer(); }, 100);
 }

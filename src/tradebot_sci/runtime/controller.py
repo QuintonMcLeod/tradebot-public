@@ -48,7 +48,7 @@ class RuntimeController:
             return
             
         try:
-            # [ANTIGRAVITY FIX] Distinguish between Liquid Cash and Total Equity
+            # Distinguish between Liquid Cash and Total Equity
             cash = executor.get_liquid_capital() if executor else 0.0
             total_equity = executor.get_total_balance_value() if executor else 0.0
             
@@ -64,15 +64,22 @@ class RuntimeController:
 
             sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
 
-            # [ANTIGRAVITY FIX] Refresh profile_name from settings each time to catch hot-reloads
+            # Refresh profile_name from settings each time to catch hot-reloads
             current_profile = getattr(self.settings.app, 'profile_name', self.profile_name)
             if current_profile != self.profile_name:
                 logger.info(f"[CONTROLLER] Profile changed: {self.profile_name} -> {current_profile}")
                 self.profile_name = current_profile
 
-            # [ANTIGRAVITY] Multi-interval PnL Tracking
+            # Multi-interval PnL Tracking
+            # During Sabbath, show paper trade PnL from the ledger (same source as analytics page);
+            # otherwise show live PnL from the trade results store.
             pnl_stats = {}
-            if executor and hasattr(executor, "trade_results"):
+            if sabbath_active and hasattr(self, 'paper_ledger') and self.paper_ledger:
+                day = self.paper_ledger.get_current_day()
+                paper_pnl = day.get('pnl_realized', 0.0)
+                for tf_code in ['24h', 'week', 'month', 'year', 'all']:
+                    pnl_stats[tf_code] = paper_pnl
+            elif executor and hasattr(executor, 'trade_results'):
                 store = executor.trade_results
                 for tf_code in ['24h', 'week', 'month', 'year', 'all']:
                     pnl_stats[tf_code] = store.get_stats_for_timeframe(tf_code).get('pnl_usd', 0.0)
@@ -107,7 +114,7 @@ class RuntimeController:
             "close": candle.close,
             "volume": getattr(candle, "volume", 0)
         }
-        # [ANTIGRAVITY DEBUG] Trace volume and timestamp
+        # Trace volume and timestamp
         self.ws_server.broadcast_candle_sync(symbol, timeframe, c_data)
 
     def is_halted(self) -> bool:

@@ -76,7 +76,7 @@ def _log_holdings_snapshot(executor, *, reason: str, tag: str = "") -> None:
         except Exception as e:
             logger.debug(f"[HOLDINGS] Failed to parse size for {sym}: {e}")
             pass
-        # [ANTIGRAVITY] Merge SL/TP/opened_at from position_hold_store when snapshot misses them
+        # Merge SL/TP/opened_at from position_hold_store when snapshot misses them
         hold_store = getattr(executor, "position_hold_store", None)
         if hold_store:
             record = hold_store.get(sym)
@@ -164,14 +164,14 @@ def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool, allowed_
     if broker_mode not in ("primary", "hybrid") and market_mode not in ("primary", "hybrid"):
         return None
 
-    # [ANTIGRAVITY] Only connect IBKR if it is actually the designated 'primary' provider
+    # Only connect IBKR if it is actually the designated 'primary' provider
     prime_m = settings.market.primary_market_provider.lower()
     prime_b = settings.market.primary_broker.lower()
     if prime_m != "ibkr" and prime_b != "ibkr":
         logger.info(f"[IBKR] Skipping connection - primary provider/broker is {prime_m}/{prime_b}")
         return None
         
-    # [ANTIGRAVITY] Asset Class Guard: Only connect if Forex or Equity/Metals are active
+    # Asset Class Guard: Only connect if Forex or Equity/Metals are active
     if allowed_asset_classes:
         has_ib_class = any(ac in ("forex", "equity", "commodity") for ac in allowed_asset_classes)
         if not has_ib_class:
@@ -581,7 +581,7 @@ def run_bot(
         for symbol in symbols
     }
 
-    # [ANTIGRAVITY] Prominent Strategy & MOTD Display
+    # Prominent Strategy & MOTD Display
     print("\n" + "="*60)
     motd_path = os.path.join(os.getcwd(), "Documentation", "motd.txt")
     if os.path.exists(motd_path):
@@ -615,17 +615,18 @@ def run_bot(
         if execute_trades
         else None
     )
-    # [ANTIGRAVITY FIX] Only create PaperBroker if Sabbath is enabled (its only use case)
+    # Only create PaperBroker if Sabbath is enabled (its only use case)
     executor_paper = None
     paper_ledger = None
     if sabbath_context.enabled:
+        paper_trade_results = TradeResultStore(os.path.join("data", "paper_trade_results.json"))
         executor_paper = PaperBroker(
             profile_settings,
             market_provider=provider,
-            trade_results=trade_results
+            trade_results=paper_trade_results
         )
         logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
-        # [ANTIGRAVITY] Separate paper ledger — never pollutes the live ledger
+        # Separate paper ledger — never pollutes the live ledger
         paper_ledger = LedgerDaemon(
             log_path=os.path.join("logs", "tradebot.log"),
             ledger_path=os.path.join("data", "paper_ledger.json"),
@@ -698,7 +699,7 @@ def run_bot(
     )
     next_decision_in = 0
 
-    # [ANTIGRAVITY] Explicit profile log for UI parsing
+    # Explicit profile log for UI parsing
     logger.info(f"[PROFILE] Active profile={profile_name}")
     
     logger.info(
@@ -709,6 +710,10 @@ def run_bot(
     )
 
     controller = RuntimeController(settings, profile_settings)
+    # Wire paper ledger to controller for Sabbath PnL display
+    # This ensures sidebar PnL reads from the same source as analytics.
+    if sabbath_context.enabled and paper_ledger:
+        controller.paper_ledger = paper_ledger
 
     # Bridge logs to WS
     from tradebot_sci.runtime.cycle import handle_execution_result # reload check
@@ -716,20 +721,41 @@ def run_bot(
     ws_handler.setFormatter(logging.Formatter('%(message)s'))
     logging.getLogger().addHandler(ws_handler)
     
+    # Candle cache to avoid concurrent CCXT access.
+    # The main trading loop and the WS tick handler share the same CCXT exchange
+    # instance, which is NOT thread-safe.  Instead of making a live API call from
+    # on_tick (which runs in the asyncio event loop), we cache the latest candle
+    # per symbol and broadcast from cache.
+    _candle_cache: dict = {}  # key: (symbol, tf) → Candle
+
+    # Dedicated CCXT provider for chart history fetches.
+    # The main trading loop's provider MUST NOT be used from the WS handler
+    # because CCXT exchange objects are not thread-safe.
+    _chart_provider = None
+    try:
+        from tradebot_sci.broker.ccxt_broker import CCXTExchangeBroker
+        from tradebot_sci.market.providers import CCXTMarketDataProvider
+        _chart_broker = CCXTExchangeBroker(profile_settings)
+        _chart_provider = CCXTMarketDataProvider(_chart_broker.exchange, _chart_broker.symbol_map_data)
+        logger.info("[WS] Created dedicated chart provider (own CCXT exchange instance)")
+    except Exception as e:
+        logger.warning(f"[WS] Dedicated chart provider failed, falling back to shared: {e}")
+        _chart_provider = provider
+
     def on_subscribe(symbol, tf):
         from tradebot_sci.runtime.provider_factory import _get_asset_key
         asset_key = _get_asset_key(symbol)
-        logger.info(f"[WS-DEBUG] Subscription for {symbol} ({tf}) | AssetKey: {asset_key} | Provider: {type(provider).__name__}")
+        logger.info(f"[WS-DEBUG] Subscription for {symbol} ({tf}) | AssetKey: {asset_key}")
         
         # Sync current state
         try:
             controller.broadcast_state(executor, force=True)
-            # Push history
-            logger.info(f"[WS-DEBUG] Requesting history for {symbol} via {type(provider).__name__}...")
-            hist = provider.get_latest_candles(symbol, tf, limit=200)
+            # Push history using DEDICATED provider (not the shared one!)
+            chart_prov = _chart_provider or provider
+            hist = chart_prov.get_latest_candles(symbol, tf, limit=200)
             logger.info(f"[WS-DEBUG] Received {len(hist) if hist else 0} candles for {symbol}")
             if hist:
-                logger.info(f"[WS-DEBUG] {symbol} First: {hist[0].timestamp.isoformat()} ({int(hist[0].timestamp.timestamp())}) | Last: {hist[-1].timestamp.isoformat()} ({int(hist[-1].timestamp.timestamp())})")
+                logger.info(f"[WS-DEBUG] {symbol} First: {hist[0].timestamp.isoformat()} | Last: {hist[-1].timestamp.isoformat()}")
                 formatted = [
                     {
                         "time": int(c.timestamp.timestamp()),
@@ -742,13 +768,32 @@ def run_bot(
                     for c in hist
                 ]
                 controller.ws_server.broadcast_history_sync(symbol, tf, formatted)
+                # Populate cache with the latest candle
+                _candle_cache[(symbol.upper(), tf.lower())] = hist[-1]
+                logger.info(f"[WS-CACHE] Cached: {symbol} {tf} → {hist[-1].timestamp.isoformat()}")
             else:
                 logger.warning(f"[WS] No history found for {symbol} ({tf})")
         except Exception as e:
             logger.error(f"[WS] Error during subscription sync for {symbol}: {e}", exc_info=True)
 
+    def on_tick(symbol, tf):
+        """Broadcast cached candle — NO API call (avoids concurrent CCXT access)."""
+        key = (symbol.upper(), tf.lower())
+        cached = _candle_cache.get(key)
+        if cached:
+            controller.broadcast_candle(symbol, tf, cached)
+        else:
+            logger.debug(f"[WS-TICK] No cached candle for {symbol} {tf} — skipping")
+
+    def update_candle_cache(symbol, tf, candle):
+        """Called from the trading cycle to update the cache with fresh data."""
+        _candle_cache[(symbol.upper(), tf.lower())] = candle
+
     controller.start_ws_server()
     controller.ws_server.set_on_subscribe_callback(on_subscribe)
+    controller.ws_server.set_on_tick_callback(on_tick)
+    # Expose cache updater so the trading cycle can refresh the chart cache
+    controller.update_candle_cache = update_candle_cache
 
     last_auto_mode: str | None = None
     last_holdings_log_ts = 0.0
@@ -757,14 +802,14 @@ def run_bot(
     loop_iter = itertools.count() if iterations is None else range(iterations)
     start_ts = time.time()
     
-    # [ANTIGRAVITY] Hot-Reload State
+    # Hot-Reload State
     from pathlib import Path
     config_path = Path("config.json")
     last_config_mtime = config_path.stat().st_mtime if config_path.exists() else 0
     
     try:
         for _ in loop_iter:
-            # [ANTIGRAVITY] Hot-Reload Check
+            # Hot-Reload Check
             try:
                 if config_path.exists():
                     current_mtime = config_path.stat().st_mtime
@@ -781,11 +826,11 @@ def run_bot(
                         controller.settings = settings
                         controller.profile_settings = profile_settings
                         
-                        # [ANTIGRAVITY FIX] Sync Profile to Brokers (Hot-Reload)
+                        # Sync Profile to Brokers (Hot-Reload)
                         if hasattr(executor, "sync_profile"):
                             executor.sync_profile(profile_settings)
                         
-                        # [ANTIGRAVITY FIX] Sync Profile to Environment (so SafetyGuard consumes it immediately)
+                        # Sync Profile to Environment (so SafetyGuard consumes it immediately)
                         logger.info("[HOT-RELOAD] Syncing new settings to OS Environment for SafetyGuard...")
                         
                         # Map internal settings to ENV vars used by SafetyGuard
@@ -819,7 +864,7 @@ def run_bot(
                                     trade_results=trade_results,
                                 )
                             else:
-                                # [ANTIGRAVITY FIX] Sync profile to EXISTING engines
+                                # Sync profile to EXISTING engines
                                 engines[sym].profile = profile_settings
                         
                         # Remove dropped symbols (optional, but good for cleanup)
@@ -837,13 +882,13 @@ def run_bot(
             except Exception as e:
                 logger.error(f"[HOT-RELOAD] Failed to reload settings: {e}")
 
-            # [ANTIGRAVITY] Check for Halt Signal
+            # Check for Halt Signal
             if controller.is_halted():
                 logger.debug("[LOOP] Bot is HALTED via signal. Waiting...")
                 time.sleep(poll_interval)
                 continue
 
-            # [ANTIGRAVITY FIX] Evaluate Sabbath Status FIRST (every loop tick)
+            # Evaluate Sabbath Status FIRST (every loop tick)
             # This ensures we enter Sabbath mode immediately and swap executors
             # before ANY account summary or heartbeat calls reach external brokers.
             now = datetime.now(ZoneInfo("UTC"))
@@ -885,19 +930,19 @@ def run_bot(
                 
                 now_ts = time.time()
                 if now_ts - last_holdings_log_ts >= 5.0:
-                    # [ANTIGRAVITY] Tag paper holdings so live ledger skips them
+                    # Tag paper holdings so live ledger skips them
                     if executor == executor_paper:
                         _log_holdings_snapshot(executor, reason="heartbeat", tag="[PAPER] ")
                     else:
                         _log_holdings_snapshot(executor, reason="heartbeat")
                     last_holdings_log_ts = now_ts
                 
-                # [ANTIGRAVITY] Periodic Capital Check
+                # Periodic Capital Check
                 if now_ts - last_capital_check_ts >= 15.0:
                     try:
                          # Force a fresh check of Total Equity for UI consistency
                          cap = executor.get_total_balance_value()
-                         # [ANTIGRAVITY] Paper heartbeats tagged so live ledger ignores them
+                         # Paper heartbeats tagged so live ledger ignores them
                          if executor == executor_paper:
                              logger.info(f"[PAPER] [HEARTBEAT] Capital available: ${cap:.2f}")
                          else:
@@ -914,7 +959,7 @@ def run_bot(
                     logger.error(f"[CRASH_GUARD] Error in evaluate_synthetic_stops: {e}", exc_info=True)
             strike_tracker.advance_cycle()
             
-            # [ANTIGRAVITY] Sabbath Paper Trading: Allow scanning and trading 
+            # Sabbath Paper Trading: Allow scanning and trading 
             # if we have successfully swapped to the local PaperBroker.
             allow_entries = not sabbath_active or executor == executor_paper
 
@@ -922,7 +967,7 @@ def run_bot(
                 active_symbols = symbols
                 auto_mode: str | None = None
                 if auto_schedule_enabled:
-                    # [ANTIGRAVITY FIX] Override schedule for crypto-only mode to prevent blocking on equity hours
+                    # Override schedule for crypto-only mode to prevent blocking on equity hours
                     force_crypto = profile_settings.crypto_only
                     if force_crypto:
                         selection_symbols = [s for s in symbols if is_crypto(s)]
@@ -955,7 +1000,7 @@ def run_bot(
                         if sym in engines and sym not in active_symbols:
                             active_symbols.append(sym)
 
-                # [ANTIGRAVITY] Live Chart Sync: Ensure viewed symbols/timeframes are fetched
+                # Live Chart Sync: Ensure viewed symbols/timeframes are fetched
                 if controller.ws_server:
                     for sub_sym, sub_tf in controller.ws_server.get_subscriptions():
                         if sub_sym in engines:
@@ -990,13 +1035,15 @@ def run_bot(
                         next_decision_in = decision_interval
                         time.sleep(poll_interval)
                         continue
-                # [ANTIGRAVITY FIX] Filter by market hours (OANDA weekend halt protection)
-                active_symbols = [s for s in active_symbols if is_market_open(s, now, settings=profile_settings)]
-                if not active_symbols:
-                    logger.info("[SCHEDULE] No symbols have open markets. Skipping cycle.")
-                    next_decision_in = decision_interval
-                    time.sleep(poll_interval)
-                    continue
+                # Filter by market hours (OANDA weekend halt protection)
+                # Skip this filter for paper broker during Sabbath — paper trades 24/7
+                if not (sabbath_active and executor == executor_paper):
+                    active_symbols = [s for s in active_symbols if is_market_open(s, now, settings=profile_settings)]
+                    if not active_symbols:
+                        logger.info("[SCHEDULE] No symbols have open markets. Skipping cycle.")
+                        next_decision_in = decision_interval
+                        time.sleep(poll_interval)
+                        continue
 
                 candidates, data_fetch_succeeded = build_candidate_list(
                     executor,
@@ -1032,7 +1079,7 @@ def run_bot(
                 # Reset error counter when we successfully fetch at least one symbol
                 consecutive_error_iterations = 0
                 
-                # [ANTIGRAVITY FIX] Strictly honor Sabbath: 
+                # Strictly honor Sabbath: 
                 # Block BOTH entries and exits (Zero Action) if NO PaperBroker is active.
                 if sabbath_active and executor != executor_paper:
                     controller.broadcast_state(executor, force=True)
@@ -1062,7 +1109,7 @@ def run_bot(
                         skipped,
                     )
                 
-                # [ANTIGRAVITY] AI Commentary: Update the UI with market insights
+                # AI Commentary: Update the UI with market insights
                 try:
                     # Identify active strategy for context
                     active_strategy = "supply_demand"
@@ -1102,7 +1149,7 @@ def run_bot(
     except KeyboardInterrupt:
         logger.info("Shutting down simulation")
     except Exception as exc:
-        # [ANTIGRAVITY FIX] enhanced crash logging
+        # enhanced crash logging
         logger.critical(f"[FATAL] Bot process crashed: {exc}", exc_info=True)
         # Force flush to ensure log is written before death
         for handler in logger.handlers:
@@ -1205,13 +1252,14 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         else None
     )
 
-    # [ANTIGRAVITY FIX] Only create PaperBroker if Sabbath is enabled
+    # Only create PaperBroker if Sabbath is enabled
     executor_paper = None
     if sabbath_context.enabled:
+        paper_trade_results = TradeResultStore(os.path.join("data", "paper_trade_results.json"))
         executor_paper = PaperBroker(
             profile_settings, 
             market_provider=provider, 
-            trade_results=trade_results
+            trade_results=paper_trade_results
         )
         logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
     else:
@@ -1264,7 +1312,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         last_holdings_log_ts = 0.0
         consecutive_error_iterations = 0
         while True:
-            # [ANTIGRAVITY] Check for Halt Signal
+            # Check for Halt Signal
             if controller.is_halted():
                 logger.debug("[LOOP] Bot is HALTED via signal. Waiting...")
                 time.sleep(poll_interval)
@@ -1313,10 +1361,10 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
             next_decision_in = 0
             while datetime.now(tz) < end_ts:
                 loop_now = datetime.now(tz)
-                # [ANTIGRAVITY FIX] Evaluate Sabbath Status FIRST
+                # Evaluate Sabbath Status FIRST
                 sabbath_active, _, _ = sabbath_context.evaluate(loop_now)
                 
-                # [ANTIGRAVITY] Sabbath Paper Trading Swap
+                # Sabbath Paper Trading Swap
                 if sabbath_active and executor_paper and executor != executor_paper:
                     logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading Mode.")
                     executor = executor_paper
@@ -1547,7 +1595,7 @@ def _reconnect_ib(ib_client, settings: Settings, logger: logging.Logger) -> None
     time.sleep(2)
     time.sleep(2)
 
-    # [ANTIGRAVITY FIX] Strict guard against IBKR connection in alternative mode
+    # Strict guard against IBKR connection in alternative mode
     # Even if we ended up here, we must not connect if mode is wrong.
     provider = (os.getenv("EXCHANGE_PROVIDER") or settings.market.exchange_provider or "").strip().lower()
     if provider == "alternative":

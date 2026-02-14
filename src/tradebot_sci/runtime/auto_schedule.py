@@ -35,7 +35,7 @@ def select_auto_schedule_symbols(
     """Auto-switch between equities (US market hours) and crypto/forex (off-hours)."""
     is_equity_session = _is_us_equity_session_open(now_utc)
     
-    # [ANTIGRAVITY FIX] Include Forex and Commodities in the "off-hours" or "extended" selection
+    # Include Forex and Commodities in the "off-hours" or "extended" selection
     # so they aren't filtered out by the equity/crypto toggle.
     if is_equity_session:
         desired_classes = {AssetClass.EQUITY}

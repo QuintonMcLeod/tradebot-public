@@ -387,6 +387,67 @@
     color: var(--accent);
 }
 
+/* ───── REFRESH COUNTDOWN BADGE ───── */
+.refresh-countdown-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    padding: 3px 8px 3px 4px;
+    border-radius: 20px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    cursor: default;
+    opacity: 0.7;
+    transition: opacity 0.3s;
+}
+
+.refresh-countdown-badge:hover {
+    opacity: 1;
+}
+
+.refresh-ring {
+    width: 20px;
+    height: 20px;
+    transform: rotate(-90deg);
+}
+
+.refresh-ring-bg {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.06);
+    stroke-width: 2;
+}
+
+.refresh-ring-fg {
+    fill: none;
+    stroke: var(--accent, #2dd4bf);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-dasharray: 62.83;
+    /* 2 * π * 10 */
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset 1s linear;
+}
+
+.refresh-countdown-text {
+    font-size: 9px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #64748b;
+    letter-spacing: 0.05em;
+    min-width: 14px;
+    text-align: center;
+}
+
+.refresh-countdown-badge.refreshing .refresh-ring-fg {
+    stroke: #fbbf24;
+    transition: none;
+}
+
+.refresh-countdown-badge.refreshing .refresh-countdown-text {
+    color: #fbbf24;
+}
+
 /* ───── MINI STAT CARD (for performance grid) ───── */
 .mini-stat {
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.45) 0%, rgba(15, 23, 42, 0.15) 100%);

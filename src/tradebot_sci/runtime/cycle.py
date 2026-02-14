@@ -42,12 +42,9 @@ def fetch_snapshot(
         ltf_candles = provider.get_latest_candles(symbol, ltf_timeframe, limit=max_candles)
         htf_candles = provider.get_latest_candles(symbol, htf_timeframe, limit=max_candles)
         
-        if ws_controller and ltf_candles:
-            # [ANTIGRAVITY FIX] Broadcast last 2 candles to ensure transitions are captured
-            # and verify no gaps even if bot was busy during the explicit close time.
-            recent_candles = ltf_candles[-2:]
-            for c in recent_candles:
-                ws_controller.broadcast_candle(symbol, ltf_timeframe, c)
+        # Update chart candle cache so on_tick always has fresh data
+        if ws_controller and ltf_candles and hasattr(ws_controller, 'update_candle_cache'):
+            ws_controller.update_candle_cache(symbol, ltf_timeframe, ltf_candles[-1])
 
         trend_htf = infer_trend_from_swings(
             htf_candles,
@@ -244,7 +241,7 @@ def process_candidate_cycle(
                 p = executor.get_open_position_snapshot(s)
                 if p:
                     global_pnl += (p.get("unrealized_pnl", 0.0) or 0.0)
-                    # [ANTIGRAVITY FIX] Track total position notional value
+                    # Track total position notional value
                     # On spot exchanges, capital in positions IS equity.
                     price = float(p.get("current_price") or p.get("avg_price") or p.get("entry_price") or 0)
                     size = abs(float(p.get("size") or 0))
@@ -274,7 +271,7 @@ def process_candidate_cycle(
                     "open_position_count": global_open_count
                 }
             )
-            # [ANTIGRAVITY FIX] Include 'hold' in decision logging to ensure the Decisions Panel is populated for existing positions
+            # Include 'hold' in decision logging to ensure the Decisions Panel is populated for existing positions
             if not decision or decision.action in ("stand_aside", "hold"):
                 reason = decision.notes if decision else "No strategy signal"
                 d_score = (decision.score * 100.0) if (decision and decision.score is not None) else 0.0

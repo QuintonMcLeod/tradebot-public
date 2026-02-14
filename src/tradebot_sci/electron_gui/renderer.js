@@ -17,7 +17,7 @@ let statusDot;
 let statusLatency;
 let currentRealizedPnL = 0;
 let currentUnrealizedPnL = 0;
-// [ANTIGRAVITY] pnlTimeframe is now the single source of truth for display mode too.
+// pnlTimeframe is now the single source of truth for display mode too.
 // Possible values: 'holdings', '24h', 'week', 'month', 'year', 'all'
 // Authoritative source for PnL timeframe, synced with sidebar and settings
 let pnlTimeframe = localStorage.getItem('pnlTimeframe') || '24h';
@@ -44,7 +44,7 @@ function refreshMainPnlDisplay() {
     if (pnlLabel) pnlLabel.textContent = labelText + ":";
     equityEl.textContent = displayVal.toFixed(2);
 
-    // [ANTIGRAVITY FIX] Sync with settings dropdown if it exists and is loaded
+    // Sync with settings dropdown if it exists and is loaded
     // Matches the structure in settings_integrated.js
     const timeframeDropdown = document.querySelector('.control-card[data-key="GUI_PNL_TIMEFRAME"] select');
     if (timeframeDropdown) {
@@ -69,7 +69,7 @@ function handlePnlToggle() {
     window.pnlTimeframe = pnlTimeframe;
     localStorage.setItem('pnlTimeframe', pnlTimeframe);
 
-    // [ANTIGRAVITY FIX] Sync with settings panel if loaded
+    // Sync with settings panel if loaded
     if (typeof window.updateValue === 'function') {
         window.updateValue('GUI_PNL_TIMEFRAME', pnlTimeframe);
     }
@@ -85,8 +85,8 @@ function handlePnlToggle() {
     refreshMainPnLDisplay();
 }
 
-// [ANTIGRAVITY FIX] Bridge for settings panel to update sidebar
-// [ANTIGRAVITY FIX] Sync from settings panel
+// Bridge for settings panel to update sidebar
+// Sync from settings panel
 window.syncPnLTimeframe = function (newTimeframe) {
     if (pnlTimeframe === newTimeframe) return;
     pnlTimeframe = newTimeframe;
@@ -118,7 +118,7 @@ function parseLogTimestamp(line) {
     return utcToLocal(Math.floor(Date.now() / 1000));
 }
 
-// [ANTIGRAVITY] Timezone offset helper.
+// Timezone offset helper.
 // LightweightCharts treats all timestamps as UTC.
 // To display local time, we shift UTC epoch seconds by the browser's TZ offset.
 const _tzOffsetSec = -(new Date().getTimezoneOffset() * 60); // positive for EST(-5) = -(-300*60) = +18000? No: getTimezoneOffset returns minutes AHEAD of UTC. EST = +300. So offset = -300*60 = -18000. We ADD this to shift UTC->local.
@@ -126,7 +126,7 @@ function utcToLocal(epochSec) {
     return epochSec - (new Date().getTimezoneOffset() * 60);
 }
 
-// [ANTIGRAVITY] 12-hour tick formatter for the X-axis labels
+// 12-hour tick formatter for the X-axis labels
 function formatTime12h(epochSec) {
     // epochSec has already been shifted to local, so treat as-is
     const d = new Date(epochSec * 1000);
@@ -253,7 +253,7 @@ function initChart(intervalSeconds = 900) {
         chart.applyOptions({ width, height });
     }).observe(chartContainer);
 
-    // [ANTIGRAVITY] Dummy data removed. Waiting for 'history' from backend.
+    // Dummy data removed. Waiting for 'history' from backend.
 }
 
 // Listen for theme changes to update candle colors dynamically
@@ -317,7 +317,7 @@ async function connectWebSocket() {
         console.log("Connected to Live Data Stream.");
         updateStatus('connected', '--');
 
-        // [ANTIGRAVITY] Subscribe to current UI selection on open
+        // Subscribe to current UI selection on open
         const symbol = document.getElementById('chart-symbol-label')?.innerText;
         const tf = document.getElementById('chart-tf-label')?.innerText || '15m';
         if (symbol) subscribeToAsset(symbol, tf);
@@ -331,21 +331,19 @@ async function connectWebSocket() {
             }
         }, 5000);
 
-        // [ANTIGRAVITY] Periodic chart refresh to keep data live
-        // Fetch updated history every 15 seconds since the bot only broadcasts
-        // candles during scan cycles which can be 15-60+ seconds apart
-        let chartRefreshInterval;
+        // Periodic candle tick to keep chart live
+        // Sends a lightweight 'tick' request that fetches only 2 candles
+        // and updates the current bar smoothly (instead of full 200-candle history reload)
         if (window._chartRefreshInterval) clearInterval(window._chartRefreshInterval);
         window._chartRefreshInterval = setInterval(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 const sym = document.getElementById('chart-symbol-label')?.innerText?.trim();
                 const tf = document.getElementById('chart-tf-label')?.innerText?.trim() || '15m';
                 if (sym) {
-                    console.log(`[CHART-REFRESH] Polling history for ${sym} (${tf})...`);
-                    ws.send(JSON.stringify({ type: 'subscribe', symbol: sym, tf }));
+                    ws.send(JSON.stringify({ type: 'tick', symbol: sym, tf }));
                 }
             }
-        }, 15000); // Refresh every 15 seconds
+        }, 3000); // Tick every 3 seconds for live price movement
     };
 
     ws.onmessage = (event) => {
@@ -416,12 +414,25 @@ async function connectWebSocket() {
                 const currentTfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
                 const normalizeTf = (t) => t.toLowerCase().trim();
 
+                console.log(`[CANDLE-RX] msg.symbol="${msg.symbol}" msg.tf="${msg.tf}" | chart="${currentSym}" chartTf="${currentTfRaw}" | symMatch=${msg.symbol === currentSym} tfMatch=${normalizeTf(msg.tf) === normalizeTf(currentTfRaw)} | candleDataLen=${candleData.length}`);
+
                 if (msg.symbol === currentSym && normalizeTf(msg.tf) === normalizeTf(currentTfRaw)) {
-                    const fixedData = {
-                        time: utcToLocal(msg.data.time),
+                    const localTime = utcToLocal(msg.data.time);
+                    const newBar = {
+                        time: localTime,
                         open: msg.data.open, high: msg.data.high, low: msg.data.low, close: msg.data.close
                     };
-                    candleSeries.update(fixedData);
+
+                    // Merge into candleData: update last bar if same time, else append
+                    if (candleData.length > 0 && candleData[candleData.length - 1].time === localTime) {
+                        candleData[candleData.length - 1] = newBar;
+                    } else if (candleData.length === 0 || localTime > candleData[candleData.length - 1].time) {
+                        candleData.push(newBar);
+                    }
+
+                    console.log(`[CANDLE-RX] Calling setData with ${candleData.length} bars. Last bar: t=${localTime} O=${newBar.open} C=${newBar.close}`);
+                    // Full re-render — more reliable than incremental update()
+                    candleSeries.setData(candleData);
 
                     if (indicatorSeries && typeof msg.data.volume !== 'undefined') {
                         const isUp = msg.data.close >= msg.data.open;
@@ -429,7 +440,7 @@ async function connectWebSocket() {
                         const volUp = (themeNow && themeNow.candleUp) || '#2dd4bf';
                         const volDown = (themeNow && themeNow.candleDown) || '#f43f5e';
                         indicatorSeries.update({
-                            time: utcToLocal(msg.data.time),
+                            time: localTime,
                             value: msg.data.volume,
                             color: isUp ? volUp : volDown
                         });
@@ -576,7 +587,7 @@ function addTradeMarker(time, isBuy, symbol, price, customText = null) {
     const sym = symbol.toUpperCase();
     if (!markerCache[sym]) markerCache[sym] = [];
 
-    // [ANTIGRAVITY] Enhanced marker styling for better visibility
+    // Enhanced marker styling for better visibility
     const marker = {
         time: time,
         position: isBuy ? 'belowBar' : 'aboveBar',
@@ -605,7 +616,7 @@ function addTradeMarker(time, isBuy, symbol, price, customText = null) {
     }
 }
 
-// [ANTIGRAVITY] Exit marker function for closed trades
+// Exit marker function for closed trades
 function addExitMarker(time, isWin, symbol, price, pnlPct, customText = null) {
     const sym = symbol.toUpperCase();
     if (!markerCache[sym]) markerCache[sym] = [];
@@ -934,7 +945,7 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null) {
         actionHtml = `<span class="text-cyan-400 font-bold text-glow-sm">${actUpper}</span>`;
     }
 
-    // [ANTIGRAVITY REFINE] Much larger font (text-lg / 18px), bunched rows (py-1.5)
+    // Much larger font (text-lg / 18px), bunched rows (py-1.5)
     row.innerHTML = `
         <td class="px-4 py-1.5 text-slate-500 text-left font-mono text-sm">${time}</td>
         <td class="px-4 py-1.5 font-bold text-slate-200 text-left text-lg">${symbol}</td>
@@ -973,7 +984,7 @@ window.api.on('env-updated', (updates) => {
 
 window.api.on('fromMain', (payload) => {
     if (payload.type === 'log-chunk') {
-        // [ANTIGRAVITY FIX] DO NOT WIPE CACHE. 
+        // DO NOT WIPE CACHE. 
         // Wiping here causes markers to vanish when the log rotates or the bot restarts,
         // unless the log is in the current tiny 2kb buffer.
 
@@ -1104,13 +1115,13 @@ function updateHoldingsTable(payload) {
         tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500 italic text-xs">No active positions</td></tr>`;
     }
 
-    // [ANTIGRAVITY FIX] Update sidebar PNL
+    // Update sidebar PNL
     if (payload.total_unrealized_pnl !== undefined) {
         currentUnrealizedPnL = parseFloat(payload.total_unrealized_pnl);
         refreshMainPnlDisplay();
     }
 
-    // [ANTIGRAVITY] Cache holdings and draw SL/TP/Entry lines for current symbol
+    // Cache holdings and draw SL/TP/Entry lines for current symbol
     lastHoldings = payload;
     const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();
     console.log(`[CHART-DEBUG] Holdings received. Looking for ${currentSym} in positions:`, payload.positions?.map(p => p.symbol));
@@ -1124,7 +1135,7 @@ function updateHoldingsTable(payload) {
             updatePositionLines(pos);
         }
 
-        // [ANTIGRAVITY] Add entry marker from holdings entry_time
+        // Add entry marker from holdings entry_time
         // Arrow is placed on the candle matching the entry time if visible,
         // or on the candle with the closest price if entry is outside chart range.
         if (pos && pos.entryTime && pos.entry) {
@@ -1179,7 +1190,7 @@ function parseLogLine(line) {
     if (line.includes('[EXIT]')) {
         setTimeout(updateRealizedPnL, 1000); // Small delay to let filesystem sync if needed
 
-        // [ANTIGRAVITY] Parse EXIT for exit marker with PnL
+        // Parse EXIT for exit marker with PnL
         // Expected format: [EXIT] Manual/Signal: BTCUSD +$2.50 (Pct=1.25%)
         const symbolMatch = line.match(/\[EXIT\][^:]*:\s*([A-Z0-9]+)/i) || line.match(/\[EXIT\]\s+([A-Z0-9]+)/i);
         const pnlMatch = line.match(/([+-]?\$[\d.]+)/);
@@ -1200,7 +1211,7 @@ function parseLogLine(line) {
             const priceFromPnl = pnlMatch ? Math.abs(parseFloat(pnlMatch[1].replace('$', ''))) : null;
             addExitMarker(logTime, isWin, symbolMatch[1], priceFromPnl, pnlPct);
 
-            // [ANTIGRAVITY] Add exits to Decisions Panel
+            // Add exits to Decisions Panel
             console.log(`[DECISION-UI] Exit logged for ${symbolMatch[1]}: ${line}`);
             const pnlStr = pnlMatch ? pnlMatch[1] : (pnlPct ? `${pnlPct.toFixed(2)}%` : '');
             addDecisionRow(symbolMatch[1], "EXIT", null, `PnL: ${pnlStr} | Price: ${priceFromPnl || '??'}`);
@@ -1223,7 +1234,7 @@ function parseLogLine(line) {
             const price = priceMatch ? parseFloat(priceMatch[1]) : null;
             addTradeMarker(logTime, true, symbolMatch[1], price);
 
-            // [ANTIGRAVITY] Add trade entries to Decisions Panel for better visibility
+            // Add trade entries to Decisions Panel for better visibility
             console.log(`[DECISION-UI] Entry logged for ${symbolMatch[1]}: ${line}`);
             addDecisionRow(symbolMatch[1], line.includes('[FILL]') ? "FILL" : "ENTRY", null, `Price: ${price || '??'}`);
         }
@@ -1239,7 +1250,7 @@ function parseLogLine(line) {
             else if (line.includes('[SAFETY]')) content = line.split('[SAFETY]')[1].trim();
             else if (line.includes('[PHOENIX]')) content = line.split('[PHOENIX]')[1].trim();
 
-            // [ANTIGRAVITY FIX] Handle key-value format "symbol=BTCUSD action=..."
+            // Handle key-value format "symbol=BTCUSD action=..."
             const parts = content.split('|');
             let head = parts[0].trim();
 
@@ -1282,7 +1293,7 @@ function parseLogLine(line) {
                 // But Meta-SCI logs use "action=HOLD" consistently
             }
 
-            // [ANTIGRAVITY FIX] Force "HOLD" to display if it comes from a Decision log
+            // Force "HOLD" to display if it comes from a Decision log
             // Previous logic might have been too strict.
             if (!actionMatch && body.includes("Decision:") && body.includes("HOLD")) {
                 action = "HOLD";
@@ -1354,7 +1365,7 @@ function parseLogLine(line) {
 
     // 3. P&L / Equity / Capital (Consolidated & Robust)
 
-    // [ANTIGRAVITY FIX] Strict Capital Logic
+    // Strict Capital Logic
     // We ONLY update Capital, never PnL (which comes from [HOLDINGS])
 
     let isOandaProfile = false;
@@ -1368,7 +1379,7 @@ function parseLogLine(line) {
     // Matches: [CCXT] get_liquid_capital... winner=$180.83
     // Matches: [HEARTBEAT] Capital available: $100.00
 
-    // [ANTIGRAVITY AGGREGATION] 
+    // 
     // Maintain a global map of capital by source to prevent flip-flopping
     // and show a unified "big Capital amount" as requested.
     if (!window.capitalCache) window.capitalCache = {};
@@ -1614,7 +1625,7 @@ function setupInteractiveElements() {
         }
         appendLog("INFO", `[UI] Switched chart to ${sym}`);
 
-        // [ANTIGRAVITY] Immediately clear chart so old candles don't linger
+        // Immediately clear chart so old candles don't linger
         // while waiting for new data (which can take 15-20 seconds)
         if (candleSeries) {
             candleSeries.setData([]);
@@ -1630,7 +1641,7 @@ function setupInteractiveElements() {
         console.log(`Refreshing candlestick data for ${sym}...`);
         const tf = document.getElementById('chart-tf-label')?.innerText || '15m';
 
-        // [ANTIGRAVITY] Use subscription instead of full re-init
+        // Use subscription instead of full re-init
         subscribeToAsset(sym, tf);
     }
 
@@ -1650,7 +1661,7 @@ function setupInteractiveElements() {
             if (document.getElementById('chart-tf-label')) document.getElementById('chart-tf-label').innerText = tf;
 
             console.log(`Switching chart to ${tf}`);
-            // [ANTIGRAVITY] Clear chart immediately on TF switch
+            // Clear chart immediately on TF switch
             if (candleSeries) candleSeries.setData([]);
             if (indicatorSeries) indicatorSeries.setData([]);
             candleData = [];
@@ -1672,7 +1683,7 @@ function setupInteractiveElements() {
         if (document.getElementById('chart-tf-label')) document.getElementById('chart-tf-label').innerText = tf;
 
         console.log(`Switching chart to ${tf} via dropdown`);
-        // [ANTIGRAVITY] Clear chart immediately on TF switch
+        // Clear chart immediately on TF switch
         if (candleSeries) candleSeries.setData([]);
         if (indicatorSeries) indicatorSeries.setData([]);
         candleData = [];
@@ -1721,7 +1732,7 @@ function setupInteractiveElements() {
         saveState();
     });
 
-    // [ANTIGRAVITY] Self-Update Button
+    // Self-Update Button
     document.getElementById('btn-update')?.addEventListener('click', async () => {
         const btn = document.getElementById('btn-update');
         const btnText = document.getElementById('update-btn-text');
@@ -1751,7 +1762,7 @@ function setupInteractiveElements() {
         }
     });
 
-    // [ANTIGRAVITY] Periodic update check (every 30 min + on startup)
+    // Periodic update check (every 30 min + on startup)
     async function checkForUpdatesUI() {
         try {
             const result = await window.api.checkForUpdates();
@@ -1949,7 +1960,7 @@ function loadState() {
         if (state.profile) document.getElementById('status-profile').innerText = state.profile;
         if (state.equity) document.getElementById('account-equity').innerText = state.equity;
 
-        // [ANTIGRAVITY] Revised: Only wipe if we don't have enough rows (prevent boot clear of history)
+        // Revised: Only wipe if we don't have enough rows (prevent boot clear of history)
         const decTable = document.getElementById('decisions-table');
         if (decTable && decTable.rows.length < 5) {
             decTable.innerHTML = '';
@@ -2007,7 +2018,7 @@ function init() {
             updateRealizedPnL();
         });
 
-        // [ANTIGRAVITY FIX] Chart Refresh Interval (15 Seconds)
+        // Chart Refresh Interval (15 Seconds)
         setInterval(() => {
             const sym = document.getElementById('chart-symbol-label')?.innerText || 'EURUSD';
             const tf = document.getElementById('chart-tf-label')?.innerText || '15m';

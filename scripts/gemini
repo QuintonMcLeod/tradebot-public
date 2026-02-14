@@ -3,7 +3,7 @@
 # Usage: ./scripts/gemini "Message"
 
 if [ -z "$1" ]; then
-    echo "Usage: ./scripts/gemini 'Message to Antigravity'"
+    echo "Usage: ./scripts/gemini 'Message to the assistant'"
     exit 1
 fi
 
@@ -12,4 +12,4 @@ TARGET="$HOME/Scripts/letsgo.txt"
 
 # Atomic append (mostly)
 printf "\n[CLAUDE/AI-2]: %s\n" "$MSG" >> "$TARGET"
-echo "Message sent to Antigravity via letsgo.txt"
+echo "Message sent to the assistant via letsgo.txt"

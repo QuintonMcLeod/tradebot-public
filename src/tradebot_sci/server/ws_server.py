@@ -19,6 +19,7 @@ class WebSocketServer:
         self.loop = None
         self._halted = False
         self._on_subscribe_cb = None # Optional callback for loop.py
+        self._on_tick_cb = None      # Lightweight candle refresh callback
 
     async def start(self):
         """Starts the WebSocket server."""
@@ -58,6 +59,11 @@ class WebSocketServer:
                                 logger.info(f"[WS] Client subscribed to {symbol} ({tf})")
                                 if self._on_subscribe_cb:
                                     self._on_subscribe_cb(symbol, tf or "15m")
+                        elif data.get('type') == 'tick':
+                            symbol = data.get('symbol')
+                            tf = (data.get('tf') or '15m').lower()
+                            if symbol and self._on_tick_cb:
+                                self._on_tick_cb(symbol, tf)
                         elif data.get('type') == 'log':
                             # [ANTIGRAVITY] Bridge frontend logs to backend for easier debugging
                             lvl = data.get('level', 'INFO').upper()
@@ -171,6 +177,10 @@ class WebSocketServer:
     def set_on_subscribe_callback(self, cb):
         """Register a callback for when a client subscribes to a symbol."""
         self._on_subscribe_cb = cb
+
+    def set_on_tick_callback(self, cb):
+        """Register a callback for lightweight candle tick refresh."""
+        self._on_tick_cb = cb
 
     def get_subscriptions(self) -> list[tuple[str, str]]:
         """Returns a list of (symbol, timeframe) currently subscribed to by clients."""

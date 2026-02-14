@@ -23,7 +23,7 @@ const SABBATH_FLAG = path.join(__dirname, '../../../data/.sabbath_active');
  */
 function readLedger() {
     try {
-        // [ANTIGRAVITY] During Sabbath, read from paper_ledger.json instead
+        // During Sabbath, read from paper_ledger.json instead
         const isSabbath = fs.existsSync(SABBATH_FLAG);
         const targetPath = isSabbath ? PAPER_LEDGER_PATH : LEDGER_PATH;
         if (!fs.existsSync(targetPath)) return null;
@@ -61,7 +61,7 @@ function summaryFromLedger(ledger, timeframe, logTrades = [], logHoldings = [], 
     if (timeframe === 'holdings') {
         const uPnl = current.pnl_unrealized || 0;
         // Build position entries from latest HOLDINGS snapshot
-        const positionTrades = buildHoldingsEntries(logHoldings);
+        const positionTrades = getHoldingsEntries(logHoldings);
         return {
             totalTrades: 0, totalWins: 0, totalLosses: 0, breakeven: 0,
             winRate: 0, totalPnl: parseFloat(uPnl.toFixed(2)),
@@ -267,7 +267,7 @@ function summaryFromLedger(ledger, timeframe, logTrades = [], logHoldings = [], 
     }
 
     // ── Add active holdings as synthetic entries in trade list ──
-    const holdingsEntries = buildHoldingsEntries(logHoldings);
+    const holdingsEntries = getHoldingsEntries(logHoldings);
     const allTrades = [...ledgerTradeLog, ...holdingsEntries];
 
     // ── Supplement capital history from log-parsed data ──
@@ -362,6 +362,49 @@ function buildHoldingsEntries(logHoldings) {
         take_profit: pos.take_profit || 0,
         _active: true
     }));
+}
+
+/**
+ * Build holdings entries from paper_state.json
+ * during Sabbath, so live OANDA positions don't leak into the paper view.
+ */
+const PAPER_STATE_FILE = path.join(__dirname, '../../../data/paper_state.json');
+
+function buildPaperHoldingsEntries() {
+    try {
+        if (!fs.existsSync(PAPER_STATE_FILE)) return [];
+        const raw = fs.readFileSync(PAPER_STATE_FILE, 'utf8');
+        const state = JSON.parse(raw);
+        const positions = state.positions || {};
+        return Object.entries(positions).map(([symbol, pos]) => ({
+            timestamp: pos.opened_at || state.updated_at || new Date().toISOString(),
+            symbol: symbol,
+            pnl: pos.unrealized_pnl || 0,
+            side: pos.side || 'long',
+            reason: '🟢 Active Position (Paper)',
+            strategy: pos.strategy || 'active',
+            size: pos.size || pos.qty || 0,
+            entry_price: pos.entry_price || pos.avg_price || 0,
+            stop_loss: pos.stop_loss || 0,
+            take_profit: pos.take_profit || 0,
+            _active: true
+        }));
+    } catch (e) {
+        console.error('[LOG_PARSER] Failed to read paper_state.json for holdings:', e.message);
+        return [];
+    }
+}
+
+/**
+ * Get holdings entries, Sabbath-aware: returns paper positions during Sabbath,
+ * live OANDA positions otherwise.
+ */
+function getHoldingsEntries(logHoldings) {
+    const isSabbath = fs.existsSync(SABBATH_FLAG);
+    if (isSabbath) {
+        return buildPaperHoldingsEntries();
+    }
+    return buildHoldingsEntries(logHoldings);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -585,7 +628,7 @@ async function parseLogFile(filePath, startTime = null, endTime = null) {
             const timestamp = parseTimestamp(line);
             if (!timestamp) continue;
 
-            // [ANTIGRAVITY] Skip paper/Sabbath lines — they have their own ledger
+            // Skip paper/Sabbath lines — they have their own ledger
             if (line.includes('[PAPER]')) continue;
 
             // Apply time filters

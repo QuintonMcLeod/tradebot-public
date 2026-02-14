@@ -1730,7 +1730,7 @@ async function saveAll() {
         localChanges = {};
         updateChangeCounter();
 
-        // [ANTIGRAVITY] Auto-restart bot after save
+        // Auto-restart bot after save
         if (window.electronAPI?.restartBot) {
             console.log("[SETTINGS] Triggering auto-restart...");
             window.electronAPI.restartBot();

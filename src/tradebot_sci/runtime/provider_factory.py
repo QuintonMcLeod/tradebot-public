@@ -78,7 +78,7 @@ class RoutedExchangeBroker(IExchangeBroker):
 
     def __init__(self, brokers: Dict[str, IExchangeBroker]):
         self.brokers = brokers
-        # [ANTIGRAVITY] Robust fallback: find first non-NoOp broker
+        # Robust fallback: find first non-NoOp broker
         self._fallback = None
         for b in brokers.values():
             if not isinstance(b, NoOpExchangeBroker):
@@ -193,7 +193,7 @@ class RoutedExchangeBroker(IExchangeBroker):
         for b in unique_brokers:
             if hasattr(b, "refresh_account_summary"):
                 b.refresh_account_summary()
-        # [ANTIGRAVITY] Log aggregated total so UI stays in sync after individual refreshes
+        # Log aggregated total so UI stays in sync after individual refreshes
         self.get_total_balance_value()
 
     def summarize_pnl(self) -> None:
@@ -214,7 +214,7 @@ class RoutedExchangeBroker(IExchangeBroker):
                 logger.debug(f"[ROUTED] Broker {type(b).__name__} contributed ${b_cap:.2f}")
                 total += b_cap
         
-        # [ANTIGRAVITY] Log for internal awareness (not UI aggregate)
+        # Log for internal awareness (not UI aggregate)
         logger.info(f"[CASH] Buying Power: ${total:.2f}")
         logger.debug("[ROUTED] Total Cash Breakdown completed: %.2f", total)
         return total
@@ -232,7 +232,7 @@ class RoutedExchangeBroker(IExchangeBroker):
                 # Fallback to cash if equity method missing
                 total += b.get_liquid_capital()
         
-        # [ANTIGRAVITY] Authoritative Total Log for UI
+        # Authoritative Total Log for UI
         logger.info(f"[TOTAL] Liquidity available: ${total:.2f}")
         logger.debug("[ROUTED] Total Equity Breakdown completed: %.2f", total)
         return total
@@ -524,7 +524,7 @@ def build_market_provider(
 
     p = _create_single_provider(mode, settings, profile_settings, shared_ib)
     
-    # [ANTIGRAVITY] Final safety check: if we are in crypto_only but ended up with Oanda/IBKR
+    # Final safety check: if we are in crypto_only but ended up with Oanda/IBKR
     if p and allowed_symbols:
         has_crypto = any(_get_asset_key(s) == "crypto" for s in allowed_symbols)
         has_others = any(_get_asset_key(s) != "crypto" for s in allowed_symbols)
@@ -564,7 +564,7 @@ def build_exchange_broker(
         def get_b(mode, asset_class=None):
             if mode in cache: return cache[mode]
             
-            # [ANTIGRAVITY FIX] Don't skip broker instantiation based on allowed_symbols
+            # Don't skip broker instantiation based on allowed_symbols
             # We need them for get_liquid_capital even if no symbols match this cycle.
             b = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
             if b: cache[mode] = b
@@ -599,7 +599,7 @@ def build_exchange_broker(
 
     p = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
 
-    # [ANTIGRAVITY] Final safety check: if we are in crypto_only but ended up with Oanda/IBKR
+    # Final safety check: if we are in crypto_only but ended up with Oanda/IBKR
     if p and allowed_symbols:
         has_crypto = any(_get_asset_key(s) == "crypto" for s in allowed_symbols)
         has_others = any(_get_asset_key(s) != "crypto" for s in allowed_symbols)

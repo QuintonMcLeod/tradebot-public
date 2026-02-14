@@ -92,12 +92,12 @@ class IbkrExecutor:
         overrides = getattr(self.runtime, "local_stop_symbols", []) or []
         self._local_stop_symbols = {symbol.upper() for symbol in overrides}
         
-        # [ANTIGRAVITY] Initialize modular components
+        # Initialize modular components
         self.bracket_manager = BracketManager(self.ib, self.runtime, self.profile_settings)
         self.pdt_guard = PDTGuard(self.profile_settings)
         self.stop_manager = SyntheticStopManager()
         
-        # [ANTIGRAVITY] Legacy attributes for test compatibility
+        # Legacy attributes for test compatibility
         self._local_stop_info: dict[str, dict] = {}
         self._native_stop_supported: dict[str, bool] = {}
         self._synthetic_stops = self.stop_manager.stops
@@ -1053,7 +1053,7 @@ class IbkrExecutor:
         else:
             slice_risk = remaining_risk
         
-        # [ANTIGRAVITY FIX] JPY/CAD/CHF Sizing Fix
+        # JPY/CAD/CHF Sizing Fix
         # For USD-base pairs (USDJPY), per_share_risk is in Quote Ccy (JPY).
         # We must convert it to Account Ccy (USD) to compare with slice_risk (USD).
         risk_norm = per_share_risk
@@ -1821,7 +1821,7 @@ class IbkrExecutor:
         reason = f"segment={seg_tag} liquid={net_liq:.2f} threshold={threshold:.2f}"
         fragile_asset = metadata.asset_class
         
-        # [ANTIGRAVITY FIX] Margin Guard now checks the specific segment.
+        # Margin Guard now checks the specific segment.
         # If the user has sufficient Forex capital ($400) but low Futures ($0),
         # only Futures trades will be blocked.
         
@@ -2935,7 +2935,7 @@ class IbkrExecutor:
         return contract
 
     def _discover_zero_hash_symbols(self) -> list[str]:
-        # [ANTIGRAVITY FIX] Skip Zerohash management if IBKR is not the primary crypto broker
+        # Skip Zerohash management if IBKR is not the primary crypto broker
         broker_mode = (os.getenv("BROKER_MODE") or "").strip().lower()
         if broker_mode in {"hybrid", "alternative"}:
             logger.info("[CRYPTO][IBKR] Skipping Zerohash discovery (managed by alternative broker)")

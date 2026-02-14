@@ -39,6 +39,7 @@ RE_EXIT = re.compile(
     r"(?P<symbol>[A-Z_]{3,10})\s+"
     r"(?P<pnl_sign>[+-])\$(?P<pnl_val>[\d.]+)"
     r"(?:\s+\(Pct=(?P<pct>[+-]?[\d.]+)%\))?"
+    r"(?:.*?Duration=(?P<duration>[^|]+))?"
     r"(?:.*?Est\.\s*Spread\s*Cost:\s*\$(?P<spread>[\d.]+))?"
 )
 
@@ -360,6 +361,7 @@ class LedgerDaemon:
                         "reason": reason,
                         "strategy": strat,
                         "spread": round(spread, 4),
+                        "duration": (m.group("duration") or "").strip() if m.group("duration") else None,
                     }
                     current["trade_log"].append(trade_entry)
                     if len(current["trade_log"]) > 200:

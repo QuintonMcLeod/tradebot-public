@@ -226,7 +226,7 @@ function setupIpcHandlers() {
     });
 
     // =============================================
-    // [ANTIGRAVITY] Self-Update via Git Pull
+    // Self-Update via Git Pull
     // =============================================
     const REPO_ROOT = path.join(__dirname, '../../../');
 
@@ -397,7 +397,7 @@ function startLogWatcher(win) {
 
 function checkBotStatus(win, force = false) {
     exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
-        // [ANTIGRAVITY FIX] More robust status check
+        // More robust status check
         const isRunning = !!(stdout && stdout.trim());
         if (force || isRunning !== botRunning) {
             botRunning = isRunning;
