@@ -1130,11 +1130,37 @@ function updateHoldingsTable(payload) {
             const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
             const interval = tfToSeconds(tfRaw);
 
-            // Snap to candle start (no offset — marker should land on the actual entry candle)
+            // Snap to candle boundary
             entryTimeSec = Math.floor(entryTimeSec / interval) * interval;
 
+            // Find the closest candle in the actual chart data
             const isBuy = (pos.side === 'long');
-            addTradeMarker(entryTimeSec, isBuy, currentSym, pos.entry);
+            if (candleData && candleData.length > 0) {
+                const firstCandleTime = candleData[0].time;
+                const lastCandleTime = candleData[candleData.length - 1].time;
+
+                if (entryTimeSec < firstCandleTime) {
+                    // Entry is before chart range — place marker on first candle with note
+                    console.log(`[MARKER] Entry time ${entryTimeSec} is before chart range (${firstCandleTime}), placing on first candle`);
+                    addTradeMarker(firstCandleTime, isBuy, currentSym, pos.entry,
+                        `${isBuy ? '▶ BUY' : '◀ SELL'} ${pos.entry?.toFixed(2) || ''} (older)`);
+                } else if (entryTimeSec > lastCandleTime) {
+                    // Entry is after chart range (shouldn't happen normally) — use last candle
+                    addTradeMarker(lastCandleTime, isBuy, currentSym, pos.entry);
+                } else {
+                    // Entry is within chart range — find exact candle match
+                    let bestTime = firstCandleTime;
+                    let bestDiff = Math.abs(entryTimeSec - firstCandleTime);
+                    for (const c of candleData) {
+                        const diff = Math.abs(c.time - entryTimeSec);
+                        if (diff < bestDiff) {
+                            bestDiff = diff;
+                            bestTime = c.time;
+                        }
+                    }
+                    addTradeMarker(bestTime, isBuy, currentSym, pos.entry);
+                }
+            }
         }
     }
 }
