@@ -769,7 +769,7 @@ def run_bot(
                 chart_prov = provider  # main provider has OANDA access
             else:
                 chart_prov = _chart_provider or provider
-            hist = chart_prov.get_latest_candles(symbol, tf, limit=200)
+            hist = chart_prov.get_latest_candles(symbol, tf, limit=500)
             logger.info(f"[WS-DEBUG] Received {len(hist) if hist else 0} candles for {symbol}")
             if hist:
                 logger.info(f"[WS-DEBUG] {symbol} First: {hist[0].timestamp.isoformat()} | Last: {hist[-1].timestamp.isoformat()}")

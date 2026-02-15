@@ -1312,7 +1312,7 @@ function renderStrategyTab(container) {
         { id: 'risk', label: 'Global Risk' },
         { id: 'pyramid', label: 'Pyramiding' },
         { id: 'exits', label: 'Exit Logic' },
-        { id: 'yaml', label: 'YAML Editor' }
+        { id: 'yaml', label: 'JSON Editor' }
     ], 'strategy'));
 
     const section = document.createElement('div');

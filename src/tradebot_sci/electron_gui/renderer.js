@@ -8,6 +8,10 @@ let candleSeries;
 let indicatorSeries;
 let emaSeries;
 let smaSeries;
+let bbUpperSeries, bbMiddleSeries, bbLowerSeries;
+let vwapSeries;
+let ema200Series;
+let rsiSeries;
 let stopLossLine; // Horizontal price line for SL
 let takeProfitLine; // Horizontal price line for TP
 let entryPriceLine; // Horizontal price line for entry
@@ -15,6 +19,8 @@ let tradeMarkers = []; // Current active markers for symbols
 let markerCache = {}; // Cache of markers per symbol: { 'BTCUSD': [markers], ... }
 let previousSymbol = null; // Track symbol shifts to clear markers selectively
 let candleData = []; // Store candle data for indicator calculations
+let rawCandleData = []; // Raw data with volume, for VWAP computation
+let chartMode = 'candle'; // 'candle' | 'heikinashi'
 let currentPosition = null; // { symbol, side, entry, sl, tp, size }
 let lastHoldings = null; // Cache last holdings data for redrawing on symbol switch
 let statusDot;
@@ -250,6 +256,84 @@ function initChart(intervalSeconds = 900) {
         lastValueVisible: false,
     });
 
+    // EMA 200 (slate gray, solid, hidden by default)
+    ema200Series = chart.addLineSeries({
+        color: '#94a3b8', // Slate-400
+        lineWidth: 2,
+        visible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+    });
+
+    // Bollinger Bands (hidden by default)
+    bbUpperSeries = chart.addLineSeries({
+        color: 'rgba(34, 211, 238, 0.6)', // Cyan
+        lineWidth: 1,
+        visible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+    });
+    bbMiddleSeries = chart.addLineSeries({
+        color: 'rgba(34, 211, 238, 0.3)', // Faint cyan
+        lineWidth: 1,
+        lineStyle: 2, // Dashed
+        visible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+    });
+    bbLowerSeries = chart.addLineSeries({
+        color: 'rgba(34, 211, 238, 0.6)', // Cyan
+        lineWidth: 1,
+        visible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+    });
+
+    // VWAP (orange, hidden by default)
+    vwapSeries = chart.addLineSeries({
+        color: '#f97316', // Orange-500
+        lineWidth: 2,
+        visible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+    });
+
+    // RSI (14, separate pane, hidden by default)
+    rsiSeries = chart.addLineSeries({
+        color: '#f43f5e', // Rose-500
+        lineWidth: 2,
+        visible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceScaleId: 'rsi',
+    });
+    chart.priceScale('rsi').applyOptions({
+        scaleMargins: { top: 0.85, bottom: 0 },
+        visible: false,
+    });
+
+    // OHLC Legend overlay — shows O/H/L/C/V on crosshair hover
+    const ohlcLegend = document.createElement('div');
+    ohlcLegend.id = 'ohlc-legend';
+    ohlcLegend.style.cssText = 'position:absolute;top:4px;left:8px;z-index:30;font-family:Inter,monospace;font-size:11px;color:#94a3b8;pointer-events:none;opacity:0.85;';
+    chartContainer.style.position = 'relative';
+    chartContainer.appendChild(ohlcLegend);
+
+    chart.subscribeCrosshairMove((param) => {
+        if (!param || !param.time || !param.seriesData) {
+            ohlcLegend.innerHTML = '';
+            return;
+        }
+        const bar = param.seriesData.get(candleSeries);
+        if (!bar) { ohlcLegend.innerHTML = ''; return; }
+        const o = bar.open, h = bar.high, l = bar.low, c = bar.close;
+        const dp = o > 100 ? 2 : (o > 1 ? 4 : 5); // Auto decimal places
+        const chg = c - o;
+        const chgPct = o !== 0 ? ((chg / o) * 100).toFixed(2) : '0.00';
+        const chgColor = chg >= 0 ? '#22c55e' : '#ef4444';
+        ohlcLegend.innerHTML = `<span style="color:#64748b">O</span> ${o.toFixed(dp)}  <span style="color:#64748b">H</span> ${h.toFixed(dp)}  <span style="color:#64748b">L</span> ${l.toFixed(dp)}  <span style="color:#64748b">C</span> <span style="color:${chgColor}">${c.toFixed(dp)}</span>  <span style="color:${chgColor}">${chg >= 0 ? '+' : ''}${chgPct}%</span>`;
+    });
+
     new ResizeObserver(entries => {
         if (entries.length === 0 || !entries[0].contentRect) return;
         const width = entries[0].contentRect.width;
@@ -373,8 +457,16 @@ async function connectWebSocket() {
                         time: utcToLocal(c.time),
                         open: c.open, high: c.high, low: c.low, close: c.close
                     }));
-                    candleSeries.setData(fixedData);
+                    // Store raw data with volume for VWAP
+                    rawCandleData = msg.data.map(c => ({
+                        time: utcToLocal(c.time),
+                        open: c.open, high: c.high, low: c.low, close: c.close,
+                        volume: c.volume || 0
+                    }));
                     candleData = fixedData;
+                    // Apply Heikin-Ashi if active
+                    const displayData = chartMode === 'heikinashi' ? calculateHeikinAshi(fixedData) : fixedData;
+                    candleSeries.setData(displayData);
 
                     if (indicatorSeries) {
                         // Use theme candle colors for volume bars
@@ -436,21 +528,32 @@ async function connectWebSocket() {
                         time: localTime,
                         open: msg.data.open, high: msg.data.high, low: msg.data.low, close: msg.data.close
                     };
+                    const newRawBar = { ...newBar, volume: msg.data.volume || 0 };
 
-                    // Keep candleData in sync for indicator calculations
+                    // Keep candleData and rawCandleData in sync for indicator calculations
                     if (candleData.length > 0 && candleData[candleData.length - 1].time === localTime) {
                         candleData[candleData.length - 1] = newBar;
+                        if (rawCandleData.length > 0) rawCandleData[rawCandleData.length - 1] = newRawBar;
                     } else {
                         candleData.push(newBar);
+                        rawCandleData.push(newRawBar);
                     }
 
-                    // Update the chart — use try/catch as a safety net
+                    // Update the chart — apply HA transform if active
                     try {
-                        candleSeries.update(newBar);
+                        if (chartMode === 'heikinashi') {
+                            candleSeries.setData(calculateHeikinAshi(candleData));
+                        } else {
+                            candleSeries.update(newBar);
+                        }
                     } catch (e) {
                         console.warn(`[CANDLE-RX] update() failed, falling back to setData: ${e.message}`);
-                        candleSeries.setData(candleData);
+                        const displayData = chartMode === 'heikinashi' ? calculateHeikinAshi(candleData) : candleData;
+                        candleSeries.setData(displayData);
                     }
+
+                    // Update indicators on each new candle
+                    updateIndicators();
 
                     if (indicatorSeries && typeof msg.data.volume !== 'undefined') {
                         const isUp = msg.data.close >= msg.data.open;
@@ -620,16 +723,116 @@ function calculateEMA(data, period) {
     return result;
 }
 
-function updateIndicators() {
-    if (!candleData || candleData.length < 21) return;
+// --- Bollinger Bands ---
+function calculateBollingerBands(data, period = 20, stdDevMultiplier = 2) {
+    const upper = [], middle = [], lower = [];
+    for (let i = period - 1; i < data.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < period; j++) sum += data[i - j].close;
+        const mean = sum / period;
+        let sqSum = 0;
+        for (let j = 0; j < period; j++) sqSum += Math.pow(data[i - j].close - mean, 2);
+        const stdDev = Math.sqrt(sqSum / period);
+        const t = data[i].time;
+        upper.push({ time: t, value: mean + stdDevMultiplier * stdDev });
+        middle.push({ time: t, value: mean });
+        lower.push({ time: t, value: mean - stdDevMultiplier * stdDev });
+    }
+    return { upper, middle, lower };
+}
 
+// --- VWAP (Volume-Weighted Average Price) ---
+function calculateVWAP(data) {
+    // data must have .close and .volume (use rawCandleData)
+    const result = [];
+    let cumVol = 0, cumTP = 0;
+    for (let i = 0; i < data.length; i++) {
+        const tp = (data[i].high + data[i].low + data[i].close) / 3;
+        const vol = data[i].volume || 0;
+        cumVol += vol;
+        cumTP += tp * vol;
+        if (cumVol > 0) {
+            result.push({ time: data[i].time, value: cumTP / cumVol });
+        }
+    }
+    return result;
+}
+
+// --- RSI (Relative Strength Index) ---
+function calculateRSI(data, period = 14) {
+    const result = [];
+    if (data.length < period + 1) return result;
+    let gains = 0, losses = 0;
+    for (let i = 1; i <= period; i++) {
+        const change = data[i].close - data[i - 1].close;
+        if (change >= 0) gains += change;
+        else losses -= change;
+    }
+    let avgGain = gains / period;
+    let avgLoss = losses / period;
+    const rsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+    result.push({ time: data[period].time, value: rsi });
+    for (let i = period + 1; i < data.length; i++) {
+        const change = data[i].close - data[i - 1].close;
+        avgGain = (avgGain * (period - 1) + (change >= 0 ? change : 0)) / period;
+        avgLoss = (avgLoss * (period - 1) + (change < 0 ? -change : 0)) / period;
+        const r = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+        result.push({ time: data[i].time, value: r });
+    }
+    return result;
+}
+
+// --- Heikin-Ashi Transformation ---
+function calculateHeikinAshi(data) {
+    if (!data || data.length === 0) return [];
+    const result = [];
+    for (let i = 0; i < data.length; i++) {
+        const c = data[i];
+        const haClose = (c.open + c.high + c.low + c.close) / 4;
+        const haOpen = i === 0
+            ? (c.open + c.close) / 2
+            : (result[i - 1].open + result[i - 1].close) / 2;
+        const haHigh = Math.max(c.high, haOpen, haClose);
+        const haLow = Math.min(c.low, haOpen, haClose);
+        result.push({ time: c.time, open: haOpen, high: haHigh, low: haLow, close: haClose });
+    }
+    return result;
+}
+
+function updateIndicators() {
+    if (!candleData || candleData.length < 14) return;
+
+    // EMA 21
     if (emaSeries) {
         const emaData = calculateEMA(candleData, 21);
         emaSeries.setData(emaData);
     }
+    // SMA 50
     if (smaSeries) {
         const smaData = calculateSMA(candleData, 50);
         smaSeries.setData(smaData);
+    }
+    // EMA 200
+    if (ema200Series) {
+        const ema200Data = calculateEMA(candleData, 200);
+        ema200Series.setData(ema200Data);
+    }
+    // Bollinger Bands (20, 2σ)
+    if (bbUpperSeries && bbMiddleSeries && bbLowerSeries) {
+        const bb = calculateBollingerBands(candleData, 20, 2);
+        bbUpperSeries.setData(bb.upper);
+        bbMiddleSeries.setData(bb.middle);
+        bbLowerSeries.setData(bb.lower);
+    }
+    // VWAP (needs volume from rawCandleData)
+    if (vwapSeries && rawCandleData.length > 0) {
+        const vwapData = calculateVWAP(rawCandleData);
+        vwapSeries.setData(vwapData);
+    }
+    // RSI (14)
+    if (rsiSeries) {
+        const rsiData = calculateRSI(candleData, 14);
+        rsiSeries.setData(rsiData);
     }
 }
 
@@ -1956,6 +2159,19 @@ function setupInteractiveElements() {
             indicatorDropdown.style.top = `${btnRect.bottom + 8}px`;
             indicatorDropdown.style.left = `${btnRect.left}px`;
             indicatorDropdown.style.zIndex = '9999';
+            // Match the card glass style from the active theme
+            const cs = getComputedStyle(document.documentElement);
+            const bgCard = cs.getPropertyValue('--bg-card').trim() || 'rgba(15, 23, 42, 0.4)';
+            const bgDark = cs.getPropertyValue('--bg-dark').trim() || '#020617';
+            const cardBorder = cs.getPropertyValue('--card-border').trim() || 'rgba(255,255,255,0.06)';
+            const cardBorderHover = cs.getPropertyValue('--card-border-hover').trim() || 'rgba(20,184,166,0.4)';
+            indicatorDropdown.style.backgroundColor = bgDark;
+            indicatorDropdown.style.background = bgCard;
+            indicatorDropdown.style.border = `1px solid ${cardBorderHover}`;
+            indicatorDropdown.style.borderRadius = '12px';
+            indicatorDropdown.style.boxShadow = '0 25px 50px -12px rgba(0,0,0,0.6)';
+            indicatorDropdown.style.backdropFilter = 'blur(20px)';
+            indicatorDropdown.style.webkitBackdropFilter = 'blur(20px)';
             document.body.appendChild(indicatorDropdown);
             indicatorDropdown.classList.remove('hidden');
             console.log('[UI] Dropdown portaled to body');
@@ -2014,6 +2230,123 @@ function setupInteractiveElements() {
     // Ensure parents don't interfere with standard checkbox behavior but still stop propagation to chart
     emaCheckbox?.parentElement?.addEventListener('click', (e) => e.stopPropagation());
     smaCheckbox?.parentElement?.addEventListener('click', (e) => e.stopPropagation());
+
+    // EMA 200 Toggle
+    const ema200Checkbox = document.getElementById('toggle-ema200');
+    ema200Checkbox?.addEventListener('change', () => {
+        if (ema200Series) {
+            updateIndicators();
+            ema200Series.applyOptions({ visible: ema200Checkbox.checked });
+            appendLog("INFO", `[UI] EMA (200) ${ema200Checkbox.checked ? 'enabled' : 'disabled'}`);
+        }
+    });
+    ema200Checkbox?.parentElement?.addEventListener('click', (e) => e.stopPropagation());
+
+    // Bollinger Bands Toggle
+    const bbCheckbox = document.getElementById('toggle-bb');
+    bbCheckbox?.addEventListener('change', () => {
+        if (bbUpperSeries && bbMiddleSeries && bbLowerSeries) {
+            updateIndicators();
+            const v = bbCheckbox.checked;
+            bbUpperSeries.applyOptions({ visible: v });
+            bbMiddleSeries.applyOptions({ visible: v });
+            bbLowerSeries.applyOptions({ visible: v });
+            appendLog("INFO", `[UI] Bollinger Bands ${v ? 'enabled' : 'disabled'}`);
+        }
+    });
+    bbCheckbox?.parentElement?.addEventListener('click', (e) => e.stopPropagation());
+
+    // VWAP Toggle
+    const vwapCheckbox = document.getElementById('toggle-vwap');
+    vwapCheckbox?.addEventListener('change', () => {
+        if (vwapSeries) {
+            updateIndicators();
+            vwapSeries.applyOptions({ visible: vwapCheckbox.checked });
+            appendLog("INFO", `[UI] VWAP ${vwapCheckbox.checked ? 'enabled' : 'disabled'}`);
+        }
+    });
+    vwapCheckbox?.parentElement?.addEventListener('click', (e) => e.stopPropagation());
+
+    // RSI Toggle
+    const rsiCheckbox = document.getElementById('toggle-rsi');
+    rsiCheckbox?.addEventListener('change', () => {
+        if (rsiSeries && chart) {
+            updateIndicators();
+            rsiSeries.applyOptions({ visible: rsiCheckbox.checked });
+            chart.priceScale('rsi').applyOptions({ visible: rsiCheckbox.checked });
+            appendLog("INFO", `[UI] RSI (14) ${rsiCheckbox.checked ? 'enabled' : 'disabled'}`);
+        }
+    });
+    rsiCheckbox?.parentElement?.addEventListener('click', (e) => e.stopPropagation());
+
+    // Heikin-Ashi Toggle
+    const haBtn = document.getElementById('btn-heikin-ashi');
+    haBtn?.addEventListener('click', () => {
+        chartMode = chartMode === 'candle' ? 'heikinashi' : 'candle';
+        const isHA = chartMode === 'heikinashi';
+        haBtn.classList.toggle('bg-teal-500/20', isHA);
+        haBtn.classList.toggle('text-teal-300', isHA);
+        haBtn.classList.toggle('border', isHA);
+        haBtn.classList.toggle('border-teal-500/40', isHA);
+        // Re-render candles
+        if (candleSeries && candleData.length > 0) {
+            const displayData = isHA ? calculateHeikinAshi(candleData) : candleData;
+            candleSeries.setData(displayData);
+        }
+        appendLog("INFO", `[UI] Chart mode: ${isHA ? 'Heikin-Ashi' : 'Candlestick'}`);
+    });
+
+    // Screenshot Button
+    const screenshotBtn = document.getElementById('btn-screenshot');
+    screenshotBtn?.addEventListener('click', () => {
+        if (chart) {
+            const canvas = chart.takeScreenshot();
+            const link = document.createElement('a');
+            const sym = (document.getElementById('chart-symbol-label')?.innerText || 'chart').trim();
+            const tf = (document.getElementById('chart-tf-label')?.innerText || '').trim();
+            link.download = `${sym}_${tf}_${new Date().toISOString().slice(0, 10)}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            appendLog("INFO", `[UI] Chart screenshot saved: ${link.download}`);
+        }
+    });
+
+    // Fullscreen Toggle
+    const fullscreenBtn = document.getElementById('btn-fullscreen');
+    let _fsOriginalStyle = '';
+    fullscreenBtn?.addEventListener('click', () => {
+        const dashboard = document.getElementById('view-dashboard');
+        const chartPanel = dashboard?.querySelector(':scope > div:first-child');
+        const sidebar = dashboard?.previousElementSibling;
+        const bottomPanel = dashboard?.querySelector(':scope > div:nth-child(2)');
+        if (!chartPanel || !dashboard) return;
+
+        const isFullscreen = chartPanel.classList.contains('chart-fullscreen');
+        if (isFullscreen) {
+            // Exit fullscreen — restore everything
+            chartPanel.classList.remove('chart-fullscreen');
+            chartPanel.style.cssText = _fsOriginalStyle;
+            if (sidebar) sidebar.style.display = '';
+            if (bottomPanel) bottomPanel.style.display = '';
+            dashboard.style.cssText = '';
+            fullscreenBtn.querySelector('span').textContent = 'fullscreen';
+        } else {
+            // Enter fullscreen — save original style and expand
+            _fsOriginalStyle = chartPanel.style.cssText;
+            chartPanel.classList.add('chart-fullscreen');
+            chartPanel.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;border-radius:0;border:none;background:#020617;';
+            if (sidebar) sidebar.style.display = 'none';
+            if (bottomPanel) bottomPanel.style.display = 'none';
+            fullscreenBtn.querySelector('span').textContent = 'fullscreen_exit';
+        }
+        // Trigger chart resize after layout settles
+        setTimeout(() => {
+            if (chart) {
+                const container = document.getElementById('chart-area');
+                if (container) chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+            }
+        }, 150);
+    });
 
     // Window Controls
     document.getElementById('btn-minimize')?.addEventListener('click', () => {

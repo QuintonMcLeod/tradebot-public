@@ -699,7 +699,8 @@
       "session_overlap_timezone": "America/New_York",
       "gui_pnl_timeframe": "24h",
       "strategy_stocks": "bearish_engulfing",
-      "strategy_etf": "crypto_grid"
+      "strategy_etf": "crypto_grid",
+      "sabbath_astronomical": true
     }
   },
   "runtime": {

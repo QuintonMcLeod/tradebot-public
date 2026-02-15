@@ -962,7 +962,7 @@ function renderStrategyTab(container) {
         { id: 'risk', label: 'Global Risk' },
         { id: 'pyramid', label: 'Pyramiding' },
         { id: 'exits', label: 'Exit Logic' },
-        { id: 'yaml', label: 'YAML Editor' }
+        { id: 'yaml', label: 'JSON Editor' }
     ], 'strategy'));
 
     const section = document.createElement('div');
@@ -1125,7 +1125,7 @@ function renderStrategyTab(container) {
         section.appendChild(createCard('HTF Neutral Exit Bars', 'Exit after N neutral bars', 'HTF_NEUTRAL_EXIT_BARS', 'input', { number: true, default: '48', min: 0, max: 200 }));
 
     } else if (subTabs.strategy === 'yaml') {
-        section.appendChild(createSectionHeader('Profiles YAML Editor', 'code'));
+        section.appendChild(createSectionHeader('Profiles JSON Editor', 'code'));
         section.appendChild(createWarningBox('<strong>Warning:</strong> Direct YAML editing. Invalid syntax will break the bot. Use the other tabs for safer configuration.'));
 
         const editor = document.createElement('textarea');
