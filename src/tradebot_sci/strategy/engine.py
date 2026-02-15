@@ -44,6 +44,11 @@ class StrategyEngine:
         self.symbol = symbol
         self.trade_results = trade_results
         
+        # Last strategy scoring (populated by decide(), read by cycle.py for logging)
+        self.last_strat_name: str = "Unknown"
+        self.last_strat_score: float = 0.0
+        self.last_strat_grade: str = "N/A"
+        
         # Load the Strategy Variant
         self._strategy = self._load_strategy_variant()
         
@@ -295,6 +300,10 @@ class StrategyEngine:
         # Per-strategy scoring (gives each strategy its own grade)
         strat_score, strat_grade, strat_summary = self._strategy.score_signal(snapshot, gates)
         strat_name = self._strategy.name
+        # Store for cycle.py to read (can't attach to Pydantic decision objects)
+        self.last_strat_name = strat_name
+        self.last_strat_score = strat_score
+        self.last_strat_grade = strat_grade
 
         # [META-SCI] Auto-Strategy handled by MetaSCIStrategy class transparently below.
         

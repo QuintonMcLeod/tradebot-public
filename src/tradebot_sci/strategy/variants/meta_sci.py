@@ -51,6 +51,59 @@ class MetaSCIStrategy(BaseStrategy):
         self.strategies: Dict[str, BaseStrategy] = {}
         self._initialized = False
 
+    def score_signal(self, snapshot: MarketSnapshot, gates: dict):
+        """
+        Meta-SCI Tournament Scoring: runs each eligible sub-strategy's
+        score_signal() and reports the best one.
+
+        Returns:
+            (best_score, best_grade, summary_string)
+        """
+        self._ensure_strategies_loaded()
+        regime = self._detect_regime(snapshot, gates)
+        eligible_names = set(self.REGIME_GROUPS.get(regime, []))
+        exclude_list = getattr(self.profile, 'meta_sci_exclude_list', [])
+
+        best_score = 0.0
+        best_grade = "F-"
+        best_name = "none"
+        results = []
+
+        for name, strat in self.strategies.items():
+            if name in exclude_list:
+                continue
+            if name not in eligible_names:
+                continue
+            try:
+                s_score, s_grade, s_summary = strat.score_signal(snapshot, gates)
+                weight_bonus = self.STRATEGY_WEIGHTS.get(name, 0)
+                effective = s_score + weight_bonus
+                results.append((name, s_score, s_grade, effective))
+                logger.info(
+                    f"[META-DEBUG] {snapshot.symbol} {name.upper()}: "
+                    f"score={s_score:.1f} grade={s_grade} "
+                    f"(+{weight_bonus} weight = {effective:.1f})"
+                )
+                if effective > best_score:
+                    best_score = s_score  # Report raw score, not weighted
+                    best_grade = s_grade
+                    best_name = name
+            except Exception as e:
+                logger.debug(f"[META-SCORE] {name} scoring failed: {e}")
+
+        if not results:
+            # Fallback to ICC score
+            icc_score = gates.get("score", 0.0)
+            pct = round(icc_score * 100, 1)
+            grade = self.grade_from_score_100(pct)
+            return pct, grade, f"Meta-SCI: No eligible strategies (ICC {pct:.0f}%)"
+
+        # Build compact summary showing top contenders
+        top3 = sorted(results, key=lambda r: r[3], reverse=True)[:3]
+        breakdown = " | ".join(f"{n}:{s:.0f}({g})" for n, s, g, _ in top3)
+        summary = f"Meta-SCI [{regime}] Best={best_name}:{best_score:.0f} | {breakdown}"
+        return best_score, best_grade, summary
+
     def _ensure_strategies_loaded(self):
         if self._initialized: return
         

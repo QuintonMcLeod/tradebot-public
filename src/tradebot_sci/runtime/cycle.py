@@ -278,9 +278,9 @@ def process_candidate_cycle(
                 reason = decision.notes if decision else "No strategy signal"
                 d_score = (decision.score * 100.0) if (decision and decision.score is not None) else 0.0
                 d_grade = (decision.grade) if (decision and decision.grade is not None) else "N/A"
-                d_strat_name = getattr(decision, 'strategy_name', 'Unknown') if decision else 'Unknown'
-                d_strat_grade = getattr(decision, 'strat_grade', 'N/A') if decision else 'N/A'
-                d_strat_score = getattr(decision, 'strat_score', 0.0) if decision else 0.0
+                d_strat_name = engines[symbol].last_strat_name
+                d_strat_grade = engines[symbol].last_strat_grade
+                d_strat_score = engines[symbol].last_strat_score
                 logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} strategy={d_strat_name} strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} reason={reason}")
                 blocked += 1
                 continue

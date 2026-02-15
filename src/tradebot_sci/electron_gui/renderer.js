@@ -1014,13 +1014,21 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
         actionHtml = `<span class="text-cyan-400 font-bold text-glow-sm">${actUpper}</span>`;
     }
 
+    // Clean reason text: strip redundant strategy name prefix when badge already shows it
+    let displayReason = reason || '';
+    if (stratBadge) {
+        // Remove "Meta-SCI Tournament: " or "Meta-SCI: " prefix since badge already identifies the strategy
+        displayReason = displayReason.replace(/^Meta-SCI\s*(Tournament)?:\s*/i, '');
+    }
+
     // Much larger font (text-lg / 18px), bunched rows (py-1.5)
     row.innerHTML = `
         <td class="px-4 py-1.5 text-slate-500 text-left font-mono text-sm">${time}</td>
         <td class="px-4 py-1.5 font-bold text-slate-200 text-left text-lg">${symbol}</td>
         <td class="px-4 py-1.5 text-left text-sm uppercase tracking-wider">${actionHtml}</td>
         <td class="px-4 py-1.5 ${scoreClass} text-left font-black text-lg">${grade}</td>
-        <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${stratBadge}${reason}</td>
+        <td class="px-4 py-1.5 text-center">${stratBadge || '<span class="text-slate-600 text-[10px]">—</span>'}</td>
+        <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${displayReason}</td>
     `;
 
     if (!existingRow) {

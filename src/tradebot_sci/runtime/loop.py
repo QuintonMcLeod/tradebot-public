@@ -1062,7 +1062,18 @@ def run_bot(
                 # Filter by market hours (OANDA weekend halt protection)
                 # Skip this filter for paper broker during Sabbath — paper trades 24/7
                 if not (sabbath_active and executor == executor_paper):
-                    active_symbols = [s for s in active_symbols if is_market_open(s, now, settings=profile_settings)]
+                    # Symbols with open positions MUST always be included for exit management
+                    # even when the market is closed (to handle stale trades, SL/TP, time exits)
+                    symbols_with_positions = set()
+                    if executor:
+                        for sym in active_symbols:
+                            pos = executor.get_open_position_snapshot(sym)
+                            if pos and abs(pos.get("size", 0)) > 1e-8:
+                                symbols_with_positions.add(sym)
+                    active_symbols = [
+                        s for s in active_symbols
+                        if s in symbols_with_positions or is_market_open(s, now, settings=profile_settings)
+                    ]
                     if not active_symbols:
                         logger.info("[SCHEDULE] No symbols have open markets. Skipping cycle.")
                         next_decision_in = decision_interval
