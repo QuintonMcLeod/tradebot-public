@@ -733,15 +733,23 @@ def run_bot(
     _candle_cache: dict = {}  # key: (symbol, tf) → Candle
 
     # Dedicated CCXT provider for chart history fetches.
-    # The main trading loop's provider MUST NOT be used from the WS handler
-    # because CCXT exchange objects are not thread-safe.
+    # Uses PUBLIC Kraken (no API key needed) — supports all standard timeframes
+    # including 4h, which Gemini lacks. The main trading loop's provider
+    # MUST NOT be used from the WS handler because CCXT exchange objects
+    # are not thread-safe.
     _chart_provider = None
     try:
-        from tradebot_sci.broker.ccxt_broker import CCXTExchangeBroker
+        import ccxt
         from tradebot_sci.market.providers import CCXTMarketDataProvider
-        _chart_broker = CCXTExchangeBroker(profile_settings)
-        _chart_provider = CCXTMarketDataProvider(_chart_broker.exchange, _chart_broker.symbol_map_data)
-        logger.info("[WS] Created dedicated chart provider (own CCXT exchange instance)")
+        _chart_exchange = ccxt.kraken({'enableRateLimit': True})
+        _chart_exchange.load_markets()
+        # Build symbol map for Kraken normalization (ZECUSD → ZEC/USD, etc.)
+        _kraken_symbol_map = {}
+        for m in _chart_exchange.markets:
+            base_quote = m.replace("/", "")
+            _kraken_symbol_map[base_quote] = m
+        _chart_provider = CCXTMarketDataProvider(_chart_exchange, _kraken_symbol_map)
+        logger.info("[WS] Created dedicated chart provider (public Kraken — supports 4h)")
     except Exception as e:
         logger.warning(f"[WS] Dedicated chart provider failed, falling back to shared: {e}")
         _chart_provider = provider

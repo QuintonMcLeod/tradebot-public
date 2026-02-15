@@ -280,6 +280,19 @@ class CCXTMarketDataProvider:
             "1 day": "1d", "1 days": "1d",
         }
         tf = map_tf.get(tf, tf)
+
+        # Gemini only supports: 1m, 5m, 15m, 30m, 1h, 6h, 1d
+        # Map unsupported timeframes to nearest supported equivalent
+        exchange_id = getattr(self._exchange, 'id', '').lower()
+        if exchange_id == 'gemini':
+            gemini_tf_map = {
+                "2h": "1h", "3h": "1h", "4h": "6h", "8h": "6h", "12h": "1d",
+                "2d": "1d", "3d": "1d", "1w": "1d",
+            }
+            if tf in gemini_tf_map:
+                original_tf = tf
+                tf = gemini_tf_map[tf]
+                logger.info(f"[CCXT-DATA] Gemini: remapped {original_tf} → {tf} (unsupported timeframe)")
         
         # CCXT documentation says fetch_ohlcv(symbol, timeframe, since, limit)
         # We don't use 'since' for 'latest' candles unless needed.
