@@ -254,7 +254,7 @@ class TradingProfileSettings(BaseModel):
         description="Fixed risk per trade in account currency. Overrides risk_per_trade_pct when > 0.",
     )
     risk_per_trade_pct: float = Field(
-        default=0.015,
+        default=0.045,
         ge=0.0,
         le=1.0,
         description="Standard risk per trade as a fraction of equity.",
@@ -272,7 +272,7 @@ class TradingProfileSettings(BaseModel):
         description="Target leverage for the asset class (Asset Class dependent).",
     )
     icc_entry_score_threshold: float = Field(
-        default=70.0,
+        default=60.0,
         ge=0.0,
         description="Minimum ICC points required to allow a new entry (replaces hard ICC gates).",
     )
@@ -287,12 +287,12 @@ class TradingProfileSettings(BaseModel):
         description="Points awarded when a liquidity sweep is detected.",
     )
     icc_score_continuation_points: float = Field(
-        default=25.0,
+        default=60.0,
         ge=0.0,
         description="Points awarded when continuation is confirmed.",
     )
     icc_score_indication_points: float = Field(
-        default=0.0,
+        default=10.0,
         ge=0.0,
         description="Points awarded when an HTF indication (break of structure) is detected.",
     )
@@ -642,7 +642,7 @@ class TradingProfileSettings(BaseModel):
         description="Enable opt-in aggressive ICC sizing and guardrails (Phase 2 only).",
     )
     aggressive_risk_per_trade_pct: float = Field(
-        default=0.03,
+        default=0.10,
         ge=0.0,
         le=1.0,
         description="Default risk per trade as a fraction of equity when aggressive mode is enabled.",
@@ -654,7 +654,7 @@ class TradingProfileSettings(BaseModel):
         description="Max daily loss as a fraction of starting equity before blocking new entries (aggressive mode).",
     )
     limit_loss_daily_pct: float = Field(
-        default=0.06,
+        default=0.60,
         ge=0.0,
         le=1.0,
         description="Maximum loss allowed for the daily interval (0.05 = 5%).",
@@ -895,6 +895,50 @@ class SafetySettings(BaseModel):
                     "Trail tightens in the second half of this window.",
     )
 
+    # --- Safety Suite 2.0 ---
+    safety_drawdown_breaker_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_DRAWDOWN_BREAKER_ENABLED", "False").lower() == "true"
+    )
+    safety_session_lockout_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_SESSION_LOCKOUT_ENABLED", "False").lower() == "true"
+    )
+    safety_session_lockout_hour: int = Field(
+        default_factory=lambda: int(os.getenv("SAFETY_SESSION_LOCKOUT_HOUR", "12"))
+    )
+    safety_opening_sentry_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_OPENING_SENTRY_ENABLED", "False").lower() == "true"
+    )
+    safety_greed_guard_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_GREED_GUARD_ENABLED", "False").lower() == "true"
+    )
+    safety_greed_guard_target: float = Field(
+        default_factory=lambda: float(os.getenv("SAFETY_GREED_GUARD_TARGET", "100.0"))
+    )
+    safety_streak_breaker_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_STREAK_BREAKER_ENABLED", "False").lower() == "true"
+    )
+    safety_churn_burner_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_CHURN_BURNER_ENABLED", "False").lower() == "true"
+    )
+    safety_churn_burner_max: int = Field(
+        default_factory=lambda: int(os.getenv("SAFETY_CHURN_BURNER_MAX", "5"))
+    )
+    safety_leverage_sentry_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_LEVERAGE_SENTRY_ENABLED", "True").lower() == "true"
+    )
+    safety_max_total_leverage: float = Field(
+        default_factory=lambda: float(os.getenv("SAFETY_MAX_TOTAL_LEVERAGE", "3.0"))
+    )
+    safety_fee_shield_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_FEE_SHIELD_ENABLED", "True").lower() == "true"
+    )
+    safety_volatility_min_pct: float = Field(
+        default_factory=lambda: float(os.getenv("SAFETY_VOLATILITY_MIN_PCT", "0.05"))
+    )
+    safety_volatility_max_pct: float = Field(
+        default_factory=lambda: float(os.getenv("SAFETY_VOLATILITY_MAX_PCT", "5.0"))
+    )
+
 
 class PerformanceSettings(BaseModel):
     compounding_cap_override: float = Field(default=100000.0)
@@ -913,7 +957,7 @@ class RiskSettings(BaseModel):
     )
     compound_profits: bool = Field(default=True)
     infinite_pyramiding: bool = Field(default=True)
-    max_pyramid_entries: int = Field(default=1000)
+    max_pyramid_entries: int = Field(default=3)
     pyramid_trigger_pct: float = Field(default=0.0001)
     pyramid_risk_load: float = Field(default=1.00)
     pyramid_risk_scale: float = Field(default=1.00)
@@ -948,33 +992,33 @@ class RiskSettings(BaseModel):
         description="Aggressive risk for high-confidence setups.",
     )
     max_exposure_pct: float = Field(
-        default=0.10, ge=0.0, le=1.0,
+        default=0.40, ge=0.0, le=1.0,
         description="Maximum total risk across all open positions.",
     )
     limit_loss_daily_pct: float = Field(
         default=0.60, ge=0.0, le=1.0,
         description="Circuit breaker: stop trading for the day if hit.",
     )
-    icc_auto_entry_enabled: bool = Field(default=True)
+    icc_auto_entry_enabled: bool = Field(default=False)
     icc_aggressive_mode: bool = Field(default=True)
-    icc_entry_score_threshold: float = Field(default=35.0, ge=0.0, le=100.0)
+    icc_entry_score_threshold: float = Field(default=60.0, ge=0.0, le=100.0)
     icc_auto_entry_require_sweep: bool = Field(default=False)
-    icc_auto_entry_min_htf_strength: float = Field(default=0.25, ge=0.0, le=1.0)
+    icc_auto_entry_min_htf_strength: float = Field(default=0.4, ge=0.0, le=1.0)
     icc_confirmation_bars: int = Field(default=2, ge=1, le=10)
     icc_max_bars_after_sweep: int = Field(default=30, ge=1)
     icc_require_liquidity_grab: bool = Field(default=False)
     icc_strict_mode: bool = Field(default=False)
     icc_high_score_override_threshold: float = Field(default=70.0, ge=0.0, le=100.0)
     icc_two_signal_override_enabled: bool = Field(default=False)
-    icc_auto_entry_cooldown_minutes: int = Field(default=3, ge=0)
+    icc_auto_entry_cooldown_minutes: int = Field(default=15, ge=0)
     icc_auto_entry_min_score: float = Field(default=0.02, ge=0.0)
     icc_score_continuation_points: float = Field(default=60.0, ge=0.0, le=100.0)
     icc_score_sweep_points: float = Field(default=25.0, ge=0.0, le=100.0)
-    icc_score_htf_ltf_align_points: float = Field(default=20.0, ge=0.0, le=100.0)
+    icc_score_htf_ltf_align_points: float = Field(default=30.0, ge=0.0, le=100.0)
     icc_score_strong_htf_points: float = Field(default=15.0, ge=0.0, le=100.0)
     icc_score_phase_points: float = Field(default=5.0, ge=0.0, le=100.0)
     icc_score_indication_points: float = Field(default=10.0, ge=0.0, le=100.0)
-    icc_score_htf_strength_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
+    icc_score_htf_strength_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
 class RuntimeSettings(BaseModel):

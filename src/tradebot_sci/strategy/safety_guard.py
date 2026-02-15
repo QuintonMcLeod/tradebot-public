@@ -143,6 +143,7 @@ class SafetyGuard:
         now = datetime.now()
         est_now = datetime.now(ZoneInfo("America/New_York"))
         asset_class = classify_symbol(symbol)
+        safety = settings.safety if settings else None
 
         # 0. State Updates
         hwm = cls.HWM_CAPITAL.get(asset_class, 0.0)
@@ -192,7 +193,7 @@ class SafetyGuard:
             return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker ({asset_class.value.upper()}) active until {pause_until.strftime('%H:%M')}")
             
         # Check trigger
-        if os.getenv("SAFETY_DRAWDOWN_BREAKER_ENABLED", "false").lower() == "true":
+        if safety and safety.safety_drawdown_breaker_enabled:
             hwm = cls.HWM_CAPITAL.get(asset_class, 0.0)
             if hwm > 0:
                 drawdown = (hwm - current_capital) / hwm
@@ -204,8 +205,8 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # 2. SESSION LOCKOUT (Time Manager)
         # -------------------------------------------------------------
-        if os.getenv("SAFETY_SESSION_LOCKOUT_ENABLED", "false").lower() == "true":
-             lockout_hour = int(os.getenv("SAFETY_SESSION_LOCKOUT_HOUR", "12"))
+        if safety and safety.safety_session_lockout_enabled:
+             lockout_hour = safety.safety_session_lockout_hour
              if est_now.hour >= lockout_hour:
                  return cls._reject(symbol, timeframe, "Session Lockout", f"Session Lockout (After {lockout_hour}:00 EST)")
 
@@ -213,7 +214,7 @@ class SafetyGuard:
         # 3. [NEW] OPENING RANGE SENTRY (No-Trade Zone)
         # -------------------------------------------------------------
         # Avoid first 15 mins of NYSE Open (9:30 - 9:45 AM EST)
-        if os.getenv("SAFETY_OPENING_SENTRY_ENABLED", "false").lower() == "true":
+        if safety and safety.safety_opening_sentry_enabled:
             # Check 9:30-9:45 AM EST
             if est_now.hour == 9 and 30 <= est_now.minute < 45:
                  return cls._reject(symbol, timeframe, "Opening Range Sentry", "Opening Range Sentry (9:30-9:45 AM EST)")
@@ -221,8 +222,8 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # 4. [NEW] GREED GUARD (Profit Lock)
         # -------------------------------------------------------------
-        if os.getenv("SAFETY_GREED_GUARD_ENABLED", "false").lower() == "true":
-            target = float(os.getenv("SAFETY_GREED_GUARD_TARGET", "100.0"))
+        if safety and safety.safety_greed_guard_enabled:
+            target = safety.safety_greed_guard_target
             daily_pnl = cls.DAILY_PNL.get(asset_class, 0.0)
             if daily_pnl >= target:
                 return cls._reject(symbol, timeframe, "Greed Guard", f"Greed Guard Active for {asset_class.value} (Daily Goal ${target:.2f} Met)")
@@ -230,7 +231,7 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # 5. [NEW] STREAK BREAKER (Symbol Cooldown)
         # -------------------------------------------------------------
-        if os.getenv("SAFETY_STREAK_BREAKER_ENABLED", "false").lower() == "true":
+        if safety and safety.safety_streak_breaker_enabled:
             # Check Active Pause
             if symbol in cls.SYMBOL_PAUSE_UNTIL:
                 if now < cls.SYMBOL_PAUSE_UNTIL[symbol]:
@@ -248,8 +249,8 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # 6. [NEW] CHURN BURNER (Rate Limit)
         # -------------------------------------------------------------
-        if os.getenv("SAFETY_CHURN_BURNER_ENABLED", "false").lower() == "true":
-            max_hourly = int(os.getenv("SAFETY_CHURN_BURNER_MAX", "5"))
+        if safety and safety.safety_churn_burner_enabled:
+            max_hourly = safety.safety_churn_burner_max
             cutoff = now - timedelta(hours=1)
             # Prune old timestamps
             timestamps = cls.TRADE_TIMESTAMPS.get(asset_class, [])
@@ -261,16 +262,16 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # 7. [NEW] VOLATILITY VETO (ATR Filter)
         # -------------------------------------------------------------
-        if os.getenv("SAFETY_VOLATILITY_VETO_ENABLED", "false").lower() == "true":
+        if safety and safety.safety_volatility_veto_enabled:
             atr = calculate_atr(snapshot.candles, period=14)
             if atr:
                 last_price = snapshot.candles[-1].close
                 atr_pct = (atr / last_price) * 100
                 
                 # Min Volatility (Avoiding Dead Markets) - Default 0.05%
-                min_vol = float(os.getenv("SAFETY_VOLATILITY_MIN_PCT", "0.05"))
+                min_vol = safety.safety_volatility_min_pct
                 # Max Volatility (Avoiding Explosions) - Default 5.0%
-                max_vol = float(os.getenv("SAFETY_VOLATILITY_MAX_PCT", "5.0"))
+                max_vol = safety.safety_volatility_max_pct
                 
                 if atr_pct < min_vol:
                      return cls._reject(symbol, timeframe, "Volatility Veto", f"Volatility Veto: Too Dead (ATR {atr_pct:.3f}% < {min_vol}%)")
@@ -279,7 +280,7 @@ class SafetyGuard:
 
         # 8. [NEW] AI SENTIMENT SHIELD (The Independent Veto)
         # -------------------------------------------------------------
-        if os.getenv("SAFETY_SENTIMENT_SHIELD_ENABLED", "false").lower() == "true" and ai_client:
+        if safety and safety.safety_sentiment_shield_enabled and ai_client:
              try:
                  # [ANTIGRAVITY CACHE] Prevent "Itchy Trigger Finger" / excessive API calls
                  class_cache = cls.SENTIMENT_CACHE.get(asset_class, {})
@@ -313,12 +314,12 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # Prevents "Account Blowing Up" by capping total notional leverage
         # [ANTIGRAVITY FIX] Isolated per asset class (Forex entries only care about Forex leverage)
-        if os.getenv("SAFETY_LEVERAGE_SENTRY_ENABLED", "true").lower() == "true":
+        if safety and safety.safety_leverage_sentry_enabled:
             # Determine asset class of the symbol being checked
             target_class = classify_symbol(symbol)
             
-            # [ANTIGRAVITY] Default to general cap, but check for class-specific overrides (e.g. SAFETY_MAX_FOREX_LEVERAGE)
-            default_cap = float(os.getenv("SAFETY_MAX_TOTAL_LEVERAGE", "3.0"))
+            # Default to general cap, but check for class-specific overrides
+            default_cap = safety.safety_max_total_leverage
             class_cap_env = f"SAFETY_MAX_{target_class.value.upper()}_LEVERAGE"
             max_leverage = float(os.getenv(class_cap_env, str(default_cap)))
             
@@ -342,7 +343,7 @@ class SafetyGuard:
         # 10. [NEW] FEE SHIELD (Capital Bleed Prevention)
         # -------------------------------------------------------------
         # Ensures the trade has enough "meat on the bone" to cover broker fees.
-        if os.getenv("SAFETY_FEE_SHIELD_ENABLED", "true").lower() == "true":
+        if safety and safety.safety_fee_shield_enabled:
             from tradebot_sci.strategy.decisions import AITradeDecision
             if isinstance(ai_client, AITradeDecision): # If passed as decision for validation
                 decision = ai_client
@@ -644,7 +645,8 @@ class SafetyGuard:
         #   Phase 1 (0 → max/2): Normal 1.5× ATR trail
         #   Phase 2 (max/2 → max): Trail tightens linearly from 1.5× → 0.5× ATR
         #   Phase 3 (> max): Force close — capital is freed
-        use_greedy_exit = os.getenv("TRAILING_STOP_ENABLED", "false").lower() == "true"
+        use_greedy_exit = (settings.performance.trailing_stop_enabled if settings
+                           else os.getenv("TRAILING_STOP_ENABLED", "false").lower() == "true")
         
         if use_greedy_exit:
              # Time-bounded escalation

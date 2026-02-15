@@ -26,7 +26,6 @@ const CONFIG_MAP = {
     'BOT_MODE': ['global', 'bot_mode'],
     'BOT_ITERATIONS': ['global', 'bot_iterations'],
     'EXECUTE_TRADES': ['global', 'execute_trades'],
-    'COMMITMENT_MODE': ['global', 'commitment_mode'],
     'SABBATH_ENABLED': ['safety', 'sabbath_enabled'],
     'SABBATH_CITY': ['safety', 'sabbath_city'],
     'OANDA_ACCOUNT_ID': ['brokers', 'oanda', 'account_id'],
@@ -76,7 +75,6 @@ const CONFIG_MAP = {
     // ── Risk & ICC (Global — not per-profile) ──────────────────
     'RISK_PER_TRADE_PCT': ['risk', 'risk_per_trade_pct'],
     'RISK_PER_TRADE_DOLLARS': ['risk', 'risk_per_trade_dollars'],
-    'SHORT_RISK_PCT': ['risk', 'short_risk_pct'],
     'MAX_EXPOSURE_PCT': ['risk', 'max_exposure_pct'],
     'LIMIT_LOSS_DAILY_PCT': ['risk', 'limit_loss_daily_pct'],
     'AGGRESSIVE_RISK_PER_TRADE_PCT': ['risk', 'aggressive_risk_per_trade_pct'],
@@ -100,6 +98,14 @@ const CONFIG_MAP = {
     'ICC_SCORE_PHASE_POINTS': ['risk', 'icc_score_phase_points'],
     'ICC_SCORE_INDICATION_POINTS': ['risk', 'icc_score_indication_points'],
     'ICC_SCORE_HTF_STRENGTH_THRESHOLD': ['risk', 'icc_score_htf_strength_threshold'],
+    // Safety Suite 2.0 Shields
+    'SAFETY_DRAWDOWN_BREAKER_ENABLED': ['safety', 'safety_drawdown_breaker_enabled'],
+    'SAFETY_GREED_GUARD_ENABLED': ['safety', 'safety_greed_guard_enabled'],
+    'SAFETY_GREED_GUARD_TARGET': ['safety', 'safety_greed_guard_target'],
+    'SAFETY_STREAK_BREAKER_ENABLED': ['safety', 'safety_streak_breaker_enabled'],
+    'SAFETY_CHURN_BURNER_ENABLED': ['safety', 'safety_churn_burner_enabled'],
+    'SAFETY_CHURN_BURNER_MAX': ['safety', 'safety_churn_burner_max'],
+    'SAFETY_OPENING_SENTRY_ENABLED': ['safety', 'safety_opening_sentry_enabled'],
 };
 
 const SECRETS_MAP = {
@@ -146,7 +152,6 @@ const TOOLTIPS = {
 
     // Risk Management
     RISK_PER_TRADE_PCT: "How much of your account you're willing to lose on a single trade. 1% means if you have $10,000, you risk losing $100 max per trade. Higher = bigger profits AND losses. Most professionals use 1-2%.",
-    SHORT_RISK_PCT: "Risk percentage specifically for short (betting price goes down) positions. Some traders use lower risk for shorts since losses are theoretically unlimited.",
     MAX_EXPOSURE_PCT: "Maximum total risk across ALL open positions combined. If set to 10% with a $10,000 account, total risk across all trades can't exceed $1,000.",
     MAX_DAILY_LOSS_PCT: "Safety circuit breaker - if you lose this percentage of your account in one day, the bot stops trading to prevent catastrophic losses. Like a daily loss limit at a casino.",
     RISK_PER_TRADE_DOLLARS: "Fixed dollar amount to risk per trade instead of percentage. Useful if you want consistent $50 or $100 risk regardless of account size.",
@@ -275,7 +280,6 @@ const TOOLTIPS = {
     SUPPLY_DEMAND: "Identifies areas where large institutional orders are likely waiting. The bot looks for a 'Break of Structure' (BOS) indicating a new trend, then waits for price to return to the 'Base' (Supply or Demand zone) before entering. High-accuracy institutional method.",
 
     // Safety & Shields
-    SAFETY_FLOOR_ENABLED: "Identifies robust zones with the 'No Body Close' rule and locks in principal at major account milestones ($200, $500, etc).",
     SAFETY_ATR_SHIELD_ENABLED: "Advanced ATR-based protection. Moves stops to breakeven after 1x ATR move and uses dynamic trailing stops.",
     SAFETY_DRAWDOWN_BREAKER_ENABLED: "Account Circuit Breaker. If the account loses >5% from daily peak, all trades close and the bot pauses for 24h.",
     SAFETY_SESSION_LOCKOUT_ENABLED: "Prevents over-trading in choppy late-session markets. Automatically stops taking signals after 12:00 PM EST.",
@@ -284,7 +288,6 @@ const TOOLTIPS = {
     SAFETY_GREED_GUARD_ENABLED: "Profit Lock. Stops trading for the day once a specified daily profit target is hit (Quit while ahead).",
     SAFETY_CHURN_BURNER_ENABLED: "Anti-Churn. Limits the maximum number of trades per hour to prevent over-trading in chop.",
     SAFETY_VOLATILITY_VETO_ENABLED: "Volatility Filter. Blocks entries if the market is too dead (low ATR) or too explosive (high ATR).",
-    SAFETY_STREAK_BREAKER_ENABLED: "Tilt Prevention. Pauses a specific symbol for 4 hours after 3 consecutive losses.",
     SAFETY_STREAK_BREAKER_ENABLED: "Tilt Prevention. Pauses a specific symbol for 4 hours after 3 consecutive losses.",
     SAFETY_OPENING_SENTRY_ENABLED: "Morning Guard. Blocks all entries during the first 15 minutes of the market open (9:30-9:45 AM ET) to avoid volatility.",
     SAFETY_SENTIMENT_SHIELD_ENABLED: "AI Veto Shield. Uses your configured AI Model to inspect every potential entry. If the AI detects 'DANGEROUS' market structure, the trade is blocked regardless of the strategy signal. Smart Defense.",
@@ -391,8 +394,8 @@ const CONFLICT_MAP = {
         type: 'modal'
     },
     'performance:smooth': {
-        targets: ['SAFETY_FLOOR_ENABLED'],
-        message: "<strong>Equity Smoothing</strong> uses its own principal protection model. Enabling this will override the 'Staircase Floor' shield.",
+        targets: [],
+        message: "<strong>Equity Smoothing</strong> uses its own principal protection model.",
         type: 'modal'
     },
     'performance:gamma': {
@@ -413,6 +416,16 @@ const CONFLICT_MAP = {
     'SAFETY_STABILITY_MODE_ENABLED:true': {
         targets: ['PERFORMANCE_MODE'],
         message: "<strong>Stability Mode</strong> is a survival-first protocol. Enabling it will reset your Performance Mode to 'Standard' and enforce a strict 1% risk ceiling.",
+        type: 'modal'
+    },
+    'MULTI_POSITION_ENABLED:false': {
+        targets: ['MAX_CONCURRENT_POSITIONS'],
+        message: '',
+        type: 'ghost'
+    },
+    'SABBATH_ASTRONOMICAL:true': {
+        targets: [],
+        message: "<strong>Astronomical Sabbath</strong> uses your geographic coordinates to calculate exact sunset times. Please verify your Latitude and Longitude are set correctly.",
         type: 'modal'
     }
 };
@@ -1412,7 +1425,6 @@ function renderStrategyTab(container) {
         const grid = document.createElement('div');
         grid.className = 'card-grid';
         grid.appendChild(createSliderCard('Default Risk %', 'Fallback equity risk', 'RISK_PER_TRADE_PCT', 0.1, 20.0, 0.1, '%'));
-        grid.appendChild(createSliderCard('Short Risk', 'Risk for short positions', 'SHORT_RISK_PCT', 0.1, 20.0, 0.1, '%'));
         grid.appendChild(createSliderCard('Max Exposure', 'Total open risk limit', 'MAX_EXPOSURE_PCT', 5, 100, 5, '%'));
         grid.appendChild(createSliderCard('Daily Loss Limit', 'Circuit breaker — stops trading for the day 🍞', 'LIMIT_LOSS_DAILY_PCT', 1, 20, 1, '%'));
         section.appendChild(grid);
@@ -1997,7 +2009,6 @@ function renderSafetyTab(container) {
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('Account Safety & Shields', 'shield'));
 
-    section.appendChild(createCard('Staircase Floor', 'Principle Protection via No-Body-Close zones', 'SAFETY_FLOOR_ENABLED', 'toggle'));
     section.appendChild(createCard('Stability Mode', 'Ultra-safe risk management & quality filters (1% Cap)', 'SAFETY_STABILITY_MODE_ENABLED', 'toggle', {
         tooltip: "<strong>Survival First.</strong> This is your emergency brake. It forces 1% max risk and a 75+ quality score floor. Perfect for preventing account 'bleeding' during choppy or unpredictable market regimes."
     }));
@@ -2224,11 +2235,11 @@ function renderPerformanceTab(container) {
     section.appendChild(createCard('Daily Profit Target %', 'Stop for the day once this % profit is reached (e.g. 0.02 = 2%)', 'TARGET_PROFIT_DAILY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
     // Daily Loss Limit slider is in Strategy Workshop → Global Risk tab
 
-    section.appendChild(createCard('Weekly Profit Target %', 'Lock in weekly gains once reached (e.g. 0.05 = 5%)', 'TARGET_PROFIT_WEEKLY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
-    section.appendChild(createCard('Weekly Loss Limit %', 'Protect capital: stop for the week if hit (e.g. 0.15 = 15%)', 'LIMIT_LOSS_WEEKLY_PCT', 'input', { number: true, default: '0.15', step: 0.001 }));
+    section.appendChild(createCard('Weekly Profit Target % (Not Yet Implemented)', 'Lock in weekly gains once reached (e.g. 0.05 = 5%)', 'TARGET_PROFIT_WEEKLY_PCT', 'input', { number: true, default: '0.0', step: 0.001, disabled: true }));
+    section.appendChild(createCard('Weekly Loss Limit % (Not Yet Implemented)', 'Protect capital: stop for the week if hit (e.g. 0.15 = 15%)', 'LIMIT_LOSS_WEEKLY_PCT', 'input', { number: true, default: '0.15', step: 0.001, disabled: true }));
 
-    section.appendChild(createCard('Monthly Profit Target %', 'Monthly wealth goal: stop if reached (e.g. 0.10 = 10%)', 'TARGET_PROFIT_MONTHLY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
-    section.appendChild(createCard('Monthly Loss Limit %', 'Emergency floor: stop for the month if reached (e.g. 0.25 = 25%)', 'LIMIT_LOSS_MONTHLY_PCT', 'input', { number: true, default: '0.25', step: 0.001 }));
+    section.appendChild(createCard('Monthly Profit Target % (Not Yet Implemented)', 'Monthly wealth goal: stop if reached (e.g. 0.10 = 10%)', 'TARGET_PROFIT_MONTHLY_PCT', 'input', { number: true, default: '0.0', step: 0.001, disabled: true }));
+    section.appendChild(createCard('Monthly Loss Limit % (Not Yet Implemented)', 'Emergency floor: stop for the month if reached (e.g. 0.25 = 25%)', 'LIMIT_LOSS_MONTHLY_PCT', 'input', { number: true, default: '0.25', step: 0.001, disabled: true }));
 
     container.appendChild(section);
 }

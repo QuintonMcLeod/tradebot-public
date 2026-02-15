@@ -56,7 +56,6 @@ profiles:
     - LINKUSD
     - LTCUSD
     - DOGEUSD
-    - SOLUSD
     strategies:
       crypto: supply_demand
       forex: rubberband_reaper
@@ -199,8 +198,6 @@ profiles:
     - LINKUSD
     - LTCUSD
     - DOGEUSD
-    - SOLUSD
-    - XRPUSD
     - ZECUSD
     - BCHUSD
     strategies:
@@ -289,8 +286,6 @@ profiles:
     - LINKUSD
     - LTCUSD
     - DOGEUSD
-    - SOLUSD
-    - XRPUSD
     - ZECUSD
     - BCHUSD
     - EURUSD
@@ -350,11 +345,8 @@ profiles:
     - LINKUSD
     - LTCUSD
     - DOGEUSD
-    - LTCUSD
     - BCHUSD
-    - XRPUSD
     - ZECUSD
-    - SOLUSD
     strategies:
       crypto: supply_demand
       forex: rubberband_reaper
