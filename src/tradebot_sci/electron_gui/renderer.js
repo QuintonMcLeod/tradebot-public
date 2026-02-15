@@ -3801,6 +3801,13 @@ window.helpModule = (() => {
 
         const backBtn = document.getElementById('help-back-btn');
         if (backBtn) backBtn.classList.add('hidden');
+
+        // Show search box on magazine landing
+        const searchWrap = document.getElementById('help-search-wrap');
+        if (searchWrap) searchWrap.style.display = '';
+        // Clear search on return
+        const searchInput = document.getElementById('help-search-input');
+        if (searchInput) searchInput.value = '';
     }
 
     // ── Load a document ──────────────────────────────────────
@@ -3821,6 +3828,10 @@ window.helpModule = (() => {
         // Show back button
         const backBtn = document.getElementById('help-back-btn');
         if (backBtn) backBtn.classList.remove('hidden');
+
+        // Hide search box when viewing an article
+        const searchWrap = document.getElementById('help-search-wrap');
+        if (searchWrap) searchWrap.style.display = 'none';
 
         try {
             const result = await window.api.readHelpDoc(filename);
@@ -3856,6 +3867,36 @@ window.helpModule = (() => {
                 contentArea.scrollTop = 0;
             });
         }
+    }
+
+    // ── Search filter ────────────────────────────────────────
+    function setupHelpSearch() {
+        const input = document.getElementById('help-search-input');
+        if (!input) return;
+
+        input.addEventListener('input', () => {
+            const query = input.value.trim().toLowerCase();
+            const cards = document.querySelectorAll('.help-mag-card');
+
+            cards.forEach(card => {
+                if (!query) {
+                    // No query — show all cards
+                    card.style.display = '';
+                    card.style.opacity = '1';
+                    return;
+                }
+
+                const filename = (card.dataset.filename || '').toLowerCase();
+                // Find the matching catalog entry for richer matching
+                const catEntry = docCatalog.find(d => d.filename === card.dataset.filename);
+                const title = catEntry ? catEntry.title.toLowerCase() : '';
+                const desc = catEntry ? (catEntry.description || '').toLowerCase() : '';
+
+                const matches = title.includes(query) || desc.includes(query) || filename.includes(query);
+                card.style.display = matches ? '' : 'none';
+                card.style.opacity = matches ? '1' : '0';
+            });
+        });
     }
 
     // ── Init ─────────────────────────────────────────────────
@@ -3899,6 +3940,7 @@ window.helpModule = (() => {
 
         renderMagazine();
         setupScrollTop();
+        setupHelpSearch();
 
         // Back button
         const backBtn = document.getElementById('help-back-btn');

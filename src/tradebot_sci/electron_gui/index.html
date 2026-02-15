@@ -1019,6 +1019,30 @@
                         <span>Back</span>
                     </button>
                 </div>
+                <!-- Search box (between back btn and title) -->
+                <div id="help-search-wrap" class="flex items-center" style="z-index: 1; margin-left: 0.5rem;">
+                    <div style="position: relative; display: flex; align-items: center;">
+                        <span class="material-symbols-outlined" style="position: absolute; left: 8px; font-size: 16px; color: var(--text-muted, #64748b); pointer-events: none;">search</span>
+                        <input id="help-search-input" type="text" placeholder="Search articles..."
+                            spellcheck="false" autocomplete="off"
+                            style="
+                                width: 200px;
+                                height: 30px;
+                                padding: 0 10px 0 30px;
+                                font-size: 0.75rem;
+                                font-family: inherit;
+                                color: var(--text-primary, #e2e8f0);
+                                background: rgba(255,255,255,0.05);
+                                border: 1px solid rgba(255,255,255,0.08);
+                                border-radius: 3px;
+                                outline: none;
+                                transition: border-color 0.15s ease, background 0.15s ease;
+                            "
+                            onfocus="this.style.borderColor='var(--accent, #14b8a6)'; this.style.background='rgba(255,255,255,0.08)';"
+                            onblur="this.style.borderColor='rgba(255,255,255,0.08)'; this.style.background='rgba(255,255,255,0.05)';"
+                        />
+                    </div>
+                </div>
                 <!-- Center: Title (absolute to stay dead center) -->
                 <div class="flex items-center gap-3"
                     style="position: absolute; left: 50%; transform: translateX(-50%);">
