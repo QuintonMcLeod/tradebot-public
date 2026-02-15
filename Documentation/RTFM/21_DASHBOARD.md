@@ -14,17 +14,15 @@ The GUI is divided into zones, like a fighter pilot's cockpit:
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  Title Bar: Bot status, version, update button   │
-├──────────────────────────────────────────────────┤
-│                                                  │
-│            The Chart (Big Center Area)            │
-│          Candlesticks, indicators, lines          │
-│                                                  │
-├──────────────────────────────────────────────────┤
-│  Sidebar: Holdings, P&L, Decisions, Controls     │
-├──────────────────────────────────────────────────┤
-│  Log Panel (Bottom): The scrolling text stream    │
-└──────────────────────────────────────────────────┘
+│  Title Bar: App name, window controls            │
+├────────┬─────────────────────────────────────────┤
+│        │                                         │
+│ Side-  │        The Chart (Big Center Area)       │
+│ bar:   │      Candlesticks, indicators, lines     │
+│ Nav,   │                                         │
+│ Status,├─────────────────────────────────────────┤
+│ Update │  Log Panel (Bottom): Scrolling text      │
+└────────┴─────────────────────────────────────────┘
 ```
 
 Let's go zone by zone.
@@ -33,15 +31,14 @@ Let's go zone by zone.
 
 ## Zone 1: The Title Bar
 
-The title bar tells you two things at a glance:
+The title bar is minimal — this is a frameless window, so it's clean:
 
 | Element | What It Means |
 |---------|--------------|
-| **Bot Running** / **Bot Stopped** | Is the engine currently active? Green = running. Gray = stopped. |
-| **Update Available** | A new version exists on the remote repo. Click to update. |
-| **Window Controls** | Close, minimize, maximize. Standard stuff. |
+| **TRADEBOT SCI** | The app name and logo. That's it. No indicators here. |
+| **Window Controls** | Close (✕), minimize (—), maximize (☐). Standard stuff. |
 
-The title bar is your "am I okay?" quick check. If it's green, you're good. If it's gray, the bot isn't running. If there's an update badge, you should update.
+Bot status, update buttons, and navigation all live on the **sidebar** (Zone 3), not the title bar. The title bar is just the handle for dragging the window around.
 
 ---
 
@@ -72,7 +69,15 @@ Depending on the active strategy, you might see:
 
 ## Zone 3: The Sidebar
 
-This is your instrumentation panel. Each section tells you something critical:
+This is your command center — navigation, status, and instrumentation all live here.
+
+### Navigation & Status
+*   **Tab Navigation** — Dashboard, Graph, Settings, Profile, Help. Click to switch views.
+*   **Bot Running / Bot Stopped** — The bot's status indicator. Green = running. Gray = stopped.
+*   **Start / Stop Button** — Starts or stops the bot engine.
+*   **Update Available** — When a new version exists, an update button appears here. Click to update.
+
+Below the navigation, the sidebar shows your trading data:
 
 ### Holdings Panel
 Shows every open position:
@@ -131,7 +136,7 @@ Lets you switch which symbol's chart is displayed. This doesn't change what the 
 ## What "Healthy" Looks Like
 
 When everything is working correctly:
-*   Title bar shows **Bot Running** in green
+*   Sidebar shows **Bot Running** in green
 *   Chart is showing live candles with steady updates
 *   Log panel is scrolling with `[SCAN]` and `[STATE]` entries
 *   Holdings panel shows your positions (if any) with P&L numbers

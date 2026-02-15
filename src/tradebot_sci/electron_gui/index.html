@@ -1019,13 +1019,22 @@
                         <span>Back</span>
                     </button>
                 </div>
-                <!-- Search box (between back btn and title) -->
-                <div id="help-search-wrap" class="flex items-center" style="z-index: 1; margin-left: 0.5rem;">
-                    <div style="position: relative; display: flex; align-items: center;">
-                        <span class="material-symbols-outlined" style="position: absolute; left: 8px; font-size: 16px; color: var(--text-muted, #64748b); pointer-events: none;">search</span>
-                        <input id="help-search-input" type="text" placeholder="Search articles..."
-                            spellcheck="false" autocomplete="off"
-                            style="
+                <!-- Center: Title (absolute to stay dead center) -->
+                <div class="flex items-center gap-3"
+                    style="position: absolute; left: 50%; transform: translateX(-50%);">
+                    <span class="material-symbols-outlined text-lg"
+                        style="color: var(--accent, #14b8a6);">auto_stories</span>
+                    <span id="help-doc-title" class="text-sm font-bold"
+                        style="color: var(--text-primary, #e2e8f0);">Knowledge Base</span>
+                </div>
+                <!-- Right: Search box + Scroll to top -->
+                <div
+                    style="position: absolute; right: 2rem; display: flex; align-items: center; gap: 0.5rem; z-index: 1;">
+                    <div id="help-search-wrap" style="position: relative; display: flex; align-items: center;">
+                        <span class="material-symbols-outlined"
+                            style="position: absolute; left: 8px; font-size: 16px; color: var(--text-muted, #64748b); pointer-events: none;">search</span>
+                        <input id="help-search-input" type="text" placeholder="Search articles..." spellcheck="false"
+                            autocomplete="off" style="
                                 width: 200px;
                                 height: 30px;
                                 padding: 0 10px 0 30px;
@@ -1039,20 +1048,8 @@
                                 transition: border-color 0.15s ease, background 0.15s ease;
                             "
                             onfocus="this.style.borderColor='var(--accent, #14b8a6)'; this.style.background='rgba(255,255,255,0.08)';"
-                            onblur="this.style.borderColor='rgba(255,255,255,0.08)'; this.style.background='rgba(255,255,255,0.05)';"
-                        />
+                            onblur="this.style.borderColor='rgba(255,255,255,0.08)'; this.style.background='rgba(255,255,255,0.05)';" />
                     </div>
-                </div>
-                <!-- Center: Title (absolute to stay dead center) -->
-                <div class="flex items-center gap-3"
-                    style="position: absolute; left: 50%; transform: translateX(-50%);">
-                    <span class="material-symbols-outlined text-lg"
-                        style="color: var(--accent, #14b8a6);">auto_stories</span>
-                    <span id="help-doc-title" class="text-sm font-bold"
-                        style="color: var(--text-primary, #e2e8f0);">Knowledge Base</span>
-                </div>
-                <!-- Right: Scroll to top -->
-                <div class="ml-auto flex items-center" style="z-index: 1;">
                     <button id="help-scroll-top" class="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
                         title="Scroll to top">
                         <span class="material-symbols-outlined text-base"
