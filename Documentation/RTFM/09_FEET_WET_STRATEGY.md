@@ -438,7 +438,7 @@ Once you trust the system:
 ### 🤖 Algo / Bot Trading
 
 #### 29. "One strategy should work everywhere"
-**Wrong.** That's why we have 20 strategies. Use **Meta-SCI** and let it match the strategy to the market condition automatically.
+**Wrong.** That's why I have 20 strategies. Use **Meta-SCI** and let it match the strategy to the market condition automatically.
 
 #### 30. "Meta-SCI is slower because it runs multiple strategies"
 **Wrong.** The tournament runs in milliseconds. There's no performance penalty.

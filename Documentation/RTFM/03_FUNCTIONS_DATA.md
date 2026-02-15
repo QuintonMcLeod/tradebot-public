@@ -20,7 +20,7 @@ class MarketSnapshot:
     trend_htf: TrendState   # Higher Timeframe Trend (Bullish/Bearish/Neutral)
     trend_ltf: TrendState   # Lower Timeframe Trend
 ```
-*   **Philosophy:** Immutable. Once created, we don't mess with it. It represents "What Happened".
+*   **Philosophy:** Immutable. Once created, I don't mess with it. It represents "What Happened".
 
 ### 2. `AITradeDecision` (`src/tradebot_sci/strategy/decisions.py`)
 This is the "Verdict".

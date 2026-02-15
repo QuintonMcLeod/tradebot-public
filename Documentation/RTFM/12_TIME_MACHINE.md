@@ -1,6 +1,6 @@
 
 # 12. The Time Machine (Backtester Trinity)
-> *"We have to go back."*
+> *"I have to go back."*
 
 You have discovered that there are actually **three** ways to time-travel in this repository.
 This document explains the Trinity of Backtesting.

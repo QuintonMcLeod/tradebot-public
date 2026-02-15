@@ -56,6 +56,10 @@ contextBridge.exposeInMainWorld('api', {
 
     // Paper Trading Reset
     resetPaperTrading: () => ipcRenderer.invoke('reset-paper-trading'),
+
+    // Help Documentation
+    listHelpDocs: () => ipcRenderer.invoke('list-help-docs'),
+    readHelpDoc: (filename) => ipcRenderer.invoke('read-help-doc', filename),
 });
 
 // We can also expose specific APIs for the backend connection if needed

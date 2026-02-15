@@ -53,9 +53,9 @@ The **20 Trading Strategies** (found in `src/tradebot_sci/strategy/variants/`) a
 ---
 
 ## 2. The Backtester is a Time Machine, Not a Bank
-We utilize a **Futures-Style Capital Model**. This is not a choice; it is the fundamental physics of our simulation universe.
-*   We only deduct **FEES** on entry. We do NOT deduct the full notional value (that's for Boomers and Spot traders).
-*   We add back **Net PnL** on exit.
+I utilize a **Futures-Style Capital Model**. This is not a choice; it is the fundamental physics of my simulation universe.
+*   I only deduct **FEES** on entry. I do NOT deduct the full notional value (that's for Boomers and Spot traders).
+*   I add back **Net PnL** on exit.
 *   **THE OATH:** "I shall respect the laws of Physics (and the `BACKTESTER_RULES.md`)."
 
 ---

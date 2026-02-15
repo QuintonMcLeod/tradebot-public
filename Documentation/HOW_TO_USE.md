@@ -1,74 +1,10 @@
 # Trade by SCI — How To Use
 
-> **First time? Start here.** This is the practical, no-fluff guide to getting the bot running and making trades. For deep dives into architecture and philosophy, see the `RTFM/` folder.
+> **First time? Start here.** This is the practical, no-fluff guide to getting the bot running and making trades. For deep dives into architecture and philosophy, see the `RTFM/` folder. For installation and setup, see the `README.md`.
 
 ---
 
-## 📋 Prerequisites
-
-Before you begin, make sure you have the following installed:
-
-| Requirement | Version | Check With |
-|---|---|---|
-| **Python** | 3.11 – 3.13 | `python --version` |
-| **Node.js** | 18+ | `node --version` |
-| **Poetry** (Python pkg manager) | Latest | `poetry --version` |
-| **Git** | Any | `git --version` |
-
-### First-Time Setup
-
-```bash
-# 1. Clone the repo
-git clone <repo-url> tradebot-sci && cd tradebot-sci
-
-# 2. Install Python dependencies
-poetry install
-
-# 3. Install GUI dependencies
-cd src/tradebot_sci/electron_gui && npm install && cd ../../..
-
-# 4. Copy the example env file and fill in your keys
-cp .env.example .env.secrets
-nano .env.secrets  # Add your API keys
-
-# 5. Verify everything works
-poetry run python -c "import tradebot_sci; print('✅ Ready')"
-```
-
-> 💡 **Already cloned?** Just run `poetry install` after pulling updates to pick up new dependencies.
-
----
-
-## 🚀 Step 1: Launch the App
-
-```bash
-# Option A: Full GUI mode (recommended)
-./scripts/tradebot.sh --gui
-
-# Option B: Headless bot in tmux (no GUI, runs in terminal)
-./scripts/tradebot.sh --profile forex_continuous
-
-# Option C: List available profiles
-./scripts/tradebot.sh --list
-```
-
-### What You'll See
-
-The **Dashboard** opens — this is your command center. It has several panels:
-
-| Panel | Location | What It Shows |
-|---|---|---|
-| **Live Chart** | Center | Real-time candlestick chart with entry/exit markers, indicators, and volume |
-| **Holdings** | Bottom-left | Open positions with live P&L, entry prices, and position sizes |
-| **Decisions** | Right panel | What the bot is thinking for each symbol: action, score, grade, strategy |
-| **Live Logs** | Bottom | Scrolling log with color-coded messages (info=white, warning=yellow, error=red) |
-| **Navigation Tabs** | Top | Dashboard · Profile Editor · Strategy · Settings · Analytics |
-
-> 💡 **The chart auto-switches** to whichever symbol the bot is currently analyzing. You can also click a symbol in Holdings to view its chart.
-
----
-
-## 🔌 Step 2: Connect Your Broker(s)
+## 🔌 Step 1: Connect Your Broker(s)
 
 Go to **Settings** (gear icon) → **Brokers** tab.
 
@@ -123,7 +59,7 @@ For the full walkthrough, see `Documentation/RTFM/08_API_SETUP.md`.
 
 ---
 
-## 🧠 Step 3: Connect the AI Brain
+## 🧠 Step 2: Connect the AI Brain
 
 Go to **Settings** → **Intelligence** tab.
 
@@ -152,7 +88,7 @@ The bot uses AI for two things:
 
 ---
 
-## 📊 Step 4: Choose a Profile
+## 📊 Step 3: Choose a Profile
 
 The left sidebar in the **Profile Editor** tab shows your **Trading Profiles**. A profile is a complete trading configuration that bundles together:
 
@@ -223,7 +159,7 @@ ICC is the bot's market structure scoring system. It rates each setup from 0-100
 
 ---
 
-## ⚙️ Step 5: Configure Your Risk
+## ⚙️ Step 4: Configure Your Risk
 
 This is the most important step. Go to **Settings** → **System** tab.
 
@@ -264,7 +200,7 @@ Losing scenario:   4 losses in a row = $320 drawdown (8% of account)
 
 ---
 
-## 🗡️ Step 6: Understand the Strategies
+## 🗡️ Step 5: Understand the Strategies
 
 Go to **Settings** → **Strategy** tab to browse, or set your strategy in **Profile** → **General** tab.
 
@@ -309,7 +245,7 @@ This means Meta-SCI **never forces a trade**. It only enters when at least one s
 
 ---
 
-## ▶️ Step 7: Start Trading
+## ▶️ Step 6: Start Trading
 
 Once broker + profile + risk are configured:
 
@@ -360,7 +296,7 @@ Each symbol gets a decision card showing:
 
 ---
 
-## 🛡️ Step 8: Safety Features
+## 🛡️ Step 7: Safety Features
 
 These protect you automatically, all enabled by default:
 
@@ -396,7 +332,7 @@ With Position Lock:
 
 ---
 
-## 📈 Step 9: Monitor Performance
+## 📈 Step 8: Monitor Performance
 
 ### Dashboard (Real-Time)
 - **Live Chart**: Current symbol with candles, indicators, and entry/exit markers
@@ -419,7 +355,7 @@ All activity is logged to `logs/`:
 
 ---
 
-## 🧪 Step 10: Backtesting (Test Before You Trade)
+## 🧪 Step 9: Backtesting (Test Before You Trade)
 
 Before deploying a strategy live, test it on historical data:
 

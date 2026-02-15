@@ -63,7 +63,7 @@ This is the heartbeat.
     *   "Hey Symbol Classifier, what asset class is EUR/USD?" → `forex`
     *   "Hey Strategy Cache, give me the strategy for `forex`" → `meta_sci`
     *   "Hey Market, what's EUR/USD doing?"
-    *   "Hey Strategy, do we like this setup?" → Meta-SCI runs tournament
+    *   "Hey Strategy, do I like this setup?" → Meta-SCI runs tournament
     *   "Hey Safety Layer, is this trade allowed?" → Position Lock, Leverage Sentry check
     *   "Hey Broker, execute if everything passed."
 6.  **Sleep:** Naps until the next cycle.
@@ -135,7 +135,7 @@ This is where the magic (or hallucination) happens.
 *   **Logic:**
     1.  **Select Strategy:** Get the correct strategy for this symbol's asset class.
     2.  **Filter:** Is the trend right? Is volatility acceptable?
-    3.  **Gate:** Did we sweep liquidity? Did we break structure?
+    3.  **Gate:** Did I sweep liquidity? Did I break structure?
     4.  **Score:** Assign an ICC score (0-100). If Score > Threshold, it's a "Go".
 *   **Output:** An `AITradeDecision` (Buy/Sell/Hold/StandAside).
 

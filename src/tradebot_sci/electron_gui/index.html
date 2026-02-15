@@ -216,6 +216,11 @@
                         <span class="material-symbols-outlined text-xl">person</span>
                         <span>Profile</span>
                     </button>
+                    <button id="nav-help"
+                        class="flex items-center justify-start text-left gap-3 px-4 py-3.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-white transition-all text-sm font-medium">
+                        <span class="material-symbols-outlined text-xl">help_outline</span>
+                        <span>Help</span>
+                    </button>
                 </nav>
 
                 <div class="mt-auto"></div>
@@ -999,13 +1004,58 @@
             </div>
         </div>
 
-        <!-- Settings Tooltip Popup -->
-        <div id="tooltip-popup"
-            class="fixed z-[100] w-72 bg-[#0f172a] border border-teal-500/30 rounded-xl p-4 shadow-2xl opacity-0 pointer-events-none transition-all duration-200 transform scale-95 translate-y-2">
-            <div id="tooltip-title" class="text-[10px] font-black uppercase tracking-widest text-teal-400 mb-2">Variable
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- HELP VIEW                                   -->
+        <!-- ═══════════════════════════════════════════ -->
+        <div id="view-help" class="hidden flex-1 flex flex-col p-0 min-w-0 overflow-hidden">
+
+            <!-- Minimal header (shows Back when reading an article) -->
+            <div id="help-content-header" class="h-14 flex items-center px-8 border-b"
+                style="border-color: rgba(255,255,255,0.05); background: rgba(0,0,0,0.15); position: relative;">
+                <!-- Left: Back button -->
+                <div class="flex items-center" style="z-index: 1;">
+                    <button id="help-back-btn" class="help-back-btn hidden" title="Back to Knowledge Base">
+                        <span class="material-symbols-outlined text-sm">arrow_back</span>
+                        <span>Back</span>
+                    </button>
+                </div>
+                <!-- Center: Title (absolute to stay dead center) -->
+                <div class="flex items-center gap-3"
+                    style="position: absolute; left: 50%; transform: translateX(-50%);">
+                    <span class="material-symbols-outlined text-lg"
+                        style="color: var(--accent, #14b8a6);">auto_stories</span>
+                    <span id="help-doc-title" class="text-sm font-bold"
+                        style="color: var(--text-primary, #e2e8f0);">Knowledge Base</span>
+                </div>
+                <!-- Right: Scroll to top -->
+                <div class="ml-auto flex items-center" style="z-index: 1;">
+                    <button id="help-scroll-top" class="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
+                        title="Scroll to top">
+                        <span class="material-symbols-outlined text-base"
+                            style="color: var(--text-muted, #64748b);">vertical_align_top</span>
+                    </button>
+                </div>
             </div>
-            <div id="tooltip-content" class="text-xs text-slate-400 leading-relaxed">Explanation...</div>
+
+            <!-- Scrollable content (magazine OR article) -->
+            <div id="help-content" class="flex-1 overflow-y-auto scrollbar-thin">
+                <!-- Magazine landing (populated by JS) -->
+                <div id="help-welcome"></div>
+
+                <!-- Markdown article view -->
+                <div id="help-markdown" class="hidden px-12 py-8 max-w-6xl mx-auto">
+                </div>
+            </div>
         </div>
+    </div>
+
+    <!-- Settings Tooltip Popup -->
+    <div id="tooltip-popup"
+        class="fixed z-[100] w-72 bg-[#0f172a] border border-teal-500/30 rounded-xl p-4 shadow-2xl opacity-0 pointer-events-none transition-all duration-200 transform scale-95 translate-y-2">
+        <div id="tooltip-title" class="text-[10px] font-black uppercase tracking-widest text-teal-400 mb-2">Variable
+        </div>
+        <div id="tooltip-content" class="text-xs text-slate-400 leading-relaxed">Explanation...</div>
+    </div>
 
     </div>
 

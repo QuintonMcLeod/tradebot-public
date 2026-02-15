@@ -230,6 +230,62 @@ function setupIpcHandlers() {
     });
 
     // =============================================
+    // Help Documentation
+    // =============================================
+    const DOCS_DIR = path.join(__dirname, '../../../Documentation');
+    const RTFM_DIR = path.join(DOCS_DIR, 'RTFM');
+
+    const HELP_CATALOG = [
+        { filename: 'HOW_TO_USE.md', title: 'First Time? Everything You Need to Launch Your First Trade', category: 'guide', icon: 'rocket_launch', description: 'First time? Start here. This is the practical, no-fluff guide to getting the bot running and making trades. Prerequisites, first-time setup, broker configuration, risk profiles, and your first live trade — everything from install to execution, with no detours into architecture or philosophy.', featured: true },
+        { filename: 'RTFM/01_PHILOSOPHY.md', title: 'Born From Late-Stage Capitalism: Why This Bot Exists', category: 'rtfm', icon: 'psychology', description: 'Welcome to TradeBot SCI Enterprise. It has no fancy marketing name. It has no singular author. It is a tool, forged in the fires of late-stage capitalism, designed with one singular, ruthless purpose: To Make Money. Food prices are climbing faster than a crypto shitcoin. Insurance premiums are ridiculous. Companies are firing millions of people while executives buy another yacht to park inside their bigger yacht.' },
+        { filename: 'RTFM/02_SKELETON_ARCH.md', title: 'Inside the Machine: The Complete Skeletal Architecture', category: 'rtfm', icon: 'account_tree', description: '"It\'s alive! ...mostly." This document explains the anatomy of the application. If 01_PHILOSOPHY was the soul, this is the bones. The high-level architecture covers every module — the Electron GUI, the runtime loop, the strategy engine, the broker layer, and the market data pipeline — and shows exactly how data flows between them.' },
+        { filename: 'RTFM/03_FUNCTIONS_DATA.md', title: 'Under the Hood: Every Function, Every Data Packet', category: 'rtfm', icon: 'data_object', description: '"The devil is in the details. And the bugs." If you are debugging this thing, you need to know what the data actually looks like. These are the core data objects — MarketSnapshot, TradeDecision, PositionState — the packets passed around like hot potatoes through every layer of the system. Every field, every type, every edge case documented.' },
+        { filename: 'RTFM/04_MAP_TOC.md', title: 'Lost in the Codebase? The Complete Navigation Map', category: 'rtfm', icon: 'map', description: '"Where is main.py again?" The project structure is classic Python with an Electron GUI layer on top. This is the complete navigational map of the entire repository — every directory, every module, every source file — organized as a tree with annotations explaining what each piece does and how it relates to the whole.' },
+        { filename: 'RTFM/05_COOKBOOK.md', title: 'Recipes for Traders: A Cookbook of Common Tasks', category: 'rtfm', icon: 'menu_book', description: '"Give a man a fish, he trades for a day. Teach a man to configure the bot, he loses money automatically." Here are the common tasks you might want to perform: adding a new symbol, switching strategies, tweaking risk parameters, customizing scan intervals, configuring multi-broker setups. Each recipe includes both GUI and config file methods.' },
+        { filename: 'RTFM/06_PANIC_BUTTON.md', title: 'Something Is Wrong — The Emergency Panic Protocol', category: 'rtfm', icon: 'emergency', description: '"Something is wrong. Make it stop." So the bot is screaming in red text, or worse — it\'s doing nothing at all. Don\'t panic. Read this. Covers every emergency scenario: Kill Switch activation, insufficient funds, broker disconnects, stuck positions, API rate limits, and the nuclear option — how to flatten everything and shut down safely.' },
+        { filename: 'RTFM/07_COCKPIT_CONTROLS.md', title: 'What Does This Button Do? The Complete Cockpit Guide', category: 'rtfm', icon: 'tune', description: '"What does this button do?" — Last words of a former trader. The bot is configured through the Settings GUI, config.json, or config/settings_profiles.yaml. This guide covers every control in the cockpit: trading profiles, risk sliders, strategy selectors, broker toggles, safety shields, and the hidden power-user settings most people never find.' },
+        { filename: 'RTFM/08_API_SETUP.md', title: 'Connecting to the World: Every Broker, Every API Key', category: 'rtfm', icon: 'key', description: '"The bot is only as smart as its connection." This guide explains specifically how to connect the bot to the outside world. Step-by-step configuration for every supported integration: the AI Brain (TradeSci, OpenAI, Gemini, Claude), Interactive Brokers for stocks and futures, OANDA for forex, and CCXT for crypto exchanges like Gemini and Coinbase.' },
+        { filename: 'RTFM/09_FEET_WET_STRATEGY.md', title: '20 Weapons of War: The Complete Strategy Arsenal', category: 'rtfm', icon: 'strategy', description: '"One strategy doesn\'t fit all markets. Choose your weapon wisely — or let Meta-SCI choose for you." TradeBot SCI supports 20 distinct trading strategies, each optimized for different market conditions. You can assign different strategies to different asset classes, or use Meta-SCI to let the bot pick the best one automatically via tournament-style scoring.', featured: true },
+        { filename: 'RTFM/14_READING_THE_SCOREBOARD.md', title: 'Am I Winning? How to Read Your Performance Metrics', category: 'rtfm', icon: 'monitoring', description: '"If you can\'t measure it, you can\'t improve it." So the bot is running. Trades are happening. Numbers are flying across your screen. But what do they actually mean? This guide teaches you the Big Five metrics — Profit Factor, Win Rate, Max Drawdown, R:R, and Expectancy — how to read the dashboard, and when to worry versus when to be patient.' },
+        { filename: 'RTFM/11_GHOST_IN_MACHINE.md', title: 'I Think, Therefore I Trade: The AI Decision Engine', category: 'rtfm', icon: 'smart_toy', description: '"I think, therefore I trade." You know the bot trades. But how does it decide? This document explains the Brain (strategy/engine.py), the Strategy Arsenal of 20 distinct weapons, and the Soul — the AI Backup system. The bot isn\'t locked to one strategy. It can assign different strategies per asset class, or use Meta-SCI to choose automatically based on real-time market conditions.' },
+        { filename: 'RTFM/12_TIME_MACHINE.md', title: 'I Have to Go Back: The Trinity of Backtesting', category: 'rtfm', icon: 'history', description: '"I have to go back." You have discovered that there are actually three ways to time-travel in this repository. This document explains the Trinity of Backtesting: the Easy Way (GUI Benchmark for normal humans), the Intermediate Way (CLI scripts for power users), and the Hard Way (raw engine calls for developers who want full control over every parameter).' },
+        { filename: 'RTFM/13_ENV_VARS.md', title: 'Every Toggle, Every Flag: The Environment Variable Bible', category: 'rtfm', icon: 'settings_applications', description: 'The comprehensive reference for every environment variable used by TradeBot SCI — including purpose, usage, and meaningful defaults. Covers GUI_AUTOSTART_BOT, GUI_KEEP_BOT_RUNNING, kill switches, API keys, feature flags, broker credentials, AI model selection, logging levels, and every hidden toggle the bot knows about.' },
+    ];
+
+    try {
+        ipcMain.handle('list-help-docs', async () => {
+            console.log('[MAIN] list-help-docs handler called, returning', HELP_CATALOG.length, 'docs');
+            return { success: true, data: HELP_CATALOG };
+        });
+
+        ipcMain.handle('read-help-doc', async (event, filename) => {
+            try {
+                // Security: only allow filenames from the catalog
+                const valid = HELP_CATALOG.find(d => d.filename === filename);
+                if (!valid) return { success: false, error: 'Invalid document' };
+
+                const filePath = path.join(DOCS_DIR, filename);
+                const resolved = path.resolve(filePath);
+                if (!resolved.startsWith(path.resolve(DOCS_DIR))) {
+                    return { success: false, error: 'Path traversal denied' };
+                }
+
+                if (!fs.existsSync(filePath)) {
+                    return { success: false, error: `Document not found: ${resolved}` };
+                }
+
+                const content = fs.readFileSync(filePath, 'utf8');
+                return { success: true, data: { filename, title: valid.title, content } };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        });
+        console.log('[MAIN] Help IPC handlers registered successfully');
+    } catch (err) {
+        console.error('[MAIN] FAILED to register help IPC handlers:', err);
+    }
+
+    // =============================================
     // Paper Trading Reset
     // =============================================
     const DATA_DIR = path.join(__dirname, '../../../data');

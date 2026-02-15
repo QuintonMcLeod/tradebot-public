@@ -1,4 +1,4 @@
-# 1. The Philosophy (Or: Why We Build Tools)
+# 1. The Philosophy (Or: Why I Build Tools)
 > *"The economy is in shambles. The rent is too damn high. And I am tired of paying bills that I don't want to pay."*
 
 Welcome to **TradeBot SCI Enterprise**. It has no fancy marketing name. It has no singular author. It is a tool, forged in the fires of late-stage capitalism, designed with one singular, ruthless purpose: **To Make Money.**
@@ -16,7 +16,7 @@ I see friends working three jobs just to maintain the lifestyle they had with on
 ### A Momentary Solution
 I created this bot to help. It can't solve everyone's problems, but it can help somewhat.
 
-**However, we need to have a serious talk:**
+**However, I need to have a serious talk with you:**
 I am not asking you to jump into this if you are actively being evicted.
 I am not asking you to start trading if the repo man is currently hooking up your car.
 I am not asking you to gamble your foreclosure payment.
@@ -34,7 +34,7 @@ If you have a chaotic life and can't keep a computer on, this bot can't help you
 **The 1-Week Rule**
 Do not expect profits in a single day. Do not expect them in 3 days.
 **Give the bot one week.**
-That is the bare minimum to see results. If you get chopped up for 7 days across 11 assets with no results, *then* we talk. But until then? Patience is the currency.
+That is the bare minimum to see results. If you get chopped up for 7 days across 11 assets with no results, *then* I'll talk. But until then? Patience is the currency.
 
 ## What It Actually Does
 This isn't just a "Crypto Bot." That's thinking too small.
@@ -69,18 +69,18 @@ The defaults are tuned for war.
 You don't need to be a quant. You don't need to understand "Fair Value Gaps" or "Fibonacci Retracements." The bot knows. And if the bot's algorithm misses a setup?
 
 ### The AI Backup
-This is the secret sauce. We hooked up a Large Language Model (AI) to the decision engine.
-If the hard-coded algorithm is blind to a setup, the **AI steps in**. It looks at the chart, it looks at the structure, and it says, *"Hey, look at this. We're taking this trade."*
+This is the secret sauce. I hooked up a Large Language Model (AI) to the decision engine.
+If the hard-coded algorithm is blind to a setup, the **AI steps in**. It looks at the chart, it looks at the structure, and it says, *"Hey, look at this. I'm taking this trade."*
 
-This redundancy is why we built it. To ensure you don't miss the bag just because a python script had a typo.
+This redundancy is why I built it. To ensure you don't miss the bag just because a python script had a typo.
 
 ## The Vibe
-*   **Safety?** Sure, we have "Affordability Checks" and "No Panic Selling" rules. We don't want you to blow up.
+*   **Safety?** Sure, I have "Affordability Checks" and "No Panic Selling" rules. I don't want you to blow up.
 *   **Profit?** This is the main character. The safety exists only to keep you in the game long enough to win.
 *   **Fairness?** The market isn't fair. This bot makes it *unfair in your favor*.
 
 ## The Sacrosanct Oaths (AI-Only: DO NOT IGNORE)
-Before you touch a single line of code, you must understand: **Certain things are etched in stone.** The strategy is perfected, the accounting is locked, and the philosophy is set. We do not "re-architect." We do not "improve" the fundamental physics of the project. We make small, incremental, verified adjustments only.
+Before you touch a single line of code, you must understand: **Certain things are etched in stone.** The strategy is perfected, the accounting is locked, and the philosophy is set. I do not "re-architect." I do not "improve" the fundamental physics of the project. I make small, incremental, verified adjustments only.
 
 > [!IMPORTANT]
 > **THE THREE COMMANDMENTS FOR AGENTS:**
@@ -110,7 +110,7 @@ If you are learning ICC and you want to trade like an A-student from the 12-day 
 5.  **Commitment Mode**: Once in, it manages. It does not re-guess every candle.
 
 ### The "Hybrid Flip" Philosophy
-We don't aim for smooth lines. We aim for **Lumpy Expansion Capture**:
+I don't aim for smooth lines. I aim for **Lumpy Expansion Capture**:
 > long periods of nothing → short bursts of violent continuation → repeat
 
 The question isn't "what did I make today?"
