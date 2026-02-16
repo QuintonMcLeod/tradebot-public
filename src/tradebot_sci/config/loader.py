@@ -126,7 +126,7 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     
     # If no profile specified or requested one doesn't exist in the profiles dict, 
     # we don't crash here, get_active_profile() will handle the fallback.
-    app_cfg["profile_name"] = active_profile or "forex_crypto_hybrid"
+    app_cfg["profile_name"] = active_profile or "auto_schedule"
     
     log_cfg = config.get("logging", {})
     
@@ -345,7 +345,7 @@ def _auto_migrate_legacy_config() -> None:
         # Fallback to the first profile found in YAML if no env override
         default_active = next(iter(profiles_data))
     
-    default_active = default_active or "forex_crypto_hybrid"
+    default_active = default_active or "auto_schedule"
 
     secrets = {}
     config = {

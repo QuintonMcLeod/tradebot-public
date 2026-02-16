@@ -694,7 +694,6 @@ def build_exchange_broker(
             # Strictly crypto only, make sure we aren't using Oanda/IBKR for everything
             if "oanda" in str(p).lower() or "ibkr" in str(p).lower():
                 logger.debug("[ROUTED-EXEC] Overriding global broker %s to NoOp (crypto_only detected)", p)
-                from tradebot_sci.broker.interfaces import NoOpExchangeBroker
                 return NoOpExchangeBroker()
 
     return p or NoOpExchangeBroker()

@@ -290,13 +290,77 @@ class StrategyEngine:
         # Calculate grade for the current snapshot
         score, grade = self.score_icc_grade(snapshot)
         
+        # Derive htf_align: True if HTF and LTF agree, or HTF is neutral with LTF directional
+        htf_dir = str(snapshot.trend_htf.direction).lower()
+        ltf_dir = str(snapshot.trend_ltf.direction).lower()
+        htf_strength = round(float(snapshot.trend_htf.strength or 0.0), 3)
+        ltf_strength = round(float(snapshot.trend_ltf.strength or 0.0), 3)
+
+        # HTF alignment: either HTF agrees with LTF, or HTF is neutral but LTF has conviction
+        htf_align = False
+        if htf_dir in ("long", "bullish") and ltf_dir in ("long", "bullish"):
+            htf_align = True
+        elif htf_dir in ("short", "bearish") and ltf_dir in ("short", "bearish"):
+            htf_align = True
+        elif htf_dir == "neutral" and ltf_strength >= 0.3:
+            # HTF neutral but LTF has structure — allow entry (vanilla ICC rule)
+            htf_align = True
+
+        # Compute ICC structure signals from candle data
+        from tradebot_sci.strategy.icc_signals import (
+            detect_liquidity_sweep, detect_indication,
+            detect_correction, detect_continuation,
+        )
+        candles = snapshot.candles or []
+        trend_dir = ltf_dir if ltf_dir in ("long", "short") else htf_dir
+
+        sweep_signal = None
+        indication_signal = None
+        correction_signal = None
+        continuation_signal = None
+
+        if len(candles) >= 40 and trend_dir in ("long", "short"):
+            try:
+                sweep_signal = detect_liquidity_sweep(candles, trend_dir)
+                indication_signal = detect_indication(candles)
+                if indication_signal:
+                    correction_signal = detect_correction(candles, indication_signal)
+                continuation_signal = detect_continuation(
+                    candles, trend_dir,
+                    require_indication=bool(indication_signal),
+                    require_correction=bool(correction_signal),
+                )
+            except Exception as e:
+                logger.debug(f"[ENGINE] ICC signal calc error for {self.symbol}: {e}")
+
+        # Determine phase from signals (must use valid Phase Literal values:
+        # trend, indication, correction, continuation, chop, range, management)
+        phase = "range"  # default: no strong phase detected
+        if sweep_signal:
+            phase = "indication" if not correction_signal else "correction"
+        elif continuation_signal:
+            phase = "continuation"
+        elif htf_strength >= 0.4:
+            phase = "trend"
+        elif htf_strength < 0.15 and ltf_strength < 0.15:
+            phase = "chop"
+
         gates = {
-            "htf_dir": snapshot.trend_htf.direction,
-            "ltf_dir": snapshot.trend_ltf.direction,
-            "htf_strength": round(float(snapshot.trend_htf.strength or 0.0), 3),
-            "ltf_strength": round(float(snapshot.trend_ltf.strength or 0.0), 3),
+            "htf_dir": htf_dir,
+            "ltf_dir": ltf_dir,
+            "htf_strength": htf_strength,
+            "ltf_strength": ltf_strength,
             "score": score,
-            "grade": grade
+            "grade": grade,
+            # ICC structure gates
+            "htf_align": htf_align,
+            "phase": phase,
+            "sweep": bool(sweep_signal),
+            "sweep_dir": sweep_signal.direction if sweep_signal else None,
+            "indication": bool(indication_signal),
+            "correction": bool(correction_signal),
+            "continuation": bool(continuation_signal),
+            "continuation_dir": continuation_signal.direction if continuation_signal else None,
         }
 
         # Per-strategy scoring (gives each strategy its own grade)

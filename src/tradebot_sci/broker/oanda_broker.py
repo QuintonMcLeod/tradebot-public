@@ -59,6 +59,7 @@ class OandaExchangeBroker(IExchangeBroker):
         self.read_only = read_only
         self.trade_results = trade_results
         self._liquid_capital = 0.0
+        self._authorized = True  # Will be set to False if API key is invalid
         self._tracked_positions: dict[str, dict] = {}  # symbol -> position snapshot
         self._prev_balance: float | None = None  # for PnL calc on vanished positions
         self._tracked_path = Path("data/oanda_tracked_positions.json")
@@ -68,9 +69,24 @@ class OandaExchangeBroker(IExchangeBroker):
         # OANDA API keys can access multiple sub-accounts (Primary, MT4, etc).
         # If the provided account_id fails or returns $0, discover all accounts
         # and pick the one with the highest balance.
-        self._discover_and_validate_account(environment)
+        try:
+            self._discover_and_validate_account(environment)
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "authorization" in err_msg or "403" in err_msg or "insufficient" in err_msg:
+                logger.warning(
+                    f"[OANDA] ⚠ API key authorization failed — OANDA broker DISABLED. "
+                    f"Check: (1) API key is valid, (2) environment is correct "
+                    f"(configured: '{environment}', try 'practice' if using demo account), "
+                    f"(3) key has not expired."
+                )
+                self._authorized = False
+                return
+            else:
+                logger.error(f"[OANDA] Account discovery failed: {e}")
 
-        self._bootstrap_tracked_positions()
+        if self._authorized:
+            self._bootstrap_tracked_positions()
 
     def _discover_and_validate_account(self, environment: str) -> None:
         """Validate the configured account and auto-discover if needed."""
@@ -383,6 +399,8 @@ class OandaExchangeBroker(IExchangeBroker):
 
     def refresh_account_summary(self) -> None:
         """Fetches latest balance and NAV."""
+        if not self._authorized:
+            return
         try:
             r = accounts.AccountSummary(self.account_id)
             self.client.request(r)
@@ -394,7 +412,12 @@ class OandaExchangeBroker(IExchangeBroker):
             self._liquid_capital = nav if nav > 0 else (balance if balance > 0 else margin_avail)
             logger.info(f"[OANDA] Account Summary: Balance={balance}, NAV={nav}, Capital=${self._liquid_capital:.2f}")
         except Exception as e:
-            logger.error(f"[OANDA] Failed to refresh account summary: {e}")
+            err_msg = str(e).lower()
+            if "authorization" in err_msg or "403" in err_msg or "insufficient" in err_msg:
+                logger.debug(f"[OANDA] Account summary skipped (authorization issue)")
+                self._authorized = False
+            else:
+                logger.error(f"[OANDA] Failed to refresh account summary: {e}")
 
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         return self._liquid_capital
@@ -558,6 +581,8 @@ class OandaExchangeBroker(IExchangeBroker):
 
     def list_open_position_symbols(self) -> list[str]:
         """Returns list of canonical symbols with open positions."""
+        if not self._authorized:
+            return list(self._tracked_positions.keys())
         try:
             r = oanda_positions.OpenPositions(self.account_id)
             self.client.request(r)
@@ -574,6 +599,8 @@ class OandaExchangeBroker(IExchangeBroker):
             return []
 
     def execute_decision(self, decision: AITradeDecision) -> tuple[ExecutionResult, ExecutionOutcome]:
+        if not self._authorized:
+            return ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "OANDA unauthorized"), ExecutionOutcome(ExecutionOutcomeType.SKIPPED, decision.symbol, "OANDA unauthorized")
         if self.read_only:
             logger.warning(f"[OANDA] Read-only mode: skipping execution for {decision.symbol}")
             return ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "read-only mode"), ExecutionOutcome(ExecutionOutcomeType.SKIPPED, decision.symbol, "read-only")

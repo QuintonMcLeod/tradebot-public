@@ -12,18 +12,18 @@ You need at least **one** broker connected to trade. The bot performs a **pre-fl
 
 ### Forex (OANDA) — Recommended for Beginners
 
-OANDA is the simplest broker to set up. Great for forex with tight spreads and a generous demo account.
+OANDA is the simplest broker to set up. Great for forex with tight spreads.
 
-1. Create an account at [oanda.com](https://www.oanda.com) — start with **fxTrade Practice** (demo).
+1. Create a **live** account at [oanda.com](https://www.oanda.com) — choose **fxTrade** (not fxTrade Practice).
 2. Go to Account Settings → **Manage API Access** → Generate a Personal Access Token.
 3. In the bot: **Settings** → **Brokers** → **OANDA** section:
    - **Account ID**: Your OANDA sub-account number (format: `101-001-XXXXXXX-XXX`)
    - **API Key**: Paste your full token (starts with a long alphanumeric string)
-   - **Environment**: `practice` (demo) or `live` (real money)
+   - **Environment**: `live`
 4. Click **Save**.
-5. Confirm connection in logs: `[INFO] Connected to OANDA (practice)` ✅
+5. Confirm connection in logs: `[INFO] Connected to OANDA (live)` ✅
 
-> ⚠️ **Practice vs Live**: Always start with `practice`. Switch to `live` only after you've verified performance over multiple days. Your practice account comes pre-loaded with virtual funds.
+> ⚠️ **Why not Practice?** OANDA practice accounts have limited API permissions — they **cannot fetch candle data**, which the bot needs for chart display and strategy analysis. Use a **live** account. If you don't want to risk real money, enable the bot's built-in **Paper Trading** mode (Settings → toggle off Execute Trades).
 
 ### Crypto (Gemini / Coinbase / Kraken / etc.)
 
@@ -401,7 +401,7 @@ Sharpe Ratio:     2.14
 ## 💡 Pro Tips
 
 ### For New Users
-1. **Start with demo/paper trading.** Use OANDA Practice or CCXT Sandbox. Trade with virtual money first.
+1. **Start with paper trading.** Enable the bot's built-in Paper Trading mode (Settings → toggle off Execute Trades). Trade with virtual money first.
 2. **Use Meta-SCI strategy.** It automatically adapts to market conditions so you don't have to.
 3. **Keep risk at 1-2%** until you've seen at least 2 weeks of consistent performance.
 4. **Don't touch positions manually.** Let the bot manage SL/TP. Manual interference confuses Position Lock.

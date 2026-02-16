@@ -63,13 +63,25 @@ class ICCCoreStrategy(BaseStrategy):
         htf_align = gates.get("htf_align", False)
         phase = gates.get("phase", "neutral")
         
+        logger.debug(
+            f"[ICC-CORE] {snapshot.symbol} gates: "
+            f"htf_align={htf_align} phase={phase} sweep={sweep} "
+            f"continuation={continuation} indication={indication} "
+            f"correction={correction} score={score:.1f}"
+        )
+        
         # 3. Check Alignment
-        # Vanilla ICC requires HTF alignment (or HTF Neutral + LTF Trend).
-        if not htf_align:
+        # [FIX] Structure signals (sweep+correction, continuation) ARE the entry thesis.
+        # If we have confirmed structure, we don't need strict HTF alignment —
+        # the sweep+correction itself proves the setup exists regardless of 5m trend reading.
+        # HTF alignment only gatekeeps when we have NO structure signals.
+        has_structure = (sweep and correction) or continuation
+        
+        if not htf_align and not has_structure:
             return None
             
-        # 4. Filter Chop (unless scalping allowed? Core says stay out of chop)
-        if phase == "chop":
+        # 4. Filter Chop — only block if we have NO confirmed structure
+        if phase == "chop" and not has_structure:
             return None
 
         # 5. Define Entry Logic
@@ -130,13 +142,18 @@ class ICCCoreStrategy(BaseStrategy):
         
         atr = calculate_atr(snapshot.candles) or (last_close * 0.005)
         
+        # Enforce minimum stop distance for broker compliance
+        # OANDA requires at least 10 pips (0.00100) for forex pairs
+        # Use at least 15 pips to avoid rejection + give room
+        min_stop_dist = max(atr * 3.0, last_close * 0.0015)  # 3x ATR or 15 pips, whichever is larger
+        stop_dist = min_stop_dist
+        
         if action == "enter_long":
-            # [ARMOR] 2x ATR Stops
-            stop_loss = last_close - (2.0 * atr) 
-            take_profit = last_close + (4.0 * atr) # 2R
+            stop_loss = last_close - stop_dist
+            take_profit = last_close + (stop_dist * 2.0)  # 2R
         else:
-            stop_loss = last_close + (2.0 * atr)
-            take_profit = last_close - (4.0 * atr)
+            stop_loss = last_close + stop_dist
+            take_profit = last_close - (stop_dist * 2.0)
 
         return AITradeDecision(
             symbol=snapshot.symbol,
@@ -148,7 +165,9 @@ class ICCCoreStrategy(BaseStrategy):
             take_profit=take_profit,
             risk_per_trade_pct=self.get_risk_pct(),
             phase=phase,
-            structure_summary=f"ICC Core {action} (Score={score})",
+            structure_summary=f"ICC Core {action} (Score={score:.0f})",
+            invalidation_conditions=f"Close beyond SL at {stop_loss:.5f}",
+            management_instructions="Target 2R. Structure-based ICC entry.",
             urgency="medium",
             notes="Vanilla ICC Entry"
         )
