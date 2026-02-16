@@ -205,13 +205,25 @@ function summaryFromLedger(ledger, timeframe, logTrades = [], logHoldings = [], 
             }
         }
     }
+    // Deduplicate log-parsed trades (same symbol+pnl within 90s = same trade)
+    const dedupedLogTrades = [];
+    const logDedup = {};
+    for (const lt of logTrades) {
+        const dk = `${lt.symbol}_${Math.round((lt.pnl || 0) * 100)}`;
+        const ltTime = lt.timestamp ? new Date(lt.timestamp).getTime() : 0;
+        if (logDedup[dk] && ltTime && Math.abs(ltTime - logDedup[dk]) < 90000) {
+            continue; // skip duplicate
+        }
+        logDedup[dk] = ltTime;
+        dedupedLogTrades.push(lt);
+    }
 
     // Merge log-parsed EXIT trades that the ledger missed
     const ledgerKeys = new Set(
         ledgerTradeLog.map(t => `${t.symbol}_${Math.round((t.pnl || 0) * 100)}`)
     );
 
-    for (const lt of logTrades) {
+    for (const lt of dedupedLogTrades) {
         const key = `${lt.symbol}_${Math.round((lt.pnl || 0) * 100)}`;
         if (!ledgerKeys.has(key)) {
             // This trade is in the logs but NOT in the ledger — add it
@@ -279,8 +291,33 @@ function summaryFromLedger(ledger, timeframe, logTrades = [], logHoldings = [], 
                 capitalHistory.push(cap);
             }
         }
-        capitalHistory.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     }
+
+    // ── Intraday capital snapshots from ledger ──
+    const snapshots = current.capital_snapshots || [];
+    for (const snap of snapshots) {
+        capitalHistory.push({
+            timestamp: snap.ts,
+            type: 'capital',
+            nav: snap.nav,
+            broker: snap.broker || 'all'
+        });
+    }
+
+    // ── Per-broker capital history ──
+    const capitalHistoryByBroker = {};
+    const snapshotsByBroker = current.capital_snapshots_by_broker || {};
+    for (const [broker, bSnaps] of Object.entries(snapshotsByBroker)) {
+        capitalHistoryByBroker[broker] = bSnaps.map(s => ({
+            timestamp: s.ts,
+            type: 'capital',
+            nav: s.nav,
+            broker
+        }));
+    }
+
+    // Sort all capital entries chronologically
+    capitalHistory.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
     const winRate = totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0;
     const avgWin = totalWins > 0 ? grossProfit / totalWins : 0;
@@ -294,9 +331,10 @@ function summaryFromLedger(ledger, timeframe, logTrades = [], logHoldings = [], 
     const capitalChange = capitalEnd - capitalStart;
     const capitalChangePct = capitalStart > 0 ? (capitalChange / capitalStart) * 100 : 0;
 
+    // Ensure current NAV is the last point
     if (capitalEnd > 0) {
         capitalHistory.push({
-            timestamp: current.day_start || new Date().toISOString(),
+            timestamp: new Date().toISOString(),
             type: 'capital',
             nav: capitalEnd
         });
@@ -334,6 +372,8 @@ function summaryFromLedger(ledger, timeframe, logTrades = [], logHoldings = [], 
 
         trades: allTrades,
         capitalHistory,
+        capitalHistoryByBroker,
+        capitalByBroker: current.capital_by_broker || {},
 
         _source: 'ledger+logs'
     };
@@ -441,8 +481,8 @@ function parseExitLine(line, timestamp) {
         strategy: null
     };
 
-    // Extract symbol and PnL from "SYMBOL +$X.XX" or "SYMBOL -$X.XX" pattern
-    const pnlMatch = line.match(/([A-Z]{3,}(?:USD|JPY|CAD|EUR|GBP|CHF|AUD|NZD)?)\s*([+-]?\$[\d.,]+)/i);
+    // Extract symbol and PnL from "SYMBOL +$X.XX", "SYMBOL -$X.XX", or "SYMBOL $-X.XX" pattern
+    const pnlMatch = line.match(/([A-Z]{3,}(?:USD|JPY|CAD|EUR|GBP|CHF|AUD|NZD)?)\s*([+-]?\$-?[\d.,]+)/i);
     if (pnlMatch) {
         trade.symbol = pnlMatch[1].toUpperCase();
         const pnlStr = pnlMatch[2].replace(/[$,]/g, '');

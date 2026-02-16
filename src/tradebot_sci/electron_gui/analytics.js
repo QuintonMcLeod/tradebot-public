@@ -53,6 +53,13 @@ async function loadAnalyticsData(filter) {
             const d = result.data;
             updateMetrics(d);
             updateCharts(d);
+            // Store per-broker data at module level
+            _capitalHistoryAll = d.capitalHistory || [];
+            _capitalHistoryByBroker = d.capitalHistoryByBroker || {};
+            _capitalByBroker = d.capitalByBroker || {};
+            _activeBrokerTab = 'all';
+            buildBrokerTabs();
+            updateCapitalTimeline(_capitalHistoryAll, currentFilter);
             updateTradeHistory(d.trades || []);
             updateSymbolBreakdown(d.symbolStats || {});
             updateStrategyBreakdown(d.strategyStats || {});
@@ -313,6 +320,243 @@ function updateEquityCurve(data) {
         }
     });
     ro.observe(container);
+}
+
+// ═══════════════════════════════════════════════════════════
+// CAPITAL TIMELINE
+// ═══════════════════════════════════════════════════════════
+
+let capitalTimelineChart = null;
+let _capitalHistoryAll = [];         // "All" combined data
+let _capitalHistoryByBroker = {};    // Per-broker data
+let _capitalByBroker = {};           // Latest per-broker NAV
+let _activeBrokerTab = 'all';
+
+function updateCapitalTimeline(capitalHistory, filter, brokerTag) {
+    const container = document.getElementById('capital-timeline-container');
+    const label = document.getElementById('capital-timeline-label');
+    if (!container) return;
+
+    // Destroy previous chart
+    if (capitalTimelineChart) {
+        try { capitalTimelineChart.remove(); } catch (e) { }
+        capitalTimelineChart = null;
+    }
+
+    const points = capitalHistory
+        .filter(c => (c.nav || c.balance) && c.timestamp)
+        .map(c => ({
+            time: new Date(c.timestamp),
+            nav: c.nav || c.balance
+        }))
+        .sort((a, b) => a.time - b.time);
+
+    // Dedupe by rounding to nearest minute
+    const deduped = [];
+    const seenMin = new Set();
+    for (const p of points) {
+        const key = Math.floor(p.time.getTime() / 60000);
+        if (!seenMin.has(key)) { seenMin.add(key); deduped.push(p); }
+    }
+
+    // Granularity label
+    const granularity = {
+        '24h': 'hourly', '1h': 'minutely', '4h': 'hourly',
+        'week': 'daily', 'month': 'weekly', 'year': 'monthly', 'all': 'monthly'
+    }[filter] || 'daily';
+
+    if (deduped.length < 2) {
+        container.innerHTML = `
+            <div style="color:#475569; font-size:13px; text-align:center; padding:24px;">
+                <span class="material-symbols-outlined" style="opacity:0.3; margin-right:6px; vertical-align:middle;">timeline</span>
+                ${deduped.length === 0 ? 'No capital data yet — collecting snapshots every 5 min' : 'Need at least 2 data points — collecting...'}
+            </div>`;
+        if (label) label.textContent = `${deduped.length} point${deduped.length !== 1 ? 's' : ''}`;
+        return;
+    }
+
+    if (label) label.textContent = `${deduped.length} snapshots · ${granularity}`;
+
+    // Prepare chart data
+    const tzOff = new Date().getTimezoneOffset() * 60;
+    const chartData = deduped.map(p => ({
+        time: Math.floor(p.time.getTime() / 1000) - tzOff,
+        value: p.nav
+    }));
+
+    // Dedupe by time value (LightweightCharts requires unique timestamps)
+    const uniqueData = [];
+    const seenTime = new Set();
+    for (let i = chartData.length - 1; i >= 0; i--) {
+        if (!seenTime.has(chartData[i].time)) {
+            seenTime.add(chartData[i].time);
+            uniqueData.unshift(chartData[i]);
+        }
+    }
+
+    const startNav = uniqueData[0].value;
+    const endNav = uniqueData[uniqueData.length - 1].value;
+    const isUp = endNav >= startNav;
+
+    // Create chart
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    capitalTimelineChart = LightweightCharts.createChart(container, {
+        layout: {
+            background: { type: 'Solid', color: 'transparent' },
+            textColor: '#475569',
+            fontFamily: 'Inter, sans-serif',
+            fontSize: 10
+        },
+        grid: {
+            vertLines: { color: 'rgba(255, 255, 255, 0.02)' },
+            horzLines: { color: 'rgba(255, 255, 255, 0.02)' }
+        },
+        rightPriceScale: {
+            borderVisible: false,
+            scaleMargins: { top: 0.08, bottom: 0.08 }
+        },
+        timeScale: {
+            borderVisible: false,
+            timeVisible: true,
+            secondsVisible: false,
+            rightOffset: 2,
+            barSpacing: Math.max(6, Math.min(20, 600 / uniqueData.length))
+        },
+        crosshair: {
+            vertLine: { color: 'rgba(34, 211, 238, 0.25)', width: 1, style: 3 },
+            horzLine: { color: 'rgba(34, 211, 238, 0.25)', width: 1, style: 3 }
+        },
+        height: 140
+    });
+
+    const series = capitalTimelineChart.addAreaSeries({
+        lineColor: isUp ? 'rgba(16, 185, 129, 0.9)' : 'rgba(239, 68, 68, 0.9)',
+        topColor: isUp ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)',
+        bottomColor: isUp ? 'rgba(16, 185, 129, 0.0)' : 'rgba(239, 68, 68, 0.0)',
+        lineWidth: 2,
+        crosshairMarkerRadius: 5,
+        crosshairMarkerBorderColor: '#0f172a',
+        crosshairMarkerBackgroundColor: isUp ? '#34d399' : '#f87171',
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
+    });
+    series.setData(uniqueData);
+    capitalTimelineChart.timeScale().fitContent();
+
+    // Tooltip div
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = 'position:absolute; display:none; left:0; top:4px; background:rgba(15,23,42,0.95); border:1px solid rgba(34,211,238,0.3); border-radius:8px; padding:8px 12px; font-size:11px; color:#e2e8f0; pointer-events:none; z-index:100; backdrop-filter:blur(8px); box-shadow:0 4px 20px rgba(0,0,0,0.4); white-space:nowrap;';
+    container.appendChild(tooltip);
+
+    capitalTimelineChart.subscribeCrosshairMove(param => {
+        if (!param || !param.time || !param.seriesData || param.seriesData.size === 0) {
+            tooltip.style.display = 'none';
+            return;
+        }
+        const data = param.seriesData.get(series);
+        if (!data) { tooltip.style.display = 'none'; return; }
+
+        const nav = data.value;
+        const change = nav - startNav;
+        const sign = change >= 0 ? '+' : '';
+        const color = change >= 0 ? '#34d399' : '#f87171';
+
+        // Format time from epoch
+        const d = new Date((param.time + tzOff) * 1000);
+        const timeStr = (granularity === 'hourly' || granularity === 'minutely')
+            ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+            : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+        tooltip.innerHTML = `
+            <div style="font-weight:600; margin-bottom:4px; color:#22d3ee;">${timeStr}</div>
+            <div>NAV: <span style="font-weight:700;">$${nav.toFixed(2)}</span></div>
+            <div>Change: <span style="color:${color}; font-weight:600;">${sign}$${change.toFixed(2)}</span></div>
+        `;
+        tooltip.style.display = 'block';
+
+        const x = param.point?.x || 0;
+        const cw = container.clientWidth;
+        tooltip.style.left = (x > cw / 2 ? x - 160 : x + 20) + 'px';
+    });
+
+    // Handle resize
+    const ro = new ResizeObserver(entries => {
+        if (entries.length > 0 && capitalTimelineChart) {
+            const { width, height } = entries[0].contentRect;
+            capitalTimelineChart.applyOptions({ width, height: Math.max(height, 140) });
+        }
+    });
+    ro.observe(container);
+}
+
+// ── Broker Tab Builder ──────────────────────────────────────
+const BROKER_ENV_MAP = {
+    oanda: 'OANDA_API_KEY',
+    ccxt: 'CCXT_API_KEY',
+    gemini: 'GEMINI_API_KEY',
+    kraken: 'KRAKEN_API_KEY',
+    paxos: 'PAXOS_API_KEY',
+    ibkr: 'IBKR_HOST'
+};
+const BROKER_LABELS = {
+    oanda: 'OANDA', ccxt: 'CCXT', gemini: 'Gemini',
+    kraken: 'Kraken', paxos: 'Paxos', ibkr: 'IBKR'
+};
+
+async function buildBrokerTabs() {
+    const tabBar = document.getElementById('capital-timeline-tabs');
+    if (!tabBar) return;
+
+    // Reset to just the "All" tab
+    tabBar.innerHTML = '';
+    const allBtn = document.createElement('button');
+    allBtn.className = 'timeline-tab active';
+    allBtn.dataset.broker = 'all';
+    allBtn.textContent = 'All';
+    allBtn.addEventListener('click', () => selectBrokerTab('all'));
+    tabBar.appendChild(allBtn);
+
+    // Discover configured brokers from env
+    let env = {};
+    try {
+        if (window.api && window.api.invoke) {
+            env = await window.api.invoke('read-env') || {};
+        }
+    } catch (e) {
+        console.warn('[ANALYTICS] Could not read env for broker tabs:', e);
+    }
+
+    // Also check which brokers have data in the per-broker snapshots
+    const brokerSet = new Set(Object.keys(_capitalHistoryByBroker));
+
+    for (const [brokerId, envKey] of Object.entries(BROKER_ENV_MAP)) {
+        const hasKey = env[envKey] && env[envKey].trim().length > 0;
+        const hasData = brokerSet.has(brokerId);
+        if (hasKey || hasData) {
+            const btn = document.createElement('button');
+            btn.className = 'timeline-tab' + (brokerId === _activeBrokerTab ? ' active' : '');
+            btn.dataset.broker = brokerId;
+            btn.textContent = BROKER_LABELS[brokerId] || brokerId.toUpperCase();
+            btn.addEventListener('click', () => selectBrokerTab(brokerId));
+            tabBar.appendChild(btn);
+        }
+    }
+}
+
+function selectBrokerTab(brokerId) {
+    _activeBrokerTab = brokerId;
+    // Update tab styling
+    const tabBar = document.getElementById('capital-timeline-tabs');
+    if (tabBar) {
+        tabBar.querySelectorAll('.timeline-tab').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.broker === brokerId);
+        });
+    }
+    // Re-render chart with filtered data
+    const data = (brokerId === 'all')
+        ? _capitalHistoryAll
+        : (_capitalHistoryByBroker[brokerId] || []);
+    updateCapitalTimeline(data, currentFilter, brokerId);
 }
 
 // ═══════════════════════════════════════════════════════════

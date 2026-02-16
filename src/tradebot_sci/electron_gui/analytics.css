@@ -256,6 +256,42 @@
     font-weight: 800;
 }
 
+/* ───── CAPITAL TIMELINE BROKER TABS ───── */
+.capital-timeline-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 20px 0;
+    flex-wrap: wrap;
+}
+
+.timeline-tab {
+    padding: 5px 12px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.timeline-tab:hover {
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.timeline-tab.active {
+    color: #0e131f;
+    background: linear-gradient(135deg, #22d3ee 0%, #06b6d4 100%);
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(6, 182, 212, 0.25);
+    font-weight: 800;
+}
+
 /* ───── SECTION HEADERS ───── */
 .analytics-section-title {
     display: flex;

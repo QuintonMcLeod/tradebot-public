@@ -67,6 +67,7 @@ class SafetyGuard:
     
     SYMBOL_LOSS_STREAKS = {} # {symbol: count}
     SYMBOL_PAUSE_UNTIL = {} # {symbol: datetime}
+    SYMBOL_EXIT_COOLDOWN = {} # {symbol: datetime} — blocks re-entry for 5 min after any exit
     
     TRADE_TIMESTAMPS = {} # {AssetClass: list[datetime]} for Churn Burner
     SENTIMENT_CACHE = {} # {AssetClass: {symbol: (timestamp, sentiment)}}
@@ -119,7 +120,11 @@ class SafetyGuard:
 
     @classmethod
     def register_trade_completion(cls, symbol: str, is_win: bool):
-        """Call this when a trade closes to update streaks."""
+        """Call this when a trade closes to update streaks and set cooldown."""
+        # Per-symbol exit cooldown — prevents death spiral re-entry
+        cls.SYMBOL_EXIT_COOLDOWN[symbol] = datetime.now() + timedelta(minutes=5)
+        logger.info(f"[SAFETY] Exit cooldown set for {symbol}: 5 min")
+
         if not is_win:
             cls.SYMBOL_LOSS_STREAKS[symbol] = cls.SYMBOL_LOSS_STREAKS.get(symbol, 0) + 1
             logger.info(f"[STREAK_BREAKER] {symbol} Loss Count: {cls.SYMBOL_LOSS_STREAKS[symbol]}")
@@ -150,6 +155,16 @@ class SafetyGuard:
         if current_capital > hwm:
             cls.HWM_CAPITAL[asset_class] = current_capital
         cls._update_daily_stats(current_capital, asset_class)
+
+        # -------------------------------------------------------------
+        # 0.5 EXIT COOLDOWN (per-symbol, prevents death spiral re-entry)
+        # -------------------------------------------------------------
+        cooldown_until = cls.SYMBOL_EXIT_COOLDOWN.get(symbol)
+        if cooldown_until and now < cooldown_until:
+            remaining = int((cooldown_until - now).total_seconds())
+            return cls._reject(symbol, timeframe, "Exit Cooldown", f"Exit Cooldown: {remaining}s remaining (no re-entry within 5 min of exit)")
+        elif cooldown_until:
+            del cls.SYMBOL_EXIT_COOLDOWN[symbol]  # Expired
 
         # -------------------------------------------------------------
         # P&L PERFORMANCE TARGETS & LIMITS

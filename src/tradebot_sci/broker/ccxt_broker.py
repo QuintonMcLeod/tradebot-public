@@ -286,7 +286,8 @@ class CCXTExchangeBroker:
             else:
                 logger.warning(f"[CCXT] Could not determine entry price for {symbol} PnL calculation.")
             
-            pnl_str = f"{'+' if pnl_val >= 0 else ''}${pnl_val:.2f}"
+            pnl_sign = '+' if pnl_val >= 0 else '-'
+            pnl_str = f"{pnl_sign}${abs(pnl_val):.2f}"
 
             # Compute duration from position hold store
             opened_at_str = None
@@ -820,7 +821,9 @@ class CCXTExchangeBroker:
             # Taker fee is typically 0.4%.
             net_asset_value = asset_value * 0.996
             
-            return cash + net_asset_value
+            total = cash + net_asset_value
+            logger.info(f"[CCXT] Account Summary: Balance={cash:.4f}, NAV={total:.4f}, Capital=${total:.2f}")
+            return total
         except Exception as e:
             logger.error(f"[CCXT] get_total_balance_value failed: {e}")
             return self.get_liquid_capital(None)

@@ -286,7 +286,8 @@ class OandaExchangeBroker(IExchangeBroker):
                             est_spread = abs(initial_units) * self.AVG_SPREAD_PIPS * pip_value * 2
                             duration_str = self._format_duration(ct.get("openTime"))
 
-                            pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
+                            pnl_sign = '+' if pnl >= 0 else '-'
+                            pnl_str = f"{pnl_sign}${abs(pnl):.2f}"
                             logger.info(
                                 f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
                                 f"(Pct={pnl_pct:.2f}%) position={side} | "
@@ -347,7 +348,8 @@ class OandaExchangeBroker(IExchangeBroker):
                     est_spread = abs(initial_units) * self.AVG_SPREAD_PIPS * pip_value * 2
                     duration_str = self._format_duration(ct.get("openTime"))
 
-                    pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
+                    pnl_sign = '+' if pnl >= 0 else '-'
+                    pnl_str = f"{pnl_sign}${abs(pnl):.2f}"
                     logger.info(
                         f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
                         f"(Pct={pnl_pct:.2f}%) position={side} | "
@@ -498,8 +500,15 @@ class OandaExchangeBroker(IExchangeBroker):
                 entry_time_str = prev_pos.get("entry_time")
                 duration_str, duration_secs = self._compute_duration(entry_time_str)
 
-                pnl_str = f"{'+' if pnl_val >= 0 else ''}${pnl_val:.2f}"
+                pnl_sign = '+' if pnl_val >= 0 else '-'
+                pnl_str = f"{pnl_sign}${abs(pnl_val):.2f}"
                 logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={side} | Duration={duration_str} | Est. Spread Cost: ${est_spread_cost:.4f} (OANDA {self.AVG_SPREAD_PIPS} pips)")
+                # Register with SafetyGuard for Streak Breaker & Exit Cooldown
+                try:
+                    from tradebot_sci.strategy.safety_guard import SafetyGuard
+                    SafetyGuard.register_trade_completion(symbol, pnl_val > 0)
+                except Exception:
+                    pass
                 
                 # Add to TradeResultStore
                 if self.trade_results:
@@ -846,13 +855,20 @@ class OandaExchangeBroker(IExchangeBroker):
                     entry_time_str = prev.get("entry_time")
                     duration_str, duration_secs = self._compute_duration(entry_time_str)
 
-                    pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
+                    pnl_sign = '+' if pnl >= 0 else '-'
+                    pnl_str = f"{pnl_sign}${abs(pnl):.2f}"
                     logger.info(
                         f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
                         f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
                         f"Duration={duration_str} | "
                         f"Est. Spread Cost: ${est_spread:.4f}"
                     )
+                    # Register with SafetyGuard for Streak Breaker & Exit Cooldown
+                    try:
+                        from tradebot_sci.strategy.safety_guard import SafetyGuard
+                        SafetyGuard.register_trade_completion(sym, pnl > 0)
+                    except Exception:
+                        pass
 
                     # Record in TradeResultStore for pnl_stats
                     if self.trade_results:

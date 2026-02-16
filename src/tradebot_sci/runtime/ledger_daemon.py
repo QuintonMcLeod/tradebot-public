@@ -37,7 +37,7 @@ except ImportError:
 RE_EXIT = re.compile(
     r"\[EXIT\]\s+(?P<reason>[^:]+):\s+"
     r"(?P<symbol>[A-Z_]{3,10})\s+"
-    r"(?P<pnl_sign>[+-])\$(?P<pnl_val>[\d.]+)"
+    r"(?:(?P<pnl_sign>[+-])\$|(?:\$(?P<pnl_sign2>-)))(?P<pnl_val>[\d.]+)"
     r"(?:\s+\(Pct=(?P<pct>[+-]?[\d.]+)%\))?"
     r"(?:.*?Duration=(?P<duration>[^|]+))?"
     r"(?:.*?Est\.\s*Spread\s*Cost:\s*\$(?P<spread>[\d.]+))?"
@@ -47,6 +47,9 @@ RE_EXIT = re.compile(
 RE_ACCOUNT = re.compile(
     r"Account Summary.*?Balance=(?P<balance>[\d.]+).*?NAV=(?P<nav>[\d.]+)"
 )
+
+# Extract broker tag from log lines like [OANDA], [CCXT], [PAXOS]
+RE_BROKER_TAG = re.compile(r"\[(?P<broker>OANDA|CCXT|PAXOS|KRAKEN|GEMINI|IBKR)\]")
 
 # [HOLDINGS] {"count": 4, "positions": [...], "total_unrealized_pnl": -0.64}
 RE_HOLDINGS = re.compile(
@@ -116,6 +119,9 @@ def _empty_day(day_start_iso: str) -> dict:
         "by_strategy": {},
         "spread_costs": 0.0,
         "trade_log": [],
+        "capital_snapshots": [],
+        "capital_snapshots_by_broker": {},
+        "capital_by_broker": {},
     }
 
 
@@ -157,9 +163,48 @@ class LedgerDaemon:
         self._next_sundown: Optional[datetime] = None
         self._last_strategy: str = ""  # last META tournament winner seen
         self._paper_mode: bool = False  # When True, only process [PAPER] lines
+        self._snapshot_ts_by_broker: dict = {}  # Per-broker throttle for capital snapshots
+        self._exit_dedup: dict = {}  # Dedup cache: key -> timestamp
 
         # Load existing ledger if present
         self._load_ledger()
+
+    # ── Capital Snapshots ─────────────────────────────────────────────
+
+    def _maybe_snapshot(self, current: dict, nav: float, ts: Optional[datetime],
+                        broker: str = "all") -> None:
+        """Record a capital snapshot at most every 5 minutes per broker.
+        
+        broker: 'all' for combined heartbeat, or 'oanda'/'ccxt' etc. for per-broker.
+        """
+        SNAPSHOT_INTERVAL = 300  # seconds (5 min)
+        MAX_SNAPSHOTS = 288     # 24h at 5-min intervals
+
+        now = ts or datetime.now(self.tz)
+        # Per-broker throttling so "all" heartbeat doesn't suppress broker-specific snapshots
+        last_ts = self._snapshot_ts_by_broker.get(broker)
+        if last_ts:
+            elapsed = (now - last_ts).total_seconds()
+            if elapsed < SNAPSHOT_INTERVAL:
+                return
+
+        entry = {"ts": now.isoformat(), "nav": round(nav, 4), "broker": broker}
+
+        # Global snapshots (all sources)
+        snaps = current.setdefault("capital_snapshots", [])
+        snaps.append(entry)
+        if len(snaps) > MAX_SNAPSHOTS:
+            current["capital_snapshots"] = snaps[-MAX_SNAPSHOTS:]
+
+        # Per-broker snapshots
+        if broker != "all":
+            by_broker = current.setdefault("capital_snapshots_by_broker", {})
+            broker_snaps = by_broker.setdefault(broker, [])
+            broker_snaps.append({"ts": now.isoformat(), "nav": round(nav, 4)})
+            if len(broker_snaps) > MAX_SNAPSHOTS:
+                by_broker[broker] = broker_snaps[-MAX_SNAPSHOTS:]
+
+        self._snapshot_ts_by_broker[broker] = now
 
     # ── Persistence ───────────────────────────────────────────────────
 
@@ -304,11 +349,26 @@ class LedgerDaemon:
                 m = RE_EXIT.search(line)
                 if m:
                     pnl_val = float(m.group("pnl_val"))
-                    if m.group("pnl_sign") == "-":
+                    sign = m.group("pnl_sign") or m.group("pnl_sign2") or "+"
+                    if sign == "-":
                         pnl_val = -pnl_val
 
                     symbol = m.group("symbol")
                     reason = m.group("reason").strip()
+
+                    # ── Deduplication: skip if same symbol+pnl seen within 90s ──
+                    dedup_key = f"{symbol}_{round(pnl_val * 100)}"
+                    now = ts or datetime.now(self.tz)
+                    last_seen = self._exit_dedup.get(dedup_key)
+                    if last_seen and (now - last_seen).total_seconds() < 90:
+                        logger.debug(f"[LEDGER] Skipping duplicate EXIT: {symbol} {pnl_val:+.4f} ({reason})")
+                        continue
+
+                    self._exit_dedup[dedup_key] = now
+                    # Prune old entries (> 5 min)
+                    self._exit_dedup = {k: v for k, v in self._exit_dedup.items()
+                                        if (now - v).total_seconds() < 300}
+
                     pct = float(m.group("pct")) if m.group("pct") else 0.0
                     spread = float(m.group("spread")) if m.group("spread") else 0.0
 
@@ -321,7 +381,7 @@ class LedgerDaemon:
                     current["trades"] += 1
                     if pnl_val > 0:
                         current["wins"] += 1
-                    else:
+                    elif pnl_val < 0:
                         current["losses"] += 1
 
                     current["spread_costs"] += spread
@@ -369,17 +429,22 @@ class LedgerDaemon:
 
                     logger.debug(f"[LEDGER] Recorded trade: {symbol} {pnl_val:+.4f} ({strat})")
 
-            # ── Account Summary — capital tracking ────────────────
+            # ── Account Summary — per-broker capital tracking ─────
             if "Account Summary" in line:
                 m = RE_ACCOUNT.search(line)
                 if m:
                     nav = float(m.group("nav"))
                     balance = float(m.group("balance"))
-                    current["capital_now"] = nav
-                    if current["capital_at_start"] == 0:
-                        current["capital_at_start"] = balance
+                    # Detect which broker this came from
+                    broker_m = RE_BROKER_TAG.search(line)
+                    broker_tag = broker_m.group("broker").lower() if broker_m else "unknown"
+                    # Track per-broker capital
+                    cap_by_broker = current.setdefault("capital_by_broker", {})
+                    cap_by_broker[broker_tag] = round(nav, 4)
+                    # Per-broker snapshot
+                    self._maybe_snapshot(current, nav, ts, broker=broker_tag)
 
-            # ── HEARTBEAT — capital tracking ──────────────────────
+            # ── HEARTBEAT — combined capital tracking ─────────────
             if "[HEARTBEAT]" in line:
                 m = RE_HEARTBEAT.search(line)
                 if m:
@@ -387,6 +452,7 @@ class LedgerDaemon:
                     current["capital_now"] = cap
                     if current["capital_at_start"] == 0:
                         current["capital_at_start"] = cap
+                    self._maybe_snapshot(current, cap, ts, broker="all")
 
             # ── HOLDINGS — unrealized PnL ─────────────────────────
             if "[HOLDINGS]" in line:
