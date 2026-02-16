@@ -3957,3 +3957,115 @@ window.helpModule = (() => {
 
     return { init };
 })();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PANEL RESIZE (Generic — works with all .panel-resize-handle elements)
+// ═══════════════════════════════════════════════════════════════════════════
+(function initPanelResize() {
+    const STORAGE_KEY = 'tradebot_panel_heights';
+    const MIN_HEIGHTS = {
+        'decisions-panel': 160,
+        'log-panel': 100,
+    };
+
+    function setup() {
+        const handles = document.querySelectorAll('.panel-resize-handle');
+        if (!handles.length) return;
+
+        // Restore saved heights
+        restoreHeights();
+
+        let activeHandle = null;
+        let targetPanel = null;
+        let startY = 0;
+        let startH = 0;
+
+        handles.forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                const targetId = handle.dataset.above;
+                targetPanel = document.getElementById(targetId);
+                if (!targetPanel) return;
+
+                activeHandle = handle;
+                startY = e.clientY;
+                startH = targetPanel.getBoundingClientRect().height;
+
+                document.body.style.cursor = 'row-resize';
+                document.body.style.userSelect = 'none';
+
+                // Glow active handle
+                const grip = handle.querySelector('div');
+                if (grip) {
+                    grip.style.background = 'rgba(20,184,166,0.7)';
+                    grip.style.boxShadow = '0 0 12px rgba(20,184,166,0.4)';
+                }
+            });
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!activeHandle) return;
+            const delta = e.clientY - startY;
+            let newH = startH + delta;
+
+            const minH = MIN_HEIGHTS[targetPanel.id] || 100;
+            if (newH < minH) newH = minH;
+
+            // Only resize this one panel; the other keeps its size
+            targetPanel.style.flex = 'none';
+            targetPanel.style.height = newH + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!activeHandle) return;
+
+            // Reset handle glow
+            const grip = activeHandle.querySelector('div');
+            if (grip) {
+                grip.style.background = 'rgba(20,184,166,0.3)';
+                grip.style.boxShadow = 'none';
+            }
+
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+
+            // Save all panel heights
+            saveHeights();
+
+            activeHandle = null;
+            targetPanel = null;
+        });
+    }
+
+    function saveHeights() {
+        const panels = ['decisions-panel', 'log-panel'];
+        const heights = {};
+        panels.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) heights[id] = Math.round(el.getBoundingClientRect().height);
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(heights));
+    }
+
+    function restoreHeights() {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (!saved) return;
+            const heights = JSON.parse(saved);
+            Object.entries(heights).forEach(([id, h]) => {
+                const el = document.getElementById(id);
+                if (el && h > 0) {
+                    el.style.flex = 'none';
+                    el.style.height = h + 'px';
+                }
+            });
+        } catch (_) { /* ignore */ }
+    }
+
+    // Initialize after DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setup);
+    } else {
+        setup();
+    }
+})();

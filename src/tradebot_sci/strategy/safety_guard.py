@@ -681,6 +681,13 @@ class SafetyGuard:
              
              if direction == "long":
                  potential_stop = current_price - trail_dist
+                 # FLOOR: The Greedy Exit never loses money — stop can't go below entry
+                 potential_stop = max(potential_stop, entry_price)
+                 # If price is at/below entry, nothing to retain — close now
+                 if current_price <= entry_price:
+                     logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} <= {entry_price:.5f}). Closing at breakeven.")
+                     return close_position_decision(snapshot.symbol, snapshot.timeframe,
+                                                    reason=f"Greedy Exit: Back to entry (breakeven)")
                  # Only move UP
                  if potential_stop > current_stop:
                       if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss < potential_stop)):
@@ -694,6 +701,13 @@ class SafetyGuard:
                            )
              else: # short
                  potential_stop = current_price + trail_dist
+                 # FLOOR: The Greedy Exit never loses money — stop can't go above entry
+                 potential_stop = min(potential_stop, entry_price)
+                 # If price is at/above entry, nothing to retain — close now
+                 if current_price >= entry_price:
+                     logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} >= {entry_price:.5f}). Closing at breakeven.")
+                     return close_position_decision(snapshot.symbol, snapshot.timeframe,
+                                                    reason=f"Greedy Exit: Back to entry (breakeven)")
                  # Only move DOWN
                  if current_stop == 0 or potential_stop < current_stop:
                       if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss > potential_stop)):

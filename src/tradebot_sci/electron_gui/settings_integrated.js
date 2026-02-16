@@ -234,7 +234,7 @@ const TOOLTIPS = {
 
     // Broker Settings - Kraken
     KRAKEN_API_KEY: "Your Kraken API key. Enables the bot to trade on your behalf. Keep this secret!",
-    KRAKEN_API_SECRET: "Your Kraken API secret. Required for authentication. Never share this!",
+    KRAKEN_API_SECRET: "Your Kraken Private Key. Required for authentication. Never share this!",
     KRAKEN_ENVIRONMENT: "Choose 'production' for real trading or 'sandbox' for testing (if supported).",
 
     // Crypto Order Settings
@@ -1603,7 +1603,7 @@ function renderBrokersTab(container) {
         section.appendChild(createSectionHeader('Kraken Connection', 'account_balance_wallet'));
 
         section.appendChild(createCard('API Key', 'Kraken API Key', 'KRAKEN_API_KEY', 'input', { password: true }));
-        section.appendChild(createCard('API Secret', 'Kraken API Secret', 'KRAKEN_API_SECRET', 'input', { password: true }));
+        section.appendChild(createCard('Private Key', 'Kraken Private Key', 'KRAKEN_API_SECRET', 'input', { password: true }));
         section.appendChild(createCard('Environment', 'Trading Environment', 'KRAKEN_ENVIRONMENT', 'dropdown', {
             items: [
                 { value: 'production', label: 'Production - Live' },
@@ -1624,7 +1624,7 @@ function renderBrokersTab(container) {
                 1. Log in to your Kraken account<br>
                 2. Navigate to <strong>Security -> API</strong><br>
                 3. Create a new API Key with appropriate permissions<br>
-                4. Paste your Key and Private Key (Secret) here<br>
+                4. Paste your API Key and Private Key here<br>
                 5. Note: Set <strong>Data Routing</strong> to use Kraken for Crypto.
             </div>
         `;

@@ -1031,6 +1031,21 @@ function getActiveThemeId() {
     return localStorage.getItem('tradebot-theme') || 'obsidian';
 }
 
+/** Async: get the filesystem-persisted theme (authoritative source) */
+async function getPersistedThemeId() {
+    try {
+        if (window.api && window.api.invoke) {
+            const fsTheme = await window.api.invoke('get-theme');
+            if (fsTheme) {
+                // Sync localStorage with filesystem
+                localStorage.setItem('tradebot-theme', fsTheme);
+                return fsTheme;
+            }
+        }
+    } catch (_) { /* fall through */ }
+    return getActiveThemeId();
+}
+
 function applyTheme(themeId, _skipPersist = false) {
     // Handle 'random' — pick a random real theme each time
     if (themeId === 'random') {
@@ -1038,6 +1053,7 @@ function applyTheme(themeId, _skipPersist = false) {
         const pick = realKeys[Math.floor(Math.random() * realKeys.length)];
         console.log(`[THEME] Random selected: ${pick}`);
         localStorage.setItem('tradebot-theme', 'random'); // keep 'random' so it re-rolls on next load
+        try { if (window.api && window.api.invoke) window.api.invoke('save-theme', 'random'); } catch (_) { }
         applyTheme(pick, true); // _skipPersist = true so "random" isn't overwritten
         return;
     }
@@ -1119,6 +1135,12 @@ function applyTheme(themeId, _skipPersist = false) {
     // 6. Persist (skip if called from random handler to preserve 'random' in storage)
     if (!_skipPersist) {
         localStorage.setItem('tradebot-theme', themeId);
+        // Also persist to filesystem via IPC (authoritative)
+        try {
+            if (window.api && window.api.invoke) {
+                window.api.invoke('save-theme', themeId);
+            }
+        } catch (_) { /* localStorage is the fallback */ }
     }
 
     // 7. Dispatch event so other components can react
@@ -1127,10 +1149,17 @@ function applyTheme(themeId, _skipPersist = false) {
 
 // Auto-apply saved theme on load
 document.addEventListener('DOMContentLoaded', () => {
-    const savedTheme = getActiveThemeId();
-    // Small delay to ensure DOM is fully ready
+    // Immediately apply localStorage theme (fast, prevents flash)
+    const cachedTheme = getActiveThemeId();
     requestAnimationFrame(() => {
-        applyTheme(savedTheme);
+        applyTheme(cachedTheme, true); // _skipPersist=true to avoid re-saving
+    });
+    // Then check filesystem for authoritative theme (may differ if localStorage was cleared)
+    getPersistedThemeId().then((fsTheme) => {
+        if (fsTheme && fsTheme !== cachedTheme) {
+            console.log(`[THEME] Filesystem override: ${fsTheme} (localStorage had: ${cachedTheme})`);
+            applyTheme(fsTheme);
+        }
     });
 });
 

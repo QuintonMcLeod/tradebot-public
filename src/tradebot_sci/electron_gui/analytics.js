@@ -443,6 +443,36 @@ function formatDuration(entryTime) {
     } catch (_) { return '--'; }
 }
 
+/** Format duration for a closed trade using available data */
+function formatClosedDuration(trade) {
+    // 1. Pre-computed duration string from ledger (e.g. "3h 15m 42s")
+    if (trade.duration) return trade.duration;
+    // 2. Duration in seconds from TradeResult
+    if (trade.duration_seconds != null && trade.duration_seconds > 0) {
+        return _formatSeconds(trade.duration_seconds);
+    }
+    // 3. Compute from opened_at → closed_at timestamps
+    if (trade.opened_at && trade.closed_at) {
+        try {
+            const open = new Date(trade.opened_at);
+            const close = new Date(trade.closed_at);
+            const diffSec = (close - open) / 1000;
+            if (diffSec > 0) return _formatSeconds(diffSec);
+        } catch (_) { /* fall through */ }
+    }
+    return null;
+}
+
+/** Convert seconds to human-readable duration */
+function _formatSeconds(totalSec) {
+    const days = Math.floor(totalSec / 86400);
+    const hrs = Math.floor((totalSec % 86400) / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    if (days > 0) return `${days}d ${hrs}h`;
+    if (hrs > 0) return `${hrs}h ${mins}m`;
+    return `${mins}m`;
+}
+
 // ═══════════════════════════════════════════════════════════
 // TRADE HISTORY (using side-badge from analytics.css)
 // ═══════════════════════════════════════════════════════════
@@ -568,7 +598,7 @@ function updateTradeHistory(trades) {
                 <td style="text-align:right; font-weight:700; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
                 <td style="text-align:right; font-size:11px; color:${pnlPct >= 0 ? '#34d399' : '#f87171'};">${pnlPct !== 0 ? (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%' : '--'}</td>
                 <td style="text-align:right; font-size:11px; color:#475569;">${spread > 0 ? '$' + spread.toFixed(2) : '--'}</td>
-                <td style="color:#475569; font-size:11px;">--</td>
+                <td style="color:#34d399; font-size:11px; font-weight:600;">${(() => { const d = formatClosedDuration(trade); return d ? '⏱ ' + d : '--'; })()}</td>
                 <td style="color:#94a3b8; font-size:11px;">${strategy}</td>
                 <td style="color:#475569; font-size:11px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${trade.reason || '--'}</td>
             `;

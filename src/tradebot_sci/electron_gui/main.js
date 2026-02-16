@@ -8,6 +8,11 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const logParser = require('./log_parser');
 
+// Suppress EPIPE errors on stdout/stderr — these are non-fatal pipe breaks
+// when the parent process (terminal/launcher) closes before Electron finishes writing.
+process.stdout?.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+process.stderr?.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+
 let mainWindow;
 let settingsWindow;
 let botRunning = false;
@@ -303,6 +308,22 @@ function setupIpcHandlers() {
     // Paper Trading Reset
     // =============================================
     const DATA_DIR = path.join(__dirname, '../../../data');
+
+    // ── Theme persistence (filesystem-backed) ──
+    const themePath = path.join(__dirname, 'theme-state.json');
+    ipcMain.handle('save-theme', async (_event, themeId) => {
+        try { fs.writeFileSync(themePath, JSON.stringify({ theme: themeId })); } catch (e) { }
+        return true;
+    });
+    ipcMain.handle('get-theme', async () => {
+        try {
+            if (fs.existsSync(themePath)) {
+                const data = JSON.parse(fs.readFileSync(themePath, 'utf8'));
+                return data.theme || null;
+            }
+        } catch (e) { }
+        return null;
+    });
 
     ipcMain.handle('reset-paper-trading', async () => {
         console.log('[MAIN] Resetting paper trading...');

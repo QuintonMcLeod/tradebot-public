@@ -223,6 +223,7 @@ function summaryFromLedger(ledger, timeframe, logTrades = [], logHoldings = [], 
                 side: lt.side || 'unknown',
                 reason: lt.reason || '',
                 strategy: lt.strategy || 'unknown',
+                duration: lt.duration || null,
                 _src: 'log'
             });
 
@@ -476,6 +477,12 @@ function parseExitLine(line, timestamp) {
     } else {
         const reasonMatch = line.match(/\[EXIT\]\s*(.+?)(?::|$)/);
         if (reasonMatch) trade.reason = reasonMatch[1].trim();
+    }
+
+    // Extract duration (e.g. "Duration=3h 15m 42s" or "Duration=42m 10s")
+    const durationMatch = line.match(/Duration=([^|]+)/i);
+    if (durationMatch) {
+        trade.duration = durationMatch[1].trim();
     }
 
     return trade;
