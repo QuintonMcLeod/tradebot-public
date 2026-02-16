@@ -510,13 +510,19 @@ def build_market_provider(
     mode = _get_effective_setting("market_data_mode", settings, profile_settings)
     if not mode:
         mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
-    # Auto-detect OANDA: if OANDA credentials exist and we'd otherwise fall through
-    # to IBKR (primary) or CCXT (alternative) without proper credentials, use OANDA.
+    # Auto-detect OANDA-only: if OANDA credentials exist but no CCXT/Gemini keys,
+    # build a routed provider: OANDA for forex, Kraken (public, no keys) for crypto.
     _has_oanda = bool(os.getenv("OANDA_ACCOUNT_ID") and os.getenv("OANDA_API_KEY"))
     _has_ccxt = bool(os.getenv("CCXT_API_KEY") or os.getenv("GEMINI_API_KEY"))
     if _has_oanda and mode in ("primary", "alternative") and not _has_ccxt:
-        logger.info("[ROUTED-DATA] Auto-detected OANDA credentials (no CCXT keys), using OANDA as market provider")
-        mode = "oanda"
+        logger.info("[ROUTED-DATA] OANDA-only detected → Forex=OANDA, Crypto=Kraken (public)")
+        p_forex = _create_single_provider("oanda", settings, profile_settings, shared_ib)
+        p_crypto = _create_single_provider("kraken", settings, profile_settings, shared_ib)
+        return RoutedMarketDataProvider({
+            "crypto": p_crypto,
+            "forex": p_forex,
+            "equity": NoOpMarketDataProvider(),
+        })
     
     if mode == "hybrid":
         p_forex = _create_single_provider(settings.market.primary_forex, settings, profile_settings, shared_ib)
