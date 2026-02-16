@@ -470,7 +470,7 @@ function setupIpcHandlers() {
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('fromMain', {
                 type: 'gui-notice',
-                message: 'Update applied! Reloading...',
+                message: 'Update applied! Restarting bot...',
                 color: 'blue'
             });
 
@@ -479,10 +479,31 @@ function setupIpcHandlers() {
             mainWindow.reload();
         }
 
-        // Step 4: Restart bot after UI reload settles
-        setTimeout(() => {
-            ipcMain.emit('start-bot');
-        }, 4000);
+        // Step 4: Restart bot — kill again to be sure, wait for it to die, then start fresh
+        const postKillCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
+        await new Promise((resolve) => {
+            exec(postKillCmd, () => resolve());
+        });
+
+        // Wait for the old process to fully exit
+        await new Promise((resolve) => {
+            let attempts = 0;
+            const waitForDeath = setInterval(() => {
+                exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
+                    const stillRunning = !!(stdout && stdout.trim());
+                    attempts++;
+                    if (!stillRunning || attempts >= 10) {
+                        clearInterval(waitForDeath);
+                        resolve();
+                    }
+                });
+            }, 500);
+        });
+
+        console.log('[MAIN] Old bot process confirmed dead. Starting fresh...');
+        // Small extra delay for cleanup
+        await new Promise(r => setTimeout(r, 1000));
+        ipcMain.emit('start-bot');
 
         return { success: true, output: pullResult.output };
     });
@@ -718,15 +739,7 @@ function createWindow() {
 
     ipcMain.on('get-bot-status', () => { checkBotStatus(mainWindow, true); });
 
-    ipcMain.on('restart-bot', () => {
-        console.log('[MAIN] Restarting bot due to settings change...');
-        exec('pkill -f run_dev_bot.py', () => {
-            // Wait a moment for process to die
-            setTimeout(() => {
-                exec('bash scripts/tradebot.sh --gui --daemon');
-            }, 1000);
-        });
-    });
+
 
     ipcMain.on('minimize-window', (e) => {
         const win = BrowserWindow.fromWebContents(e.sender);

@@ -458,6 +458,21 @@ def build_market_provider(
 ) -> MarketDataProvider:
     """Builds a market data provider with per-asset routing support."""
     
+    # ── OANDA-only short-circuit ──
+    # If OANDA credentials exist but no CCXT/Gemini keys, skip ALL config-driven
+    # routing (which may reference gemini/ccxt) and return OANDA+Kraken directly.
+    _has_oanda = bool(os.getenv("OANDA_ACCOUNT_ID") and os.getenv("OANDA_API_KEY"))
+    _has_ccxt = bool(os.getenv("CCXT_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("CCXT_SECRET") or os.getenv("GEMINI_API_SECRET"))
+    if _has_oanda and not _has_ccxt:
+        logger.info("[ROUTED-DATA] OANDA-only detected (no CCXT/Gemini keys) → Forex=OANDA, Crypto=Kraken (public)")
+        p_forex = _create_single_provider("oanda", settings, profile_settings, shared_ib)
+        p_crypto = _create_single_provider("kraken", settings, profile_settings, shared_ib)
+        return RoutedMarketDataProvider({
+            "crypto": p_crypto,
+            "forex": p_forex,
+            "equity": NoOpMarketDataProvider(),
+        })
+
     # Check for Granular Overrides first
     crypto_md_mode = os.getenv("BROKER_CRYPTO", "").lower()
     forex_md_mode = os.getenv("BROKER_FOREX", "").lower() 
@@ -560,6 +575,20 @@ def build_exchange_broker(
 ) -> IExchangeBroker:
     """Builds an exchange broker with per-asset routing support."""
     
+    # ── OANDA-only short-circuit ──
+    # If OANDA credentials exist but no CCXT/Gemini keys, skip ALL config-driven
+    # routing (which may reference gemini/ccxt) and return OANDA+NoOp directly.
+    _has_oanda = bool(os.getenv("OANDA_ACCOUNT_ID") and os.getenv("OANDA_API_KEY"))
+    _has_ccxt = bool(os.getenv("CCXT_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("CCXT_SECRET") or os.getenv("GEMINI_API_SECRET"))
+    if _has_oanda and not _has_ccxt:
+        logger.info("[ROUTED-EXEC] OANDA-only detected (no CCXT/Gemini keys) → Forex=OANDA, Crypto/Equity=NoOp")
+        b_forex = _create_single_broker("oanda", settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
+        return RoutedExchangeBroker({
+            "crypto": NoOpExchangeBroker(),
+            "forex": b_forex,
+            "equity": NoOpExchangeBroker(),
+        })
+
     crypto_mode = os.getenv("BROKER_CRYPTO", "").lower()
     forex_mode = os.getenv("BROKER_FOREX", "").lower()
     equity_mode = os.getenv("BROKER_EQUITIES", "").lower()
@@ -598,13 +627,18 @@ def build_exchange_broker(
     mode = _get_effective_setting("broker_mode", settings, profile_settings)
     if not mode:
         mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
-    # Auto-detect OANDA: if OANDA credentials exist and we'd otherwise fall through
-    # to IBKR (primary) or CCXT (alternative) without proper credentials, use OANDA.
+    # Auto-detect OANDA-only: if OANDA credentials exist but no CCXT/Gemini keys,
+    # build a routed broker: OANDA for forex, NoOp for crypto/equity.
     _has_oanda = bool(os.getenv("OANDA_ACCOUNT_ID") and os.getenv("OANDA_API_KEY"))
     _has_ccxt = bool(os.getenv("CCXT_API_KEY") or os.getenv("GEMINI_API_KEY"))
     if _has_oanda and mode in ("primary", "alternative") and not _has_ccxt:
-        logger.info("[ROUTED-EXEC] Auto-detected OANDA credentials (no CCXT keys), using OANDA as broker")
-        mode = "oanda"
+        logger.info("[ROUTED-EXEC] OANDA-only detected → Forex=OANDA, Crypto/Equity=NoOp")
+        b_forex = _create_single_broker("oanda", settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
+        return RoutedExchangeBroker({
+            "crypto": NoOpExchangeBroker(),
+            "forex": b_forex,
+            "equity": NoOpExchangeBroker(),
+        })
     
     if mode == "hybrid":
         b_forex = _create_single_broker(settings.market.primary_forex, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
