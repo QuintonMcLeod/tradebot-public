@@ -510,10 +510,12 @@ def build_market_provider(
     mode = _get_effective_setting("market_data_mode", settings, profile_settings)
     if not mode:
         mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
-    # Auto-detect OANDA: if credentials exist and mode is still generic 'primary',
-    # prefer OANDA over IBKR so paper-account users get fund detection out of the box.
-    if mode == "primary" and os.getenv("OANDA_ACCOUNT_ID") and os.getenv("OANDA_API_KEY"):
-        logger.info("[ROUTED-DATA] Auto-detected OANDA credentials, using OANDA as primary market provider")
+    # Auto-detect OANDA: if OANDA credentials exist and we'd otherwise fall through
+    # to IBKR (primary) or CCXT (alternative) without proper credentials, use OANDA.
+    _has_oanda = bool(os.getenv("OANDA_ACCOUNT_ID") and os.getenv("OANDA_API_KEY"))
+    _has_ccxt = bool(os.getenv("CCXT_API_KEY") or os.getenv("GEMINI_API_KEY"))
+    if _has_oanda and mode in ("primary", "alternative") and not _has_ccxt:
+        logger.info("[ROUTED-DATA] Auto-detected OANDA credentials (no CCXT keys), using OANDA as market provider")
         mode = "oanda"
     
     if mode == "hybrid":
@@ -590,10 +592,12 @@ def build_exchange_broker(
     mode = _get_effective_setting("broker_mode", settings, profile_settings)
     if not mode:
         mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
-    # Auto-detect OANDA: if credentials exist and mode is still generic 'primary',
-    # prefer OANDA over IBKR so paper-account users get fund detection out of the box.
-    if mode == "primary" and os.getenv("OANDA_ACCOUNT_ID") and os.getenv("OANDA_API_KEY"):
-        logger.info("[ROUTED-EXEC] Auto-detected OANDA credentials, using OANDA as primary broker")
+    # Auto-detect OANDA: if OANDA credentials exist and we'd otherwise fall through
+    # to IBKR (primary) or CCXT (alternative) without proper credentials, use OANDA.
+    _has_oanda = bool(os.getenv("OANDA_ACCOUNT_ID") and os.getenv("OANDA_API_KEY"))
+    _has_ccxt = bool(os.getenv("CCXT_API_KEY") or os.getenv("GEMINI_API_KEY"))
+    if _has_oanda and mode in ("primary", "alternative") and not _has_ccxt:
+        logger.info("[ROUTED-EXEC] Auto-detected OANDA credentials (no CCXT keys), using OANDA as broker")
         mode = "oanda"
     
     if mode == "hybrid":

@@ -620,17 +620,24 @@ def run_bot(
         if execute_trades
         else None
     )
-    # Only create PaperBroker if Sabbath is enabled (its only use case)
+
+    # ── Paper Broker ──
+    # Create PaperBroker if:
+    #   (a) execute_trades is disabled (user wants paper/simulation mode), OR
+    #   (b) Sabbath mode is enabled (needs paper fallback during Sabbath hours)
     executor_paper = None
     paper_ledger = None
-    if sabbath_context.enabled:
+    if not execute_trades or sabbath_context.enabled:
         paper_trade_results = TradeResultStore(os.path.join("data", "paper_trade_results.json"))
         executor_paper = PaperBroker(
             profile_settings,
             market_provider=provider,
             trade_results=paper_trade_results
         )
-        logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
+        if not execute_trades:
+            logger.info("[PAPER] 📝 Paper Trading mode active (Live Trading disabled).")
+        else:
+            logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
         # Separate paper ledger — never pollutes the live ledger
         paper_ledger = LedgerDaemon(
             log_path=os.path.join("logs", "tradebot.log"),
@@ -645,13 +652,19 @@ def run_bot(
         paper_ledger.start()
         logger.info("[PAPER] Paper ledger daemon started -> data/paper_ledger.json")
     else:
-        logger.info("[PAPER] Paper Broker disabled (Sabbath not enabled).")
+        logger.info("[PAPER] Paper Broker disabled (Live Trading enabled, Sabbath not active).")
 
     # Initial Sabbath Check to set correct executor reference
     now_init = datetime.now(ZoneInfo("UTC"))
     sabbath_active_init, _, _ = sabbath_context.evaluate(now_init)
     
-    executor = executor_paper if (sabbath_active_init and executor_paper) else executor_real
+    # Priority: if live trading is off, ALWAYS use paper broker
+    if not execute_trades and executor_paper:
+        executor = executor_paper
+    elif sabbath_active_init and executor_paper:
+        executor = executor_paper
+    else:
+        executor = executor_real
 
     if executor and settings.runtime.cancel_orders_on_start:
         for symbol in symbols:
@@ -938,8 +951,11 @@ def run_bot(
                 except Exception:
                     pass
             elif not sabbath_active and executor_paper and executor == executor_paper:
-                logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker connection.")
-                executor = executor_real
+                if execute_trades and executor_real:
+                    logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker connection.")
+                    executor = executor_real
+                elif not execute_trades:
+                    logger.debug("[SABBATH] Sabbath ended, but Live Trading is off — staying on Paper Broker.")
                 # Flag for GUI: switch back to live ledger
                 try:
                     Path("data/.sabbath_active").unlink(missing_ok=True)
@@ -1299,21 +1315,30 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         else None
     )
 
-    # Only create PaperBroker if Sabbath is enabled
+    # ── Paper Broker ──
+    # Create PaperBroker if:
+    #   (a) execute_trades is disabled (user wants paper/simulation mode), OR
+    #   (b) Sabbath mode is enabled (needs paper fallback during Sabbath hours)
     executor_paper = None
-    if sabbath_context.enabled:
+    if not execute_trades or sabbath_context.enabled:
         paper_trade_results = TradeResultStore(os.path.join("data", "paper_trade_results.json"))
         executor_paper = PaperBroker(
             profile_settings, 
             market_provider=provider, 
             trade_results=paper_trade_results
         )
-        logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
+        if not execute_trades:
+            logger.info("[PAPER] 📝 Paper Trading mode active (Live Trading disabled).")
+        else:
+            logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
     else:
-        logger.info("[PAPER] Paper Broker disabled (Sabbath not enabled).")
+        logger.info("[PAPER] Paper Broker disabled (Live Trading enabled, Sabbath not active).")
     
-    # Active executor reference
-    executor = executor_real
+    # Active executor reference — paper broker takes priority when live trading is off
+    if not execute_trades and executor_paper:
+        executor = executor_paper
+    else:
+        executor = executor_real
 
     poll_interval = profile_settings.market_poll_interval_seconds
     decision_interval = profile_settings.ai_decision_interval_seconds
@@ -1416,8 +1441,11 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                     logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading Mode.")
                     executor = executor_paper
                 elif not sabbath_active and executor_paper and executor == executor_paper:
-                    logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker.")
-                    executor = executor_real
+                    if execute_trades and executor_real:
+                        logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker.")
+                        executor = executor_real
+                    elif not execute_trades:
+                        logger.debug("[SABBATH] Sabbath ended, but Live Trading is off — staying on Paper Broker.")
 
                 if executor:
                     executor.refresh_account_summary()
