@@ -510,6 +510,11 @@ def build_market_provider(
     mode = _get_effective_setting("market_data_mode", settings, profile_settings)
     if not mode:
         mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
+    # Auto-detect OANDA: if credentials exist and mode is still generic 'primary',
+    # prefer OANDA over IBKR so paper-account users get fund detection out of the box.
+    if mode == "primary" and os.getenv("OANDA_ACCOUNT_ID") and os.getenv("OANDA_API_KEY"):
+        logger.info("[ROUTED-DATA] Auto-detected OANDA credentials, using OANDA as primary market provider")
+        mode = "oanda"
     
     if mode == "hybrid":
         p_forex = _create_single_provider(settings.market.primary_forex, settings, profile_settings, shared_ib)
@@ -585,6 +590,11 @@ def build_exchange_broker(
     mode = _get_effective_setting("broker_mode", settings, profile_settings)
     if not mode:
         mode = _get_effective_setting("exchange_provider", settings, profile_settings) or "primary"
+    # Auto-detect OANDA: if credentials exist and mode is still generic 'primary',
+    # prefer OANDA over IBKR so paper-account users get fund detection out of the box.
+    if mode == "primary" and os.getenv("OANDA_ACCOUNT_ID") and os.getenv("OANDA_API_KEY"):
+        logger.info("[ROUTED-EXEC] Auto-detected OANDA credentials, using OANDA as primary broker")
+        mode = "oanda"
     
     if mode == "hybrid":
         b_forex = _create_single_broker(settings.market.primary_forex, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)

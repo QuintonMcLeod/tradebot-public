@@ -4,9 +4,16 @@ set -e
 # Usage: ./scripts/publish_mirror.sh <REMOTE_URL> [BRANCH]
 
 # 1. Config
-# NOTE: GitLab Token found in .git/config: glpat-cP_TZ3UHPm443qzMJCyo
-# This token is required for pushing to the public mirror.
-GITLAB_TOKEN="glpat-cP_TZ3UHPm443qzMJCyo"
+# GitLab token should be set via env var or .env — NEVER hardcode it here.
+GITLAB_TOKEN="${GITLAB_TOKEN:-}"
+if [ -z "$GITLAB_TOKEN" ] && [ -f "$(dirname "$0")/../.env" ]; then
+    GITLAB_TOKEN=$(grep -oP 'GITLAB_TOKEN=\K.*' "$(dirname "$0")/../.env" 2>/dev/null || true)
+fi
+if [ -z "$GITLAB_TOKEN" ]; then
+    echo "⚠️  GITLAB_TOKEN not set. Set it via: export GITLAB_TOKEN=glpat-xxx"
+    echo "   Or add GITLAB_TOKEN=glpat-xxx to your .env file."
+    exit 1
+fi
 
 RAW_URL="${1:-}"
 BRANCH="${2:-main}"
@@ -65,6 +72,8 @@ rsync -av --delete \
     --exclude='data/' \
     --exclude='scripts/deploy.sh' \
     --exclude='Trash/' \
+    --exclude='**/GUI.bak/' \
+    --exclude='**/gui.bak/' \
     --exclude='backtest_output*.log' \
     --exclude='public_mirror/' \
     --include='src/***' \
