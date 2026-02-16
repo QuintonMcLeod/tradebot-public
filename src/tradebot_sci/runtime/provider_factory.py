@@ -307,6 +307,22 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
     if name == "disabled" or name == "none":
         return NoOpExchangeBroker()
 
+    # ── Credential gate: skip brokers that lack required API keys ──
+    _BROKER_CREDS = {
+        "gemini":   lambda: os.getenv("GEMINI_API_KEY") and os.getenv("GEMINI_API_SECRET"),
+        "ccxt":     lambda: os.getenv("CCXT_API_KEY"),
+        "coinbase": lambda: os.getenv("CCXT_API_KEY"),
+        "ibkr":     lambda: shared_ib is not None,
+        "oanda":    lambda: os.getenv("OANDA_API_KEY") and os.getenv("OANDA_ACCOUNT_ID"),
+        "paxos":    lambda: os.getenv("PAXOS_API_KEY") or (settings.paxos and settings.paxos.api_key),
+        "itbit":    lambda: os.getenv("PAXOS_API_KEY") or (settings.paxos and settings.paxos.api_key),
+        "kraken":   lambda: os.getenv("KRAKEN_API_KEY"),
+    }
+    cred_check = _BROKER_CREDS.get(name)
+    if cred_check and not cred_check():
+        logger.info(f"[ROUTED-EXEC] Skipping '{name}' broker (no credentials configured)")
+        return NoOpExchangeBroker()
+
     if name == "alternative":
         # Resolve what 'alternative' actually means here
         alt_name = _get_effective_setting("alternative_broker", settings, profile_settings)
@@ -401,6 +417,22 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
     if name == "disabled" or name == "none":
         return NoOpMarketDataProvider()
 
+    # ── Credential gate: skip providers that lack required API keys ──
+    _PROVIDER_CREDS = {
+        "gemini":   lambda: os.getenv("GEMINI_API_KEY") and os.getenv("GEMINI_API_SECRET"),
+        "ccxt":     lambda: os.getenv("CCXT_API_KEY"),
+        "coinbase": lambda: os.getenv("CCXT_API_KEY"),
+        "ibkr":     lambda: shared_ib is not None,
+        "oanda":    lambda: os.getenv("OANDA_API_KEY") and os.getenv("OANDA_ACCOUNT_ID"),
+        "paxos":    lambda: os.getenv("PAXOS_API_KEY") or (settings.paxos and settings.paxos.api_key),
+        "itbit":    lambda: os.getenv("PAXOS_API_KEY") or (settings.paxos and settings.paxos.api_key),
+        # kraken = public API, no keys needed for market data
+    }
+    cred_check = _PROVIDER_CREDS.get(name)
+    if cred_check and not cred_check():
+        logger.info(f"[ROUTED-DATA] Skipping '{name}' market provider (no credentials configured)")
+        return NoOpMarketDataProvider()
+
     if name == "alternative":
         alt_name = _get_effective_setting("alternative_market_data", settings, profile_settings)
         if alt_name and alt_name != "alternative":
@@ -438,11 +470,10 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
     elif name == "gemini":
         # Gemini specific CCXT initialization
         os.environ["CCXT_EXCHANGE"] = "gemini"
-        # We don't necessarily need keys for public market data, but we use the same broker logic
         temp_broker = CCXTExchangeBroker(profile_settings)
         return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data)
     elif name == "kraken":
-        # Kraken specific CCXT initialization
+        # Kraken specific CCXT initialization (public API, no keys needed)
         os.environ["CCXT_EXCHANGE"] = "kraken"
         temp_broker = CCXTExchangeBroker(profile_settings)
         return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data)
