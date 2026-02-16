@@ -281,7 +281,11 @@ class OandaExchangeBroker(IExchangeBroker):
                             logger.info(f"[OANDA] Backfilled missed exit: {sym} trade#{trade_id} PnL=${pnl:.4f}")
 
                     except Exception as e:
-                        logger.warning(f"[OANDA] Backfill query failed for {sym}: {e}")
+                        err_msg = str(e).lower()
+                        if "authorization" in err_msg or "403" in err_msg or "insufficient" in err_msg:
+                            logger.debug(f"[OANDA] Backfill skipped for {sym} (API key lacks trade history permission)")
+                        else:
+                            logger.warning(f"[OANDA] Backfill query failed for {sym}: {e}")
 
                     del self._tracked_positions[sym]
 
@@ -348,10 +352,18 @@ class OandaExchangeBroker(IExchangeBroker):
                     pass
 
             except Exception as e:
-                logger.warning(f"[OANDA] Catch-all backfill failed: {e}")
+                err_msg = str(e).lower()
+                if "authorization" in err_msg or "403" in err_msg or "insufficient" in err_msg:
+                    logger.debug(f"[OANDA] Trade history backfill skipped (API key lacks trade history permission — this is OK)")
+                else:
+                    logger.warning(f"[OANDA] Catch-all backfill failed: {e}")
             self._save_tracked_positions()
         except Exception as e:
-            logger.warning(f"[OANDA] Bootstrap tracked positions failed: {e}")
+            err_msg = str(e).lower()
+            if "authorization" in err_msg or "403" in err_msg or "insufficient" in err_msg:
+                logger.debug(f"[OANDA] Bootstrap skipped (API key lacks required permissions — non-critical)")
+            else:
+                logger.warning(f"[OANDA] Bootstrap tracked positions failed: {e}")
 
     def _normalize_symbol(self, symbol: str) -> str:
         """Converts EURUSD to EUR_USD, handles Crypto mappings."""

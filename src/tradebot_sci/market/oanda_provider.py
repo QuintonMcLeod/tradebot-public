@@ -12,7 +12,7 @@ try:
 except ImportError as e:
     HAS_OANDA = False
     _OANDA_IMPORT_ERROR = str(e)
-from tradebot_sci.market.models import Candle, MarketSnapshot
+from tradebot_sci.market.models import Candle, MarketSnapshot, Ticker
 from tradebot_sci.market.trend import infer_trend_from_swings
 
 logger = logging.getLogger(__name__)
@@ -150,6 +150,37 @@ class OandaMarketDataProvider:
             htf_timeframe=timeframe,
             ltf_timeframe=timeframe,
         )
+
+    def get_ticker(self, symbol: str) -> Ticker | None:
+        """Fetch live bid/ask/mid from OANDA pricing endpoint."""
+        oanda_sym = self._normalize_symbol(symbol)
+        try:
+            import oandapyV20.endpoints.pricing as pricing
+            r = pricing.PricingInfo(
+                self.account_id,
+                params={"instruments": oanda_sym}
+            )
+            self.client.request(r)
+            prices = r.response.get("prices", [])
+            if prices:
+                p = prices[0]
+                bid = float(p.get("bids", [{}])[0].get("price", 0)) if p.get("bids") else None
+                ask = float(p.get("asks", [{}])[0].get("price", 0)) if p.get("asks") else None
+                mid = (bid + ask) / 2 if bid and ask else (bid or ask)
+                return Ticker(
+                    symbol=symbol,
+                    bid=bid,
+                    ask=ask,
+                    last=mid,
+                    volume_24h_quote_usd=None
+                )
+        except Exception as e:
+            logger.warning(f"[OANDA-DATA] get_ticker failed for {symbol}: {e}")
+        return None
+
+    def get_order_book(self, symbol: str, depth: int = 10):
+        """OANDA doesn't expose a traditional order book."""
+        return None
 
     def close(self) -> None:
         pass
