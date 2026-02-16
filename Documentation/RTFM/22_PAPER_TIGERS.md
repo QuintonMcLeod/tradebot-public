@@ -41,6 +41,9 @@ There are two ways:
 
 ### Method 1: The Simple Way
 Set `execute_trades` to `false` in your settings:
+
+> 📺 **In the UI:** Settings → **System** → toggle **Live Trading** OFF
+
 ```yaml
 runtime:
   execute_trades: false

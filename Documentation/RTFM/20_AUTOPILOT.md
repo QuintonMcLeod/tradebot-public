@@ -196,6 +196,8 @@ weekend_crypto:
 
 Enable Auto-Schedule in your settings:
 
+> 📺 **In the UI:** Settings → **Hours & Sabbath** → toggle **Auto Schedule** ON
+
 ```yaml
 auto_schedule_enabled: true
 auto_schedule_profiles:

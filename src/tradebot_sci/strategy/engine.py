@@ -37,12 +37,14 @@ class StrategyEngine:
         profile: BaseProfile,
         symbol: str,
         trade_results: Optional[TradeResultStore] = None,
+        settings: Optional[Any] = None,
     ):
         self.ai_client = ai_client
         self.market_provider = market_provider
         self.profile = profile
         self.symbol = symbol
         self.trade_results = trade_results
+        self.settings = settings  # Root Settings object (has .safety, .risk, etc.)
         
         # Last strategy scoring (populated by decide(), read by cycle.py for logging)
         self.last_strat_name: str = "Unknown"
@@ -395,7 +397,7 @@ class StrategyEngine:
             total_equity,
             latest_snapshot,
             ai_client=self.ai_client,
-            settings=self.profile,
+            settings=self.settings or self.profile,
             trade_results=self.trade_results
         )
         if safety_decision:
@@ -451,7 +453,7 @@ class StrategyEngine:
                 gates["htf_strength"], 
                 snapshot,
                 ai_client=self.ai_client,
-                settings=self.profile
+                settings=self.settings or self.profile
             )
             
             # [SMART POSITIONS] Financed Risk Check

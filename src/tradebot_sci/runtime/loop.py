@@ -581,6 +581,7 @@ def run_bot(
             profile=profile_settings,
             symbol=symbol,
             trade_results=trade_results,
+            settings=settings,
         )
         for symbol in symbols
     }
@@ -894,10 +895,12 @@ def run_bot(
                                     profile=profile_settings,
                                     symbol=sym,
                                     trade_results=trade_results,
+                                    settings=settings,
                                 )
                             else:
                                 # Sync profile to EXISTING engines
                                 engines[sym].profile = profile_settings
+                                engines[sym].settings = settings
                         
                         # Remove dropped symbols (optional, but good for cleanup)
                         current_keys = list(engines.keys())
@@ -1279,6 +1282,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
             profile=profile_settings,
             symbol=symbol,
             trade_results=trade_results,
+            settings=settings,
         )
         for symbol in symbols
     }
@@ -1479,6 +1483,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                                         market_provider=provider,
                                         profile=profile_settings,
                                         symbol=sym,
+                                        settings=settings,
                                     )
                                 active_symbols.append(sym)
                     candidates = build_candidate_list(

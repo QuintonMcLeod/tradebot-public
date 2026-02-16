@@ -2,7 +2,7 @@
 
 This document provides comprehensive details for each environment variable used by Tradebot SCI, including its purpose, usage, and meaningful defaults.
 
----
+> 📺 **Most of these variables can be adjusted through the Settings UI** — you don't need to edit files directly. The Settings menu organizes them into tabs: **System**, **Strategy Workshop**, **Safety & Shields**, **Performance & Profits**, **Broker Suite**, **Intelligence**, and **Hours & Sabbath**. For raw access to any variable, use Settings → **Advanced**.
 
 ## GUI Settings
 

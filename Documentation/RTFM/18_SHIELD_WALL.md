@@ -34,6 +34,8 @@ Position Size = (Account Balance × Risk %) ÷ Stop-Loss Distance
 
 That means if you're wrong and the stop hits, you lose exactly $100. Not $500. Not $2,000. **Exactly $100.** That's 1% of your account. You can be wrong 20 times in a row and still have 80% of your capital left.
 
+> 📺 **In the UI:** Settings → **Strategy Workshop** → **Global Risk** sub-tab → **Default Risk %** slider
+
 ---
 
 ## Layer 2: Leverage Sentry (The "Don't Be a Hero" Guard)
@@ -49,6 +51,8 @@ The Leverage Sentry enforces a **hard cap** on total leverage:
 
 If adding a new trade would push you over the cap, the trade is **blocked.** No exceptions. No "just this once." No override button. (Okay, there's an override in the config, but if you use it, you deserve what happens.)
 
+> 📺 **In the UI:** Settings → **Safety & Shields** → **Max Concurrent Positions** (controls how many positions can be open at once)
+
 ---
 
 ## Layer 3: Daily Loss Limit (The "Circuit Breaker")
@@ -58,6 +62,10 @@ This is the nuclear option. If your losses for the day exceed a threshold, **all
 ```yaml
 daily_loss_limit: 3.0    # Percent of account balance
 ```
+
+> 📺 **In the UI:** Settings → **Strategy Workshop** → **Global Risk** sub-tab → **Daily Loss Limit** slider
+>
+> Also: Settings → **Safety & Shields** → **Drawdown Breaker** toggle (5% daily cap circuit breaker)
 
 If you started today with $10,000 and lost $300, that's 3%. The kill switch fires. You're done for the day.
 
@@ -99,6 +107,8 @@ Stop-losses aren't placed at random levels. They're calculated using **Average T
 |---------|-------------|
 | `atr_multiplier` | How many ATR units away to place the stop (default: 1.5-2.0) |
 | `atr_period` | How many candles to look back for ATR calculation (default: 14) |
+
+> 📺 **In the UI:** Settings → **Safety & Shields** → **ATR Armor** toggle + **Stop ATR Multiplier** field
 
 **Why ATR?**
 *   A 30-pip stop on EUR/USD (which moves ~80 pips/day) makes sense.

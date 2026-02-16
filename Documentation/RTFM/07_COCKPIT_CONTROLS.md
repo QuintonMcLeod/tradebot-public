@@ -19,12 +19,14 @@ Or from within the GUI dashboard, click the **Settings** button.
 
 | Tab | Purpose |
 |-----|---------|
-| **System** | Profile selection, execution mode, timeframes, trend detection |
-| **Strategy Workshop** | Browse all 20 strategies, per-asset assignment, ICC scoring |
-| **Broker Suite** | IBKR, OANDA, CCXT, Paxos, Kraken configuration |
-| **Intelligence** | AI provider, model settings, commentary policy |
-| **Safety & Shields** | Position Lock, Leverage Sentry, Breakeven Trail, Daily Loss Limit |
-| **Hours & Sabbath** | Session gates, Sabbath blocking, timezone |
+| **System** | Profile selection, **Live Trading** toggle, timeframes, trend detection |
+| **Strategy Workshop** | Asset Strategies, Strategy Toolbox, Global Risk, Pyramiding, Exit Logic |
+| **Safety & Shields** | Position protection, ATR Armor, Drawdown Breaker, Volatility Veto |
+| **Performance & Profits** | Trailing stop mode, compounding, performance tuning |
+| **Broker Suite** | IBKR, OANDA, CCXT (Gemini, Coinbase, Kraken) configuration |
+| **Intelligence** | AI provider, model selection, commentary policy |
+| **Hours & Sabbath** | Sabbath blocking, session gate, Auto Schedule |
+| **Appearance** | Themes & colors |
 | **Advanced** | Raw environment variable editor |
 
 ---
@@ -90,12 +92,14 @@ See `09_FEET_WET_STRATEGY.md` for detailed explanations of each strategy.
 - **Higher (e.g., 70.0):** Only A+ setups. May wait days for a trade.
 - **Lower (e.g., 40.0):** More trades, lower quality. Higher risk.
 - **Danger Zone:** Below 30.0 is basically random.
+- 📺 **In the UI:** Settings → **Strategy Workshop** → **Strategy Toolbox** sub-tab (ICC scoring thresholds are per-strategy)
 
 ### `risk_per_trade_pct` (Default: `0.02` = 2%)
 - **What it does:** How much of your account to risk per trade
 - **Conservative:** 1-2%
 - **Moderate:** 2-3%
 - **Aggressive:** 4-5% (not recommended for beginners)
+- 📺 **In the UI:** Settings → **Strategy Workshop** → **Global Risk** sub-tab → **Default Risk %** slider
 
 ---
 
@@ -147,11 +151,13 @@ These are your protective guardrails. Most are enabled by default.
 - **THE MASTER SWITCH:** Must be `true` to place real orders
 - **`false`:** Simulation mode — logs decisions but doesn't trade
 - **`true`:** Live trading — real money at risk
+- 📺 **In the UI:** Settings → **System** → toggle **Live Trading**
 
 ### `max_concurrent_positions` (Default: `5`)
 - **What it does:** How many symbols can be traded simultaneously
 - **Safe:** 3-4 positions
 - **Advanced:** 5-8 positions (requires more capital)
+- 📺 **In the UI:** Settings → **Safety & Shields** → **Max Concurrent Positions**
 
 ---
 
@@ -163,19 +169,24 @@ These are your protective guardrails. Most are enabled by default.
 - **15m:** Intraday, cleaner signals.
 - **1h:** Swing trading (recommended).
 - **4h:** Position trading.
+- 📺 **In the UI:** Settings → **System** → **Candle Timeframe** dropdown
 
 ### `htf_timeframe` / `ltf_timeframe`
 - **HTF:** Higher timeframe for trend direction (e.g., `4h`)
 - **LTF:** Lower timeframe for entry precision (e.g., `15m`)
+- 📺 **In the UI:** Settings → **System** → **HTF Timeframe** / **LTF Timeframe** dropdowns
 
 ### `sabbath_enabled` (Default: `true`)
 - **What it does:** Blocks new entries Friday sunset to Saturday sunset
 - **Why:** Lower liquidity, choppy markets, and rest is important
 - **Override:** Force OFF in settings if you need 24/7 operation
+- 📺 **In the UI:** Settings → **Hours & Sabbath** → toggle **Enable Sabbath**
 
 ---
 
 ## Broker Controls
+
+All broker settings are available in the UI: Settings → **Broker Suite**.
 
 ### IBKR Settings
 | Setting | Purpose |
@@ -211,6 +222,8 @@ These are your protective guardrails. Most are enabled by default.
 ---
 
 ## AI/Commentary Controls
+
+> 📺 **In the UI:** Settings → **Intelligence** — select provider, model, and commentary policy
 
 ### `TRADE_SCI_PROVIDER`
 - **Options:** `gemini`, `openai`, `claude`, `deepseek`, `openrouter`, `local`

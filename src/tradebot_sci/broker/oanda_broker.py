@@ -72,10 +72,10 @@ class OandaExchangeBroker(IExchangeBroker):
         self.profile = profile
 
     @staticmethod
-    def _format_duration(entry_time_str: str | None) -> str:
-        """Compute human-readable duration from ISO entry time to now."""
+    def _compute_duration(entry_time_str: str | None) -> tuple[str, float | None]:
+        """Compute human-readable duration AND raw seconds from ISO entry time to now."""
         if not entry_time_str:
-            return "N/A"
+            return "N/A", None
         try:
             from datetime import datetime, timezone
             # OANDA timestamps: "2026-02-14T16:03:52.123456789Z"
@@ -89,16 +89,23 @@ class OandaExchangeBroker(IExchangeBroker):
                 clean = clean[:dot_idx+1] + frac + clean[plus_idx:]
             entry_dt = datetime.fromisoformat(clean)
             now = datetime.now(timezone.utc)
-            secs = int((now - entry_dt).total_seconds())
-            if secs < 0:
-                return "N/A"
-            mins, secs = divmod(secs, 60)
+            total_secs = (now - entry_dt).total_seconds()
+            if total_secs < 0:
+                return "N/A", None
+            secs_int = int(total_secs)
+            mins, secs = divmod(secs_int, 60)
             if mins >= 60:
                 hrs, mins = divmod(mins, 60)
-                return f"{hrs}h {mins}m {secs}s"
-            return f"{mins}m {secs}s"
+                return f"{hrs}h {mins}m {secs}s", total_secs
+            return f"{mins}m {secs}s", total_secs
         except Exception:
-            return "N/A"
+            return "N/A", None
+
+    @staticmethod
+    def _format_duration(entry_time_str: str | None) -> str:
+        """Compute human-readable duration from ISO entry time to now."""
+        dur_str, _ = OANDABroker._compute_duration(entry_time_str)
+        return dur_str
 
     # ── Tracked Position Persistence ──────────────────────────────────
 
@@ -329,10 +336,13 @@ class OandaExchangeBroker(IExchangeBroker):
             pos = r_pos.response.get("position", {})
             
             close_data = {}
-            if float(pos.get("long", {}).get("units", 0)) > 0:
+            long_units = float(pos.get("long", {}).get("units", 0))
+            short_units = float(pos.get("short", {}).get("units", 0))
+            if long_units > 0:
                 close_data["longUnits"] = "ALL"
-            if float(pos.get("short", {}).get("units", 0)) < 0:
+            if short_units < 0:
                 close_data["shortUnits"] = "ALL"
+            side = "SHORT" if short_units < 0 else "LONG"
             
             if close_data:
                 r_close = oanda_positions.PositionClose(self.account_id, instrument=oanda_sym, data=close_data)
@@ -360,7 +370,8 @@ class OandaExchangeBroker(IExchangeBroker):
 
                 # Compute duration from tracked position entry time
                 prev_pos = self._tracked_positions.get(symbol, {})
-                duration_str = self._format_duration(prev_pos.get("entry_time"))
+                entry_time_str = prev_pos.get("entry_time")
+                duration_str, duration_secs = self._compute_duration(entry_time_str)
 
                 pnl_str = f"{'+' if pnl_val >= 0 else ''}${pnl_val:.2f}"
                 logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={side} | Duration={duration_str} | Est. Spread Cost: ${est_spread_cost:.4f} (OANDA {self.AVG_SPREAD_PIPS} pips)")
@@ -375,7 +386,9 @@ class OandaExchangeBroker(IExchangeBroker):
                         pnl_usd=pnl_val,
                         is_win=pnl_val > 0,
                         tier="100%",
-                        capital_at_close=self._liquid_capital
+                        capital_at_close=self._liquid_capital,
+                        opened_at=entry_time_str,
+                        duration_seconds=duration_secs
                     ))
 
                 logger.info(f"[OANDA] Flattened {symbol}. Response: {resp}")
@@ -701,7 +714,8 @@ class OandaExchangeBroker(IExchangeBroker):
                     units = abs(prev.get("size", 0))
                     est_spread = units * self.AVG_SPREAD_PIPS * pip_value * 2
 
-                    duration_str = self._format_duration(prev.get("entry_time"))
+                    entry_time_str = prev.get("entry_time")
+                    duration_str, duration_secs = self._compute_duration(entry_time_str)
 
                     pnl_str = f"{'+' if pnl >= 0 else ''}${pnl:.2f}"
                     logger.info(
@@ -721,7 +735,9 @@ class OandaExchangeBroker(IExchangeBroker):
                             pnl_usd=pnl,
                             is_win=pnl > 0,
                             tier="100%",
-                            capital_at_close=current_balance or self._liquid_capital
+                            capital_at_close=current_balance or self._liquid_capital,
+                            opened_at=entry_time_str,
+                            duration_seconds=duration_secs
                         ))
 
                     del self._tracked_positions[sym]

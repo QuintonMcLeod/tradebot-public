@@ -287,7 +287,32 @@ class CCXTExchangeBroker:
                 logger.warning(f"[CCXT] Could not determine entry price for {symbol} PnL calculation.")
             
             pnl_str = f"{'+' if pnl_val >= 0 else ''}${pnl_val:.2f}"
-            logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) | Est. Fees factored (0.8%)")
+
+            # Compute duration from position hold store
+            opened_at_str = None
+            duration_secs = None
+            duration_str = "N/A"
+            if self.position_hold_store:
+                record = self.position_hold_store.get(symbol)
+                if record and record.opened_at:
+                    opened_at_str = record.opened_at
+                    try:
+                        from datetime import datetime as _dt2, timezone as _tz2
+                        opened_dt = _dt2.fromisoformat(opened_at_str.replace("Z", "+00:00"))
+                        closed_dt = _dt2.now(_tz2.utc)
+                        duration_secs = (closed_dt - opened_dt).total_seconds()
+                        mins = int(duration_secs // 60)
+                        secs = int(duration_secs % 60)
+                        if mins >= 60:
+                            hrs = mins // 60
+                            mins = mins % 60
+                            duration_str = f"{hrs}h {mins}m {secs}s"
+                        else:
+                            duration_str = f"{mins}m {secs}s"
+                    except Exception:
+                        pass
+
+            logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) | Duration={duration_str} | Est. Fees factored (0.8%)")
             
             # Add to TradeResultStore
             if self.trade_results:
@@ -298,7 +323,9 @@ class CCXTExchangeBroker:
                     pnl_usd=pnl_val,
                     is_win=pnl_val > 0,
                     tier="100%", # Default for full flatten
-                    capital_at_close=0.0 # Will be updated by balance sync
+                    capital_at_close=0.0, # Will be updated by balance sync
+                    opened_at=opened_at_str,
+                    duration_seconds=duration_secs
                 ))
 
             # Clear Position from Store

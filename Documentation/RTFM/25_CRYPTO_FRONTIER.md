@@ -61,6 +61,8 @@ When running Meta-SCI on crypto symbols, these strategies autom atically enter t
 
 Crypto uses different position sizing than forex. You can't buy "10,000 units of Bitcoin" — you buy fractions. The bot uses **quantity steps** to size positions correctly:
 
+> ⚙️ **Config only:** Crypto quantity steps are set in `config.json` under your profile — there is no GUI field for this setting yet.
+
 ```yaml
 crypto_qty_steps:
   BTCUSD: 0.001    # Minimum 0.001 BTC per trade

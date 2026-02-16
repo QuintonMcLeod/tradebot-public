@@ -280,6 +280,8 @@ You can assign different strategies to different asset classes:
 ### Via the Profile Editor
 **Profile Editor** → Select profile → **General** tab → **Strategy** dropdown
 
+To assign different strategies per asset class, use the **per-asset strategy dropdowns** in the same tab (Crypto, Forex, Stocks, Metals each have their own dropdown).
+
 ### Via config.json
 ```json
 {
@@ -319,20 +321,29 @@ You can assign different strategies to different asset classes:
 Regardless of strategy, start conservatively:
 
 ### Day 1: Paper Trading
-```bash
-EXECUTE_TRADES=false  # Simulation mode — no real orders
+
+> 📺 **In the UI:** Settings → **System** → toggle **Live Trading** OFF
+
+```yaml
+runtime:
+  execute_trades: false    # Simulation mode — no real orders
 ```
 
 ### Day 2-7: Micro-Sizing
+
+> 📺 **In the UI:** Settings → **Strategy Workshop** → **Global Risk** sub-tab → **Default Risk %** slider
+> 
+> Or: **Profile Editor** → select profile → **Risk** tab
+
 ```yaml
 risk_per_trade_pct: 0.01  # 1% risk only
 ```
 
 ### Week 2+: Gradual Increase
 Once you trust the system:
-1. Increase to 2%, then 3-4%
-2. Enable multi-position trading
-3. Experiment with different strategies per asset class
+1. Increase to 2%, then 3-4% (Settings → Strategy Workshop → Global Risk → Default Risk %)
+2. Enable multi-position trading (Settings → Safety & Shields → Max Concurrent Positions)
+3. Experiment with different strategies per asset class (Settings → Strategy Workshop → Asset Strategies)
 4. Or just use **Meta-SCI** and let it handle everything
 
 ---

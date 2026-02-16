@@ -511,7 +511,7 @@ class TradingProfileSettings(BaseModel):
         description="How long to avoid rotating away from the active symbol",
     )
     crypto_fractional_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Allow fractional crypto sizing when the profile supports it",
     )
     crypto_min_notional_usd: float = Field(
@@ -523,7 +523,20 @@ class TradingProfileSettings(BaseModel):
         description="Optional cap on crypto notional exposures (None = no cap)",
     )
     crypto_qty_steps: Dict[str, float] = Field(
-        default_factory=lambda: {"BTCUSD": 0.0001, "ETHUSD": 0.001, "SOLUSD": 0.01},
+        default_factory=lambda: {
+            "BTCUSD": 0.0001,
+            "ETHUSD": 0.001,
+            "SOLUSD": 0.01,
+            "XRPUSD": 0.01,
+            "LINKUSD": 0.01,
+            "LTCUSD": 0.001,
+            "DOGEUSD": 1.0,
+            "ZECUSD": 0.001,
+            "BCHUSD": 0.001,
+            "AAVEUSD": 0.001,
+            "COMPUSD": 0.001,
+            "MATICUSD": 0.1,
+        },
         description="Per-crypto symbol quantity steps for fractional orders",
     )
     crypto_order_type: Literal["LIMIT", "MARKET"] = Field(

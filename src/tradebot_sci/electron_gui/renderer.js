@@ -1559,6 +1559,12 @@ function parseLogLine(line) {
                 }
             }
 
+            // Skip system-level messages where no symbol could be extracted
+            // (e.g. "[SAFETY] New Day Detected for crypto..." or "[SAFETY] Leverage Sentry VETO for crypto...")
+            if (symbol === "UNKNOWN") {
+                return;
+            }
+
             // Search ENTIRE content for action/score/reason
             const body = content;
 

@@ -346,6 +346,8 @@ Virtual grid trading. Best for crypto sideways markets.
 
 Different assets behave differently. That's why you can assign different strategies per asset class:
 
+> 📺 **In the UI:** Settings → **Strategy Workshop** → **Asset Strategies** sub-tab — choose a strategy per asset class (Crypto, Forex, Stocks, Metals)
+
 ```json
 {
   "profiles": {

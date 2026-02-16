@@ -45,6 +45,9 @@ The bot uses **astronomical calculations** to determine:
 *   **Sabbath End:** Three stars visible (approximately 42-72 minutes after sunset, Saturday)
 
 You configure your location:
+
+> 📺 **In the UI:** Settings → **Hours & Sabbath** → use the **Location Resolver** (enter your city and click Resolve), or manually enter **Latitude**, **Longitude**, and **Timezone**
+
 ```yaml
 sabbath_lat: 33.764     # Your latitude
 sabbath_lon: -84.386    # Your longitude

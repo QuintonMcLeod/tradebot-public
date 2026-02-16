@@ -107,6 +107,8 @@ trailing_stop:
   trail_distance_atr: 0.5 # Trail follows at 0.5x ATR behind price
 ```
 
+> 📺 **In the UI:** Settings → **Strategy Workshop** → **Exit Logic** sub-tab → **The "Greedy Exit"** toggle (enables trailing stop) + **Trailing Stop Min Profit %** and **Stop ATR Multiplier**
+
 The trailing stop doesn't activate immediately — it waits until price has moved in your favor by at least `activation_atr`. Until then, the original stop-loss holds.
 
 ---
@@ -137,6 +139,10 @@ breakeven_trail:
   activation_pips: 30      # Move SL to breakeven after 30 pips of profit
   offset_pips: 2           # Offset slightly above entry for spread coverage
 ```
+
+> 📺 **In the UI:** Settings → **Safety & Shields** → **The "Lock-In"** field (profit level to move SL to breakeven)
+>
+> Also: Settings → **Strategy Workshop** → **Pyramiding** sub-tab → **Trail After N Pyramids** + **Trail Percentage**
 
 The offset ensures you don't get stopped out exactly at entry due to spread — you exit with a tiny profit instead of exact zero.
 

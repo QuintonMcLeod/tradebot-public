@@ -53,7 +53,7 @@ install_sys_deps() {
             sudo apt update
             sudo apt install -y tmux git rsync curl wget build-essential \
                  python3.11 python3.11-venv python3.11-dev \
-                 libnss3 libatk-bridge2.0-0 libxss1 libasound2 libgbm1
+                 libnss3 libatk-bridge2.0-0t64 libxss1 libasound2t64 libgbm1
             ;;
         fedora)
             sudo dnf install -y tmux git rsync curl wget gcc python3-devel python3-pip \
@@ -66,12 +66,29 @@ install_sys_deps() {
         darwin)
             if ! command -v brew >/dev/null 2>&1; then
                 info "Homebrew not found. Installing Homebrew..."
-                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+                NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            fi
+            # Ensure Homebrew is on PATH (Intel: /usr/local/bin, Apple Silicon: /opt/homebrew/bin)
+            if [ -x /opt/homebrew/bin/brew ]; then
+                eval "$(/opt/homebrew/bin/brew shellenv)"
+            elif [ -x /usr/local/bin/brew ]; then
+                eval "$(/usr/local/bin/brew shellenv)"
+            fi
+            # Persist Homebrew PATH into shell profile for future sessions
+            SHELL_PROFILE="$HOME/.zprofile"
+            if ! grep -q 'brew shellenv' "$SHELL_PROFILE" 2>/dev/null; then
+                echo '' >> "$SHELL_PROFILE"
+                if [ -x /opt/homebrew/bin/brew ]; then
+                    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$SHELL_PROFILE"
+                else
+                    echo 'eval "$(/usr/local/bin/brew shellenv)"' >> "$SHELL_PROFILE"
+                fi
+                info "Added Homebrew to $SHELL_PROFILE"
             fi
             info "Updating Homebrew..."
             brew update
             info "Installing dependencies via Homebrew..."
-            brew install tmux git rsync curl wget python node
+            brew install tmux git rsync curl wget python@3.12 node
             ;;
         msys*|cygwin*|mingw*|windows)
             info "Windows detected. Assuming dependencies are managed manually."
@@ -159,10 +176,20 @@ fi
 # 4. Check/Install Poetry
 export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring  # Prevent hangs on Linux during install
 
-# Check if already installed in ~/.local/bin but not in PATH
-if [ -f "$HOME/.local/bin/poetry" ]; then
-    info "Poetry found at $HOME/.local/bin/poetry. Adding to PATH..."
-    export PATH="$HOME/.local/bin:$PATH"
+# Detect Python user bin path (macOS uses ~/Library/Python/X.Y/bin, Linux uses ~/.local/bin)
+PY_VER=$($PYTHON_EXEC -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "3.12")
+if [[ "$OS" == "darwin" ]]; then
+    PY_USER_BIN="$HOME/Library/Python/$PY_VER/bin"
+else
+    PY_USER_BIN="$HOME/.local/bin"
+fi
+export PATH="$PY_USER_BIN:$HOME/.local/bin:$PATH"
+
+# Check if already installed
+if [ -f "$PY_USER_BIN/poetry" ] || [ -f "$HOME/.local/bin/poetry" ]; then
+    info "Poetry found. Adding to PATH..."
+elif command -v poetry >/dev/null 2>&1; then
+    info "Poetry $(poetry --version) already installed."
 else
     # Windows: It might be in a versioned folder like .../Python314/Scripts
     # Search for poetry.exe in APPDATA
@@ -186,6 +213,10 @@ if ! command -v poetry >/dev/null 2>&1; then
             ubuntu|debian|pop|mint|linuxmint) sudo apt install -y python3-pip ;;
             fedora) sudo dnf install -y python3-pip ;;
             arch|manjaro) sudo pacman -S --noconfirm python-pip ;;
+            darwin)
+                info "pip should be included with Homebrew Python. Checking..."
+                "$PYTHON_EXEC" -m ensurepip --upgrade 2>/dev/null || true
+                ;;
             windows) 
                 info "Attempting to bootstrap pip via ensurepip..."
                 "$PYTHON_EXEC" -m ensurepip --upgrade --default-pip || {
@@ -195,13 +226,23 @@ if ! command -v poetry >/dev/null 2>&1; then
          esac
     fi
 
-    # Install poetry specific version to avoid breaking changes, or latest
-    "$PYTHON_EXEC" -m pip install --user poetry || {
-        warn "Pip install failed. Trying global install..."
-        "$PYTHON_EXEC" -m pip install poetry
-    }
+    # Install poetry — handle PEP 668 (externally-managed-environment) on macOS/Homebrew
+    if [[ "$OS" == "darwin" ]]; then
+        "$PYTHON_EXEC" -m pip install --user --break-system-packages poetry || {
+            warn "Pip install with --break-system-packages failed. Trying pipx..."
+            brew install pipx 2>/dev/null && pipx install poetry || {
+                warn "pipx also failed. Trying direct pip install..."
+                "$PYTHON_EXEC" -m pip install --user poetry 2>/dev/null || true
+            }
+        }
+    else
+        "$PYTHON_EXEC" -m pip install --user poetry || {
+            warn "Pip install failed. Trying global install..."
+            "$PYTHON_EXEC" -m pip install poetry
+        }
+    fi
     
-    export PATH="$HOME/.local/bin:$PATH"
+    export PATH="$PY_USER_BIN:$HOME/.local/bin:$PATH"
     
     # Windows Post-Install Path Hunt
     if [ "$OS" == "windows" ] || [[ "$OSTYPE" == "msys" ]]; then
@@ -214,13 +255,31 @@ if ! command -v poetry >/dev/null 2>&1; then
         fi
     fi
 
-    # Add to bashrc if not present
-    touch ~/.bashrc
-    if ! grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" ~/.bashrc; then
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+    # Persist PATH to shell profile
+    if [[ "$OS" == "darwin" ]]; then
+        # macOS defaults to zsh
+        SHELL_RC="$HOME/.zprofile"
+        PATH_LINE="export PATH=\"$PY_USER_BIN:\$HOME/.local/bin:\$PATH\""
+    else
+        SHELL_RC="$HOME/.bashrc"
+        PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
     fi
-else
-    info "Poetry $(poetry --version) already installed."
+    touch "$SHELL_RC"
+    if ! grep -q '.local/bin' "$SHELL_RC" 2>/dev/null; then
+        echo "$PATH_LINE" >> "$SHELL_RC"
+    fi
+fi
+
+if ! command -v poetry >/dev/null 2>&1; then
+    warn "Poetry could not be found on PATH. Attempting to locate it..."
+    # Last resort: search common locations
+    for candidate in "$PY_USER_BIN/poetry" "$HOME/.local/bin/poetry" /usr/local/bin/poetry; do
+        if [ -f "$candidate" ]; then
+            info "Found poetry at $candidate"
+            export PATH="$(dirname "$candidate"):$PATH"
+            break
+        fi
+    done
 fi
 
 # 5. Application Initialization
@@ -263,7 +322,12 @@ $POETRY_BIN lock || {
     warn "poetry lock failed. You may need to run 'poetry lock' manually."
 }
 
-$POETRY_BIN install --with gui
+$POETRY_BIN install --with gui || {
+    warn "Some GUI dependencies may have failed (e.g., PySide6 on older macOS)."
+    warn "The bot will still work headless and with the Electron GUI."
+    # Retry without GUI group as fallback
+    $POETRY_BIN install || error "Failed to install core Python dependencies."
+}
 
 # Install additional broker dependencies not in pyproject.toml
 info "Installing additional broker dependencies..."
