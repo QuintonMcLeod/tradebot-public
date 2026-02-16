@@ -226,7 +226,7 @@ if ! command -v poetry >/dev/null 2>&1; then
          esac
     fi
 
-    # Install poetry — handle PEP 668 (externally-managed-environment) on macOS/Homebrew
+    # Install poetry — handle PEP 668 (externally-managed-environment) on modern distros
     if [[ "$OS" == "darwin" ]]; then
         "$PYTHON_EXEC" -m pip install --user --break-system-packages poetry || {
             warn "Pip install with --break-system-packages failed. Trying pipx..."
@@ -236,10 +236,25 @@ if ! command -v poetry >/dev/null 2>&1; then
             }
         }
     else
-        "$PYTHON_EXEC" -m pip install --user poetry || {
-            warn "Pip install failed. Trying global install..."
-            "$PYTHON_EXEC" -m pip install poetry
-        }
+        # Try pipx first (recommended by Ubuntu 24.04+), then --break-system-packages, then plain pip
+        if command -v pipx >/dev/null 2>&1; then
+            pipx install poetry || {
+                warn "pipx install failed. Falling back to pip..."
+                "$PYTHON_EXEC" -m pip install --user --break-system-packages poetry 2>/dev/null || \
+                "$PYTHON_EXEC" -m pip install --user poetry 2>/dev/null || true
+            }
+        else
+            # Try installing pipx, then use it
+            sudo apt install -y pipx 2>/dev/null && pipx install poetry || {
+                warn "pipx not available. Using pip with --break-system-packages..."
+                "$PYTHON_EXEC" -m pip install --user --break-system-packages poetry 2>/dev/null || \
+                "$PYTHON_EXEC" -m pip install --user poetry 2>/dev/null || {
+                    warn "Pip install failed. Trying global install..."
+                    "$PYTHON_EXEC" -m pip install --break-system-packages poetry 2>/dev/null || \
+                    "$PYTHON_EXEC" -m pip install poetry
+                }
+            }
+        fi
     fi
     
     export PATH="$PY_USER_BIN:$HOME/.local/bin:$PATH"
