@@ -63,8 +63,94 @@ class OandaExchangeBroker(IExchangeBroker):
         self._prev_balance: float | None = None  # for PnL calc on vanished positions
         self._tracked_path = Path("data/oanda_tracked_positions.json")
         self._load_tracked_positions()
-        self.refresh_account_summary()
+
+        # ── Account validation & auto-discovery ──
+        # OANDA API keys can access multiple sub-accounts (Primary, MT4, etc).
+        # If the provided account_id fails or returns $0, discover all accounts
+        # and pick the one with the highest balance.
+        self._discover_and_validate_account(environment)
+
         self._bootstrap_tracked_positions()
+
+    def _discover_and_validate_account(self, environment: str) -> None:
+        """Validate the configured account and auto-discover if needed."""
+        # Try the configured account first
+        if self.account_id:
+            self.refresh_account_summary()
+            if self._liquid_capital > 0:
+                return  # Account works and has funds
+
+            # Account returned $0 — could be wrong sub-account
+            logger.warning(
+                f"[OANDA] Account {self.account_id} returned $0 NAV. "
+                f"Scanning all accounts under this API key..."
+            )
+
+        # ── Discover all accounts under this API key ──
+        try:
+            r = accounts.AccountList()
+            self.client.request(r)
+            acct_list = r.response.get("accounts", [])
+
+            if not acct_list:
+                logger.error("[OANDA] No accounts found for this API key!")
+                return
+
+            logger.info(f"[OANDA] Found {len(acct_list)} account(s) under this API key:")
+
+            best_id = None
+            best_nav = 0.0
+
+            for acct in acct_list:
+                acct_id = acct.get("id", "")
+                tags = acct.get("tags", [])
+                tag_str = ", ".join(tags) if tags else "no tags"
+
+                # Fetch summary for each account to find the funded one
+                try:
+                    r_summary = accounts.AccountSummary(acct_id)
+                    self.client.request(r_summary)
+                    summary = r_summary.response.get("account", {})
+                    nav = float(summary.get("NAV", 0.0))
+                    balance = float(summary.get("balance", 0.0))
+                    currency = summary.get("currency", "USD")
+                    effective_value = nav if nav > 0 else balance
+
+                    logger.info(
+                        f"  → {acct_id} [{tag_str}] "
+                        f"Balance={balance:.2f} NAV={nav:.2f} {currency}"
+                    )
+
+                    if effective_value > best_nav:
+                        best_nav = effective_value
+                        best_id = acct_id
+                except Exception as e:
+                    logger.warning(f"  → {acct_id} [{tag_str}] ⚠ Could not fetch summary: {e}")
+
+            # Auto-select the best-funded account
+            if best_id and best_id != self.account_id and best_nav > 0:
+                logger.info(
+                    f"[OANDA] Auto-selected account {best_id} "
+                    f"(NAV=${best_nav:.2f}) over configured {self.account_id or '(none)'}"
+                )
+                self.account_id = best_id
+                self.refresh_account_summary()
+            elif best_id and best_nav > 0:
+                # Same account but maybe balance field instead of NAV
+                self.account_id = best_id
+                self._liquid_capital = best_nav
+                logger.info(f"[OANDA] Using account {best_id} with capital ${best_nav:.2f}")
+            else:
+                logger.error(
+                    "[OANDA] No funded accounts found! All accounts returned $0. "
+                    "Check your API key permissions and environment (practice vs live)."
+                )
+
+        except Exception as e:
+            logger.error(f"[OANDA] Account discovery failed: {e}")
+            # If we have an account_id, try it anyway
+            if self.account_id and self._liquid_capital == 0:
+                self.refresh_account_summary()
 
     def sync_profile(self, profile: TradingProfileSettings) -> None:
         """Update internal profile pointer to latest settings (Hot-Reload)."""
@@ -289,8 +375,12 @@ class OandaExchangeBroker(IExchangeBroker):
             r = accounts.AccountSummary(self.account_id)
             self.client.request(r)
             summary = r.response.get("account", {})
-            self._liquid_capital = float(summary.get("NAV", 0.0))
-            logger.info(f"[OANDA] Account Summary: Balance={summary.get('balance')}, NAV={self._liquid_capital}")
+            nav = float(summary.get("NAV", 0.0))
+            balance = float(summary.get("balance", 0.0))
+            margin_avail = float(summary.get("marginAvailable", 0.0))
+            # Prefer NAV > balance > marginAvailable (some practice accounts report differently)
+            self._liquid_capital = nav if nav > 0 else (balance if balance > 0 else margin_avail)
+            logger.info(f"[OANDA] Account Summary: Balance={balance}, NAV={nav}, Capital=${self._liquid_capital:.2f}")
         except Exception as e:
             logger.error(f"[OANDA] Failed to refresh account summary: {e}")
 
