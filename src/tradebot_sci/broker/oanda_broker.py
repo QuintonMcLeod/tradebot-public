@@ -203,10 +203,10 @@ class OandaExchangeBroker(IExchangeBroker):
         except Exception:
             return "N/A", None
 
-    @staticmethod
-    def _format_duration(entry_time_str: str | None) -> str:
+    @classmethod
+    def _format_duration(cls, entry_time_str: str | None) -> str:
         """Compute human-readable duration from ISO entry time to now."""
-        dur_str, _ = OANDABroker._compute_duration(entry_time_str)
+        dur_str, _ = cls._compute_duration(entry_time_str)
         return dur_str
 
     # ── Tracked Position Persistence ──────────────────────────────────
@@ -264,7 +264,7 @@ class OandaExchangeBroker(IExchangeBroker):
                     try:
                         r_closed = trades.TradesList(
                             self.account_id,
-                            params={"state": "CLOSED", "instrument": sym, "count": 10}
+                            params={"state": "CLOSED", "instrument": self._normalize_symbol(sym), "count": 10}
                         )
                         closed_resp = self.client.request(r_closed)
                         closed_trades = closed_resp.get("trades", [])
@@ -335,7 +335,7 @@ class OandaExchangeBroker(IExchangeBroker):
                     if trade_id in backfilled_ids:
                         continue
 
-                    sym = ct.get("instrument", "")
+                    sym = ct.get("instrument", "").replace("_", "")
                     pnl = float(ct.get("realizedPL", 0))
                     initial_units = float(ct.get("initialUnits", 0))
                     price = float(ct.get("price", 0))
@@ -506,7 +506,9 @@ class OandaExchangeBroker(IExchangeBroker):
                 # Register with SafetyGuard for Streak Breaker & Exit Cooldown
                 try:
                     from tradebot_sci.strategy.safety_guard import SafetyGuard
-                    SafetyGuard.register_trade_completion(symbol, pnl_val > 0)
+                    is_win = pnl_val > 0
+                    SafetyGuard.register_trade_completion(symbol, is_win)
+                    logger.info(f"[STREAK] Registered {'WIN' if is_win else 'LOSS'} for {symbol} (streak count: {SafetyGuard.SYMBOL_LOSS_STREAKS.get(symbol, 0)})")
                 except Exception:
                     pass
                 
@@ -526,6 +528,8 @@ class OandaExchangeBroker(IExchangeBroker):
                     ))
 
                 logger.info(f"[OANDA] Flattened {symbol}. Response: {resp}")
+                # Remove from tracked so synthetic stop scanner doesn't double-fire
+                self._tracked_positions.pop(symbol, None)
         except Exception as e:
             logger.error(f"[OANDA] Failed to flatten {symbol}: {e}")
 
@@ -814,7 +818,7 @@ class OandaExchangeBroker(IExchangeBroker):
                     try:
                         r_closed = trades.TradesList(
                             self.account_id,
-                            params={"state": "CLOSED", "instrument": sym, "count": 5}
+                            params={"state": "CLOSED", "instrument": self._normalize_symbol(sym), "count": 5}
                         )
                         closed_resp = self.client.request(r_closed)
                         closed_trades = closed_resp.get("trades", [])
@@ -866,7 +870,9 @@ class OandaExchangeBroker(IExchangeBroker):
                     # Register with SafetyGuard for Streak Breaker & Exit Cooldown
                     try:
                         from tradebot_sci.strategy.safety_guard import SafetyGuard
-                        SafetyGuard.register_trade_completion(sym, pnl > 0)
+                        is_win = pnl > 0
+                        SafetyGuard.register_trade_completion(sym, is_win)
+                        logger.info(f"[STREAK] Registered {'WIN' if is_win else 'LOSS'} for {sym} (streak count: {SafetyGuard.SYMBOL_LOSS_STREAKS.get(sym, 0)})")
                     except Exception:
                         pass
 

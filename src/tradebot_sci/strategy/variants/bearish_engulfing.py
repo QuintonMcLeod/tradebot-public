@@ -158,7 +158,7 @@ class BearishEngulfingStrategy(BaseStrategy):
                 if entry_price > 0 and curr.close >= entry_price:
                     return None  # Not at a better price for shorts
 
-            stop_loss = curr.high + (atr * 0.25)  # Above the engulfing candle wick
+            stop_loss = curr.high + (atr * 1.5)  # 1.5 ATR buffer — safe from spread
             stop_dist = stop_loss - curr.close
             take_profit = curr.close - (stop_dist * 2.0)  # 2:1 R:R
 
@@ -198,7 +198,7 @@ class BearishEngulfingStrategy(BaseStrategy):
                 if entry_price > 0 and curr.close <= entry_price:
                     return None  # Not at a better price for longs
 
-            stop_loss = curr.low - (atr * 0.25)  # Below the engulfing candle wick
+            stop_loss = curr.low - (atr * 1.5)  # 1.5 ATR buffer — safe from spread
             stop_dist = curr.close - stop_loss
             take_profit = curr.close + (stop_dist * 2.0)  # 2:1 R:R
 

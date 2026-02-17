@@ -289,13 +289,6 @@ def process_candidate_cycle(
                 result, outcome = executor.execute_decision(decision)
                 handle_execution_result(outcome, strike_tracker)
                 if result and result.status.value == "executed":
-                    # Wire up Streak Breaker: register trade completion on exits
-                    if decision.action in ("exit", "close", "close_position", "exit_position"):
-                        pnl = getattr(decision, "pnl", None) or getattr(result, "pnl", None)
-                        is_win = (pnl is not None and pnl > 0)
-                        from tradebot_sci.strategy.safety_guard import SafetyGuard
-                        SafetyGuard.register_trade_completion(symbol, is_win)
-                        logger.info(f"[STREAK] Registered {'WIN' if is_win else 'LOSS'} for {symbol} (streak count: {SafetyGuard.SYMBOL_LOSS_STREAKS.get(symbol, 0)})")
                     success_symbol = symbol
                     if stop_after_submit:
                         break

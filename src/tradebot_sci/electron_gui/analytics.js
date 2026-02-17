@@ -59,7 +59,9 @@ async function loadAnalyticsData(filter) {
             _capitalByBroker = d.capitalByBroker || {};
             _activeBrokerTab = 'all';
             buildBrokerTabs();
-            updateCapitalTimeline(_capitalHistoryAll, currentFilter);
+            // For the "All" tab, show only combined ('all') or untagged snapshots
+            // so per-broker entries don't get picked by the minute-based dedup
+            updateCapitalTimeline(getFilteredCapitalHistory('all'), currentFilter);
             updateTradeHistory(d.trades || []);
             updateSymbolBreakdown(d.symbolStats || {});
             updateStrategyBreakdown(d.strategyStats || {});
@@ -543,6 +545,18 @@ async function buildBrokerTabs() {
     }
 }
 
+/**
+ * Get capital history filtered for a specific broker tab.
+ * For 'all': only include snapshots tagged 'all' or untagged (historical day-start entries),
+ * so per-broker snapshots (oanda/ccxt) don't shadow the combined value during dedup.
+ */
+function getFilteredCapitalHistory(brokerId) {
+    if (brokerId === 'all') {
+        return _capitalHistoryAll.filter(c => !c.broker || c.broker === 'all');
+    }
+    return _capitalHistoryByBroker[brokerId] || [];
+}
+
 function selectBrokerTab(brokerId) {
     _activeBrokerTab = brokerId;
     // Update tab styling
@@ -553,10 +567,7 @@ function selectBrokerTab(brokerId) {
         });
     }
     // Re-render chart with filtered data
-    const data = (brokerId === 'all')
-        ? _capitalHistoryAll
-        : (_capitalHistoryByBroker[brokerId] || []);
-    updateCapitalTimeline(data, currentFilter, brokerId);
+    updateCapitalTimeline(getFilteredCapitalHistory(brokerId), currentFilter, brokerId);
 }
 
 // ═══════════════════════════════════════════════════════════

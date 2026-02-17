@@ -96,7 +96,7 @@ def _compute_sundown(date_obj, lat: float, lon: float, tz_name: str) -> datetime
             s = sun(loc.observer, date=date_obj, tzinfo=tz)
             return s["sunset"]
         except Exception as e:
-            logger.warning(f"[LEDGER] Astral sundown calc failed: {e}; using 18:00 fallback")
+            logger.debug(f"[LEDGER] Astral sundown calc failed: {e}; using 18:00 fallback")
 
     # Fallback: 6 PM local
     return datetime(date_obj.year, date_obj.month, date_obj.day, 18, 0, 0, tzinfo=tz)

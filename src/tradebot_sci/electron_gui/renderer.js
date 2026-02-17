@@ -1480,11 +1480,13 @@ function parseLogLine(line) {
 
         // Parse EXIT for exit marker with PnL
         // Expected format: [EXIT] Manual/Signal: BTCUSD +$2.50 (Pct=1.25%)
-        const symbolMatch = line.match(/\[EXIT\][^:]*:\s*([A-Z0-9]+)/i) || line.match(/\[EXIT\]\s+([A-Z0-9]+)/i);
+        const symbolMatch = line.match(/\[EXIT\][^:]*:\s*([A-Z0-9_]+)/i) || line.match(/\[EXIT\]\s+([A-Z0-9_]+)/i);
         const pnlMatch = line.match(/([+-]?\$[\d.]+)/);
         const pctMatch = line.match(/Pct=([+-]?[\d.]+)%?/i);
 
         if (symbolMatch) {
+            // Strip underscores from OANDA-format symbols (e.g. GBP_USD → GBPUSD)
+            symbolMatch[1] = symbolMatch[1].replace(/_/g, '');
             let logTime = parseLogTimestamp(line);
             const tfRaw = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
             const interval = tfToSeconds(tfRaw);
@@ -1863,34 +1865,26 @@ window.api.on('bot-status', (payload) => {
 });
 
 function updatePanicButtonState() {
-    const isCurrentlyHalted = document.getElementById('btn-panic')?.classList.contains('bg-emerald-500');
-    // If we were in a halted state, we might want to preserve that on resume? 
-    // Actually, setPanicState(isHalted) handles it.
-    // If not running, force "Start" look.
-    if (!botIsRunning) {
-        setPanicState(true, true); // Force green, start mode
+    // Two states only: bot running → Panic, bot not running → Start
+    if (botIsRunning) {
+        setPanicState(false); // Show panic button
     } else {
-        // If running, we rely on the halted class or the state we loaded
-        // setPanicState(isHalted, isStartMode)
-        const isHalted = document.getElementById('btn-panic')?.classList.contains('bg-emerald-500');
-        setPanicState(isHalted, false);
+        setPanicState(true);  // Show start button
     }
 }
 
-function setPanicState(isStarted, isStartMode = false) {
+function setPanicState(isStopped) {
     const btn = document.getElementById('btn-panic');
     const text = document.getElementById('panic-text');
     if (!btn || !text) return;
 
-    if (isStartMode) {
+    if (isStopped) {
+        // Bot is NOT running → green "Start Bot"
         btn.classList.remove('panic-stripes', 'bg-red-500', 'border-red-500/40');
         btn.classList.add('bg-emerald-500', 'border-emerald-500/40');
         text.innerText = "Start Bot";
-    } else if (isStarted) {
-        btn.classList.remove('panic-stripes', 'bg-red-500', 'border-red-500/40');
-        btn.classList.add('bg-emerald-500', 'border-emerald-500/40');
-        text.innerText = "Resume Bot";
     } else {
+        // Bot IS running → red panic button
         btn.classList.add('panic-stripes', 'bg-red-500', 'border-red-500/40');
         btn.classList.remove('bg-emerald-500', 'border-emerald-500/40');
         text.innerText = "PANIC BUTTON -\nHALT ALL TRADING";
@@ -2010,26 +2004,14 @@ function setupInteractiveElements() {
             const text = document.getElementById('panic-text');
             if (btn && text) {
                 text.innerText = "Starting...";
-                // Keep it green but maybe a bit dimmer or pulsing?
-                // For now just change text.
             }
             return;
         }
 
-        const isCurrentlyHalted = e.currentTarget.classList.contains('bg-emerald-500');
-        const nextHaltedState = !isCurrentlyHalted;
-        setPanicState(nextHaltedState);
-
-        const cmd = nextHaltedState ? 'halt' : 'resume';
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'command', cmd: cmd }));
-        }
-
-        if (nextHaltedState) {
-            appendLog("CRITICAL", "[USER] PANIC BUTTON ACTIVATED. HALT SIGNAL SENT.");
-        } else {
-            appendLog("SUCCESS", "[USER] RESUME SIGNAL SENT. BOT REINSTATING.");
-        }
+        // PANIC: Kill the bot PID directly — no WebSocket signals that get ignored
+        window.api.send('stop-bot');
+        appendLog("CRITICAL", "[USER] PANIC BUTTON ACTIVATED. KILLING BOT PROCESS.");
+        setPanicState(true);  // Show "Start Bot" (bot is now stopped)
         saveState();
     });
 
@@ -2414,7 +2396,7 @@ function loadState() {
         if (state.timeframe) document.getElementById('chart-tf-label').innerText = state.timeframe;
 
         if (state.isHalted) {
-            setPanicState(true);
+            setPanicState(true);  // Bot was halted → show "Start Bot"
         }
     } catch (e) { console.error("Load State Error:", e); }
 }

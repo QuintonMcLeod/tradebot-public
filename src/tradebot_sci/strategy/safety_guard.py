@@ -418,6 +418,20 @@ class SafetyGuard:
             if isinstance(entry_time, datetime):
                 bars_since = len([c for c in snapshot.candles if c.timestamp >= entry_time])
 
+        # [CHURN GUARD] Minimum hold time — refuse non-SL/TP exits for young positions.
+        # Prevents the 30-40s churn cycle where strategies re-evaluate and exit immediately.
+        MIN_HOLD_SECONDS = 120  # 2 minutes
+        position_age_seconds = 0
+        if entry_time and isinstance(entry_time, datetime):
+            now = datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.utcnow()
+            position_age_seconds = (now - entry_time).total_seconds()
+            if position_age_seconds < MIN_HOLD_SECONDS:
+                logger.debug(
+                    f"[SAFETY] Churn Guard: {snapshot.symbol} position age {position_age_seconds:.0f}s "
+                    f"< {MIN_HOLD_SECONDS}s minimum — skipping non-SL/TP exit checks"
+                )
+                return decision  # Let TP/SL fire via broker, but no SafetyGuard exits
+
         initial_risk = abs(entry_price - current_stop)
         profit_dist = (current_price - entry_price) if direction == "long" else (entry_price - current_price)
         r_multiple = profit_dist / initial_risk if initial_risk > 0 else 0.0
@@ -699,7 +713,10 @@ class SafetyGuard:
                  # FLOOR: The Greedy Exit never loses money — stop can't go below entry
                  potential_stop = max(potential_stop, entry_price)
                  # If price is at/below entry, nothing to retain — close now
-                 if current_price <= entry_price:
+                 # [ANTI-CHURN] Require minimum 5 minutes held AND spread buffer
+                 # Before this fix, spread alone (1.5 pips) triggered instant exits
+                 min_greedy_age = 300  # 5 minutes
+                 if hours_held * 3600 >= min_greedy_age and current_price <= entry_price:
                      logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} <= {entry_price:.5f}). Closing at breakeven.")
                      return close_position_decision(snapshot.symbol, snapshot.timeframe,
                                                     reason=f"Greedy Exit: Back to entry (breakeven)")
@@ -719,7 +736,9 @@ class SafetyGuard:
                  # FLOOR: The Greedy Exit never loses money — stop can't go above entry
                  potential_stop = min(potential_stop, entry_price)
                  # If price is at/above entry, nothing to retain — close now
-                 if current_price >= entry_price:
+                 # [ANTI-CHURN] Require minimum 5 minutes held AND spread buffer
+                 min_greedy_age = 300  # 5 minutes
+                 if hours_held * 3600 >= min_greedy_age and current_price >= entry_price:
                      logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} >= {entry_price:.5f}). Closing at breakeven.")
                      return close_position_decision(snapshot.symbol, snapshot.timeframe,
                                                     reason=f"Greedy Exit: Back to entry (breakeven)")

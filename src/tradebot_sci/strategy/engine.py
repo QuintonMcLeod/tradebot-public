@@ -384,11 +384,32 @@ class StrategyEngine:
                 trade_history=history
             )
             if exit_decision:
-                exit_decision.score = score
-                exit_decision.grade = grade
+                # [CHURN GUARD] Block non-emergency strategy exits for young positions.
+                # Prevents strategies from contradicting their own entry within 30-40s.
+                entry_time = open_position.get("entry_time")
+                position_age = None
+                if entry_time:
+                    if isinstance(entry_time, str):
+                        try:
+                            from datetime import datetime as dt
+                            entry_time = dt.fromisoformat(entry_time.replace("Z", "+00:00"))
+                        except: pass
+                    if isinstance(entry_time, datetime):
+                        now = datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.now(tz=ZoneInfo("UTC"))
+                        position_age = (now - entry_time).total_seconds()
 
-                logger.info(f"[PHOENIX] {self.symbol} Strategy EXIT triggered: {exit_decision.summary()}")
-                return exit_decision
+                is_emergency = getattr(exit_decision, 'emergency_exit', False)
+                if position_age is not None and position_age < 120 and not is_emergency:
+                    logger.debug(
+                        f"[ENGINE] Churn Guard: {self.symbol} strategy exit blocked — "
+                        f"position age {position_age:.0f}s < 120s minimum"
+                    )
+                else:
+                    exit_decision.score = score
+                    exit_decision.grade = grade
+
+                    logger.info(f"[PHOENIX] {self.symbol} Strategy EXIT triggered: {exit_decision.summary()}")
+                    return exit_decision
             
             # [SAFETY GUARD] Augment with Safety Exits (ATR Armor, Trailing) if Strategy is silent
             safety_exit = SafetyGuard.augment_exit_decision(None, open_position, snapshot)
