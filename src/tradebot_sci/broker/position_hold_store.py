@@ -21,6 +21,7 @@ class PositionHoldRecord:
     entry_price: float | None = None
     take_profit: float | None = None
     size: float | None = None
+    strategy: str | None = None
     schema_version: int = SCHEMA_VERSION
 
     def to_dict(self) -> Dict[str, Any]:
@@ -35,6 +36,7 @@ class PositionHoldRecord:
             entry_price=float(data["entry_price"]) if data.get("entry_price") is not None else None,
             take_profit=float(data["take_profit"]) if data.get("take_profit") is not None else None,
             size=float(data["size"]) if data.get("size") is not None else None,
+            strategy=data.get("strategy"),
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
         )
 
@@ -77,14 +79,15 @@ class PositionHoldStore:
             os.fsync(handle.fileno())
         tmp.replace(self.path)
 
-    def upsert(self, symbol: str, opened_at: datetime, stop_loss: float | None = None, entry_price: float | None = None, take_profit: float | None = None, size: float | None = None) -> None:
+    def upsert(self, symbol: str, opened_at: datetime, stop_loss: float | None = None, entry_price: float | None = None, take_profit: float | None = None, size: float | None = None, strategy: str | None = None) -> None:
         record = PositionHoldRecord(
             symbol=symbol.upper(), 
             opened_at=opened_at.astimezone(timezone.utc).isoformat(),
             stop_loss=stop_loss,
             entry_price=entry_price,
             take_profit=take_profit,
-            size=size
+            size=size,
+            strategy=strategy,
         )
         self.records[record.symbol] = record
         self.save()

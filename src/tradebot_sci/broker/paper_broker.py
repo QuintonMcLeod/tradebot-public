@@ -8,10 +8,11 @@ from typing import List, Dict, Any, Iterable
 from tradebot_sci.broker.execution import ExecutionOutcome, ExecutionResult, ExecutionStatus, ExecutionOutcomeType
 from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.broker.trade_result_store import TradeResult
+from tradebot_sci import paths as _paths
 
 logger = logging.getLogger(__name__)
 
-PAPER_STATE_FILE = os.path.join("data", "paper_state.json")
+PAPER_STATE_FILE = str(_paths.DATA_DIR / "paper_state.json")
 
 class PaperBroker:
     """A simulated broker for local-only paper trading during Sabbath."""

@@ -4,6 +4,8 @@ import json
 import logging
 import os
 from pathlib import Path
+
+from tradebot_sci import paths as _paths
 from typing import Any, Iterable
 
 try:
@@ -62,7 +64,7 @@ class OandaExchangeBroker(IExchangeBroker):
         self._authorized = True  # Will be set to False if API key is invalid
         self._tracked_positions: dict[str, dict] = {}  # symbol -> position snapshot
         self._prev_balance: float | None = None  # for PnL calc on vanished positions
-        self._tracked_path = Path("data/oanda_tracked_positions.json")
+        self._tracked_path = _paths.DATA_DIR / "oanda_tracked_positions.json"
         self._load_tracked_positions()
 
         # ── Account validation & auto-discovery ──
@@ -251,7 +253,7 @@ class OandaExchangeBroker(IExchangeBroker):
             stale = [s for s in self._tracked_positions if s not in current_symbols]
             if stale:
                 # Load set of already-backfilled trade IDs to prevent duplicates
-                bf_path = Path("data/oanda_backfilled_trades.json")
+                bf_path = _paths.DATA_DIR / "oanda_backfilled_trades.json"
                 backfilled_ids: set = set()
                 if bf_path.exists():
                     try:

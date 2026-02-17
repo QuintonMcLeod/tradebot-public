@@ -631,8 +631,8 @@ class TradingProfileSettings(BaseModel):
         description="Persist synthetic stop state to disk for ZEROHASH crypto",
     )
     synthetic_stop_store_path: str = Field(
-        default="data/synthetic_stops.json",
-        description="Path to the JSON file that stores synthetic stop records",
+        default="",
+        description="Path to the JSON file that stores synthetic stop records (auto-resolved if empty)",
     )
     startup_crypto_unprotected_policy: Literal["FLATTEN", "REARM"] = Field(
         default="FLATTEN",
@@ -1063,8 +1063,8 @@ class RuntimeSettings(BaseModel):
         description="Minimum NetLiquidation required before margin, short, or FX trades proceed.",
     )
     position_hold_store_path: str = Field(
-        default_factory=lambda: os.getenv("POSITION_HOLD_STORE_PATH", "data/position_holds.json"),
-        description="Path where position-open timestamps are persisted across restarts.",
+        default_factory=lambda: os.getenv("POSITION_HOLD_STORE_PATH", ""),
+        description="Path where position-open timestamps are persisted across restarts (auto-resolved if empty).",
     )
     allow_inherited_position: bool = Field(
         default_factory=lambda: os.getenv("ALLOW_INHERITED_POSITION", "False").lower() == "true",

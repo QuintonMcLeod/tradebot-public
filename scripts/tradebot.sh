@@ -4,31 +4,98 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-# Load secrets from .env.secrets (API keys only)
+# ── OS-aware user data directory (mirrors Python paths.py) ──
+if [[ -n "${TRADEBOT_DATA_DIR:-}" ]]; then
+  USER_DATA_DIR="$TRADEBOT_DATA_DIR"
+elif [[ "$(uname)" == "Darwin" ]]; then
+  USER_DATA_DIR="$HOME/Library/Application Support/tradebot-sci"
+else
+  USER_DATA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tradebot-sci"
+fi
+mkdir -p "$USER_DATA_DIR/data" "$USER_DATA_DIR/logs" "$USER_DATA_DIR/config"
+
+# ── Auto-migrate from app dir if user data dir is missing files ──
+_migrated=()
+# config.json
+if [[ ! -f "$USER_DATA_DIR/config.json" && -f "$ROOT_DIR/config.json" ]]; then
+  cp -a "$ROOT_DIR/config.json" "$USER_DATA_DIR/config.json"
+  _migrated+=("config.json")
+fi
+# .env.secrets
+if [[ ! -f "$USER_DATA_DIR/.env.secrets" && -f "$ROOT_DIR/.env.secrets" ]]; then
+  cp -a "$ROOT_DIR/.env.secrets" "$USER_DATA_DIR/.env.secrets"
+  _migrated+=(".env.secrets")
+fi
+# data/ files
+if [[ -d "$ROOT_DIR/data" ]]; then
+  for f in "$ROOT_DIR/data"/*; do
+    [[ -e "$f" ]] || continue
+    bname="$(basename "$f")"
+    if [[ ! -e "$USER_DATA_DIR/data/$bname" ]]; then
+      cp -a "$f" "$USER_DATA_DIR/data/$bname"
+      _migrated+=("data/$bname")
+    fi
+  done
+fi
+# logs/ files
+if [[ -d "$ROOT_DIR/logs" ]]; then
+  for f in "$ROOT_DIR/logs"/*; do
+    [[ -e "$f" ]] || continue
+    bname="$(basename "$f")"
+    if [[ ! -e "$USER_DATA_DIR/logs/$bname" ]]; then
+      cp -a "$f" "$USER_DATA_DIR/logs/$bname"
+      _migrated+=("logs/$bname")
+    fi
+  done
+fi
+# settings_profiles.yaml
+if [[ ! -f "$USER_DATA_DIR/config/settings_profiles.yaml" && -f "$ROOT_DIR/config/settings_profiles.yaml" ]]; then
+  cp -a "$ROOT_DIR/config/settings_profiles.yaml" "$USER_DATA_DIR/config/settings_profiles.yaml"
+  _migrated+=("config/settings_profiles.yaml")
+fi
+
+if [[ ${#_migrated[@]} -gt 0 ]]; then
+  echo "[MIGRATE] Copied ${#_migrated[@]} item(s) to $USER_DATA_DIR:"
+  for item in "${_migrated[@]}"; do
+    echo "  $item"
+  done
+fi
+
+# Load secrets from user data directory
 set -a
-[ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" >/dev/null 2>&1 || true
-# Fallback: Also try legacy .env if it exists (for transition)
-[ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" >/dev/null 2>&1 || true
+[ -f "$USER_DATA_DIR/.env.secrets" ] && source "$USER_DATA_DIR/.env.secrets" > /dev/null 2>&1 || true
+# Fallback: Also try legacy locations (for transition)
+[ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" > /dev/null 2>&1 || true
+[ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" > /dev/null 2>&1 || true
+set +a
+
 # Robustly find Python executable
 PYTHON_EXE="python"
 if [[ -f "$ROOT_DIR/.venv/bin/python" ]]; then
   PYTHON_EXE="\"$ROOT_DIR/.venv/bin/python\""
-elif command -v poetry >/dev/null 2>&1; then
+elif command -v poetry > /dev/null 2>&1; then
   PYTHON_EXE="poetry run python"
 fi
 
 # In tmux, panes are spawned via a non-interactive shell (no .bashrc),
 # so env vars like ${CHATGPT_KEY} won't exist unless we explicitly load them.
-ENV_BOOTSTRAP="source \"$HOME/.bashrc\" >/dev/null 2>&1 || true; set -a; [ -f \"$ROOT_DIR/.env.secrets\" ] && source \"$ROOT_DIR/.env.secrets\" >/dev/null 2>&1; [ -f \"$ROOT_DIR/.env\" ] && source \"$ROOT_DIR/.env\" >/dev/null 2>&1; set +a"
+ENV_BOOTSTRAP="source \"$HOME/.bashrc\" > /dev/null 2>&1 || true; set -a; [ -f \"$USER_DATA_DIR/.env.secrets\" ] && source \"$USER_DATA_DIR/.env.secrets\" > /dev/null 2>&1; [ -f \"$ROOT_DIR/.env.secrets\" ] && source \"$ROOT_DIR/.env.secrets\" > /dev/null 2>&1; [ -f \"$ROOT_DIR/.env\" ] && source \"$ROOT_DIR/.env\" > /dev/null 2>&1; set +a"
 
 list_profiles() {
-  # Try new config.json first, then fallback to legacy YAML
-  if [[ -f "config.json" ]]; then
+  # Try config.json from user data dir first, then app dir, then legacy YAML
+  local cfg=""
+  if [[ -f "$USER_DATA_DIR/config.json" ]]; then
+    cfg="$USER_DATA_DIR/config.json"
+  elif [[ -f "$ROOT_DIR/config.json" ]]; then
+    cfg="$ROOT_DIR/config.json"
+  fi
+
+  if [[ -n "$cfg" ]]; then
     # Extract profile names from config.json using jq or python
     if command -v jq >/dev/null 2>&1; then
-      jq -r '.profiles | keys | join(", ")' config.json 2>/dev/null || return 1
+      jq -r '.profiles | keys | join(", ")' "$cfg" 2>/dev/null || return 1
     elif command -v python3 >/dev/null 2>&1; then
-      python3 -c "import json; print(', '.join(json.load(open('config.json')).get('profiles', {}).keys()))" 2>/dev/null || return 1
+      python3 -c "import json; print(', '.join(json.load(open('$cfg')).get('profiles', {}).keys()))" 2>/dev/null || return 1
     else
       echo "(install jq or python3 to list profiles)"
       return 1
@@ -191,12 +258,20 @@ EOF
   echo "  - Safety still runs (local/synthetic stops and exits can still trigger)."
 }
 
-# Auto-detect profile from config.json if not set in env
-if [[ -z "${PROFILE_NAME:-}" && -f "$ROOT_DIR/config.json" ]]; then
-  if command -v jq >/dev/null 2>&1; then
-    PROFILE_NAME="$(jq -r '.active_profile' "$ROOT_DIR/config.json" 2>/dev/null)"
-  elif command -v python3 >/dev/null 2>&1; then
-    PROFILE_NAME="$(python3 -c "import json; print(json.load(open('$ROOT_DIR/config.json')).get('active_profile', ''))" 2>/dev/null)"
+# Auto-detect profile from config.json (user data dir first, then app dir)
+if [[ -z "${PROFILE_NAME:-}" ]]; then
+  _cfg=""
+  if [[ -f "$USER_DATA_DIR/config.json" ]]; then
+    _cfg="$USER_DATA_DIR/config.json"
+  elif [[ -f "$ROOT_DIR/config.json" ]]; then
+    _cfg="$ROOT_DIR/config.json"
+  fi
+  if [[ -n "$_cfg" ]]; then
+    if command -v jq > /dev/null 2>&1; then
+      PROFILE_NAME="$(jq -r '.active_profile' "$_cfg" 2>/dev/null)"
+    elif command -v python3 > /dev/null 2>&1; then
+      PROFILE_NAME="$(python3 -c "import json; print(json.load(open('$_cfg')).get('active_profile', ''))" 2>/dev/null)"
+    fi
   fi
 fi
 PROFILE_NAME="${PROFILE_NAME:-}"  # Will be auto-detected below if empty
@@ -208,7 +283,7 @@ SABBATH="false"
 NO_SABBATH="false"
 
 SESSION_NAME="${SESSION_NAME:-tradebot}"
-LOG_FILE="${TRADEBOT_LOG:-logs/tradebot.log}"
+LOG_FILE="${TRADEBOT_LOG:-$USER_DATA_DIR/logs/tradebot.log}"
 MARKET_DATA_MODE="${MARKET_DATA_MODE:-}"
 BROKER_MODE="${BROKER_MODE:-}"
 
@@ -357,8 +432,9 @@ restart_tmux() {
 
 	  # CRITICAL: Re-source secrets to pick up changes made by the GUI/User since the script started.
 	  set -a
-	  [ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" >/dev/null 2>&1 || true
-	  [ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" >/dev/null 2>&1 || true
+	  [ -f "$USER_DATA_DIR/.env.secrets" ] && source "$USER_DATA_DIR/.env.secrets" > /dev/null 2>&1 || true
+	  [ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" > /dev/null 2>&1 || true
+	  [ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" > /dev/null 2>&1 || true
 	  set +a
 
 	  # Preserve the last run configuration from tmux unless the user explicitly overrides it.

@@ -1388,10 +1388,12 @@ function updateHoldingsTable(payload) {
         const rawPnl = parseFloat(pos.unrealized_pnl);
         const displayPnl = isNaN(rawPnl) ? "0.00" : rawPnl.toFixed(2);
         const displaySize = Math.abs(parseFloat(pos.size)).toFixed(4);
+        const displayStrategy = pos.strategy ? pos.strategy.toUpperCase().replace(/_/g, ' ') : '—';
 
         row.innerHTML = `
             <td class="p-2 font-mono font-bold text-slate-200">${pos.symbol}</td>
             <td class="p-2 text-center ${sideClass} font-bold text-xs">${pos.side ? pos.side.toUpperCase() : 'LONG'}</td>
+            <td class="p-2 text-center text-[10px] font-semibold"><span class="px-2 py-0.5 rounded bg-teal-900/40 text-teal-300 tracking-wider">${displayStrategy}</span></td>
             <td class="p-2 text-right font-mono text-slate-400">${displaySize}</td>
             <td class="p-2 text-right font-mono font-bold ${pnlClass}">${pnlSign}$${displayPnl}</td>
         `;
@@ -1400,7 +1402,7 @@ function updateHoldingsTable(payload) {
 
     // Handle empty state
     if (payload.positions.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500 italic text-xs">No active positions</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-500 italic text-xs">No active positions</td></tr>`;
     }
 
     // Update sidebar PNL

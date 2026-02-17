@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 from tradebot_sci.ai.client import TradeSciAIClient
 from tradebot_sci.broker.execution import ExecutionOutcomeType, ExecutionResult, ExecutionStatus
+from tradebot_sci import paths as _paths
 from tradebot_sci.config.loader import get_settings, reload_settings
 from tradebot_sci.config.models import Settings
 from tradebot_sci.logging.setup import setup_logging
@@ -93,6 +94,8 @@ def _log_holdings_snapshot(executor, *, reason: str, tag: str = "") -> None:
                     snap["opened_at"] = record.opened_at
                 if not snap.get("entry_price") and record.entry_price:
                     snap["entry_price"] = record.entry_price
+                if not snap.get("strategy") and record.strategy:
+                    snap["strategy"] = record.strategy
         positions.append({"symbol": sym, **snap})
     
     total_pnl = sum(p.get("unrealized_pnl", 0.0) or 0.0 for p in positions)
@@ -562,12 +565,12 @@ def run_bot(
         market_poll_interval_seconds=profile_settings.market_poll_interval_seconds,
         ai_decision_interval_seconds=profile_settings.ai_decision_interval_seconds,
     )
-    trade_results = TradeResultStore(os.path.join("data", "trade_results.json"))
+    trade_results = TradeResultStore(str(_paths.DATA_DIR / "trade_results.json"))
 
     # [LEDGER] Start PnL ledger daemon (background log scraper)
     ledger = LedgerDaemon(
-        log_path=os.path.join("logs", "tradebot.log"),
-        ledger_path=os.path.join("data", "ledger.json"),
+        log_path=str(_paths.LOG_DIR / "tradebot.log"),
+        ledger_path=str(_paths.DATA_DIR / "ledger.json"),
         interval=60,
         lat=getattr(profile_settings, "sabbath_lat", 33.764),
         lon=getattr(profile_settings, "sabbath_lon", -84.386),
@@ -628,7 +631,7 @@ def run_bot(
     executor_paper = None
     paper_ledger = None
     if not execute_trades or sabbath_context.enabled:
-        paper_trade_results = TradeResultStore(os.path.join("data", "paper_trade_results.json"))
+        paper_trade_results = TradeResultStore(str(_paths.DATA_DIR / "paper_trade_results.json"))
         executor_paper = PaperBroker(
             profile_settings,
             market_provider=provider,
@@ -640,8 +643,8 @@ def run_bot(
             logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
         # Separate paper ledger — never pollutes the live ledger
         paper_ledger = LedgerDaemon(
-            log_path=os.path.join("logs", "tradebot.log"),
-            ledger_path=os.path.join("data", "paper_ledger.json"),
+            log_path=str(_paths.LOG_DIR / "tradebot.log"),
+            ledger_path=str(_paths.DATA_DIR / "paper_ledger.json"),
             interval=60,
             lat=getattr(profile_settings, "sabbath_lat", 33.764),
             lon=getattr(profile_settings, "sabbath_lon", -84.386),
@@ -650,7 +653,7 @@ def run_bot(
         # Override: paper ledger only processes [PAPER] lines (inverse of live)
         paper_ledger._paper_mode = True
         paper_ledger.start()
-        logger.info("[PAPER] Paper ledger daemon started -> data/paper_ledger.json")
+        logger.info(f"[PAPER] Paper ledger daemon started -> {_paths.DATA_DIR / 'paper_ledger.json'}")
     else:
         logger.info("[PAPER] Paper Broker disabled (Live Trading enabled, Sabbath not active).")
 
@@ -1290,7 +1293,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         market_poll_interval_seconds=profile_settings.market_poll_interval_seconds,
         ai_decision_interval_seconds=profile_settings.ai_decision_interval_seconds,
     )
-    trade_results = TradeResultStore(os.path.join("data", "trade_results.json"))
+    trade_results = TradeResultStore(str(_paths.DATA_DIR / "trade_results.json"))
     engines = {
         symbol: StrategyEngine(
             ai_client=ai_client,
@@ -1321,7 +1324,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
     #   (b) Sabbath mode is enabled (needs paper fallback during Sabbath hours)
     executor_paper = None
     if not execute_trades or sabbath_context.enabled:
-        paper_trade_results = TradeResultStore(os.path.join("data", "paper_trade_results.json"))
+        paper_trade_results = TradeResultStore(str(_paths.DATA_DIR / "paper_trade_results.json"))
         executor_paper = PaperBroker(
             profile_settings, 
             market_provider=provider, 

@@ -364,6 +364,15 @@ class LedgerDaemon:
                         logger.debug(f"[LEDGER] Skipping duplicate EXIT: {symbol} {pnl_val:+.4f} ({reason})")
                         continue
 
+                    # ── Inherited position guard: skip if multiple exits for
+                    #    the same symbol fire within 5s (inherited flattening) ──
+                    sym_dedup_key = f"_multi_{symbol}"
+                    sym_last = self._exit_dedup.get(sym_dedup_key)
+                    if sym_last and (now - sym_last).total_seconds() < 5:
+                        logger.info(f"[LEDGER] Skipping inherited position exit: {symbol} {pnl_val:+.4f} (multiple closes within 5s)")
+                        continue
+                    self._exit_dedup[sym_dedup_key] = now
+
                     self._exit_dedup[dedup_key] = now
                     # Prune old entries (> 5 min)
                     self._exit_dedup = {k: v for k, v in self._exit_dedup.items()

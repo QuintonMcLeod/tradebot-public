@@ -35,14 +35,18 @@ from tradebot_sci.config.broker import (
 )
 from tradebot_sci.market.contracts import configure_crypto_routing
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-CONFIG_JSON_FILE = BASE_DIR / "config.json"
-SECRETS_FILE = BASE_DIR / ".env.secrets"
+from tradebot_sci import paths as _paths
+
+BASE_DIR = _paths.APP_DIR
+CONFIG_JSON_FILE = _paths.CONFIG_FILE
+SECRETS_FILE = _paths.SECRETS_FILE
 
 # Legacy paths (for fallback if config.json doesn't exist yet)
-CONFIG_DIR = BASE_DIR / "config"
+CONFIG_DIR = _paths.CONFIG_DIR
 LEGACY_BASE_SETTINGS_FILE = CONFIG_DIR / "settings_base.yaml"
 LEGACY_PROFILE_SETTINGS_FILE = CONFIG_DIR / "settings_profiles.yaml"
+# Also check the app-level config dir for legacy YAML files
+LEGACY_APP_CONFIG_DIR = BASE_DIR / "config"
 
 logger = logging.getLogger(__name__)
 
@@ -472,9 +476,16 @@ def _create_default_config() -> None:
 
 def load_settings() -> Settings:
     """Main entry point for loading and merging configuration."""
+    # 0. Ensure user data directories exist and migrate if needed
+    _paths.migrate_if_needed()
+
     # 1. Load secrets from .env.secrets (API keys only)
     if SECRETS_FILE.exists():
         load_dotenv(dotenv_path=SECRETS_FILE, override=True)
+    # Also check legacy location in app dir
+    legacy_secrets = BASE_DIR / ".env.secrets"
+    if legacy_secrets.exists() and legacy_secrets != SECRETS_FILE:
+        load_dotenv(dotenv_path=legacy_secrets, override=True)
     
     # Auto-migrate legacy config if needed
     _auto_migrate_legacy_config()
@@ -521,10 +532,18 @@ def load_settings() -> Settings:
 
     # 4. Post-initialization normalization
     settings.logging.file = _resolve_path(settings.logging.file) or settings.logging.file
-    settings.runtime.position_hold_store_path = _resolve_path(settings.runtime.position_hold_store_path) or settings.runtime.position_hold_store_path
+
+    # Auto-resolve empty paths to the user data directory
+    if not settings.runtime.position_hold_store_path:
+        settings.runtime.position_hold_store_path = str(_paths.DATA_DIR / "position_holds.json")
+    else:
+        settings.runtime.position_hold_store_path = _resolve_path(settings.runtime.position_hold_store_path) or settings.runtime.position_hold_store_path
     
     for p in settings.profiles.values():
-        p.synthetic_stop_store_path = _resolve_path(p.synthetic_stop_store_path) or p.synthetic_stop_store_path
+        if not p.synthetic_stop_store_path:
+            p.synthetic_stop_store_path = str(_paths.DATA_DIR / "synthetic_stops.json")
+        else:
+            p.synthetic_stop_store_path = _resolve_path(p.synthetic_stop_store_path) or p.synthetic_stop_store_path
 
     # 5. Final safety audit
     configure_crypto_routing(settings.market.crypto_routing)

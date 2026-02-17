@@ -6,12 +6,26 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const readline = require('readline');
 
-const LOGS_DIR = path.join(__dirname, '../../../logs');
-const LEDGER_PATH = path.join(__dirname, '../../../data/ledger.json');
-const PAPER_LEDGER_PATH = path.join(__dirname, '../../../data/paper_ledger.json');
-const SABBATH_FLAG = path.join(__dirname, '../../../data/.sabbath_active');
+// ── OS-aware user data directory (mirrors Python paths.py) ──
+const APP_NAME = 'tradebot-sci';
+function getUserDataDir() {
+    if (process.env.TRADEBOT_DATA_DIR) return process.env.TRADEBOT_DATA_DIR;
+    if (process.platform === 'darwin') {
+        return path.join(os.homedir(), 'Library', 'Application Support', APP_NAME);
+    } else if (process.platform === 'win32') {
+        return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), APP_NAME);
+    }
+    return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), APP_NAME);
+}
+
+const USER_DATA_DIR = getUserDataDir();
+const LOGS_DIR = path.join(USER_DATA_DIR, 'logs');
+const LEDGER_PATH = path.join(USER_DATA_DIR, 'data', 'ledger.json');
+const PAPER_LEDGER_PATH = path.join(USER_DATA_DIR, 'data', 'paper_ledger.json');
+const SABBATH_FLAG = path.join(USER_DATA_DIR, 'data', '.sabbath_active');
 
 // ─────────────────────────────────────────────────────────────────────────
 // LEDGER-BASED DATA (preferred path — fast JSON read)
@@ -409,7 +423,7 @@ function buildHoldingsEntries(logHoldings) {
  * Build holdings entries from paper_state.json
  * during Sabbath, so live OANDA positions don't leak into the paper view.
  */
-const PAPER_STATE_FILE = path.join(__dirname, '../../../data/paper_state.json');
+const PAPER_STATE_FILE = path.join(USER_DATA_DIR, 'data', 'paper_state.json');
 
 function buildPaperHoldingsEntries() {
     try {
