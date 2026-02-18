@@ -79,6 +79,14 @@
     function parseLogLine(line) {
         if (!line) return;
 
+        // If the log line is structured JSON, extract the message field cleanly
+        if (line.trimStart().startsWith('{')) {
+            try {
+                const parsed = JSON.parse(line);
+                if (parsed.message) line = parsed.message;
+            } catch (_) { /* Not valid JSON, fall through with raw line */ }
+        }
+
         // Check for EXIT logs to trigger PnL refresh and add exit marker
         if (line.includes('[EXIT]')) {
             setTimeout(() => { if (window.updateRealizedPnL) window.updateRealizedPnL(); }, 1000);

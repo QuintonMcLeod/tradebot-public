@@ -420,14 +420,12 @@ class StrategyEngine:
         # [CONSOLIDATED] Run all pre-entry checks (Breaker, Lockout, Greed, Churn, Veto, Streak, Sentry)
         # We run this AFTER exit checks so that TP/SL logic (SafetyGuard.augment_exit_decision)
         # takes priority over account-level blocks like Leverage Sentry.
-        # Use Total Equity (Cash + Position Value) for Leverage calculation.
-        # On spot exchanges, capital tied up in positions IS equity — not just the PnL delta.
-        # E.g. $1.17 cash + $12 in LTC = $13.17 equity, NOT $1.17 + (-$0.50 pnl) = $0.67.
-        position_value = caps.get("total_position_notional", 0.0)
-        if position_value > 0:
-            total_equity = current_capital_val + position_value
-        else:
-            # Fallback to old method if notional not available
+        # Use the authoritative total equity from the broker layer.
+        # This is cash + position value, consistent across all brokers.
+        # Replaces the old ad-hoc calculation that caused capital semantics mismatch.
+        total_equity = caps.get("total_equity", 0.0)
+        if total_equity <= 0:
+            # Fallback for legacy callers that don't pass total_equity
             total_equity = current_capital_val + caps.get("total_unrealized_pnl", 0.0)
         
         safety_decision = SafetyGuard.check_entry_safety(
@@ -539,9 +537,8 @@ class StrategyEngine:
 
                         return decision
 
-            # [SAFETY GUARD] Notify of Entry (for Churn Burner)
-            if decision.action in ("enter_long", "enter_short", "scale_in"):
-                 SafetyGuard.notify_entry(self.symbol)
+            # Note: Churn Burner notification moved to cycle.py (after confirmed execution)
+            # Previously here, it counted every entry SIGNAL as a trade, causing false churn blocks.
 
             logger.info(f"[PHOENIX] {self.symbol} Strategy {decision.action.upper()} triggered: {decision.summary()}")
             # 4. Final Safety Patch (Margin/Venue Only)

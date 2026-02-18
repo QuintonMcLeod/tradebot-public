@@ -101,6 +101,10 @@ class PaperBroker:
             total += pos.get("unrealized_pnl", 0.0)
         return total
 
+    def get_total_equity(self) -> float:
+        """Return total account equity for safety guards."""
+        return self.get_total_balance_value()
+
     def refresh_account_summary(self) -> None:
         # Prefixed with [PAPER] so ledger daemon skips these lines
         logger.info(f"[PAPER] [TOTAL] Liquidity available: ${self.balance:.2f}")

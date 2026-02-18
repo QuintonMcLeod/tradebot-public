@@ -237,6 +237,20 @@ class RoutedExchangeBroker(IExchangeBroker):
         logger.debug("[ROUTED] Total Equity Breakdown completed: %.2f", total)
         return total
 
+    def get_total_equity(self) -> float:
+        """Aggregate total equity (cash + position value) across all sub-brokers."""
+        total = 0.0
+        unique_brokers = set(b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker))
+        for b in unique_brokers:
+            if hasattr(b, "get_total_equity"):
+                b_eq = b.get_total_equity()
+                logger.debug(f"[ROUTED] Broker {type(b).__name__} equity: ${b_eq:.2f}")
+                total += b_eq
+            elif hasattr(b, "get_liquid_capital"):
+                total += b.get_liquid_capital()
+        logger.info(f"[EQUITY] Total Account Equity: ${total:.2f}")
+        return total
+
 
 
 class NoOpMarketDataProvider(MarketDataProvider):
@@ -278,6 +292,7 @@ class NoOpExchangeBroker(IExchangeBroker):
     def refresh_account_summary(self) -> None: pass
     def summarize_pnl(self) -> None: pass
     def get_liquid_capital(self) -> float: return 0.0
+    def get_total_equity(self) -> float: return 0.0
 
 
 def _get_effective_setting(key: str, settings: Settings, profile_settings: TradingProfileSettings | None) -> str:

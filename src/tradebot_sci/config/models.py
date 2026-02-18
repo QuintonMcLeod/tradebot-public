@@ -916,7 +916,7 @@ class SafetySettings(BaseModel):
         default_factory=lambda: os.getenv("SAFETY_SESSION_LOCKOUT_ENABLED", "True").lower() == "true"
     )
     safety_session_lockout_hour: int = Field(
-        default_factory=lambda: int(os.getenv("SAFETY_SESSION_LOCKOUT_HOUR", "12"))
+        default_factory=lambda: int(os.getenv("SAFETY_SESSION_LOCKOUT_HOUR", "16"))
     )
     safety_opening_sentry_enabled: bool = Field(
         default_factory=lambda: os.getenv("SAFETY_OPENING_SENTRY_ENABLED", "True").lower() == "true"
@@ -1180,9 +1180,9 @@ class RuntimeSettings(BaseModel):
         description="Commentary trigger policy: 'disabled', 'interval', 'schedule', or 'on_signal'."
     )
     commentary_interval_minutes: int = Field(
-        default_factory=lambda: int(os.getenv("COMMENTARY_INTERVAL_MINUTES", "5")),
+        default_factory=lambda: int(os.getenv("COMMENTARY_INTERVAL_MINUTES", "30")),
         ge=1,
-        le=60,
+        le=120,
         description="Interval in minutes between AI commentary updates (when policy='interval')."
     )
     commentary_daily_slots: str = Field(
@@ -1190,7 +1190,7 @@ class RuntimeSettings(BaseModel):
         description="Comma-separated HH:MM times for scheduled commentary (when policy='schedule')."
     )
     commentary_max_daily_calls: int = Field(
-        default_factory=lambda: int(os.getenv("COMMENTARY_LLM_MAX_CALLS_PER_DAY", "50")),
+        default_factory=lambda: int(os.getenv("COMMENTARY_LLM_MAX_CALLS_PER_DAY", "12")),
         ge=1,
         description="Hard limit on AI API calls per day to prevent runaway costs."
     )

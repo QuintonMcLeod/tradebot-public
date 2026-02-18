@@ -634,9 +634,9 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
     row.innerHTML = `
         <td class="px-4 py-1.5 text-slate-500 text-left font-mono text-sm">${time}</td>
         <td class="px-4 py-1.5 font-bold text-slate-200 text-left text-lg">${symbol}</td>
-        <td class="px-4 py-1.5 text-left text-sm uppercase tracking-wider">${actionHtml}</td>
         <td class="px-4 py-1.5 ${scoreClass} text-left font-black text-lg">${grade}</td>
         <td class="px-4 py-1.5 text-center">${stratBadge || '<span class="text-slate-600 text-[10px]">—</span>'}</td>
+        <td class="px-4 py-1.5 text-left text-sm uppercase tracking-wider">${actionHtml}</td>
         <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${displayReason}</td>
     `;
 

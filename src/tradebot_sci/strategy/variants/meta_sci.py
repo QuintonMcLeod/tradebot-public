@@ -288,6 +288,7 @@ class MetaSCIStrategy(BaseStrategy):
         logger.info(f"[META-SCI] ⚔️ Starting {regime.upper()} Tournament for {snapshot.symbol} ({len(eligible_names)} strategies eligible)...")
         
         signals = []
+        rejects = []  # Track reject scores for summary
         exclude_list = getattr(self.profile, 'meta_sci_exclude_list', [])
         
         for name, strat in self.strategies.items():
@@ -363,14 +364,22 @@ class MetaSCIStrategy(BaseStrategy):
                     signals.append(sig)
                     logger.info(f"[META-DEBUG] {snapshot.symbol} {name.upper()}: WIN -> {sig.action} (Score: {sig.score})")
                 else:
-                    reason = sig.notes if sig else "No decision returned"
-                    score = sig.score if sig else 0
+                    score = float(sig.score or 0) if sig else 0
+                    grade = (sig.grade or "F") if sig else "F"
+                    reason = sig.notes if sig else "No decision"
+                    rejects.append((name, score, grade, reason))
                     logger.info(f"[META-DEBUG] {snapshot.symbol} {name.upper()}: REJECT -> {reason} (Score: {score})")
             except Exception as e:
                 logger.error(f"[META-SCI] Strategy {name} crashed in tournament: {e}")
 
         if not signals:
-            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Meta-SCI Tournament: No signals found.")
+            # Build a rich summary mirroring the winning format
+            champ_part = f"👑 {champion_name.upper()} silent → " if champion_name else ""
+            # Sort rejects by score descending, show top contenders with scores
+            top_rejects = sorted(rejects, key=lambda r: r[1], reverse=True)[:4]
+            breakdown = " | ".join(f"{n}:{s:.0f}({g})" for n, s, g, _ in top_rejects)
+            reason = f"Meta-SCI [{regime}] {champ_part}{len(rejects)} rejected | {breakdown}"
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, reason)
 
         # 3. Pick Winner
         # Logic: Highest Score + Grade Bonus + Strategy Weight -> Most Conviction

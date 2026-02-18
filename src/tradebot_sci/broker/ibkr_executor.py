@@ -1769,6 +1769,10 @@ class IbkrExecutor:
         val = self.get_net_liquidation()
         return val if val is not None else 0.0
 
+    def get_total_equity(self) -> float:
+        """IBKR net liquidation already IS total equity."""
+        return self.get_liquid_capital()
+
     def _check_margin_guard(
         self, symbol: str, metadata: SymbolMetadata, decision: AITradeDecision
     ) -> tuple[bool, str | None]:

@@ -829,6 +829,10 @@ class CCXTExchangeBroker:
             logger.error(f"[CCXT] get_total_balance_value failed: {e}")
             return self.get_liquid_capital(None)
 
+    def get_total_equity(self) -> float:
+        """Return total account equity (cash + position value) for safety guards."""
+        return self.get_total_balance_value()
+
     def update_position_metadata(self, symbol: str, snapshot) -> None:
         """Update trailing stop metadata for open positions."""
         if not self.position_hold_store or not snapshot:

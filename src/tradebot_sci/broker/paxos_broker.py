@@ -137,6 +137,10 @@ class PaxosExchangeBroker(IExchangeBroker):
     def get_liquid_capital(self) -> float:
         return self._liquid_capital
 
+    def get_total_equity(self) -> float:
+        """Paxos doesn't distinguish — liquid capital is total equity."""
+        return self._liquid_capital
+
     def execute_decision(self, decision: AITradeDecision) -> tuple[ExecutionResult, ExecutionOutcome]:
         action = decision.action
         

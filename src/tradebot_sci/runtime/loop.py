@@ -1257,26 +1257,155 @@ def run_bot(
                         if first_engine and hasattr(first_engine, "_strategy"):
                             active_strategy = first_engine._strategy.name.lower()
 
-                    # Build state context for AI
+                    # Build COMPREHENSIVE state context for AI
+                    from datetime import datetime as _dt, timezone as _tz
                     state_lines = [
+                        f"Timestamp: {_dt.now(_tz.utc).strftime('%Y-%m-%d %H:%M UTC')}",
                         f"Profile: {profile_name}",
                         f"Active Strategy: {active_strategy.upper()}",
-                        f"Active Symbols: {', '.join(active_symbols)}",
-                        f"Candidates Analyzed: {len(candidates)}",
-                        f"Success: {success_symbol or 'none'}",
-                        f"Blocked: {blocked}, Skipped: {skipped}",
+                        f"Watchlist: {', '.join(active_symbols)}",
+                        "",
                     ]
+
+                    # --- Account & Capital ---
+                    state_lines.append("--- ACCOUNT ---")
                     if executor:
                         cap = executor.get_liquid_capital()
-                        state_lines.append(f"Available Capital: ${cap:.2f}")
-                    
-                    # Get recent logs for context (last 10 lines from this session)
-                    recent_logs = []  # Could extract from ws_handler buffer
+                        state_lines.append(f"Free Cash (Available): ${cap:.2f}")
+                        if hasattr(executor, "get_total_equity"):
+                            eq = executor.get_total_equity() 
+                            state_lines.append(f"Total Equity (Cash + Positions): ${eq:.2f}")
+                        if hasattr(executor, "get_total_balance_value"):
+                            nav = executor.get_total_balance_value()
+                            state_lines.append(f"NAV: ${nav:.2f}")
+
+                    # --- Open Positions ---
+                    state_lines.append("")
+                    state_lines.append("--- OPEN POSITIONS ---")
+                    pos_count = 0
+                    for sym in active_symbols:
+                        try:
+                            pos = executor.get_open_position_snapshot(sym) if executor else None
+                            if pos and pos.get("qty", 0) != 0:
+                                pos_count += 1
+                                side = pos.get("side", "unknown")
+                                qty = pos.get("qty", 0)
+                                entry = pos.get("entry_price", 0)
+                                pnl = pos.get("unrealized_pnl", 0)
+                                pnl_pct = pos.get("unrealized_pnl_pct", 0)
+                                strategy = pos.get("strategy_used", "unknown")
+                                state_lines.append(
+                                    f"  {sym}: {side} {abs(qty)} @ {entry} | "
+                                    f"P&L: ${pnl:.2f} ({pnl_pct:.1f}%) | Strategy: {strategy}"
+                                )
+                        except Exception:
+                            pass
+                    if pos_count == 0:
+                        state_lines.append("  No open positions")
+
+                    # --- Scan Results (this cycle) ---
+                    state_lines.append("")
+                    state_lines.append("--- LAST SCAN ---")
+                    state_lines.append(f"Candidates Analyzed: {len(candidates)}")
+                    state_lines.append(f"Trade Submitted: {success_symbol or 'none'}")
+                    state_lines.append(f"Blocked by Safety: {blocked}, Skipped: {skipped}")
+                    # Include candidate details
+                    for sym, snap, score_info, reason in candidates[:6]:
+                        state_lines.append(f"  {sym}: {reason} (score={score_info})")
+
+                    # --- Recent Trade History ---
+                    state_lines.append("")
+                    state_lines.append("--- RECENT CLOSED TRADES (last 5) ---")
+                    try:
+                        recent = trade_results.get_recent_results(5)
+                        if recent:
+                            for tr in recent:
+                                w_l = "WIN" if tr.is_win else "LOSS"
+                                strat = tr.strategy or "unknown"
+                                exit_r = tr.exit_reason or "unknown"
+                                dur_str = ""
+                                if tr.duration_seconds:
+                                    hours = tr.duration_seconds / 3600
+                                    dur_str = f" | held {hours:.1f}h"
+                                state_lines.append(
+                                    f"  {tr.symbol}: {w_l} ${tr.pnl_usd:+.2f} ({tr.pnl_pct:+.1f}%) "
+                                    f"| {strat} | exit: {exit_r}{dur_str}"
+                                )
+                        else:
+                            state_lines.append("  No closed trades yet")
+                    except Exception:
+                        state_lines.append("  Trade history unavailable")
+
+                    # --- Performance Stats ---
+                    state_lines.append("")
+                    state_lines.append("--- PERFORMANCE ---")
+                    try:
+                        stats_24h = trade_results.get_stats_for_timeframe("24h")
+                        stats_week = trade_results.get_stats_for_timeframe("week")
+                        stats_all = trade_results.get_stats()
+                        state_lines.append(
+                            f"Today: {stats_24h['total_trades']} trades, "
+                            f"{stats_24h['win_rate']:.0%} win rate, ${stats_24h['pnl_usd']:+.2f}"
+                        )
+                        state_lines.append(
+                            f"This Week: {stats_week['total_trades']} trades, "
+                            f"{stats_week['win_rate']:.0%} win rate, ${stats_week['pnl_usd']:+.2f}"
+                        )
+                        state_lines.append(
+                            f"All Time: {stats_all['total_trades']} trades, "
+                            f"{stats_all['win_rate']:.0%} win rate, ${stats_all['pnl_usd']:+.2f}"
+                        )
+                    except Exception:
+                        state_lines.append("  Stats unavailable")
+
+                    # --- Market Regime (from latest engine) ---
+                    state_lines.append("")
+                    state_lines.append("--- MARKET REGIME ---")
+                    try:
+                        for sym in active_symbols[:3]:
+                            eng = engines.get(sym)
+                            if eng and hasattr(eng, "_last_snapshot") and eng._last_snapshot:
+                                snap = eng._last_snapshot
+                                if snap.trend_htf:
+                                    state_lines.append(
+                                        f"  {sym} HTF Trend: {snap.trend_htf.get('direction', 'unknown')} "
+                                        f"(strength: {snap.trend_htf.get('strength', 0):.2f})"
+                                    )
+                                if snap.trend_ltf:
+                                    state_lines.append(
+                                        f"  {sym} LTF Trend: {snap.trend_ltf.get('direction', 'unknown')}"
+                                    )
+                    except Exception:
+                        state_lines.append("  Regime data unavailable")
+
+                    # Get recent logs for context from ws_handler buffer
+                    recent_logs = []
+                    if controller and hasattr(controller, 'ws_server') and controller.ws_server:
+                        try:
+                            buf = getattr(controller.ws_server, '_log_buffer', [])
+                            recent_logs = list(buf)[-15:] if buf else []
+                        except Exception:
+                            pass
+
+                    # Detect Session Lockout for commentary gating
+                    session_locked = False
+                    try:
+                        safety_settings = getattr(profile_settings, 'safety', None) or profile_settings
+                        lockout_enabled = getattr(safety_settings, 'safety_session_lockout_enabled', False)
+                        lockout_hour = getattr(safety_settings, 'safety_session_lockout_hour', 16)
+                        if lockout_enabled:
+                            from zoneinfo import ZoneInfo
+                            est_hour = _dt.now(ZoneInfo("America/New_York")).hour
+                            session_locked = est_hour >= lockout_hour
+                    except Exception:
+                        pass
+
                     controller.broadcast_commentary(
                         state_context="\n".join(state_lines),
                         strategy_name=active_strategy,
                         recent_logs=recent_logs,
-                        recent_errors=None
+                        recent_errors=None,
+                        session_locked=session_locked,
                     )
                 except Exception as e:
                     logger.debug(f"[COMMENTARY] Trigger skipped: {e}")

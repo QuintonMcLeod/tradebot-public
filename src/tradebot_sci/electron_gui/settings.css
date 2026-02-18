@@ -426,6 +426,26 @@ select.input-field {
     padding-right: 36px;
 }
 
+/* Time Picker styling */
+.time-picker {
+    cursor: pointer;
+    min-width: 140px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.05em;
+}
+
+.time-picker::-webkit-calendar-picker-indicator {
+    filter: invert(0.7) sepia(1) saturate(3) hue-rotate(130deg);
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.time-picker::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
+
 /* ═══════════════════════════════════════════════════════════
    TOGGLE SWITCHES
    ═══════════════════════════════════════════════════════════ */

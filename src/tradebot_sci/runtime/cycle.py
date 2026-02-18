@@ -261,6 +261,7 @@ def process_candidate_cycle(
         
         try:
             liq_cap = executor.get_liquid_capital(symbol) if executor else None
+            total_equity = executor.get_total_equity() if executor and hasattr(executor, "get_total_equity") else (liq_cap or 0.0)
             
             decision = engines[symbol].decide(
                 snapshot.timeframe, 
@@ -270,7 +271,8 @@ def process_candidate_cycle(
                 execution_capabilities={
                     "total_unrealized_pnl": global_pnl,
                     "total_position_notional": global_position_notional,
-                    "open_position_count": global_open_count
+                    "open_position_count": global_open_count,
+                    "total_equity": total_equity,
                 }
             )
             # Include 'hold' in decision logging to ensure the Decisions Panel is populated for existing positions
@@ -304,6 +306,9 @@ def process_candidate_cycle(
                 handle_execution_result(outcome, strike_tracker)
                 if result and result.status.value == "executed":
                     success_symbol = symbol
+                    # [CHURN BURNER] Only count ACTUAL fills, not signals
+                    from tradebot_sci.strategy.safety_guard import SafetyGuard
+                    SafetyGuard.notify_entry(symbol)
                     # Tag position_hold_store with winning strategy name
                     try:
                         strat_name = getattr(engines.get(symbol), "last_strat_name", None) or "unknown"

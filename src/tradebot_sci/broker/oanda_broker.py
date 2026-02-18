@@ -440,6 +440,10 @@ class OandaExchangeBroker(IExchangeBroker):
         self.refresh_account_summary()
         return self._liquid_capital
 
+    def get_total_equity(self) -> float:
+        """Return total account equity (NAV) for safety guards."""
+        return self.get_total_balance_value()
+
     def cancel_all_orders_for_symbol(self, symbol: str) -> None:
         """OANDA doesn't have 'resting' orders in the same way for market trades, but we cancel pending limit orders."""
         if self.read_only:

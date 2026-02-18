@@ -125,6 +125,7 @@ class RuntimeController:
     _last_commentary_content: str = ""
     _commentary_call_count_today: int = 0
     _commentary_call_date: str = ""
+    _commentary_fired_during_lockout: bool = False
     
     def _get_commentary_settings(self):
         """Get commentary settings from RuntimeSettings."""
@@ -177,7 +178,7 @@ class RuntimeController:
         
         return False
     
-    def broadcast_commentary(self, state_context: str, strategy_name: str = "supply_demand", recent_logs: list[str] | None = None, recent_errors: list[str] | None = None, force_signal: bool = False):
+    def broadcast_commentary(self, state_context: str, strategy_name: str = "supply_demand", recent_logs: list[str] | None = None, recent_errors: list[str] | None = None, force_signal: bool = False, session_locked: bool = False):
         """
         Generate and broadcast AI commentary to the Electron UI.
         
@@ -187,9 +188,18 @@ class RuntimeController:
             recent_logs: Recent log lines for context
             recent_errors: Recent error messages to highlight
             force_signal: If True, treat as an on_signal trigger
+            session_locked: If True, session lockout is active (fire once, then stop)
         """
         if not self.ws_server:
             return
+        
+        # During Session Lockout: fire once for a summary, then stop repeating
+        if session_locked:
+            if self._commentary_fired_during_lockout:
+                return  # Already spoke during this lockout — nothing new to say
+        else:
+            # Session is active again — reset the lockout flag
+            self._commentary_fired_during_lockout = False
         
         if not self._should_trigger_commentary(force_signal):
             return
@@ -224,6 +234,11 @@ class RuntimeController:
                 )
                 
                 logger.info(f"[COMMENTARY] Generated update #{self._commentary_call_count_today} for today")
+                
+                # Mark that we've spoken during lockout — no need to repeat
+                if session_locked:
+                    self._commentary_fired_during_lockout = True
+                    logger.info("[COMMENTARY] Session Lockout active — this will be the only update until session resumes.")
             
         except Exception as e:
             logger.error(f"[COMMENTARY] Generation failed: {e}")

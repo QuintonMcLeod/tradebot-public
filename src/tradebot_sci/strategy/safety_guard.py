@@ -344,7 +344,6 @@ class SafetyGuard:
                     potential_reward_pct = abs(tp - entry) / entry
                     
                     # Estimate round-trip fee dynamically per asset class
-                    import os
                     from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
                     # Only use env override when user explicitly set SAFETY_FEE_RT_PCT
                     env_override = float(os.environ["SAFETY_FEE_RT_PCT"]) if "SAFETY_FEE_RT_PCT" in os.environ else None

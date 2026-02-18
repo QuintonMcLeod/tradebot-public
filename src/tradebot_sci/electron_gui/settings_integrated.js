@@ -1079,6 +1079,20 @@ function createCard(title, desc, key, controlType, options = {}) {
         });
         controlContainer.appendChild(select);
     }
+    else if (controlType === 'time') {
+        const timeInput = document.createElement('input');
+        timeInput.type = 'time';
+        timeInput.className = 'input-field time-picker';
+        // Backend stores integer hour (e.g. 16), convert to HH:00
+        const hour = parseInt(value) || parseInt(options.default) || 12;
+        timeInput.value = String(hour).padStart(2, '0') + ':00';
+        timeInput.addEventListener('change', (e) => {
+            // Extract hour from HH:MM and save as integer string
+            const selectedHour = parseInt(e.target.value.split(':')[0]);
+            updateValue(key, String(selectedHour));
+        });
+        controlContainer.appendChild(timeInput);
+    }
 
     return card;
 }
@@ -1439,7 +1453,7 @@ function renderStrategyTab(container) {
         grid2.className = 'card-grid';
         // (Moved Multi-Position and Smart Positions to Safety Tab)
         section.appendChild(grid2);
-        section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle'));
+        section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle', { default: 'true' }));
         section.appendChild(createCard('AI Sentiment Shield', 'Smart Veto. AI blocks "Dangerous" setups.', 'SAFETY_SENTIMENT_SHIELD_ENABLED', 'toggle'));
 
         // Initialize Financed Risk state
@@ -2012,7 +2026,7 @@ function renderSafetyTab(container) {
     section.appendChild(createCard('Stability Mode', 'Ultra-safe risk management & quality filters (1% Cap)', 'SAFETY_STABILITY_MODE_ENABLED', 'toggle', {
         tooltip: "<strong>Survival First.</strong> This is your emergency brake. It forces 1% max risk and a 75+ quality score floor. Perfect for preventing account 'bleeding' during choppy or unpredictable market regimes."
     }));
-    section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle'));
+    section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Stop ATR Multiplier', 'Standard stop distance as a multiple of ATR', 'STOP_ATR_MULTIPLIER', 'input', {
         number: true,
         placeholder: '1.5',
@@ -2027,9 +2041,10 @@ function renderSafetyTab(container) {
         default: '0.003',
         step: 0.001
     }));
-    section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker - 5% Daily Cap', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle'));
-    section.appendChild(createCard('Session Lockout', 'Stops signals after 12:00 PM EST', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle'));
-    section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock - Quit while ahead', 'SAFETY_GREED_GUARD_ENABLED', 'toggle'));
+    section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker - 5% Daily Cap', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Session Lockout', 'Stops new entries after cutoff time', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Lockout Time (EST)', 'No new entries after this time', 'SAFETY_SESSION_LOCKOUT_HOUR', 'time', { default: '16' }));
+    section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock - Quit while ahead', 'SAFETY_GREED_GUARD_ENABLED', 'toggle', { default: 'true' }));
 
     // Greed Guard Target Input (Conditional visibility logic handled via CSS/JS later, or just always show for now)
     section.appendChild(createCard('Greed Guard Target USD', 'Daily profit amount to trigger lockout', 'SAFETY_GREED_GUARD_TARGET', 'input', {
@@ -2038,7 +2053,7 @@ function renderSafetyTab(container) {
         default: '100.00'
     }));
 
-    section.appendChild(createCard('Churn Burner', 'Rate Limit (Max trades/hour)', 'SAFETY_CHURN_BURNER_ENABLED', 'toggle'));
+    section.appendChild(createCard('Churn Burner', 'Rate Limit (Max trades/hour)', 'SAFETY_CHURN_BURNER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Churn Burner Max', 'Maximum trades allowed per hour', 'SAFETY_CHURN_BURNER_MAX', 'input', {
         number: true,
         placeholder: '5',
@@ -2058,8 +2073,8 @@ function renderSafetyTab(container) {
         default: '5.0',
         step: 0.1
     }));
-    section.appendChild(createCard('Streak Breaker', 'Pause Symbol 4h after 3 Consecutive Losses', 'SAFETY_STREAK_BREAKER_ENABLED', 'toggle'));
-    section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle'));
+    section.appendChild(createCard('Streak Breaker', 'Pause Symbol 4h after 3 Consecutive Losses', 'SAFETY_STREAK_BREAKER_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('AI Sentiment Shield', 'Smart Veto. AI blocks "Dangerous" setups.', 'SAFETY_SENTIMENT_SHIELD_ENABLED', 'toggle'));
 
     section.appendChild(createDivider());

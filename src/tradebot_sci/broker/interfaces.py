@@ -45,6 +45,15 @@ class IExchangeBroker(Protocol):
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         ...
 
+    def get_total_equity(self) -> float:
+        """Return total account equity (cash + position value).
+        
+        Used by safety guards (drawdown breaker, leverage sentry) that need
+        the full picture.  Distinct from get_liquid_capital() which returns
+        only free cash available for new trades.
+        """
+        ...
+
     def sync_profile(self, profile) -> None:
         """Dynamically update the broker's profile settings (Hot-Reload)."""
         ...
@@ -87,6 +96,9 @@ class NoOpExchangeBroker:
         pass
 
     def get_liquid_capital(self, symbol: str | None = None) -> float:
+        return 0.0
+
+    def get_total_equity(self) -> float:
         return 0.0
 
     def sync_profile(self, profile) -> None:
