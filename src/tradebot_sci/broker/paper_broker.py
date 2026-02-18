@@ -126,7 +126,8 @@ class PaperBroker:
                 if remaining > 0:
                     logger.info(
                         f"[PAPER] [COOLDOWN] {symbol}: blocked re-entry, "
-                        f"{remaining:.0f}s remaining of {self.REENTRY_COOLDOWN:.0f}s cooldown"
+                        f"{remaining:.0f}s remaining of {self.REENTRY_COOLDOWN:.0f}s cooldown",
+                        extra={"broker": "paper", "symbol": symbol, "event": "cooldown", "remaining_s": remaining}
                     )
                     return (
                         ExecutionResult(ExecutionStatus.STAND_ASIDE, symbol, f"Paper: cooldown {remaining:.0f}s"),
@@ -163,14 +164,18 @@ class PaperBroker:
             if qty > max_qty and max_qty > 0:
                 logger.warning(
                     f"[PAPER] [LEVERAGE CAP] {symbol}: qty {qty:.4f} -> {max_qty:.4f} "
-                    f"(notional ${qty * price:,.0f} exceeds {target_leverage}x leverage cap ${max_notional:,.0f})"
+                    f"(notional ${qty * price:,.0f} exceeds {target_leverage}x leverage cap ${max_notional:,.0f})",
+                    extra={"broker": "paper", "symbol": symbol, "event": "leverage_cap", "original_qty": qty, "capped_qty": max_qty}
                 )
                 qty = max_qty
 
             # Affordability guard: reject if notional exceeds leveraged balance
             notional = qty * price
             if notional > self.balance * max(target_leverage, 1.0) * 1.01:
-                logger.warning(f"[PAPER] [BLOCKED] {symbol}: notional ${notional:,.0f} exceeds balance ${self.balance:.2f}")
+                logger.warning(
+                    f"[PAPER] [BLOCKED] {symbol}: notional ${notional:,.0f} exceeds balance ${self.balance:.2f}",
+                    extra={"broker": "paper", "symbol": symbol, "event": "blocked", "notional": notional, "balance": self.balance}
+                )
                 return (
                     ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: insufficient balance"),
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_INSUFFICIENT_EQUITY, symbol, "Paper: insufficient balance")
@@ -208,7 +213,10 @@ class PaperBroker:
             }
             logger.info(
                 f"[PAPER] [FILL] {symbol} {qty:.4f} @ {fill_price:.5f} "
-                f"(mid={price:.5f}, spread+slip={friction*100:.2f}%, fee=${fee_usd:.4f}, Risk=${risk_usd:.2f})"
+                f"(mid={price:.5f}, spread+slip={friction*100:.2f}%, fee=${fee_usd:.4f}, Risk=${risk_usd:.2f})",
+                extra={"broker": "paper", "symbol": symbol, "event": "order_filled",
+                       "side": side, "qty": qty, "fill_price": fill_price,
+                       "fee_usd": fee_usd, "risk_usd": risk_usd}
             )
             self._save_state()
             return (
@@ -233,7 +241,9 @@ class PaperBroker:
                 self.balance += pnl_usd
                 logger.info(
                     f"[PAPER] [EXIT] {symbol} @ {exit_p:.5f} | PNL: ${pnl_usd:.2f} "
-                    f"(fee=${fee_usd:.4f}) (Paper Mode)"
+                    f"(fee=${fee_usd:.4f}) (Paper Mode)",
+                    extra={"broker": "paper", "symbol": symbol, "event": "order_closed",
+                           "exit_price": exit_p, "pnl_usd": pnl_usd, "fee_usd": fee_usd}
                 )
                 self._save_state()
                 self.refresh_account_summary() # Immediate update
@@ -370,7 +380,9 @@ class PaperBroker:
                         tier="100%",
                         capital_at_close=self.balance,
                         opened_at=opened_at_str,
-                        duration_seconds=duration_secs
+                        duration_seconds=duration_secs,
+                        strategy=pos.get("strategy", "unknown"),
+                        exit_reason=f"paper_{hit.lower()}" if hit else "paper_exit"
                     ))
 
                 del self.positions[symbol]

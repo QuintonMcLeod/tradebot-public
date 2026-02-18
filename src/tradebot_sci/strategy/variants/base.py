@@ -46,7 +46,7 @@ class BaseStrategy:
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
         """Check for a new trade entry signal."""
-        # [ANTIGRAVITY SAFETY] BaseStrategy should strictly be used as a placeholder or abstract base.
+        # BaseStrategy should strictly be used as a placeholder or abstract base.
         # If this is called directly, it means the Engine fell through the specific strategy logic.
         if self.name == "meta_sci":
             from tradebot_sci.strategy.decisions import stand_aside_decision

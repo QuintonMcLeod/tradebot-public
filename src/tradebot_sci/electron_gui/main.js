@@ -6,7 +6,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
-const logParser = require('./log_parser');
+const logParser = require('./log_analytics');
 
 // Suppress EPIPE errors on stdout/stderr — these are non-fatal pipe breaks
 // when the parent process (terminal/launcher) closes before Electron finishes writing.
@@ -270,6 +270,11 @@ function setupIpcHandlers() {
         { filename: 'RTFM/27_POSITION_ALCHEMY.md', title: 'Position Alchemy: The Art and Science of SL, TP, and Trailing Stops', category: 'rtfm', icon: 'auto_graph', description: '"The entry is science. The exit is art. The stop-loss is religion." Deep dive into every exit mechanism: ATR-based stop-losses, risk/reward take-profits, trailing stops with activation thresholds, breakeven trails, and the exit priority stack. With actual formulas, examples, and the philosophy of why exits matter more than entries.' },
         { filename: 'RTFM/28_COMPOUND_EFFECT.md', title: 'The Compound Effect: Turning 2% Into Financial Freedom', category: 'rtfm', icon: 'trending_up', description: '"Compound interest is the eighth wonder of the world." This article isn\'t about quick wins — it\'s about the math of patience. How 2% per month turns $10K into $107K over 10 years. Why consistency beats performance. The drawdown recovery math. The three enemies of compounding. The 1,000-day rule. And why the bot is designed to be a patient predator, not a frantic gambler.' },
         { filename: 'RTFM/29_DEATH_SPIRAL_DIARIES.md', title: 'The Death Spiral Diaries: 188 Trades, 3 Wins, and $17 of Pain', category: 'rtfm', icon: 'local_fire_department', description: 'A true (and tragically hilarious) account of how a stop-loss shorter than a tweet, a breakeven floor that didn\'t understand spreads, and a Python cache with commitment issues conspired to turn $135 into $118 over one Sunday night. 188 trades. 3 wins. 1.4% win rate. Lessons learned the expensive way, so you don\'t have to.' },
+        { filename: 'WHAT_S_PLUS_MEANS.md', title: 'What Does S+ Grade Mean For You?', category: 'guide', icon: 'workspace_premium', description: '"Your bot went from bleeding $52/day with every safety guard off, to an S+-rated system with typed interfaces, failure contracts, and a CI pipeline that blocks broken code at the gate." A plain-English guide for humans who trade, not humans who type-check.', featured: true, size: 'md' },
+        { filename: 'adr/001-strategy-registry.md', title: 'ADR-001: The Strategy Registry', category: 'adr', icon: 'extension', description: '"Please Stop Adding Elif Branches." How we replaced a growing if/elif factory with a dictionary registry. Adding a strategy is now a 2-file change, not a prayer.' },
+        { filename: 'adr/002-safety-guard-architecture.md', title: 'ADR-002: Safety Guard Architecture', category: 'adr', icon: 'shield', description: '"The $52/Day Incident." Why all 8 safety guards are ON by default, how the guard chain works, and the horror story that made us build it.', size: 'md' },
+        { filename: 'adr/003-broker-abstraction.md', title: 'ADR-003: Broker Abstraction Layer', category: 'adr', icon: 'hub', description: '"Why We Don\'t Have \'if broker == OANDA\' Everywhere." The Protocol-based interface that lets OANDA, Gemini, IBKR, and PaperBroker all look the same to the runtime loop.' },
+        { filename: 'adr/004-position-hold-lock.md', title: 'ADR-004: Position Hold Lock', category: 'adr', icon: 'lock', description: '"Stop Flipping Like a Pancake." Once a position is open, conflicting signals are blocked. Because 3 round-trips in 10 minutes is not a strategy.', size: 'md' },
     ];
 
     try {

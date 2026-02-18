@@ -61,6 +61,47 @@ class StrategyEngine:
         
         logger.info(f" [PHOENIX] === ENGINE LOADED === Symbol: {symbol} | Variant: {self._strategy.name.upper()} ")
 
+    # ── Strategy Registry ────────────────────────────────────────────
+    # Single registry: add new strategies here (keeps both load methods
+    # in sync automatically).  Each entry maps a lowercase variant name
+    # to a (module_path, class_name) tuple for lazy import.
+    STRATEGY_REGISTRY: dict[str, tuple[str, str]] = {
+        "evolution":            ("tradebot_sci.strategy.variants.evolution",            "RobotEvolutionStrategy"),
+        "robocop":              ("tradebot_sci.strategy.variants.robocop",              "RoboCopStrategy"),
+        "london_breakout":      ("tradebot_sci.strategy.variants.london_breakout",      "LondonBreakoutStrategy"),
+        "rubberband_reaper":    ("tradebot_sci.strategy.variants.rubberband_reaper",    "RubberbandReaperStrategy"),
+        "volatility_breakout":  ("tradebot_sci.strategy.variants.breakout",             "VolatilityBreakoutStrategy"),
+        "icc_core":             ("tradebot_sci.strategy.variants.icc_core",             "ICCCoreStrategy"),
+        "supply_demand":        ("tradebot_sci.strategy.variants.supply_demand",         "SupplyDemandStrategy"),
+        "meta_sci":             ("tradebot_sci.strategy.variants.meta_sci",             "MetaSCIStrategy"),
+        "trend_rider":          ("tradebot_sci.strategy.variants.trend_rider",          "TrendRiderStrategy"),
+        "session_momentum":     ("tradebot_sci.strategy.variants.session_momentum",     "SessionMomentumStrategy"),
+        "bearish_engulfing":    ("tradebot_sci.strategy.variants.bearish_engulfing",    "BearishEngulfingStrategy"),
+        "hyper_scalper":        ("tradebot_sci.strategy.variants.hyper_scalper",        "HyperScalperStrategy"),
+        "orb_breakout":         ("tradebot_sci.strategy.variants.orb_breakout",         "ORBStrategy"),
+        "quantum":              ("tradebot_sci.strategy.variants.quantum",              "QuantumStrategy"),
+        "mean_reversion":       ("tradebot_sci.strategy.variants.mean_reversion",       "MeanReversionStrategy"),
+        "crypto_rsi_macd":      ("tradebot_sci.strategy.variants.crypto_rsi_macd",      "CryptoRSIMACDStrategy"),
+        "crypto_vwap_reversion":("tradebot_sci.strategy.variants.crypto_vwap_reversion","CryptoVWAPReversionStrategy"),
+        "crypto_double_macd":   ("tradebot_sci.strategy.variants.crypto_double_macd",   "CryptoDoubleMACDStrategy"),
+        "crypto_grid":          ("tradebot_sci.strategy.variants.crypto_grid",          "CryptoGridStrategy"),
+        "aggregator":           ("tradebot_sci.strategy.variants.aggregator",           "AggregatorStrategy"),
+    }
+
+    def _instantiate_variant(self, variant: str):
+        """Lazily import and instantiate a strategy by registry key."""
+        import importlib
+        entry = self.STRATEGY_REGISTRY.get(variant)
+        if not entry:
+            return None
+        module_path, class_name = entry
+        mod = importlib.import_module(module_path)
+        cls = getattr(mod, class_name)
+        # MetaSCIStrategy requires profile_settings kwarg
+        if variant == "meta_sci":
+            return cls(profile_settings=self.profile)
+        return cls()
+
     def _load_strategy_variant(self):
         """Factory method for loading strategy variants.
         
@@ -72,8 +113,8 @@ class StrategyEngine:
         ║     src/tradebot_sci/strategy/variants/your_strategy.py        ║
         ║     - Extend BaseStrategy, implement evaluate() + get_signal() ║
         ║                                                                ║
-        ║  2. Register HERE (this file, engine.py):                      ║
-        ║     Add elif block below with import + instantiation           ║
+        ║  2. Register in STRATEGY_REGISTRY (this file, engine.py):      ║
+        ║     Add one line: "key": ("module.path", "ClassName"),         ║
         ║                                                                ║
         ║  3. Add to Meta-SCI ensemble (if applicable):                  ║
         ║     src/tradebot_sci/strategy/variants/meta_sci.py             ║
@@ -109,7 +150,6 @@ class StrategyEngine:
         ║                                                                ║
         ╚══════════════════════════════════════════════════════════════════╝
         """
-        # Note: We maintain compatibility with the legacy loading logic
         from tradebot_sci.config.models import UserConfig
         
         if hasattr(self.profile, "get_strategy_for_symbol"):
@@ -117,102 +157,15 @@ class StrategyEngine:
         else:
             variant = getattr(UserConfig, "STRATEGY_VARIANT", "evolution").lower()
         
-        # Standard variant mapping
-        if variant == "evolution":
-            from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
-            return RobotEvolutionStrategy()
-        elif variant == "robocop":
-            from tradebot_sci.strategy.variants.robocop import RoboCopStrategy
-            return RoboCopStrategy()
-        elif variant == "london_breakout":
-            from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
-            return LondonBreakoutStrategy()
-        elif variant == "rubberband_reaper":
-            from tradebot_sci.strategy.variants.rubberband_reaper import RubberbandReaperStrategy
-            return RubberbandReaperStrategy()
-        elif variant == "volatility_breakout":
-            from tradebot_sci.strategy.variants.breakout import VolatilityBreakoutStrategy
-            return VolatilityBreakoutStrategy()
-        elif variant == "icc_core":
-            from tradebot_sci.strategy.variants.icc_core import ICCCoreStrategy
-            return ICCCoreStrategy()
-        elif variant == "supply_demand":
-            from tradebot_sci.strategy.variants.supply_demand import SupplyDemandStrategy
-            return SupplyDemandStrategy()
-        elif variant == "meta_sci":
-            # [ANTIGRAVITY] Updated to use the true Adaptive Meta-SCI Strategy
-            from tradebot_sci.strategy.variants.meta_sci import MetaSCIStrategy
-            return MetaSCIStrategy(profile_settings=self.profile)
-        elif variant == "trend_rider":
-            from tradebot_sci.strategy.variants.trend_rider import TrendRiderStrategy
-            return TrendRiderStrategy()
-        elif variant == "session_momentum":
-            from tradebot_sci.strategy.variants.session_momentum import SessionMomentumStrategy
-            return SessionMomentumStrategy()
-        elif variant == "bearish_engulfing":
-            from tradebot_sci.strategy.variants.bearish_engulfing import BearishEngulfingStrategy
-            return BearishEngulfingStrategy()
-        elif variant == "hyper_scalper":
-            from tradebot_sci.strategy.variants.hyper_scalper import HyperScalperStrategy
-            return HyperScalperStrategy()
-        elif variant == "orb_breakout":
-            from tradebot_sci.strategy.variants.orb_breakout import ORBStrategy
-            return ORBStrategy()
-        elif variant == "quantum":
-            from tradebot_sci.strategy.variants.quantum import QuantumStrategy
-            return QuantumStrategy()
-        elif variant == "mean_reversion":
-            from tradebot_sci.strategy.variants.mean_reversion import MeanReversionStrategy
-            return MeanReversionStrategy()
-        elif variant == "crypto_rsi_macd":
-            from tradebot_sci.strategy.variants.crypto_rsi_macd import CryptoRSIMACDStrategy
-            return CryptoRSIMACDStrategy()
-        elif variant == "crypto_vwap_reversion":
-            from tradebot_sci.strategy.variants.crypto_vwap_reversion import CryptoVWAPReversionStrategy
-            return CryptoVWAPReversionStrategy()
-        elif variant == "crypto_double_macd":
-            from tradebot_sci.strategy.variants.crypto_double_macd import CryptoDoubleMACDStrategy
-            return CryptoDoubleMACDStrategy()
-        elif variant == "crypto_grid":
-            from tradebot_sci.strategy.variants.crypto_grid import CryptoGridStrategy
-            return CryptoGridStrategy()
-        elif variant == "aggregator":
-            from tradebot_sci.strategy.variants.aggregator import AggregatorStrategy
-            return AggregatorStrategy()
-        else:
-            # Fallback
-            logger.warning(f"[ENGINE] Unknown strategy variant '{variant}', falling back to Evolution")
-            from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
-            return RobotEvolutionStrategy()
+        strategy = self._instantiate_variant(variant)
+        if strategy:
+            return strategy
+        logger.warning(f"[ENGINE] Unknown strategy variant '{variant}', falling back to Evolution")
+        return self._instantiate_variant("evolution")
 
     def _load_specific_variant(self, variant: str):
         """Dynamic helper for Meta-SCI ensemble loading."""
-        v = variant.lower()
-        if v == "evolution":
-            from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
-            return RobotEvolutionStrategy()
-        elif v == "supply_demand":
-            from tradebot_sci.strategy.variants.supply_demand import SupplyDemandStrategy
-            return SupplyDemandStrategy()
-        elif v == "robocop":
-            from tradebot_sci.strategy.variants.robocop import RoboCopStrategy
-            return RoboCopStrategy()
-        elif v == "london_breakout":
-            from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
-            return LondonBreakoutStrategy()
-        elif v == "rubberband_reaper":
-            from tradebot_sci.strategy.variants.rubberband_reaper import RubberbandReaperStrategy
-            return RubberbandReaperStrategy()
-        elif v == "volatility_breakout":
-            from tradebot_sci.strategy.variants.breakout import VolatilityBreakoutStrategy
-            return VolatilityBreakoutStrategy()
-        elif v == "icc_core":
-            from tradebot_sci.strategy.variants.icc_core import ICCCoreStrategy
-            return ICCCoreStrategy()
-        elif v == "orb_breakout":
-            from tradebot_sci.strategy.variants.orb_breakout import ORBStrategy
-            return ORBStrategy()
-        return None
+        return self._instantiate_variant(variant.lower())
 
     def score_icc_grade(self, snapshot: MarketSnapshot) -> tuple[float, str]:
         """Provides a score and grade for the current market state."""
@@ -228,7 +181,7 @@ class StrategyEngine:
         trend_htf = snapshot.trend_htf.direction
         trend_ltf = snapshot.trend_ltf.direction
         
-        # [ANTIGRAVITY] Fallback: If LTF is neutral, use HTF as the baseline direction for signals.
+        # Fallback: If LTF is neutral, use HTF as the baseline direction for signals.
         # This prevents "barriers" during local chop if the macro trend is strong.
         signal_dir = trend_ltf if trend_ltf != "neutral" else trend_htf
         
@@ -393,7 +346,8 @@ class StrategyEngine:
                         try:
                             from datetime import datetime as dt
                             entry_time = dt.fromisoformat(entry_time.replace("Z", "+00:00"))
-                        except: pass
+                        except (ValueError, TypeError, AttributeError):
+                            logger.debug(f"[ENGINE] Churn Guard: failed to parse entry_time '{entry_time}'")
                     if isinstance(entry_time, datetime):
                         now = datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.now(tz=ZoneInfo("UTC"))
                         position_age = (now - entry_time).total_seconds()
@@ -466,7 +420,7 @@ class StrategyEngine:
         # [CONSOLIDATED] Run all pre-entry checks (Breaker, Lockout, Greed, Churn, Veto, Streak, Sentry)
         # We run this AFTER exit checks so that TP/SL logic (SafetyGuard.augment_exit_decision)
         # takes priority over account-level blocks like Leverage Sentry.
-        # [ANTIGRAVITY FIX] Use Total Equity (Cash + Position Value) for Leverage calculation.
+        # Use Total Equity (Cash + Position Value) for Leverage calculation.
         # On spot exchanges, capital tied up in positions IS equity — not just the PnL delta.
         # E.g. $1.17 cash + $12 in LTC = $13.17 equity, NOT $1.17 + (-$0.50 pnl) = $0.67.
         position_value = caps.get("total_position_notional", 0.0)
@@ -505,7 +459,7 @@ class StrategyEngine:
             decision.grade = grade
 
 
-            # [ANTIGRAVITY] Counter-Trend Entry Block
+            # Counter-Trend Entry Block
             # Prevents going long when HTF is bearish, or short when HTF is bullish.
             htf_dir = gates.get("htf_dir", "neutral")
             if getattr(self.profile, "block_counter_trend_entries", True) and decision.action in ("enter_long", "enter_short", "scale_in"):
@@ -556,7 +510,7 @@ class StrategyEngine:
                             logger.info(f"[DAMPER] Capping {self.symbol} risk from {old_risk} to 0.0025 due to Friday afternoon liquidity.")
 
                 if UserConfig.SMART_POSITIONS_ENABLED:
-                    # [ANTIGRAVITY FIX] Use Global Aggregation across all Brokers (Forex + Crypto)
+                    # Use Global Aggregation across all Brokers (Forex + Crypto)
                     pnl, pos_count = SafetyGuard.get_financed_risk_stats()
 
                     # If we have no positions open, we allow the first trade to start the cycle

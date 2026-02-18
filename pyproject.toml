@@ -25,6 +25,10 @@ six = "^1.16.0"
 pytest = "^7.4.3"
 pytest-asyncio = "^0.21.1"
 ruff = "^0.1.9"
+mypy = "^1.19"
+hypothesis = "^6.151"
+python-json-logger = "^4.0"
+pytest-cov = "^7.0"
 
 [tool.poetry.group.gui]
 optional = true
@@ -36,8 +40,57 @@ timezonefinder = "^6.5.2"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "B", "UP", "DTZ"]
-ignore = ["E203", "W503"]
+ignore = []
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+# ── Progressive typing: ignore pre-existing legacy code ──
+# Only the heaviest legacy files still get overrides.
+# All other files in config/, market/, server/, logging/ are now
+# fully type-checked under --strict.
+[[tool.mypy.overrides]]
+module = [
+    # Core runtime (deeply coupled, ~200+ errors)
+    "tradebot_sci.broker.*",
+    "tradebot_sci.runtime.*",
+    "tradebot_sci.strategy.*",
+    "tradebot_sci.simulation.*",
+    "tradebot_sci.ai.*",
+    "tradebot_sci.electron_gui.*",
+    # Per-file overrides for heaviest legacy files
+    "tradebot_sci.config.loader",
+    "tradebot_sci.config.models",
+    "tradebot_sci.config.broker",
+    "tradebot_sci.market.providers",
+    "tradebot_sci.market.icc",
+    "tradebot_sci.market.oanda_provider",
+    "tradebot_sci.market.paxos_provider",
+    "tradebot_sci.market.coinbase",
+    "tradebot_sci.market.contracts",
+    "tradebot_sci.market.trend",
+    "tradebot_sci.confluence.context",
+]
+ignore_errors = true
+
+# ── Third-party stubs not available ──
+[[tool.mypy.overrides]]
+module = [
+    "ccxt.*",
+    "oandapyV20.*",
+    "oandapyv20.*",
+    "ib_insync.*",
+    "eventkit.*",
+    "pythonjsonlogger.*",
+]
+ignore_missing_imports = true
 
 [build-system]
 requires = ["poetry-core>=1.7.0"]

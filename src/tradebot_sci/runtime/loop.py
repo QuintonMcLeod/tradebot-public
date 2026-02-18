@@ -520,6 +520,185 @@ def _preflight_broker_check(settings) -> None:
     sys.exit(2)
 
 
+
+def _run_heartbeat_cycle(
+    executor,
+    executor_real,
+    executor_paper,
+    provider,
+    profile_settings,
+    strike_tracker,
+    settings,
+    start_ts: float,
+    shared_ib,
+    consecutive_errors: int,
+    last_holdings_log_ts: float,
+    last_capital_check_ts: float,
+) -> tuple[float, float]:
+    """Run per-loop heartbeat: holdings snapshot, capital pulse, synthetic stops.
+
+    Returns updated (last_holdings_log_ts, last_capital_check_ts).
+    """
+    if executor:
+        executor.refresh_account_summary()
+
+        # Auto-restart check (real broker only)
+        if executor == executor_real:
+            reason = _auto_restart_reason(
+                settings=settings,
+                start_ts=start_ts,
+                shared_ib=shared_ib,
+                executor=executor,
+                consecutive_errors=consecutive_errors,
+            )
+            if reason:
+                _trigger_auto_restart(reason)
+
+        now_ts = time.time()
+        if now_ts - last_holdings_log_ts >= 5.0:
+            if executor == executor_paper:
+                _log_holdings_snapshot(executor, reason="heartbeat", tag="[PAPER] ")
+            else:
+                _log_holdings_snapshot(executor, reason="heartbeat")
+            last_holdings_log_ts = now_ts
+
+        if now_ts - last_capital_check_ts >= 15.0:
+            try:
+                cap = executor.get_total_balance_value()
+                if executor == executor_paper:
+                    logger.info(f"[PAPER] [HEARTBEAT] Capital available: ${cap:.2f}")
+                else:
+                    logger.info(f"[HEARTBEAT] Capital available: ${cap:.2f}")
+                last_capital_check_ts = now_ts
+            except Exception as e:
+                logger.warning(f"[HEARTBEAT] Failed to check capital: {e}")
+                last_capital_check_ts = now_ts + 30
+
+    if executor:
+        try:
+            for result in executor.evaluate_synthetic_stops(
+                provider, profile_settings.candle_timeframe
+            ):
+                _handle_execution_result(result, strike_tracker)
+        except Exception as e:
+            logger.error(
+                f"[CRASH_GUARD] Error in evaluate_synthetic_stops: {e}",
+                exc_info=True,
+            )
+    strike_tracker.advance_cycle()
+    return last_holdings_log_ts, last_capital_check_ts
+
+
+def _resolve_active_symbols(
+    symbols: list[str],
+    engines: dict,
+    executor,
+    executor_paper,
+    provider,
+    profile_settings,
+    settings,
+    controller,
+    now: datetime,
+    auto_schedule_enabled: bool,
+    pair_selector,
+    last_auto_mode: str | None,
+    sabbath_active: bool,
+) -> tuple[list[str], str | None, str | None]:
+    """Determine which symbols to trade this cycle.
+
+    Consolidates auto-schedule, pair selection, open-position inclusion,
+    WS subscription merging, and market-hours filtering.
+
+    Returns (active_symbols, auto_mode, last_auto_mode).
+    """
+    active_symbols = list(symbols)
+    auto_mode: str | None = None
+
+    if auto_schedule_enabled:
+        force_crypto = profile_settings.crypto_only
+        if force_crypto:
+            active_symbols = [s for s in symbols if is_crypto(s)]
+            auto_mode = "crypto"
+        else:
+            selection = select_auto_schedule_symbols(symbols, now)
+            active_symbols = selection.symbols
+            auto_mode = selection.mode
+        if auto_mode != last_auto_mode:
+            logger.info(
+                "[AUTO_SCHEDULE] mode=%s (equities during US market hours, crypto otherwise)",
+                auto_mode,
+            )
+            last_auto_mode = auto_mode
+        if executor:
+            for sym in symbols:
+                pos = executor.get_open_position_snapshot(sym)
+                if pos and abs(pos.get("size", 0)) > 0 and sym not in active_symbols:
+                    active_symbols.append(sym)
+
+    if pair_selector:
+        if not auto_schedule_enabled or auto_mode == "crypto":
+            selection = pair_selector.select(provider, active_symbols, now)
+            if selection.selected:
+                active_symbols = selection.selected
+    else:
+        logger.info("[LOOP_DEBUG] pair_selector is disabled or None; skipping extra selection")
+
+    # Include symbols with open positions
+    if executor and hasattr(executor, "list_open_position_symbols"):
+        for sym in executor.list_open_position_symbols():
+            if sym in engines and sym not in active_symbols:
+                active_symbols.append(sym)
+
+    # Live Chart Sync
+    if controller.ws_server:
+        snapshot_cache = {}
+        for sub_sym, sub_tf in controller.ws_server.get_subscriptions():
+            if sub_sym in engines:
+                if sub_sym not in active_symbols:
+                    active_symbols.append(sub_sym)
+                if sub_tf != profile_settings.candle_timeframe:
+                    try:
+                        fetch_snapshot(
+                            provider,
+                            snapshot_cache,
+                            sub_sym,
+                            sub_tf,
+                            profile_settings,
+                            settings.market,
+                            ws_controller=controller,
+                        )
+                    except Exception as e:
+                        logger.debug(f"[LOOP] UI fetch failed for {sub_sym} {sub_tf}: {e}")
+
+    # Sabbath restriction (no PaperBroker)
+    if sabbath_active and (not executor_paper or executor != executor_paper):
+        if executor and hasattr(executor, "list_open_position_symbols"):
+            active_symbols = [sym for sym in executor.list_open_position_symbols() if sym in engines]
+        else:
+            active_symbols = [
+                sym
+                for sym in active_symbols
+                if executor
+                and (pos := executor.get_open_position_snapshot(sym))
+                and abs(pos.get("size", 0)) > 0
+            ]
+
+    # Market hours filter (skip for paper Sabbath)
+    if not (sabbath_active and executor == executor_paper):
+        symbols_with_positions = set()
+        if executor:
+            for sym in active_symbols:
+                pos = executor.get_open_position_snapshot(sym)
+                if pos and abs(pos.get("size", 0)) > 1e-8:
+                    symbols_with_positions.add(sym)
+        active_symbols = [
+            s for s in active_symbols
+            if s in symbols_with_positions or is_market_open(s, now, settings=profile_settings)
+        ]
+
+    return active_symbols, auto_mode, last_auto_mode
+
+
 def run_bot(
     iterations: int | None = None,
     sabbath_override: bool | None = None,
@@ -965,150 +1144,45 @@ def run_bot(
                 except Exception:
                     pass
 
-            if executor:
-                # refresh_account_summary for PaperBroker is local only
-                # For CCXT/IBKR/Oanda, this triggers network traffic.
-                executor.refresh_account_summary()
-                
-                # Only check for auto-restart on the REAL broker connection
-                if executor == executor_real:
-                    reason = _auto_restart_reason(
-                        settings=settings,
-                        start_ts=start_ts,
-                        shared_ib=shared_ib,
-                        executor=executor,
-                        consecutive_errors=consecutive_error_iterations,
-                    )
-                    if reason:
-                        _trigger_auto_restart(reason)
-                
-                now_ts = time.time()
-                if now_ts - last_holdings_log_ts >= 5.0:
-                    # Tag paper holdings so live ledger skips them
-                    if executor == executor_paper:
-                        _log_holdings_snapshot(executor, reason="heartbeat", tag="[PAPER] ")
-                    else:
-                        _log_holdings_snapshot(executor, reason="heartbeat")
-                    last_holdings_log_ts = now_ts
-                
-                # Periodic Capital Check
-                if now_ts - last_capital_check_ts >= 15.0:
-                    try:
-                         # Force a fresh check of Total Equity for UI consistency
-                         cap = executor.get_total_balance_value()
-                         # Paper heartbeats tagged so live ledger ignores them
-                         if executor == executor_paper:
-                             logger.info(f"[PAPER] [HEARTBEAT] Capital available: ${cap:.2f}")
-                         else:
-                             logger.info(f"[HEARTBEAT] Capital available: ${cap:.2f}")
-                         last_capital_check_ts = now_ts
-                    except Exception as e:
-                         logger.warning(f"[HEARTBEAT] Failed to check capital: {e}")
-                         last_capital_check_ts = now_ts + 30 # Retry sooner on error
-            if executor:
-                try:
-                    for result in executor.evaluate_synthetic_stops(provider, profile_settings.candle_timeframe):
-                        _handle_execution_result(result, strike_tracker)
-                except Exception as e:
-                    logger.error(f"[CRASH_GUARD] Error in evaluate_synthetic_stops: {e}", exc_info=True)
-            strike_tracker.advance_cycle()
+            last_holdings_log_ts, last_capital_check_ts = _run_heartbeat_cycle(
+                executor=executor,
+                executor_real=executor_real,
+                executor_paper=executor_paper,
+                provider=provider,
+                profile_settings=profile_settings,
+                strike_tracker=strike_tracker,
+                settings=settings,
+                start_ts=start_ts,
+                shared_ib=shared_ib,
+                consecutive_errors=consecutive_error_iterations,
+                last_holdings_log_ts=last_holdings_log_ts,
+                last_capital_check_ts=last_capital_check_ts,
+            )
             
             # Sabbath Paper Trading: Allow scanning and trading 
             # if we have successfully swapped to the local PaperBroker.
             allow_entries = not sabbath_active or executor == executor_paper
 
             if next_decision_in <= 0:
-                active_symbols = symbols
-                auto_mode: str | None = None
-                if auto_schedule_enabled:
-                    # Override schedule for crypto-only mode to prevent blocking on equity hours
-                    force_crypto = profile_settings.crypto_only
-                    if force_crypto:
-                        selection_symbols = [s for s in symbols if is_crypto(s)]
-                        active_symbols = selection_symbols
-                        auto_mode = "crypto"
-                    else:
-                        selection = select_auto_schedule_symbols(symbols, now)
-                        active_symbols = selection.symbols
-                        auto_mode = selection.mode
-                    if auto_mode != last_auto_mode:
-                        logger.info(
-                            "[AUTO_SCHEDULE] mode=%s (equities during US market hours, crypto otherwise)",
-                            auto_mode,
-                        )
-                        last_auto_mode = auto_mode
-                    if executor:
-                        for sym in symbols:
-                            pos = executor.get_open_position_snapshot(sym)
-                            if pos and abs(pos.get("size", 0)) > 0 and sym not in active_symbols:
-                                active_symbols.append(sym)
-                if pair_selector:
-                    if not auto_schedule_enabled or auto_mode == "crypto":
-                        selection = pair_selector.select(provider, active_symbols, now)
-                        if selection.selected:
-                            active_symbols = selection.selected
-                else:
-                    logger.info("[LOOP_DEBUG] pair_selector is disabled or None; skipping extra selection")
-                if executor and hasattr(executor, "list_open_position_symbols"):
-                    for sym in executor.list_open_position_symbols():
-                        if sym in engines and sym not in active_symbols:
-                            active_symbols.append(sym)
-
-                # Live Chart Sync: Ensure viewed symbols/timeframes are fetched
-                if controller.ws_server:
-                    for sub_sym, sub_tf in controller.ws_server.get_subscriptions():
-                        if sub_sym in engines:
-                            if sub_sym not in active_symbols:
-                                active_symbols.append(sub_sym)
-                            
-                            if sub_tf != profile_settings.candle_timeframe:
-                                try:
-                                    fetch_snapshot(
-                                        provider, 
-                                        snapshot_cache, 
-                                        sub_sym, 
-                                        sub_tf, 
-                                        profile_settings, 
-                                        settings.market, 
-                                        ws_controller=controller
-                                    )
-                                except Exception as e:
-                                    logger.debug(f"[LOOP] UI fetch failed for {sub_sym} {sub_tf}: {e}")
-                if sabbath_active and (not executor_paper or executor != executor_paper):
-                    if executor and hasattr(executor, "list_open_position_symbols"):
-                        active_symbols = [sym for sym in executor.list_open_position_symbols() if sym in engines]
-                    else:
-                        active_symbols = [
-                            sym
-                            for sym in active_symbols
-                            if executor
-                            and (pos := executor.get_open_position_snapshot(sym))
-                            and abs(pos.get("size", 0)) > 0
-                        ]
-                    if not active_symbols:
-                        next_decision_in = decision_interval
-                        time.sleep(poll_interval)
-                        continue
-                # Filter by market hours (OANDA weekend halt protection)
-                # Skip this filter for paper broker during Sabbath — paper trades 24/7
-                if not (sabbath_active and executor == executor_paper):
-                    # Symbols with open positions MUST always be included for exit management
-                    # even when the market is closed (to handle stale trades, SL/TP, time exits)
-                    symbols_with_positions = set()
-                    if executor:
-                        for sym in active_symbols:
-                            pos = executor.get_open_position_snapshot(sym)
-                            if pos and abs(pos.get("size", 0)) > 1e-8:
-                                symbols_with_positions.add(sym)
-                    active_symbols = [
-                        s for s in active_symbols
-                        if s in symbols_with_positions or is_market_open(s, now, settings=profile_settings)
-                    ]
-                    if not active_symbols:
-                        logger.info("[SCHEDULE] No symbols have open markets. Skipping cycle.")
-                        next_decision_in = decision_interval
-                        time.sleep(poll_interval)
-                        continue
+                active_symbols, auto_mode, last_auto_mode = _resolve_active_symbols(
+                    symbols=symbols,
+                    engines=engines,
+                    executor=executor,
+                    executor_paper=executor_paper,
+                    provider=provider,
+                    profile_settings=profile_settings,
+                    settings=settings,
+                    controller=controller,
+                    now=now,
+                    auto_schedule_enabled=auto_schedule_enabled,
+                    pair_selector=pair_selector,
+                    last_auto_mode=last_auto_mode,
+                    sabbath_active=sabbath_active,
+                )
+                if not active_symbols:
+                    next_decision_in = decision_interval
+                    time.sleep(poll_interval)
+                    continue
 
                 candidates, data_fetch_succeeded = build_candidate_list(
                     executor,

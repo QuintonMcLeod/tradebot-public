@@ -312,7 +312,7 @@ class TradingProfileSettings(BaseModel):
         le=1.0,
         description="HTF trend strength threshold used for strong-trend scoring.",
     )
-    # [ANTIGRAVITY] Reversal Logic Settings
+    # Reversal Logic Settings
     enable_reversal_logic: bool = Field(
         default=False,
         description="Enable 'Liquidity Reversal' pattern detection (Robot Logic).",
@@ -444,7 +444,7 @@ class TradingProfileSettings(BaseModel):
         description="Trail percentage above breakeven once activated (0.01 = 1%).",
     )
     auto_flatten_on_close: bool = Field(
-        default=False,  # [ANTIGRAVITY] Default OFF - perpetual futures have no EOD settlement
+        default=False,  # Default OFF - perpetual futures have no EOD settlement
         description="When true, sessions auto-flatten/cancel at every scheduled window. "
                     "WARNING: Keep OFF for Coinbase Nano futures (perpetual-style contracts).",
     )
@@ -910,28 +910,28 @@ class SafetySettings(BaseModel):
 
     # --- Safety Suite 2.0 ---
     safety_drawdown_breaker_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_DRAWDOWN_BREAKER_ENABLED", "False").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_DRAWDOWN_BREAKER_ENABLED", "True").lower() == "true"
     )
     safety_session_lockout_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_SESSION_LOCKOUT_ENABLED", "False").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_SESSION_LOCKOUT_ENABLED", "True").lower() == "true"
     )
     safety_session_lockout_hour: int = Field(
         default_factory=lambda: int(os.getenv("SAFETY_SESSION_LOCKOUT_HOUR", "12"))
     )
     safety_opening_sentry_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_OPENING_SENTRY_ENABLED", "False").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_OPENING_SENTRY_ENABLED", "True").lower() == "true"
     )
     safety_greed_guard_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_GREED_GUARD_ENABLED", "False").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_GREED_GUARD_ENABLED", "True").lower() == "true"
     )
     safety_greed_guard_target: float = Field(
         default_factory=lambda: float(os.getenv("SAFETY_GREED_GUARD_TARGET", "100.0"))
     )
     safety_streak_breaker_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_STREAK_BREAKER_ENABLED", "False").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_STREAK_BREAKER_ENABLED", "True").lower() == "true"
     )
     safety_churn_burner_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_CHURN_BURNER_ENABLED", "False").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_CHURN_BURNER_ENABLED", "True").lower() == "true"
     )
     safety_churn_burner_max: int = Field(
         default_factory=lambda: int(os.getenv("SAFETY_CHURN_BURNER_MAX", "5"))
@@ -950,6 +950,23 @@ class SafetySettings(BaseModel):
     )
     safety_volatility_max_pct: float = Field(
         default_factory=lambda: float(os.getenv("SAFETY_VOLATILITY_MAX_PCT", "5.0"))
+    )
+    safety_drawdown_max_pct: float = Field(
+        default_factory=lambda: float(os.getenv("SAFETY_DRAWDOWN_MAX_PCT", "0.05")),
+        description="Maximum drawdown from HWM before Drawdown Breaker triggers (0.05 = 5%).",
+    )
+    safety_streak_max_losses: int = Field(
+        default_factory=lambda: int(os.getenv("SAFETY_STREAK_MAX_LOSSES", "3")),
+        description="Consecutive losses before Streak Breaker triggers a cooldown pause.",
+    )
+    safety_greedy_min_age_seconds: int = Field(
+        default_factory=lambda: int(os.getenv("SAFETY_GREEDY_MIN_AGE_SECONDS", "300")),
+        description="Minimum position age (seconds) before Greedy Exit floor can trigger.",
+    )
+    safety_fee_rt_pct: float = Field(
+        default_factory=lambda: float(os.getenv("SAFETY_FEE_RT_PCT", "0.0004")),
+        description="Estimated round-trip fee as decimal (0.0004 = 0.04% OANDA spread). "
+                    "Override via env: Gemini ~0.008, IBKR ~0.002.",
     )
 
 
@@ -1202,7 +1219,7 @@ class Settings(BaseModel):
         if profile:
             return profile
 
-        # [ANTIGRAVITY] Fallback to first available profile if requested one is missing
+        # Fallback to first available profile if requested one is missing
         if self.profiles:
             first_profile_name = next(iter(self.profiles))
             logger.warning(

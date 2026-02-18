@@ -79,7 +79,7 @@ class SupplyDemandStrategy(BaseStrategy):
         # Step 1: Find a Trend
         trend_dir = snapshot.trend_htf.direction
         
-        # [ANTIGRAVITY] Relaxation: If HTF is neutral, check LTF. 
+        # Relaxation: If HTF is neutral, check LTF. 
         # We need at least ONE timeframe to have a directional bias.
         if trend_dir == "neutral":
             trend_dir = snapshot.trend_ltf.direction
@@ -223,7 +223,7 @@ class SupplyDemandStrategy(BaseStrategy):
         # We only implement SND-specific management here (Price Action / Structure)
 
         try:
-            # [ANTIGRAVITY FIX] Resilient Field Access
+            # Resilient Field Access
             # Support both 'entry_price' (standard) and 'avg_price' (common in snapshots)
             entry_price = float(open_position.get("entry_price") or open_position.get("avg_price") or 0.0)
             if entry_price == 0:

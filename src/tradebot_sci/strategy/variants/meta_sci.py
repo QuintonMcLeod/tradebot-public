@@ -296,7 +296,7 @@ class MetaSCIStrategy(BaseStrategy):
             if name not in eligible_names: continue  # [AUDIT] Regime filter
             
             try:
-                # [ANTIGRAVITY FIX] Multi-Timeframe Routing
+                # Multi-Timeframe Routing
                 # Route specific candle sets based on strategy preference.
                 # RoboCop/Scalpers -> LTF (5m)
                 # SupplyDemand/Swing -> HTF (15m)
@@ -329,7 +329,7 @@ class MetaSCIStrategy(BaseStrategy):
                         )
                         # logger.debug(f"[META-TF] Routing HTF ({snapshot.htf_timeframe}) to {name}")
 
-                # [ANTIGRAVITY FIX] Safe Dispatch using Introspection
+                # Safe Dispatch using Introspection
                 # Some strategies (RoboCop) take extra args, some (LondonBreakout) do not.
                 # We inspect the signature to pass only what is accepted.
                 import inspect
@@ -401,7 +401,7 @@ class MetaSCIStrategy(BaseStrategy):
         logger.debug(f"[META-SCI] delegating exit to {source}")
         strat = self.strategies[source]
         
-        # [ANTIGRAVITY FIX] Safe Dispatch for Exits (Mirroring Entry Logic)
+        # Safe Dispatch for Exits (Mirroring Entry Logic)
         import inspect
         sig_obj = inspect.signature(strat.check_exit_signal)
         params = sig_obj.parameters

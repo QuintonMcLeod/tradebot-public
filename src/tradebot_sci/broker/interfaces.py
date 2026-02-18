@@ -45,13 +45,7 @@ class IExchangeBroker(Protocol):
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         ...
 
-    def _fetch_symbol_state(self, symbol: str) -> dict:
-        ...
-
-    def _has_active_orders_or_position(self, symbol: str, state: dict | None = None) -> bool:
-        ...
-
-    def sync_profile(self, profile: TradingProfileSettings) -> None:
+    def sync_profile(self, profile) -> None:
         """Dynamically update the broker's profile settings (Hot-Reload)."""
         ...
 
@@ -95,13 +89,7 @@ class NoOpExchangeBroker:
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         return 0.0
 
-    def _fetch_symbol_state(self, symbol: str) -> dict:
-        return {}
-
-    def _has_active_orders_or_position(self, symbol: str, state: dict | None = None) -> bool:
-        return False
-
-    def sync_profile(self, profile: TradingProfileSettings) -> None:
+    def sync_profile(self, profile) -> None:
         pass
 
     @property

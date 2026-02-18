@@ -177,7 +177,7 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     }
 
     runtime_cfg = config.get("global", {}) # Many runtime settings are in global
-    # [ANTIGRAVITY FIX] The settings UI writes runtime fields (time_format,
+    # The settings UI writes runtime fields (time_format,
     # pnl_timeframe, global_default_risk_pct, etc.) to config["runtime"].
     # Merge those in so they aren't silently dropped.
     runtime_cfg.update(config.get("runtime", {}))
@@ -235,7 +235,7 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     if not ccxt_data.get("secret"):
         ccxt_data["secret"] = os.getenv("CCXT_SECRET", "")
     
-    # [ANTIGRAVITY] Sync CCXT settings to Environment Variables
+    # Sync CCXT settings to Environment Variables
     if ccxt_data.get("exchange"):
         os.environ["CCXT_EXCHANGE"] = ccxt_data["exchange"]
     if ccxt_data.get("default_type"):
@@ -560,7 +560,7 @@ def load_settings() -> Settings:
         if settings.app.profile_name not in settings.profiles:
             settings.app.profile_name = "default"
 
-    # [ANTIGRAVITY DEBUG]
+    # Debug
     logger.info(f"[CONFIG] load_settings complete. Active profile: {settings.app.profile_name}. Available profiles: {list(settings.profiles.keys())}")
 
     return settings

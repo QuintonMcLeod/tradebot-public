@@ -356,7 +356,8 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
             profile_settings=profile_settings,
             environment=settings.oanda.environment,
             read_only=settings.oanda.read_only,
-            trade_results=trade_results
+            trade_results=trade_results,
+            position_hold_store_path=settings.runtime.position_hold_store_path
         )
     elif name == "paxos" or name == "itbit":
         if not settings.paxos:

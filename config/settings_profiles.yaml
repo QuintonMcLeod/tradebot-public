@@ -482,8 +482,8 @@ profiles:
     candle_timeframe: 5m
     htf_timeframe: 15m
     ltf_timeframe: 5m
-    market_poll_interval_seconds: 5
-    ai_decision_interval_seconds: 60
+    market_poll_interval_seconds: 30
+    ai_decision_interval_seconds: 120
     trend_window: 12
     ltf_trend_window: 8
     trend_swing_lookback: 2
@@ -500,6 +500,7 @@ profiles:
     crypto_only: false
     balance_cap_pct: 0.88
     target_leverage: 50
+    safety_fee_rt_pct: 0.0004
   asian_session:
     symbols:
     - USDJPY

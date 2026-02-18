@@ -39,8 +39,8 @@ def calculate_rsi(data: List[float], period: int = 14) -> float:
     if len(data) < period + 1:
         return 50.0
         
-    gains = []
-    losses = []
+    gains: list[float] = []
+    losses: list[float] = []
     
     for i in range(1, len(data)):
         diff = data[i] - data[i-1]

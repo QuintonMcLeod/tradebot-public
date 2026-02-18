@@ -114,7 +114,7 @@ class ActionScorer:
         if session_ok: score += 0.05
         
         if not align:
-            # [ANTIGRAVITY] Sliding Penalty: If HTF is strong (>0.6), reduce penalty to 10% (0.9x). 
+            # Sliding Penalty: If HTF is strong (>0.6), reduce penalty to 10% (0.9x). 
             # Otherwise, keep standard 30% penalty (0.7x).
             penalty = 0.9 if htf_strength > 0.6 else 0.7
             score *= penalty

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Literal
+from typing import Any, Dict, Literal
 
 
 class AssetClass(Enum):
@@ -39,7 +39,7 @@ MARKET_HOURS: Dict[MarketType, dict[str, str]] = {
         "close": "15:00",
     },
     MarketType.FOREX: {"timezone": "UTC", "open": "22:00", "close": "22:00"},
-    # [ANTIGRAVITY] Data-driven crypto hours: Open 12PM–6AM EST, Closed 6AM–12PM EST
+    # Data-driven crypto hours: Open 12PM–6AM EST, Closed 6AM–12PM EST
     # The "Morning Kill Zone" (6AM–12PM EST) lost -$2,000+ across all strategies in 30-day backtest
     MarketType.CRYPTO: {"timezone": "America/New_York", "open": "12:00", "close": "06:00"},
     MarketType.FUTURE: {"timezone": "UTC", "open": "00:00", "close": "00:00"},
@@ -137,7 +137,7 @@ CRYPTO_SYMBOLS = {
     "XRPUSDT", "ADAUSDT", "LINKUSDT", "POLUSD", "AVAXUSDT", "SHIBUSDT", "NEARUSDT", "DOTUSDT", "ATOMUSDT",
     "DOGEUSD", "XRPUSD", "ADAUSD", "LINKUSD", "AVAXUSD", "SHIBUSD", "NEARUSD", "DOTUSD", "ATOMUSD",
     "ETP-20DEC30-CDE", "BIP-20DEC30-CDE",
-    # [ANTIGRAVITY] New Volatile Adds
+    # New Volatile Adds
     "DASH/USDC:USDC", "ORDI/USDC:USDC",
     "INJ/USDC:USDC", "AR/USDC:USDC", "ZEN/USDC:USDC", "ETC/USDC:USDC",
     "HYPEUSD", "PEPEUSD", "WIFUSD", "GUSDUSD", "USDPUSD",
@@ -248,14 +248,14 @@ SUPPORTED_SYMBOLS = [
     "CL",
     "ETP-20DEC30-CDE",
     "BIP-20DEC30-CDE",
-    # [ANTIGRAVITY FIX] Affordable Futures (<$250 notional)
+    # Affordable Futures (<$250 notional)
     "SHIB/USD:USD-301220", 
     "AVAX/USD:USD-301220",
     "DOT/USD:USD-301220",
-    # [ANTIGRAVITY] High Volatility Gems (<$20 Margin)
+    # High Volatility Gems (<$20 Margin)
     "DASH/USDC:USDC",
     "ORDI/USDC:USDC",
-    # [ANTIGRAVITY] New Volatile Adds
+    # New Volatile Adds
     "INJ/USDC:USDC",
     "AR/USDC:USDC",
     "ZEN/USDC:USDC",
@@ -340,7 +340,7 @@ for sym in SUPPORTED_SYMBOLS:
     contract_symbol = CRYPTO_BASE_SYMBOLS.get(sym, sym)
     enabled = sym not in DISABLED_SYMBOLS
     
-    # [ANTIGRAVITY FIX] Infer MarketType from AssetClass if not explicit
+    # Infer MarketType from AssetClass if not explicit
     market_type = SYMBOL_MARKET_TYPE.get(sym)
     if not market_type:
         if asset_class == AssetClass.CRYPTO:
@@ -373,7 +373,7 @@ def is_crypto(symbol: str) -> bool:
     if sym in CRYPTO_SYMBOLS:
         return True
     
-    # [ANTIGRAVITY FIX] Treat Coinbase Derivatives (BIP, ETP) as 'crypto' for CCXT routing
+    # Treat Coinbase Derivatives (BIP, ETP) as 'crypto' for CCXT routing
     # They are Coinbase Nano Futures and should use CCXT provider
     if is_coinbase_derivative(sym):
         return True
@@ -395,7 +395,7 @@ def is_crypto(symbol: str) -> bool:
     return False
 
 
-# [ANTIGRAVITY FIX] Explicit Metal Registration
+# Explicit Metal Registration
 for meta_sym in ["XAUUSD", "XAGUSD", "XPTUSD", "XPDUSD"]:
     SYMBOL_METADATA[meta_sym] = SymbolMetadata(
         symbol=meta_sym,

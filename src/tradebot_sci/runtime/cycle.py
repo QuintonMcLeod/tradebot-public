@@ -286,23 +286,40 @@ def process_candidate_cycle(
                 continue
             
             if executor:
+                # ── Broker-agnostic re-entry cooldown ──────────────────────
+                # Block entry if this symbol recently closed (prevents churn)
+                hold_store = getattr(executor, "position_hold_store", None)
+                if hold_store:
+                    in_cooldown, remaining = hold_store.is_in_cooldown(symbol)
+                    if in_cooldown:
+                        exit_strat = hold_store.get_exit_strategy(symbol) or "unknown"
+                        logger.info(
+                            f"[COOLDOWN] {symbol}: blocked re-entry, "
+                            f"{remaining:.0f}s remaining (last strategy: {exit_strat})"
+                        )
+                        blocked += 1
+                        continue
+
                 result, outcome = executor.execute_decision(decision)
                 handle_execution_result(outcome, strike_tracker)
                 if result and result.status.value == "executed":
                     success_symbol = symbol
                     # Tag position_hold_store with winning strategy name
                     try:
+                        strat_name = getattr(engines.get(symbol), "last_strat_name", None) or "unknown"
                         hold_store = getattr(executor, "position_hold_store", None)
                         if hold_store:
-                            strat_name = getattr(engines.get(symbol), "last_strat_name", None) or "unknown"
                             rec = hold_store.get(symbol)
                             if rec:
                                 rec.strategy = strat_name
                                 hold_store.save()
                             else:
-                                # Record may not exist yet if broker doesn't use hold_store (e.g. OANDA)
                                 from datetime import datetime, timezone
                                 hold_store.upsert(symbol, datetime.now(timezone.utc), strategy=strat_name)
+                        # Also tag broker's internal position dict (Paper broker compatibility)
+                        broker_positions = getattr(executor, "positions", None)
+                        if broker_positions and isinstance(broker_positions, dict) and symbol in broker_positions:
+                            broker_positions[symbol]["strategy"] = strat_name
                     except Exception:
                         pass  # non-critical — don't break trade flow
                     if stop_after_submit:

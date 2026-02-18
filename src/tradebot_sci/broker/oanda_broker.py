@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 from tradebot_sci import paths as _paths
@@ -47,7 +48,8 @@ class OandaExchangeBroker(IExchangeBroker):
         profile_settings: TradingProfileSettings,
         environment: str = "practice",
         read_only: bool = True,
-        trade_results: TradeResultStore | None = None
+        trade_results: TradeResultStore | None = None,
+        position_hold_store_path: str | None = None
     ):
         if not HAS_OANDA:
             raise ImportError("OANDA dependencies missing. Please install oandapyV20.")
@@ -60,10 +62,17 @@ class OandaExchangeBroker(IExchangeBroker):
         self.profile = profile_settings
         self.read_only = read_only
         self.trade_results = trade_results
+        # Shared position_hold_store for strategy tracking & re-entry cooldown
+        self.position_hold_store = None
+        if position_hold_store_path:
+            from tradebot_sci.broker.position_hold_store import PositionHoldStore
+            self.position_hold_store = PositionHoldStore(position_hold_store_path)
         self._liquid_capital = 0.0
         self._authorized = True  # Will be set to False if API key is invalid
         self._tracked_positions: dict[str, dict] = {}  # symbol -> position snapshot
         self._prev_balance: float | None = None  # for PnL calc on vanished positions
+        self._exit_cooldowns: dict[str, float] = {}  # symbol -> timestamp of last exit
+        self.REENTRY_COOLDOWN = float(os.getenv("OANDA_REENTRY_COOLDOWN", "300"))  # 5 min default
         self._tracked_path = _paths.DATA_DIR / "oanda_tracked_positions.json"
         self._load_tracked_positions()
 
@@ -505,15 +514,24 @@ class OandaExchangeBroker(IExchangeBroker):
                 pnl_sign = '+' if pnl_val >= 0 else '-'
                 pnl_str = f"{pnl_sign}${abs(pnl_val):.2f}"
                 logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={side} | Duration={duration_str} | Est. Spread Cost: ${est_spread_cost:.4f} (OANDA {self.AVG_SPREAD_PIPS} pips)")
+                # Record exit for re-entry cooldown
+                self._exit_cooldowns[symbol] = time.time()
                 # Register with SafetyGuard for Streak Breaker & Exit Cooldown
                 try:
                     from tradebot_sci.strategy.safety_guard import SafetyGuard
                     is_win = pnl_val > 0
                     SafetyGuard.register_trade_completion(symbol, is_win)
-                    logger.info(f"[STREAK] Registered {'WIN' if is_win else 'LOSS'} for {symbol} (streak count: {SafetyGuard.SYMBOL_LOSS_STREAKS.get(symbol, 0)})")
+                    logger.info(f"[STREAK] Registered {'WIN' if is_win else 'LOSS'} for {symbol} (streak count: {SafetyGuard._state.symbol_loss_streaks.get(symbol, 0)})")
                 except Exception:
                     pass
                 
+                # Read strategy from hold store before removing
+                _exit_strategy = None
+                if self.position_hold_store:
+                    _hold_rec = self.position_hold_store.get(symbol)
+                    _exit_strategy = _hold_rec.strategy if _hold_rec else None
+                    self.position_hold_store.remove(symbol)  # triggers shared cooldown
+
                 # Add to TradeResultStore
                 if self.trade_results:
                     from datetime import datetime, timezone
@@ -526,7 +544,9 @@ class OandaExchangeBroker(IExchangeBroker):
                         tier="100%",
                         capital_at_close=self._liquid_capital,
                         opened_at=entry_time_str,
-                        duration_seconds=duration_secs
+                        duration_seconds=duration_secs,
+                        strategy=_exit_strategy or "unknown",
+                        exit_reason="manual_flatten"
                     ))
 
                 logger.info(f"[OANDA] Flattened {symbol}. Response: {resp}")
@@ -643,6 +663,22 @@ class OandaExchangeBroker(IExchangeBroker):
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_EXISTING, decision.symbol, "existing position")
                 )
 
+        # Re-entry cooldown — prevent churn after SL/TP exits
+        if decision.symbol in self._exit_cooldowns:
+            elapsed = time.time() - self._exit_cooldowns[decision.symbol]
+            remaining = self.REENTRY_COOLDOWN - elapsed
+            if remaining > 0:
+                logger.info(
+                    f"[OANDA] [COOLDOWN] {decision.symbol}: blocked re-entry, "
+                    f"{remaining:.0f}s remaining of {self.REENTRY_COOLDOWN:.0f}s cooldown"
+                )
+                return (
+                    ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, f"re-entry cooldown ({remaining:.0f}s)"),
+                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"re-entry cooldown")
+                )
+            else:
+                del self._exit_cooldowns[decision.symbol]
+
         is_short = action in ["short", "enter_short", "flip_to_short"]
 
         try:
@@ -744,15 +780,28 @@ class OandaExchangeBroker(IExchangeBroker):
             # Refresh account summary to get latest margin info
             self.refresh_account_summary()
             
-            # Additional Margin Logging
+            # Additional Margin Logging + Margin Sufficiency Gate
             try:
                 r_summary = accounts.AccountSummary(self.account_id)
                 self.client.request(r_summary)
                 summ = r_summary.response.get("account", {})
                 margin_used = summ.get("marginUsed", "0")
-                margin_avail = summ.get("marginAvailable", "0")
+                margin_avail = float(summ.get("marginAvailable", "0"))
                 margin_rate = summ.get("marginRate", "0")
-                logger.info(f"[OANDA] Pre-order Margin Check: Used=${margin_used}, Available=${margin_avail}, Leverage={1/float(margin_rate) if float(margin_rate) > 0 else 'N/A'}:1")
+                nav = float(summ.get("NAV", "0"))
+                logger.info(f"[OANDA] Pre-order Margin Check: Used=${margin_used}, Available=${margin_avail:.4f}, Leverage={1/float(margin_rate) if float(margin_rate) > 0 else 'N/A'}:1")
+
+                # ── MARGIN GATE: Abort if available margin < 10% of NAV ──
+                min_margin = nav * 0.10
+                if margin_avail < min_margin:
+                    logger.warning(
+                        f"[OANDA] [BLOCKED] Insufficient margin for {decision.symbol}: "
+                        f"Available=${margin_avail:.2f} < min ${min_margin:.2f} (10% of NAV=${nav:.2f})"
+                    )
+                    return (
+                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "insufficient margin"),
+                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"margin ${margin_avail:.2f} < ${min_margin:.2f}")
+                    )
             except Exception as e:
                 logger.warning(f"[OANDA] Could not fetch detailed margin info: {e}")
 
@@ -869,14 +918,23 @@ class OandaExchangeBroker(IExchangeBroker):
                         f"Duration={duration_str} | "
                         f"Est. Spread Cost: ${est_spread:.4f}"
                     )
+                    # Record exit for re-entry cooldown
+                    self._exit_cooldowns[sym] = time.time()
                     # Register with SafetyGuard for Streak Breaker & Exit Cooldown
                     try:
                         from tradebot_sci.strategy.safety_guard import SafetyGuard
                         is_win = pnl > 0
                         SafetyGuard.register_trade_completion(sym, is_win)
-                        logger.info(f"[STREAK] Registered {'WIN' if is_win else 'LOSS'} for {sym} (streak count: {SafetyGuard.SYMBOL_LOSS_STREAKS.get(sym, 0)})")
+                        logger.info(f"[STREAK] Registered {'WIN' if is_win else 'LOSS'} for {sym} (streak count: {SafetyGuard._state.symbol_loss_streaks.get(sym, 0)})")
                     except Exception:
                         pass
+
+                    # Read strategy from hold store before removing
+                    _exit_strategy = None
+                    if self.position_hold_store:
+                        _hold_rec = self.position_hold_store.get(sym)
+                        _exit_strategy = _hold_rec.strategy if _hold_rec else None
+                        self.position_hold_store.remove(sym)  # triggers shared cooldown
 
                     # Record in TradeResultStore for pnl_stats
                     if self.trade_results:
@@ -890,7 +948,9 @@ class OandaExchangeBroker(IExchangeBroker):
                             tier="100%",
                             capital_at_close=current_balance or self._liquid_capital,
                             opened_at=entry_time_str,
-                            duration_seconds=duration_secs
+                            duration_seconds=duration_secs,
+                            strategy=_exit_strategy or "unknown",
+                            exit_reason="sl_tp_hit"
                         ))
 
                     del self._tracked_positions[sym]

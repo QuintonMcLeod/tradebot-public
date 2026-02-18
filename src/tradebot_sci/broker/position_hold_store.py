@@ -42,9 +42,14 @@ class PositionHoldRecord:
 
 
 class PositionHoldStore:
+    REENTRY_COOLDOWN = float(os.getenv("REENTRY_COOLDOWN_SECONDS", "300"))  # 5 min default
+
     def __init__(self, path: str):
         self.path = Path(path)
         self.records: Dict[str, PositionHoldRecord] = {}
+        # In-memory exit cooldown tracking (not persisted — transient per session)
+        self._exit_cooldowns: Dict[str, float] = {}       # symbol -> timestamp of last exit
+        self._exit_strategies: Dict[str, str] = {}         # symbol -> strategy used at last exit
         self._ensure_directory()
         self._load()
 
@@ -95,8 +100,38 @@ class PositionHoldStore:
     def remove(self, symbol: str) -> None:
         key = symbol.upper()
         if key in self.records:
+            # Capture strategy before removing for exit tracking
+            strategy = self.records[key].strategy
             self.records.pop(key, None)
             self.save()
+            # Record exit for re-entry cooldown
+            self._record_exit(key, strategy)
+
+    def _record_exit(self, symbol: str, strategy: str | None = None) -> None:
+        """Record an exit timestamp for re-entry cooldown tracking."""
+        import time
+        self._exit_cooldowns[symbol.upper()] = time.time()
+        if strategy:
+            self._exit_strategies[symbol.upper()] = strategy
+        logger.info(f"[COOLDOWN] Recorded exit for {symbol}, cooldown={self.REENTRY_COOLDOWN:.0f}s, strategy={strategy or 'unknown'}")
+
+    def is_in_cooldown(self, symbol: str) -> tuple[bool, float]:
+        """Check if symbol is in re-entry cooldown. Returns (is_blocked, remaining_seconds)."""
+        import time
+        key = symbol.upper()
+        if key not in self._exit_cooldowns:
+            return False, 0.0
+        elapsed = time.time() - self._exit_cooldowns[key]
+        remaining = self.REENTRY_COOLDOWN - elapsed
+        if remaining <= 0:
+            del self._exit_cooldowns[key]
+            self._exit_strategies.pop(key, None)
+            return False, 0.0
+        return True, remaining
+
+    def get_exit_strategy(self, symbol: str) -> str | None:
+        """Get the strategy used for the most recent closed position on this symbol."""
+        return self._exit_strategies.get(symbol.upper())
 
     def get(self, symbol: str) -> PositionHoldRecord | None:
         record = self.records.get(symbol.upper())
@@ -111,3 +146,4 @@ class PositionHoldStore:
 
     def items(self) -> Iterable[PositionHoldRecord]:
         return list(self.records.values())
+

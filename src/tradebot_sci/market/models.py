@@ -46,7 +46,7 @@ class Ticker:
     last: float | None
     volume_24h_quote_usd: float | None
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default: object = None) -> object:
         return getattr(self, key, default)
 
 

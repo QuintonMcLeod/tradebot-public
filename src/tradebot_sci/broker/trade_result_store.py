@@ -21,6 +21,8 @@ class TradeResult:
     capital_at_close: float
     opened_at: str | None = None         # ISO timestamp of entry
     duration_seconds: float | None = None # How long the trade was held
+    strategy: str | None = None          # Which strategy opened this trade
+    exit_reason: str | None = None       # Why the trade was closed
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -36,7 +38,9 @@ class TradeResult:
             tier=data.get("tier", "unknown"),
             capital_at_close=float(data.get("capital_at_close", 0.0)),
             opened_at=data.get("opened_at"),
-            duration_seconds=float(data["duration_seconds"]) if data.get("duration_seconds") is not None else None
+            duration_seconds=float(data["duration_seconds"]) if data.get("duration_seconds") is not None else None,
+            strategy=data.get("strategy"),
+            exit_reason=data.get("exit_reason")
         )
 
 class TradeResultStore:

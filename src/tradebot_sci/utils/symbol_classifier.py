@@ -70,3 +70,28 @@ def classify_symbol(symbol: str) -> AssetClass:
         return AssetClass.STOCKS
 
     return AssetClass.UNKNOWN
+
+
+# ── Per-broker round-trip fee defaults (decimal, e.g. 0.008 = 0.8%) ──
+BROKER_FEE_DEFAULTS: dict[AssetClass, float] = {
+    AssetClass.CRYPTO:  0.008,    # Gemini / CCXT: ~0.4% per leg × 2
+    AssetClass.FOREX:   0.0004,   # OANDA spread cost ~0.02% per leg × 2
+    AssetClass.STOCKS:  0.002,    # IBKR commission-based, ~0.1% per leg × 2
+    AssetClass.ETF:     0.002,    # Same as stocks
+    AssetClass.METALS:  0.001,    # Tight spread metals via OANDA / IBKR
+    AssetClass.FUTURES: 0.001,    # IBKR futures, low per-contract cost
+    AssetClass.UNKNOWN: 0.004,    # Conservative fallback
+}
+
+
+def get_fee_for_symbol(symbol: str, override: float | None = None) -> float:
+    """Return the estimated round-trip fee for *symbol*.
+
+    If *override* is given and non-zero it takes precedence (allows the
+    ``SAFETY_FEE_RT_PCT`` env-var to act as a global override).
+    """
+    if override:
+        return override
+    asset_class = classify_symbol(symbol)
+    return BROKER_FEE_DEFAULTS.get(asset_class, 0.004)
+

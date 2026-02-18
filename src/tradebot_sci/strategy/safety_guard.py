@@ -19,10 +19,11 @@ from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
 from tradebot_sci.config.models import UserConfig
 from tradebot_sci.config.loader import get_settings
 from tradebot_sci.runtime.rejection_journal import rejection_journal
+from tradebot_sci.strategy.safety_state import SafetyState
 
 logger = logging.getLogger(__name__)
 
-# [ANTIGRAVITY] New Helpers for Safety Guard
+# New Helpers for Safety Guard
 def calculate_r_multiple(entry: float, stop: float, current: float, direction: str) -> float:
     risk = abs(entry - stop)
     if risk == 0: return 0.0
@@ -50,88 +51,62 @@ class SafetyGuard:
     10. [NEW] Opening Range Sentry (15-min avoidance)
     """
 
-    # Global State for Safety Measures (Isolated per Asset Class)
-    HWM_CAPITAL = {} # {AssetClass: float}
-    DRAWDOWN_PAUSE_UNTIL = {} # {AssetClass: datetime}
-    
-    # State Tracking for New Features (Isolated per Asset Class)
-    DAILY_START_CAPITAL = {} # {AssetClass: float}
-    DAILY_PNL = {} # {AssetClass: float}
-    WEEKLY_START_CAPITAL = {} # {AssetClass: float}
-    WEEKLY_PNL = {} # {AssetClass: float}
-    MONTHLY_START_CAPITAL = {} # {AssetClass: float}
-    MONTHLY_PNL = {} # {AssetClass: float}
-    LAST_RESET_DATE = {} # {AssetClass: date}
-    LAST_RESET_WEEK = {} # {AssetClass: (year, week)}
-    LAST_RESET_MONTH = {} # {AssetClass: (year, month)}
-    
-    SYMBOL_LOSS_STREAKS = {} # {symbol: count}
-    SYMBOL_PAUSE_UNTIL = {} # {symbol: datetime}
-    SYMBOL_EXIT_COOLDOWN = {} # {symbol: datetime} — blocks re-entry for 5 min after any exit
-    
-    TRADE_TIMESTAMPS = {} # {AssetClass: list[datetime]} for Churn Burner
-    SENTIMENT_CACHE = {} # {AssetClass: {symbol: (timestamp, sentiment)}}
-    WIN_RATE = {} # {AssetClass: float}
-    OPEN_POSITIONS = [] # Legacy list of open position dicts
+    # All mutable state consolidated into an injectable dataclass.
+    _state: SafetyState = SafetyState()
 
-    # [WEALTH MODE] State Tracking - GLOBAL REGISTRY
-    # {symbol: position_dict} - Tracks all open trades across OANDA, Gemini, etc.
-    GLOBAL_POSITIONS: dict[str, dict] = {} 
+    @classmethod
+    def reset_state(cls) -> None:
+        """Reset all mutable state — useful for tests."""
+        cls._state = SafetyState()
 
     @classmethod
     def update_position(cls, symbol: str, position: Optional[dict]):
         """Updates the global view for a specific symbol to prevent broker blind-spots."""
         if position and isinstance(position, dict):
-            cls.GLOBAL_POSITIONS[symbol] = position
-        elif symbol in cls.GLOBAL_POSITIONS:
+            cls._state.global_positions[symbol] = position
+        elif symbol in cls._state.global_positions:
             # If position is None, it means the trade closed or doesn't exist
-            del cls.GLOBAL_POSITIONS[symbol]
+            del cls._state.global_positions[symbol]
 
     @classmethod
     def get_financed_risk_stats(cls):
         """Calculates holistic PnL and count across ALL symbols/brokers."""
         total_pnl = 0.0
-        for pos in cls.GLOBAL_POSITIONS.values():
+        for pos in cls._state.global_positions.values():
             total_pnl += float(pos.get("unrealized_pnl", 0.0) or 0.0)
-        return total_pnl, len(cls.GLOBAL_POSITIONS)
+        return total_pnl, len(cls._state.global_positions)
 
-    @classmethod
-    def set_current_positions(cls, positions: list[dict]):
-        """Legacy helper for single-list updates."""
-        for p in positions:
-            sym = p.get("symbol")
-            if sym: cls.update_position(sym, p)
 
     @classmethod
     def _update_daily_stats(cls, current_capital: float, asset_class: AssetClass):
         """Updates daily PnL tracking for Greed Guard."""
         today = datetime.now().date()
-        if cls.LAST_RESET_DATE.get(asset_class) != today:
-            cls.DAILY_START_CAPITAL[asset_class] = current_capital
-            cls.DAILY_PNL[asset_class] = 0.0
-            cls.LAST_RESET_DATE[asset_class] = today
-            cls.TRADE_TIMESTAMPS[asset_class] = [] # Reset churn counter
-            cls.SENTIMENT_CACHE[asset_class] = {} # Fix: Dictionary for symbols
+        if cls._state.last_reset_date.get(asset_class) != today:
+            cls._state.daily_start_capital[asset_class] = current_capital
+            cls._state.daily_pnl[asset_class] = 0.0
+            cls._state.last_reset_date[asset_class] = today
+            cls._state.trade_timestamps[asset_class] = [] # Reset churn counter
+            cls._state.sentiment_cache[asset_class] = {} # Fix: Dictionary for symbols
             logger.info(f"[SAFETY] New Day Detected for {asset_class.value}. Resetting Daily PnL. Start Capital: ${current_capital:.2f}")
         else:
-            start_cap = cls.DAILY_START_CAPITAL.get(asset_class)
+            start_cap = cls._state.daily_start_capital.get(asset_class)
             if start_cap:
-                cls.DAILY_PNL[asset_class] = current_capital - start_cap
+                cls._state.daily_pnl[asset_class] = current_capital - start_cap
 
     @classmethod
     def register_trade_completion(cls, symbol: str, is_win: bool):
         """Call this when a trade closes to update streaks and set cooldown."""
         # Per-symbol exit cooldown — prevents death spiral re-entry
-        cls.SYMBOL_EXIT_COOLDOWN[symbol] = datetime.now() + timedelta(minutes=5)
+        cls._state.symbol_exit_cooldown[symbol] = datetime.now() + timedelta(minutes=5)
         logger.info(f"[SAFETY] Exit cooldown set for {symbol}: 5 min")
 
         if not is_win:
-            cls.SYMBOL_LOSS_STREAKS[symbol] = cls.SYMBOL_LOSS_STREAKS.get(symbol, 0) + 1
-            logger.info(f"[STREAK_BREAKER] {symbol} Loss Count: {cls.SYMBOL_LOSS_STREAKS[symbol]}")
+            cls._state.symbol_loss_streaks[symbol] = cls._state.symbol_loss_streaks.get(symbol, 0) + 1
+            logger.info(f"[STREAK_BREAKER] {symbol} Loss Count: {cls._state.symbol_loss_streaks[symbol]}")
         else:
-            if symbol in cls.SYMBOL_LOSS_STREAKS:
+            if symbol in cls._state.symbol_loss_streaks:
                  logger.info(f"[STREAK_BREAKER] {symbol} Win. Resetting Streak.")
-            cls.SYMBOL_LOSS_STREAKS[symbol] = 0
+            cls._state.symbol_loss_streaks[symbol] = 0
 
     @classmethod
     def _reject(cls, symbol: str, timeframe: str, gate_name: str, reason: str) -> AITradeDecision:
@@ -148,27 +123,27 @@ class SafetyGuard:
         now = datetime.now()
         est_now = datetime.now(ZoneInfo("America/New_York"))
         asset_class = classify_symbol(symbol)
-        safety = settings.safety if settings else None
+        safety = getattr(settings, 'safety', None) if settings else None
 
         # 0. State Updates
-        hwm = cls.HWM_CAPITAL.get(asset_class, 0.0)
+        hwm = cls._state.hwm_capital.get(asset_class, 0.0)
         if current_capital > hwm:
-            cls.HWM_CAPITAL[asset_class] = current_capital
+            cls._state.hwm_capital[asset_class] = current_capital
         cls._update_daily_stats(current_capital, asset_class)
 
         # -------------------------------------------------------------
         # 0.5 EXIT COOLDOWN (per-symbol, prevents death spiral re-entry)
         # -------------------------------------------------------------
-        cooldown_until = cls.SYMBOL_EXIT_COOLDOWN.get(symbol)
+        cooldown_until = cls._state.symbol_exit_cooldown.get(symbol)
         if cooldown_until and now < cooldown_until:
             remaining = int((cooldown_until - now).total_seconds())
             return cls._reject(symbol, timeframe, "Exit Cooldown", f"Exit Cooldown: {remaining}s remaining (no re-entry within 5 min of exit)")
         elif cooldown_until:
-            del cls.SYMBOL_EXIT_COOLDOWN[symbol]  # Expired
+            del cls._state.symbol_exit_cooldown[symbol]  # Expired
 
         # -------------------------------------------------------------
         # P&L PERFORMANCE TARGETS & LIMITS
-        # [ANTIGRAVITY] Only activate when capital >= $250.
+        # Only activate when capital >= $250.
         # On small accounts, percentage-based limits trip on a single
         # trade and lock the bot out — more harm than good.
         # -------------------------------------------------------------
@@ -203,18 +178,19 @@ class SafetyGuard:
         # 1. DRAWDOWN BREAKER (Account Circuit Breaker)
         # -------------------------------------------------------------
         # Check active pause
-        pause_until = cls.DRAWDOWN_PAUSE_UNTIL.get(asset_class)
+        pause_until = cls._state.drawdown_pause_until.get(asset_class)
         if pause_until and now < pause_until:
             return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker ({asset_class.value.upper()}) active until {pause_until.strftime('%H:%M')}")
             
         # Check trigger
         if safety and safety.safety_drawdown_breaker_enabled:
-            hwm = cls.HWM_CAPITAL.get(asset_class, 0.0)
+            hwm = cls._state.hwm_capital.get(asset_class, 0.0)
             if hwm > 0:
                 drawdown = (hwm - current_capital) / hwm
-                if drawdown > 0.05: # 5% Hard Limit
-                     cls.DRAWDOWN_PAUSE_UNTIL[asset_class] = now + timedelta(hours=24)
-                     logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}%). Pausing 24h.")
+                drawdown_limit = getattr(safety, 'safety_drawdown_max_pct', 0.05)
+                if drawdown > drawdown_limit:
+                     cls._state.drawdown_pause_until[asset_class] = now + timedelta(hours=24)
+                     logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}% > {drawdown_limit*100:.1f}% limit). Pausing 24h.")
                      return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
 
         # -------------------------------------------------------------
@@ -239,7 +215,7 @@ class SafetyGuard:
         # -------------------------------------------------------------
         if safety and safety.safety_greed_guard_enabled:
             target = safety.safety_greed_guard_target
-            daily_pnl = cls.DAILY_PNL.get(asset_class, 0.0)
+            daily_pnl = cls._state.daily_pnl.get(asset_class, 0.0)
             if daily_pnl >= target:
                 return cls._reject(symbol, timeframe, "Greed Guard", f"Greed Guard Active for {asset_class.value} (Daily Goal ${target:.2f} Met)")
 
@@ -248,18 +224,18 @@ class SafetyGuard:
         # -------------------------------------------------------------
         if safety and safety.safety_streak_breaker_enabled:
             # Check Active Pause
-            if symbol in cls.SYMBOL_PAUSE_UNTIL:
-                if now < cls.SYMBOL_PAUSE_UNTIL[symbol]:
+            if symbol in cls._state.symbol_pause_until:
+                if now < cls._state.symbol_pause_until[symbol]:
                      return cls._reject(symbol, timeframe, "Streak Breaker", "Streak Breaker Cooldown Active")
                 else:
-                    del cls.SYMBOL_PAUSE_UNTIL[symbol] # Expired
+                    del cls._state.symbol_pause_until[symbol] # Expired
             
-            # Check Trigger (3 Losses)
-            if cls.SYMBOL_LOSS_STREAKS.get(symbol, 0) >= 3:
-                cls.SYMBOL_PAUSE_UNTIL[symbol] = now + timedelta(hours=4)
-                cls.SYMBOL_LOSS_STREAKS[symbol] = 0 # Reset count after triggering
-                logger.warning(f"[SAFETY] Streak Breaker triggered for {symbol}. Pausing 4h.")
-                return cls._reject(symbol, timeframe, "Streak Breaker", "Streak Breaker Triggered (3 Losses)")
+            streak_limit = getattr(safety, 'safety_streak_max_losses', 3)
+            if cls._state.symbol_loss_streaks.get(symbol, 0) >= streak_limit:
+                cls._state.symbol_pause_until[symbol] = now + timedelta(hours=4)
+                cls._state.symbol_loss_streaks[symbol] = 0 # Reset count after triggering
+                logger.warning(f"[SAFETY] Streak Breaker triggered for {symbol} ({streak_limit} losses). Pausing 4h.")
+                return cls._reject(symbol, timeframe, "Streak Breaker", f"Streak Breaker Triggered ({streak_limit} Losses)")
 
         # -------------------------------------------------------------
         # 6. [NEW] CHURN BURNER (Rate Limit)
@@ -268,9 +244,9 @@ class SafetyGuard:
             max_hourly = safety.safety_churn_burner_max
             cutoff = now - timedelta(hours=1)
             # Prune old timestamps
-            timestamps = cls.TRADE_TIMESTAMPS.get(asset_class, [])
+            timestamps = cls._state.trade_timestamps.get(asset_class, [])
             timestamps = [t for t in timestamps if t > cutoff]
-            cls.TRADE_TIMESTAMPS[asset_class] = timestamps
+            cls._state.trade_timestamps[asset_class] = timestamps
             if len(timestamps) >= max_hourly:
                 return cls._reject(symbol, timeframe, "Churn Burner", f"Churn Burner ({asset_class.value.upper()}) Active (Max {max_hourly}/hr)")
 
@@ -297,8 +273,8 @@ class SafetyGuard:
         # -------------------------------------------------------------
         if safety and safety.safety_sentiment_shield_enabled and ai_client:
              try:
-                 # [ANTIGRAVITY CACHE] Prevent "Itchy Trigger Finger" / excessive API calls
-                 class_cache = cls.SENTIMENT_CACHE.get(asset_class, {})
+                 # Prevent "Itchy Trigger Finger" / excessive API calls
+                 class_cache = cls._state.sentiment_cache.get(asset_class, {})
                  cached = class_cache.get(symbol)
                  cache_valid = False
                  if cached:
@@ -314,7 +290,7 @@ class SafetyGuard:
                      sentiment = ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]).upper()
                      # Update Cache
                      class_cache[symbol] = (now, sentiment)
-                     cls.SENTIMENT_CACHE[asset_class] = class_cache
+                     cls._state.sentiment_cache[asset_class] = class_cache
                      logger.info(f"[SAFETY] AI Shield Refreshed for {symbol}: {sentiment}")
                  
                  if "DANGEROUS" in sentiment:
@@ -328,7 +304,7 @@ class SafetyGuard:
         # 9. [NEW] SEGMENTED LEVERAGE SENTRY (Max Account Leverage)
         # -------------------------------------------------------------
         # Prevents "Account Blowing Up" by capping total notional leverage
-        # [ANTIGRAVITY FIX] Isolated per asset class (Forex entries only care about Forex leverage)
+        # Isolated per asset class (Forex entries only care about Forex leverage)
         if safety and safety.safety_leverage_sentry_enabled:
             # Determine asset class of the symbol being checked
             target_class = classify_symbol(symbol)
@@ -340,7 +316,7 @@ class SafetyGuard:
             
             # Calculate total notional value only for positions in the same asset class
             total_notional = 0.0
-            for pos_symbol, pos in cls.GLOBAL_POSITIONS.items():
+            for pos_symbol, pos in cls._state.global_positions.items():
                 if classify_symbol(pos_symbol) == target_class:
                     price = float(pos.get("avg_price") or pos.get("entry_price") or 0)
                     size = abs(float(pos.get("size") or 0))
@@ -367,9 +343,12 @@ class SafetyGuard:
                 if entry > 0 and tp > 0:
                     potential_reward_pct = abs(tp - entry) / entry
                     
-                    # Estimate round-trip fee (Gemini: 0.4% * 2 = 0.8%)
-                    # We add a 1.5x safety multiplier (needs to be 1.5x the fee to be worth taking)
-                    est_fee_rt = 0.008 
+                    # Estimate round-trip fee dynamically per asset class
+                    import os
+                    from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                    # Only use env override when user explicitly set SAFETY_FEE_RT_PCT
+                    env_override = float(os.environ["SAFETY_FEE_RT_PCT"]) if "SAFETY_FEE_RT_PCT" in os.environ else None
+                    est_fee_rt = get_fee_for_symbol(symbol, override=env_override)
                     min_edge_pct = est_fee_rt * 1.5 # 1.2% min move expected
                     
                     if potential_reward_pct < min_edge_pct:
@@ -383,9 +362,9 @@ class SafetyGuard:
     def notify_entry(cls, symbol: str):
         """Call this when a trade is effectively entered to update rate limits."""
         asset_class = classify_symbol(symbol)
-        if asset_class not in cls.TRADE_TIMESTAMPS:
-            cls.TRADE_TIMESTAMPS[asset_class] = []
-        cls.TRADE_TIMESTAMPS[asset_class].append(datetime.now())
+        if asset_class not in cls._state.trade_timestamps:
+            cls._state.trade_timestamps[asset_class] = []
+        cls._state.trade_timestamps[asset_class].append(datetime.now())
 
     @classmethod
     def augment_exit_decision(cls, decision: Optional[AITradeDecision], open_position: dict, snapshot: MarketSnapshot) -> AITradeDecision:
@@ -414,7 +393,8 @@ class SafetyGuard:
         if entry_time:
             if isinstance(entry_time, str):
                 try: entry_time = datetime.fromisoformat(entry_time.replace("Z", "+00:00"))
-                except: pass
+                except (ValueError, TypeError):
+                    logger.debug(f"[SAFETY] Failed to parse entry_time '{entry_time}' for bars_since calculation")
             if isinstance(entry_time, datetime):
                 bars_since = len([c for c in snapshot.candles if c.timestamp >= entry_time])
 
@@ -423,7 +403,7 @@ class SafetyGuard:
         MIN_HOLD_SECONDS = 120  # 2 minutes
         position_age_seconds = 0
         if entry_time and isinstance(entry_time, datetime):
-            now = datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.utcnow()
+            now = datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.now(tz=timezone.utc)
             position_age_seconds = (now - entry_time).total_seconds()
             if position_age_seconds < MIN_HOLD_SECONDS:
                 logger.debug(
@@ -438,7 +418,7 @@ class SafetyGuard:
 
         # 1. CENTRALIZED TARGET MONITOR (TP/SL)
         # Support Moonshot Elevated TP
-        pos_record = cls.GLOBAL_POSITIONS.get(snapshot.symbol, {})
+        pos_record = cls._state.global_positions.get(snapshot.symbol, {})
         elevated_tp = pos_record.get("elevated_tp")
         
         tp_target = float(elevated_tp or open_position.get("take_profit") or open_position.get("tp_price") or 0.0)
@@ -470,7 +450,7 @@ class SafetyGuard:
         shield_v = settings.safety.safety_flash_trap_enabled
         weapon_v = settings.safety.wealth_exit_blowoff_enabled
         if (shield_v or weapon_v) and len(snapshot.candles) >= 14:
-            # [ANTIGRAVITY FIX] Usage of keyword-only period
+            # Usage of keyword-only period
             curr_atr = calculate_atr(snapshot.candles[-14:], period=14)
             hist_atr = calculate_atr(snapshot.candles[-50:], period=14)
             if curr_atr and hist_atr:
@@ -624,7 +604,7 @@ class SafetyGuard:
                  orig_tp = float(open_position.get("take_profit") or open_position.get("tp_price") or 0.0)
                  if orig_tp > 0:
                       new_tp = entry_price + (orig_tp - entry_price) * 2
-                      cls.GLOBAL_POSITIONS[snapshot.symbol]["elevated_tp"] = new_tp
+                      cls._state.global_positions[snapshot.symbol]["elevated_tp"] = new_tp
                       logger.info(f"[WEALTH] Moonshot Elevator ACTIVE for {snapshot.symbol}: Target doubled to {new_tp:.4f}")
 
         # =========================================================================
@@ -670,7 +650,7 @@ class SafetyGuard:
         # -------------------------------------------------------------------------
         # Uses ATR-based or fixed pct trails to chase runs.
         # "Trailing Stop Enabled" in UI maps to this.
-        # [ANTIGRAVITY FIX] 3-phase time-bounded escalation prevents infinite holds:
+        # 3-phase time-bounded escalation prevents infinite holds:
         #   Phase 1 (0 → max/2): Normal 1.5× ATR trail
         #   Phase 2 (max/2 → max): Trail tightens linearly from 1.5× → 0.5× ATR
         #   Phase 3 (> max): Force close — capital is freed
@@ -699,7 +679,7 @@ class SafetyGuard:
                  logger.debug(f"[SAFETY] Greedy Exit TIGHTENING: {snapshot.symbol} trail={trail_multiplier:.2f}x ATR ({hours_held:.1f}h held)")
 
              # Default to ATR-based if available, or fallback to fixed 0.5%
-             # [ANTIGRAVITY FIX] Usage of keyword-only period
+             # Usage of keyword-only period
              atr = calculate_atr(snapshot.candles[-14:], period=14)
              trail_dist = 0.0
              
@@ -715,7 +695,7 @@ class SafetyGuard:
                  # If price is at/below entry, nothing to retain — close now
                  # [ANTI-CHURN] Require minimum 5 minutes held AND spread buffer
                  # Before this fix, spread alone (1.5 pips) triggered instant exits
-                 min_greedy_age = 300  # 5 minutes
+                 min_greedy_age = getattr(settings.safety, 'safety_greedy_min_age_seconds', 300) if settings else 300
                  if hours_held * 3600 >= min_greedy_age and current_price <= entry_price:
                      logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} <= {entry_price:.5f}). Closing at breakeven.")
                      return close_position_decision(snapshot.symbol, snapshot.timeframe,
@@ -737,7 +717,7 @@ class SafetyGuard:
                  potential_stop = min(potential_stop, entry_price)
                  # If price is at/above entry, nothing to retain — close now
                  # [ANTI-CHURN] Require minimum 5 minutes held AND spread buffer
-                 min_greedy_age = 300  # 5 minutes
+                 min_greedy_age = getattr(settings.safety, 'safety_greedy_min_age_seconds', 300) if settings else 300
                  if hours_held * 3600 >= min_greedy_age and current_price >= entry_price:
                      logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} >= {entry_price:.5f}). Closing at breakeven.")
                      return close_position_decision(snapshot.symbol, snapshot.timeframe,
@@ -773,7 +753,7 @@ class SafetyGuard:
                     return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Sniper Target ({rr_target}R)")
 
 
-        # [ANTIGRAVITY] Enabled ATR Armor logic
+        # Enabled ATR Armor logic
         # 4. ATR ARMOR (Consolidated with Gamma Squeeze)
         if settings.safety.safety_atr_shield_enabled:
             # 1. Breakeven (1R)
@@ -835,11 +815,11 @@ class SafetyGuard:
     @classmethod
     def set_win_rate(cls, wr: float, asset_class: Optional[AssetClass] = None):
         if asset_class:
-            cls.WIN_RATE[asset_class] = wr
+            cls._state.win_rate[asset_class] = wr
         else:
             # Fallback: Apply to all
             for ac in AssetClass:
-                cls.WIN_RATE[ac] = wr
+                cls._state.win_rate[ac] = wr
 
     @classmethod
     def set_current_positions(cls, positions: list[dict]):
@@ -847,7 +827,7 @@ class SafetyGuard:
         # This updates GLOBAL_POSITIONS via set_current_positions(legacy) logic
         # But we also have OPEN_POSITIONS which might be redundant now. 
         # Let's keep them in sync if used by legacy performance modes.
-        cls.OPEN_POSITIONS = positions
+        cls._state.open_positions = positions
         for p in positions:
             sym = p.get("symbol")
             if sym: cls.update_position(sym, p)
@@ -896,7 +876,7 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # 1. ESTABLISH BASE RISK (The Foundation)
         # -------------------------------------------------------------
-        # [ANTIGRAVITY FIX] Read from profile settings first, then decision, then fallback.
+        # Read from profile settings first, then decision, then fallback.
         # This ensures the user's configured risk_per_trade_pct is actually respected.
         profile_risk = getattr(settings, 'risk_per_trade_pct', None) if settings else None
         base_risk = decision.risk_per_trade_pct or profile_risk or 0.015 
@@ -906,7 +886,7 @@ class SafetyGuard:
         
         # A. KELLY CRITERION (Math Edge)
         if "kelly" in modes:
-            w = cls.WIN_RATE.get(asset_class, 0.55)
+            w = cls._state.win_rate.get(asset_class, 0.55)
             r = 2.0 # Assume 2:1 RR conservative average
             kelly_f = w - (1 - w) / r
             if kelly_f > 0:
@@ -915,7 +895,7 @@ class SafetyGuard:
         
         # B. COMPOUND FLYWHEEL (Growth Based)
         elif "flywheel" in modes:
-             daily_pnl = cls.DAILY_PNL.get(asset_class, 0.0)
+             daily_pnl = cls._state.daily_pnl.get(asset_class, 0.0)
              if daily_pnl > 0:
                   milestone = 200.0
                   boost = (daily_pnl // milestone) * 0.001
@@ -925,8 +905,8 @@ class SafetyGuard:
         # C. EQUITY SMOOTHING (Anti-Tilt / Mean Reversion)
         elif "smooth" in modes:
             # Boost if at ATH, slash if in drawdown
-            hwm = cls.HWM_CAPITAL.get(asset_class, 0.0)
-            daily_pnl = cls.DAILY_PNL.get(asset_class, 0.0)
+            hwm = cls._state.hwm_capital.get(asset_class, 0.0)
+            daily_pnl = cls._state.daily_pnl.get(asset_class, 0.0)
             if hwm > 0 and daily_pnl < -0.02 * hwm: # 2% Daily Drawdown
                 base_risk = 0.005 # Slash to 0.5%
                 decision.notes = (decision.notes or "") + f" [WEALTH] Anti-Tilt Base ({asset_class.value}) (Defensive)"
@@ -983,7 +963,7 @@ class SafetyGuard:
         if "coil" in modes:
             candles = snapshot.candles
             if len(candles) >= 100:
-                # [ANTIGRAVITY FIX] Usage of keyword-only period
+                # Usage of keyword-only period
                 recent_atr = calculate_atr(candles[-14:], period=14)
                 hist_atr = calculate_atr(candles, period=100)
                 if recent_atr and hist_atr and recent_atr < (hist_atr * 0.6):
@@ -1073,7 +1053,7 @@ class SafetyGuard:
         # H. HOUSE MONEY (Leveled Up)
         if "house_money" in modes:
             financed = False
-            for pos in cls.GLOBAL_POSITIONS.values():
+            for pos in cls._state.global_positions.values():
                 entry = float(pos.get("entry_price") or 0)
                 stop = float(pos.get("stop_price") or 0)
                 if abs(entry-stop) > 0:

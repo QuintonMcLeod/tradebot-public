@@ -55,7 +55,7 @@ def _forex_contract(metadata: SymbolMetadata):
     
     symbol = metadata.contract_symbol
     
-    # [ANTIGRAVITY FIX] Metals contract routing
+    # Metals contract routing
     if symbol == "XAUUSD": return Commodity(symbol, "SMART", "USD", primaryExchange="IBCMDTY", conId=69067924)
     if symbol == "XAGUSD": return Commodity(symbol, "SMART", "USD", primaryExchange="IBCMDTY", conId=77124483)
     if symbol == "XPTUSD": return Commodity(symbol, "SMART", "USD", primaryExchange="IBCMDTY", conId=78363317)

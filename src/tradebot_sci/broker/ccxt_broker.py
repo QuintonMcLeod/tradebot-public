@@ -180,6 +180,7 @@ class CCXTExchangeBroker:
     def _is_known_exchange_symbol(self, symbol: str) -> bool:
         try:
             if not self._exchange.markets:
+                logger.warning("[CCXT] Markets not loaded during symbol lookup — reloading (unexpected state reset)")
                 self._exchange.load_markets()
             return symbol in self._exchange.markets
         except Exception:
@@ -918,6 +919,378 @@ class CCXTExchangeBroker:
         except Exception as exc:
             logger.warning(f"[CCXT] Failed to update trailing stop for {symbol}: {exc}")
 
+    # ── Decomposed helpers for execute_decision() ─────────────────────
+
+    def _resolve_direction(
+        self, decision: AITradeDecision, action: str,
+    ) -> tuple[str, str, bool] | tuple[ExecutionResult, ExecutionOutcome]:
+        """Return (mapped_symbol, side, is_future) or an error tuple if short is unsupported."""
+        default_type = (os.getenv("CCXT_DEFAULT_TYPE") or self.default_type or "spot").lower()
+        provider = (os.getenv("EXCHANGE_PROVIDER") or "").strip().lower()
+        broker_mode = (os.getenv("BROKER_MODE") or "").strip().lower()
+        profile_name = (os.getenv("PROFILE_NAME") or self.profile.name or "").strip().lower()
+        alt_md = (os.getenv("ALTERNATIVE_MARKET_DATA") or "").strip().lower()
+
+        from tradebot_sci.market.symbols import is_coinbase_derivative
+        is_future = (
+            default_type in {"future", "swap"}
+            or provider == "coinbase_futures"
+            or broker_mode == "coinbase_futures"
+            or profile_name == "coinbase_futures"
+            or alt_md == "coinbase_futures"
+        )
+
+        # Symbol-Aware Future Check
+        if not is_coinbase_derivative(decision.symbol):
+            if "gemini" in self.exchange_id.lower():
+                is_future = False
+
+        if action == "enter_short" and not is_future:
+            return (
+                ExecutionResult(ExecutionStatus.UNSUPPORTED_SYMBOL_CONFIG, decision.symbol, "short not supported in spot mode"),
+                ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "short not supported in spot mode"),
+            )
+
+        sym = self._map_symbol(decision.symbol)
+        side = "buy"
+        if action in {"enter_short"}:
+            side = "sell"
+        elif action == "enter_long":
+            side = "buy"
+        elif action == "scale_in":
+            pos = self.get_open_position_snapshot(decision.symbol)
+            if pos and pos.get("is_dust", False):
+                logger.info(f"[DUST] Ignoring scale_in for {decision.symbol} (size={pos.get('size')}) as it's a dust position.")
+                return (
+                    ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "dust position, cannot scale in"),
+                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "dust position"),
+                )
+            if pos and pos.get("side") == "short":
+                side = "sell"
+            else:
+                side = "buy"
+
+        return (sym, side, is_future)
+
+    def _calculate_position_size(
+        self,
+        decision: AITradeDecision,
+        sym: str,
+        liq_cap: float,
+        is_future: bool,
+        side: str,
+        min_order_val: float,
+    ) -> tuple[float, float, float, float, float | None] | tuple[ExecutionResult, ExecutionOutcome]:
+        """Compute position sizing.
+
+        Returns (pos_size_usd, qty_base, send_amount, entry_price, min_amount_limit)
+        or an error tuple when entry cannot proceed.
+        """
+        # Risk parameters
+        profile_risk = float(getattr(self.profile, "risk_per_trade_pct", 0.015) or 0.015)
+        risk_pct = getattr(decision, "risk_per_trade_pct", None) or profile_risk
+        fixed_risk = float(getattr(self.profile, "risk_per_trade_dollars", 0.0) or 0.0)
+
+        if fixed_risk > 0:
+            risk_amount = min(fixed_risk, liq_cap)
+            risk_pct = (risk_amount / liq_cap) if liq_cap > 0 else 0.0
+        else:
+            risk_amount = liq_cap * risk_pct
+
+        # Get price
+        ticker = self._safe_fetch_ticker(sym)
+        if not ticker or not ticker.last:
+            logger.error(f"[CCXT] No ticker data for {sym}")
+            return (
+                ExecutionResult(ExecutionStatus.PROVIDER_ERROR, decision.symbol, "no ticker data"),
+                ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "no ticker"),
+            )
+        entry_price = float(ticker.last)
+
+        # Stop-distance sizing
+        stop_loss = getattr(decision, "stop_loss", 0.0) or 0.0
+        if stop_loss <= 0.0:
+            logger.warning(f"[CCXT] No stop loss provided for {sym}; defaulting to 1x risk amount sizing")
+            pos_size_usd = risk_amount
+        else:
+            dist = abs(entry_price - stop_loss)
+            dist_pct = dist / entry_price
+            MIN_STOP_DIST_PCT = 0.005
+            if dist_pct < MIN_STOP_DIST_PCT:
+                effective_dist = entry_price * MIN_STOP_DIST_PCT
+                logger.warning(
+                    f"[CCXT] Stop distance too tight ({dist_pct:.2%}); "
+                    f"using min {MIN_STOP_DIST_PCT:.1%} ({effective_dist:.4f}) for sizing safety."
+                )
+                dist = effective_dist
+            if dist == 0:
+                pos_size_usd = risk_amount
+            else:
+                shares = risk_amount / dist
+                pos_size_usd = shares * entry_price
+
+        # Leverage cap
+        max_leverage = 1.0
+        if is_future:
+            max_leverage = float(getattr(self.profile, "target_leverage", 3.0))
+        if pos_size_usd > (liq_cap * max_leverage):
+            logger.info(f"[CCXT] Leverage Cap ({max_leverage}x) triggered for {decision.symbol}: ${pos_size_usd:.2f} -> ${liq_cap * max_leverage:.2f}")
+            pos_size_usd = liq_cap * max_leverage
+
+        # Min/Max notional
+        min_notional = float(getattr(self.profile, "crypto_min_notional_usd", 20.0))
+        max_notional = float(getattr(self.profile, "crypto_max_notional_usd", 10000.0) or 10000.0)
+        if pos_size_usd < min_notional:
+            logger.info(f"[CCXT] Boosting size to min_notional: ${pos_size_usd:.2f} -> ${min_notional:.2f}")
+            pos_size_usd = min_notional
+        pos_size_usd = min(pos_size_usd, max_notional)
+
+        # Balance cap
+        is_futures_profile = "futures" in str(getattr(self.profile, "name", "")).lower()
+        cfg_cap = float(getattr(self.profile, "balance_cap_pct", 0.95))
+        safe_balance_cap = liq_cap * cfg_cap
+        if pos_size_usd > safe_balance_cap:
+            if is_futures_profile and pos_size_usd <= min_notional * 1.5:
+                logger.info(f"[CCXT] Margin Check: Allowing ${pos_size_usd:.2f} position on ${liq_cap:.2f} balance (Futures Margin Mode)")
+            else:
+                logger.warning(
+                    f"[CCXT] Capping position size at safe balance limit ({cfg_cap:.0%}): "
+                    f"${pos_size_usd:.2f} -> ${safe_balance_cap:.2f} (Cap=${liq_cap:.2f})"
+                )
+                pos_size_usd = safe_balance_cap
+
+        # Min order guard
+        if pos_size_usd < min_order_val:
+            self.capital_exhausted = True
+            if self._attempt_auto_liquidation_usdt(min_order_val):
+                logger.info(f"[CCXT] Auto-liquidation successful. Retrying entry for {decision.symbol}...")
+                return self.execute_decision(decision)
+            logger.warning(
+                f"[CCXT] Skipping entry for {decision.symbol}: "
+                f"Calculated size ${pos_size_usd:.2f} < Min ${min_order_val} (Capital=${liq_cap:.2f})"
+            )
+            return (
+                ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "capital exhausted < min order"),
+                ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "capital exhausted"),
+            )
+
+        # Quantity in base currency
+        qty_base = pos_size_usd / entry_price
+        min_amount_limit = None
+
+        # Futures contract sizing
+        if is_future:
+            market = self._exchange.market(sym)
+            c_size = market.get("contractSize")
+            min_amount_limit = market.get("limits", {}).get("amount", {}).get("min") or 1.0
+            if c_size and c_size > 1.0:
+                logger.info(f"[CCXT] Adjusting for Contract Size: {qty_base:.4f} units / {c_size} = {qty_base/c_size:.4f} contracts")
+                qty_base = qty_base / c_size
+            if qty_base > 0 and qty_base < min_amount_limit:
+                logger.warning(f"[CCXT] Clamping {qty_base:.4f} to min contract size {min_amount_limit} for {sym}")
+                qty_base = min_amount_limit
+            else:
+                if qty_base > 0 and qty_base < 1.0:
+                    logger.info(f"[CCXT] Sizing: Rounding {qty_base:.4f} up to 1 contract for {sym}")
+                    qty_base = 1.0
+                else:
+                    qty_base = int(round(qty_base))
+
+        # Determine send amount
+        send_amount = qty_base
+        is_coinbase = "coinbase" in self.exchange_id.lower()
+        if is_coinbase and side == "buy" and not is_future:
+            send_amount = pos_size_usd
+            logger.info(f"[CCXT] Coinbase Spot Buy: Sending quote amount ${send_amount:.2f}")
+        else:
+            send_amount = qty_base
+            logger.info(f"[CCXT] Entry: Sending base amount {send_amount} {sym} (~${pos_size_usd:.2f})")
+
+        logger.info(
+            f"[CCXT] Sizing: Cap=${liq_cap:.2f} Risk={risk_pct:.1%} (${risk_amount:.2f}) "
+            f"Entry={entry_price:.4f} Stop={stop_loss:.4f} -> Size=${pos_size_usd:.2f}"
+        )
+        return (pos_size_usd, qty_base, send_amount, entry_price, min_amount_limit)
+
+    def _preflight_affordability(
+        self,
+        decision: AITradeDecision,
+        sym: str,
+        send_amount: float,
+        entry_price: float,
+        is_future: bool,
+    ) -> tuple[ExecutionResult, ExecutionOutcome] | None:
+        """Pre-flight margin check for futures entries. Returns error tuple or None."""
+        if not (is_future and decision.action in {"enter_long", "enter_short", "scale_in"}):
+            return None
+
+        leverage_safety_factor = 5.0
+        market_info = self._exchange.market(sym)
+        c_size = market_info.get("contractSize") or 1.0
+        true_notional = send_amount * entry_price * c_size
+        est_margin_cost = true_notional / leverage_safety_factor
+        est_fees = true_notional * self._get_fee_rate()
+        required_cash = est_margin_cost + est_fees
+
+        try:
+            bal_check = self._exchange.fetch_balance({'type': 'spot'})
+            free_collateral = float(bal_check.get("free", {}).get("USD", 0.0)) + float(bal_check.get("free", {}).get("USDC", 0.0))
+            if free_collateral < required_cash:
+                logger.warning(
+                    f"[CCXT] AFFORDABILITY BLOCK: Required ${required_cash:.2f} "
+                    f"(Margin ${est_margin_cost:.2f} + Fees ${est_fees:.2f} for {send_amount} contracts) > Free ${free_collateral:.2f}"
+                )
+                return (
+                    ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, f"unaffordable: req ${required_cash:.2f} > free ${free_collateral:.2f}"),
+                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "insufficient funds (pre-check)"),
+                )
+            else:
+                logger.info(f"[CCXT] Affordability OK: Required ${required_cash:.2f} <= Free ${free_collateral:.2f}")
+        except Exception as e:
+            logger.warning(f"[CCXT] Failed to verify affordability (blocking entry): {e}")
+            return (
+                ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "affordability check failed"),
+                ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "affordability check failed"),
+            )
+        return None
+
+    def _place_stop_loss(
+        self,
+        decision: AITradeDecision,
+        sym: str,
+        order: dict,
+        side: str,
+        action: str,
+        qty_base: float,
+        is_future: bool,
+    ) -> tuple[ExecutionResult, ExecutionOutcome] | None:
+        """Place stop-loss after fill. Returns error tuple if SL fails, None on success."""
+        if not (decision.stop_loss and decision.stop_loss > 0):
+            return None
+
+        stop_side = "sell" if side == "buy" else "buy"
+
+        # Settlement wait
+        if side == "buy" and not is_future:
+            logger.info(f"[CCXT] Waiting for {sym} settlement (up to 10s)...")
+            base_curr = decision.symbol.split('/')[0]
+            fill_qty = order.get("filled")
+            if fill_qty is None:
+                fill_qty = qty_base  # use send_amount equivalent
+            expected_min = float(fill_qty) * 0.9
+            for _ in range(5):
+                try:
+                    bal = self._exchange.fetch_balance()
+                    free_amt = float(bal.get("free", {}).get(base_curr, 0.0))
+                    if free_amt >= expected_min:
+                        logger.info(f"[CCXT] Settlement confirmed: {free_amt} {base_curr} available.")
+                        break
+                except Exception as wait_e:
+                    logger.warning(f"[CCXT] Balance check failed: {wait_e}")
+                time.sleep(2.0)
+            else:
+                logger.warning("[CCXT] Settlement timeout. Proceeding with SL anyway (might fail).")
+
+        try:
+            # Cancel existing stops for scale-in consolidation
+            if action == "scale_in":
+                logger.info(f"[CCXT] Scale-In detected: Cancelling existing stops for {sym} to consolidate protection.")
+                try:
+                    open_orders = self._exchange.fetch_open_orders(sym)
+                    for o in open_orders:
+                        is_stop = o.get("type") in ("stop", "stop_market", "stop_limit") or o.get("info", {}).get("stop_price")
+                        if not is_stop and "coinbase" in self.exchange_id:
+                            if o.get("info", {}).get("order_configuration", {}).get("stop_limit_stop_limit_gtc"):
+                                is_stop = True
+                        if is_stop:
+                            self._exchange.cancel_order(o["id"], sym)
+                            logger.info(f"[CCXT] Cancelled existing stop {o['id']} for consolidation.")
+                except Exception as e:
+                    logger.warning(f"[CCXT] Failed to cancel existing stops during scale-in: {e}")
+
+            # Stop parameters
+            stop_params: dict = {
+                "stopPrice": decision.stop_loss,
+            }
+            if is_future:
+                stop_params["reduceOnly"] = True
+
+            order_type = "stop_market"
+            limit_price = None
+            is_coinbase = "coinbase" in self.exchange_id.lower() or "coinbase" in getattr(self._exchange, "id", "").lower()
+            is_gemini = "gemini" in self.exchange_id.lower() or "gemini" in getattr(self._exchange, "id", "").lower()
+
+            if is_coinbase or is_gemini:
+                order_type = "limit"
+                raw_limit = decision.stop_loss * 0.985 if stop_side == "sell" else decision.stop_loss * 1.015
+                limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
+                if is_coinbase:
+                    stop_params["stop_price"] = self._exchange.price_to_precision(sym, decision.stop_loss)
+                    stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if stop_side == "sell" else "STOP_DIRECTION_STOP_UP"
+                    stop_params["reduce_only"] = True
+                    logger.info(f"[CCXT] Coinbase SL: type=limit, stop={stop_params['stop_price']}, limit={limit_price}, dir={stop_params['stop_direction']}")
+                elif is_gemini:
+                    stop_params["stopPrice"] = self._exchange.price_to_precision(sym, decision.stop_loss)
+                    logger.info(f"[CCXT] Gemini SL: type=limit, stop={stop_params['stopPrice']}, limit={limit_price}")
+
+            # Stop quantity
+            current_fill = order.get("filled", 0.0)
+            if not current_fill or current_fill <= 0:
+                current_fill = qty_base * 0.995
+            stop_qty = current_fill
+
+            if action == "scale_in":
+                try:
+                    base_currency = sym.split("/")[0] if "/" in sym else sym[:3]
+                    bal = self._exchange.fetch_balance()
+                    real_balance = float((bal.get("total") or {}).get(base_currency, 0.0) or 0.0)
+                    if real_balance > 0:
+                        logger.info(f"[CCXT] Pyramiding: Using exchange balance for SL size: {real_balance:.8f} {base_currency}")
+                        stop_qty = real_balance
+                    else:
+                        record = self.position_hold_store.get(decision.symbol) if self.position_hold_store else None
+                        old_size = abs(record.size) if record and record.size else 0.0
+                        stop_qty = old_size + current_fill
+                        logger.info(f"[CCXT] Pyramiding: Balance=0, using store fallback: {old_size:.8f} + {current_fill:.8f} = {stop_qty:.8f}")
+                except Exception as e:
+                    logger.error(f"[CCXT] Failed to fetch balance for scale_in SL size: {e}")
+            else:
+                logger.info(f"[CCXT] Using filled amount for SL: {stop_qty:.6f}")
+
+            # Fee-adjusted quantity
+            if not is_future and stop_side == "sell":
+                fee_info = order.get("fee") or {}
+                fee_cost = float(fee_info.get("cost", 0) or 0)
+                fee_currency = (fee_info.get("currency") or "").upper()
+                base_currency = sym.split("/")[0].upper() if "/" in sym else sym[:3].upper()
+                if fee_cost > 0 and fee_currency == base_currency:
+                    if action != "scale_in":
+                        reduced_qty = stop_qty - fee_cost
+                        logger.info(f"[CCXT] Exact fee deduction: {stop_qty:.8f} - {fee_cost:.8f} = {reduced_qty:.8f} (fee in {fee_currency})")
+                        stop_qty = reduced_qty
+                else:
+                    if action != "scale_in":
+                        fee_rate = self._get_fee_rate()
+                        reduced_qty = stop_qty * (1 - fee_rate)
+                        logger.info(f"[CCXT] Fee-rate deduction: {stop_qty:.8f} * {1 - fee_rate:.4f} = {reduced_qty:.8f}")
+                        stop_qty = reduced_qty
+
+            stop_qty = float(self._exchange.amount_to_precision(sym, stop_qty))
+            stop_order = self._exchange.create_order(sym, order_type, stop_side, stop_qty, limit_price, stop_params)
+            self._track_local_order(sym, stop_order)
+            logger.info(f"[CCXT] Placed Consolidated Stop Loss {stop_side} ({order_type}) at {decision.stop_loss} (qty={stop_qty})")
+        except Exception as e:
+            logger.error(f"[CCXT] FAILED TO PLACE STOP LOSS for {decision.symbol}: {e}")
+            if not self._is_permission_denied(e):
+                self._consecutive_errors += 1
+                self._last_error_ts = time.time()
+            return (
+                ExecutionResult(ExecutionStatus.ERROR, decision.symbol, f"stop loss failed: {e}"),
+                ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, f"stop loss failed: {e}"),
+            )
+        return None
+
+
     def execute_decision(self, decision: AITradeDecision) -> tuple[ExecutionResult, ExecutionOutcome]:
         # Kill-switch check
         if self._consecutive_errors >= 5:
@@ -946,52 +1319,11 @@ class CCXTExchangeBroker:
              self.flatten_symbol(decision.symbol)
              action = "enter_long"
 
-        # Determine direction and validation
-        default_type = (os.getenv("CCXT_DEFAULT_TYPE") or self.default_type or "spot").lower()
-        provider = (os.getenv("EXCHANGE_PROVIDER") or "").strip().lower()
-        broker_mode = (os.getenv("BROKER_MODE") or "").strip().lower()
-        profile_name = (os.getenv("PROFILE_NAME") or self.profile.name or "").strip().lower()
-        alt_md = (os.getenv("ALTERNATIVE_MARKET_DATA") or "").strip().lower()
-        
-        from tradebot_sci.market.symbols import is_coinbase_derivative
-        is_future = (default_type in {"future", "swap"} or provider == "coinbase_futures" or broker_mode == "coinbase_futures" or profile_name == "coinbase_futures" or alt_md == "coinbase_futures")
-        
-        # Symbol-Aware Future Check
-        # Even if global default is 'future' (set for Coinbase Nano), we must NOT treat 
-        # spot symbols (like BCHUSD on Gemini) as futures, otherwise sizing logic 
-        # rounds up 0.1 BCH to 1.0 BCH ($600+), causing Insufficient Funds.
-        if not is_coinbase_derivative(decision.symbol):
-             # Only treat as future if NOT on a known spot exchange like Gemini
-             if "gemini" in self.exchange_id.lower():
-                 is_future = False
-             # Optional: Add other spot-only heuristics here
-        
-        if action == "enter_short" and not is_future:
-            return (
-                ExecutionResult(ExecutionStatus.UNSUPPORTED_SYMBOL_CONFIG, decision.symbol, "short not supported in spot mode"),
-                ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "short not supported in spot mode"),
-            )
-
-        # Map logic
-        sym = self._map_symbol(decision.symbol)
-        side = "buy"
-        if action in {"enter_short"}:
-             side = "sell"
-        elif action == "enter_long":
-             side = "buy"
-        elif action == "scale_in":
-             # Scale in direction depends on existing position
-             pos = self.get_open_position_snapshot(decision.symbol)
-             if pos and pos.get("is_dust", False):
-                logger.info(f"[DUST] Ignoring scale_in for {decision.symbol} (size={pos.get('size')}) as it's a dust position.")
-                return (
-                    ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "dust position, cannot scale in"),
-                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "dust position"),
-                )
-             if pos and pos.get("side") == "short":
-                 side = "sell"
-             else:
-                 side = "buy"
+        # Resolve direction, symbol mapping, and futures detection
+        direction_result = self._resolve_direction(decision, action)
+        if isinstance(direction_result, tuple) and len(direction_result) == 2:
+            return direction_result  # error tuple
+        sym, side, is_future = direction_result
 
         # Scale Out logic
         if action == "scale_out":
@@ -1051,447 +1383,88 @@ class CCXTExchangeBroker:
             # Reset latch if we have funds
             self.capital_exhausted = False
 
-            # Risk-Based Sizing
-            # 1. Determine Risk Amount: decision -> profile -> fallback 1.5%
-            profile_risk = float(getattr(self.profile, "risk_per_trade_pct", 0.015) or 0.015)
-            risk_pct = getattr(decision, "risk_per_trade_pct", None) or profile_risk
-            fixed_risk = float(getattr(self.profile, "risk_per_trade_dollars", 0.0) or 0.0)
-
-            # 1. Determine Risk Amount
-            if fixed_risk > 0:
-                risk_amount = min(fixed_risk, liq_cap)
-                risk_pct = (risk_amount / liq_cap) if liq_cap > 0 else 0.0
-            else:
-                risk_amount = liq_cap * risk_pct
-            
-            # 2. Get Price Data
-            ticker = self._safe_fetch_ticker(sym)
-            if not ticker or not ticker.last:
-                 logger.error(f"[CCXT] No ticker data for {sym}")
-                 return (
-                    ExecutionResult(ExecutionStatus.PROVIDER_ERROR, decision.symbol, "no ticker data"),
-                    ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "no ticker"),
-                 )
-            entry_price = float(ticker.last)
-            
-            # 3. Calculate Position Size via Stop Distance
-            stop_loss = getattr(decision, "stop_loss", 0.0) or 0.0
-            
-            if stop_loss <= 0.0:
-                logger.warning(f"[CCXT] No stop loss provided for {sym}; defaulting to 1x risk amount sizing")
-                pos_size_usd = risk_amount
-            else:
-                 dist = abs(entry_price - stop_loss)
-                 dist_pct = dist / entry_price
-                 
-                 # Sanity Check: Enforce minimum stop distance for sizing
-                 MIN_STOP_DIST_PCT = 0.005 # 0.5%
-                 if dist_pct < MIN_STOP_DIST_PCT:
-                     effective_dist = entry_price * MIN_STOP_DIST_PCT
-                     logger.warning(
-                         f"[CCXT] Stop distance too tight ({dist_pct:.2%}); "
-                         f"using min {MIN_STOP_DIST_PCT:.1%} ({effective_dist:.4f}) for sizing safety."
-                     )
-                     dist = effective_dist
-                 
-                 if dist == 0:
-                     pos_size_usd = risk_amount
-                 else:
-                     shares = risk_amount / dist
-                     pos_size_usd = shares * entry_price
-
-            # Leverage Cap
-            # For Spot, leverage is capped at 1.0. For Futures, we use profile setting.
-            max_leverage = 1.0
-            if is_future:
-                 # Default to 3x if not specified for futures to avoid 'infinite' leverage from tight stops
-                 max_leverage = float(getattr(self.profile, "target_leverage", 3.0))
-            
-            if pos_size_usd > (liq_cap * max_leverage):
-                 logger.info(f"[CCXT] Leverage Cap ({max_leverage}x) triggered for {decision.symbol}: ${pos_size_usd:.2f} -> ${liq_cap * max_leverage:.2f}")
-                 pos_size_usd = liq_cap * max_leverage
-
-            # 4. Apply Constraints (Min/Max Notional)
-            min_notional = float(getattr(self.profile, "crypto_min_notional_usd", 20.0))
-            max_notional = float(getattr(self.profile, "crypto_max_notional_usd", 10000.0) or 10000.0)
-            
-            # Ensure we hit MIN even if it exceeds risk bucket
-            if pos_size_usd < min_notional:
-                logger.info(f"[CCXT] Boosting size to min_notional: ${pos_size_usd:.2f} -> ${min_notional:.2f}")
-                pos_size_usd = min_notional
-            
-            pos_size_usd = min(pos_size_usd, max_notional)
-            
-            # Balance Cap (Safety Net)
-            # For Coinbase Futures, the margin is ~$85. If we have $88, we can trade 1 contract (~$300 value).
-            # We bypass the 95% cap IF it's a futures contract and we are at the min_notional.
-            is_futures_profile = "futures" in str(getattr(self.profile, "name", "")).lower()
-            
-            # Read from profile/env, default to 0.95 (Safety)
-            # If the user sets this to 0.70 in the GUI, it will be respected here.
-            cfg_cap = float(getattr(self.profile, "balance_cap_pct", 0.95))
-            
-            safe_balance_cap = liq_cap * cfg_cap
-            
-            if pos_size_usd > safe_balance_cap:
-                if is_futures_profile and pos_size_usd <= min_notional * 1.5:  # Allow some wiggle room for 1 contract
-                    logger.info(f"[CCXT] Margin Check: Allowing ${pos_size_usd:.2f} position on ${liq_cap:.2f} balance (Futures Margin Mode)")
-                else:
-                    logger.warning(
-                        f"[CCXT] Capping position size at safe balance limit ({cfg_cap:.0%}): "
-                        f"${pos_size_usd:.2f} -> ${safe_balance_cap:.2f} (Cap=${liq_cap:.2f})"
-                    )
-                    pos_size_usd = safe_balance_cap
-            
-            # Minimum Order Size Guard
-            # Coinbase min is often $1.00. We set $1.10 to be safe.
-            if pos_size_usd < MIN_ORDER_VAL:
-                 self.capital_exhausted = True
-                 # Auto-Liquidity: Check USDT
-                 if self._attempt_auto_liquidation_usdt(MIN_ORDER_VAL):
-                      logger.info(f"[CCXT] Auto-liquidation successful. Retrying entry for {decision.symbol}...")
-                      # Recursively retry execution with new funds
-                      return self.execute_decision(decision)
-                 
-                 logger.warning(
-                     f"[CCXT] Skipping entry for {decision.symbol}: "
-                     f"Calculated size ${pos_size_usd:.2f} < Min ${MIN_ORDER_VAL} (Capital=${liq_cap:.2f})"
-                 )
-                 return (
-                     ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "capital exhausted < min order"),
-                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "capital exhausted"),
-                 )
-
-            # 5. Determine 'amount' for create_order
-            # Standard CCXT: amount is Base Currency (Coins)
-            # Coinbase Market Buy (with requiresPrice=False): amount is Cost (USD)
-            qty_base = pos_size_usd / entry_price
-            min_amount_limit = None
-            
-            # Handle Futures Contract Sizing (e.g. 1 SHIB contract = 10,000 SHIB)
-            if is_future:
-                market = self._exchange.market(sym)
-                c_size = market.get("contractSize")
-                min_amount_limit = market.get("limits", {}).get("amount", {}).get("min") or 1.0
-                if c_size and c_size > 1.0:
-                    logger.info(f"[CCXT] Adjusting for Contract Size: {qty_base:.4f} units / {c_size} = {qty_base/c_size:.4f} contracts")
-                    qty_base = qty_base / c_size
-                
-                # Round to integer for futures contracts (usually) and clamp to min.
-                if qty_base > 0 and qty_base < min_amount_limit:
-                    logger.warning(
-                        f"[CCXT] Clamping {qty_base:.4f} to min contract size {min_amount_limit} for {sym}"
-                    )
-                    qty_base = min_amount_limit
-                else:
-                    # Use ceil for small positions to avoid truncation to 0
-                    if qty_base > 0 and qty_base < 1.0:
-                         logger.info(f"[CCXT] Sizing: Rounding {qty_base:.4f} up to 1 contract for {sym}")
-                         qty_base = 1.0
-                    else:
-                         qty_base = int(round(qty_base))
-            
-            send_amount = qty_base
-            is_coinbase = "coinbase" in self.exchange_id.lower()
-            
-            if is_coinbase and side == "buy" and not is_future:
-                # For Coinbase SPOT Market Buy, send Cost (USD)
-                send_amount = pos_size_usd
-                logger.info(f"[CCXT] Coinbase Spot Buy: Sending quote amount ${send_amount:.2f}")
-            else:
-                # For Futures (or entries other than buy), send Base Amount (Contracts/Coins)
-                send_amount = qty_base
-                logger.info(f"[CCXT] Entry: Sending base amount {send_amount} {sym} (~${pos_size_usd:.2f})")
-
-            logger.info(
-                f"[CCXT] Sizing: Cap=${liq_cap:.2f} Risk={risk_pct:.1%} (${risk_amount:.2f}) "
-                f"Entry={entry_price:.4f} Stop={stop_loss:.4f} -> Size=${pos_size_usd:.2f}"
+            # Risk-based sizing (delegated to helper)
+            MIN_ORDER_VAL = 1.10
+            size_result = self._calculate_position_size(
+                decision, sym, liq_cap, is_future, side, MIN_ORDER_VAL
             )
+            if isinstance(size_result, tuple) and len(size_result) == 2:
+                return size_result  # error tuple (early return)
+            pos_size_usd, qty_base, send_amount, entry_price, min_amount_limit = size_result
 
-            # Dynamic Affordability Check (Smart Pre-Flight)
-            # Prevent "INSUFFICIENT_FUNDS" by pre-calculating Margin + Fees.
-            # CRITICAL: Only apply to OPENING entries (enter_long, enter_short, scale_in).
-            # Closing positions (reduce_position, close_position) RELEASES margin, so never block them.
-            if is_future and decision.action in {"enter_long", "enter_short", "scale_in"}:
-                # 1. Estimate Margin (Coinbase Nano default is ~5x / 20%, or 25x / 4%)
-                # We use 5x (20%) as the conservative baseline to ensure safety.
-                leverage_safety_factor = 5.0 
-                
-                # Handle Multipliers (Contract Size)
-                # Some futures have multipliers (e.g. LTC=5, ETH=0.1).
-                # Nanos: 1 Contract = Multiplier * Price.
-                market_info = self._exchange.market(sym)
-                c_size = market_info.get("contractSize") or 1.0
-                
-                # Use send_amount (Integer Contracts) for accuracy.
-                # pos_size_usd might be $20 (min notional), but if 1 Contract = $330, send_amount will be 1.
-                # We must check if we can afford the ACTUAL rounded-up contract.
-                
-                # send_amount is 'Quantity of Contracts' for Futures (set in line 918)
-                true_notional = send_amount * entry_price * c_size
-                
-                est_margin_cost = true_notional / leverage_safety_factor
-                
-                # 2. Estimate Fees — Exchange-aware rate (was 0.1%)
-                est_fees = true_notional * self._get_fee_rate()
-                
-                # 3. Total Cash Required
-                required_cash = est_margin_cost + est_fees
-                
-                # 4. Check Real-Time Free Balance
-                # (We re-fetch specifically right before order to catch recent changes)
-                try:
-                    # Coinbase Advanced uses SPOT wallet for Futures collateral.
-                    # We must explicitly fetch type='spot' to see the funds.
-                    bal_check = self._exchange.fetch_balance({'type': 'spot'})
-                    
-                    # Coinbase Futures uses USD or USDC collateral
-                    free_collateral = float(bal_check.get("free", {}).get("USD", 0.0)) + float(bal_check.get("free", {}).get("USDC", 0.0))
-                    
-                    if free_collateral < required_cash:
-                        logger.warning(
-                            f"[CCXT] AFFORDABILITY BLOCK: Required ${required_cash:.2f} "
-                            f"(Margin ${est_margin_cost:.2f} + Fees ${est_fees:.2f} for {send_amount} contracts) > Free ${free_collateral:.2f}"
-                        )
-                        return (
-                            ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, f"unaffordable: req ${required_cash:.2f} > free ${free_collateral:.2f}"),
-                            ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "insufficient funds (pre-check)"),
-                        )
-                    else:
-                         logger.info(f"[CCXT] Affordability OK: Required ${required_cash:.2f} <= Free ${free_collateral:.2f}")
-
-                except Exception as e:
-                    logger.warning(f"[CCXT] Failed to verify affordability (blocking entry): {e}")
-                    return (
-                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "affordability check failed"),
-                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "affordability check failed"),
-                    )
+            # Pre-flight affordability check for futures
+            afford_err = self._preflight_affordability(
+                decision, sym, send_amount, entry_price, is_future
+            )
+            if afford_err is not None:
+                return afford_err
 
             # Entry Execution
             try:
-                # Strict Min Amount Check
                 # Strict Min Amount Check with Safety Map
                 try:
                     market = self._exchange.market(sym)
                     min_amount_limit = min_amount_limit or market.get('limits', {}).get('amount', {}).get('min')
                 except Exception:
                     logger.debug(f"[CCXT] market({sym}) info missing; using fallback min amount.")
-                
+
                 min_amount_limit = min_amount_limit or (1.0 if is_future else 0.000001)
-                
+
                 if send_amount < min_amount_limit:
-                    # Attempt round up if close (within 80%? No, simplistic check for now: if integer needed and > 0.5)
-                     if is_future and send_amount >= 0.5 and min_amount_limit == 1.0:
-                          logger.info(f"[CCXT] Sizing: Rounding {send_amount} UP to min 1.0 contract")
-                          send_amount = 1.0
-                     else:
-                          logger.warning(f"[CCXT] Blocked Entry: Amount {send_amount} < Min {min_amount_limit} for {sym}")
-                          return (
-                              ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, f"amount {send_amount:.4f} < min {min_amount_limit}"),
-                              ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "min quantity limit"),
-                          )
+                    if is_future and send_amount >= 0.5 and min_amount_limit == 1.0:
+                        logger.info(f"[CCXT] Sizing: Rounding {send_amount} UP to min 1.0 contract")
+                        send_amount = 1.0
+                    else:
+                        logger.warning(f"[CCXT] Blocked Entry: Amount {send_amount} < Min {min_amount_limit} for {sym}")
+                        return (
+                            ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, f"amount {send_amount:.4f} < min {min_amount_limit}"),
+                            ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "min quantity limit"),
+                        )
 
                 # Place Entry
                 order = self._ccxt_create_order(sym, "market", side, send_amount)
                 self._track_local_order(sym, order)
                 entry_id = str(order.get("id"))
-                
-                # Log specific tags for GUI parsing (Arrows & Tables)
+
+                # Log specific tags for GUI parsing
                 avg_fill = float(order.get("average") or order.get("price") or 0.0)
                 logger.info(f"[ENTRY] {decision.symbol} side={side} amount={send_amount}")
                 if avg_fill > 0:
                     logger.info(f"[FILL] {decision.symbol} @ {avg_fill} (ID: {entry_id})")
-                
                 logger.info(f"[CCXT] Placed {side} market order {entry_id} for {send_amount} {sym}")
-                
-                # Persist Position in Store with Entry Price
+
+                # Persist Position
                 if self.position_hold_store:
                     self.position_hold_store.upsert(
-                        decision.symbol, 
-                        _utc_now(), 
-                        stop_loss=decision.stop_loss,
-                        entry_price=avg_fill,
+                        decision.symbol, _utc_now(),
+                        stop_loss=decision.stop_loss, entry_price=avg_fill,
                         take_profit=decision.take_profit,
-                        size=float(order.get("filled") or 0.0) or qty_base
+                        size=float(order.get("filled") or 0.0) or qty_base,
                     )
-                
-                # Stop Loss Placement (CRITICAL UPGRADE)
-                if decision.stop_loss and decision.stop_loss > 0:
-                    stop_side = "sell" if side == "buy" else "buy"
-                    
-                    # Settlement Race Condition Waiter
-                    # Wait for funds to settle (appear in free balance) before placing stop
-                    if side == "buy" and not is_future:
-                        logger.info(f"[CCXT] Waiting for {sym} settlement (up to 10s)...")
-                        base_curr = decision.symbol.split('/')[0]
-                        # We expect at least the filled amount to be free
-                        # Handle NoneType if 'filled' is None (use send_amount as fallback)
-                        fill_qty = order.get("filled")
-                        if fill_qty is None:
-                            fill_qty = send_amount
-                        expected_min = float(fill_qty) * 0.9 # 10% tolerance
-                        for _ in range(5): # 5 attempts x 2s = 10s
-                            try:
-                                bal = self._exchange.fetch_balance()
-                                free_amt = float(bal.get("free", {}).get(base_curr, 0.0))
-                                if free_amt >= expected_min:
-                                    logger.info(f"[CCXT] Settlement confirmed: {free_amt} {base_curr} available.")
-                                    break
-                            except Exception as wait_e:
-                                logger.warning(f"[CCXT] Balance check failed: {wait_e}")
-                            time.sleep(2.0)
-                        else:
-                             logger.warning(f"[CCXT] Settlement timeout. Proceeding with SL anyway (might fail).")
 
-                    try:
-                        # For Scale-In (Pyramiding), we MUST consolidate stops.
-                        # 1. Cancel existing stops for this symbol
-                        if action == "scale_in":
-                            logger.info(f"[CCXT] Scale-In detected: Cancelling existing stops for {sym} to consolidate protection.")
-                            try:
-                                open_orders = self._exchange.fetch_open_orders(sym)
-                                for o in open_orders:
-                                    # Identify Stop orders (stop_market, stop_limit, or orders with stopPrice)
-                                    # Note: 'type' might be 'limit' for Coinbase stops
-                                    is_stop = o.get("type") in ("stop", "stop_market", "stop_limit") or o.get("info", {}).get("stop_price")
-                                    # Coinbase specific check
-                                    if not is_stop and "coinbase" in self.exchange_id:
-                                         if o.get("info", {}).get("order_configuration", {}).get("stop_limit_stop_limit_gtc"):
-                                             is_stop = True
-                                    
-                                    if is_stop:
-                                        self._exchange.cancel_order(o["id"], sym)
-                                        logger.info(f"[CCXT] Cancelled existing stop {o['id']} for consolidation.")
-                            except Exception as e:
-                                logger.warning(f"[CCXT] Failed to cancel existing stops during scale-in: {e}")
-
-                        # Attempt to place Stop Market order
-                        # Common params for unified CCXT: 'stopPrice', 'triggerPrice'
-                        stop_params = {
-                            "stopPrice": decision.stop_loss, # Legacy/Common
-                            # "reduceOnly": True, # Recommended for futures
-                        }
-                        if is_future:
-                            stop_params["reduceOnly"] = True
-                            
-                        # Try 'stop_market' type first (Binance, Bybit), unless Coinbase which needs stop_limit
-                        # Default to stop_market (Binance, Bybit, etc.)
-                        order_type = "stop_market"
-                        limit_price = None
-
-                        # Verified Gemini / Coinbase Stop-Limit Parameters
-                        is_coinbase = "coinbase" in self.exchange_id.lower() or "coinbase" in getattr(self._exchange, "id", "").lower()
-                        is_gemini = "gemini" in self.exchange_id.lower() or "gemini" in getattr(self._exchange, "id", "").lower()
-                        
-                        if is_coinbase or is_gemini:
-                            # Both Coinbase Advanced and Gemini require type="limit" to emulate stops efficiently via CCXT
-                            # Use tighter buffer (1.5%) for Gemini/Coinbase to avoid "Invalid Price" errors
-                            order_type = "limit"
-                            raw_limit = decision.stop_loss * 0.985 if stop_side == "sell" else decision.stop_loss * 1.015
-                            limit_price = float(self._exchange.price_to_precision(sym, raw_limit))
-                            
-                            if is_coinbase:
-                                # Update params with Coinbase-specific fields
-                                stop_params["stop_price"] = self._exchange.price_to_precision(sym, decision.stop_loss)
-                                stop_params["stop_direction"] = "STOP_DIRECTION_STOP_DOWN" if stop_side == "sell" else "STOP_DIRECTION_STOP_UP"
-                                stop_params["reduce_only"] = True
-                                logger.info(f"[CCXT] Coinbase SL: type=limit, stop={stop_params['stop_price']}, limit={limit_price}, dir={stop_params['stop_direction']}")
-                            elif is_gemini:
-                                # Gemini unified CCXT params: 'stopPrice' is often sufficient, but we ensure 'stopPrice' is passed.
-                                # Some CCXT versions for Gemini might also need the 'type' in params if not passed as arg.
-                                stop_params["stopPrice"] = self._exchange.price_to_precision(sym, decision.stop_loss)
-                                logger.info(f"[CCXT] Gemini SL: type=limit, stop={stop_params['stopPrice']}, limit={limit_price}")
-
-                        # Correct Stop Loss Quantity
-                        # 1. Start with the *current trade* filled amount
-                        current_fill = order.get("filled", 0.0)
-                        if not current_fill or current_fill <= 0:
-                             current_fill = qty_base * 0.995 # Fallback to intended
-                        
-                        stop_qty = current_fill
-
-                        # 2. If Scale-In, use the ACTUAL exchange balance as the stop size
-                        #    (covers the full position — old + new)
-                        if action == "scale_in":
-                            try:
-                                # Fetch real balance directly instead of
-                                # using get_open_position_snapshot (which can double-count
-                                # because it calls fetch_balance AFTER the fill has settled).
-                                base_currency = sym.split("/")[0] if "/" in sym else sym[:3]
-                                bal = self._exchange.fetch_balance()
-                                real_balance = float((bal.get("total") or {}).get(base_currency, 0.0) or 0.0)
-                                
-                                if real_balance > 0:
-                                    logger.info(f"[CCXT] Pyramiding: Using exchange balance for SL size: {real_balance:.8f} {base_currency}")
-                                    stop_qty = real_balance
-                                else:
-                                    # Fallback: old position from hold store + new fill
-                                    record = self.position_hold_store.get(decision.symbol) if self.position_hold_store else None
-                                    old_size = abs(record.size) if record and record.size else 0.0
-                                    stop_qty = old_size + current_fill
-                                    logger.info(f"[CCXT] Pyramiding: Balance=0, using store fallback: {old_size:.8f} + {current_fill:.8f} = {stop_qty:.8f}")
-                            except Exception as e:
-                                logger.error(f"[CCXT] Failed to fetch balance for scale_in SL size: {e}")
-                                # Fallback to just protecting new chunk
-                        
-                        else:
-                            logger.info(f"[CCXT] Using filled amount for SL: {stop_qty:.6f}")
-                        
-                        # Exact SL quantity using order fee data
-                        if not is_future and stop_side == "sell":  # Long SL on Spot
-                            fee_info = order.get("fee") or {}
-                            fee_cost = float(fee_info.get("cost", 0) or 0)
-                            fee_currency = (fee_info.get("currency") or "").upper()
-                            base_currency = sym.split("/")[0].upper() if "/" in sym else sym[:3].upper()
-                            if fee_cost > 0 and fee_currency == base_currency:
-                                # Fee was deducted from base asset (e.g. Gemini deducts BTC from BTC buy)
-                                # Only apply to non-scale-in (scale_in already uses real balance which has fees deducted)
-                                if action != "scale_in":
-                                    reduced_qty = stop_qty - fee_cost
-                                    logger.info(f"[CCXT] Exact fee deduction: {stop_qty:.8f} - {fee_cost:.8f} = {reduced_qty:.8f} (fee in {fee_currency})")
-                                    stop_qty = reduced_qty
-                            else:
-                                if action != "scale_in":
-                                    # Fee was in quote currency or unknown — use exchange rate as fallback
-                                    fee_rate = self._get_fee_rate()
-                                    reduced_qty = stop_qty * (1 - fee_rate)
-                                    logger.info(f"[CCXT] Fee-rate deduction: {stop_qty:.8f} * {1 - fee_rate:.4f} = {reduced_qty:.8f}")
-                                    stop_qty = reduced_qty
-                        
-                        # Apply amount precision
-                        stop_qty = float(self._exchange.amount_to_precision(sym, stop_qty))
-
-                        stop_order = self._exchange.create_order(sym, order_type, stop_side, stop_qty, limit_price, stop_params)
-                        self._track_local_order(sym, stop_order)
-                        logger.info(f"[CCXT] Placed Consolidated Stop Loss {stop_side} ({order_type}) at {decision.stop_loss} (qty={stop_qty})")
-                    except Exception as e:
-                         # Robust Error Handling for Stop Failures
-                         logger.error(f"[CCXT] FAILED TO PLACE STOP LOSS for {decision.symbol}: {e}")
-                         if not self._is_permission_denied(e):
-                             self._consecutive_errors += 1
-                             self._last_error_ts = time.time()
-                         return (
-                            ExecutionResult(ExecutionStatus.ERROR, decision.symbol, f"stop loss failed: {e}"),
-                            ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, f"stop loss failed: {e}"),
-                         )
+                # Stop-loss placement (delegated to helper)
+                sl_err = self._place_stop_loss(
+                    decision, sym, order, side, action, qty_base, is_future
+                )
+                if sl_err is not None:
+                    return sl_err
 
                 if action == "scale_in":
                     current = int(self._scale_in_counts.get(decision.symbol.upper(), 0))
                     self._scale_in_counts[decision.symbol.upper()] = current + 1
-                
-                # Final Persistence update with protected size
+
+                # Final persistence with protected size
                 if self.position_hold_store:
-                     self.position_hold_store.upsert(
-                         decision.symbol,
-                         _utc_now(),
-                         stop_loss=decision.stop_loss,
-                         entry_price=avg_fill, # Re-uses from above
-                         take_profit=decision.take_profit,
-                         size=stop_qty # This is the total protected size
-                     )
-                    
+                    # Use stop_qty from the SL helper if available; else filled amount
+                    final_size = float(order.get("filled") or 0.0) or qty_base
+                    self.position_hold_store.upsert(
+                        decision.symbol, _utc_now(),
+                        stop_loss=decision.stop_loss, entry_price=avg_fill,
+                        take_profit=decision.take_profit, size=final_size,
+                    )
+
                 return self._ok(decision.symbol, f"{side} market placed + SL", [entry_id])
-                
+
             except Exception as e:
                 logger.error(f"[CCXT] Entry failed: {e}")
                 if not (self._is_permission_denied(e) or self._is_insufficient_funds(e)):
@@ -1648,7 +1621,8 @@ class CCXTExchangeBroker:
                                 try:
                                     ticker = self._safe_fetch_ticker(sys_sym)
                                     if ticker: current_price = ticker.last
-                                except: pass
+                                except Exception as e:
+                                    logger.debug(f"[CCXT] ticker fetch failed during emergency SL check for {sys_sym}: {e}")
                             
                             is_crossed = False
                             if current_price:
@@ -1766,7 +1740,8 @@ class CCXTExchangeBroker:
                             try:
                                 ticker = self._safe_fetch_ticker(self._map_symbol(sys_sym))
                                 if ticker: current_price = ticker.last
-                            except: pass
+                            except Exception as e:
+                                logger.debug(f"[CCXT] ticker fetch failed during gapped stop check for {sys_sym}: {e}")
 
                             if current_price:
                                 # For longs: breached if price fell below SL minus the limit buffer
@@ -1847,6 +1822,7 @@ class CCXTExchangeBroker:
         # Fallback to dynamic lookup or pattern matching
         try:
             if not self._exchange.markets:
+                logger.warning("[CCXT] Markets not loaded during symbol mapping — reloading (unexpected state reset)")
                 self._exchange.load_markets()
             
             # 1. Exact match in markets
@@ -1950,15 +1926,13 @@ class CCXTExchangeBroker:
                 ex._last_nonce = curr
                 return curr
             ex.nonce = get_gemini_nonce
-        try:
-            ex.load_markets()
-        except Exception as e:
-            logger.warning(f"[CCXT] load_markets failed during init: {e}")
+        # load_markets() is called below after sandbox mode setup
+        # (no redundant call here)
         if os.getenv("CCXT_SANDBOX", "false").lower() == "true":
             try:
                 ex.set_sandbox_mode(True)
-            except Exception:
-                logger.warning("[CCXT] sandbox mode not supported by %s", self.exchange_id)
+            except Exception as e:
+                logger.warning("[CCXT] sandbox mode not supported by %s: %s", self.exchange_id, e)
         
         logger.info(f"[CCXT] Loading markets for {self.exchange_id}...")
         try:

@@ -137,7 +137,7 @@ def _select_system_prompt(model_name: str, strategy_variant: str = "") -> str:
     model_lower = model_name.lower()
     variant_lower = strategy_variant.lower().replace(" ", "_")
     
-    # [ANTIGRAVITY FIX] Mechanical Strategies get specific prompt
+    # Mechanical Strategies get specific prompt
     if variant_lower in ("rubberband_reaper", "mean_reversion", "hyper_scalper"):
         return SYSTEM_PROMPT_MECHANICAL
 
@@ -240,8 +240,8 @@ def build_decision_messages(context: Dict, model_name: str = "") -> List[ChatMes
         {"role": "system", "content": "Respond with JSON only. No prose allowed."},
     ]
 
-    # [ANTIGRAVITY FIX] RoboCop Combat Mode Override
-    # [ANTIGRAVITY FIX] RoboCop Combat Mode Override
+    # RoboCop Combat Mode Override
+    # RoboCop Combat Mode Override
     # ONLY inject this prompt if the strategy itself supports/requests Combat Mode.
     # Rubberband Reaper (or others) should NEVER see this instruction, as it leads to reckless scalping.
     from tradebot_sci.config.models import UserConfig

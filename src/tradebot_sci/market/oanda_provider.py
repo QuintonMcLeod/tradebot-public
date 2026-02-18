@@ -68,7 +68,7 @@ class OandaMarketDataProvider:
             "count": limit,
             "granularity": oanda_tf,
             "price": "M",  # Midpoint
-            "alignmentTimezone": "UTC" # [ANTIGRAVITY] Explicitly enforce UTC
+            "alignmentTimezone": "UTC" # Explicitly enforce UTC
         }
         
         try:

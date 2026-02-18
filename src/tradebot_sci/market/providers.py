@@ -94,7 +94,7 @@ class IbkrMarketDataProvider:
         what_to_show = self._what_to_show_for_asset_class(asset_class)
 
         try:
-            # [ANTIGRAVITY] Reverted to standard polling due to subscription requirements for RealTimeBars
+            # Reverted to standard polling due to subscription requirements for RealTimeBars
             bars = self.ib.reqHistoricalData(
                 contract,
                 endDateTime="",
@@ -264,12 +264,12 @@ class CCXTMarketDataProvider:
         return sym
 
     def get_latest_candles(self, symbol: str, timeframe: str, limit: int) -> List[Candle]:
-        # [ANTIGRAVITY FIX] Robust Normalization for Kraken/CCXT
+        # Robust Normalization for Kraken/CCXT
         sym = self._normalize_ccxt_symbol(symbol)
         
         # Normalize timeframe for CCXT (1m, 5m, 1h, etc.)
         tf = timeframe.lower().strip()
-        # [ANTIGRAVITY FIX] Map verbose GUI timeframes to CCXT short codes
+        # Map verbose GUI timeframes to CCXT short codes
         map_tf = {
             "1 min": "1m", "1 mins": "1m",
             "5 min": "5m", "5 mins": "5m",

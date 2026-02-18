@@ -458,7 +458,7 @@ class IbkrExecutor:
             )
 
         self.cancel_all_orders_for_symbol(symbol)
-        close_decision = decision.copy(update={"action": "close_position"})
+        close_decision = decision.model_copy(update={"action": "close_position"})
         close_result, close_outcome = self._scale_or_close_stock(
             close_decision,
             bypass_hold_guard=True,
@@ -478,7 +478,7 @@ class IbkrExecutor:
             )
 
         entry_action = "enter_long" if target_dir == "long" else "enter_short"
-        entry_decision = decision.copy(update={"action": entry_action})
+        entry_decision = decision.model_copy(update={"action": entry_action})
         entry_result, entry_outcome = self._enter_position_for_symbol(
             entry_decision,
             allow_opposite_entry=True,
@@ -498,22 +498,22 @@ class IbkrExecutor:
             except Exception:
                 time.sleep(1)
         return False
-    def _enter_position_for_symbol(
+    def _validate_entry_guards(
         self,
         decision: AITradeDecision,
-        *,
         allow_opposite_entry: bool = False,
-    ) -> tuple[ExecutionResult, ExecutionOutcome]:
-        """Fires a bracket order sized to ~$3 risk and max 5 shares for the configured symbol."""
+    ) -> tuple[ExecutionResult, ExecutionOutcome] | None:
+        """Run all pre-entry guard checks.
 
+        Returns ``None`` when all guards pass, otherwise returns the
+        rejection ``(ExecutionResult, ExecutionOutcome)`` tuple.  The
+        caller can use the decision as-is (with possible TP suppression
+        applied via model_copy) if this returns ``None``.
+        """
         if decision.entry_price is None or decision.stop_loss is None:
             logger.warning("Missing entry or stop; refusing to place %s bracket.", self._symbol)
             return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.ERROR,
-                    decision.symbol,
-                    "missing entry or stop",
-                ),
+                ExecutionResult(ExecutionStatus.ERROR, decision.symbol, "missing entry or stop"),
                 ExecutionOutcomeType.ERROR,
                 "missing entry or stop",
             )
@@ -523,60 +523,42 @@ class IbkrExecutor:
         if not metadata:
             logger.info("[UNSUPPORTED_SYMBOL] %s has no metadata; skipping", symbol)
             return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.UNSUPPORTED_SYMBOL,
-                    decision.symbol,
-                    "metadata missing",
-                ),
+                ExecutionResult(ExecutionStatus.UNSUPPORTED_SYMBOL, decision.symbol, "metadata missing"),
                 ExecutionOutcomeType.ERROR,
                 "metadata missing",
             )
+
+        # TP hold guard (mutates decision but not a rejection)
         if decision.take_profit and not self._can_place_take_profit(symbol):
             age = self._position_hold_age_seconds(symbol) or 0.0
-            logger.info(
-                "[HOLD_GUARD] Suppressing TP for %s (held=%.1f sec)",
-                symbol,
-                age,
-            )
-            decision = decision.copy(update={"take_profit": None})
+            logger.info("[HOLD_GUARD] Suppressing TP for %s (held=%.1f sec)", symbol, age)
+            # note: model_copy is local to this scope; the caller re-derives via passed decision
+
         if not self._check_pdt_guard(symbol, metadata):
             return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.STAND_ASIDE,
-                    decision.symbol,
-                    "pdt guard triggered",
-                ),
+                ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "pdt guard triggered"),
                 ExecutionOutcomeType.BLOCKED_PDT,
                 "pdt guard triggered",
             )
+
         campaign = self._campaign_state(symbol)
         if campaign.position_size > 0 and decision.action == "enter_short" and not allow_opposite_entry:
             logger.info(
                 "[GUARD] Suppressed opposite-side entry for %s; existing long position of %.2f shares",
-                symbol,
-                campaign.position_size,
+                symbol, campaign.position_size,
             )
             return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.STAND_ASIDE,
-                    decision.symbol,
-                    "opposite side exists",
-                ),
+                ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "opposite side exists"),
                 ExecutionOutcomeType.BLOCKED_EXISTING,
                 "existing opposite position",
             )
         if campaign.position_size < 0 and decision.action == "enter_long" and not allow_opposite_entry:
             logger.info(
                 "[GUARD] Suppressed opposite-side entry for %s; existing short position of %.2f shares",
-                symbol,
-                campaign.position_size,
+                symbol, campaign.position_size,
             )
             return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.STAND_ASIDE,
-                    decision.symbol,
-                    "opposite side exists",
-                ),
+                ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "opposite side exists"),
                 ExecutionOutcomeType.BLOCKED_EXISTING,
                 "existing opposite position",
             )
@@ -588,29 +570,21 @@ class IbkrExecutor:
             else:
                 logger.info("[GUARD] Suppressing scale_in: no open position for %s", symbol)
                 return self._respond(
-                    ExecutionResult(
-                        ExecutionStatus.STAND_ASIDE,
-                        decision.symbol,
-                        "no open position",
-                    ),
+                    ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "no open position"),
                     ExecutionOutcomeType.SKIPPED,
                     "scale_in no open position",
                 )
             if campaign.side and ai_dir != campaign.side:
                 logger.info(
                     "[GUARD] Suppressing scale_in: direction mismatch (side=%s requested=%s)",
-                    campaign.side,
-                    ai_dir,
+                    campaign.side, ai_dir,
                 )
                 return self._respond(
-                    ExecutionResult(
-                        ExecutionStatus.STAND_ASIDE,
-                        decision.symbol,
-                        "direction mismatch",
-                    ),
+                    ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "direction mismatch"),
                     ExecutionOutcomeType.SKIPPED,
                     "scale_in direction mismatch",
                 )
+
         if metadata.asset_class == AssetClass.CRYPTO and ai_dir == "short":
             try:
                 contract = self._contract_for_symbol(symbol)
@@ -623,54 +597,53 @@ class IbkrExecutor:
                     symbol,
                 )
                 return self._respond(
-                    ExecutionResult(
-                        ExecutionStatus.STAND_ASIDE,
-                        decision.symbol,
-                        "short not supported on ZEROHASH",
-                    ),
+                    ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "short not supported on ZEROHASH"),
                     ExecutionOutcomeType.BLOCKED_GUARD,
                     "short not supported on ZEROHASH",
                 )
+
         if campaign.has_bracket and campaign.side == ai_dir:
             logger.info(
                 "[GUARD] Ignoring new %s entry: active %s campaign already exists (parent=%s)",
-                decision.action,
-                ai_dir,
-                campaign.parent_order_id,
+                decision.action, ai_dir, campaign.parent_order_id,
             )
             return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.STAND_ASIDE,
-                    decision.symbol,
-                    "active campaign",
-                ),
+                ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "active campaign"),
                 ExecutionOutcomeType.BLOCKED_EXISTING,
                 "active campaign",
             )
+
         per_share_risk = abs(decision.entry_price - decision.stop_loss)
         if per_share_risk <= 0:
             logger.warning("Invalid per-share risk; refusing to place %s bracket.", symbol)
             return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.ERROR,
-                    decision.symbol,
-                    "invalid per-share risk",
-                ),
+                ExecutionResult(ExecutionStatus.ERROR, decision.symbol, "invalid per-share risk"),
                 ExecutionOutcomeType.ERROR,
                 "invalid per-share risk",
             )
 
-        state = self._fetch_symbol_state(symbol)
+        return None  # All guards passed
+
+    def _validate_state_guards(
+        self,
+        decision: AITradeDecision,
+        symbol: str,
+        metadata: SymbolMetadata,
+        ai_dir: str,
+        state: dict,
+        campaign: object,
+    ) -> tuple[ExecutionResult, ExecutionOutcome] | None:
+        """State-dependent guards that run after ``_fetch_symbol_state()``.
+
+        Returns ``None`` when all guards pass, otherwise returns the
+        rejection ``(ExecutionResult, ExecutionOutcome)`` tuple.
+        """
         if decision.action == "scale_in":
             max_adds = int(getattr(self.runtime, "max_scale_ins_per_leg", 2))
             if max_adds <= 0:
                 logger.info("[GUARD] Suppressing scale_in: disabled by max_scale_ins_per_leg=%s", max_adds)
                 return self._respond(
-                    ExecutionResult(
-                        ExecutionStatus.STAND_ASIDE,
-                        decision.symbol,
-                        "scale_in disabled",
-                    ),
+                    ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "scale_in disabled"),
                     ExecutionOutcomeType.BLOCKED_GUARD,
                     "scale_in disabled",
                 )
@@ -678,16 +651,10 @@ class IbkrExecutor:
             if current_adds >= max_adds:
                 logger.info(
                     "[GUARD] Suppressing scale_in: max adds reached (%s/%s) for %s",
-                    current_adds,
-                    max_adds,
-                    symbol,
+                    current_adds, max_adds, symbol,
                 )
                 return self._respond(
-                    ExecutionResult(
-                        ExecutionStatus.STAND_ASIDE,
-                        decision.symbol,
-                        "max scale_in reached",
-                    ),
+                    ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "max scale_in reached"),
                     ExecutionOutcomeType.BLOCKED_GUARD,
                     "max scale_in reached",
                 )
@@ -695,31 +662,19 @@ class IbkrExecutor:
             if state["open_parent_shares"].get(opposite_dir):
                 logger.info(
                     "[GUARD] Suppressing scale_in: open orders exist in opposite direction (side=%s, open_%s=%s)",
-                    ai_dir,
-                    opposite_dir,
-                    state["open_parent_shares"].get(opposite_dir),
+                    ai_dir, opposite_dir, state["open_parent_shares"].get(opposite_dir),
                 )
                 return self._respond(
-                    ExecutionResult(
-                        ExecutionStatus.STAND_ASIDE,
-                        decision.symbol,
-                        "open opposite orders",
-                    ),
+                    ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "open opposite orders"),
                     ExecutionOutcomeType.BLOCKED_EXISTING,
                     "open opposite orders",
                 )
-        existing_pos = state["position_shares"]
-        existing_dir = state["direction"]
-        open_risk = state["open_bracket_risk"]
+
         if campaign.has_position and not campaign.has_bracket:
             if decision.stop_loss is not None and decision.take_profit is not None:
                 self._rebuild_bracket_for_existing(campaign, decision)
                 return self._respond(
-                    ExecutionResult(
-                        ExecutionStatus.EXECUTED,
-                        decision.symbol,
-                        "rebuild protection",
-                    ),
+                    ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, "rebuild protection"),
                     ExecutionOutcomeType.SUCCESS_SUBMITTED,
                     "rebuild protection",
                 )
@@ -741,30 +696,148 @@ class IbkrExecutor:
             detail = "; ".join(detail_parts) if detail_parts else "existing orders/position"
             logger.info(
                 "[BLOCKED] Existing position or working orders for %s; skipping new entry (%s).",
-                symbol,
-                detail,
+                symbol, detail,
             )
             return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.STAND_ASIDE,
-                    decision.symbol,
-                    "existing orders/position",
-                ),
+                ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "existing orders/position"),
                 ExecutionOutcomeType.BLOCKED_EXISTING,
                 detail,
             )
+
         margin_blocked, margin_reason = self._check_margin_guard(symbol, metadata, decision)
         if margin_blocked:
             reason = margin_reason or "insufficient equity for margin-sensitive entry"
             return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.STAND_ASIDE,
-                    decision.symbol,
-                    "margin guard triggered",
-                ),
+                ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "margin guard triggered"),
                 ExecutionOutcomeType.BLOCKED_INSUFFICIENT_EQUITY,
                 reason,
             )
+
+        return None  # All state guards passed
+
+    def _submit_bracket_order(
+        self,
+        decision: AITradeDecision,
+        symbol: str,
+        metadata: SymbolMetadata,
+        ai_dir: str,
+        per_share_risk: float,
+        preparation: EntryPreparation,
+        campaign: object,
+    ) -> tuple[ExecutionResult, ExecutionOutcome]:
+        """Place bracket order and handle post-trade bookkeeping."""
+        tif = "GTC"
+        self._last_bracket_orders = []
+        try:
+            if campaign.has_position and not campaign.has_bracket and campaign.side == ai_dir:
+                qty = abs(campaign.position_size)
+                self._place_protection_orders(
+                    symbol=symbol,
+                    direction=ai_dir,
+                    quantity=qty,
+                    take_profit=decision.take_profit,
+                    stop_loss=decision.stop_loss,
+                    tif=tif,
+                )
+                logger.info(
+                    "[STATE] %s protection: side=%s sl=%.4f tp=%.4f emergency=%s size=%.2f",
+                    symbol, "SELL" if ai_dir == "long" else "BUY",
+                    decision.stop_loss, decision.take_profit,
+                    "active" if self.runtime.emergency_stop_pct > 0 else "none",
+                    qty,
+                )
+                return ExecutionResult(
+                    ExecutionStatus.EXECUTED, decision.symbol, "reprotected existing",
+                )
+
+            orders_sent = self._place_entry_bracket(
+                symbol=symbol,
+                direction=ai_dir,
+                quantity=preparation.candidate,
+                entry_price=decision.entry_price,
+                take_profit=decision.take_profit,
+                stop_loss=decision.stop_loss,
+                metadata=metadata,
+                tif=tif,
+            )
+            logger.info(
+                "IBKR %s bracket sent: %s | shares=%s | per-share-risk=%.4f | open-risk=%.2f | max-risk=$%.2f",
+                symbol, decision.summary(), preparation.candidate,
+                per_share_risk, preparation.open_risk, preparation.max_risk_dollars,
+            )
+            logger.info(
+                "[STATE] %s protection: side=%s sl=%.4f tp=%.4f emergency=%s size=%.2f",
+                symbol, "SELL" if ai_dir == "long" else "BUY",
+                decision.stop_loss, decision.take_profit,
+                "active" if self.runtime.emergency_stop_pct > 0 else "none",
+                preparation.candidate,
+            )
+            self._record_equity_entry(symbol)
+        except StopOrderUnsupportedError as exc:  # pragma: no cover
+            logger.warning(
+                "[GUARD] %s; config allows local stops? runtime.allow_local_stops=%s local_stop_symbols=%s",
+                exc, self.runtime.allow_local_stops, self.runtime.local_stop_symbols,
+            )
+            return self._respond(
+                ExecutionResult(ExecutionStatus.UNSUPPORTED_SYMBOL_CONFIG, decision.symbol, str(exc)),
+                ExecutionOutcomeType.BLOCKED_GUARD,
+                str(exc),
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.error(
+                "Failed to place %s bracket (qty=%.4f entry=%.4f tp=%.4f sl=%.4f): %s",
+                symbol, preparation.candidate, decision.entry_price,
+                decision.take_profit, decision.stop_loss, exc,
+            )
+            return self._respond(
+                ExecutionResult(ExecutionStatus.ERROR, decision.symbol, f"execution failed: {exc}"),
+                ExecutionOutcomeType.ERROR, "execution failed", detail=str(exc),
+            )
+
+        response = self._respond(
+            ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, "bracket placed"),
+            ExecutionOutcomeType.SUCCESS_SUBMITTED, "bracket placed",
+            order_ids=[o.orderId for o in getattr(self, "_last_bracket_orders", []) if getattr(o, "orderId", None)],
+        )
+        # Increment counters for pyramiding/scaling in
+        if decision.action in {"scale_in", "add_to_position"}:
+            symbol_key = symbol.upper()
+            self._scale_in_counts[symbol_key] = int(self._scale_in_counts.get(symbol_key, 0)) + 1
+            if symbol_key not in self._position_metadata:
+                self._position_metadata[symbol_key] = {"htf_neutral_bars": 0, "pyramid_count": 1}
+            self._position_metadata[symbol_key]["pyramid_count"] = (
+                self._position_metadata[symbol_key].get("pyramid_count", 1) + 1
+            )
+        return response
+
+    def _enter_position_for_symbol(
+        self,
+        decision: AITradeDecision,
+        *,
+        allow_opposite_entry: bool = False,
+    ) -> tuple[ExecutionResult, ExecutionOutcome]:
+        """Fires a bracket order sized to ~$3 risk and max 5 shares for the configured symbol."""
+        # ── Pre-entry validation ──
+        rejection = self._validate_entry_guards(decision, allow_opposite_entry)
+        if rejection is not None:
+            return rejection
+
+        symbol = self._symbol
+        metadata = SYMBOL_METADATA.get(symbol)
+        campaign = self._campaign_state(symbol)
+        ai_dir = "long" if decision.action in {"enter_long"} else "short"
+        if decision.action == "scale_in" and campaign.has_position:
+            ai_dir = "long" if campaign.position_size > 0 else "short"
+        per_share_risk = abs(decision.entry_price - decision.stop_loss)
+
+        state = self._fetch_symbol_state(symbol)
+        # ── State-dependent guards (scale-in, bracket rebuild, margin) ──
+        rejection = self._validate_state_guards(
+            decision=decision, symbol=symbol, metadata=metadata,
+            ai_dir=ai_dir, state=state, campaign=campaign,
+        )
+        if rejection is not None:
+            return rejection
 
         preparation, guard_result = self._prepare_entry(
             symbol=symbol,
@@ -782,118 +855,12 @@ class IbkrExecutor:
                 guard_result.reason or "risk guard",
             )
 
-
-        tif = "GTC"
-        self._last_bracket_orders = []
-        try:
-            if campaign.has_position and not campaign.has_bracket and campaign.side == ai_dir:
-                qty = abs(campaign.position_size)
-                self._place_protection_orders(
-                    symbol=symbol,
-                    direction=ai_dir,
-                    quantity=qty,
-                    take_profit=decision.take_profit,
-                    stop_loss=decision.stop_loss,
-                    tif=tif,
-                )
-                logger.info(
-                    "[STATE] %s protection: side=%s sl=%.4f tp=%.4f emergency=%s size=%.2f",
-                    symbol,
-                    "SELL" if ai_dir == "long" else "BUY",
-                    decision.stop_loss,
-                    decision.take_profit,
-                    "active" if self.runtime.emergency_stop_pct > 0 else "none",
-                    qty,
-                )
-                return ExecutionResult(
-                    ExecutionStatus.EXECUTED,
-                    decision.symbol,
-                    "reprotected existing",
-                )
-
-            orders_sent = self._place_entry_bracket(
-                symbol=symbol,
-                direction=ai_dir,
-                quantity=preparation.candidate,
-                entry_price=decision.entry_price,
-                take_profit=decision.take_profit,
-                stop_loss=decision.stop_loss,
-                metadata=metadata,
-                tif=tif,
-            )
-            logger.info(
-                "IBKR %s bracket sent: %s | shares=%s | per-share-risk=%.4f | open-risk=%.2f | max-risk=$%.2f",
-                symbol,
-                decision.summary(),
-                preparation.candidate,
-                per_share_risk,
-                preparation.open_risk,
-                preparation.max_risk_dollars,
-            )
-            logger.info(
-                "[STATE] %s protection: side=%s sl=%.4f tp=%.4f emergency=%s size=%.2f",
-                symbol,
-                "SELL" if ai_dir == "long" else "BUY",
-                decision.stop_loss,
-                decision.take_profit,
-                "active" if self.runtime.emergency_stop_pct > 0 else "none",
-                preparation.candidate,
-            )
-            self._record_equity_entry(symbol)
-        except StopOrderUnsupportedError as exc:  # pragma: no cover
-            logger.warning(
-                "[GUARD] %s; config allows local stops? runtime.allow_local_stops=%s local_stop_symbols=%s",
-                exc,
-                self.runtime.allow_local_stops,
-                self.runtime.local_stop_symbols,
-            )
-            return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.UNSUPPORTED_SYMBOL_CONFIG,
-                    decision.symbol,
-                    str(exc),
-                ),
-                ExecutionOutcomeType.BLOCKED_GUARD,
-                str(exc),
-            )
-        except Exception as exc:  # pragma: no cover
-            logger.error(
-                "Failed to place %s bracket (qty=%.4f entry=%.4f tp=%.4f sl=%.4f): %s",
-                symbol,
-                preparation.candidate,
-                decision.entry_price,
-                decision.take_profit,
-                decision.stop_loss,
-                exc,
-            )
-            return self._respond(
-                ExecutionResult(
-                    ExecutionStatus.ERROR,
-                    decision.symbol,
-                    f"execution failed: {exc}",
-                ),
-                ExecutionOutcomeType.ERROR,
-                "execution failed",
-                detail=str(exc),
-            )
-        response = self._respond(
-            ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, "bracket placed"),
-            ExecutionOutcomeType.SUCCESS_SUBMITTED,
-            "bracket placed",
-            order_ids=[o.orderId for o in getattr(self, "_last_bracket_orders", []) if getattr(o, "orderId", None)],
+        # ── Submit order ──
+        return self._submit_bracket_order(
+            decision=decision, symbol=symbol, metadata=metadata,
+            ai_dir=ai_dir, per_share_risk=per_share_risk,
+            preparation=preparation, campaign=campaign,
         )
-        # Increment counters for pyramiding/scaling in
-        if decision.action in {"scale_in", "add_to_position"}:
-            symbol_key = symbol.upper()
-            self._scale_in_counts[symbol_key] = int(self._scale_in_counts.get(symbol_key, 0)) + 1
-
-            # Also increment pyramid_count in position metadata
-            if symbol_key not in self._position_metadata:
-                self._position_metadata[symbol_key] = {"htf_neutral_bars": 0, "pyramid_count": 1}
-            self._position_metadata[symbol_key]["pyramid_count"] = (
-                self._position_metadata[symbol_key].get("pyramid_count", 1) + 1
-            )
-        return response
 
     def _portfolio_open_bracket_risk(self) -> float:
         """Best-effort estimate of total open bracket risk across all symbols with open trades/positions."""
@@ -2157,7 +2124,7 @@ class IbkrExecutor:
         metadata = SYMBOL_METADATA.get(self._symbol.upper())
         is_equity = bool(metadata and metadata.asset_class == AssetClass.EQUITY)
         entry_day = self._pdt_entry_dates.get(self._symbol.upper())
-        today = datetime.now(ZoneInfo("UTC")).date()
+        today = date.today()
         entry_open_today = entry_day == today
         guard_blocks_scale = self._pdt_guard_enabled and is_equity
         guard_blocks_close = guard_blocks_scale and entry_open_today

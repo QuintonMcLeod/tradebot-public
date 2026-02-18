@@ -296,7 +296,7 @@ class HistoricalMarketDataProvider:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        # [ANTIGRAVITY] Local File Loading Support
+        # Local File Loading Support
         if file_path and os.path.exists(file_path):
             logger.info(f"[BACKTEST] Loading candles for {symbol} from local file: {file_path}")
             try:
@@ -471,7 +471,7 @@ class Backtester:
         self.ai_client = ai_client
         self._cache: Dict[str, Any] = {}
         
-        # [ANTIGRAVITY FIX] Use HistoricalMarketDataProvider for local files + IB
+        # Use HistoricalMarketDataProvider for local files + IB
         # It now handles the file_path override natively.
         self.market_provider = HistoricalMarketDataProvider(ib, settings)
         self._is_crypto_backtest = False
@@ -491,7 +491,7 @@ class Backtester:
             self._is_crypto_backtest = True
 
     def _is_market_hours_utc(self, ts: datetime) -> bool:
-        # [ANTIGRAVITY FIX] Crypto trades 24/7 - skip market hours filter
+        # Crypto trades 24/7 - skip market hours filter
         if self._is_crypto_backtest:
             return True
 
@@ -530,7 +530,7 @@ class Backtester:
         if not symbols:
             raise ValueError("No symbols specified for backtest")
 
-        # [ANTIGRAVITY] Wind-Down Calculation
+        # Wind-Down Calculation
         simulation_end_date = end_date + timedelta(days=wind_down_days)
         logger.info(
             f"[BACKTEST] Starting backtest: {initial_capital:.2f} capital, "
@@ -557,7 +557,7 @@ class Backtester:
 
         all_candles: Dict[str, List[Candle]] = {}
         for symbol in symbols:
-            # [ANTIGRAVITY] Fetch data up to simulation_end_date (includes wind-down)
+            # Fetch data up to simulation_end_date (includes wind-down)
             file_path = data_paths.get(symbol) if data_paths else None
             candles = self.market_provider.fetch_historical_candles(
                 symbol, timeframe, data_start_date, simulation_end_date, file_path=file_path
@@ -575,7 +575,7 @@ class Backtester:
         completed_trades: List[SimulatedTrade] = []
         equity_curve: List[tuple[datetime, float]] = [(start_date, capital)]
         
-        # [ANTIGRAVITY] Memory-based trade results for strategy awareness
+        # Memory-based trade results for strategy awareness
         trade_results_store = TradeResultStore(path="/tmp/backtest_results.json")
         trade_results_store.results = [] # Start fresh
 
@@ -605,7 +605,7 @@ class Backtester:
         logger.info(f"[BACKTEST] Starting simulation loop: {start_date} to {simulation_end_date}")
 
         while current_time <= simulation_end_date:
-            # [ANTIGRAVITY] Wind-Down Logic: Stop loop early if past end_date AND no positions
+            # Wind-Down Logic: Stop loop early if past end_date AND no positions
             is_wind_down = current_time > end_date
             if is_wind_down and not positions:
                 logger.info("[BACKTEST] Wind-down complete: No open positions. Terminating simulation.")
@@ -615,7 +615,7 @@ class Backtester:
                 current_time += timedelta(seconds=tf_seconds)
                 continue
 
-            # [ANTIGRAVITY] Expose current capital to strategy/engine
+            # Expose current capital to strategy/engine
             self.market_provider.current_capital = capital
             
             # Update current candles for each symbol
@@ -959,7 +959,7 @@ class Backtester:
                     # Check if we have enough capital for NEW entries
                     # Skip capital check if we already have a position (for exit/management signals)
                     if current_position is None:
-                        # [ANTIGRAVITY] Wind-Down Block: No new entries after end_date
+                        # Wind-Down Block: No new entries after end_date
                         if current_time > end_date:
                             if total_decision_checks % 100 == 0: # Reduce log spam
                                 logger.debug(f"[BACKTEST] {symbol}: Skipping entry (Wind-Down active)")

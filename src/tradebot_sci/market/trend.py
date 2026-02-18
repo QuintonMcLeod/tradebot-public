@@ -34,7 +34,7 @@ def infer_trend_multi_resolution(
 ) -> MultiResolutionTrend:
     """Analyze trend across multiple swing lookback values to detect chop.
 
-    [ANTIGRAVITY CHOP FILTER] This function checks trend direction at multiple
+    This function checks trend direction at multiple
     resolutions (lookback 2-5). If the trend flips depending on which lookback
     you use, the market is choppy and we should NOT trade.
 

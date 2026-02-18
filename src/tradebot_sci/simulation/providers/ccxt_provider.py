@@ -51,7 +51,7 @@ class CCXTHistoricalDataProvider:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        # [ANTIGRAVITY] Local File Loading Support
+        # Local File Loading Support
         if file_path and os.path.exists(file_path):
             logger.info(f"[BACKTEST] Loading candles for {symbol} from local file: {file_path}")
             try:
@@ -92,7 +92,7 @@ class CCXTHistoricalDataProvider:
                 logger.warning(f"Invalid timeframe: {timeframe}")
                 return []
                 
-            # [ANTIGRAVITY FIX] Disk Cache to prevent API Rate Limits
+            # Disk Cache to prevent API Rate Limits
             cache_dir = os.path.join("data", "cache", "backtest")
             os.makedirs(cache_dir, exist_ok=True)
             
@@ -174,7 +174,7 @@ class CCXTHistoricalDataProvider:
                     volume=float(c[5]),
                 ))
             
-            # [ANTIGRAVITY FIX] Write to Disk Cache
+            # Write to Disk Cache
             if candles:
                 try:
                     cache_data = [
