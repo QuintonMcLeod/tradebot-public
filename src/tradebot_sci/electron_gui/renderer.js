@@ -706,6 +706,16 @@ window.api.on('fromMain', (payload) => {
         let msg = payload.message;
         if (payload.detail) msg += `: ${payload.detail}`;
         appendLog(level, msg);
+    } else if (payload.type === 'navigate') {
+        // Programmatic navigation from main process (e.g. "Open Broker Settings" popup)
+        if (payload.target === 'settings') {
+            const navSettings = document.getElementById('nav-settings');
+            if (navSettings) navSettings.click();
+            // Switch to specific settings tab if requested
+            if (payload.tab && window.settingsModule && window.settingsModule.switchTab) {
+                setTimeout(() => window.settingsModule.switchTab(payload.tab), 300);
+            }
+        }
     }
 });
 

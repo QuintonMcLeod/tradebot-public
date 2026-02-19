@@ -80,7 +80,7 @@ class SafetyGuard:
     @classmethod
     def _update_daily_stats(cls, current_capital: float, asset_class: AssetClass):
         """Updates daily PnL tracking for Greed Guard."""
-        today = datetime.now().date()
+        today = datetime.now(ZoneInfo("America/New_York")).date()
         if cls._state.last_reset_date.get(asset_class) != today:
             cls._state.daily_start_capital[asset_class] = current_capital
             cls._state.daily_pnl[asset_class] = 0.0
@@ -330,29 +330,10 @@ class SafetyGuard:
                 logger.warning(f"[SAFETY] Leverage Sentry VETO for {target_class.value}: Current Leverage {current_leverage:.1f}x exceeds Cap {max_leverage}x (notional=${total_notional:.2f} / equity=${current_capital:.2f})")
                 return cls._reject(symbol, timeframe, "Leverage Sentry", f"Leverage Sentry ({target_class.value.upper()}): {current_leverage:.1f}x > {max_leverage}x")
 
-        # -------------------------------------------------------------
-        # 10. [NEW] FEE SHIELD (Capital Bleed Prevention)
-        # -------------------------------------------------------------
-        # Ensures the trade has enough "meat on the bone" to cover broker fees.
-        if safety and safety.safety_fee_shield_enabled:
-            from tradebot_sci.strategy.decisions import AITradeDecision
-            if isinstance(ai_client, AITradeDecision): # If passed as decision for validation
-                decision = ai_client
-                entry = float(decision.entry_price or 0.0)
-                tp = float(decision.take_profit or 0.0)
-                if entry > 0 and tp > 0:
-                    potential_reward_pct = abs(tp - entry) / entry
-                    
-                    # Estimate round-trip fee dynamically per asset class
-                    from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
-                    # Only use env override when user explicitly set SAFETY_FEE_RT_PCT
-                    env_override = float(os.environ["SAFETY_FEE_RT_PCT"]) if "SAFETY_FEE_RT_PCT" in os.environ else None
-                    est_fee_rt = get_fee_for_symbol(symbol, override=env_override)
-                    min_edge_pct = est_fee_rt * 1.5 # 1.2% min move expected
-                    
-                    if potential_reward_pct < min_edge_pct:
-                         logger.warning(f"[SAFETY] FEE SHIELD: {symbol} Expected Reward {potential_reward_pct:.2%} < Min Edge {min_edge_pct:.2%} (Fees)")
-                         return cls._reject(symbol, timeframe, "Fee Shield", f"Fee Shield: Reward {potential_reward_pct:.2%} < Fees")
+        # [FEE SHIELD] — Moved to engine.py:decide() post-entry where the decision
+        # object (with entry_price/take_profit) is actually available. The isinstance
+        # check here always returned False because ai_client is a TradeSciAIClient,
+        # never an AITradeDecision.
 
         return None
 

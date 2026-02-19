@@ -728,6 +728,29 @@ function createWindow() {
                             }
                         } catch (e) { }
 
+                        // Detect "No broker configured" and show a popup dialog
+                        if (errorDetail.includes('No broker configured')) {
+                            const { dialog } = require('electron');
+                            dialog.showMessageBox(mainWindow, {
+                                type: 'warning',
+                                title: 'No Broker Configured',
+                                message: 'The bot requires at least one broker with valid API credentials to start.',
+                                detail: 'Go to Settings → Broker Suite and configure one of the following:\n\n' +
+                                    '• OANDA (Forex) — Account ID + API Key\n' +
+                                    '• Gemini (Crypto) — API Key + Secret\n' +
+                                    '• CCXT (Any Exchange) — API Key + Secret\n' +
+                                    '• IBKR (Stocks/Futures) — TWS/Gateway connection\n\n' +
+                                    'Need help? See Documentation → How to Use (Step 2: API Setup)',
+                                buttons: ['Open Broker Settings', 'Close'],
+                                defaultId: 0,
+                            }).then(({ response }) => {
+                                if (response === 0) {
+                                    // Navigate to settings and switch to Brokers tab
+                                    mainWindow.webContents.send('fromMain', { type: 'navigate', target: 'settings', tab: 'brokers' });
+                                }
+                            });
+                        }
+
                         mainWindow.webContents.send('fromMain', {
                             type: 'gui-notice',
                             message: "Bot Startup Failed",

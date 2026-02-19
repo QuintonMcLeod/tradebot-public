@@ -4,7 +4,7 @@ import logging
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from typing import Optional, List, Dict, Any
+from typing import Optional, Any
 
 from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
 
@@ -14,7 +14,6 @@ from tradebot_sci.market.providers import MarketDataProvider
 from tradebot_sci.runtime.safety import validate_decision
 from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.strategy.profiles import BaseProfile
-from tradebot_sci.confluence.context import build_confluence
 from tradebot_sci.broker.trade_result_store import TradeResultStore
 
 logger = logging.getLogger(__name__)
@@ -26,9 +25,7 @@ class StrategyEngine:
     Zero internal filters. 100% Signal Fidelity.
     """
 
-    # [SAFETY] Global Account Guardians
-    MAX_CAPITAL_SEEN = 0.0
-    PAUSE_UNTIL = None
+    # [SAFETY] Global Account Guardians (cleaned up — HWM now in SafetyGuard._state)
 
     def __init__(
         self,
@@ -220,8 +217,9 @@ class StrategyEngine:
         from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
         
         current_capital_val = current_capital if current_capital is not None else 0.0
-        latest_snapshot = snapshot or self.market_provider.get_latest_snapshot(self.symbol, timeframe)
-        
+        snapshot = snapshot or self.market_provider.get_latest_snapshot(self.symbol, timeframe)
+        latest_snapshot = snapshot  # Unified: single fetch for both safety check and strategy logic
+
         if self.trade_results:
             stats = self.trade_results.get_stats()
             if stats.get('total_trades', 0) >= 5:
@@ -232,8 +230,6 @@ class StrategyEngine:
         # This must happen before any decisions are made.
         SafetyGuard.update_position(self.symbol, open_position)
 
-        # 1. Gather Context
-        snapshot = snapshot or self.market_provider.get_latest_snapshot(self.symbol, timeframe)
         caps = execution_capabilities or {}
         
         # 2. Build Gates (Metadata for Strategy)
@@ -280,6 +276,9 @@ class StrategyEngine:
                     correction_signal = detect_correction(candles, indication_signal)
                 continuation_signal = detect_continuation(
                     candles, trend_dir,
+                    sweep_signal,
+                    indication_signal,
+                    correction_signal,
                     require_indication=bool(indication_signal),
                     require_correction=bool(correction_signal),
                 )
@@ -539,6 +538,29 @@ class StrategyEngine:
 
             # Note: Churn Burner notification moved to cycle.py (after confirmed execution)
             # Previously here, it counted every entry SIGNAL as a trade, causing false churn blocks.
+
+            # [FEE SHIELD] Capital Bleed Prevention (moved from safety_guard.py where it was dead code)
+            # Validates that the trade has enough reward to cover broker fees before execution.
+            safety = getattr(self.settings or self.profile, 'safety', None)
+            if safety and getattr(safety, 'safety_fee_shield_enabled', False):
+                entry = float(decision.entry_price or 0.0)
+                tp = float(decision.take_profit or 0.0)
+                if entry > 0 and tp > 0:
+                    potential_reward_pct = abs(tp - entry) / entry
+                    from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                    import os
+                    env_override = float(os.environ["SAFETY_FEE_RT_PCT"]) if "SAFETY_FEE_RT_PCT" in os.environ else None
+                    est_fee_rt = get_fee_for_symbol(self.symbol, override=env_override)
+                    min_edge_pct = est_fee_rt * 1.5
+                    if potential_reward_pct < min_edge_pct:
+                        logger.warning(f"[FEE SHIELD] {self.symbol} Reward {potential_reward_pct:.2%} < Min Edge {min_edge_pct:.2%} (Fees)")
+                        from tradebot_sci.strategy.decisions import stand_aside_decision
+                        from tradebot_sci.runtime.rejection_journal import rejection_journal
+                        rejection_journal.log(self.symbol, timeframe, "Fee Shield", f"Reward {potential_reward_pct:.2%} < Fees {min_edge_pct:.2%}")
+                        blocked = stand_aside_decision(snapshot.symbol, timeframe, f"Fee Shield: Reward {potential_reward_pct:.2%} < Fees")
+                        blocked.score = score
+                        blocked.grade = grade
+                        return blocked
 
             logger.info(f"[PHOENIX] {self.symbol} Strategy {decision.action.upper()} triggered: {decision.summary()}")
             # 4. Final Safety Patch (Margin/Venue Only)

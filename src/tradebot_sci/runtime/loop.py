@@ -1394,7 +1394,6 @@ def run_bot(
                         lockout_enabled = getattr(safety_settings, 'safety_session_lockout_enabled', False)
                         lockout_hour = getattr(safety_settings, 'safety_session_lockout_hour', 16)
                         if lockout_enabled:
-                            from zoneinfo import ZoneInfo
                             est_hour = _dt.now(ZoneInfo("America/New_York")).hour
                             session_locked = est_hour >= lockout_hour
                     except Exception:

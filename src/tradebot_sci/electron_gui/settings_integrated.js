@@ -129,7 +129,7 @@ const TOOLTIPS = {
     APP_PROFILE: "Trading profiles define which markets you trade (stocks, forex, crypto), how often the bot checks for opportunities, and when it's allowed to trade. Think of it like choosing between 'day trader mode' vs '24/7 crypto mode'.",
     STRATEGY_VARIANT: "The trading strategy determines HOW the bot decides to enter and exit trades. Each strategy has different rules - some are aggressive scalpers, others wait for perfect setups. Choose based on your risk tolerance and market conditions.",
     BOT_MODE: "Controls how the bot runs: 'Continuous' keeps trading forever until you stop it. 'Scheduled' only trades during specific hours (like market open). 'Iterations' runs a fixed number of trade cycles then stops.",
-    EXECUTE_TRADES: "The master ON/OFF switch for real trading. When OFF, the bot analyzes markets and shows what it WOULD do, but never places actual orders. Perfect for testing strategies without risking real money.",
+    EXECUTE_TRADES: "The master ON/OFF switch for real trading. When OFF, the bot runs in Paper Trading mode — it still scans markets and executes simulated trades with a virtual balance, but never places actual orders. Perfect for testing strategies risk-free. A broker must still be configured for market data.",
     GUI_AUTOSTART_BOT: "When enabled, the trading bot automatically starts running as soon as you open this application. When disabled, you'll need to manually click 'Start' to begin trading.",
     CONTINUOUS_MODE: "Keeps the bot running indefinitely without stopping between trading sessions. Useful for 24/7 crypto markets. Disable this if you want the bot to pause after each session.",
     GUI_WS_URL: "The WebSocket URL for the trading bot. Change this if you are connecting to a bot running on a remote server or a different port (e.g., ws://192.168.1.10:8080/ws).",
@@ -414,9 +414,20 @@ const CONFLICT_MAP = {
         type: 'ghost'
     },
     'SAFETY_STABILITY_MODE_ENABLED:true': {
-        targets: ['PERFORMANCE_MODE'],
-        message: "<strong>Stability Mode</strong> is a survival-first protocol. Enabling it will reset your Performance Mode to 'Standard' and enforce a strict 1% risk ceiling.",
+        targets: ['PERFORMANCE_MODE', 'NUCLEAR_OVERRIDES_ENABLED'],
+        message: "<strong>Stability Mode</strong> is a survival-first protocol. Enabling it will reset your Performance Mode to 'Standard', disable Nuclear Overrides, and enforce a strict 1% risk ceiling.",
         type: 'modal'
+    },
+    'NUCLEAR_OVERRIDES_ENABLED:true': {
+        targets: ['SAFETY_STABILITY_MODE_ENABLED'],
+        message: "<strong>Nuclear Mode</strong> removes all hard-coded safety ceilings. This is incompatible with <strong>Stability Mode</strong> — Stability will be disabled.",
+        type: 'modal'
+    },
+    'performance:gamma': {
+        targets: ['TRAILING_STOP_ENABLED'],
+        message: "<strong>Gamma Squeeze</strong> uses hyper-tight trailing stops to lock in velocity. This will override your standard 'Trailing Stop' settings.",
+        type: 'ghost',
+        requires: { key: 'SAFETY_ATR_SHIELD_ENABLED', message: '<strong>Gamma Squeeze</strong> requires <strong>ATR Armor</strong> to be enabled. Its trailing logic runs inside the ATR Armor block — without it, Gamma is silently dead.' }
     },
     'MULTI_POSITION_ENABLED:false': {
         targets: ['MAX_CONCURRENT_POSITIONS'],
@@ -426,6 +437,17 @@ const CONFLICT_MAP = {
     'SABBATH_ASTRONOMICAL:true': {
         targets: [],
         message: "<strong>Astronomical Sabbath</strong> uses your geographic coordinates to calculate exact sunset times. Please verify your Latitude and Longitude are set correctly.",
+        type: 'modal'
+    },
+    // ── Loader-Silent Conflicts (P10: UI now warns instead of silent override) ──
+    'PDT_GUARD_ENABLED:true': {
+        targets: ['AUTO_FLATTEN_ON_CLOSE'],
+        message: "<strong>PDT Guard</strong> is incompatible with <strong>Auto-Flatten</strong>. The backend will force Auto-Flatten OFF to prevent accidental pattern day-trading violations.",
+        type: 'modal'
+    },
+    'CONTINUOUS_MODE:true': {
+        targets: ['INTRADAY_FLATTEN'],
+        message: "<strong>Continuous Mode</strong> runs 24/7 — <strong>Intraday Flatten</strong> will be forced OFF by the backend since there is no 'session end' to flatten at.",
         type: 'modal'
     }
 };
@@ -1220,7 +1242,7 @@ function renderSystemTab(container) {
     }));
 
     section.appendChild(createCard('Live Trading', 'Master switch for real order execution', 'EXECUTE_TRADES', 'toggle'));
-    section.appendChild(createCard('Auto-Start Bot', 'Launch bot automatically with GUI', 'GUI_AUTOSTART_BOT', 'toggle', { default: 'true' }));
+    // REMOVED: 'Auto-Start Bot' (GUI_AUTOSTART_BOT) — Dead toggle, 0 runtime refs (Audit P0)
     section.appendChild(createCard('Continuous Mode', 'Keep runtime alive indefinitely', 'CONTINUOUS_MODE', 'toggle'));
     section.appendChild(createCard('Friday Fade Damper', 'Risk cap after 12:00 PM EST Fri (Forex Only)', 'FRIDAY_FADE_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('WebConnect URL', 'Remote bot connection address', 'GUI_WS_URL', 'input', { default: 'ws://localhost:8080/ws' }));
@@ -1308,7 +1330,7 @@ function renderSystemTab(container) {
     section.appendChild(createCard('LTF Trend Window', 'Candles for LTF trend analysis', 'LTF_TREND_WINDOW', 'input', { number: true, default: '8', min: 3, max: 30 }));
     section.appendChild(createCard('Swing Lookback', 'Fractal lookback for swing detection', 'TREND_SWING_LOOKBACK', 'input', { number: true, default: '2', min: 1, max: 5 }));
     section.appendChild(createCard('Min Swings', 'Minimum swings for trend classification', 'TREND_MIN_SWINGS', 'input', { number: true, default: '2', min: 1, max: 5 }));
-    section.appendChild(createCard('Strength Floor', 'Minimum strength for non-neutral trend', 'TREND_STRENGTH_FLOOR', 'input', { number: true, default: '0.25', min: 0, max: 1, step: 0.05 }));
+    section.appendChild(createSliderCard('Strength Floor', 'Minimum strength for non-neutral trend', 'TREND_STRENGTH_FLOOR', 0, 100, 5, '%'));
 
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('Market Guards', 'security'));
@@ -1453,8 +1475,7 @@ function renderStrategyTab(container) {
         grid2.className = 'card-grid';
         // (Moved Multi-Position and Smart Positions to Safety Tab)
         section.appendChild(grid2);
-        section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle', { default: 'true' }));
-        section.appendChild(createCard('AI Sentiment Shield', 'Smart Veto. AI blocks "Dangerous" setups.', 'SAFETY_SENTIMENT_SHIELD_ENABLED', 'toggle'));
+        // REMOVED: Opening Range Sentry + AI Sentiment Shield duplicates — canonical controls live in Safety tab (Audit P2)
 
         // Initialize Financed Risk state
         setTimeout(() => {
@@ -1469,7 +1490,7 @@ function renderStrategyTab(container) {
         section.appendChild(createSectionHeader('Pyramid Configuration', 'stacked_line_chart'));
 
         section.appendChild(createCard('Max Pyramid Entries', 'Total entries per position', 'MAX_PYRAMID_ENTRIES', 'input', { number: true, default: '6', min: 1, max: 20 }));
-        section.appendChild(createCard('Profit Buffer %', 'Min profit before first add', 'PYRAMID_PROFIT_BUFFER_PCT', 'input', { number: true, default: '0.0015', min: 0, max: 0.05, step: 0.0005 }));
+        section.appendChild(createSliderCard('Profit Buffer %', 'Min profit before first add', 'PYRAMID_PROFIT_BUFFER_PCT', 0, 5, 0.1, '%'));
 
         const pyramidGrid = document.createElement('div');
         pyramidGrid.className = 'card-grid';
@@ -1481,32 +1502,28 @@ function renderStrategyTab(container) {
         section.appendChild(createSectionHeader('Breakeven Trail', 'shield'));
 
         section.appendChild(createCard('Trail After N Pyramids', '0 = disabled', 'BREAKEVEN_TRAIL_AFTER_PYRAMIDS', 'input', { number: true, default: '1', min: 0, max: 10 }));
-        section.appendChild(createCard('Trail Percentage', 'Above breakeven (0.003 = 0.3%)', 'BREAKEVEN_TRAIL_PCT', 'input', { number: true, default: '0.003', min: 0, max: 0.05, step: 0.001 }));
+        // REMOVED: 'Trail Percentage' (BREAKEVEN_TRAIL_PCT) duplicate — canonical in Safety tab (Audit P2)
 
     } else if (subTabs.strategy === 'exits') {
         section.appendChild(createSectionHeader('Exit Configuration', 'exit_to_app'));
 
-        section.appendChild(createCard('HTF Flip Exit (Loss Only)', 'Exit on flip only if losing', 'EXIT_ON_HTF_FLIP_ONLY_IF_LOSING', 'toggle', { default: 'true' }));
+        // REMOVED: 'HTF Flip Exit (Loss Only)' (EXIT_ON_HTF_FLIP_ONLY_IF_LOSING) — Dead toggle, 0 Python refs (Audit P0)
         section.appendChild(createCard('Auto-Flatten on Close', 'Flatten positions at session end', 'AUTO_FLATTEN_ON_CLOSE', 'toggle'));
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Trailing Stop', 'trending_down'));
 
         section.appendChild(createCard('The "Greedy Exit"', 'Enable trailing stop logic', 'TRAILING_STOP_ENABLED', 'toggle'));
-        section.appendChild(createCard('The "Sniper Target"', 'Target Reward Ratio - e.g. 2.0 = 2x Risk', 'RISK_REWARD_RATIO', 'input', {
-            number: true,
-            placeholder: '2.0',
-            default: '2.0'
-        }));
-        section.appendChild(createCard('Trailing Stop Min Profit %', 'Min profit to activate trail', 'TRAILING_STOP_MIN_PROFIT_PCT', 'input', { number: true, default: '1.0', min: 0, max: 10, step: 0.5 }));
-        section.appendChild(createCard('Stop ATR Multiplier', 'Distance from structure', 'STOP_ATR_MULTIPLIER', 'input', { number: true, default: '1.5', min: 0.5, max: 3, step: 0.1 }));
+        section.appendChild(createSliderCard('The "Sniper Target"', 'Target Reward Ratio (R:R)', 'RISK_REWARD_RATIO', 1, 5, 0.5, 'R'));
+        section.appendChild(createSliderCard('Trailing Stop Min Profit %', 'Min profit to activate trail', 'TRAILING_STOP_MIN_PROFIT_PCT', 0, 10, 0.5, '%'));
+        // REMOVED: 'Stop ATR Multiplier' (STOP_ATR_MULTIPLIER) duplicate — canonical in Safety tab (Audit P2)
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Hold Time Rules', 'timer'));
 
-        section.appendChild(createCard('Min Hold Hours', '0 = disabled', 'MIN_HOLD_HOURS', 'input', { number: true, default: '0', min: 0, max: 48 }));
-        section.appendChild(createCard('Max Hold Hours', '0 = disabled', 'MAX_HOLD_HOURS', 'input', { number: true, default: '0', min: 0, max: 168 }));
-        section.appendChild(createCard('HTF Neutral Exit Bars', 'Exit after N neutral bars', 'HTF_NEUTRAL_EXIT_BARS', 'input', { number: true, default: '48', min: 0, max: 200 }));
+        section.appendChild(createSliderCard('Min Hold Hours', '0 = disabled', 'MIN_HOLD_HOURS', 0, 48, 1, 'hrs'));
+        section.appendChild(createSliderCard('Max Hold Hours', '0 = disabled', 'MAX_HOLD_HOURS', 0, 168, 1, 'hrs'));
+        section.appendChild(createSliderCard('HTF Neutral Exit Bars', 'Exit after N neutral bars', 'HTF_NEUTRAL_EXIT_BARS', 0, 200, 5, 'bars'));
 
     } else if (subTabs.strategy === 'yaml') {
         section.appendChild(createSectionHeader('Config JSON Editor', 'code'));
@@ -1552,7 +1569,7 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('Account ID', 'Specific sub-account', 'IBKR_ACCOUNT_ID', 'input'));
         section.appendChild(createCard('Paper Trading', 'Use paper trading mode', 'IBKR_PAPER', 'toggle', { default: 'true' }));
         section.appendChild(createCard('Read Only', 'Monitor mode only (no orders)', 'IBKR_READ_ONLY', 'toggle'));
-        section.appendChild(createCard('Default Currency', 'Base currency for positions', 'IBKR_DEFAULT_CCY', 'input', { default: 'USD' }));
+        section.appendChild(createCard('Default Currency', 'Base currency for positions', 'IBKR_DEFAULT_CCY', 'dropdown', { items: [{ value: 'USD', label: 'USD' }, { value: 'EUR', label: 'EUR' }, { value: 'GBP', label: 'GBP' }, { value: 'CHF', label: 'CHF' }, { value: 'JPY', label: 'JPY' }, { value: 'CAD', label: 'CAD' }, { value: 'AUD', label: 'AUD' }, { value: 'NZD', label: 'NZD' }], default: 'USD' }));
 
     } else if (subTabs.brokers === 'oanda') {
         section.appendChild(createSectionHeader('OANDA Forex Connection', 'currency_exchange'));
@@ -1664,7 +1681,7 @@ function renderBrokersTab(container) {
     } else if (subTabs.brokers === 'ccxt') {
         section.appendChild(createSectionHeader('Coinbase / CCXT Engine', 'currency_bitcoin'));
 
-        section.appendChild(createCard('Exchange ID', 'Provider name', 'CCXT_EXCHANGE', 'input', { default: 'coinbase' }));
+        section.appendChild(createCard('Exchange ID', 'Provider name', 'CCXT_EXCHANGE', 'dropdown', { items: [{ value: 'coinbase', label: 'Coinbase' }, { value: 'kraken', label: 'Kraken' }, { value: 'binance', label: 'Binance' }, { value: 'binanceus', label: 'Binance US' }, { value: 'bybit', label: 'Bybit' }, { value: 'okx', label: 'OKX' }, { value: 'bitfinex', label: 'Bitfinex' }, { value: 'gemini', label: 'Gemini' }, { value: 'kucoin', label: 'KuCoin' }], default: 'coinbase' }));
         section.appendChild(createCard('Market Type', 'Asset class', 'CCXT_DEFAULT_TYPE', 'dropdown', {
             items: [
                 { value: 'spot', label: 'Spot' },
@@ -1766,7 +1783,7 @@ function renderAITab(container) {
 
     section.appendChild(createCard('Model Name', 'e.g., gemini-1.5-pro-002', 'TRADE_SCI_MODEL_NAME', 'input'));
     section.appendChild(createCard('API Key', 'Provider authentication', 'CHATGPT_KEY', 'input', { password: true }));
-    section.appendChild(createCard('Temperature', 'Response randomness - 0-2', 'AI_TEMPERATURE', 'input', { number: true, default: '0.2', min: 0, max: 2, step: 0.1 }));
+    section.appendChild(createSliderCard('Temperature', 'AI creativity (0 = precise, 2 = wild)', 'AI_TEMPERATURE', 0, 2, 0.1, ''));
     section.appendChild(createCard('Max Tokens', 'Response length limit', 'AI_MAX_TOKENS', 'input', { number: true, default: '2048' }));
 
     section.appendChild(createDivider());
@@ -1823,19 +1840,19 @@ function renderScheduleTab(container) {
 
     section.appendChild(createCard('Enable Sabbath', 'Block trades during Sabbath', 'SABBATH_ENABLED', 'toggle'));
     section.appendChild(createCard('Astronomical Mode', 'Use actual sunset times', 'SABBATH_ASTRONOMICAL', 'toggle'));
-    section.appendChild(createCard('Timezone', 'IANA zone name', 'SABBATH_TIMEZONE', 'input', { default: 'America/New_York' }));
+    section.appendChild(createCard('Timezone', 'IANA zone name', 'SABBATH_TIMEZONE', 'dropdown', { items: [{ value: 'America/New_York', label: 'America/New_York' }, { value: 'America/Chicago', label: 'America/Chicago' }, { value: 'America/Denver', label: 'America/Denver' }, { value: 'America/Los_Angeles', label: 'America/Los_Angeles' }, { value: 'America/Toronto', label: 'America/Toronto' }, { value: 'Europe/London', label: 'Europe/London' }, { value: 'Europe/Paris', label: 'Europe/Paris' }, { value: 'Europe/Berlin', label: 'Europe/Berlin' }, { value: 'Asia/Jerusalem', label: 'Asia/Jerusalem' }, { value: 'Asia/Tokyo', label: 'Asia/Tokyo' }, { value: 'Australia/Sydney', label: 'Australia/Sydney' }, { value: 'UTC', label: 'UTC' }], default: 'America/New_York' }));
     section.appendChild(createCard('Latitude', 'Decimal coordinate', 'SABBATH_LAT', 'input'));
     section.appendChild(createCard('Longitude', 'Decimal coordinate', 'SABBATH_LON', 'input'));
-    section.appendChild(createCard('Start Time', 'Friday sunset - HH:MM', 'SABBATH_START_LOCAL', 'input', { default: '18:00' }));
-    section.appendChild(createCard('End Time', 'Saturday sunset - HH:MM', 'SABBATH_END_LOCAL', 'input', { default: '18:00' }));
+    section.appendChild(createCard('Start Time', 'Friday sunset - HH:MM', 'SABBATH_START_LOCAL', 'time', { default: '18:00' }));
+    section.appendChild(createCard('End Time', 'Saturday sunset - HH:MM', 'SABBATH_END_LOCAL', 'time', { default: '18:00' }));
 
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('Session Gate', 'access_time'));
 
     section.appendChild(createCard('Session Gate Enabled', 'Enforce session health checks', 'SESSION_GATE_ENABLED', 'toggle', { default: 'true' }));
-    section.appendChild(createCard('Overlap Start Hour', 'Active session start - 0-23', 'SESSION_OVERLAP_START_HOUR', 'input', { number: true, default: '12', min: 0, max: 23 }));
-    section.appendChild(createCard('Overlap End Hour', 'Active session end - 0-23', 'SESSION_OVERLAP_END_HOUR', 'input', { number: true, default: '16', min: 0, max: 23 }));
-    section.appendChild(createCard('Session Timezone', 'For overlap hours', 'SESSION_OVERLAP_TIMEZONE', 'input', { default: 'UTC' }));
+    section.appendChild(createCard('Overlap Start Hour', 'Active session start', 'SESSION_OVERLAP_START_HOUR', 'time', { default: '12:00' }));
+    section.appendChild(createCard('Overlap End Hour', 'Active session end', 'SESSION_OVERLAP_END_HOUR', 'time', { default: '16:00' }));
+    section.appendChild(createCard('Session Timezone', 'For overlap hours', 'SESSION_OVERLAP_TIMEZONE', 'dropdown', { items: [{ value: 'UTC', label: 'UTC' }, { value: 'America/New_York', label: 'America/New_York' }, { value: 'America/Chicago', label: 'America/Chicago' }, { value: 'America/Denver', label: 'America/Denver' }, { value: 'America/Los_Angeles', label: 'America/Los_Angeles' }, { value: 'Europe/London', label: 'Europe/London' }, { value: 'Europe/Paris', label: 'Europe/Paris' }, { value: 'Asia/Tokyo', label: 'Asia/Tokyo' }, { value: 'Asia/Shanghai', label: 'Asia/Shanghai' }], default: 'UTC' }));
     section.appendChild(createCard('Auto Schedule', 'Auto switch equities/crypto', 'AUTO_SCHEDULE_ENABLED', 'toggle'));
 
     container.appendChild(section);
@@ -2017,7 +2034,7 @@ function renderSafetyTab(container) {
 
     section.appendChild(createSectionHeader('Position Protection', 'layers'));
     section.appendChild(createCard('Multi-Position', 'Trade multiple symbols simultaneously', 'MULTI_POSITION_ENABLED', 'toggle'));
-    section.appendChild(createCard('Max Concurrent Positions', 'Maximum open positions', 'MAX_CONCURRENT_POSITIONS', 'input', { number: true, default: '1', min: 1, max: 10 }));
+    section.appendChild(createSliderCard('Max Concurrent Positions', 'Maximum open positions', 'MAX_CONCURRENT_POSITIONS', 1, 10, 1, ''));
     section.appendChild(createCard('Smart Positions', 'Fund new risk with open profits', 'SMART_POSITIONS_ENABLED', 'toggle'));
 
     section.appendChild(createDivider());
@@ -2027,20 +2044,8 @@ function renderSafetyTab(container) {
         tooltip: "<strong>Survival First.</strong> This is your emergency brake. It forces 1% max risk and a 75+ quality score floor. Perfect for preventing account 'bleeding' during choppy or unpredictable market regimes."
     }));
     section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle', { default: 'true' }));
-    section.appendChild(createCard('Stop ATR Multiplier', 'Standard stop distance as a multiple of ATR', 'STOP_ATR_MULTIPLIER', 'input', {
-        number: true,
-        placeholder: '1.5',
-        default: '1.5',
-        step: 0.1,
-        min: 0.5,
-        max: 5.0
-    }));
-    section.appendChild(createCard('The "Lock-In"', 'Lock Risk-Free at this profit level - e.g. 0.003 = 0.3%', 'BREAKEVEN_TRAIL_PCT', 'input', {
-        number: true,
-        placeholder: '0.003',
-        default: '0.003',
-        step: 0.001
-    }));
+    section.appendChild(createSliderCard('Stop ATR Multiplier', 'Standard stop distance (× ATR)', 'STOP_ATR_MULTIPLIER', 0.5, 5, 0.1, '×'));
+    section.appendChild(createSliderCard('The "Lock-In"', 'Lock Risk-Free at this profit level', 'BREAKEVEN_TRAIL_PCT', 0, 5, 0.1, '%'));
     section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker - 5% Daily Cap', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Session Lockout', 'Stops new entries after cutoff time', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Lockout Time (EST)', 'No new entries after this time', 'SAFETY_SESSION_LOCKOUT_HOUR', 'time', { default: '16' }));
@@ -2054,25 +2059,11 @@ function renderSafetyTab(container) {
     }));
 
     section.appendChild(createCard('Churn Burner', 'Rate Limit (Max trades/hour)', 'SAFETY_CHURN_BURNER_ENABLED', 'toggle', { default: 'true' }));
-    section.appendChild(createCard('Churn Burner Max', 'Maximum trades allowed per hour', 'SAFETY_CHURN_BURNER_MAX', 'input', {
-        number: true,
-        placeholder: '5',
-        default: '5'
-    }));
+    section.appendChild(createSliderCard('Churn Burner Max', 'Maximum trades allowed per hour', 'SAFETY_CHURN_BURNER_MAX', 1, 20, 1, 'trades/hr'));
 
     section.appendChild(createCard('Volatility Veto', 'Block entries if ATR is too Low/High', 'SAFETY_VOLATILITY_VETO_ENABLED', 'toggle'));
-    section.appendChild(createCard('Veto Min ATR %', 'Block if volatility falls below this %', 'SAFETY_VOLATILITY_MIN_PCT', 'input', {
-        number: true,
-        placeholder: '0.05',
-        default: '0.05',
-        step: 0.01
-    }));
-    section.appendChild(createCard('Veto Max ATR %', 'Block if volatility exceeds this %', 'SAFETY_VOLATILITY_MAX_PCT', 'input', {
-        number: true,
-        placeholder: '5.0',
-        default: '5.0',
-        step: 0.1
-    }));
+    section.appendChild(createSliderCard('Veto Min ATR %', 'Block if volatility falls below this', 'SAFETY_VOLATILITY_MIN_PCT', 0, 100, 1, '%'));
+    section.appendChild(createSliderCard('Veto Max ATR %', 'Block if volatility exceeds this', 'SAFETY_VOLATILITY_MAX_PCT', 0, 100, 1, '%'));
     section.appendChild(createCard('Streak Breaker', 'Pause Symbol 4h after 3 Consecutive Losses', 'SAFETY_STREAK_BREAKER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('AI Sentiment Shield', 'Smart Veto. AI blocks "Dangerous" setups.', 'SAFETY_SENTIMENT_SHIELD_ENABLED', 'toggle'));
@@ -2081,11 +2072,7 @@ function renderSafetyTab(container) {
     section.appendChild(createSectionHeader('Advanced Exit Shields', 'cancel_schedule'));
 
     section.appendChild(createCard('Stale Sniper', 'Terminate trades after N bars of no progress', 'SAFETY_STALE_SNIPER_ENABLED', 'toggle'));
-    section.appendChild(createCard('Sniper Bars', 'Maximum bars to hold a trade', 'SAFETY_STALE_SNIPER_BARS', 'input', {
-        number: true,
-        placeholder: '20',
-        default: '20'
-    }));
+    section.appendChild(createSliderCard('Sniper Bars', 'Maximum bars to hold a trade', 'SAFETY_STALE_SNIPER_BARS', 5, 100, 5, 'bars'));
     section.appendChild(createCard('Flash-Trap Shield', 'Exit instantly on extreme ATR spikes', 'SAFETY_FLASH_TRAP_ENABLED', 'toggle'));
     section.appendChild(createCard('Regime-Flip Veto', 'Exit if HTF trend turns against position', 'SAFETY_REGIME_FLIP_ENABLED', 'toggle'));
     section.appendChild(createCard('Counter-Trend Block', 'Block entries against HTF trend direction', 'BLOCK_COUNTER_TREND_ENTRIES', 'toggle', { default: 'true' }));
@@ -2108,12 +2095,7 @@ function renderSafetyTab(container) {
     section.appendChild(nuclearWarning);
 
     section.appendChild(createCard('Nuclear Mode Active', 'Bypass all hard-coded safety ceilings', 'NUCLEAR_OVERRIDES_ENABLED', 'toggle', { default: 'false' }));
-    section.appendChild(createCard('Risk Cap Override %', 'New hard risk wall - e.g. 0.35 for 35%', 'MAX_RISK_CAP_OVERRIDE', 'input', {
-        number: true,
-        default: '0.05',
-        locked: envData['NUCLEAR_OVERRIDES_ENABLED'] !== 'true',
-        lockMessage: 'Requires Nuclear Mode Activation.'
-    }));
+    section.appendChild(createSliderCard('Risk Cap Override %', 'New hard risk wall', 'MAX_RISK_CAP_OVERRIDE', 0, 50, 1, '%'));
     section.appendChild(createCard('Compounding Cap Override USD', 'New capital growth wall - e.g. 50000', 'COMPOUNDING_CAP_OVERRIDE', 'input', {
         number: true,
         default: '10000',
@@ -2247,14 +2229,10 @@ function renderPerformanceTab(container) {
     pnlGroup.innerHTML = `<div class="text-sm text-slate-400 mb-2 font-bold uppercase tracking-wider">Step 3: P&L Rewards & Retention (Targets & Limits)</div>`;
     section.appendChild(pnlGroup);
 
-    section.appendChild(createCard('Daily Profit Target %', 'Stop for the day once this % profit is reached (e.g. 0.02 = 2%)', 'TARGET_PROFIT_DAILY_PCT', 'input', { number: true, default: '0.0', step: 0.001 }));
+    section.appendChild(createSliderCard('Daily Profit Target %', 'Stop for the day once reached (0 = disabled)', 'TARGET_PROFIT_DAILY_PCT', 0, 10, 0.5, '%'));
     // Daily Loss Limit slider is in Strategy Workshop → Global Risk tab
 
-    section.appendChild(createCard('Weekly Profit Target % (Not Yet Implemented)', 'Lock in weekly gains once reached (e.g. 0.05 = 5%)', 'TARGET_PROFIT_WEEKLY_PCT', 'input', { number: true, default: '0.0', step: 0.001, disabled: true }));
-    section.appendChild(createCard('Weekly Loss Limit % (Not Yet Implemented)', 'Protect capital: stop for the week if hit (e.g. 0.15 = 15%)', 'LIMIT_LOSS_WEEKLY_PCT', 'input', { number: true, default: '0.15', step: 0.001, disabled: true }));
-
-    section.appendChild(createCard('Monthly Profit Target % (Not Yet Implemented)', 'Monthly wealth goal: stop if reached (e.g. 0.10 = 10%)', 'TARGET_PROFIT_MONTHLY_PCT', 'input', { number: true, default: '0.0', step: 0.001, disabled: true }));
-    section.appendChild(createCard('Monthly Loss Limit % (Not Yet Implemented)', 'Emergency floor: stop for the month if reached (e.g. 0.25 = 25%)', 'LIMIT_LOSS_MONTHLY_PCT', 'input', { number: true, default: '0.25', step: 0.001, disabled: true }));
+    // REMOVED: 4 dead placeholders — WEEKLY/MONTHLY profit/loss targets not implemented (Audit P10)
 
     container.appendChild(section);
 }
@@ -2612,13 +2590,13 @@ function renderStrategyToolbox(container) {
         section.appendChild(createCard('ICC Auto-Entry', 'Auto-enter on valid signals', 'ICC_AUTO_ENTRY_ENABLED', 'toggle', { default: 'true' }));
         section.appendChild(createCard('Aggressive Mode', 'Enable aggressive sizing', 'ICC_AGGRESSIVE_MODE', 'toggle', { default: 'true' }));
         section.appendChild(createCard('Require Sweep', 'Must have liquidity sweep', 'ICC_AUTO_ENTRY_REQUIRE_SWEEP', 'toggle'));
-        section.appendChild(createCard('Min HTF Strength', 'Minimum trend strength', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 'input', { number: true, default: '0.25', min: 0, max: 1, step: 0.05 }));
-        section.appendChild(createCard('Confirmation Bars', 'Bars to confirm signal', 'ICC_CONFIRMATION_BARS', 'input', { number: true, default: '2', min: 1, max: 5 }));
+        section.appendChild(createSliderCard('Min HTF Strength', 'Minimum trend strength', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 0, 100, 5, '%'));
+        section.appendChild(createSliderCard('Confirmation Bars', 'Bars to confirm signal', 'ICC_CONFIRMATION_BARS', 1, 5, 1, 'bars'));
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('ICC Scoring Weights', 'leaderboard'));
 
-        section.appendChild(createCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 'input', { number: true, default: '35', min: 0, max: 100 }));
+        section.appendChild(createSliderCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 0, 100, 5, 'pts'));
 
         const scoreGrid = document.createElement('div');
         scoreGrid.className = 'card-grid';
@@ -2740,7 +2718,7 @@ function renderStrategyToolbox(container) {
             Trades the NY Opening Range (09:30 - 09:45 ET). Waits for Break -> Retest -> Flag pattern.
         `));
 
-        section.appendChild(createCard('Session Start', 'Range start time (ET)', 'ORB_START_TIME', 'input', {
+        section.appendChild(createCard('Session Start', 'Range start time (ET)', 'ORB_START_TIME', 'time', {
             default: '09:30',
             tooltip: 'The time the Opening Range begins. Usually 09:30 AM ET (NY Open).'
         }));
@@ -2781,23 +2759,9 @@ function renderStrategyToolbox(container) {
         `;
         section.appendChild(feedBox);
 
-    } else if (toolboxTab === 'icc') {
-        const stratInfo = STRATEGIES.icc_core || { description: "Standard ICC Logic" };
-        section.appendChild(createDescriptionBox(stratInfo.description, stratInfo.stats));
-
-        section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Indication, Correction, Continuation (ICC)', 'auto_mode'));
-
-        section.appendChild(createCard('ICC Auto-Entry', 'Auto-enter on valid signals', 'ICC_AUTO_ENTRY_ENABLED', 'toggle', { default: 'true' }));
-        section.appendChild(createCard('Aggressive Mode', 'Enable aggressive sizing', 'ICC_AGGRESSIVE_MODE', 'toggle', { default: 'true' }));
-        section.appendChild(createCard('Require Sweep', 'Must have liquidity sweep', 'ICC_AUTO_ENTRY_REQUIRE_SWEEP', 'toggle'));
-        section.appendChild(createCard('Min HTF Strength', 'Minimum trend strength', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 'input', { number: true, default: '0.25', min: 0, max: 1, step: 0.05 }));
-        section.appendChild(createCard('Confirmation Bars', 'Bars to confirm signal', 'ICC_CONFIRMATION_BARS', 'input', { number: true, default: '2', min: 1, max: 5 }));
-
-        section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('ICC Scoring Weights', 'leaderboard'));
-
-        section.appendChild(createCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 'input', { number: true, default: '35', min: 0, max: 100 }));
+    } else if (toolboxTab === 'icc_legacy_dead') {
+        // REMOVED: Dead ICC duplicate block — same condition already handled at line 2615 (Audit P2)
+        // The original ICC tab with scoring weights is the canonical one.
 
         const scoreGrid = document.createElement('div');
         scoreGrid.className = 'card-grid';
@@ -2817,8 +2781,8 @@ function renderStrategyToolbox(container) {
             RoboCop is designed for speed. Use "Combat Mode" to bypass safety checks (like HTF alignment) for maximum aggression.
         `));
 
-        section.appendChild(createCard('Combat Mode', 'Bypass all safety gates', 'COMBAT_MODE_ENABLED', 'toggle', {
-            tooltip: 'If enabled, RoboCop ignores "HTF Strength" and "Score Threshold" gates. It will take every valid liquidity sweep or continuation signal regardless of broader context. High risk, high volume.'
+        section.appendChild(createCard('Combat Mode', 'Bypass RoboCop HTF/Score gates only', 'COMBAT_MODE_ENABLED', 'toggle', {
+            tooltip: 'If enabled, RoboCop ignores its own "HTF Strength" and "Score Threshold" gates. It will take every valid liquidity sweep or continuation signal regardless of broader context. <strong>Note:</strong> This does NOT bypass global Safety Guards (Drawdown Breaker, Session Lockout, etc.) — only RoboCop-specific entry filters.'
         }));
 
         section.appendChild(createDivider());

@@ -401,10 +401,8 @@ class TradingProfileSettings(BaseModel):
         description="Maximum hours to hold before Day Trade Enforcer activates (0 disables). "
                     "Grace period starts at 70%, emergency exit at 100%, hard kill at 130%.",
     )
-    trailing_stop_enabled: bool = Field(
-        default=False,
-        description="When true, trail stop loss to HTF swing structure once in profit.",
-    )
+    # trailing_stop_enabled: REMOVED — lives exclusively in PerformanceSettings (models.py:979)
+    # to prevent split-brain between PositionExitConfig (default=False) and PerformanceSettings (default=True)
     trailing_stop_min_profit_pct: float = Field(
         default=1.0,
         ge=0.0,
