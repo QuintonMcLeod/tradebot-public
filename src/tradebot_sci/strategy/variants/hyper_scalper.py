@@ -40,8 +40,11 @@ class HyperScalperStrategy(BaseStrategy):
         last_close = closes[-1]
         atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.0005)
         
-        # Long Entry: Fast EMA cross above Slow EMA AND Price > EMA 200 AND RSI > 55
-        if fast_ema_prev <= slow_ema_prev and fast_ema_curr > slow_ema_curr:
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
+        # Long Entry: Fast EMA cross above Slow EMA AND Price > EMA 200 AND RSI > 55 (only when trend allows)
+        if htf_dir in ("long", "neutral") and fast_ema_prev <= slow_ema_prev and fast_ema_curr > slow_ema_curr:
             if last_close > trend_ema and rsi > 55:
                 # Stop loss at the slow EMA or UserConfig ATR (ARMOR)
                 stop_dist = max(atr * UserConfig.STOP_ATR_MULTIPLIER, last_close * 0.0005) 
@@ -60,8 +63,8 @@ class HyperScalperStrategy(BaseStrategy):
                     urgency="high"
                 )
 
-        # Short Entry: Fast EMA cross below Slow EMA AND Price < EMA 200 AND RSI < 45
-        if fast_ema_prev >= slow_ema_prev and fast_ema_curr < slow_ema_curr:
+        # Short Entry: Fast EMA cross below Slow EMA AND Price < EMA 200 AND RSI < 45 (only when trend allows)
+        if htf_dir in ("short", "neutral") and fast_ema_prev >= slow_ema_prev and fast_ema_curr < slow_ema_curr:
             if last_close < trend_ema and rsi < 45:
                 stop_dist = max(atr * UserConfig.STOP_ATR_MULTIPLIER, last_close * 0.0005)
                 stop_loss = last_close + stop_dist

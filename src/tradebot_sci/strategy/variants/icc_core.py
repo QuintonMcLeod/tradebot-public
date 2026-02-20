@@ -36,32 +36,21 @@ class ICCCoreStrategy(BaseStrategy):
         trade_history: Optional[list] = None
     ) -> Optional[AITradeDecision]:
         
-        # 1. Check Score Gate (Strict)
-        # Core methodology relies on the scorecard.
-        score = gates.get("score", 0.0)
-        threshold = gates.get("score_threshold", 50.0)
-        
-        if score < threshold:
-            # OPTIONAL: Allow auto-entry override if explicitly configured in profile
-            # (Matches behavior of high-volume backtesting if desired)
-            # But "Vanilla" implies respecting the score.
-            # We defer to the Engine's "auto_entry_enabled" check if we return a decision here?
-            # No, the Engine calls US to ASK for a decision.
-            # If we return None, no trade.
-            # So if Score < Threshold, we should mostly reject.
-            
-            # EXCEPT: If we have a perfect setup (Sweep+Indication or Continuation),
-            # the scorecard might be lagging or missing context?
-            # Vanilla ICC says: Trust the Structure. Score is a helper.
-            pass
+        # Score is informational — ICC Core trusts the structure (sweep+correction
+        # or continuation) as the entry thesis.  The score is logged below for
+        # observability but does NOT gate entry decisions.
 
         # 2. Check Structure Signals (Calculated by Engine)
+        score = gates.get("score", 0)
         sweep = gates.get("sweep", False)
         continuation = gates.get("continuation", False)
         indication = gates.get("indication", False)
         correction = gates.get("correction", False)
         htf_align = gates.get("htf_align", False)
         phase = gates.get("phase", "neutral")
+
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir_gate = str(gates.get("htf_dir", "neutral")).lower()
         
         logger.debug(
             f"[ICC-CORE] {snapshot.symbol} gates: "
@@ -124,7 +113,13 @@ class ICCCoreStrategy(BaseStrategy):
                 
         if not action:
             return None
-            
+
+        # [TREND GUIDANCE] If HTF direction is clear, only enter with-trend
+        if htf_dir_gate == "long" and action == "enter_short":
+            return None
+        if htf_dir_gate == "short" and action == "enter_long":
+            return None
+    
         # 6. Construct Decision
         # Use default risk from profile (handled by Engine usually, or we specify base)
         # Vanilla uses standard 1-2% risk. Engine/Profile handles sizing.
@@ -145,7 +140,7 @@ class ICCCoreStrategy(BaseStrategy):
         # Enforce minimum stop distance for broker compliance
         # OANDA requires at least 10 pips (0.00100) for forex pairs
         # Use at least 15 pips to avoid rejection + give room
-        min_stop_dist = max(atr * 3.0, last_close * 0.0015)  # 3x ATR or 15 pips, whichever is larger
+        min_stop_dist = max(atr * 1.5, last_close * 0.0015)  # 1.5x ATR or 15 pips, whichever is larger
         stop_dist = min_stop_dist
         
         if action == "enter_long":

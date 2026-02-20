@@ -140,10 +140,13 @@ class CryptoGridStrategy(BaseStrategy):
                     )
             return None
 
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
         # --- Initial Entry ---
-        # BUY: Price crossed down through a buy level (lower grid)
+        # BUY: Price crossed down through a buy level (lower grid) (only when trend allows)
         buy_level = self._get_nearest_buy_level(symbol, last_close)
-        if buy_level and prev_close > buy_level["price"] >= last_close:
+        if htf_dir in ("long", "neutral") and buy_level and prev_close > buy_level["price"] >= last_close:
             stop_loss = last_close - (interval * 2)
             take_profit = buy_level["price"] + interval  # Target: next grid level up
 
@@ -162,9 +165,9 @@ class CryptoGridStrategy(BaseStrategy):
                 score=min(score, 85), grade="B"
             )
 
-        # SELL: Price crossed up through a sell level (upper grid)
+        # SELL: Price crossed up through a sell level (upper grid) (only when trend allows)
         sell_level = self._get_nearest_sell_level(symbol, last_close)
-        if sell_level and prev_close < sell_level["price"] <= last_close:
+        if htf_dir in ("short", "neutral") and sell_level and prev_close < sell_level["price"] <= last_close:
             stop_loss = last_close + (interval * 2)
             take_profit = sell_level["price"] - interval
 
@@ -220,8 +223,8 @@ class CryptoGridStrategy(BaseStrategy):
         htf_strength = float(gates.get("htf_strength", 0))
         if htf_strength >= self.trend_guard_threshold:
             htf_dir = str(gates.get("htf_dir", "neutral")).lower()
-            if (direction == "long" and htf_dir == "bearish") or \
-               (direction == "short" and htf_dir == "bullish"):
+            if (direction == "long" and htf_dir == "short") or \
+               (direction == "short" and htf_dir == "long"):
                 return close_position_decision(
                     snapshot.symbol, snapshot.timeframe,
                     f"Grid Exit (Strong {htf_dir} trend detected, strength={htf_strength:.2f})"

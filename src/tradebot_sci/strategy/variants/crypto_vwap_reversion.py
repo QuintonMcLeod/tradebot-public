@@ -95,8 +95,11 @@ class CryptoVWAPReversionStrategy(BaseStrategy):
                     )
             return None
 
-        # LONG: Price below VWAP + EMA trending up + RSI < threshold
-        if deviation < -self.vwap_deviation_pct and ema_rising and rsi < self.rsi_long_threshold:
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
+        # LONG: Price below VWAP + EMA trending up + RSI < threshold (only when trend allows)
+        if htf_dir in ("long", "neutral") and deviation < -self.vwap_deviation_pct and ema_rising and rsi < self.rsi_long_threshold:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close - stop_dist
             target = vwap + (vwap - last_close) * 0.5
@@ -122,8 +125,8 @@ class CryptoVWAPReversionStrategy(BaseStrategy):
                 score=score, grade="A" if score >= 70 else "B"
             )
 
-        # SHORT: Price above VWAP + EMA trending down + RSI > threshold
-        if deviation > self.vwap_deviation_pct and ema_falling and rsi > self.rsi_short_threshold:
+        # SHORT: Price above VWAP + EMA trending down + RSI > threshold (only when trend allows)
+        if htf_dir in ("short", "neutral") and deviation > self.vwap_deviation_pct and ema_falling and rsi > self.rsi_short_threshold:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close + stop_dist
             target = vwap - (last_close - vwap) * 0.5

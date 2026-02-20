@@ -970,6 +970,55 @@ select.input-field {
     background: var(--accent-dim);
 }
 
+/* Sortable Table Headers */
+.sortable-th {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s ease, background 0.2s ease;
+    position: relative;
+    white-space: nowrap;
+}
+
+.sortable-th:hover {
+    color: var(--accent) !important;
+    background: rgba(20, 184, 166, 0.06);
+}
+
+.sortable-th .sort-arrow {
+    display: inline-block;
+    font-size: 10px;
+    opacity: 0.3;
+    margin-left: 2px;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    vertical-align: middle;
+}
+
+.sortable-th .sort-arrow::after {
+    content: '⇅';
+}
+
+.sortable-th:hover .sort-arrow {
+    opacity: 0.6;
+}
+
+.sortable-th.sort-asc .sort-arrow {
+    opacity: 1;
+    color: var(--accent);
+}
+
+.sortable-th.sort-asc .sort-arrow::after {
+    content: '▲';
+}
+
+.sortable-th.sort-desc .sort-arrow {
+    opacity: 1;
+    color: var(--accent);
+}
+
+.sortable-th.sort-desc .sort-arrow::after {
+    content: '▼';
+}
+
 /* Analytics Loading Animation */
 @keyframes shimmer {
     0% {

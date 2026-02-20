@@ -1,0 +1,274 @@
+/* ═════════════════════════════════════════════════════════════════
+   Trends Tab Styles
+   Matches the dark premium aesthetic of the main GUI
+   ═════════════════════════════════════════════════════════════════ */
+
+/* ── Symbol Bar ─────────────────────────────────────────────── */
+.trends-symbol-bar {
+    display: flex;
+    gap: 6px;
+    padding: 16px 24px 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.trends-sym-btn {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+}
+
+.trends-sym-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: white;
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.trends-sym-btn.active {
+    background: rgba(20, 184, 166, 0.15);
+    color: #2dd4bf;
+    border-color: rgba(20, 184, 166, 0.4);
+    box-shadow: 0 0 12px rgba(20, 184, 166, 0.15);
+}
+
+.trends-empty {
+    color: #475569;
+    font-size: 13px;
+    font-style: italic;
+    padding: 8px;
+}
+
+/* ── Card Grid ──────────────────────────────────────────────── */
+.trends-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    padding: 12px 24px 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+@media (max-width: 1100px) {
+    .trends-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* ── Individual Card ────────────────────────────────────────── */
+.trends-card {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(2, 6, 23, 0.98) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    padding: 20px;
+    position: relative;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.trends-card:hover {
+    border-color: rgba(20, 184, 166, 0.25);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), 0 0 20px rgba(20, 184, 166, 0.08);
+}
+
+/* ── Card Header ────────────────────────────────────────────── */
+.tc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.tc-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tc-icon {
+    font-size: 20px;
+}
+
+.tc-name {
+    font-size: 14px;
+    font-weight: 800;
+    color: #e2e8f0;
+    letter-spacing: 0.03em;
+}
+
+.tc-badge {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px solid;
+    text-transform: uppercase;
+}
+
+.tc-info-btn {
+    font-size: 18px;
+    color: #475569;
+    cursor: pointer;
+    transition: color 0.2s ease;
+    user-select: none;
+}
+
+.tc-info-btn:hover {
+    color: #14b8a6;
+}
+
+/* ── Value Display ──────────────────────────────────────────── */
+.tc-value {
+    font-size: 28px;
+    font-weight: 900;
+    color: white;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    margin-bottom: 12px;
+    letter-spacing: -0.02em;
+}
+
+/* ── Gauge Bar ──────────────────────────────────────────────── */
+.tc-gauge-wrap {
+    margin-top: 4px;
+}
+
+.tc-gauge-bg {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.tc-gauge-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1), background 0.4s ease;
+    min-width: 2px;
+}
+
+/* ── Detail Line ────────────────────────────────────────────── */
+.tc-detail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-top: 8px;
+}
+
+.tc-detail-item {
+    font-size: 11px;
+    color: #94a3b8;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+.tc-detail-item b {
+    color: #e2e8f0;
+}
+
+/* ── Tooltip ────────────────────────────────────────────────── */
+.tc-tooltip {
+    position: absolute;
+    top: 0;
+    right: -8px;
+    transform: translateX(100%);
+    width: 320px;
+    background: #0f172a;
+    border: 1px solid rgba(20, 184, 166, 0.3);
+    border-radius: 12px;
+    padding: 20px;
+    z-index: 100;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 24px rgba(20, 184, 166, 0.1);
+    animation: tipFadeIn 0.2s ease;
+}
+
+.tc-tooltip.hidden {
+    display: none;
+}
+
+@keyframes tipFadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(100%) translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(100%) translateY(0);
+    }
+}
+
+.tc-tip-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #14b8a6;
+    margin-bottom: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.tc-tip-desc {
+    font-size: 12px;
+    color: #cbd5e1;
+    line-height: 1.6;
+    margin-bottom: 14px;
+}
+
+.tc-tip-section {
+    margin-bottom: 10px;
+}
+
+.tc-tip-section p {
+    font-size: 11px;
+    color: #94a3b8;
+    line-height: 1.5;
+    margin: 4px 0 0;
+}
+
+.tc-tip-label {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.tc-tip-label.good {
+    color: #22c55e;
+}
+
+.tc-tip-label.bad {
+    color: #ef4444;
+}
+
+/* ── Tooltip overflow guard — flip to left if needed ──────── */
+.trends-grid>.trends-card:nth-child(3n) .tc-tooltip {
+    right: auto;
+    left: -8px;
+    transform: translateX(-100%);
+}
+
+.trends-grid>.trends-card:nth-child(3n) .tc-tooltip.hidden {
+    display: none;
+}
+
+@keyframes tipFadeInLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-100%) translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(-100%) translateY(0);
+    }
+}
+
+.trends-grid>.trends-card:nth-child(3n) .tc-tooltip {
+    animation: tipFadeInLeft 0.2s ease;
+}

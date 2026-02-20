@@ -135,6 +135,20 @@
             }
         }
 
+        // 0. Trend Indicator Data (for Trends tab)
+        if (line.includes('[TREND-DATA]')) {
+            try {
+                const jsonStr = line.split('[TREND-DATA]')[1].trim();
+                const data = JSON.parse(jsonStr);
+                if (window.trendsModule && window.trendsModule.updateIndicators) {
+                    window.trendsModule.updateIndicators(data);
+                }
+            } catch (e) {
+                console.warn('[TREND-DATA] Parse error:', e);
+            }
+            return; // Don't clutter the decisions panel with trend data
+        }
+
         // 1. Neural Decision Matrix
         if (line.includes('[STRUCTURE]') || line.includes('Decision: Decision:') || line.includes('[DECISION]') || line.includes('[SAFETY]') || line.includes('[PHOENIX]')) {
             try {

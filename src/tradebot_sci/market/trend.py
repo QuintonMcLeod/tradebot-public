@@ -13,6 +13,333 @@ from tradebot_sci.market.trend_enums import TrendDirection
 logger = logging.getLogger(__name__)
 
 
+# ── ADX (Average Directional Index) ──────────────────────────────────────
+def compute_adx(candles: list[Candle], period: int = 14) -> float:
+    """Compute ADX (0-100) from candle data using Wilder's smoothing.
+
+    ADX measures trend STRENGTH (not direction):
+      0-20  = no trend (ranging/choppy)
+      20-40 = developing trend
+      40-60 = strong trend
+      60+   = extreme trend
+
+    Requires at least (2 * period) candles for a reliable reading.
+    Returns 0.0 if insufficient data.
+    """
+    n = len(candles)
+    if n < period + 1:
+        return 0.0
+
+    # Step 1: True Range, +DM, -DM for each candle
+    tr_list = []
+    plus_dm_list = []
+    minus_dm_list = []
+
+    for i in range(1, n):
+        high = candles[i].high
+        low = candles[i].low
+        prev_close = candles[i - 1].close
+        prev_high = candles[i - 1].high
+        prev_low = candles[i - 1].low
+
+        # True Range
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        tr_list.append(tr)
+
+        # Directional Movement
+        up_move = high - prev_high
+        down_move = prev_low - low
+
+        plus_dm = up_move if (up_move > down_move and up_move > 0) else 0.0
+        minus_dm = down_move if (down_move > up_move and down_move > 0) else 0.0
+
+        plus_dm_list.append(plus_dm)
+        minus_dm_list.append(minus_dm)
+
+    if len(tr_list) < period:
+        return 0.0
+
+    # Step 2: Wilder's smoothing (first value = SMA, then EMA-style)
+    smoothed_tr = sum(tr_list[:period])
+    smoothed_plus_dm = sum(plus_dm_list[:period])
+    smoothed_minus_dm = sum(minus_dm_list[:period])
+
+    dx_list = []
+
+    for i in range(period, len(tr_list)):
+        smoothed_tr = smoothed_tr - (smoothed_tr / period) + tr_list[i]
+        smoothed_plus_dm = smoothed_plus_dm - (smoothed_plus_dm / period) + plus_dm_list[i]
+        smoothed_minus_dm = smoothed_minus_dm - (smoothed_minus_dm / period) + minus_dm_list[i]
+
+        if smoothed_tr == 0:
+            continue
+
+        plus_di = 100.0 * smoothed_plus_dm / smoothed_tr
+        minus_di = 100.0 * smoothed_minus_dm / smoothed_tr
+
+        di_sum = plus_di + minus_di
+        if di_sum == 0:
+            dx_list.append(0.0)
+        else:
+            dx = 100.0 * abs(plus_di - minus_di) / di_sum
+            dx_list.append(dx)
+
+    if len(dx_list) < period:
+        # Not enough DX values for ADX smoothing — use average of what we have
+        return sum(dx_list) / len(dx_list) if dx_list else 0.0
+
+    # Step 3: ADX = Wilder-smoothed DX
+    adx = sum(dx_list[:period]) / period  # First ADX = SMA of first `period` DX values
+    for i in range(period, len(dx_list)):
+        adx = (adx * (period - 1) + dx_list[i]) / period
+
+    return round(adx, 2)
+
+
+# ── RSI (Relative Strength Index) ────────────────────────────────────────
+def compute_rsi(candles: list[Candle], period: int = 14) -> float:
+    """Compute RSI (0-100) using Wilder's smoothing.
+
+    RSI measures momentum:
+      0-30  = oversold (potential bounce)
+      30-70 = neutral
+      70-100 = overbought (potential pullback)
+    """
+    n = len(candles)
+    if n < period + 1:
+        return 50.0  # neutral default
+
+    gains = []
+    losses = []
+    for i in range(1, n):
+        delta = candles[i].close - candles[i - 1].close
+        gains.append(max(0, delta))
+        losses.append(max(0, -delta))
+
+    if len(gains) < period:
+        return 50.0
+
+    # First average = SMA
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    # Wilder smoothing for remaining
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100.0 - (100.0 / (1.0 + rs)), 2)
+
+
+# ── MACD (Moving Average Convergence Divergence) ─────────────────────────
+def compute_macd(
+    candles: list[Candle],
+    fast: int = 12,
+    slow: int = 26,
+    signal_period: int = 9,
+) -> dict:
+    """Compute MACD from candle close prices.
+
+    Returns dict with:
+      macd       - MACD line value (fast EMA - slow EMA)
+      signal     - Signal line (EMA of MACD)
+      histogram  - MACD - Signal (positive = bullish momentum)
+    """
+    closes = [c.close for c in candles]
+    if len(closes) < slow + signal_period:
+        return {"macd": 0.0, "signal": 0.0, "histogram": 0.0}
+
+    def _ema(data: list[float], period: int) -> list[float]:
+        mult = 2.0 / (period + 1)
+        result = [data[0]]
+        for i in range(1, len(data)):
+            result.append(data[i] * mult + result[-1] * (1 - mult))
+        return result
+
+    fast_ema = _ema(closes, fast)
+    slow_ema = _ema(closes, slow)
+
+    macd_line = [f - s for f, s in zip(fast_ema, slow_ema)]
+    signal_line = _ema(macd_line[slow - 1:], signal_period)
+
+    macd_val = macd_line[-1]
+    sig_val = signal_line[-1] if signal_line else 0.0
+    hist = macd_val - sig_val
+
+    return {
+        "macd": round(macd_val, 6),
+        "signal": round(sig_val, 6),
+        "histogram": round(hist, 6),
+    }
+
+
+# ── Bollinger Bands ──────────────────────────────────────────────────────
+def compute_bollinger(
+    candles: list[Candle],
+    period: int = 20,
+    num_std: float = 2.0,
+) -> dict:
+    """Compute Bollinger Bands from candle close prices.
+
+    Returns dict with:
+      upper      - Upper band
+      middle     - Middle band (SMA)
+      lower      - Lower band
+      bandwidth  - (upper - lower) / middle * 100
+      squeeze    - True if bandwidth is in bottom 20% of recent range
+    """
+    closes = [c.close for c in candles]
+    if len(closes) < period:
+        price = closes[-1] if closes else 0
+        return {"upper": price, "middle": price, "lower": price, "bandwidth": 0.0, "squeeze": False}
+
+    window = closes[-period:]
+    sma = sum(window) / period
+    variance = sum((x - sma) ** 2 for x in window) / period
+    std_dev = variance ** 0.5
+
+    upper = sma + num_std * std_dev
+    lower = sma - num_std * std_dev
+    bw = ((upper - lower) / sma * 100) if sma != 0 else 0.0
+
+    # Detect squeeze: compare current bandwidth to recent history
+    squeeze = False
+    if len(closes) >= period * 3:
+        recent_bws = []
+        for i in range(period, min(period * 3, len(closes))):
+            w = closes[len(closes) - i: len(closes) - i + period]
+            if len(w) == period:
+                s = sum(w) / period
+                v = sum((x - s) ** 2 for x in w) / period
+                sd = v ** 0.5
+                u = s + num_std * sd
+                l = s - num_std * sd
+                recent_bws.append(((u - l) / s * 100) if s != 0 else 0)
+        if recent_bws:
+            threshold = sorted(recent_bws)[len(recent_bws) // 5]  # Bottom 20%
+            squeeze = bw <= threshold
+
+    return {
+        "upper": round(upper, 5),
+        "middle": round(sma, 5),
+        "lower": round(lower, 5),
+        "bandwidth": round(bw, 3),
+        "squeeze": squeeze,
+    }
+
+
+# ── Supertrend ───────────────────────────────────────────────────────────
+def compute_supertrend(
+    candles: list[Candle],
+    period: int = 10,
+    multiplier: float = 3.0,
+) -> dict:
+    """Compute Supertrend indicator.
+
+    Returns dict with:
+      direction  - "long" or "short"
+      value      - Supertrend line value (acts as dynamic SL)
+    """
+    n = len(candles)
+    if n < period + 1:
+        return {"direction": "neutral", "value": 0.0}
+
+    # Compute ATR
+    tr_list = []
+    for i in range(1, n):
+        h = candles[i].high
+        l = candles[i].low
+        pc = candles[i - 1].close
+        tr = max(h - l, abs(h - pc), abs(l - pc))
+        tr_list.append(tr)
+
+    if len(tr_list) < period:
+        return {"direction": "neutral", "value": 0.0}
+
+    # Wilder ATR
+    atr = sum(tr_list[:period]) / period
+    for i in range(period, len(tr_list)):
+        atr = (atr * (period - 1) + tr_list[i]) / period
+
+    # Current bands
+    hl2 = (candles[-1].high + candles[-1].low) / 2
+    upper_band = hl2 + multiplier * atr
+    lower_band = hl2 - multiplier * atr
+
+    # Simple direction: price above midpoint implies uptrend
+    close = candles[-1].close
+    prev_close = candles[-2].close
+
+    if close > upper_band:
+        direction = "long"
+        value = lower_band
+    elif close < lower_band:
+        direction = "short"
+        value = upper_band
+    else:
+        # Use trend from recent candles
+        if close > prev_close:
+            direction = "long"
+            value = lower_band
+        else:
+            direction = "short"
+            value = upper_band
+
+    return {
+        "direction": direction,
+        "value": round(value, 5),
+    }
+
+
+# ── EMA Ribbon ───────────────────────────────────────────────────────────
+def compute_ema_ribbon(candles: list[Candle]) -> dict:
+    """Compute EMA Ribbon (8/21/55) for trend alignment.
+
+    Returns dict with:
+      ema8       - Fast EMA value
+      ema21      - Medium EMA value
+      ema55      - Slow EMA value
+      aligned    - True if all EMAs are in order (bullish: 8>21>55, bearish: 8<21<55)
+      direction  - "long", "short", or "neutral"
+    """
+    closes = [c.close for c in candles]
+    if len(closes) < 55:
+        price = closes[-1] if closes else 0
+        return {"ema8": price, "ema21": price, "ema55": price, "aligned": False, "direction": "neutral"}
+
+    def _ema_val(data: list[float], period: int) -> float:
+        mult = 2.0 / (period + 1)
+        val = data[0]
+        for i in range(1, len(data)):
+            val = data[i] * mult + val * (1 - mult)
+        return val
+
+    ema8 = _ema_val(closes, 8)
+    ema21 = _ema_val(closes, 21)
+    ema55 = _ema_val(closes, 55)
+
+    if ema8 > ema21 > ema55:
+        direction = "long"
+        aligned = True
+    elif ema8 < ema21 < ema55:
+        direction = "short"
+        aligned = True
+    else:
+        direction = "neutral"
+        aligned = False
+
+    return {
+        "ema8": round(ema8, 5),
+        "ema21": round(ema21, 5),
+        "ema55": round(ema55, 5),
+        "aligned": aligned,
+        "direction": direction,
+    }
+
+
 @dataclass
 class MultiResolutionTrend:
     """Result of multi-resolution trend analysis."""
@@ -159,6 +486,10 @@ def infer_trend_from_swings(
         return TrendState(direction=TrendDirection.NEUTRAL, strength=0.0)
     recent = candles[-window:] if window > 0 else candles
     offset = len(candles) - len(recent)
+
+    # Compute ADX from the full candle window for trend strength
+    adx_value = compute_adx(recent)
+
     swing_highs, swing_lows = swing_points(recent, lookback=swing_lookback)
 
     # DEBUG: Log swing detection (uses module-level imports)
@@ -179,6 +510,7 @@ def infer_trend_from_swings(
         return TrendState(
             direction=TrendDirection.NEUTRAL,
             strength=0.0,
+            adx=adx_value,
             last_confirmed_swings=_collect_swings(recent, swing_highs, swing_lows, offset, min_swings),
             key_levels=_key_levels(recent, swing_highs, swing_lows),
         )
@@ -262,6 +594,7 @@ def infer_trend_from_swings(
         return TrendState(
             direction=TrendDirection.NEUTRAL,
             strength=0.0,
+            adx=adx_value,
             last_confirmed_swings=_collect_swings(recent, swing_highs, swing_lows, offset, min_swings),
             key_levels=_key_levels(recent, swing_highs, swing_lows),
         )
@@ -271,6 +604,7 @@ def infer_trend_from_swings(
         return TrendState(
             direction=TrendDirection.NEUTRAL,
             strength=strength,
+            adx=adx_value,
             last_confirmed_swings=_collect_swings(recent, swing_highs, swing_lows, offset, min_swings),
             key_levels=_key_levels(recent, swing_highs, swing_lows),
         )
@@ -320,9 +654,26 @@ def infer_trend_from_swings(
             direction = TrendDirection.NEUTRAL
             strength = 0.1
 
+            # BEARISH UPGRADE: Check if we have a valid Lower High (Continuation)
+            # Mirror of the Bullish Upgrade at line ~298-312
+            if len(last_highs) >= 2:
+                recent_high = last_highs[-1]
+                prior_high = last_highs[-2]
+                if recent_high < prior_high:
+                    if os.getenv("DEBUG_TRENDS") == "1":
+                        print(
+                            f"[TREND-DEBUG] Bearish Upgrade! Lower High {recent_high} < {prior_high}. "
+                            "Upgrading NEUTRAL -> SHORT.",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                    direction = TrendDirection.SHORT
+                    strength = 1.0
+
     return TrendState(
         direction=direction,
         strength=strength,
+        adx=adx_value,
         last_confirmed_swings=_collect_swings(recent, swing_highs, swing_lows, offset, min_swings),
         key_levels=_key_levels(recent, swing_highs, swing_lows),
     )

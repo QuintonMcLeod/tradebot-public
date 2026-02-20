@@ -550,7 +550,8 @@ class OandaExchangeBroker(IExchangeBroker):
                         opened_at=entry_time_str,
                         duration_seconds=duration_secs,
                         strategy=_exit_strategy or "unknown",
-                        exit_reason="manual_flatten"
+                        exit_reason="manual_flatten",
+                        side=side.lower(),
                     ))
 
                 logger.info(f"[OANDA] Flattened {symbol}. Response: {resp}")
@@ -694,6 +695,9 @@ class OandaExchangeBroker(IExchangeBroker):
             price = decision.entry_price
             stop_price = decision.stop_loss
             take_profit = decision.take_profit
+
+
+            # SL/TP mirror experiment removed (trend bug confirmed & fixed)
             
             if not price or not stop_price:
                  return ExecutionResult(ExecutionStatus.ERROR, decision.symbol, "missing price or SL"), ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "missing price or SL")
@@ -703,8 +707,9 @@ class OandaExchangeBroker(IExchangeBroker):
                  return ExecutionResult(ExecutionStatus.ERROR, decision.symbol, "stop distance too small"), ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "stop distance too small")
 
             # Guard: reject trades where SL is too tight for forex spreads.
-            # OANDA spread is 1-2 pips on majors; SL distances of 4-5 pips get spread-killed
-            # within 60-180 seconds. Minimum 10 pips gives 5-10x breathing room.
+            # OANDA spread is 1-2 pips on majors; at 3 pips the spread alone
+            # eats 100% of the SL distance.  10 pips gives ~6.7× breathing room
+            # (spread ≈ 30% of SL), so the trade can actually move in our favour.
             MIN_SL_PIPS = 10
             is_jpy = "JPY" in decision.symbol.upper()
             min_sl_dist = MIN_SL_PIPS * (0.01 if is_jpy else 0.0001)
@@ -811,7 +816,7 @@ class OandaExchangeBroker(IExchangeBroker):
 
             logger.info(f"[OANDA] Placing {decision.action} order for {decision.symbol}: {units} units")
             # Log specific tags for GUI parsing (Arrows & Tables)
-            logger.info(f"[ENTRY] {decision.symbol} side={'buy' if units > 0 else 'sell'} amount={abs(units)}")
+            logger.info(f"[ENTRY] {decision.symbol} side={'buy' if units > 0 else 'sell'} amount={abs(units)} price={decision.entry_price or 0}")
             r = orders.OrderCreate(self.account_id, data=order_data)
             self.client.request(r)
 
@@ -954,7 +959,8 @@ class OandaExchangeBroker(IExchangeBroker):
                             opened_at=entry_time_str,
                             duration_seconds=duration_secs,
                             strategy=_exit_strategy or "unknown",
-                            exit_reason="sl_tp_hit"
+                            exit_reason="sl_tp_hit",
+                            side=side.lower() if side else None,
                         ))
 
                     del self._tracked_positions[sym]
@@ -967,6 +973,11 @@ class OandaExchangeBroker(IExchangeBroker):
             for sym in current_symbols:
                 snap = self.get_open_position_snapshot(sym)
                 if snap and abs(snap.get("size", 0)) > 1e-8:
+                    # Enrich with strategy from hold store
+                    if self.position_hold_store and sym in self.position_hold_store:
+                        hold_rec = self.position_hold_store[sym]
+                        if hasattr(hold_rec, 'strategy') and hold_rec.strategy:
+                            snap["strategy"] = hold_rec.strategy
                     self._tracked_positions[sym] = snap
 
             # Update previous balance for next cycle
@@ -978,7 +989,12 @@ class OandaExchangeBroker(IExchangeBroker):
 
         except Exception as e:
             logger.error(f"[OANDA] evaluate_synthetic_stops error: {e}")
-
+        finally:
+            # Always persist tracked positions, even if the scan errored mid-way
+            try:
+                self._save_tracked_positions()
+            except Exception:
+                pass
         return results
 
     def summarize_pnl(self) -> None:

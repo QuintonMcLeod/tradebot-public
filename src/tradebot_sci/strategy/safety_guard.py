@@ -443,8 +443,8 @@ class SafetyGuard:
         if settings.safety.safety_regime_flip_enabled:
             htf_dir = snapshot.trend_htf.direction
             if htf_dir and htf_dir != "neutral":
-                is_contradiction = (direction == "long" and htf_dir == "bearish") or \
-                                   (direction == "short" and htf_dir == "bullish")
+                is_contradiction = (direction == "long" and htf_dir == "short") or \
+                                   (direction == "short" and htf_dir == "long")
                 if is_contradiction:
                     logger.info(f"[SAFETY] Regime-Flip TRIGGERED for {snapshot.symbol}. HTF is {htf_dir}.")
                     return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Regime Flip: {htf_dir.upper()}")

@@ -67,6 +67,8 @@ const CONFIG_MAP = {
     'SAFETY_FLASH_TRAP_ENABLED': ['safety', 'safety_flash_trap_enabled'],
     'SAFETY_REGIME_FLIP_ENABLED': ['safety', 'safety_regime_flip_enabled'],
     'BLOCK_COUNTER_TREND_ENTRIES': ['safety', 'block_counter_trend_entries'],
+    'SAFETY_SESSION_LOCKOUT_ENABLED': ['safety', 'safety_session_lockout_enabled'],
+    'SAFETY_SESSION_LOCKOUT_HOUR': ['safety', 'safety_session_lockout_hour'],
     // Performance
     'PERFORMANCE_MODE': ['performance', 'performance_mode'],
     'TRAILING_STOP_ENABLED': ['performance', 'trailing_stop_enabled'],
@@ -105,6 +107,8 @@ const CONFIG_MAP = {
     'SAFETY_STREAK_BREAKER_ENABLED': ['safety', 'safety_streak_breaker_enabled'],
     'SAFETY_CHURN_BURNER_ENABLED': ['safety', 'safety_churn_burner_enabled'],
     'SAFETY_CHURN_BURNER_MAX': ['safety', 'safety_churn_burner_max'],
+    'SAFETY_LEVERAGE_SENTRY_ENABLED': ['safety', 'safety_leverage_sentry_enabled'],
+    'SAFETY_MAX_TOTAL_LEVERAGE': ['safety', 'safety_max_total_leverage'],
     'SAFETY_OPENING_SENTRY_ENABLED': ['safety', 'safety_opening_sentry_enabled'],
 };
 
@@ -280,6 +284,15 @@ const TOOLTIPS = {
     SUPPLY_DEMAND: "Identifies areas where large institutional orders are likely waiting. The bot looks for a 'Break of Structure' (BOS) indicating a new trend, then waits for price to return to the 'Base' (Supply or Demand zone) before entering. High-accuracy institutional method.",
 
     // Safety & Shields
+
+    // Trend Detection Indicator Tooltips
+    TREND_ADX_ENABLED: "<strong>Average Directional Index (ADX)</strong><br>Measures the <em>strength</em> of a trend on a 0-100 scale, regardless of direction. Uses Wilder's 14-period smoothing.<br><br><span style='color:#22c55e'>✓ Good for:</span> Filtering choppy markets. ADX > 20 means a real trend exists.<br><span style='color:#ef4444'>✗ Not good for:</span> Telling <em>which</em> direction to trade — ADX only measures strength. Also lags behind fast reversals.",
+    TREND_RSI_ENABLED: "<strong>Relative Strength Index (RSI)</strong><br>Measures momentum by comparing recent gains vs losses over 14 periods. 0 = max oversold, 100 = max overbought.<br><br><span style='color:#22c55e'>✓ Good for:</span> Spotting overbought/oversold extremes, divergences, and mean-reversion setups.<br><span style='color:#ef4444'>✗ Not good for:</span> Strong trends — RSI can stay 'overbought' (>70) for extended periods in a bull run, giving premature exits.",
+    TREND_MACD_ENABLED: "<strong>MACD (Moving Average Convergence Divergence)</strong><br>Tracks momentum using the gap between a 12 and 26-period EMA. Signal line (9-EMA of MACD) confirms crossovers. Histogram = momentum acceleration.<br><br><span style='color:#22c55e'>✓ Good for:</span> Catching trend changes early via bullish/bearish crossovers. Histogram visualizes acceleration.<br><span style='color:#ef4444'>✗ Not good for:</span> Sideways markets — MACD oscillates near zero producing frequent false signals (whipsaws).",
+    TREND_BOLLINGER_ENABLED: "<strong>Bollinger Bands</strong><br>Bands at ±2 standard deviations around a 20-period SMA. Bandwidth measures volatility. Tight bands (squeeze) often precede explosive moves.<br><br><span style='color:#22c55e'>✓ Good for:</span> Detecting squeezes before breakouts, and mean-reversion when price touches outer bands.<br><span style='color:#ef4444'>✗ Not good for:</span> Strong trends where price 'rides the band' — touching upper band in an uptrend is NOT a sell signal.",
+    TREND_SUPERTREND_ENABLED: "<strong>Supertrend</strong><br>ATR-based trailing indicator (10-period, 3x multiplier) that flips between bullish and bearish. Creates dynamic support/resistance levels.<br><br><span style='color:#22c55e'>✓ Good for:</span> Clean binary direction signals — long or short. Great as a dynamic trailing stop in trending markets.<br><span style='color:#ef4444'>✗ Not good for:</span> Ranging/choppy markets where it flip-flops rapidly, generating whipsaw losses.",
+    TREND_EMA_RIBBON_ENABLED: "<strong>EMA Ribbon (8/21/55)</strong><br>Three EMAs layered to show multi-timeframe alignment. When stacked in order (8>21>55 bullish, 8<21<55 bearish), trend conviction is high.<br><br><span style='color:#22c55e'>✓ Good for:</span> Confirming multi-timeframe alignment. When the ribbon fans out, trend-following strategies have the best edge.<br><span style='color:#ef4444'>✗ Not good for:</span> Quick reversals — EMAs lag. The ribbon tangles frequently during market transitions.",
+    TREND_ADX_THRESHOLD: "The ADX value below which entries are blocked. When ADX is below this threshold, the bot considers the market 'choppy' and stands aside. Default: 20. Set to 0 to disable the gate entirely.",
     SAFETY_ATR_SHIELD_ENABLED: "Advanced ATR-based protection. Moves stops to breakeven after 1x ATR move and uses dynamic trailing stops.",
     SAFETY_DRAWDOWN_BREAKER_ENABLED: "Account Circuit Breaker. If the account loses >5% from daily peak, all trades close and the bot pauses for 24h.",
     SAFETY_SESSION_LOCKOUT_ENABLED: "Prevents over-trading in choppy late-session markets. Automatically stops taking signals after 12:00 PM EST.",
@@ -287,6 +300,7 @@ const TOOLTIPS = {
     // Safety Suite 2.0 (New Additions)
     SAFETY_GREED_GUARD_ENABLED: "Profit Lock. Stops trading for the day once a specified daily profit target is hit (Quit while ahead).",
     SAFETY_CHURN_BURNER_ENABLED: "Anti-Churn. Limits the maximum number of trades per hour to prevent over-trading in chop.",
+    SAFETY_LEVERAGE_SENTRY_ENABLED: "Leverage Cap. Blocks new entries once total notional exposure exceeds a leverage multiple of your account equity. Disable for small accounts where even one position exceeds the cap.",
     SAFETY_VOLATILITY_VETO_ENABLED: "Volatility Filter. Blocks entries if the market is too dead (low ATR) or too explosive (high ATR).",
     SAFETY_STREAK_BREAKER_ENABLED: "Tilt Prevention. Pauses a specific symbol for 4 hours after 3 consecutive losses.",
     SAFETY_OPENING_SENTRY_ENABLED: "Morning Guard. Blocks all entries during the first 15 minutes of the market open (9:30-9:45 AM ET) to avoid volatility.",
@@ -772,7 +786,8 @@ const TABS = {
     ai: { icon: 'auto_awesome', label: 'Intelligence', render: renderAITab },
     schedule: { icon: 'event_repeat', label: 'Schedule', render: renderScheduleTab },
     appearance: { icon: 'palette', label: 'Appearance', render: renderAppearanceTab },
-    advanced: { icon: 'terminal', label: 'Advanced', render: renderAdvancedTab }
+    advanced: { icon: 'terminal', label: 'Advanced', render: renderAdvancedTab },
+    trends: { icon: 'analytics', label: 'Trends', render: renderTrendsTab },
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -1048,7 +1063,8 @@ function createCard(title, desc, key, controlType, options = {}) {
     `;
 
     const controlContainer = card.querySelector('.card-control');
-    const value = getValue(key) || options.default || '';
+    const rawValue = getValue(key);
+    const value = (rawValue !== null && rawValue !== undefined && rawValue !== '') ? rawValue : (options.default || '');
 
     const tooltipContent = options.tooltip || TOOLTIPS[key];
     if (tooltipContent && !locked) {
@@ -1122,7 +1138,8 @@ function createCard(title, desc, key, controlType, options = {}) {
 function createSliderCard(title, desc, key, min, max, step, unit = '%') {
     const card = document.createElement('div');
     card.className = 'slider-card';
-    let rawValue = getValue(key) || min;
+    const _raw = getValue(key);
+    let rawValue = (_raw !== null && _raw !== undefined && _raw !== '') ? _raw : min;
 
     // The model stores fractions (0.045 = 4.5%).
     // The slider displays human-friendly percentages (4.5%).
@@ -1992,6 +2009,49 @@ function createThemeCard(id, theme, activeId) {
     return card;
 }
 
+// ═══════════════════════════════════════════════════════════
+// TREND DETECTION TAB
+// ═══════════════════════════════════════════════════════════
+function renderTrendsTab(container) {
+    const section = document.createElement('div');
+    section.className = 'settings-section';
+
+    // ── Intro blurb ────────────────────────────────────────
+    const intro = document.createElement('div');
+    intro.className = 'text-xs text-slate-400 leading-relaxed mb-4 px-1';
+    intro.innerHTML = `Choose which trend detection indicators the bot uses when evaluating trade setups. 
+        Each indicator has strengths and blind spots — hover over the <span class="material-symbols-outlined text-xs align-middle text-teal-400">info</span> icon for a full breakdown. 
+        Enabled indicators contribute to the bot's trend-reading confidence score.`;
+    section.appendChild(intro);
+
+    // ── Trend Strength ────────────────────────────────────
+    section.appendChild(createSectionHeader('Trend Strength', 'signal_cellular_alt'));
+    section.appendChild(createCard('ADX — Trend Strength Gate', 'Blocks entries when market has no clear trend (ADX < threshold)', 'TREND_ADX_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createSliderCard('ADX Threshold', 'Entries blocked below this ADX value (0 = disabled)', 'TREND_ADX_THRESHOLD', 0, 60, 1, ''));
+
+    section.appendChild(createDivider());
+
+    // ── Momentum Indicators ───────────────────────────────
+    section.appendChild(createSectionHeader('Momentum', 'speed'));
+    section.appendChild(createCard('RSI — Relative Strength Index', 'Detects overbought/oversold conditions (14-period)', 'TREND_RSI_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('MACD — Momentum Crossover', 'Catches momentum shifts via EMA crossovers (12/26/9)', 'TREND_MACD_ENABLED', 'toggle', { default: 'false' }));
+
+    section.appendChild(createDivider());
+
+    // ── Volatility ────────────────────────────────────────
+    section.appendChild(createSectionHeader('Volatility', 'expand'));
+    section.appendChild(createCard('Bollinger Bands — Squeeze Detection', 'Identifies low-volatility squeezes before breakouts (20-period, 2σ)', 'TREND_BOLLINGER_ENABLED', 'toggle', { default: 'false' }));
+
+    section.appendChild(createDivider());
+
+    // ── Direction Detection ───────────────────────────────
+    section.appendChild(createSectionHeader('Direction Detection', 'swap_vert'));
+    section.appendChild(createCard('Supertrend — ATR Direction', 'Binary long/short signal using ATR-based trailing levels (10-period, 3x)', 'TREND_SUPERTREND_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('EMA Ribbon — Multi-Timeframe Alignment', 'Confirms trend alignment across 8/21/55-period EMAs', 'TREND_EMA_RIBBON_ENABLED', 'toggle', { default: 'false' }));
+
+    container.appendChild(section);
+}
+
 function renderAdvancedTab(container, filter = "") {
     const section = document.createElement('div');
     section.className = 'settings-section';
@@ -2060,6 +2120,9 @@ function renderSafetyTab(container) {
 
     section.appendChild(createCard('Churn Burner', 'Rate Limit (Max trades/hour)', 'SAFETY_CHURN_BURNER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createSliderCard('Churn Burner Max', 'Maximum trades allowed per hour', 'SAFETY_CHURN_BURNER_MAX', 1, 20, 1, 'trades/hr'));
+
+    section.appendChild(createCard('Leverage Sentry', 'Block entries above leverage cap', 'SAFETY_LEVERAGE_SENTRY_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createSliderCard('Max Leverage', 'Maximum total leverage allowed', 'SAFETY_MAX_TOTAL_LEVERAGE', 1, 50, 1, 'x'));
 
     section.appendChild(createCard('Volatility Veto', 'Block entries if ATR is too Low/High', 'SAFETY_VOLATILITY_VETO_ENABLED', 'toggle'));
     section.appendChild(createSliderCard('Veto Min ATR %', 'Block if volatility falls below this', 'SAFETY_VOLATILITY_MIN_PCT', 0, 100, 1, '%'));

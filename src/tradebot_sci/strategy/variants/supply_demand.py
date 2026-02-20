@@ -111,12 +111,14 @@ class SupplyDemandStrategy(BaseStrategy):
             is_tapping = last_candle.low <= zone.top and last_candle.close >= zone.bottom
             
             if is_tapping:
-                 # Calculate Trade Params
-                atr = last_candle.high - last_candle.low # Fallback
-                if hasattr(last_candle, 'atr') and last_candle.atr:
-                    atr = last_candle.atr
+                # Candle direction confirmation: only enter long on a green candle
+                if last_candle.close < last_candle.open:
+                    return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Demand tap rejected (bearish candle)")
+
+                # Calculate Trade Params
+                atr = calculate_atr(snapshot.candles) or (last_candle.high - last_candle.low)
                 
-                stop_loss = zone.bottom - (atr * 0.1)
+                stop_loss = zone.bottom - (atr * 0.5)
                 risk_dist = last_candle.close - stop_loss
                 if risk_dist <= 0: risk_dist = atr
                 take_profit = last_candle.close + (risk_dist * self.RR_TARGET)
@@ -162,12 +164,14 @@ class SupplyDemandStrategy(BaseStrategy):
             is_tapping = last_candle.high >= zone.bottom and last_candle.close <= zone.top
             
             if is_tapping:
-                # Calculate Trade Params
-                atr = last_candle.high - last_candle.low # Fallback
-                if hasattr(last_candle, 'atr') and last_candle.atr:
-                    atr = last_candle.atr
+                # Candle direction confirmation: only enter short on a red candle
+                if last_candle.close > last_candle.open:
+                    return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Supply tap rejected (bullish candle)")
 
-                stop_loss = zone.top + (atr * 0.1)
+                # Calculate Trade Params
+                atr = calculate_atr(snapshot.candles) or (last_candle.high - last_candle.low)
+
+                stop_loss = zone.top + (atr * 0.5)
                 risk_dist = stop_loss - last_candle.close
                 if risk_dist <= 0: risk_dist = atr
                 take_profit = last_candle.close - (risk_dist * self.RR_TARGET)
@@ -208,7 +212,6 @@ class SupplyDemandStrategy(BaseStrategy):
             else:
                 return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Tapping Supply, waiting for candle break")
 
-        return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"SND: Waiting for retest of {zone.side} zone")
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, current_capital: Optional[float] = None, **kwargs) -> Optional[AITradeDecision]:
         """

@@ -87,6 +87,9 @@ class ORBStrategy(BaseStrategy):
         if len(post_candles) < 3: # Need at least a few candles for Break + Retest + Flag
             return None
             
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
         # STATE MACHINE SIMULATION
         # We simulate the state by iterating through post-candles
         
@@ -95,16 +98,16 @@ class ORBStrategy(BaseStrategy):
         breakout_candle = None
         retest_found = False
         flag_candle = None
+        trigger_candle_idx = None  # index of the bar that broke the flag
         
         for c in post_candles:
             if state == "RANGE":
-                # Check for Breakout Close
-                if c.close > high_lvl:
+                # Check for Breakout Close (only in trend direction)
+                if htf_dir in ("long", "neutral") and c.close > high_lvl:
                     state = "BROKEN"
                     bias = "bull"
                     breakout_candle = c
-                    # Optim: If break is huge, maybe skipping retest? (Strategy says WAIT for retest)
-                elif c.close < low_lvl:
+                elif htf_dir in ("short", "neutral") and c.close < low_lvl:
                     state = "BROKEN"
                     bias = "bear"
                     breakout_candle = c
@@ -157,27 +160,28 @@ class ORBStrategy(BaseStrategy):
                 
             elif state == "FLAGGED":
                 # Check for Trigger (Break of Flag)
-                # If current candle breaks flag high (Bull) or Low (Bear)
-                
-                # If current candle (c) breaks flag, we enter NOW?
-                # Ideally we enter immediately on the break.
+                c_idx = post_candles.index(c)
                 
                 if bias == "bull":
                     if c.close > flag_candle.high:
-                        # TRIGGERED!
-                        # But wait, if this isn't the *last* candle, we missed the entry?
-                        # Yes, if c is not last, we missed it.
-                        if c != post_candles[-1]:
-                           state = "MISSED"
+                        trigger_candle_idx = c_idx
+                        # Allow entry within 3 bars of the flag break
+                        bars_since = len(post_candles) - 1 - c_idx
+                        if bars_since <= 3:
+                            return self._build_decision(snapshot, "long", snapshot.candles[-1].close, flag_candle.low, high_lvl)
                         else:
-                           # This IS the trigger candle (active)
-                           return self._build_decision(snapshot, "long", c.close, flag_candle.low, high_lvl)
+                            # Missed this trigger — reset to look for new patterns
+                            state = "RETESTED"
+                            flag_candle = None
                 elif bias == "bear":
                     if c.close < flag_candle.low:
-                        if c != post_candles[-1]:
-                            state = "MISSED"
+                        trigger_candle_idx = c_idx
+                        bars_since = len(post_candles) - 1 - c_idx
+                        if bars_since <= 3:
+                            return self._build_decision(snapshot, "short", snapshot.candles[-1].close, flag_candle.high, low_lvl)
                         else:
-                            return self._build_decision(snapshot, "short", c.close, flag_candle.high, low_lvl)
+                            state = "RETESTED"
+                            flag_candle = None
                             
         # End of Loop
         return None

@@ -84,7 +84,7 @@ profiles:
     pyramid_profit_buffer_pct: 0.0015
     pyramid_risk_load: 0.3
     pyramid_risk_scale: 0.1
-    breakeven_trail_after_pyramids: 1
+    breakeven_trail_after_pyramids: 0
     breakeven_trail_pct: 0.003
     stop_atr_multiplier: 1.5
     exit_on_htf_flip_only_if_losing: true
@@ -463,11 +463,19 @@ profiles:
     - GBPJPY
     - EURJPY
     - AUDJPY
+    - EURGBP
+    - GBPCHF
+    - NZDJPY
+    - CADJPY
     - BTCUSD
+    - ETHUSD
+    - SOLUSD
     - XRPUSD
     - LINKUSD
     - LTCUSD
+    - DOGEUSD
     - ZECUSD
+    - BCHUSD
     - AAVEUSD
     - COMPUSD
     - MATICUSD

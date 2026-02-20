@@ -106,10 +106,13 @@ class SessionMomentumStrategy(BaseStrategy):
         if current_volume < avg_volume * self.volume_surge_mult:
             return None  # No volume surge
 
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
         session_label = session.upper()
 
-        # --- BULLISH: Price breaks ABOVE VWAP with volume ---
-        if prev_close <= vwap and last_close > vwap:
+        # --- BULLISH: Price breaks ABOVE VWAP with volume (only when trend allows) ---
+        if htf_dir in ("long", "neutral") and prev_close <= vwap and last_close > vwap:
             stop_dist = atr * 1.5 + abs(last_close - vwap)
             stop_loss = last_close - stop_dist
             take_profit = last_close + (stop_dist * 2.0)  # 2:1 R:R
@@ -131,8 +134,8 @@ class SessionMomentumStrategy(BaseStrategy):
                 urgency="high",
             )
 
-        # --- BEARISH: Price breaks BELOW VWAP with volume ---
-        if prev_close >= vwap and last_close < vwap:
+        # --- BEARISH: Price breaks BELOW VWAP with volume (only when trend allows) ---
+        if htf_dir in ("short", "neutral") and prev_close >= vwap and last_close < vwap:
             stop_dist = atr * 1.5 + abs(vwap - last_close)
             stop_loss = last_close + stop_dist
             take_profit = last_close - (stop_dist * 2.0)  # 2:1 R:R

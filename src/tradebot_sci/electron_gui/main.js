@@ -5,6 +5,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { exec } = require('child_process');
 const logParser = require('./log_analytics');
 
@@ -12,6 +13,9 @@ const logParser = require('./log_analytics');
 // when the parent process (terminal/launcher) closes before Electron finishes writing.
 process.stdout?.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
 process.stderr?.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+
+// Enable remote debugging so the renderer can be inspected via CDP
+app.commandLine.appendSwitch('remote-debugging-port', '9223');
 
 let mainWindow;
 let settingsWindow;
@@ -23,8 +27,16 @@ const isWindows = () => process.platform === 'win32';
 // Helper to find repo root reliably
 const DOTENV_PATH = path.join(__dirname, '../../../.env');
 const PROFILES_PATH = path.join(__dirname, '../../../config/settings_profiles.yaml');
-const CONFIG_JSON_PATH = path.join(__dirname, '../../../config.json');
-const SECRETS_PATH = path.join(__dirname, '../../../.env.secrets');
+// Use the same XDG user data dir as the Python runtime (paths.py)
+// Linux: ~/.config/tradebot-sci, macOS: ~/Library/Application Support/tradebot-sci
+const USER_DATA_DIR = process.platform === 'darwin'
+    ? path.join(os.homedir(), 'Library', 'Application Support', 'tradebot-sci')
+    : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'tradebot-sci');
+const CONFIG_JSON_PATH = path.join(USER_DATA_DIR, 'config.json');
+// Fallback: if user data config doesn't exist but project root one does, use it
+const LEGACY_CONFIG_JSON_PATH = path.join(__dirname, '../../../config.json');
+const SECRETS_PATH = path.join(USER_DATA_DIR, '.env.secrets');
+const LEGACY_SECRETS_PATH = path.join(__dirname, '../../../.env.secrets');
 
 // Setup IPC handlers (called after app ready)
 function setupIpcHandlers() {
@@ -105,12 +117,18 @@ function setupIpcHandlers() {
     // NEW: Unified config.json handlers
     // =============================================
     ipcMain.handle('read-config', async () => {
-        if (!fs.existsSync(CONFIG_JSON_PATH)) {
+        // Prefer XDG user data dir, fallback to project root
+        let configPath = CONFIG_JSON_PATH;
+        if (!fs.existsSync(configPath) && fs.existsSync(LEGACY_CONFIG_JSON_PATH)) {
+            configPath = LEGACY_CONFIG_JSON_PATH;
+        }
+
+        if (!fs.existsSync(configPath)) {
             console.warn("[MAIN] config.json not found, returning empty object");
             return {};
         }
         try {
-            const content = fs.readFileSync(CONFIG_JSON_PATH, 'utf8');
+            const content = fs.readFileSync(configPath, 'utf8');
             return JSON.parse(content);
         } catch (e) {
             console.error("[MAIN] Config JSON Load Error:", e);
@@ -137,8 +155,13 @@ function setupIpcHandlers() {
     });
 
     ipcMain.handle('read-secrets', async () => {
-        if (!fs.existsSync(SECRETS_PATH)) return {};
-        const content = fs.readFileSync(SECRETS_PATH, 'utf8');
+        // Prefer XDG user data dir, fallback to project root
+        let secretsPath = SECRETS_PATH;
+        if (!fs.existsSync(secretsPath) && fs.existsSync(LEGACY_SECRETS_PATH)) {
+            secretsPath = LEGACY_SECRETS_PATH;
+        }
+        if (!fs.existsSync(secretsPath)) return {};
+        const content = fs.readFileSync(secretsPath, 'utf8');
         const secrets = {};
         content.split('\n').forEach(line => {
             if (line.startsWith('#') || !line.trim()) return;
@@ -719,17 +742,33 @@ function createWindow() {
                         console.error('[MAIN] Verification: Bot FAILED to stay alive.');
                         clearInterval(checkInterval);
 
-                        // Read stdout for capture
+                        // Read stdout + main log for error capture
                         let errorDetail = "Process died unexpectedly.";
-                        try {
-                            if (fs.existsSync(stdoutPath)) {
-                                const logs = fs.readFileSync(stdoutPath, 'utf8');
-                                errorDetail = logs.split('\n').filter(l => l.trim()).slice(-3).join('\n') || errorDetail;
-                            }
-                        } catch (e) { }
+                        const userDataDir = process.env.TRADEBOT_DATA_DIR
+                            || (process.platform === 'darwin'
+                                ? path.join(require('os').homedir(), 'Library/Application Support/tradebot-sci')
+                                : path.join(process.env.XDG_CONFIG_HOME || path.join(require('os').homedir(), '.config'), 'tradebot-sci'));
+                        const logPaths = [
+                            stdoutPath,
+                            path.join(userDataDir, 'logs', 'bot_stdout.log'),
+                            path.join(userDataDir, 'logs', 'tradebot.log'),
+                        ];
+                        let combinedTail = '';
+                        for (const lp of logPaths) {
+                            try {
+                                if (fs.existsSync(lp)) {
+                                    const content = fs.readFileSync(lp, 'utf8');
+                                    const tail = content.split('\n').filter(l => l.trim()).slice(-5).join('\n');
+                                    if (tail) combinedTail += tail + '\n';
+                                }
+                            } catch (e) { }
+                        }
+                        if (combinedTail.trim()) {
+                            errorDetail = combinedTail.split('\n').filter(l => l.trim()).slice(-3).join('\n') || errorDetail;
+                        }
 
                         // Detect "No broker configured" and show a popup dialog
-                        if (errorDetail.includes('No broker configured')) {
+                        if (combinedTail.includes('No broker configured')) {
                             const { dialog } = require('electron');
                             dialog.showMessageBox(mainWindow, {
                                 type: 'warning',

@@ -145,8 +145,8 @@ class BearishEngulfingStrategy(BaseStrategy):
 
         # --- BEARISH ENGULFING at resistance ---
         if engulfing == "bearish":
-            # HTF must be bearish or neutral (not fighting bullish trend)
-            if htf_dir in ("long", "bullish"):
+            # Only enter short when trend is bearish or neutral
+            if htf_dir not in ("short", "neutral"):
                 return None
 
             # Pyramid check: only scale into SHORT positions
@@ -185,8 +185,8 @@ class BearishEngulfingStrategy(BaseStrategy):
 
         # --- BULLISH ENGULFING at support ---
         if engulfing == "bullish":
-            # HTF must be bullish or neutral (not fighting bearish trend)
-            if htf_dir in ("short", "bearish"):
+            # Only enter long when trend is bullish or neutral
+            if htf_dir not in ("long", "neutral"):
                 return None
 
             # Pyramid check: only scale into LONG positions
@@ -237,13 +237,13 @@ class BearishEngulfingStrategy(BaseStrategy):
         pos_dir = open_position.get("direction")
 
         # If HTF flips in our favor, hold. If it goes against us, exit.
-        if pos_dir == "long" and htf_dir in ("short", "bearish"):
+        if pos_dir == "long" and htf_dir in ("short",):
             return close_position_decision(
                 snapshot.symbol,
                 snapshot.timeframe,
                 "Engulfing Reversal: HTF turned bearish — exiting long",
             )
-        if pos_dir == "short" and htf_dir in ("long", "bullish"):
+        if pos_dir == "short" and htf_dir in ("long",):
             return close_position_decision(
                 snapshot.symbol,
                 snapshot.timeframe,

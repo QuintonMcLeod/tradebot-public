@@ -386,7 +386,8 @@ class PaperBroker:
                         opened_at=opened_at_str,
                         duration_seconds=duration_secs,
                         strategy=pos.get("strategy", "unknown"),
-                        exit_reason=f"paper_{hit.lower()}" if hit else "paper_exit"
+                        exit_reason=f"paper_{hit.lower()}" if hit else "paper_exit",
+                        side=side,
                     ))
 
                 del self.positions[symbol]

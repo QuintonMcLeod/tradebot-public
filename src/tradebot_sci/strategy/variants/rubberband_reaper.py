@@ -22,11 +22,11 @@ class RubberbandReaperStrategy(BaseStrategy):
         logger.debug(f"Loaded RubberbandReaper from {__file__}")
         super().__init__("Rubberband Reaper")
         
-        self.bb_period = 20
-        self.bb_std = 2.5             # Strict (Quality)
-        self.rsi_period = 7
-        self.rsi_overbought = 80      # Hardened (was 75)
-        self.rsi_oversold = 20        # Hardened (was 25)
+        self.bb_period = bb_period
+        self.bb_std = bb_std
+        self.rsi_period = rsi_period
+        self.rsi_overbought = rsi_overbought
+        self.rsi_oversold = rsi_oversold
         
         logger.debug(f"Reaper Config 20 (Staircase Ratchet) Loaded. BB={self.bb_std}, RSI={self.rsi_oversold}/{self.rsi_overbought}")
 
@@ -157,14 +157,11 @@ class RubberbandReaperStrategy(BaseStrategy):
             return None
 
         # 2. THE SCOUT (Initial Entry)
-        if last_close < lower and rsi < self.rsi_oversold:
-            # [HARDENED] HTF Alignment: Don't go long against a bearish HTF
-            if htf_dir == "short":
-                logger.debug(f"[REAPER] Skipping long entry on {snapshot.symbol} — HTF is bearish.")
-                return None
+        # Long: Only when trend says long or neutral
+        if htf_dir in ("long", "neutral") and last_close < lower and rsi < self.rsi_oversold:
             # [ARMOR] 2x ATR Dynamic Stops
             stop_loss = last_close - (atr * 2.0)
-            take_profit = last_close + (atr * 4.0)  # 2:1 R:R
+            take_profit = max(mid, last_close + (atr * 2.0) * 2.0)  # Middle band or 2:1 R:R floor
             
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -178,14 +175,11 @@ class RubberbandReaperStrategy(BaseStrategy):
                 management_instructions="Net-Zero at 1xATR."
             )
 
-        if last_close > upper and rsi > self.rsi_overbought:
-            # [HARDENED] HTF Alignment: Don't go short against a bullish HTF
-            if htf_dir == "long":
-                logger.debug(f"[REAPER] Skipping short entry on {snapshot.symbol} — HTF is bullish.")
-                return None
+        # Short: Only when trend says short or neutral
+        if htf_dir in ("short", "neutral") and last_close > upper and rsi > self.rsi_overbought:
             # [ARMOR] 2x ATR Dynamic Stops
             stop_loss = last_close + (atr * 2.0)
-            take_profit = last_close - (atr * 4.0)  # 2:1 R:R
+            take_profit = min(mid, last_close - (atr * 2.0) * 2.0)  # Middle band or 2:1 R:R floor
             
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,

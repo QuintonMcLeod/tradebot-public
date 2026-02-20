@@ -147,3 +147,9 @@ class PositionHoldStore:
     def items(self) -> Iterable[PositionHoldRecord]:
         return list(self.records.values())
 
+    def __contains__(self, symbol: str) -> bool:
+        return symbol.upper() in self.records
+
+    def __getitem__(self, symbol: str) -> PositionHoldRecord:
+        return self.records[symbol.upper()]
+

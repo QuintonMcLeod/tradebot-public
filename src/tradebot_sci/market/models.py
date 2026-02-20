@@ -21,6 +21,7 @@ class Candle:
 class TrendState:
     direction: str | TrendDirection  # Accept both string and enum for backwards compatibility
     strength: float  # 0-1 scale
+    adx: float = 0.0  # ADX trend strength (0-100 scale)
     last_confirmed_swings: Optional[List[Dict[str, float | int]]] = None
     key_levels: Optional[Dict[str, float]] = None
 

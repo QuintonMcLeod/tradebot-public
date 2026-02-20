@@ -34,8 +34,11 @@ class VolatilityBreakoutStrategy(BaseStrategy):
         atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
         rsi = calculate_rsi(closes, 14)
         
-        # Long Entry: Breakout of range high + RSI > 60
-        if last_close > recent_high and rsi > 60:
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
+        # Long Entry: Breakout of range high + RSI > 60 (only when trend allows)
+        if htf_dir in ("long", "neutral") and last_close > recent_high and rsi > 60:
             # [ARMOR] 2x ATR Stops
             stop_dist = atr * 2.0
             stop_loss = last_close - stop_dist
@@ -53,8 +56,8 @@ class VolatilityBreakoutStrategy(BaseStrategy):
                 risk_per_trade_pct=self.get_risk_pct()
             )
 
-        # Short Entry: Breakout of range low + RSI < 40
-        if last_close < recent_low and rsi < 40:
+        # Short Entry: Breakout of range low + RSI < 40 (only when trend allows)
+        if htf_dir in ("short", "neutral") and last_close < recent_low and rsi < 40:
             # [ARMOR] 2x ATR Stops
             stop_dist = atr * 2.0
             stop_loss = last_close + stop_dist

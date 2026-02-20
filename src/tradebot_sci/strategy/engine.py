@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime
@@ -247,9 +248,9 @@ class StrategyEngine:
 
         # HTF alignment: either HTF agrees with LTF, or HTF is neutral but LTF has conviction
         htf_align = False
-        if htf_dir in ("long", "bullish") and ltf_dir in ("long", "bullish"):
+        if htf_dir in ("long",) and ltf_dir in ("long",):
             htf_align = True
-        elif htf_dir in ("short", "bearish") and ltf_dir in ("short", "bearish"):
+        elif htf_dir in ("short",) and ltf_dir in ("short",):
             htf_align = True
         elif htf_dir == "neutral" and ltf_strength >= 0.3:
             # HTF neutral but LTF has structure — allow entry (vanilla ICC rule)
@@ -263,6 +264,105 @@ class StrategyEngine:
         candles = snapshot.candles or []
         trend_dir = ltf_dir if ltf_dir in ("long", "short") else htf_dir
 
+        # ── Trend Indicator Gates ─────────────────────────────────────────
+        # Each enabled indicator acts as an independent entry filter.
+        # Indicators are always computed (for GUI broadcast) but only gate
+        # entries when their toggle is enabled in the Settings → Trends tab.
+        from tradebot_sci.market.trend import (
+            compute_adx, compute_rsi, compute_macd, compute_bollinger,
+            compute_supertrend, compute_ema_ribbon,
+        )
+
+        # Compute ADX directly from candles (snapshot.trend_htf.adx can be stale/zero)
+        htf_adx = round(compute_adx(candles), 1) if len(candles) >= 15 else 0.0
+        adx_threshold = float(getattr(self.profile, 'adx_gate_threshold', 20))
+
+        # Compute all indicators (always, for TREND-DATA broadcast)
+        rsi_val = compute_rsi(candles) if len(candles) >= 15 else 50.0
+        macd_data = compute_macd(candles) if len(candles) >= 35 else {"macd": 0, "signal": 0, "histogram": 0}
+        boll_data = compute_bollinger(candles) if len(candles) >= 20 else {"upper": 0, "middle": 0, "lower": 0, "bandwidth": 0, "squeeze": False}
+        st_data = compute_supertrend(candles) if len(candles) >= 11 else {"direction": "neutral", "value": 0}
+        ema_data = compute_ema_ribbon(candles) if len(candles) >= 55 else {"ema8": 0, "ema21": 0, "ema55": 0, "aligned": False, "direction": "neutral"}
+
+        # Broadcast for GUI Trends tab
+        try:
+            trend_payload = {
+                "symbol": self.symbol,
+                "adx": htf_adx,
+                "rsi": rsi_val,
+                "macd": macd_data,
+                "bollinger": boll_data,
+                "supertrend": st_data,
+                "ema_ribbon": ema_data,
+            }
+            logger.info(f"[TREND-DATA] {json.dumps(trend_payload)}")
+        except Exception:
+            pass
+
+        # ── Apply gates (only when enabled) ──────────────────────────────
+        trend_vetoes = []  # Collect veto reasons
+
+        # ADX: block if no trend strength
+        adx_gate_passed = True
+        if getattr(self.profile, 'trend_adx_enabled', True):
+            adx_gate_passed = htf_adx >= adx_threshold
+            if not adx_gate_passed and trend_dir in ("long", "short"):
+                trend_vetoes.append(f"ADX={htf_adx:.1f}<{adx_threshold:.0f}")
+
+        # RSI: block counter-momentum entries
+        rsi_gate_passed = True
+        if getattr(self.profile, 'trend_rsi_enabled', False):
+            if trend_dir == "long" and rsi_val >= 80:
+                rsi_gate_passed = False
+                trend_vetoes.append(f"RSI={rsi_val:.0f} overbought")
+            elif trend_dir == "short" and rsi_val <= 20:
+                rsi_gate_passed = False
+                trend_vetoes.append(f"RSI={rsi_val:.0f} oversold")
+
+        # MACD: block if histogram disagrees with direction
+        macd_gate_passed = True
+        if getattr(self.profile, 'trend_macd_enabled', False):
+            hist = macd_data.get("histogram", 0)
+            if trend_dir == "long" and hist < 0:
+                macd_gate_passed = False
+                trend_vetoes.append(f"MACD histogram={hist:.5f} bearish")
+            elif trend_dir == "short" and hist > 0:
+                macd_gate_passed = False
+                trend_vetoes.append(f"MACD histogram={hist:.5f} bullish")
+
+        # Bollinger: block during squeeze (ambiguous market)
+        boll_gate_passed = True
+        if getattr(self.profile, 'trend_bollinger_enabled', False):
+            if boll_data.get("squeeze", False):
+                boll_gate_passed = False
+                trend_vetoes.append(f"Bollinger SQUEEZE bw={boll_data.get('bandwidth', 0):.2f}")
+
+        # Supertrend: block if direction disagrees
+        st_gate_passed = True
+        if getattr(self.profile, 'trend_supertrend_enabled', False):
+            st_dir = st_data.get("direction", "neutral")
+            if trend_dir in ("long", "short") and st_dir != trend_dir:
+                st_gate_passed = False
+                trend_vetoes.append(f"Supertrend={st_dir} vs {trend_dir}")
+
+        # EMA Ribbon: block if tangled (no alignment)
+        ema_gate_passed = True
+        if getattr(self.profile, 'trend_ema_ribbon_enabled', False):
+            if not ema_data.get("aligned", False):
+                ema_gate_passed = False
+                trend_vetoes.append(f"EMA Ribbon tangled")
+            elif ema_data.get("direction") != trend_dir and trend_dir in ("long", "short"):
+                ema_gate_passed = False
+                trend_vetoes.append(f"EMA Ribbon={ema_data.get('direction')} vs {trend_dir}")
+
+        # Log vetoes for monitoring (no hard block — strategies enforce direction)
+        if trend_vetoes and trend_dir in ("long", "short"):
+            logger.info(
+                f"[TREND-GATE] {self.symbol} {trend_dir} entry has vetoes — "
+                + " | ".join(trend_vetoes)
+            )
+
+        # ── ICC Signal Detection ─────────────────────────────────────────
         sweep_signal = None
         indication_signal = None
         correction_signal = None
@@ -285,9 +385,8 @@ class StrategyEngine:
             except Exception as e:
                 logger.debug(f"[ENGINE] ICC signal calc error for {self.symbol}: {e}")
 
-        # Determine phase from signals (must use valid Phase Literal values:
-        # trend, indication, correction, continuation, chop, range, management)
-        phase = "range"  # default: no strong phase detected
+        # Determine phase from signals
+        phase = "range"
         if sweep_signal:
             phase = "indication" if not correction_signal else "correction"
         elif continuation_signal:
@@ -298,13 +397,19 @@ class StrategyEngine:
             phase = "chop"
 
         gates = {
-            "htf_dir": htf_dir,
+            "htf_dir": htf_dir,  # Original trend direction for strategies to follow
             "ltf_dir": ltf_dir,
             "htf_strength": htf_strength,
             "ltf_strength": ltf_strength,
+            "htf_adx": htf_adx,
+            "adx_gate": adx_gate_passed,
+            "rsi_gate": rsi_gate_passed,
+            "macd_gate": macd_gate_passed,
+            "boll_gate": boll_gate_passed,
+            "st_gate": st_gate_passed,
+            "ema_gate": ema_gate_passed,
             "score": score,
             "grade": grade,
-            # ICC structure gates
             "htf_align": htf_align,
             "phase": phase,
             "sweep": bool(sweep_signal),
@@ -467,8 +572,8 @@ class StrategyEngine:
                     effective_action = "enter_long" if pos_size > 0 else "enter_short"
                 
                 is_counter_trend = (
-                    (htf_dir == "bearish" and effective_action == "enter_long")
-                    or (htf_dir == "bullish" and effective_action == "enter_short")
+                    (htf_dir == "short" and effective_action == "enter_long")
+                    or (htf_dir == "long" and effective_action == "enter_short")
                 )
                 if is_counter_trend:
                     reason = f"Counter-Trend Blocked: {decision.action} vs HTF={htf_dir}"

@@ -13,9 +13,20 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
-const LOGS_DIR = path.join(__dirname, '../../../logs');
-const DATA_DIR = path.join(__dirname, '../../../data');
+// ── Resolve user data directory (mirrors Python paths.py + tradebot.sh) ──
+const _APP_ROOT = path.join(__dirname, '..', '..', '..');
+function _resolveUserDataDir() {
+    if (process.env.TRADEBOT_DATA_DIR) return process.env.TRADEBOT_DATA_DIR;
+    if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'tradebot-sci');
+    return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'tradebot-sci');
+}
+const USER_DATA_DIR = _resolveUserDataDir();
+
+// Primary: user data dir (where the daemon writes); Fallback: project root (legacy/dev)
+const LOGS_DIR = fs.existsSync(path.join(USER_DATA_DIR, 'logs')) ? path.join(USER_DATA_DIR, 'logs') : path.join(_APP_ROOT, 'logs');
+const DATA_DIR = fs.existsSync(path.join(USER_DATA_DIR, 'data')) ? path.join(USER_DATA_DIR, 'data') : path.join(_APP_ROOT, 'data');
 
 // ── Helpers ──────────────────────────────────────────────
 
@@ -56,22 +67,30 @@ function _latestByBroker(capitalByBroker) {
  */
 function getLogFiles() {
     const files = [];
-    if (!fs.existsSync(LOGS_DIR)) return files;
+    const seenInodes = new Set();
 
-    const entries = fs.readdirSync(LOGS_DIR)
-        .filter(f => f.startsWith('tradebot.log'))
-        .sort((a, b) => {
-            const numA = a === 'tradebot.log' ? 0 : parseInt(a.split('.').pop()) || 999;
-            const numB = b === 'tradebot.log' ? 0 : parseInt(b.split('.').pop()) || 999;
-            return numA - numB;
-        });
+    // Scan both user-data logs and project-root logs
+    const logDirs = [LOGS_DIR, path.join(_APP_ROOT, 'logs')].filter(d => fs.existsSync(d));
+    for (const dir of logDirs) {
+        // Include tradebot.log* AND bot_stdout.log (launcher redirects stdout there)
+        const entries = fs.readdirSync(dir)
+            .filter(f => f.startsWith('tradebot.log') || f === 'bot_stdout.log')
+            .sort((a, b) => {
+                // bot_stdout.log gets priority 0 (newest), tradebot.log = 1, rotated = 2+
+                const numA = a === 'bot_stdout.log' ? 0 : a === 'tradebot.log' ? 1 : (parseInt(a.split('.').pop()) || 999) + 1;
+                const numB = b === 'bot_stdout.log' ? 0 : b === 'tradebot.log' ? 1 : (parseInt(b.split('.').pop()) || 999) + 1;
+                return numA - numB;
+            });
 
-    for (const name of entries) {
-        const fullPath = path.join(LOGS_DIR, name);
-        try {
-            const stat = fs.statSync(fullPath);
-            files.push({ name, path: fullPath, size: stat.size, modified: stat.mtime });
-        } catch (_) { /* skip unreadable */ }
+        for (const name of entries) {
+            const fullPath = path.join(dir, name);
+            try {
+                const stat = fs.statSync(fullPath);
+                if (seenInodes.has(stat.ino)) continue;  // skip hardlinks/same file
+                seenInodes.add(stat.ino);
+                files.push({ name, path: fullPath, size: stat.size, modified: stat.mtime });
+            } catch (_) { /* skip unreadable */ }
+        }
     }
     return files;
 }
@@ -162,13 +181,29 @@ function getTradeHistory(filter = '24h') {
         } catch (_) { /* empty or corrupted */ }
     }
 
-    // 3. Parse log files for capital snapshots
+    // 3. Parse log files for capital snapshots + EXIT trades (fallback)
+    const RE_EXIT = /\[EXIT\]\s+([^:]+):\s+([A-Z_]{3,10})\s+([+-])\$?([\d.]+)(?:\s+\(Pct=([+-]?[\d.]+)%\))?(?:.*?position=(\w+))?(?:.*?Duration=([\w\s]+?)(?:\s*\||$))?(?:.*?Est\.\s*Spread\s*Cost:\s*\$([\d.]+))?/;
+    const RE_STRATEGY = /Tournament Won by\s+(\w+)/;
+    let lastStrategy = '';
+    const seenExitLines = new Set();  // Cross-file dedup: track normalized EXIT line content
     const logFiles = getLogFiles();
     for (const logFile of logFiles) {
         try {
             const content = fs.readFileSync(logFile.path, 'utf8');
             const lines = content.split('\n');
-            for (const line of lines) {
+            for (let line of lines) {
+                // Normalize JSON-formatted log lines (project root uses {"timestamp":..., "message":...})
+                if (line.startsWith('{') && line.includes('"message"')) {
+                    try {
+                        const j = JSON.parse(line);
+                        line = (j.timestamp || '') + ' ' + (j.message || '');
+                    } catch (_) { /* not valid JSON, use as-is */ }
+                }
+
+                // Track strategy from META-SCI tournament lines
+                const stratMatch = line.match(RE_STRATEGY);
+                if (stratMatch) lastStrategy = stratMatch[1];
+
                 if (line.includes('[HEARTBEAT] Capital available:') ||
                     line.includes('[TOTAL] Liquidity available:')) {
                     const ts = _extractTimestamp(line);
@@ -209,6 +244,48 @@ function getTradeHistory(filter = '24h') {
                         }
                     }
                 }
+
+                // Parse [EXIT] lines for trade records (fallback when ledger trade_log is empty)
+                if (line.includes('[EXIT]')) {
+                    const ts = _extractTimestamp(line);
+                    if (ts && ts >= cutoff) {
+                        const m = RE_EXIT.exec(line);
+                        if (m) {
+                            const pnlVal = parseFloat(m[4]) * (m[3] === '-' ? -1 : 1);
+                            const symbol = m[2];
+                            const closedAt = ts.toISOString();
+
+                            // Cross-file dedup: use the EXIT portion of the line as a fingerprint.
+                            // Same EXIT text across files = duplicate (same line in bot_stdout.log
+                            // and tradebot.log). Different EXIT text in same file = distinct fills.
+                            const exitFingerprint = line.substring(line.indexOf('[EXIT]'));
+                            if (seenExitLines.has(exitFingerprint)) continue;
+                            seenExitLines.add(exitFingerprint);
+
+                            // Also deduplicate against ledger-sourced trades
+                            const isDupe = trades.some(existing =>
+                                existing._source !== 'log' &&
+                                existing.symbol === symbol &&
+                                Math.abs(new Date(existing.closed_at || existing.timestamp || existing.time || 0) - ts) < 5000
+                            );
+                            if (!isDupe) {
+                                trades.push({
+                                    symbol,
+                                    pnl: pnlVal,
+                                    pct: m[5] ? parseFloat(m[5]) : 0,
+                                    side: (m[6] || 'unknown').toLowerCase(),
+                                    reason: (m[1] || '').trim(),
+                                    strategy: lastStrategy || 'unknown',
+                                    spread: m[8] ? parseFloat(m[8]) : 0,
+                                    duration: m[7] ? m[7].trim() : null,
+                                    closed_at: closedAt,
+                                    timestamp: closedAt,
+                                    _source: 'log',
+                                });
+                            }
+                        }
+                    }
+                }
             }
         } catch (_) { /* unreadable log file */ }
     }
@@ -220,28 +297,72 @@ function getTradeHistory(filter = '24h') {
         return ta - tb;
     });
 
-    // Also include active positions from paper_state.json
-    const statePath = path.join(DATA_DIR, 'paper_state.json');
-    if (fs.existsSync(statePath)) {
-        try {
-            const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-            if (state.positions) {
-                for (const [symbol, pos] of Object.entries(state.positions)) {
-                    trades.unshift({
-                        symbol,
-                        side: pos.side || 'long',
-                        pnl: pos.unrealized_pnl || 0,
-                        pct: pos.pnl_pct || 0,
-                        timestamp: pos.opened_at || state.updated_at,
-                        strategy: pos.strategy || '--',
-                        _active: true
-                    });
+    // Also include active positions from paper_state.json AND oanda_tracked_positions.json
+    const positionSources = [
+        { file: 'paper_state.json', key: 'positions' },
+        { file: 'oanda_tracked_positions.json', key: null },  // top-level object of symbol->position
+    ];
+    for (const src of positionSources) {
+        const posPath = path.join(DATA_DIR, src.file);
+        if (fs.existsSync(posPath)) {
+            try {
+                const raw = JSON.parse(fs.readFileSync(posPath, 'utf8'));
+                const positions = src.key ? (raw[src.key] || {}) : raw;
+                if (positions && typeof positions === 'object' && !Array.isArray(positions)) {
+                    for (const [symbol, pos] of Object.entries(positions)) {
+                        // Skip if already present as active
+                        if (trades.some(t => t._active && t.symbol === symbol)) continue;
+                        // Compute PnL % from available data if not stored
+                        const _upnl = pos.unrealized_pnl || 0;
+                        const _entry = pos.entry_price || pos.avg_price || 0;
+                        const _size = Math.abs(pos.size || 0);
+                        const _pctCalc = (_entry && _size) ? (_upnl / (_entry * _size)) * 100 : 0;
+                        trades.unshift({
+                            symbol,
+                            side: pos.side || pos.direction || 'long',
+                            pnl: _upnl,
+                            pct: pos.pnl_pct || _pctCalc,
+                            timestamp: pos.opened_at || pos.entry_time || (raw.updated_at || ''),
+                            strategy: pos.strategy || '--',
+                            stop_loss: pos.stop_loss,
+                            take_profit: pos.take_profit,
+                            entry_price: _entry,
+                            size: pos.size,
+                            _active: true
+                        });
+                    }
                 }
-            }
-        } catch (_) { /* ignore */ }
+            } catch (_) { /* ignore */ }
+        }
     }
 
-    return { trades, capital, capitalByBroker };
+    // Collect ledger by_symbol and by_strategy aggregate data as fallback
+    let ledgerBySymbol = {};
+    let ledgerByStrategy = {};
+    if (ledger) {
+        // Merge from all days + current_day
+        const allDays = [...(ledger.days || []), ledger.current_day].filter(Boolean);
+        for (const day of allDays) {
+            const dayStart = day.day_start ? new Date(day.day_start) : null;
+            // Only include days within the filter cutoff
+            if (dayStart && dayStart < cutoff) continue;
+            for (const [sym, stats] of Object.entries(day.by_symbol || {})) {
+                if (!ledgerBySymbol[sym]) ledgerBySymbol[sym] = { trades: 0, wins: 0, losses: 0, pnl: 0 };
+                ledgerBySymbol[sym].trades += stats.trades || 0;
+                ledgerBySymbol[sym].wins += stats.wins || 0;
+                ledgerBySymbol[sym].losses += stats.losses || 0;
+                ledgerBySymbol[sym].pnl += stats.pnl || 0;
+            }
+            for (const [strat, stats] of Object.entries(day.by_strategy || {})) {
+                if (!ledgerByStrategy[strat]) ledgerByStrategy[strat] = { wins: 0, losses: 0, pnl: 0 };
+                ledgerByStrategy[strat].wins += stats.wins || 0;
+                ledgerByStrategy[strat].losses += stats.losses || 0;
+                ledgerByStrategy[strat].pnl += stats.pnl || 0;
+            }
+        }
+    }
+
+    return { trades, capital, capitalByBroker, ledgerBySymbol, ledgerByStrategy };
 }
 
 /**
@@ -250,7 +371,7 @@ function getTradeHistory(filter = '24h') {
  * @returns {Object} summary with all metrics the analytics panel needs
  */
 function calculateAnalyticsSummary(data) {
-    const { trades = [], capital = [], capitalByBroker = {} } = data;
+    const { trades = [], capital = [], capitalByBroker = {}, ledgerBySymbol = {}, ledgerByStrategy = {} } = data;
     const closed = trades.filter(t => !t._active);
 
     let totalPnl = 0, grossProfit = 0, grossLoss = 0;
@@ -334,8 +455,9 @@ function calculateAnalyticsSummary(data) {
         capitalHistoryByBroker: capitalByBroker,
         capitalByBroker: _latestByBroker(capitalByBroker),
         trades,
-        symbolStats,
-        strategyStats,
+        // Merge ledger aggregate data as fallback when trade-derived stats are empty
+        symbolStats: Object.keys(symbolStats).length > 0 ? symbolStats : ledgerBySymbol,
+        strategyStats: Object.keys(strategyStats).length > 0 ? strategyStats : ledgerByStrategy,
         _source: 'ledger+log'
     };
 }

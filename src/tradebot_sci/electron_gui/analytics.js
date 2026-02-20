@@ -728,14 +728,109 @@ function _formatSeconds(totalSec) {
     return `${mins}m`;
 }
 
-// ═══════════════════════════════════════════════════════════
 // TRADE HISTORY (using side-badge from analytics.css)
 // ═══════════════════════════════════════════════════════════
+
+// ── Sort state ──────────────────────────────────────────────
+let _tradeHistorySortKey = null;    // e.g. 'pnl', 'time', 'symbol'
+let _tradeHistorySortDir = null;    // 'asc' | 'desc' | null
+let _lastTrades = [];               // Cached for re-sort
+
+/** Extract a comparable value from a trade by sort key */
+function _sortValue(trade, key) {
+    switch (key) {
+        case 'time': {
+            const ts = trade.timestamp || trade.time;
+            return ts ? new Date(ts).getTime() : 0;
+        }
+        case 'symbol': return (trade.symbol || '').toLowerCase();
+        case 'side': return (trade.side || 'long').toLowerCase();
+        case 'result': {
+            const pnl = parseFloat(trade.pnl) || 0;
+            return pnl > 0 ? 2 : (pnl < 0 ? 0 : 1); // WIN > B/E > LOSS
+        }
+        case 'pnl': return parseFloat(trade.pnl) || 0;
+        case 'pnlPct': return parseFloat(trade.pct || trade.pnlPct) || 0;
+        case 'spread': return parseFloat(trade.spread) || 0;
+        case 'duration': {
+            // Compute duration in seconds for numeric sort
+            if (trade.duration_seconds) return trade.duration_seconds;
+            const ts = trade.timestamp || trade.time;
+            if (ts) {
+                const d = typeof ts === 'string' ? new Date(ts) : ts;
+                return (Date.now() - d.getTime()) / 1000;
+            }
+            return 0;
+        }
+        case 'strategy': return (trade.strategy || '').toLowerCase();
+        case 'reason': return (trade.reason || '').toLowerCase();
+        default: return 0;
+    }
+}
+
+/** Sort a trades array by the current sort state */
+function _sortTrades(trades) {
+    if (!_tradeHistorySortKey || !_tradeHistorySortDir) return trades;
+    const key = _tradeHistorySortKey;
+    const mult = _tradeHistorySortDir === 'asc' ? 1 : -1;
+    return [...trades].sort((a, b) => {
+        const va = _sortValue(a, key);
+        const vb = _sortValue(b, key);
+        if (typeof va === 'string') return mult * va.localeCompare(vb);
+        return mult * (va - vb);
+    });
+}
+
+/** Update sort-arrow CSS classes on all headers */
+function _updateSortHeaders() {
+    document.querySelectorAll('.sortable-th').forEach(th => {
+        th.classList.remove('sort-asc', 'sort-desc');
+        if (th.dataset.sortKey === _tradeHistorySortKey) {
+            if (_tradeHistorySortDir === 'asc') th.classList.add('sort-asc');
+            if (_tradeHistorySortDir === 'desc') th.classList.add('sort-desc');
+        }
+    });
+}
+
+/** Handle header click — cycle: asc → desc → none */
+function _handleSortClick(e) {
+    const th = e.currentTarget;
+    const key = th.dataset.sortKey;
+    if (!key) return;
+
+    if (_tradeHistorySortKey === key) {
+        // Same column: cycle direction
+        if (_tradeHistorySortDir === 'asc') {
+            _tradeHistorySortDir = 'desc';
+        } else if (_tradeHistorySortDir === 'desc') {
+            _tradeHistorySortKey = null;
+            _tradeHistorySortDir = null;
+        }
+    } else {
+        // New column: default to desc (most useful for PnL, time)
+        _tradeHistorySortKey = key;
+        _tradeHistorySortDir = 'desc';
+    }
+
+    _updateSortHeaders();
+    // Re-render with cached trades
+    if (_lastTrades.length > 0) {
+        updateTradeHistory(_lastTrades);
+    }
+}
 
 function updateTradeHistory(trades) {
     const tbody = document.getElementById('trade-history-body');
     if (!tbody) return;
     tbody.innerHTML = '';
+
+    // Cache trades for re-sort and bind sort headers
+    _lastTrades = trades || [];
+    document.querySelectorAll('.sortable-th').forEach(th => {
+        th.removeEventListener('click', _handleSortClick);
+        th.addEventListener('click', _handleSortClick);
+    });
+    _updateSortHeaders();
 
     if (!trades || trades.length === 0) {
         tbody.innerHTML = `
@@ -749,9 +844,9 @@ function updateTradeHistory(trades) {
         return;
     }
 
-    // Separate active positions and closed trades
-    const active = trades.filter(t => t._active);
-    const closed = trades.filter(t => !t._active);
+    // Separate active positions and closed trades, then sort each group
+    const active = _sortTrades(trades.filter(t => t._active));
+    const closed = _sortTrades(trades.filter(t => !t._active));
 
     // Render active positions first with a distinct style
     if (active.length > 0) {

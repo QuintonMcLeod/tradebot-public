@@ -112,9 +112,12 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
                 )
             return None
 
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
         # --- Initial Entry ---
-        # LONG: Slow MACD histogram > 0 (uptrend) + Fast MACD bullish crossover + RSI in pullback zone
-        if slow_hist > 0 and fast_bull_cross and rsi < self.rsi_pullback_high:
+        # LONG: Slow MACD histogram > 0 (uptrend) + Fast MACD bullish crossover + RSI in pullback zone (only when trend allows)
+        if htf_dir in ("long", "neutral") and slow_hist > 0 and fast_bull_cross and rsi < self.rsi_pullback_high:
             stop_dist = atr * 1.0  # Tight for scalping
             stop_loss = last_close - stop_dist
             take_profit = last_close + (stop_dist * 1.5)  # 1.5:1 RR for quick exits
@@ -138,8 +141,8 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
                 score=score, grade="A" if score >= 70 else "B"
             )
 
-        # SHORT: Slow MACD histogram < 0 (downtrend) + Fast MACD bearish crossover + RSI in pullback zone
-        if slow_hist < 0 and fast_bear_cross and rsi > self.rsi_pullback_low:
+        # SHORT: Slow MACD histogram < 0 (downtrend) + Fast MACD bearish crossover + RSI in pullback zone (only when trend allows)
+        if htf_dir in ("short", "neutral") and slow_hist < 0 and fast_bear_cross and rsi > self.rsi_pullback_low:
             stop_dist = atr * 1.0
             stop_loss = last_close + stop_dist
             take_profit = last_close - (stop_dist * 1.5)

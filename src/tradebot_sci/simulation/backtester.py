@@ -1274,7 +1274,7 @@ class Backtester:
                                     pyramid_count=1,
                                     total_cost=entry_price * size,
                                     htf_neutral_bars=0,
-                                    entry_gates=getattr(decision, 'gates', None),  # Capture score breakdown
+                                    entry_gates=getattr(decision, 'gates', None),
                                 )
                                 logger.info(
                                     f"[BACKTEST] {symbol} ENTRY {decision.action.upper()} @ ${entry_price:.2f}, "

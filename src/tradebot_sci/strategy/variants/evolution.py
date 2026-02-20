@@ -124,9 +124,12 @@ class RobotEvolutionStrategy(BaseStrategy):
         
         rejection_reasons = []
 
-        # Long: Sweep of NTZ Low + Bullish Indication
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
+        # Long: Sweep of NTZ Low + Bullish Indication (only when trend allows)
         lowest_recent = min(c.low for c in snapshot.candles[-5:])
-        if indication.direction == "long":
+        if htf_dir in ("long", "neutral") and indication.direction == "long":
             if lowest_recent < ntz.low and current_price > ntz.low:
                 if last_bar.close > last_bar.open:
                     stop_loss = lowest_recent - stop_dist
@@ -148,9 +151,9 @@ class RobotEvolutionStrategy(BaseStrategy):
             else:
                 rejection_reasons.append(f"Price not sweeping NTZ Low ({ntz.low:.2f}) correctly")
 
-        # Short: Sweep of NTZ High + Bearish Indication
+        # Short: Sweep of NTZ High + Bearish Indication (only when trend allows)
         highest_recent = max(c.high for c in snapshot.candles[-5:])
-        if indication.direction == "short":
+        if htf_dir in ("short", "neutral") and indication.direction == "short":
             if highest_recent > ntz.high and current_price < ntz.high:
                 if last_bar.close < last_bar.open:
                     stop_loss = highest_recent + stop_dist

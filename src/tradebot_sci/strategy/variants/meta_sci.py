@@ -227,9 +227,9 @@ class MetaSCIStrategy(BaseStrategy):
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
 
         if htf_strength >= 0.4:
-            if htf_dir == "bearish":
+            if htf_dir == "short":
                 return "bearish_trending"
-            elif htf_dir == "bullish":
+            elif htf_dir == "long":
                 return "bullish_trending"
 
         return "ranging"
@@ -262,7 +262,11 @@ class MetaSCIStrategy(BaseStrategy):
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
         self._ensure_strategies_loaded()
-        
+
+        # ── Trend Direction Reference ─────────────────────────────────────
+        # Strategies use gates["htf_dir"] to orient their trade direction.
+        # htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
         # 1. Identify Champion
         champion_name = self._get_champion(snapshot.symbol, trade_history or [])
         champion_decision = None

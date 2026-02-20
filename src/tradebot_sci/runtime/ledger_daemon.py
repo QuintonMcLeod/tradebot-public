@@ -66,6 +66,11 @@ RE_TOURNAMENT = re.compile(
     r"Tournament Won by\s+(?P<strategy>\w+)"
 )
 
+# [PHOENIX] === ENGINE LOADED === Symbol: EURUSD | Variant: META_SCI
+RE_PHOENIX = re.compile(
+    r"\[PHOENIX\].*Symbol:\s*(?P<symbol>[A-Z_]{3,10}).*Variant:\s*(?P<variant>\w+)"
+)
+
 # position=SHORT or position=LONG embedded in EXIT lines
 RE_SIDE = re.compile(r"position=(?P<side>SHORT|LONG)", re.IGNORECASE)
 
@@ -136,6 +141,7 @@ class LedgerDaemon:
         lat: float = 33.764,
         lon: float = -84.386,
         tz_name: str = "America/New_York",
+        default_strategy: str = "",
     ) -> None:
         self.log_path = Path(log_path)
         self.ledger_path = Path(ledger_path)
@@ -162,6 +168,8 @@ class LedgerDaemon:
         # Track the next sundown boundary
         self._next_sundown: Optional[datetime] = None
         self._last_strategy: str = ""  # last META tournament winner seen
+        self._symbol_strategy: dict = {}  # per-symbol strategy from PHOENIX
+        self._default_strategy: str = default_strategy  # fallback from profile
         self._paper_mode: bool = False  # When True, only process [PAPER] lines
         self._snapshot_ts_by_broker: dict = {}  # Per-broker throttle for capital snapshots
         self._exit_dedup: dict = {}  # Dedup cache: key -> timestamp
@@ -271,8 +279,8 @@ class LedgerDaemon:
 
             # Only archive if there were trades or meaningful data
             if current.get("trades", 0) > 0 or current.get("capital_now", 0) > 0:
-                # Deep copy to archive (without trade_log to save space)
-                archived = {k: v for k, v in current.items() if k != "trade_log"}
+                # Deep copy to archive (keep trade_log for analytics)
+                archived = dict(current)
                 archived["trade_count"] = len(current.get("trade_log", []))
                 self._ledger["days"].append(archived)
 
@@ -333,6 +341,11 @@ class LedgerDaemon:
             m_tour = RE_TOURNAMENT.search(line)
             if m_tour:
                 self._last_strategy = m_tour.group("strategy")
+
+            # ── Track per-symbol strategy from PHOENIX engine load ──
+            m_phoenix = RE_PHOENIX.search(line)
+            if m_phoenix:
+                self._symbol_strategy[m_phoenix.group("symbol")] = m_phoenix.group("variant")
 
             # ── Route lines by mode: live skips [PAPER], paper only reads [PAPER] ──
             is_paper_line = "[PAPER]" in line
@@ -410,8 +423,11 @@ class LedgerDaemon:
                     elif pnl_val < 0:
                         current["by_symbol"][symbol]["losses"] += 1
 
-                    # Per-strategy stats
-                    strat = self._last_strategy or "unknown"
+                    # Per-strategy stats — priority: per-symbol PHOENIX > tournament > default > unknown
+                    strat = (self._symbol_strategy.get(symbol)
+                             or self._last_strategy
+                             or self._default_strategy
+                             or "unknown")
                     if strat not in current["by_strategy"]:
                         current["by_strategy"][strat] = {"pnl": 0.0, "wins": 0, "losses": 0}
                     current["by_strategy"][strat]["pnl"] += pnl_val

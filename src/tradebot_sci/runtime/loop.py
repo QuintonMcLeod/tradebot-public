@@ -55,7 +55,7 @@ from tradebot_sci.runtime.cycle import (
 logger = logging.getLogger(__name__)
 
 
-def _log_holdings_snapshot(executor, *, reason: str, tag: str = "") -> None:
+def _log_holdings_snapshot(executor, *, reason: str, tag: str = "", strategy_variant: str | None = None) -> None:
     """
     Emit a structured holdings snapshot for UI consumers (tmux/GUI).
     This line is JSON-only (no free-form filler) so it can be parsed reliably.
@@ -96,6 +96,8 @@ def _log_holdings_snapshot(executor, *, reason: str, tag: str = "") -> None:
                     snap["entry_price"] = record.entry_price
                 if not snap.get("strategy") and record.strategy:
                     snap["strategy"] = record.strategy
+        if strategy_variant and not snap.get("strategy"):
+            snap["strategy"] = strategy_variant
         positions.append({"symbol": sym, **snap})
     
     total_pnl = sum(p.get("unrealized_pnl", 0.0) or 0.0 for p in positions)
@@ -557,9 +559,9 @@ def _run_heartbeat_cycle(
         now_ts = time.time()
         if now_ts - last_holdings_log_ts >= 5.0:
             if executor == executor_paper:
-                _log_holdings_snapshot(executor, reason="heartbeat", tag="[PAPER] ")
+                _log_holdings_snapshot(executor, reason="heartbeat", tag="[PAPER] ", strategy_variant=getattr(settings, 'strategy_variant', None))
             else:
-                _log_holdings_snapshot(executor, reason="heartbeat")
+                _log_holdings_snapshot(executor, reason="heartbeat", strategy_variant=getattr(settings, 'strategy_variant', None))
             last_holdings_log_ts = now_ts
 
         if now_ts - last_capital_check_ts >= 15.0:
@@ -746,14 +748,34 @@ def run_bot(
     )
     trade_results = TradeResultStore(str(_paths.DATA_DIR / "trade_results.json"))
 
-    # [LEDGER] Start PnL ledger daemon (background log scraper)
+    # [LEDGER] Select the correct log file for the daemon to scrape.
+    # Priority: bot_stdout.log (launcher redirect — has [EXIT] lines in
+    # human-readable format) > user-data tradebot.log > project-root log.
+    # The project-root logs/tradebot.log is JSON-formatted and contains NO
+    # [EXIT] lines, so it must only be a last-resort fallback.
+    _ledger_log_candidates = [
+        _paths.LOG_DIR / "bot_stdout.log",        # ← primary: launcher stdout capture
+        _paths.LOG_DIR / "tradebot.log",           # ← user-data plaintext log
+        _paths.APP_DIR / "logs" / "tradebot.log",  # ← last resort (often JSON)
+    ]
+    _ledger_log_path = str(_paths.LOG_DIR / "tradebot.log")  # default
+    for _cand in _ledger_log_candidates:
+        try:
+            if _cand.exists() and _cand.stat().st_size > 0:
+                _ledger_log_path = str(_cand)
+                break  # use first existing, non-empty candidate
+        except OSError:
+            pass
+    logger.info(f"[LEDGER] Using log source: {_ledger_log_path}")
+
     ledger = LedgerDaemon(
-        log_path=str(_paths.LOG_DIR / "tradebot.log"),
+        log_path=_ledger_log_path,
         ledger_path=str(_paths.DATA_DIR / "ledger.json"),
         interval=60,
         lat=getattr(profile_settings, "sabbath_lat", 33.764),
         lon=getattr(profile_settings, "sabbath_lon", -84.386),
         tz_name=getattr(profile_settings, "sabbath_timezone", "America/New_York"),
+        default_strategy=getattr(profile_settings, "strategy_variant", ""),
     )
     ledger.start()
     engines = {
@@ -828,6 +850,7 @@ def run_bot(
             lat=getattr(profile_settings, "sabbath_lat", 33.764),
             lon=getattr(profile_settings, "sabbath_lon", -84.386),
             tz_name=getattr(profile_settings, "sabbath_timezone", "America/New_York"),
+            default_strategy=getattr(profile_settings, "strategy_variant", ""),
         )
         # Override: paper ledger only processes [PAPER] lines (inverse of live)
         paper_ledger._paper_mode = True
@@ -1031,8 +1054,7 @@ def run_bot(
     start_ts = time.time()
     
     # Hot-Reload State
-    from pathlib import Path
-    config_path = Path("config.json")
+    config_path = _paths.CONFIG_FILE
     last_config_mtime = config_path.stat().st_mtime if config_path.exists() else 0
     
     try:
@@ -1671,7 +1693,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                     now_ts = time.time()
                     # Fixed heartbeat: 60s
                     if now_ts - last_holdings_log_ts >= 5.0:
-                        _log_holdings_snapshot(executor, reason="heartbeat")
+                        _log_holdings_snapshot(executor, reason="heartbeat", strategy_variant=getattr(profile_settings, 'strategy_variant', None))
                         last_holdings_log_ts = now_ts
 
                 # During Sabbath, we allow entries because they will be paper-traded.
@@ -1980,7 +2002,7 @@ class WSLoggingHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            if self.controller.ws_server and any(marker in msg for marker in ["[STATE]", "[CYCLE]", "[RESULT]", "[AUTO-ENTRY]", "[ROBOCOP]", "[EXIT]", "[PROFILE]", "[HEARTBEAT]", "[DECISION]", "[STRUCTURE]", "[SAFETY]", "[PHOENIX]", "[ENTRY]", "[FILL]", "[HOLD]", "[SIGNAL]", "[TRADE]", "[SCAN]", "[HOLDINGS]"]):
+            if self.controller.ws_server and any(marker in msg for marker in ["[STATE]", "[CYCLE]", "[RESULT]", "[AUTO-ENTRY]", "[ROBOCOP]", "[EXIT]", "[PROFILE]", "[HEARTBEAT]", "[DECISION]", "[STRUCTURE]", "[SAFETY]", "[PHOENIX]", "[ENTRY]", "[FILL]", "[HOLD]", "[SIGNAL]", "[TRADE]", "[SCAN]", "[HOLDINGS]", "[TREND-DATA]", "[TREND-GATE]"]):
                 self.controller.ws_server.broadcast_log_sync(record.levelname, msg)
         except Exception:
             self.handleError(record)

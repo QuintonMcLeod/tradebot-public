@@ -83,6 +83,11 @@ class RoboCopStrategy(BaseStrategy):
 
         score, score_breakdown, target_dir = self._compute_score(snapshot, gates)
 
+        # [TREND GUIDANCE] Follow HTF direction from gates; only fall back to LTF if neutral
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        if htf_dir in ("long", "short"):
+            target_dir = htf_dir
+
         if target_dir == "neutral":
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Sniper: Neutral LTF")
 

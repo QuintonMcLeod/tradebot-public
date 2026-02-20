@@ -35,7 +35,7 @@ def setup_logging(settings: LoggingSettings) -> None:
     log_dir = Path(settings.file).parent
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # Human-readable format for console
+    # Human-readable format for console AND the plaintext log
     console_formatter = logging.Formatter(
         fmt="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -58,12 +58,33 @@ def setup_logging(settings: LoggingSettings) -> None:
     console_handler.setLevel(level)
     console_handler.setFormatter(console_formatter)
 
+    # ── Human-readable file log (bot_stdout.log) ──────────────────
+    # The LedgerDaemon tail-reads this file for [EXIT] lines.
+    # Previously this only existed when tradebot.sh redirected stdout;
+    # now we write it directly so the ledger works regardless of
+    # launch method (tmux, systemd, manual, etc.).
+    try:
+        from tradebot_sci import paths as _paths
+        stdout_log_path = _paths.LOG_DIR / "bot_stdout.log"
+        stdout_log_path.parent.mkdir(parents=True, exist_ok=True)
+        stdout_handler = RotatingFileHandler(
+            str(stdout_log_path),
+            maxBytes=settings.max_bytes,
+            backupCount=2,
+        )
+        stdout_handler.setLevel(level)
+        stdout_handler.setFormatter(console_formatter)
+    except Exception:
+        stdout_handler = None  # graceful fallback
+
     logger = logging.getLogger()
     logger.setLevel(level)
 
     logger.handlers.clear()
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
+    if stdout_handler:
+        logger.addHandler(stdout_handler)
 
     # Suppress noisy libraries
     logging.getLogger("httpx").setLevel(logging.INFO)

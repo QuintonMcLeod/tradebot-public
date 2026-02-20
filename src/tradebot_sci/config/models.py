@@ -165,6 +165,37 @@ class TradingProfileSettings(BaseModel):
         default=2,
         description="Fractal lookback used to detect swing highs/lows.",
     )
+    adx_gate_threshold: float = Field(
+        default=20.0,
+        ge=0.0,
+        le=100.0,
+        description="ADX value below which entries are blocked (no trend). Set to 0 to disable.",
+    )
+    # ── Trend Indicator Toggles ──────────────────────────────────────
+    trend_adx_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_ADX_ENABLED", "true").lower() == "true",
+        description="Enable ADX trend-strength gate.",
+    )
+    trend_rsi_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_RSI_ENABLED", "false").lower() == "true",
+        description="Enable RSI overbought/oversold gate.",
+    )
+    trend_macd_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_MACD_ENABLED", "false").lower() == "true",
+        description="Enable MACD momentum-crossover gate.",
+    )
+    trend_bollinger_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_BOLLINGER_ENABLED", "false").lower() == "true",
+        description="Enable Bollinger squeeze gate.",
+    )
+    trend_supertrend_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_SUPERTREND_ENABLED", "false").lower() == "true",
+        description="Enable Supertrend direction gate.",
+    )
+    trend_ema_ribbon_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_EMA_RIBBON_ENABLED", "false").lower() == "true",
+        description="Enable EMA Ribbon alignment gate.",
+    )
     trend_min_swings: PositiveInt = Field(
         default=2,  # Lowered from 3 to allow trend detection in real markets
         description="Minimum confirmed swings required to classify trend (HH/HL or LH/LL).",
@@ -935,7 +966,7 @@ class SafetySettings(BaseModel):
         default_factory=lambda: int(os.getenv("SAFETY_CHURN_BURNER_MAX", "5"))
     )
     safety_leverage_sentry_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_LEVERAGE_SENTRY_ENABLED", "True").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_LEVERAGE_SENTRY_ENABLED", "False").lower() == "true"
     )
     safety_max_total_leverage: float = Field(
         default_factory=lambda: float(os.getenv("SAFETY_MAX_TOTAL_LEVERAGE", "3.0"))

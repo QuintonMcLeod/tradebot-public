@@ -314,7 +314,8 @@ class CCXTExchangeBroker:
                     except Exception:
                         pass
 
-            logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) | Duration={duration_str} | Est. Fees factored (0.8%)")
+            pos_dir = "LONG" if side == "sell" else "SHORT"
+            logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={pos_dir} | Duration={duration_str} | Est. Fees factored (0.8%)")
             
             # Add to TradeResultStore
             if self.trade_results:
@@ -327,7 +328,8 @@ class CCXTExchangeBroker:
                     tier="100%", # Default for full flatten
                     capital_at_close=0.0, # Will be updated by balance sync
                     opened_at=opened_at_str,
-                    duration_seconds=duration_secs
+                    duration_seconds=duration_secs,
+                    side="long" if side == "sell" else "short",
                 ))
 
             # Clear Position from Store
@@ -1432,7 +1434,7 @@ class CCXTExchangeBroker:
 
                 # Log specific tags for GUI parsing
                 avg_fill = float(order.get("average") or order.get("price") or 0.0)
-                logger.info(f"[ENTRY] {decision.symbol} side={side} amount={send_amount}")
+                logger.info(f"[ENTRY] {decision.symbol} side={side} amount={send_amount} price={entry_price}")
                 if avg_fill > 0:
                     logger.info(f"[FILL] {decision.symbol} @ {avg_fill} (ID: {entry_id})")
                 logger.info(f"[CCXT] Placed {side} market order {entry_id} for {send_amount} {sym}")

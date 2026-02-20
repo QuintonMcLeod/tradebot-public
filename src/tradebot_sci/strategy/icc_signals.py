@@ -306,19 +306,10 @@ def detect_continuation(
         )
 
     if trend_direction == "long":
-        # [ALGORITHMIC PRECISION]
-        # Check momentum of the recent move to allow V-Bottoms (1 swing)
-        # Calculate ATR-based momentum
-        atr = calculate_atr(recent, period=14) or 0.0001
-        last_move_size = recent[-1].close - recent[0].close
-        momentum_score = last_move_size / (atr * len(recent)) # Pips per bar per ATR? No. 
-        # Simpler: If last candle is huge (> 2 ATR), assume momentum.
-        is_high_momentum = (recent[-1].close - recent[-1].open) > (atr * 2.0)
-        
-        # [SMART OVERRIDE]
-        # If High Momentum, allow 1 swing (catch the rocket).
-        # Else, require 2 swings (ensure structure).
-        min_lows = 1 if is_high_momentum else 2
+        # Always require proper Higher-Low structure (2 swings minimum)
+        # [FIX] Removed SMART OVERRIDE that allowed 1-swing entries on
+        # exhaustion candles (>2 ATR). Those large candles precede reversals.
+        min_lows = 2
         
         if len(swing_lows) < min_lows or len(swing_highs) < 1:
             if debug:
@@ -357,12 +348,9 @@ def detect_continuation(
         return ContinuationSignal(direction="long", trigger_level=last_high, index=len(candles) - 1)
 
     elif trend_direction == "short":
-        # [ALGORITHMIC PRECISION]
-        atr = calculate_atr(recent, period=14) or 0.0001
-        is_high_momentum = (recent[-1].open - recent[-1].close) > (atr * 2.0)
-        
-        # [SMART OVERRIDE]
-        min_highs = 1 if is_high_momentum else 2
+        # Always require proper Lower-High structure (2 swings minimum)
+        # [FIX] Removed SMART OVERRIDE — see long path comment above.
+        min_highs = 2
         
         if len(swing_highs) < min_highs or len(swing_lows) < 1:
             if debug:

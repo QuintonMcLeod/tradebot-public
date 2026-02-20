@@ -82,9 +82,12 @@ class MeanReversionStrategy(BaseStrategy):
                     )
             return None
 
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
         # 2. Handle Initial Entry
-        # Long Entry: Close below lower band + oversold RSI
-        if last_close < lower and rsi < self.rsi_oversold:
+        # Long Entry: Close below lower band + oversold RSI (only when trend allows)
+        if htf_dir in ("long", "neutral") and last_close < lower and rsi < self.rsi_oversold:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close - stop_dist
             # Target opposite BB, but enforce minimum 2:1 R:R
@@ -105,8 +108,8 @@ class MeanReversionStrategy(BaseStrategy):
                 urgency="high" if rsi < 20 else "medium"
             )
 
-        # Short Entry: Close above upper band + overbought RSI
-        if last_close > upper and rsi > self.rsi_overbought:
+        # Short Entry: Close above upper band + overbought RSI (only when trend allows)
+        if htf_dir in ("short", "neutral") and last_close > upper and rsi > self.rsi_overbought:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close + stop_dist
             # Target opposite BB, but enforce minimum 2:1 R:R

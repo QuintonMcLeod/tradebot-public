@@ -23,6 +23,7 @@ class TradeResult:
     duration_seconds: float | None = None # How long the trade was held
     strategy: str | None = None          # Which strategy opened this trade
     exit_reason: str | None = None       # Why the trade was closed
+    side: str | None = None              # Position direction: "long" or "short"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -40,7 +41,8 @@ class TradeResult:
             opened_at=data.get("opened_at"),
             duration_seconds=float(data["duration_seconds"]) if data.get("duration_seconds") is not None else None,
             strategy=data.get("strategy"),
-            exit_reason=data.get("exit_reason")
+            exit_reason=data.get("exit_reason"),
+            side=data.get("side")
         )
 
 class TradeResultStore:

@@ -100,9 +100,12 @@ class CryptoRSIMACDStrategy(BaseStrategy):
                 )
             return None
 
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+
         # --- Initial Entry ---
-        # LONG: RSI was oversold (touched 30 zone) + MACD bullish crossover
-        if rsi < self.rsi_oversold and bullish_cross:
+        # LONG: RSI was oversold (touched 30 zone) + MACD bullish crossover (only when trend allows)
+        if htf_dir in ("long", "neutral") and rsi < self.rsi_oversold and bullish_cross:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close - stop_dist
             take_profit = last_close + (stop_dist * 2.0)  # Minimum 2:1 RR
@@ -126,8 +129,8 @@ class CryptoRSIMACDStrategy(BaseStrategy):
                 score=score, grade="A" if score >= 70 else "B"
             )
 
-        # SHORT: RSI was overbought (touched 70 zone) + MACD bearish crossover
-        if rsi > self.rsi_overbought and bearish_cross:
+        # SHORT: RSI was overbought (touched 70 zone) + MACD bearish crossover (only when trend allows)
+        if htf_dir in ("short", "neutral") and rsi > self.rsi_overbought and bearish_cross:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close + stop_dist
             take_profit = last_close - (stop_dist * 2.0)

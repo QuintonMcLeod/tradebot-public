@@ -68,7 +68,7 @@ class TrendRiderStrategy(BaseStrategy):
         proximity_threshold = atr * 0.3  # Within 0.3 ATR of the EMA
 
         # --- BULLISH PULLBACK ---
-        if htf_dir in ("long", "bullish"):
+        if htf_dir in ("long",):
             # Price was above EMA, pulled back to it, and bounced
             touched_ema = ema_dist < proximity_threshold or last_close <= ema_21
             bounced = last_close > prev_close  # Closing higher = bounce
@@ -99,7 +99,7 @@ class TrendRiderStrategy(BaseStrategy):
                 )
 
         # --- BEARISH PULLBACK ---
-        if htf_dir in ("short", "bearish"):
+        if htf_dir in ("short",):
             touched_ema = ema_dist < proximity_threshold or last_close >= ema_21
             bounced = last_close < prev_close  # Closing lower = bearish bounce
 
@@ -140,13 +140,13 @@ class TrendRiderStrategy(BaseStrategy):
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
         pos_dir = open_position.get("direction")
 
-        if pos_dir == "long" and htf_dir in ("short", "bearish"):
+        if pos_dir == "long" and htf_dir in ("short",):
             return close_position_decision(
                 snapshot.symbol,
                 snapshot.timeframe,
                 "Trend Rider: HTF trend reversed to bearish — exiting long",
             )
-        if pos_dir == "short" and htf_dir in ("long", "bullish"):
+        if pos_dir == "short" and htf_dir in ("long",):
             return close_position_decision(
                 snapshot.symbol,
                 snapshot.timeframe,
