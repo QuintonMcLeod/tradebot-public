@@ -46,7 +46,7 @@ async function loadAnalyticsData(filter) {
             return;
         }
 
-        const result = await window.api.getAnalyticsSummary(filter);
+        const result = await window.api.getAnalyticsSummary(filter, !!window.isSabbath);
         console.log('[ANALYTICS] Result:', result?.success, 'source:', result?.data?._source);
 
         if (result && result.success) {

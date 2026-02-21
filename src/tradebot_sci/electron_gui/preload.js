@@ -15,8 +15,8 @@ contextBridge.exposeInMainWorld('api', {
         }
     },
     // Analytics IPC (invoke for async responses)
-    getTradeHistory: (filter) => ipcRenderer.invoke('get-trade-history', filter),
-    getAnalyticsSummary: (filter) => ipcRenderer.invoke('get-analytics-summary', filter),
+    getTradeHistory: (filter, paperMode) => ipcRenderer.invoke('get-trade-history', filter, paperMode),
+    getAnalyticsSummary: (filter, paperMode) => ipcRenderer.invoke('get-analytics-summary', filter, paperMode),
     getLogFiles: () => ipcRenderer.invoke('get-log-files'),
     onEnvUpdated: (callback) => ipcRenderer.on('env-updated', (event, data) => callback(data)),
 

@@ -100,16 +100,16 @@ function getLogFiles() {
  * @param {string} filter — '1h', '4h', '24h', 'week', 'month', 'year', 'all'
  * @returns {{ trades: Array, capital: Array, capitalByBroker: Object }}
  */
-function getTradeHistory(filter = '24h') {
+function getTradeHistory(filter = '24h', paperMode = false) {
     const cutoff = _getCutoffTime(filter);
     const trades = [];
     const capital = [];
     const capitalByBroker = {};
 
-    // 1. Read from ledger (live first, paper fallback)
+    // 1. Read from ledger — paper mode uses paper_ledger exclusively
     const liveLedgerPath = path.join(DATA_DIR, 'ledger.json');
     const paperLedgerPath = path.join(DATA_DIR, 'paper_ledger.json');
-    const ledgerPath = fs.existsSync(liveLedgerPath) ? liveLedgerPath : paperLedgerPath;
+    const ledgerPath = paperMode ? paperLedgerPath : (fs.existsSync(liveLedgerPath) ? liveLedgerPath : paperLedgerPath);
     let ledger = null;
     if (fs.existsSync(ledgerPath)) {
         try {
@@ -297,11 +297,13 @@ function getTradeHistory(filter = '24h') {
         return ta - tb;
     });
 
-    // Also include active positions from paper_state.json AND oanda_tracked_positions.json
-    const positionSources = [
-        { file: 'paper_state.json', key: 'positions' },
-        { file: 'oanda_tracked_positions.json', key: null },  // top-level object of symbol->position
-    ];
+    // Also include active positions — paper mode only shows paper positions
+    const positionSources = paperMode
+        ? [{ file: 'paper_state.json', key: 'positions' }]
+        : [
+            { file: 'paper_state.json', key: 'positions' },
+            { file: 'oanda_tracked_positions.json', key: null },  // top-level object of symbol->position
+        ];
     for (const src of positionSources) {
         const posPath = path.join(DATA_DIR, src.file);
         if (fs.existsSync(posPath)) {

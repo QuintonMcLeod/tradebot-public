@@ -52,7 +52,7 @@ const CONFIG_MAP = {
     'GUI_WS_URL': ['runtime', 'gui_ws_url'],
     'GUI_PNL_TIMEFRAME': ['runtime', 'pnl_timeframe'],
     'GLOBAL_RISK_PCT': ['runtime', 'global_default_risk_pct'],
-    'FRIDAY_FADE_ENABLED': ['schedule', 'friday_fade_enabled'],
+    'FRIDAY_FADE_ENABLED': ['runtime', 'friday_fade_enabled'],
     // Safety & Shields
     'SAFETY_ATR_SHIELD_ENABLED': ['safety', 'safety_atr_shield_enabled'],
     'SAFETY_SENTIMENT_SHIELD_ENABLED': ['safety', 'safety_sentiment_shield_enabled'],

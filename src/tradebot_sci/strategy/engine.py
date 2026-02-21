@@ -560,6 +560,12 @@ class StrategyEngine:
             decision.score = score
             decision.grade = grade
 
+            # [META-SCI] Propagate the winning sub-strategy name (e.g. "bullish_trending")
+            # so the GUI shows the actual strategy instead of the conglomerate "meta_sci".
+            meta_src = (getattr(decision, 'gates', None) or {}).get('meta_source')
+            if meta_src:
+                self.last_strat_name = meta_src
+
 
             # Counter-Trend Entry Block
             # Prevents going long when HTF is bearish, or short when HTF is bullish.

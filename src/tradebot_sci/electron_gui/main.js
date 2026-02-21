@@ -222,10 +222,10 @@ function setupIpcHandlers() {
     });
 
     // Analytics IPC Handlers
-    ipcMain.handle('get-trade-history', async (event, filter = '24h') => {
-        console.log('[ANALYTICS-IPC] get-trade-history called with filter:', filter);
+    ipcMain.handle('get-trade-history', async (event, filter = '24h', paperMode = false) => {
+        console.log('[ANALYTICS-IPC] get-trade-history called with filter:', filter, 'paperMode:', paperMode);
         try {
-            const data = await logParser.getTradeHistory(filter);
+            const data = await logParser.getTradeHistory(filter, paperMode);
             console.log('[ANALYTICS-IPC] Trade history result - trades:', data.trades?.length, 'capital:', data.capital?.length);
             return { success: true, data };
         } catch (error) {
@@ -234,10 +234,10 @@ function setupIpcHandlers() {
         }
     });
 
-    ipcMain.handle('get-analytics-summary', async (event, filter = '24h') => {
-        console.log('[ANALYTICS-IPC] get-analytics-summary called with filter:', filter);
+    ipcMain.handle('get-analytics-summary', async (event, filter = '24h', paperMode = false) => {
+        console.log('[ANALYTICS-IPC] get-analytics-summary called with filter:', filter, 'paperMode:', paperMode);
         try {
-            const data = await logParser.getTradeHistory(filter);
+            const data = await logParser.getTradeHistory(filter, paperMode);
             console.log('[ANALYTICS-IPC] Raw data - trades:', data.trades?.length, 'capital:', data.capital?.length);
             const summary = logParser.calculateAnalyticsSummary(data);
             console.log('[ANALYTICS-IPC] Summary calculated - totalTrades:', summary.totalTrades);

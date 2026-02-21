@@ -244,6 +244,7 @@ async function connectWebSocket() {
                     }
                 }
                 if (data.is_sabbath !== undefined) {
+                    window.isSabbath = !!data.is_sabbath;
                     const sabbathEl = document.getElementById('status-sabbath');
                     if (sabbathEl) {
                         if (data.is_sabbath) sabbathEl.classList.remove('hidden');
