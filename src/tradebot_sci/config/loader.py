@@ -203,6 +203,11 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         "icc_score_htf_strength_threshold",
     ]
 
+    _PROMOTED_SABBATH_KEYS = [
+        "sabbath_enabled", "sabbath_timezone", "sabbath_start_local",
+        "sabbath_end_local", "sabbath_astronomical", "sabbath_lat", "sabbath_lon",
+    ]
+
     _profile_fields = set(TradingProfileSettings.model_fields.keys())
 
     profiles = {}
@@ -211,6 +216,35 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         for key in _PROMOTED_RISK_KEYS:
             if key not in merged and key in risk_model_cfg and key in _profile_fields:
                 merged[key] = risk_model_cfg[key]
+        # Inject global sabbath settings as defaults (sabbath is global-only)
+        for key in _PROMOTED_SABBATH_KEYS:
+            if key not in merged and key in g_cfg and key in _profile_fields:
+                merged[key] = g_cfg[key]
+
+        # ── Inject global per-asset strategies into profiles ──
+        # AI Optimize writes strategy_crypto, strategy_forex, etc.
+        # to the global section.  Promote them into the profile's
+        # 'strategies' dict so PerAssetStrategies picks them up.
+        _STRATEGY_ASSET_KEYS = {
+            "strategy_crypto": "crypto",
+            "strategy_forex": "forex",
+            "strategy_stocks": "stocks",
+            "strategy_etf": "etf",
+            "strategy_metals": "metals",
+            "strategy_futures": "futures",
+        }
+        strategies_override = {}
+        for g_key, asset_key in _STRATEGY_ASSET_KEYS.items():
+            val = g_cfg.get(g_key)
+            if val:
+                strategies_override[asset_key] = val
+        if strategies_override:
+            existing = merged.get("strategies") or {}
+            if isinstance(existing, dict):
+                # Profile-level values win; global fills the gaps
+                strategies_override.update(existing)
+            merged["strategies"] = strategies_override
+
         profiles[name] = TradingProfileSettings(**merged)
 
     brokers_cfg = config.get("brokers", {})

@@ -92,6 +92,7 @@ class RuntimeController:
                 "profile": self.profile_name,
                 "symbols": getattr(self.profile_settings, "symbols", []),
                 "is_sabbath": sabbath_active,
+                "is_paper": not getattr(self.settings.runtime, "execute_trades", True) or sabbath_active,
                 "halted": self.ws_server.is_halted(),
                 "pnl_stats": pnl_stats,
                 "time_format": getattr(self.settings.runtime, "time_format", "24h")

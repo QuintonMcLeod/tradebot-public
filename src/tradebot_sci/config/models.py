@@ -142,9 +142,18 @@ class TradingProfileSettings(BaseModel):
         default=None,
         description="Per-asset-class strategy overrides.",
     )
-    candle_timeframe: str
-    market_poll_interval_seconds: PositiveInt
-    ai_decision_interval_seconds: PositiveInt
+    candle_timeframe: str = Field(
+        default="5m",
+        description="Candle timeframe for the profile (e.g. 1m, 5m, 15m, 1h).",
+    )
+    market_poll_interval_seconds: PositiveInt = Field(
+        default=60,
+        description="Seconds between market data poll cycles.",
+    )
+    ai_decision_interval_seconds: PositiveInt = Field(
+        default=300,
+        description="Seconds between AI decision cycles.",
+    )
     htf_timeframe: str = Field(
         default="4h",
         description="Higher timeframe used for ICC structure trend (default 4h).",
@@ -171,6 +180,12 @@ class TradingProfileSettings(BaseModel):
         le=100.0,
         description="ADX value below which entries are blocked (no trend). Set to 0 to disable.",
     )
+    trend_chop_threshold: float = Field(
+        default=15.0,
+        ge=0.0,
+        le=100.0,
+        description="ADX value below which the market is considered choppy. Direction is forced neutral. Must be <= adx_gate_threshold.",
+    )
     # ── Trend Indicator Toggles ──────────────────────────────────────
     trend_adx_enabled: bool = Field(
         default_factory=lambda: os.getenv("TREND_ADX_ENABLED", "true").lower() == "true",
@@ -195,6 +210,22 @@ class TradingProfileSettings(BaseModel):
     trend_ema_ribbon_enabled: bool = Field(
         default_factory=lambda: os.getenv("TREND_EMA_RIBBON_ENABLED", "false").lower() == "true",
         description="Enable EMA Ribbon alignment gate.",
+    )
+    trend_ichimoku_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_ICHIMOKU_ENABLED", "false").lower() == "true",
+        description="Enable Ichimoku Cloud direction gate.",
+    )
+    trend_parabolic_sar_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_PARABOLIC_SAR_ENABLED", "false").lower() == "true",
+        description="Enable Parabolic SAR direction gate.",
+    )
+    trend_vwap_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_VWAP_ENABLED", "false").lower() == "true",
+        description="Enable VWAP direction gate.",
+    )
+    trend_hull_ma_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_HULL_MA_ENABLED", "false").lower() == "true",
+        description="Enable Hull Moving Average direction gate.",
     )
     trend_min_swings: PositiveInt = Field(
         default=2,  # Lowered from 3 to allow trend detection in real markets

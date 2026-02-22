@@ -1525,6 +1525,12 @@ function init() {
             if (window.updateRealizedPnL) window.updateRealizedPnL();
         });
 
+        // Fetch and display app version from VERSION file
+        window.api.invoke('get-app-version').then(ver => {
+            const badge = document.getElementById('version-badge');
+            if (badge && ver) badge.textContent = `β ${ver}`;
+        }).catch(() => { });
+
         // Chart Refresh Interval (15 Seconds)
         setInterval(() => {
             const sym = document.getElementById('chart-symbol-label')?.innerText || 'EURUSD';

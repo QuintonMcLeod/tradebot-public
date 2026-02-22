@@ -908,6 +908,7 @@ window.helpModule = (() => {
                 { filename: 'RTFM/11_GHOST_IN_MACHINE.md', title: 'I Think, Therefore I Trade: The AI Decision Engine', category: 'rtfm', icon: 'smart_toy', description: '"I think, therefore I trade."' },
                 { filename: 'RTFM/12_TIME_MACHINE.md', title: 'I Have to Go Back: The Trinity of Backtesting', category: 'rtfm', icon: 'history', description: '"I have to go back."' },
                 { filename: 'RTFM/13_ENV_VARS.md', title: 'Every Toggle, Every Flag: The Environment Variable Bible', category: 'rtfm', icon: 'settings_applications', description: 'The complete env var reference.' },
+                { filename: 'RTFM/31_SEASONED_TRADER.md', title: 'The Bot Is a 20-Year Seasoned Trader', category: 'rtfm', icon: 'military_tech', description: '"You spent 20 years learning to read price action. The bot learned it in 200 milliseconds."', featured: true },
                 { filename: 'WHAT_S_PLUS_MEANS.md', title: 'What Does S+ Grade Mean For You?', category: 'guide', icon: 'workspace_premium', description: 'A plain-English guide for humans who trade, not humans who type-check.', featured: true, size: 'md' },
                 { filename: 'adr/001-strategy-registry.md', title: 'ADR-001: The Strategy Registry', category: 'adr', icon: 'extension', description: '"Please Stop Adding Elif Branches."' },
                 { filename: 'adr/002-safety-guard-architecture.md', title: 'ADR-002: Safety Guard Architecture', category: 'adr', icon: 'shield', description: '"The $52/Day Incident."', size: 'md' },

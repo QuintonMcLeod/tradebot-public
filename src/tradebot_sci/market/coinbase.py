@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 from tradebot_sci.market.models import Candle, MarketSnapshot, OrderBook, OrderBookLevel, Ticker, TrendState
-from tradebot_sci.market.trend import infer_trend_from_swings
 
 logger = logging.getLogger(__name__)
 
@@ -96,14 +95,14 @@ class CoinbaseMarketDataProvider:
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
         candles = self.get_latest_candles(symbol, timeframe, limit=200)
-        trend_htf = self._infer_trend(candles[-100:])
-        trend_ltf = self._infer_trend(candles[-20:])
+        # Neutral defaults — engine.py's Trend Detection sets direction
+        _neutral = TrendState(direction="neutral", strength=0.0)
         return MarketSnapshot(
             symbol=symbol,
             timeframe=timeframe,
             candles=candles,
-            trend_htf=trend_htf,
-            trend_ltf=trend_ltf,
+            trend_htf=_neutral,
+            trend_ltf=_neutral,
             htf_candles=candles[-100:],
             ltf_candles=candles[-20:],
             htf_timeframe=timeframe,
@@ -152,7 +151,8 @@ class CoinbaseMarketDataProvider:
 
     @staticmethod
     def _infer_trend(candles: list[Candle]) -> TrendState:
-        return infer_trend_from_swings(candles)
+        """Legacy stub — returns neutral. Direction set by engine.py."""
+        return TrendState(direction="neutral", strength=0.0)
 
     @staticmethod
     def _product_id(symbol: str) -> str:

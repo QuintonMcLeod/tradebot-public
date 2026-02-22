@@ -20,9 +20,19 @@ except ImportError:
     ASTRAL_AVAILABLE = False
 
 
-def _parse_local_time(value: str) -> tuple[int, int]:
-    hour, minute = map(int, value.split(":"))
-    return hour, minute
+def _parse_local_time(value) -> tuple[int, int]:
+    """Parse a local time value — supports 'HH:MM' string or minutes-since-midnight int."""
+    if isinstance(value, (int, float)):
+        # Minutes since midnight (e.g. 1080 = 18:00)
+        total = int(value)
+        return total // 60, total % 60
+    s = str(value)
+    if ":" in s:
+        hour, minute = map(int, s.split(":"))
+        return hour, minute
+    # Bare number as string (e.g. "1080")
+    total = int(s)
+    return total // 60, total % 60
 
 
 def _compute_sabbath_window(

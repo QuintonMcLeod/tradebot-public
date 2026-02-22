@@ -26,7 +26,6 @@ from tradebot_sci.config.loader import get_settings, reload_settings
 from tradebot_sci.config.models import Settings
 from tradebot_sci.logging.setup import setup_logging
 from tradebot_sci.market.models import MarketSnapshot
-from tradebot_sci.market.trend import infer_trend_from_swings
 from tradebot_sci.runtime.universe import resolve_symbol_universe, instrument_classes_for_symbols
 from tradebot_sci.runtime.provider_factory import build_exchange_broker, build_market_provider
 from tradebot_sci.runtime.pair_selector import PairSelector
@@ -844,7 +843,7 @@ def run_bot(
             logger.info("[PAPER] Sabbath-mode Paper Broker initialized (standby).")
         # Separate paper ledger — never pollutes the live ledger
         paper_ledger = LedgerDaemon(
-            log_path=str(_paths.LOG_DIR / "tradebot.log"),
+            log_path=_ledger_log_path,
             ledger_path=str(_paths.DATA_DIR / "paper_ledger.json"),
             interval=60,
             lat=getattr(profile_settings, "sabbath_lat", 33.764),
@@ -1080,23 +1079,35 @@ def run_bot(
                         if hasattr(executor, "sync_profile"):
                             executor.sync_profile(profile_settings)
                         
-                        # Sync Profile to Environment (so SafetyGuard consumes it immediately)
-                        logger.info("[HOT-RELOAD] Syncing new settings to OS Environment for SafetyGuard...")
+                        # Sync ALL settings to OS Environment so any code
+                        # reading os.getenv() (UserConfig, Fee Shield, etc.)
+                        # picks up changes immediately on hot-plug.
+                        logger.info("[HOT-RELOAD] Syncing new settings to OS Environment...")
                         
-                        # Map internal settings to ENV vars used by SafetyGuard
-                        env_updates = {
+                        # Dynamically sync every field from safety and performance
+                        synced_count = 0
+                        for section_name, section_obj in [("safety", settings.safety),
+                                                          ("performance", settings.performance)]:
+                            for field_name in section_obj.model_fields:
+                                val = getattr(section_obj, field_name, None)
+                                if val is None:
+                                    continue
+                                env_key = field_name.upper()
+                                os.environ[env_key] = str(val).lower() if isinstance(val, bool) else str(val)
+                                synced_count += 1
+                        
+                        # Profile-level keys consumed via os.getenv() elsewhere
+                        profile_env_keys = {
                             "BREAKEVEN_TRAIL_PCT": str(getattr(profile_settings, "breakeven_trail_pct", 0.0)),
                             "TRAILING_STOP_ENABLED": str(getattr(profile_settings, "trailing_stop_enabled", False)).lower(),
                             "RISK_REWARD_RATIO": str(getattr(profile_settings, "risk_reward_ratio", 0.0)),
                             "ICC_ENTRY_SCORE_THRESHOLD": str(getattr(profile_settings, "structure_score_threshold", 75.0)),
                             "ICC_HIGH_SCORE_OVERRIDE_THRESHOLD": str(getattr(profile_settings, "high_score_override_threshold", 85.0)),
                         }
-                        
-                        for key, val in env_updates.items():
+                        for key, val in profile_env_keys.items():
                             os.environ[key] = val
-                            # Also update the running process environment if needed for subprocesses (though less likely here)
                         
-                        logger.info(f"[HOT-RELOAD] Environment Synced: BE={env_updates['BREAKEVEN_TRAIL_PCT']}, TRAIL={env_updates['TRAILING_STOP_ENABLED']}, RR={env_updates['RISK_REWARD_RATIO']}")
+                        logger.info(f"[HOT-RELOAD] Environment Synced: {synced_count} safety/performance keys + {len(profile_env_keys)} profile keys")
 
                         # 3. Resolve New Symbols
                         new_symbols = _resolve_symbol_universe(settings, profile_settings, profile_name)

@@ -31,4 +31,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     restartBot: () => ipcRenderer.send('restart-bot'),
     getBotStatus: () => ipcRenderer.send('get-bot-status'),
     onBotStatus: (callback) => ipcRenderer.on('bot-status', (event, data) => callback(data)),
+
+    // AI Optimize
+    aiRecommend: (profileName) => ipcRenderer.invoke('ai-recommend', profileName),
 });

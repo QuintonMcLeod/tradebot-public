@@ -6,7 +6,6 @@ from tradebot_sci.strategy.decisions import AITradeDecision, close_position_deci
 from tradebot_sci.strategy.variants.base import BaseStrategy
 from tradebot_sci.market.indicators import calculate_sma
 from tradebot_sci.strategy.icc_signals import calculate_atr
-from tradebot_sci.market.trend import infer_trend_from_swings
 from tradebot_sci.config.models import UserConfig
 
 logger = logging.getLogger(__name__)

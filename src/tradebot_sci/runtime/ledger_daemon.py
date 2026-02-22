@@ -369,11 +369,11 @@ class LedgerDaemon:
                     symbol = m.group("symbol")
                     reason = m.group("reason").strip()
 
-                    # ── Deduplication: skip if same symbol+pnl seen within 90s ──
+                    # ── Deduplication: skip if same symbol+pnl seen within 5 min ──
                     dedup_key = f"{symbol}_{round(pnl_val * 100)}"
                     now = ts or datetime.now(self.tz)
                     last_seen = self._exit_dedup.get(dedup_key)
-                    if last_seen and (now - last_seen).total_seconds() < 90:
+                    if last_seen and (now - last_seen).total_seconds() < 300:
                         logger.debug(f"[LEDGER] Skipping duplicate EXIT: {symbol} {pnl_val:+.4f} ({reason})")
                         continue
 
@@ -387,9 +387,9 @@ class LedgerDaemon:
                     self._exit_dedup[sym_dedup_key] = now
 
                     self._exit_dedup[dedup_key] = now
-                    # Prune old entries (> 5 min)
+                    # Prune old entries (> 10 min)
                     self._exit_dedup = {k: v for k, v in self._exit_dedup.items()
-                                        if (now - v).total_seconds() < 300}
+                                        if (now - v).total_seconds() < 600}
 
                     pct = float(m.group("pct")) if m.group("pct") else 0.0
                     spread = float(m.group("spread")) if m.group("spread") else 0.0

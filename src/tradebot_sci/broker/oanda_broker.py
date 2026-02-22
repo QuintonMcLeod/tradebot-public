@@ -489,11 +489,21 @@ class OandaExchangeBroker(IExchangeBroker):
             if close_data:
                 r_close = oanda_positions.PositionClose(self.account_id, instrument=oanda_sym, data=close_data)
                 self.client.request(r_close)
+                resp = r_close.response
+
+                # Check if OANDA cancelled the close (e.g., MARKET_HALTED on weekends)
+                if "longOrderCancelTransaction" in resp or "shortOrderCancelTransaction" in resp:
+                    cancel_reason = (
+                        resp.get("longOrderCancelTransaction", {}).get("reason")
+                        or resp.get("shortOrderCancelTransaction", {}).get("reason")
+                        or "unknown"
+                    )
+                    logger.warning(f"[OANDA] Close order for {symbol} was CANCELLED by OANDA (reason: {cancel_reason}). Position remains open.")
+                    return
                 
                 # Calculate PnL and Log for GUI
                 pnl_val = float(pos.get("unrealizedPL", 0.0)) # Since we are closing at current market price
                 # For Oanda, we can try to find the actual realized PnL in the response
-                resp = r_close.response
                 if "longOrderFillTransaction" in resp:
                     pnl_val = float(resp["longOrderFillTransaction"].get("pl", 0.0))
                 elif "shortOrderFillTransaction" in resp:

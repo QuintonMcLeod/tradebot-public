@@ -9,6 +9,7 @@ from tradebot_sci.broker.execution import ExecutionOutcome, ExecutionResult, Exe
 from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.broker.trade_result_store import TradeResult
 from tradebot_sci import paths as _paths
+from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
 
 logger = logging.getLogger(__name__)
 
@@ -17,14 +18,20 @@ PAPER_STATE_FILE = str(_paths.DATA_DIR / "paper_state.json")
 class PaperBroker:
     """A simulated broker for local-only paper trading during Sabbath."""
 
-    # Kraken-level trading friction for realistic paper results.
-    # Taker fee: 0.40% (Kraken Pro lowest tier, <$10K 30-day volume, as of Mar 2024)
-    # Half-spread: ~0.05% (typical for BTC/ETH majors on Kraken)
-    # Slippage: ~0.02% (conservative estimate for moderate-size fills)
-    # Total per-leg friction: ~0.47%  |  Round-trip: ~0.94%
-    TAKER_FEE_PCT = float(os.getenv("PAPER_TAKER_FEE_PCT", "0.0025"))     # 0.25% (ActiveTrader tier)
+    # Per-leg trading friction for realistic paper results.
+    # Crypto: Kraken ActiveTrader tier taker fee 0.25%, half-spread ~0.05%, slippage ~0.02%
+    # Forex:  OANDA zero commission, friction is spread-only (~0.005% covers residual)
+    TAKER_FEE_PCT_CRYPTO = float(os.getenv("PAPER_TAKER_FEE_PCT", "0.0025"))  # 0.25%
+    TAKER_FEE_PCT_FOREX  = float(os.getenv("PAPER_FOREX_FEE_PCT", "0.00005")) # 0.005% (spread-only)
     HALF_SPREAD_PCT = float(os.getenv("PAPER_HALF_SPREAD_PCT", "0.0005"))  # 0.05%
     SLIPPAGE_PCT = float(os.getenv("PAPER_SLIPPAGE_PCT", "0.0002"))        # 0.02%
+
+    def _get_taker_fee(self, symbol: str) -> float:
+        """Return asset-appropriate per-leg taker fee rate."""
+        ac = classify_symbol(symbol)
+        if ac == AssetClass.FOREX:
+            return self.TAKER_FEE_PCT_FOREX
+        return self.TAKER_FEE_PCT_CRYPTO
 
     # Hard leverage cap for paper trading.
     # Profile target_leverage (e.g. 50x) is for OANDA forex — way too high for
@@ -197,7 +204,7 @@ class PaperBroker:
                 fill_price = price * (1 + friction)   # Buy higher
             else:
                 fill_price = price * (1 - friction)   # Sell lower
-            fee_usd = abs(qty * fill_price) * self.TAKER_FEE_PCT
+            fee_usd = abs(qty * fill_price) * self._get_taker_fee(symbol)
             self.balance -= fee_usd  # Deduct taker fee immediately
 
             self.positions[symbol] = {
@@ -240,7 +247,7 @@ class PaperBroker:
                 else:
                     exit_p = price * (1 + friction)   # Buy higher to cover short
                 pnl_usd = (exit_p - entry_p) * pos["size"]
-                fee_usd = abs(pos["qty"] * exit_p) * self.TAKER_FEE_PCT
+                fee_usd = abs(pos["qty"] * exit_p) * self._get_taker_fee(symbol)
                 pnl_usd -= fee_usd
                 self.balance += pnl_usd
                 logger.info(
@@ -329,7 +336,7 @@ class PaperBroker:
                 else:
                     exit_price = price * (1 + friction)   # Buy higher to cover
                 pnl_usd = (exit_price - entry_p) * pos["size"]
-                fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * self.TAKER_FEE_PCT
+                fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * self._get_taker_fee(symbol)
                 pnl_usd -= fee_usd
                 pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                 self.balance += pnl_usd
@@ -398,6 +405,19 @@ class PaperBroker:
                     ExecutionStatus.EXIT_SIGNAL, symbol,
                     f"Paper {hit} exit PnL={pnl_usd:.2f}"
                 ))
+
+        # Refresh unrealized PnL for surviving positions so paper_state.json
+        # stays current for the GUI analytics panel (trade history active PnL).
+        for sym in list(self.positions.keys()):
+            pos = self.positions[sym]
+            try:
+                cur = self._get_current_price(sym)
+                pos["current_price"] = cur
+                pos["unrealized_pnl"] = (cur - pos["entry_price"]) * pos["size"]
+                pos["pnl_pct"] = (pos["unrealized_pnl"] / (pos["entry_price"] * abs(pos["size"]))) * 100
+            except Exception:
+                pass
+        self._save_state()
 
         return results
 

@@ -12,8 +12,7 @@ try:
 except ImportError as e:
     HAS_OANDA = False
     _OANDA_IMPORT_ERROR = str(e)
-from tradebot_sci.market.models import Candle, MarketSnapshot, Ticker
-from tradebot_sci.market.trend import infer_trend_from_swings
+from tradebot_sci.market.models import Candle, MarketSnapshot, Ticker, TrendState
 
 logger = logging.getLogger(__name__)
 
@@ -136,15 +135,15 @@ class OandaMarketDataProvider:
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
         candles = self.get_latest_candles(symbol, timeframe, limit=200)
-        trend_htf = infer_trend_from_swings(candles[-100:]) if len(candles) >= 100 else infer_trend_from_swings(candles)
-        trend_ltf = infer_trend_from_swings(candles[-20:]) if len(candles) >= 20 else infer_trend_from_swings(candles)
-        
+        # Neutral defaults — engine.py's Trend Detection sets direction
+        _neutral = TrendState(direction="neutral", strength=0.0)
+
         return MarketSnapshot(
             symbol=symbol,
             timeframe=timeframe,
             candles=candles,
-            trend_htf=trend_htf,
-            trend_ltf=trend_ltf,
+            trend_htf=_neutral,
+            trend_ltf=_neutral,
             htf_candles=candles[-100:] if len(candles) >= 100 else candles,
             ltf_candles=candles[-20:] if len(candles) >= 20 else candles,
             htf_timeframe=timeframe,

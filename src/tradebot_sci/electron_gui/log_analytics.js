@@ -303,38 +303,93 @@ function getTradeHistory(filter = '24h', paperMode = false) {
         : [
             { file: 'paper_state.json', key: 'positions' },
             { file: 'oanda_tracked_positions.json', key: null },  // top-level object of symbol->position
+            { file: 'position_holds.json', key: null, isArray: true },  // CCXT position hold store
         ];
     for (const src of positionSources) {
         const posPath = path.join(DATA_DIR, src.file);
         if (fs.existsSync(posPath)) {
             try {
                 const raw = JSON.parse(fs.readFileSync(posPath, 'utf8'));
-                const positions = src.key ? (raw[src.key] || {}) : raw;
-                if (positions && typeof positions === 'object' && !Array.isArray(positions)) {
-                    for (const [symbol, pos] of Object.entries(positions)) {
-                        // Skip if already present as active
-                        if (trades.some(t => t._active && t.symbol === symbol)) continue;
-                        // Compute PnL % from available data if not stored
-                        const _upnl = pos.unrealized_pnl || 0;
-                        const _entry = pos.entry_price || pos.avg_price || 0;
-                        const _size = Math.abs(pos.size || 0);
-                        const _pctCalc = (_entry && _size) ? (_upnl / (_entry * _size)) * 100 : 0;
-                        trades.unshift({
-                            symbol,
-                            side: pos.side || pos.direction || 'long',
-                            pnl: _upnl,
-                            pct: pos.pnl_pct || _pctCalc,
-                            timestamp: pos.opened_at || pos.entry_time || (raw.updated_at || ''),
-                            strategy: pos.strategy || '--',
-                            stop_loss: pos.stop_loss,
-                            take_profit: pos.take_profit,
-                            entry_price: _entry,
-                            size: pos.size,
-                            _active: true
-                        });
+                let entries = []; // Normalize to array of [symbol, posData]
+
+                if (src.isArray && Array.isArray(raw)) {
+                    // position_holds.json: array of {symbol, ...}
+                    for (const pos of raw) {
+                        if (pos.symbol && pos.size) entries.push([pos.symbol, pos]);
+                    }
+                } else {
+                    const positions = src.key ? (raw[src.key] || {}) : raw;
+                    if (positions && typeof positions === 'object' && !Array.isArray(positions)) {
+                        entries = Object.entries(positions);
                     }
                 }
+
+                for (const [symbol, pos] of entries) {
+                    // Skip if already present as active
+                    if (trades.some(t => t._active && t.symbol === symbol)) continue;
+                    // Compute PnL % from available data if not stored
+                    const _upnl = pos.unrealized_pnl || 0;
+                    const _entry = pos.entry_price || pos.avg_price || 0;
+                    const _size = Math.abs(pos.size || 0);
+                    const _pctCalc = (_entry && _size) ? (_upnl / (_entry * _size)) * 100 : 0;
+                    trades.unshift({
+                        symbol,
+                        side: pos.side || pos.direction || 'long',
+                        pnl: _upnl,
+                        pct: pos.pnl_pct || _pctCalc,
+                        timestamp: pos.opened_at || pos.entry_time || (raw.updated_at || ''),
+                        strategy: pos.strategy || '--',
+                        stop_loss: pos.stop_loss,
+                        take_profit: pos.take_profit,
+                        entry_price: _entry,
+                        size: pos.size,
+                        _active: true
+                    });
+                }
             } catch (_) { /* ignore */ }
+        }
+    }
+
+    // Fallback: Parse last [HOLDINGS] heartbeat from bot_stdout.log for live CCXT positions
+    // This captures positions (like DOGE) that aren't in any static JSON file
+    if (!paperMode) {
+        const stdoutPath = path.join(LOGS_DIR, 'bot_stdout.log');
+        if (fs.existsSync(stdoutPath)) {
+            try {
+                // Read last 50KB to find the most recent [HOLDINGS] line
+                const stat = fs.statSync(stdoutPath);
+                const readSize = Math.min(stat.size, 50000);
+                const fd = fs.openSync(stdoutPath, 'r');
+                const buf = Buffer.alloc(readSize);
+                fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
+                fs.closeSync(fd);
+                const tail = buf.toString('utf8');
+                const holdingsLines = tail.split('\n').filter(l => l.includes('[HOLDINGS]'));
+                if (holdingsLines.length > 0) {
+                    const lastLine = holdingsLines[holdingsLines.length - 1];
+                    const jsonPart = lastLine.split(/\[HOLDINGS\]/i)[1].trim();
+                    const holdingsData = JSON.parse(jsonPart);
+                    if (holdingsData.positions) {
+                        for (const pos of holdingsData.positions) {
+                            if (!pos.symbol) continue;
+                            if (trades.some(t => t._active && t.symbol === pos.symbol)) continue;
+                            trades.unshift({
+                                symbol: pos.symbol,
+                                side: pos.side || pos.direction || 'long',
+                                pnl: pos.unrealized_pnl || 0,
+                                pct: pos.pnl_pct || 0,
+                                timestamp: pos.opened_at || pos.entry_time || '',
+                                strategy: pos.strategy || '--',
+                                stop_loss: pos.stop_loss,
+                                take_profit: pos.take_profit,
+                                entry_price: pos.entry_price || pos.avg_price || 0,
+                                size: pos.size,
+                                _active: true
+                            });
+                        }
+                    }
+                }
+            } catch (_) { /* ignore heartbeat parse errors */ }
         }
     }
 

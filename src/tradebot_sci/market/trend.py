@@ -96,6 +96,88 @@ def compute_adx(candles: list[Candle], period: int = 14) -> float:
     return round(adx, 2)
 
 
+def compute_adx_with_direction(candles: list[Candle], period: int = 14) -> dict:
+    """Compute ADX strength AND direction from DI+/DI-.
+
+    Returns dict with:
+      adx        - ADX value (0-100, trend strength)
+      direction  - "long" (DI+ > DI-) or "short" (DI- > DI+) or "neutral"
+      plus_di    - +DI value
+      minus_di   - -DI value
+    """
+    n = len(candles)
+    if n < period + 1:
+        return {"adx": 0.0, "direction": "neutral", "plus_di": 0.0, "minus_di": 0.0}
+
+    tr_list = []
+    plus_dm_list = []
+    minus_dm_list = []
+
+    for i in range(1, n):
+        high = candles[i].high
+        low = candles[i].low
+        prev_close = candles[i - 1].close
+        prev_high = candles[i - 1].high
+        prev_low = candles[i - 1].low
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        tr_list.append(tr)
+        up_move = high - prev_high
+        down_move = prev_low - low
+        plus_dm = up_move if (up_move > down_move and up_move > 0) else 0.0
+        minus_dm = down_move if (down_move > up_move and down_move > 0) else 0.0
+        plus_dm_list.append(plus_dm)
+        minus_dm_list.append(minus_dm)
+
+    if len(tr_list) < period:
+        return {"adx": 0.0, "direction": "neutral", "plus_di": 0.0, "minus_di": 0.0}
+
+    smoothed_tr = sum(tr_list[:period])
+    smoothed_plus_dm = sum(plus_dm_list[:period])
+    smoothed_minus_dm = sum(minus_dm_list[:period])
+    dx_list = []
+
+    for i in range(period, len(tr_list)):
+        smoothed_tr = smoothed_tr - (smoothed_tr / period) + tr_list[i]
+        smoothed_plus_dm = smoothed_plus_dm - (smoothed_plus_dm / period) + plus_dm_list[i]
+        smoothed_minus_dm = smoothed_minus_dm - (smoothed_minus_dm / period) + minus_dm_list[i]
+        if smoothed_tr == 0:
+            continue
+        plus_di = 100.0 * smoothed_plus_dm / smoothed_tr
+        minus_di = 100.0 * smoothed_minus_dm / smoothed_tr
+        di_sum = plus_di + minus_di
+        if di_sum == 0:
+            dx_list.append(0.0)
+        else:
+            dx = 100.0 * abs(plus_di - minus_di) / di_sum
+            dx_list.append(dx)
+
+    # Final DI values (from last smoothing iteration)
+    final_plus_di = 100.0 * smoothed_plus_dm / smoothed_tr if smoothed_tr else 0.0
+    final_minus_di = 100.0 * smoothed_minus_dm / smoothed_tr if smoothed_tr else 0.0
+
+    if len(dx_list) < period:
+        adx = sum(dx_list) / len(dx_list) if dx_list else 0.0
+    else:
+        adx = sum(dx_list[:period]) / period
+        for i in range(period, len(dx_list)):
+            adx = (adx * (period - 1) + dx_list[i]) / period
+
+    # Direction from DI+/DI-
+    if final_plus_di > final_minus_di:
+        direction = "long"
+    elif final_minus_di > final_plus_di:
+        direction = "short"
+    else:
+        direction = "neutral"
+
+    return {
+        "adx": round(adx, 2),
+        "direction": direction,
+        "plus_di": round(final_plus_di, 2),
+        "minus_di": round(final_minus_di, 2),
+    }
+
+
 # ── RSI (Relative Strength Index) ────────────────────────────────────────
 def compute_rsi(candles: list[Candle], period: int = 14) -> float:
     """Compute RSI (0-100) using Wilder's smoothing.
@@ -336,6 +418,241 @@ def compute_ema_ribbon(candles: list[Candle]) -> dict:
         "ema21": round(ema21, 5),
         "ema55": round(ema55, 5),
         "aligned": aligned,
+        "direction": direction,
+    }
+
+
+# ── Ichimoku Cloud ───────────────────────────────────────────────────
+def compute_ichimoku(
+    candles: list[Candle],
+    tenkan_period: int = 9,
+    kijun_period: int = 26,
+    senkou_b_period: int = 52,
+) -> dict:
+    """Compute Ichimoku Cloud indicators.
+
+    Returns dict with:
+      tenkan     - Tenkan-sen (conversion line, 9-period midpoint)
+      kijun      - Kijun-sen (base line, 26-period midpoint)
+      senkou_a   - Senkou Span A (midpoint of tenkan/kijun)
+      senkou_b   - Senkou Span B (52-period midpoint)
+      cloud_top  - Top of cloud (max of senkou_a, senkou_b)
+      cloud_bot  - Bottom of cloud (min of senkou_a, senkou_b)
+      direction  - "long" (price above cloud), "short" (below), "neutral" (inside)
+    """
+    if len(candles) < senkou_b_period:
+        return {
+            "tenkan": 0, "kijun": 0, "senkou_a": 0, "senkou_b": 0,
+            "cloud_top": 0, "cloud_bot": 0, "direction": "neutral",
+        }
+
+    def _midpoint(data: list[Candle], period: int) -> float:
+        recent = data[-period:]
+        h = max(c.high for c in recent)
+        l = min(c.low for c in recent)
+        return (h + l) / 2.0
+
+    tenkan = _midpoint(candles, tenkan_period)
+    kijun = _midpoint(candles, kijun_period)
+    senkou_a = (tenkan + kijun) / 2.0
+    senkou_b = _midpoint(candles, senkou_b_period)
+
+    cloud_top = max(senkou_a, senkou_b)
+    cloud_bot = min(senkou_a, senkou_b)
+    close = candles[-1].close
+
+    if close > cloud_top:
+        direction = "long"
+    elif close < cloud_bot:
+        direction = "short"
+    else:
+        direction = "neutral"  # Price is inside the cloud
+
+    return {
+        "tenkan": round(tenkan, 5),
+        "kijun": round(kijun, 5),
+        "senkou_a": round(senkou_a, 5),
+        "senkou_b": round(senkou_b, 5),
+        "cloud_top": round(cloud_top, 5),
+        "cloud_bot": round(cloud_bot, 5),
+        "direction": direction,
+    }
+
+
+# ── Parabolic SAR ────────────────────────────────────────────────────
+def compute_parabolic_sar(
+    candles: list[Candle],
+    af_start: float = 0.02,
+    af_step: float = 0.02,
+    af_max: float = 0.20,
+) -> dict:
+    """Compute Parabolic Stop-And-Reverse (SAR).
+
+    SAR places dots above (bearish) or below (bullish) price.
+    When dots flip sides, the trend has reversed.
+
+    Returns dict with:
+      value      - Current SAR value
+      direction  - "long" (SAR below price) or "short" (SAR above price)
+    """
+    if len(candles) < 5:
+        return {"value": 0, "direction": "neutral"}
+
+    # Initialize: start bullish
+    is_long = candles[1].close > candles[0].close
+    sar = candles[0].low if is_long else candles[0].high
+    ep = candles[0].high if is_long else candles[0].low  # Extreme point
+    af = af_start
+
+    for i in range(1, len(candles)):
+        c = candles[i]
+
+        if is_long:
+            sar = sar + af * (ep - sar)
+            # SAR must not be above the prior two lows
+            if i >= 2:
+                sar = min(sar, candles[i - 1].low, candles[i - 2].low)
+            elif i >= 1:
+                sar = min(sar, candles[i - 1].low)
+
+            if c.low < sar:
+                # Flip to short
+                is_long = False
+                sar = ep
+                ep = c.low
+                af = af_start
+            else:
+                if c.high > ep:
+                    ep = c.high
+                    af = min(af + af_step, af_max)
+        else:
+            sar = sar + af * (ep - sar)
+            # SAR must not be below the prior two highs
+            if i >= 2:
+                sar = max(sar, candles[i - 1].high, candles[i - 2].high)
+            elif i >= 1:
+                sar = max(sar, candles[i - 1].high)
+
+            if c.high > sar:
+                # Flip to long
+                is_long = True
+                sar = ep
+                ep = c.high
+                af = af_start
+            else:
+                if c.low < ep:
+                    ep = c.low
+                    af = min(af + af_step, af_max)
+
+    return {
+        "value": round(sar, 5),
+        "direction": "long" if is_long else "short",
+    }
+
+
+# ── VWAP (Volume-Weighted Average Price) ─────────────────────────────
+def compute_vwap(candles: list[Candle]) -> dict:
+    """Compute VWAP — the average price weighted by volume.
+
+    Institutional traders use VWAP as a fair-value benchmark:
+      Price > VWAP → bullish bias (buyers in control)
+      Price < VWAP → bearish bias (sellers in control)
+
+    Returns dict with:
+      vwap       - VWAP value
+      direction  - "long" (price > VWAP), "short" (price < VWAP), "neutral"
+    """
+    if len(candles) < 10:
+        return {"vwap": 0, "direction": "neutral"}
+
+    cum_vol = 0.0
+    cum_tp_vol = 0.0
+
+    for c in candles:
+        tp = (c.high + c.low + c.close) / 3.0
+        vol = max(c.volume, 0.001)  # Avoid zero volume
+        cum_vol += vol
+        cum_tp_vol += tp * vol
+
+    vwap = cum_tp_vol / cum_vol if cum_vol > 0 else candles[-1].close
+    close = candles[-1].close
+
+    # Small dead zone (0.1%) to avoid flip-flopping when price is near VWAP
+    pct_diff = (close - vwap) / vwap if vwap > 0 else 0
+    if pct_diff > 0.001:
+        direction = "long"
+    elif pct_diff < -0.001:
+        direction = "short"
+    else:
+        direction = "neutral"
+
+    return {
+        "vwap": round(vwap, 5),
+        "direction": direction,
+    }
+
+
+# ── Hull Moving Average (HMA) ────────────────────────────────────────
+def compute_hull_ma(candles: list[Candle], period: int = 20) -> dict:
+    """Compute Hull Moving Average — a low-lag moving average.
+
+    HMA uses weighted moving averages and square root of period to
+    dramatically reduce lag while maintaining smoothness.
+
+    Direction is determined by HMA slope (current vs previous value).
+
+    Returns dict with:
+      hma        - Current HMA value
+      prev_hma   - Previous HMA value (for slope)
+      direction  - "long" (rising), "short" (falling), "neutral"
+    """
+    import math
+
+    if len(candles) < period + int(math.sqrt(period)) + 2:
+        return {"hma": 0, "prev_hma": 0, "direction": "neutral"}
+
+    closes = [c.close for c in candles]
+
+    def _wma(data: list[float], n: int) -> float:
+        """Weighted Moving Average."""
+        if len(data) < n:
+            return data[-1] if data else 0
+        window = data[-n:]
+        weights = list(range(1, n + 1))
+        return sum(w * v for w, v in zip(weights, window)) / sum(weights)
+
+    half_period = max(1, period // 2)
+    sqrt_period = max(1, int(math.sqrt(period)))
+
+    # Build the diff series: 2 * WMA(half) - WMA(full)
+    diff_series: list[float] = []
+    needed = sqrt_period + 1  # Need enough for final WMA + prev value
+
+    for i in range(len(closes) - needed - 1, len(closes)):
+        if i < period:
+            continue
+        sub = closes[:i + 1]
+        wma_half = _wma(sub, half_period)
+        wma_full = _wma(sub, period)
+        diff_series.append(2 * wma_half - wma_full)
+
+    if len(diff_series) < 2:
+        return {"hma": 0, "prev_hma": 0, "direction": "neutral"}
+
+    # HMA = WMA(diff_series, sqrt_period)
+    hma = _wma(diff_series, sqrt_period)
+    prev_hma = _wma(diff_series[:-1], sqrt_period)
+
+    if hma > prev_hma:
+        direction = "long"
+    elif hma < prev_hma:
+        direction = "short"
+    else:
+        direction = "neutral"
+
+    return {
+        "hma": round(hma, 5),
+        "prev_hma": round(prev_hma, 5),
         "direction": direction,
     }
 

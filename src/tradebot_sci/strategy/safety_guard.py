@@ -18,6 +18,7 @@ from tradebot_sci.strategy.icc_signals import calculate_atr
 from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
 from tradebot_sci.config.models import UserConfig
 from tradebot_sci.config.loader import get_settings
+from tradebot_sci.runtime.scheduling import is_market_open
 from tradebot_sci.runtime.rejection_journal import rejection_journal
 from tradebot_sci.strategy.safety_state import SafetyState
 
@@ -177,13 +178,13 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # 1. DRAWDOWN BREAKER (Account Circuit Breaker)
         # -------------------------------------------------------------
-        # Check active pause
-        pause_until = cls._state.drawdown_pause_until.get(asset_class)
-        if pause_until and now < pause_until:
-            return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker ({asset_class.value.upper()}) active until {pause_until.strftime('%H:%M')}")
-            
-        # Check trigger
         if safety and safety.safety_drawdown_breaker_enabled:
+            # Check active pause
+            pause_until = cls._state.drawdown_pause_until.get(asset_class)
+            if pause_until and now < pause_until:
+                return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker ({asset_class.value.upper()}) active until {pause_until.strftime('%H:%M')}")
+
+            # Check trigger
             hwm = cls._state.hwm_capital.get(asset_class, 0.0)
             if hwm > 0:
                 drawdown = (hwm - current_capital) / hwm
@@ -192,6 +193,10 @@ class SafetyGuard:
                      cls._state.drawdown_pause_until[asset_class] = now + timedelta(hours=24)
                      logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}% > {drawdown_limit*100:.1f}% limit). Pausing 24h.")
                      return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
+        else:
+            # Breaker disabled — clear any lingering pause so it takes
+            # effect immediately on hot-plug toggle-off.
+            cls._state.drawdown_pause_until.pop(asset_class, None)
 
         # -------------------------------------------------------------
         # 2. SESSION LOCKOUT (Time Manager)
@@ -473,6 +478,25 @@ class SafetyGuard:
 
             if hours_held >= phase1_end:
                 is_profitable = profit_dist > 0
+
+                # ── Market-halted guard: don't issue kill orders when the
+                #    broker can't execute them (e.g., forex weekends) ──
+                _now_utc = datetime.now(ZoneInfo("UTC"))
+                if not is_market_open(snapshot.symbol, _now_utc, settings):
+                    if not getattr(cls, '_weekend_warn_logged', {}).get(snapshot.symbol):
+                        logger.warning(
+                            f"[SAFETY] Day Trade Enforcer: {snapshot.symbol} held "
+                            f"{hours_held:.1f}h but market is CLOSED. "
+                            f"Suppressing kill until market reopens."
+                        )
+                        if not hasattr(cls, '_weekend_warn_logged'):
+                            cls._weekend_warn_logged = {}
+                        cls._weekend_warn_logged[snapshot.symbol] = True
+                    return None  # Skip — market can't execute the close
+                else:
+                    # Clear weekend warning flag when market reopens
+                    if hasattr(cls, '_weekend_warn_logged'):
+                        cls._weekend_warn_logged.pop(snapshot.symbol, None)
 
                 # Phase 2 — Grace Period (70% → 100% of max_hold)
                 if hours_held < phase2_end:

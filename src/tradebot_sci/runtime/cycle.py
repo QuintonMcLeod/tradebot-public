@@ -6,8 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 
-from tradebot_sci.market.models import MarketSnapshot
-from tradebot_sci.market.trend import infer_trend_from_swings
+from tradebot_sci.market.models import MarketSnapshot, TrendState
 from tradebot_sci.strategy.engine import StrategyEngine
 from tradebot_sci.runtime.safety import validate_decision
 from tradebot_sci.runtime.trackers import StrikeTracker
@@ -26,18 +25,18 @@ def fetch_snapshot(
     market_settings: Any, 
     ws_controller: Optional[RuntimeController] = None
 ) -> MarketSnapshot:
-    """Fetches high/low timeframe candles and infers trends."""
+    """Fetches high/low timeframe candles and builds a snapshot.
+
+    NOTE: trend_htf and trend_ltf are initialised to NEUTRAL here.
+    The actual trend direction is determined by the Trend Detection
+    indicator consensus in StrategyEngine.decide() — the sole
+    authority on trend direction.
+    """
     htf_timeframe = getattr(profile_settings, "htf_timeframe", None) or "4h"
     ltf_timeframe = getattr(profile_settings, "ltf_timeframe", None) or timeframe
-    trend_window = int(getattr(profile_settings, "trend_window", 24) or 24)
-    ltf_trend_window = getattr(profile_settings, "ltf_trend_window", None)
-    ltf_window = int(ltf_trend_window) if ltf_trend_window else trend_window
-    swing_lookback = int(getattr(profile_settings, "trend_swing_lookback", 2) or 2)
-    min_swings = int(getattr(profile_settings, "trend_min_swings", 3) or 3)
-    strength_floor = float(getattr(profile_settings, "trend_strength_floor", 0.5) or 0.5)
     max_candles = int(getattr(market_settings, "max_candles", 200) or 200)
 
-    key = (symbol, ltf_timeframe, htf_timeframe, max_candles, trend_window, swing_lookback, min_swings, strength_floor)
+    key = (symbol, ltf_timeframe, htf_timeframe, max_candles)
     if key not in cache:
         ltf_candles = provider.get_latest_candles(symbol, ltf_timeframe, limit=max_candles)
         htf_candles = provider.get_latest_candles(symbol, htf_timeframe, limit=max_candles)
@@ -46,26 +45,15 @@ def fetch_snapshot(
         if ws_controller and ltf_candles and hasattr(ws_controller, 'update_candle_cache'):
             ws_controller.update_candle_cache(symbol, ltf_timeframe, ltf_candles[-1])
 
-        trend_htf = infer_trend_from_swings(
-            htf_candles,
-            swing_lookback=swing_lookback,
-            window=trend_window,
-            min_swings=min_swings,
-            strength_floor=strength_floor,
-        )
-        trend_ltf = infer_trend_from_swings(
-            ltf_candles,
-            swing_lookback=swing_lookback,
-            window=ltf_window,
-            min_swings=min_swings,
-            strength_floor=strength_floor,
-        )
+        # Neutral defaults — engine.py's Trend Detection sets direction
+        _neutral = TrendState(direction="neutral", strength=0.0)
+
         cache[key] = MarketSnapshot(
             symbol=symbol,
             timeframe=timeframe,
             candles=ltf_candles,
-            trend_htf=trend_htf,
-            trend_ltf=trend_ltf,
+            trend_htf=_neutral,
+            trend_ltf=_neutral,
             htf_candles=htf_candles,
             ltf_candles=ltf_candles,
             htf_timeframe=htf_timeframe,

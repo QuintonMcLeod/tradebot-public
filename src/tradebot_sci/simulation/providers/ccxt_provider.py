@@ -13,7 +13,7 @@ import ccxt  # type: ignore
 
 from tradebot_sci.market.models import Candle, MarketSnapshot, Ticker, TrendState
 from tradebot_sci.config.models import Settings
-from tradebot_sci.market.trend import infer_trend_from_swings
+# Legacy infer_trend_from_swings removed — direction set by trend_consensus.py
 from tradebot_sci.simulation.utils import resample_candles, timeframe_to_seconds
 
 logger = logging.getLogger(__name__)
@@ -230,26 +230,15 @@ class CCXTHistoricalDataProvider:
             resample_candles(candles, ltf_seconds) if ltf_seconds != base_seconds else candles
         )
 
-        trend_htf = infer_trend_from_swings(
-            htf_candles[-htf_window:] if len(htf_candles) >= htf_window else htf_candles,
-            swing_lookback=profile.trend_swing_lookback,
-            min_swings=profile.trend_min_swings,
-            strength_floor=profile.trend_strength_floor,
-        )
-
-        trend_ltf = infer_trend_from_swings(
-            ltf_candles[-ltf_window:] if len(ltf_candles) >= ltf_window else ltf_candles,
-            swing_lookback=profile.trend_swing_lookback,
-            min_swings=profile.trend_min_swings,
-            strength_floor=profile.trend_strength_floor,
-        )
+        # Neutral defaults — engine.py's Trend Detection sets direction
+        _neutral = TrendState(direction="neutral", strength=0.0)
 
         return MarketSnapshot(
             symbol=symbol,
             timeframe=timeframe,
             candles=candles,
-            trend_htf=trend_htf,
-            trend_ltf=trend_ltf,
+            trend_htf=_neutral,
+            trend_ltf=_neutral,
             htf_candles=htf_candles[-htf_window:] if len(htf_candles) >= htf_window else htf_candles,
             ltf_candles=ltf_candles[-ltf_window:] if len(ltf_candles) >= ltf_window else ltf_candles,
             htf_timeframe=profile.htf_timeframe,

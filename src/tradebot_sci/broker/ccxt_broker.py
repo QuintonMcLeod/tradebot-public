@@ -1364,6 +1364,18 @@ class CCXTExchangeBroker:
         # Entry Logic (enter_long, enter_short, scale_in)
         if action in {"enter_long", "enter_short", "scale_in"}:
             MIN_ORDER_VAL = 1.10
+            # Higher minimum for pyramids to prevent micro-adds that waste spread
+            MIN_PYRAMID_VAL = 10.0
+            if action == "scale_in":
+                liq_cap = self.get_liquid_capital(decision.symbol)
+                if liq_cap < MIN_PYRAMID_VAL:
+                    logger.info(
+                        f"[CCXT] Pyramid blocked: ${liq_cap:.2f} < ${MIN_PYRAMID_VAL:.2f} minimum for scale-in."
+                    )
+                    return (
+                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, f"pyramid capital too low (${liq_cap:.2f})"),
+                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"pyramid min ${MIN_PYRAMID_VAL}"),
+                    )
             if self.capital_exhausted:
                 liq_cap = self.get_liquid_capital(decision.symbol)
                 if liq_cap < MIN_ORDER_VAL:
@@ -2081,7 +2093,7 @@ class CCXTExchangeBroker:
             try:
                 mid_price = last  # At-market limit
                 mid_price = float(self._exchange.price_to_precision(symbol, mid_price))
-                maker_params = {**params, "options": {"postOnly": True}}
+                maker_params = {**params, "options": ["maker-or-cancel"]}
                 logger.info(f"[CCXT] Gemini Maker-First: Attempting post_only {side} at {mid_price}")
                 result = self._exchange.create_order(symbol, "limit", side, 
                     float(self._exchange.amount_to_precision(symbol, amount)), mid_price, maker_params)

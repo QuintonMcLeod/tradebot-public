@@ -250,15 +250,17 @@ async function connectWebSocket() {
                         if (data.is_sabbath) sabbathEl.classList.remove('hidden');
                         else sabbathEl.classList.add('hidden');
                     }
-                    // Show/hide the Reset Paper button in analytics
-                    const resetBtn = document.getElementById('btn-reset-paper');
-                    if (resetBtn) {
-                        if (data.is_sabbath) {
-                            resetBtn.classList.remove('hidden');
-                            resetBtn.classList.add('flex');
-                        } else {
-                            resetBtn.classList.add('hidden');
-                            resetBtn.classList.remove('flex');
+                    // Show/hide the Reset Paper button based on Paper Trading mode
+                    if (data.is_paper !== undefined) {
+                        const resetBtn = document.getElementById('btn-reset-paper');
+                        if (resetBtn) {
+                            if (data.is_paper) {
+                                resetBtn.classList.remove('hidden');
+                                resetBtn.classList.add('flex');
+                            } else {
+                                resetBtn.classList.add('hidden');
+                                resetBtn.classList.remove('flex');
+                            }
                         }
                     }
                 }

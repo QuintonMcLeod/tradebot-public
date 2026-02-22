@@ -89,7 +89,7 @@ class MetaSCIStrategy(BaseStrategy):
                     best_grade = s_grade
                     best_name = name
             except Exception as e:
-                logger.debug(f"[META-SCORE] {name} scoring failed: {e}")
+                logger.warning(f"[META-SCI] ⚠️ STRATEGY CRASH in score_signal: {name.upper()} → {e}", exc_info=True)
 
         if not results:
             # Fallback to ICC score
@@ -172,11 +172,19 @@ class MetaSCIStrategy(BaseStrategy):
             "bullish_trending": ["supply_demand", "robocop", "hyper_scalper", "trend_rider", "quantum", "bearish_engulfing"],
             "ranging": ["rubberband_reaper", "icc_core", "bearish_engulfing", "mean_reversion"],
             "session_open": ["london_breakout", "orb_breakout", "session_momentum", "bearish_engulfing"],
-            # [CRYPTO H2H RESULTS] Crypto regimes use PROVEN performers only:
-            #   Mean Reversion: +75.3% (49 trades) | Rubberband Reaper: +14.0% (153 trades) | RoboCop: +8.5% (16 trades)
-            #   Underperformers removed: crypto_rsi_macd (-3.1%), crypto_vwap (0 trades), crypto_double_macd, crypto_grid
-            "crypto_trending": ["mean_reversion", "rubberband_reaper", "robocop"],
-            "crypto_ranging": ["mean_reversion", "rubberband_reaper", "robocop"],
+            # [2026-02-21] All strategies now eligible for crypto — trend indicators
+            # are fully implemented, removing the original reason for restriction.
+            # Crypto-specific strategies (crypto_rsi_macd, etc.) are also included.
+            "crypto_trending": [
+                "supply_demand", "robocop", "hyper_scalper", "trend_rider", "quantum",
+                "rubberband_reaper", "icc_core", "bearish_engulfing", "mean_reversion",
+                "crypto_rsi_macd", "crypto_vwap_reversion", "crypto_double_macd", "crypto_grid",
+            ],
+            "crypto_ranging": [
+                "supply_demand", "robocop", "hyper_scalper", "quantum",
+                "rubberband_reaper", "icc_core", "bearish_engulfing", "mean_reversion",
+                "crypto_rsi_macd", "crypto_vwap_reversion", "crypto_double_macd", "crypto_grid",
+            ],
         }
 
         # [ROUND 4] Tournament score weights — proven performers get a bonus
@@ -293,6 +301,7 @@ class MetaSCIStrategy(BaseStrategy):
         
         signals = []
         rejects = []  # Track reject scores for summary
+        crashes = []  # Track crashed strategies
         exclude_list = getattr(self.profile, 'meta_sci_exclude_list', [])
         
         for name, strat in self.strategies.items():
@@ -374,15 +383,17 @@ class MetaSCIStrategy(BaseStrategy):
                     rejects.append((name, score, grade, reason))
                     logger.info(f"[META-DEBUG] {snapshot.symbol} {name.upper()}: REJECT -> {reason} (Score: {score})")
             except Exception as e:
-                logger.error(f"[META-SCI] Strategy {name} crashed in tournament: {e}")
+                crashes.append(name)
+                logger.critical(f"[META-SCI] 💥 STRATEGY CRASH: {name.upper()} crashed in tournament → {e}", exc_info=True)
 
         if not signals:
             # Build a rich summary mirroring the winning format
             champ_part = f"👑 {champion_name.upper()} silent → " if champion_name else ""
+            crash_part = f" | 💥 {len(crashes)} CRASHED: {','.join(c.upper() for c in crashes)}" if crashes else ""
             # Sort rejects by score descending, show top contenders with scores
             top_rejects = sorted(rejects, key=lambda r: r[1], reverse=True)[:4]
             breakdown = " | ".join(f"{n}:{s:.0f}({g})" for n, s, g, _ in top_rejects)
-            reason = f"Meta-SCI [{regime}] {champ_part}{len(rejects)} rejected | {breakdown}"
+            reason = f"Meta-SCI [{regime}] {champ_part}{len(rejects)} rejected{crash_part} | {breakdown}"
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, reason)
 
         # 3. Pick Winner

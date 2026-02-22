@@ -12,7 +12,7 @@ from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_i
 
 from .contracts import ContractResolutionError, build_contract
 from .models import Candle, MarketSnapshot, OrderBook, OrderBookLevel, Ticker, TrendState
-from .trend import infer_trend_from_swings
+# Legacy infer_trend_from_swings removed — direction set by trend_consensus.py
 from .symbols import AssetClass, SYMBOL_METADATA
 
 
@@ -125,14 +125,14 @@ class IbkrMarketDataProvider:
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
         candles = self.get_latest_candles(symbol, timeframe, limit=200)
-        trend_htf = self._infer_trend(candles[-100:])
-        trend_ltf = self._infer_trend(candles[-20:])
+        # Neutral defaults — engine.py's Trend Detection sets direction
+        _neutral = TrendState(direction="neutral", strength=0.0)
         return MarketSnapshot(
             symbol=symbol,
             timeframe=timeframe,
             candles=candles,
-            trend_htf=trend_htf,
-            trend_ltf=trend_ltf,
+            trend_htf=_neutral,
+            trend_ltf=_neutral,
             htf_candles=candles[-100:],
             ltf_candles=candles[-20:],
             htf_timeframe=timeframe,
@@ -232,7 +232,8 @@ class IbkrMarketDataProvider:
         return "TRADES"
 
     def _infer_trend(self, candles: List[Candle]) -> TrendState:
-        return infer_trend_from_swings(candles)
+        """Legacy stub — returns neutral. Direction set by engine.py."""
+        return TrendState(direction="neutral", strength=0.0)
 
 
 class CCXTMarketDataProvider:
@@ -322,15 +323,14 @@ class CCXTMarketDataProvider:
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
         candles = self.get_latest_candles(symbol, timeframe, limit=200)
-        # Use HTF-emulation or just 200 candles for now
-        trend_htf = self._infer_trend(candles[-100:])
-        trend_ltf = self._infer_trend(candles[-20:])
+        # Neutral defaults — engine.py's Trend Detection sets direction
+        _neutral = TrendState(direction="neutral", strength=0.0)
         return MarketSnapshot(
             symbol=symbol,
             timeframe=timeframe,
             candles=candles,
-            trend_htf=trend_htf,
-            trend_ltf=trend_ltf,
+            trend_htf=_neutral,
+            trend_ltf=_neutral,
             htf_candles=candles[-100:],
             ltf_candles=candles[-20:],
             htf_timeframe=timeframe,
@@ -385,7 +385,8 @@ class CCXTMarketDataProvider:
             return None
 
     def _infer_trend(self, candles: List[Candle]) -> TrendState:
-        return infer_trend_from_swings(candles)
+        """Legacy stub — returns neutral. Direction set by engine.py."""
+        return TrendState(direction="neutral", strength=0.0)
 
     def get_market_definition(self, symbol: str) -> dict | None:
         sym = self._normalize_ccxt_symbol(symbol)
@@ -406,13 +407,14 @@ class NoOpMarketDataProvider:
         return []
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
-        # Return an empty snapshot
+        # Return an empty snapshot — direction set by engine.py
+        _neutral = TrendState(direction="neutral", strength=0.0)
         return MarketSnapshot(
             symbol=symbol,
             timeframe=timeframe,
             candles=[],
-            trend_htf=TrendState.RANGE,  # Neutral default
-            trend_ltf=TrendState.RANGE,
+            trend_htf=_neutral,
+            trend_ltf=_neutral,
             htf_candles=[],
             ltf_candles=[],
             htf_timeframe=timeframe,
