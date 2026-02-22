@@ -547,7 +547,7 @@ class TradingProfileSettings(BaseModel):
         description="Keep the runtime loop alive indefinitely regardless of iteration limits",
     )
     crypto_only: bool = Field(
-        default=True,
+        default=False,
         description="Treat the profile as crypto-only for flatten/confirmation logic",
     )
     cooldown_enabled: bool = Field(
