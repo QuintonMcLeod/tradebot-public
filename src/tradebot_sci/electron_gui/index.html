@@ -438,6 +438,18 @@
                 </div>
             </div>
 
+            <!-- RESIZE HANDLE 1 (Chart ↕ Decisions) -->
+            <div class="panel-resize-handle shrink-0 flex items-center justify-center cursor-row-resize"
+                data-above="chart-panel" data-below="decisions-panel"
+                style="height:10px; user-select:none; -webkit-user-select:none; z-index:20; position:relative; cursor:row-resize;">
+                <div
+                    style="display:flex; align-items:center; gap:3px; padding:2px 10px; border-radius:4px; background:rgba(20,184,166,0.3); transition:all 0.2s;">
+                    <span style="width:3px;height:3px;border-radius:50%;background:rgba(20,184,166,0.7);"></span>
+                    <span style="width:3px;height:3px;border-radius:50%;background:rgba(20,184,166,0.7);"></span>
+                    <span style="width:3px;height:3px;border-radius:50%;background:rgba(20,184,166,0.7);"></span>
+                </div>
+            </div>
+
             <!-- BOTTOM ROTATING PANEL (Glass Card Style) -->
             <div id="decisions-panel" class="flex-[1.5] rounded-lg flex flex-col overflow-hidden min-h-[220px]"
                 style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.5) 0%, rgba(15, 23, 42, 0.2) 100%); border: 1px solid rgba(255, 255, 255, 0.06); backdrop-filter: blur(20px);">
@@ -1200,6 +1212,7 @@
     <script src="chart_markers.js"></script>
     <script src="ws_handler.js"></script>
     <script src="renderer.js"></script>
+    <script src="panel_resize.js"></script>
     <script src="profiles_module.js"></script>
     <script src="help_module.js"></script>
     <script src="settings_integrated.js?v=smartpositions"></script>
