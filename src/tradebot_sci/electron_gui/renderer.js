@@ -21,6 +21,7 @@ let previousSymbol = null; // Track symbol shifts to clear markers selectively
 let candleData = []; // Store candle data for indicator calculations
 let rawCandleData = []; // Raw data with volume, for VWAP computation
 let chartMode = 'candle'; // 'candle' | 'heikinashi'
+let marketClosedTimer = null; // Timer to show 'Market Closed' overlay
 let currentPosition = null; // { symbol, side, entry, sl, tp, size }
 let lastHoldings = null; // Cache last holdings data for redrawing on symbol switch
 let statusDot;
@@ -147,6 +148,37 @@ function formatTime12h(epochSec) {
     return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
+// ── Market Closed Overlay ──────────────────────────────────
+function startMarketClosedTimer() {
+    clearTimeout(marketClosedTimer);
+    marketClosedTimer = setTimeout(() => {
+        if (!candleData || candleData.length === 0) {
+            const overlay = document.getElementById('market-closed-overlay');
+            if (overlay) {
+                overlay.classList.remove('hidden');
+                overlay.style.display = 'flex';
+                overlay.style.opacity = '0';
+                requestAnimationFrame(() => {
+                    overlay.style.transition = 'opacity 0.6s ease';
+                    overlay.style.opacity = '1';
+                });
+            }
+        }
+    }, 60000); // 60 seconds — generous to avoid false positives on slow connections
+}
+
+function hideMarketClosedOverlay() {
+    clearTimeout(marketClosedTimer);
+    const overlay = document.getElementById('market-closed-overlay');
+    if (overlay && !overlay.classList.contains('hidden')) {
+        overlay.style.opacity = '0';
+        setTimeout(() => {
+            overlay.classList.add('hidden');
+            overlay.style.display = 'none';
+        }, 400);
+    }
+}
+
 function initChart(intervalSeconds = 900) {
     const chartContainer = document.getElementById('chart-area');
     if (!chartContainer) return;
@@ -155,6 +187,9 @@ function initChart(intervalSeconds = 900) {
         chart.remove();
         chart = null;
     }
+
+    // Start market closed detection on chart init
+    startMarketClosedTimer();
 
     chart = LightweightCharts.createChart(chartContainer, {
         layout: {
@@ -1013,6 +1048,7 @@ function setupInteractiveElements() {
             indicatorSeries.setData([]);
         }
         candleData = [];
+        startMarketClosedTimer();
         clearTradeMarkers();
         clearPositionLines();
 
@@ -1374,6 +1410,7 @@ function setupInteractiveElements() {
         if (candleSeries && candleData.length > 0) {
             const displayData = isHA ? calculateHeikinAshi(candleData) : candleData;
             candleSeries.setData(displayData);
+            hideMarketClosedOverlay();
         }
         appendLog("INFO", `[UI] Chart mode: ${isHA ? 'Heikin-Ashi' : 'Candlestick'}`);
     });

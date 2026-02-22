@@ -315,7 +315,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                 if (src.isArray && Array.isArray(raw)) {
                     // position_holds.json: array of {symbol, ...}
                     for (const pos of raw) {
-                        if (pos.symbol && pos.size) entries.push([pos.symbol, pos]);
+                        if (pos.symbol && pos.size && Math.abs(parseFloat(pos.size)) > 0) entries.push([pos.symbol, pos]);
                     }
                 } else {
                     const positions = src.key ? (raw[src.key] || {}) : raw;

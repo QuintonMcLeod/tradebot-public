@@ -443,6 +443,32 @@ class CCXTExchangeBroker:
                             open_symbols.add(k.upper())
                 except Exception as e:
                     logger.debug(f"[CCXT] Discovery from hold store failed: {e}")
+
+            # 5. Reconciliation — prune stale hold store entries not on the exchange
+            if self.position_hold_store:
+                try:
+                    from datetime import datetime, timezone, timedelta
+                    GRACE_PERIOD = timedelta(hours=1)
+                    now = datetime.now(timezone.utc)
+                    stale = []
+                    for sym, record in list(self.position_hold_store.load_all().items()):
+                        if sym.upper() in open_symbols:
+                            continue  # Exchange confirms this position — keep it
+                        # Check age: only prune if older than grace period
+                        try:
+                            opened = datetime.fromisoformat(record.opened_at.replace("Z", "+00:00"))
+                            if opened.tzinfo is None:
+                                opened = opened.replace(tzinfo=timezone.utc)
+                            age = now - opened
+                            if age > GRACE_PERIOD:
+                                stale.append(sym)
+                        except Exception:
+                            stale.append(sym)  # Unparseable timestamp — prune it
+                    for sym in stale:
+                        logger.info(f"[CCXT] Reconciliation: removing stale hold store entry {sym} (not found on exchange)")
+                        self.position_hold_store.remove(sym)
+                except Exception as e:
+                    logger.debug(f"[CCXT] Hold store reconciliation failed: {e}")
         except Exception as e:
             logger.warning(f"[CCXT] list_open_position_symbols failed: {e}")
         

@@ -97,6 +97,7 @@ async function connectWebSocket() {
                     // Apply Heikin-Ashi if active
                     const displayData = chartMode === 'heikinashi' ? calculateHeikinAshi(fixedData) : fixedData;
                     candleSeries.setData(displayData);
+                    if (typeof hideMarketClosedOverlay === 'function') hideMarketClosedOverlay();
 
                     if (indicatorSeries) {
                         // Use theme candle colors for volume bars

@@ -4,6 +4,7 @@
 window.profilesModule = (function () {
     let allProfiles = {};
     let selectedProfileName = null;
+    let activeProfileName = null;   // the bot's currently active profile
     let originalProfileData = null;
     let changeCount = 0;
     let initialized = false;
@@ -215,6 +216,11 @@ window.profilesModule = (function () {
                 // Parse YAML using simple regex (no external lib needed for reading)
                 allProfiles = parseYaml(result);
             }
+            // Read active_profile from config so sidebar dots render correctly on startup
+            const config = await window.api.readConfig();
+            if (config && config.active_profile) {
+                activeProfileName = config.active_profile;
+            }
         } catch (err) {
             console.error('[PROFILES] Load failed:', err);
             allProfiles = {};
@@ -340,7 +346,8 @@ window.profilesModule = (function () {
             }
 
             // Active indicator dot (green glow if this is the bot's active profile)
-            const isActiveProfile = (typeof configData !== 'undefined') && configData.active_profile === name;
+            const currentActive = activeProfileName || (typeof configData !== 'undefined' && configData.active_profile);
+            const isActiveProfile = currentActive === name;
             const dotColor = isActiveProfile ? '#10b981' : 'transparent';
             const dotGlow = isActiveProfile ? '0 0 8px #10b981, 0 0 16px rgba(16,185,129,0.3)' : 'none';
 
@@ -1070,6 +1077,9 @@ window.profilesModule = (function () {
     function activateProfile() {
         if (!selectedProfileName) return;
 
+        // Update local cache
+        activeProfileName = selectedProfileName;
+
         // Update configData directly
         if (typeof configData !== 'undefined') {
             configData.active_profile = selectedProfileName;
@@ -1101,7 +1111,8 @@ window.profilesModule = (function () {
         const text = document.getElementById('profile-activate-text');
         if (!btn || !dot || !text) return;
 
-        const isActive = (typeof configData !== 'undefined') && configData.active_profile === selectedProfileName;
+        const currentActive = activeProfileName || (typeof configData !== 'undefined' && configData.active_profile);
+        const isActive = currentActive === selectedProfileName;
 
         if (isActive) {
             // Green glow — activated
