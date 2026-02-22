@@ -24,6 +24,11 @@ class OandaMarketDataProvider:
             raise ImportError(f"OANDA dependencies missing ({_OANDA_IMPORT_ERROR}). Please install oandapyV20.")
         self.client = oandapyV20.API(access_token=api_key, environment=environment)
         self.account_id = account_id
+        _masked_key = ('***' + api_key[-6:]) if len(api_key) > 6 else '***'
+        logger.info(
+            f"[OANDA] MarketData init: account={account_id}, "
+            f"env={environment}, key={_masked_key}"
+        )
 
     def _normalize_symbol(self, symbol: str) -> str:
         """Converts EURUSD to EUR_USD, handles Crypto mappings."""

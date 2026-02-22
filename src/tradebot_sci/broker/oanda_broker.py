@@ -59,6 +59,11 @@ class OandaExchangeBroker(IExchangeBroker):
         
         self.client = oandapyV20.API(access_token=api_key, environment=environment)
         self.account_id = account_id
+        _masked_key = ('***' + api_key[-6:]) if len(api_key) > 6 else '***'
+        logger.info(
+            f"[OANDA] Broker init: account={account_id}, "
+            f"env={environment}, key={_masked_key}, read_only={read_only}"
+        )
         self.profile = profile_settings
         self.read_only = read_only
         self.trade_results = trade_results
