@@ -192,6 +192,7 @@ function initChart(intervalSeconds = 900) {
     startMarketClosedTimer();
 
     chart = LightweightCharts.createChart(chartContainer, {
+        autoSize: true,
         layout: {
             background: { type: 'Color', color: 'transparent' },
             textColor: '#94a3b8',

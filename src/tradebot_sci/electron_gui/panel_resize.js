@@ -4,6 +4,9 @@
  * Each .panel-resize-handle element has data-above and data-below attributes
  * pointing to the panel IDs above and below it. Dragging the handle resizes
  * both panels, and the preferred sizes are saved to localStorage.
+ *
+ * Chart resizing is handled automatically by LightweightCharts' autoSize
+ * option + overflow:hidden on chart-area.
  */
 (function () {
     'use strict';
@@ -33,28 +36,6 @@
         el.style.setProperty('overflow', 'hidden');
     }
 
-    /**
-     * Resize the LightweightCharts canvas to match its container.
-     * Uses requestAnimationFrame to ensure the DOM has reflowed first.
-     */
-    let _rafId = null;
-    function triggerChartResize() {
-        if (_rafId) cancelAnimationFrame(_rafId);
-        _rafId = requestAnimationFrame(() => {
-            _rafId = null;
-            if (typeof chart !== 'undefined' && chart) {
-                const chartArea = document.getElementById('chart-area');
-                if (chartArea) {
-                    const w = chartArea.clientWidth;
-                    const h = chartArea.clientHeight;
-                    if (w > 0 && h > 0) {
-                        chart.applyOptions({ width: w, height: h });
-                    }
-                }
-            }
-        });
-    }
-
     function initResizeHandles() {
         const handles = document.querySelectorAll('.panel-resize-handle');
         const savedSizes = loadSavedSizes();
@@ -66,9 +47,6 @@
                 forceHeight(el, height);
             }
         });
-
-        // Delayed chart resize after restoring saved sizes
-        setTimeout(triggerChartResize, 300);
 
         handles.forEach(handle => {
             const aboveId = handle.dataset.above;
@@ -107,11 +85,6 @@
 
                     forceHeight(aboveEl, newAbove);
                     forceHeight(belowEl, newBelow);
-
-                    // Live chart resize on every frame
-                    if (aboveId === 'chart-panel' || belowId === 'chart-panel') {
-                        triggerChartResize();
-                    }
                 };
 
                 const onUp = () => {
@@ -128,12 +101,6 @@
                     sizes[aboveId] = Math.round(aboveEl.getBoundingClientRect().height);
                     sizes[belowId] = Math.round(belowEl.getBoundingClientRect().height);
                     saveSizes(sizes);
-
-                    // Final chart resize (double-tap to be safe)
-                    if (aboveId === 'chart-panel' || belowId === 'chart-panel') {
-                        triggerChartResize();
-                        setTimeout(triggerChartResize, 100);
-                    }
                 };
 
                 document.addEventListener('mousemove', onMove);
