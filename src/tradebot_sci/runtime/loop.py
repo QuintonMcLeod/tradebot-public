@@ -708,6 +708,20 @@ def run_bot(
     settings = get_settings()
     setup_logging(settings.logging)
     _preflight_broker_check(settings)
+
+    # ── Display Message of the Day ──
+    try:
+        from tradebot_sci import paths as _paths
+        motd_path = _paths.APP_DIR / "Documentation" / "motd.txt"
+        if motd_path.is_file():
+            motd_text = motd_path.read_text(encoding="utf-8").strip()
+            logger.info("[MOTD] " + "═" * 50)
+            for line in motd_text.splitlines():
+                logger.info("[MOTD] %s", line)
+            logger.info("[MOTD] " + "═" * 50)
+    except Exception:
+        pass  # MOTD is optional — never block startup
+
     profile_settings = settings.get_active_profile()
     profile_name = settings.app.profile_name
     auto_schedule_enabled = bool(getattr(profile_settings, "auto_schedule_enabled", False))
