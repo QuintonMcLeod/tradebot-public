@@ -1209,7 +1209,36 @@ function createCard(title, desc, key, controlType, options = {}) {
             clearTimeout(_inputDebounce);
             _inputDebounce = setTimeout(() => updateValue(key, e.target.value), 800);
         });
-        controlContainer.appendChild(input);
+
+        if (options.password) {
+            // Wrap in a container with an eyeball reveal/hide toggle
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'position:relative;display:flex;align-items:center;width:100%;';
+            input.style.cssText += 'flex:1;padding-right:36px;';
+            const eyeBtn = document.createElement('button');
+            eyeBtn.type = 'button';
+            eyeBtn.innerHTML = '👁';
+            eyeBtn.title = 'Show/hide value';
+            eyeBtn.style.cssText = 'position:absolute;right:8px;background:none;border:none;cursor:pointer;font-size:16px;opacity:0.5;padding:2px 4px;transition:opacity 0.2s;';
+            eyeBtn.addEventListener('mouseenter', () => { eyeBtn.style.opacity = '1'; });
+            eyeBtn.addEventListener('mouseleave', () => { eyeBtn.style.opacity = '0.5'; });
+            eyeBtn.addEventListener('click', () => {
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    eyeBtn.innerHTML = '👁‍🗨';
+                    eyeBtn.title = 'Hide value';
+                } else {
+                    input.type = 'password';
+                    eyeBtn.innerHTML = '👁';
+                    eyeBtn.title = 'Show value';
+                }
+            });
+            wrapper.appendChild(input);
+            wrapper.appendChild(eyeBtn);
+            controlContainer.appendChild(wrapper);
+        } else {
+            controlContainer.appendChild(input);
+        }
     }
     else if (controlType === 'dropdown') {
         const select = document.createElement('select');

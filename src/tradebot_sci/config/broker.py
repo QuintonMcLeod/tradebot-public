@@ -137,23 +137,55 @@ def load_ibkr_broker_options(config_path: Optional[Path] = None, data: Optional[
     data = {k: v for k, v in data.items() if v is not None}
     return BrokerSettings(**data)
 
+def _infer_oanda_environment(account_id: str) -> str:
+    """Auto-detect OANDA environment from account ID prefix.
+
+    OANDA account IDs encode the environment:
+      - 001-001-*  → live
+      - 101-001-*  → practice (demo)
+
+    Returns 'live' or 'practice'.
+    """
+    acct = (account_id or "").strip()
+    if acct.startswith("001-"):
+        return "live"
+    if acct.startswith("101-"):
+        return "practice"
+    # Unknown prefix — default to practice (safer)
+    return "practice"
+
+
 def load_oanda_broker_options(data: Optional[dict] = None) -> OandaSettings:
     """Loads OANDA credentials from provided data or environment variables."""
     if data:
-        # Basic validation of environment
-        if "environment" in data and data["environment"] not in ["practice", "live"]:
-            data["environment"] = "practice"
+        # Auto-detect environment from account ID if not explicitly set
+        if "environment" not in data or data.get("environment") not in ["practice", "live"]:
+            acct = data.get("account_id", "")
+            if acct:
+                data["environment"] = _infer_oanda_environment(acct)
+                logger.info(
+                    "[OANDA] Auto-detected environment '%s' from account ID prefix",
+                    data["environment"],
+                )
+            else:
+                data["environment"] = "practice"
         return OandaSettings(**data)
 
+    acct_id = os.getenv("OANDA_ACCOUNT_ID", "")
+    explicit_env = os.getenv("OANDA_ENVIRONMENT", "").lower()
+    if explicit_env not in ("practice", "live"):
+        explicit_env = _infer_oanda_environment(acct_id) if acct_id else "practice"
+        if acct_id:
+            logger.info(
+                "[OANDA] Auto-detected environment '%s' from account ID prefix",
+                explicit_env,
+            )
     data = {
-        "account_id": os.getenv("OANDA_ACCOUNT_ID", ""),
+        "account_id": acct_id,
         "api_key": os.getenv("OANDA_API_KEY", ""),
-        "environment": os.getenv("OANDA_ENVIRONMENT", "practice").lower(),
+        "environment": explicit_env,
         "read_only": os.getenv("OANDA_READ_ONLY", "true").lower() == "true",
     }
-    # Basic validation of environment
-    if data["environment"] not in ["practice", "live"]:
-        data["environment"] = "practice"
     return OandaSettings(**data)
 
 
