@@ -63,9 +63,12 @@
             div.innerHTML = `<span class="text-slate-600 font-mono">[${ts}]</span> ${formatLogMessage(rawMessage)}`;
         }
 
+        // Smart auto-scroll: only scroll down if user is already near the bottom.
+        // If they scrolled up to inspect logs, don't yank them back.
+        const isNearBottom = (_logTerminal.scrollHeight - _logTerminal.scrollTop - _logTerminal.clientHeight) < 80;
         _logTerminal.appendChild(div);
         if (_logTerminal.children.length > 300) _logTerminal.removeChild(_logTerminal.firstChild);
-        _logTerminal.scrollTop = _logTerminal.scrollHeight;
+        if (isNearBottom) _logTerminal.scrollTop = _logTerminal.scrollHeight;
     }
 
     /**
