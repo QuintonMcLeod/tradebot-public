@@ -61,12 +61,11 @@ if [[ ${#_migrated[@]} -gt 0 ]]; then
   done
 fi
 
-# Load secrets from user data directory
+# Load secrets: legacy first, then XDG last (XDG wins — GUI writes there)
 set -a
-[ -f "$USER_DATA_DIR/.env.secrets" ] && source "$USER_DATA_DIR/.env.secrets" > /dev/null 2>&1 || true
-# Fallback: Also try legacy locations (for transition)
-[ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" > /dev/null 2>&1 || true
 [ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" > /dev/null 2>&1 || true
+[ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" > /dev/null 2>&1 || true
+[ -f "$USER_DATA_DIR/.env.secrets" ] && source "$USER_DATA_DIR/.env.secrets" > /dev/null 2>&1 || true
 set +a
 
 # Robustly find Python executable
@@ -79,7 +78,7 @@ fi
 
 # In tmux, panes are spawned via a non-interactive shell (no .bashrc),
 # so env vars like ${CHATGPT_KEY} won't exist unless we explicitly load them.
-ENV_BOOTSTRAP="source \"$HOME/.bashrc\" > /dev/null 2>&1 || true; set -a; [ -f \"$USER_DATA_DIR/.env.secrets\" ] && source \"$USER_DATA_DIR/.env.secrets\" > /dev/null 2>&1; [ -f \"$ROOT_DIR/.env.secrets\" ] && source \"$ROOT_DIR/.env.secrets\" > /dev/null 2>&1; [ -f \"$ROOT_DIR/.env\" ] && source \"$ROOT_DIR/.env\" > /dev/null 2>&1; set +a"
+ENV_BOOTSTRAP="source \"$HOME/.bashrc\" > /dev/null 2>&1 || true; set -a; [ -f \"$ROOT_DIR/.env\" ] && source \"$ROOT_DIR/.env\" > /dev/null 2>&1; [ -f \"$ROOT_DIR/.env.secrets\" ] && source \"$ROOT_DIR/.env.secrets\" > /dev/null 2>&1; [ -f \"$USER_DATA_DIR/.env.secrets\" ] && source \"$USER_DATA_DIR/.env.secrets\" > /dev/null 2>&1; set +a"
 
 list_profiles() {
   # Try config.json from user data dir first, then app dir, then legacy YAML
@@ -431,10 +430,11 @@ restart_tmux() {
 	  printf "%s [INFO] tradebot_sci.runtime.loop - [RESTART] requested via scripts/tradebot.sh\n" "$(date '+%Y-%m-%d %H:%M:%S')" >>"$LOG_FILE" || true
 
 	  # CRITICAL: Re-source secrets to pick up changes made by the GUI/User since the script started.
+	  # Legacy first, XDG last (XDG wins — GUI writes there)
 	  set -a
-	  [ -f "$USER_DATA_DIR/.env.secrets" ] && source "$USER_DATA_DIR/.env.secrets" > /dev/null 2>&1 || true
-	  [ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" > /dev/null 2>&1 || true
 	  [ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" > /dev/null 2>&1 || true
+	  [ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" > /dev/null 2>&1 || true
+	  [ -f "$USER_DATA_DIR/.env.secrets" ] && source "$USER_DATA_DIR/.env.secrets" > /dev/null 2>&1 || true
 	  set +a
 
 	  # Preserve the last run configuration from tmux unless the user explicitly overrides it.
