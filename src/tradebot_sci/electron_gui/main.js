@@ -504,13 +504,15 @@ function setupIpcHandlers() {
             const merged = { ...envData, ...aiConfig };
             const get = (key) => merged[key] || merged[key.toLowerCase()] || merged[key.toUpperCase()] || '';
             const provider = get('provider') || get('TRADE_SCI_PROVIDER') || 'openrouter';
-            const apiKey = get('TRADE_SCI_API_KEY') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || '';
+            const apiKeyRaw = get('TRADE_SCI_API_KEY') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || '';
             const defaultModels = { deepseek: 'deepseek-chat', openai: 'gpt-4o', claude: 'claude-3-5-sonnet-20241022', gemini: 'gemini-2.0-flash', openrouter: 'google/gemini-2.0-flash-001', local: 'llama3' };
             const model = get('model') || get('TRADE_SCI_MODEL_NAME') || defaultModels[provider] || 'deepseek-chat';
             let baseUrl = get('base_url') || get('TRADE_SCI_API_BASE_URL') || '';
 
-            // Guard: ignore placeholder example.com URLs from stale .env files
-            if (baseUrl.includes('example.com')) baseUrl = '';
+            // Guard: ignore placeholder values from stale .env.example copies
+            const isPlaceholder = (v) => !v || /example\.com|your_.*_here|placeholder|changeme|xxx/i.test(v);
+            if (isPlaceholder(baseUrl)) baseUrl = '';
+            const apiKey = isPlaceholder(apiKeyRaw) ? '' : apiKeyRaw;
 
             console.log(`[MAIN] AI Recommend - provider: ${provider}, model: ${model}, baseUrl: ${baseUrl}, apiKey: ${apiKey ? '***' + apiKey.slice(-6) : 'MISSING'}`);
 
