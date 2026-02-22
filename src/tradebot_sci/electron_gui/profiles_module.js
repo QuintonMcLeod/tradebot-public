@@ -566,6 +566,7 @@ window.profilesModule = (function () {
                         'STOP_ATR_MULTIPLIER': ['safety', 'stop_atr_multiplier'],
                         'BREAKEVEN_TRAIL_PCT': ['safety', 'breakeven_trail_pct'],
                         'SAFETY_DRAWDOWN_BREAKER_ENABLED': ['safety', 'safety_drawdown_breaker_enabled'],
+                        'SAFETY_DRAWDOWN_MAX_PCT': ['safety', 'safety_drawdown_max_pct'],
                         'SAFETY_SESSION_LOCKOUT_ENABLED': ['safety', 'safety_session_lockout_enabled'],
                         'SAFETY_SESSION_LOCKOUT_HOUR': ['safety', 'safety_session_lockout_hour'],
                         'SAFETY_GREED_GUARD_ENABLED': ['safety', 'safety_greed_guard_enabled'],

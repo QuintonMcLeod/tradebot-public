@@ -129,6 +129,7 @@ const CONFIG_MAP = {
     'ICC_SCORE_HTF_STRENGTH_THRESHOLD': ['risk', 'icc_score_htf_strength_threshold'],
     // Safety Suite 2.0 Shields
     'SAFETY_DRAWDOWN_BREAKER_ENABLED': ['safety', 'safety_drawdown_breaker_enabled'],
+    'SAFETY_DRAWDOWN_MAX_PCT': ['safety', 'safety_drawdown_max_pct'],
     'SAFETY_GREED_GUARD_ENABLED': ['safety', 'safety_greed_guard_enabled'],
     'SAFETY_GREED_GUARD_TARGET': ['safety', 'safety_greed_guard_target'],
     'SAFETY_STREAK_BREAKER_ENABLED': ['safety', 'safety_streak_breaker_enabled'],
@@ -333,7 +334,7 @@ const TOOLTIPS = {
     TREND_HULL_MA_ENABLED: "<strong>Hull Moving Average (HMA)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Smoothed Moving Average</span><br><br>A regular moving average is like looking in the rear-view mirror — you see where the price <em>was</em>, not where it <em>is</em>. Hull MA uses a special math trick to dramatically reduce this lag, giving you a smoother and more current read on the trend.<br><br>When the Hull MA is rising, the trend is UP. When it's falling, the trend is DOWN.<br><br><span style='color:#22c55e'>✓ Good for:</span> Getting a clean, responsive trend direction without the noise. Much faster than regular moving averages while still being smooth.<br><span style='color:#ef4444'>✗ Heads up:</span> Can be <em>too</em> responsive in very choppy markets, flipping direction on minor pullbacks.",
     TREND_ADX_THRESHOLD: "The ADX value below which entries are blocked. When ADX is below this threshold, the bot considers the market 'choppy' and stands aside. Default: 20. Set to 0 to disable the gate entirely.",
     SAFETY_ATR_SHIELD_ENABLED: "Advanced ATR-based protection. Moves stops to breakeven after 1x ATR move and uses dynamic trailing stops.",
-    SAFETY_DRAWDOWN_BREAKER_ENABLED: "Account Circuit Breaker. If the account loses >5% from daily peak, all trades close and the bot pauses for 24h.",
+    SAFETY_DRAWDOWN_BREAKER_ENABLED: "Account Circuit Breaker. If the account drawdown exceeds the adaptive limit (25% for small accounts down to 5% for large accounts), all entries pause for 24h.",
     SAFETY_SESSION_LOCKOUT_ENABLED: "Prevents over-trading in choppy late-session markets. Automatically stops taking signals after 12:00 PM EST.",
 
     // Safety Suite 2.0 (New Additions)
@@ -1123,7 +1124,7 @@ function createSectionHeader(title, icon = null, tooltip = null) {
         ? `<span class="material-symbols-outlined">${icon}</span>${title}`
         : title;
     if (tooltip) {
-        html += ` <span class="material-symbols-outlined info-icon" style="font-size:14px;cursor:help;vertical-align:middle;color:var(--accent-teal);opacity:0.6" data-tooltip="${title}" data-tooltip-content="${tooltip.replace(/"/g, '&quot;')}">info</span>`;
+        html += ` <span class="material-symbols-outlined info-icon" style="font-size:14px;cursor:help;vertical-align:middle;color:var(--accent-teal);opacity:0.6">info</span>`;
     }
     header.innerHTML = html;
     // Wire up tooltip hover if content provided
@@ -1201,6 +1202,13 @@ function createCard(title, desc, key, controlType, options = {}) {
         if (options.max !== undefined) input.max = options.max;
         if (options.step !== undefined) input.step = options.step;
         input.addEventListener('change', (e) => updateValue(key, e.target.value));
+        // Auto-save on typing (debounced) — critical for password/API key fields
+        // where users type and switch tabs without clicking away (blur), so 'change' never fires
+        let _inputDebounce;
+        input.addEventListener('input', (e) => {
+            clearTimeout(_inputDebounce);
+            _inputDebounce = setTimeout(() => updateValue(key, e.target.value), 800);
+        });
         controlContainer.appendChild(input);
     }
     else if (controlType === 'dropdown') {
@@ -2264,7 +2272,7 @@ function renderSafetyTab(container) {
     section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createSliderCard('Stop ATR Multiplier', 'Standard stop distance (× ATR)', 'STOP_ATR_MULTIPLIER', 0.5, 5, 0.1, '×'));
     section.appendChild(createSliderCard('The "Lock-In"', 'Lock Risk-Free at this profit level', 'BREAKEVEN_TRAIL_PCT', 0, 5, 0.1, '%'));
-    section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker - 5% Daily Cap', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker — Adaptive (25% small → 5% large accounts)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Session Lockout', 'Stops new entries after cutoff time', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Lockout Time (EST)', 'No new entries after this time', 'SAFETY_SESSION_LOCKOUT_HOUR', 'time', { default: '16' }));
     section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock - Quit while ahead', 'SAFETY_GREED_GUARD_ENABLED', 'toggle', { default: 'true' }));
@@ -2354,6 +2362,7 @@ function renderSafetyTab(container) {
             </div>
             <div class="flex justify-between">
                 <span class="text-slate-400">Max Allowable Drawdown:</span>
+                <span class="text-teal-300">Adaptive (auto-scaled by account size)</span>
                 <span class="text-rose-400/70 font-bold">$5.00</span>
             </div>
         </div>

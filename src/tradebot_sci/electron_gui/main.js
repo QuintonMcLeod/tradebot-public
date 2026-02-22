@@ -761,7 +761,8 @@ CATEGORY 2: SAFETY & SHIELDS (no nuclear overrides)
 • SAFETY_ATR_SHIELD_ENABLED (boolean): Volatility-adjusted stop-loss & breakeven protection (ATR Armor).
 • STOP_ATR_MULTIPLIER (number, 0.5-5): Stop distance as multiple of ATR. Lower=tighter stops, higher=wider stops.
 • BREAKEVEN_TRAIL_PCT (number, 0-5): Lock in risk-free at this profit level %.
-• SAFETY_DRAWDOWN_BREAKER_ENABLED (boolean): Emergency circuit breaker — stops trading at 5% daily drawdown.
+• SAFETY_DRAWDOWN_BREAKER_ENABLED (boolean): Emergency circuit breaker — stops trading if account drawdown from HWM exceeds threshold. Uses adaptive scaling by default.
+• SAFETY_DRAWDOWN_MAX_PCT (number, 0.05-0.25): Maximum drawdown % before Drawdown Breaker triggers (0.05=5%, 0.25=25%). The bot auto-scales this based on account size (25% for <$100, 15% for $500, 10% for $1K, 5% for $10K+). Set this to override the auto-scaled value — but the bot will always use whichever is MORE generous (higher) between your setting and the adaptive calculation.
 • SAFETY_SESSION_LOCKOUT_ENABLED (boolean): Block new entries after a cutoff time.
 • SAFETY_SESSION_LOCKOUT_HOUR (number): EST hour for session lockout (e.g., 16 = 4PM).
 • SAFETY_GREED_GUARD_ENABLED (boolean): Stops trading after hitting daily profit target.

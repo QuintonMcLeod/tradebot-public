@@ -32,6 +32,28 @@ def calculate_r_multiple(entry: float, stop: float, current: float, direction: s
     return profit / risk
 
 
+def adaptive_drawdown_limit(capital: float) -> float:
+    """
+    Scale drawdown limit based on account size.
+    Small accounts get a more generous threshold (smoke alarm analogy —
+    a single trade can swing 5% on a $50 account, so 5% is too tight).
+
+    Returns a fraction (e.g. 0.25 = 25%).
+    
+    Curve:  max(0.05, 0.25 × (500 / capital)^0.4)
+    
+        ≤$100   → ~25%
+        $500    → ~15%
+        $1,000  → ~10%
+        $5,000  → ~7%
+        ≥$10,000→  5%
+    """
+    if capital <= 0:
+        return 0.25  # Safeguard: be generous with unknown/zero capital
+    raw = 0.25 * (500.0 / max(capital, 1.0)) ** 0.4
+    return max(0.05, min(0.25, raw))
+
+
 class SafetyGuard:
     """
     Centralized Guardian for Account Safety.
@@ -188,10 +210,14 @@ class SafetyGuard:
             hwm = cls._state.hwm_capital.get(asset_class, 0.0)
             if hwm > 0:
                 drawdown = (hwm - current_capital) / hwm
-                drawdown_limit = getattr(safety, 'safety_drawdown_max_pct', 0.05)
+                # Adaptive scaling: use configured value as floor, but never
+                # tighter than what the account size warrants.
+                configured_limit = getattr(safety, 'safety_drawdown_max_pct', 0.05)
+                adaptive_limit = adaptive_drawdown_limit(current_capital)
+                drawdown_limit = max(configured_limit, adaptive_limit)
                 if drawdown > drawdown_limit:
                      cls._state.drawdown_pause_until[asset_class] = now + timedelta(hours=24)
-                     logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}% > {drawdown_limit*100:.1f}% limit). Pausing 24h.")
+                     logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}% > {drawdown_limit*100:.1f}% limit, adaptive={adaptive_limit*100:.0f}%). Pausing 24h.")
                      return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
         else:
             # Breaker disabled — clear any lingering pause so it takes
