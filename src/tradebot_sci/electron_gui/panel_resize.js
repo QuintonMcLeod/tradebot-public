@@ -29,16 +29,30 @@
         el.style.setProperty('flex', '0 0 ' + h + 'px', 'important');
         el.style.setProperty('height', h + 'px', 'important');
         el.style.setProperty('max-height', h + 'px', 'important');
+        el.style.setProperty('min-height', MIN_HEIGHT + 'px', 'important');
         el.style.setProperty('overflow', 'hidden');
     }
 
+    /**
+     * Resize the LightweightCharts canvas to match its container.
+     * Uses requestAnimationFrame to ensure the DOM has reflowed first.
+     */
+    let _rafId = null;
     function triggerChartResize() {
-        if (typeof chart !== 'undefined' && chart && chart.resize) {
-            const chartArea = document.getElementById('chart-area');
-            if (chartArea) {
-                chart.resize(chartArea.clientWidth, chartArea.clientHeight);
+        if (_rafId) cancelAnimationFrame(_rafId);
+        _rafId = requestAnimationFrame(() => {
+            _rafId = null;
+            if (typeof chart !== 'undefined' && chart) {
+                const chartArea = document.getElementById('chart-area');
+                if (chartArea) {
+                    const w = chartArea.clientWidth;
+                    const h = chartArea.clientHeight;
+                    if (w > 0 && h > 0) {
+                        chart.applyOptions({ width: w, height: h });
+                    }
+                }
             }
-        }
+        });
     }
 
     function initResizeHandles() {
@@ -54,7 +68,7 @@
         });
 
         // Delayed chart resize after restoring saved sizes
-        setTimeout(triggerChartResize, 200);
+        setTimeout(triggerChartResize, 300);
 
         handles.forEach(handle => {
             const aboveId = handle.dataset.above;
@@ -76,7 +90,8 @@
                 forceHeight(belowEl, startBelowH);
 
                 // Visual feedback
-                handle.querySelector('div').style.background = 'rgba(20, 184, 166, 0.6)';
+                const dot = handle.querySelector('div');
+                if (dot) dot.style.background = 'rgba(20, 184, 166, 0.6)';
                 document.body.style.cursor = 'row-resize';
                 document.body.style.userSelect = 'none';
                 document.body.style.webkitUserSelect = 'none';
@@ -86,14 +101,14 @@
                     const newAbove = Math.max(MIN_HEIGHT, startAboveH + dy);
                     const newBelow = Math.max(MIN_HEIGHT, startBelowH - dy);
 
-                    // Enforce total conservation: don't exceed original sum
+                    // Enforce total conservation
                     const total = startAboveH + startBelowH;
                     if (newAbove + newBelow > total + 2) return;
 
                     forceHeight(aboveEl, newAbove);
                     forceHeight(belowEl, newBelow);
 
-                    // Live chart resize
+                    // Live chart resize on every frame
                     if (aboveId === 'chart-panel' || belowId === 'chart-panel') {
                         triggerChartResize();
                     }
@@ -102,20 +117,22 @@
                 const onUp = () => {
                     document.removeEventListener('mousemove', onMove);
                     document.removeEventListener('mouseup', onUp);
-                    handle.querySelector('div').style.background = '';
+                    const dot2 = handle.querySelector('div');
+                    if (dot2) dot2.style.background = '';
                     document.body.style.cursor = '';
                     document.body.style.userSelect = '';
                     document.body.style.webkitUserSelect = '';
 
                     // Save current sizes
                     const sizes = loadSavedSizes();
-                    sizes[aboveId] = aboveEl.getBoundingClientRect().height;
-                    sizes[belowId] = belowEl.getBoundingClientRect().height;
+                    sizes[aboveId] = Math.round(aboveEl.getBoundingClientRect().height);
+                    sizes[belowId] = Math.round(belowEl.getBoundingClientRect().height);
                     saveSizes(sizes);
 
-                    // Final chart resize
+                    // Final chart resize (double-tap to be safe)
                     if (aboveId === 'chart-panel' || belowId === 'chart-panel') {
-                        setTimeout(triggerChartResize, 50);
+                        triggerChartResize();
+                        setTimeout(triggerChartResize, 100);
                     }
                 };
 
