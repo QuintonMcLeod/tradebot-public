@@ -923,10 +923,13 @@
                                     Choose a profile from the sidebar</p>
                             </div>
                         </div>
-                        <div id="profile-status" class="hidden"
-                            style="padding:5px 14px; border-radius:999px; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.12em; background:rgba(16,185,129,0.1); color:#34d399; border:1px solid rgba(16,185,129,0.2);">
-                            Active
-                        </div>
+                        <button id="profile-activate-btn"
+                            onclick="window.profilesModule.activateProfile && window.profilesModule.activateProfile()"
+                            style="padding:6px 16px; border-radius:999px; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.12em; cursor:pointer; transition:all 0.3s ease; display:flex; align-items:center; gap:8px; background:rgba(239,68,68,0.08); color:#f87171; border:1px solid rgba(239,68,68,0.2);">
+                            <span id="profile-activate-dot"
+                                style="width:8px; height:8px; border-radius:50%; background:#ef4444; transition:all 0.4s ease;"></span>
+                            <span id="profile-activate-text">Activate</span>
+                        </button>
                     </div>
 
                     <!-- No tab bar — single scrollable view -->

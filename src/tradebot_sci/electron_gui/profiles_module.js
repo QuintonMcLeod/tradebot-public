@@ -339,16 +339,22 @@ window.profilesModule = (function () {
                 if (nameLower.includes(keyword)) { profileIcon = icon; break; }
             }
 
+            // Active indicator dot (green glow if this is the bot's active profile)
+            const isActiveProfile = (typeof configData !== 'undefined') && configData.active_profile === name;
+            const dotColor = isActiveProfile ? '#10b981' : 'transparent';
+            const dotGlow = isActiveProfile ? '0 0 8px #10b981, 0 0 16px rgba(16,185,129,0.3)' : 'none';
+
             item.innerHTML = `
-                <div class="profile-accent-bar" style="position:absolute; left:0; top:0; bottom:0; width:3px; background:#14b8a6; opacity:0; transition:opacity 0.3s ease, box-shadow 0.3s ease;"></div>
-                <div style="width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(20,184,166,0.06); border:1px solid rgba(20,184,166,0.12); flex-shrink:0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition:all 0.3s ease;">
-                    <span class="material-symbols-outlined" style="font-size:18px; color:#5eead4; opacity:0.7; transition:opacity 0.3s ease;">${profileIcon}</span>
-                </div>
-                <div style="flex:1; min-width:0; z-index:1;">
-                    <div style="font-size:13px; font-weight:800; color:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; letter-spacing:-0.01em; transition:color 0.3s ease;">${formatName(name)}</div>
-                    <div style="font-size:10px; color:#64748b; margin-top:2px; font-weight:500;">${symbolCount} sym · ${stratName}</div>
-                </div>
-            `;
+            <div class="profile-accent-bar" style="position:absolute; left:0; top:0; bottom:0; width:3px; background:#14b8a6; opacity:0; transition:opacity 0.3s ease, box-shadow 0.3s ease;"></div>
+            <div style="width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(20,184,166,0.06); border:1px solid rgba(20,184,166,0.12); flex-shrink:0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition:all 0.3s ease; position:relative;">
+                <span class="material-symbols-outlined" style="font-size:18px; color:#5eead4; opacity:0.7; transition:opacity 0.3s ease;">${profileIcon}</span>
+                <span class="profile-active-dot" style="position:absolute; bottom:-1px; right:-1px; width:10px; height:10px; border-radius:50%; background:${dotColor}; border:2px solid rgba(15,23,42,0.9); box-shadow:${dotGlow}; transition:all 0.4s ease;"></span>
+            </div>
+            <div style="flex:1; min-width:0; z-index:1;">
+                <div style="font-size:13px; font-weight:800; color:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; letter-spacing:-0.01em; transition:color 0.3s ease;">${formatName(name)}</div>
+                <div style="font-size:10px; color:#64748b; margin-top:2px; font-weight:500;">${symbolCount} sym · ${stratName}</div>
+            </div>
+        `;
 
             item.addEventListener('click', () => selectProfile(name));
             list.appendChild(item);
@@ -400,8 +406,11 @@ window.profilesModule = (function () {
         // Update header
         document.getElementById('profile-name-display').textContent = formatName(name);
         document.getElementById('profile-desc-display').textContent = `${Array.isArray(allProfiles[name].symbols) ? allProfiles[name].symbols.length : 0} symbols`;
-        document.getElementById('profile-status')?.classList.remove('hidden');
+        document.getElementById('profile-activate-btn')?.classList.remove('hidden');
         document.getElementById('btn-delete-profile')?.classList.remove('hidden');
+
+        // Sync activate button state
+        updateActivateButton();
 
         // Hide empty state, render merged view
         document.getElementById('profile-empty-state')?.classList.add('hidden');
@@ -1057,5 +1066,61 @@ window.profilesModule = (function () {
         incrementChangeCounter();
     }
 
-    return { init };
+    // ── Activate Profile (set as the bot's active profile) ──────
+    function activateProfile() {
+        if (!selectedProfileName) return;
+
+        // Update configData directly
+        if (typeof configData !== 'undefined') {
+            configData.active_profile = selectedProfileName;
+        }
+
+        // Use settings_integrated's updateValue + autoSave if available
+        if (typeof updateValue === 'function') {
+            updateValue('APP_PROFILE', selectedProfileName);
+        }
+        if (typeof autoSave === 'function') {
+            autoSave();
+        }
+
+        // Update button state
+        updateActivateButton();
+
+        // Re-render sidebar to update green dots
+        renderProfileList();
+        // Re-select to restore sidebar highlight
+        selectProfile(selectedProfileName);
+
+        console.log(`[PROFILES] Activated profile: ${selectedProfileName}`);
+    }
+
+    // Sync the activate button's visual state with configData.active_profile
+    function updateActivateButton() {
+        const btn = document.getElementById('profile-activate-btn');
+        const dot = document.getElementById('profile-activate-dot');
+        const text = document.getElementById('profile-activate-text');
+        if (!btn || !dot || !text) return;
+
+        const isActive = (typeof configData !== 'undefined') && configData.active_profile === selectedProfileName;
+
+        if (isActive) {
+            // Green glow — activated
+            btn.style.background = 'rgba(16,185,129,0.1)';
+            btn.style.color = '#34d399';
+            btn.style.borderColor = 'rgba(16,185,129,0.3)';
+            dot.style.background = '#10b981';
+            dot.style.boxShadow = '0 0 8px #10b981, 0 0 16px rgba(16,185,129,0.4)';
+            text.textContent = 'Activated';
+        } else {
+            // Red — not active
+            btn.style.background = 'rgba(239,68,68,0.08)';
+            btn.style.color = '#f87171';
+            btn.style.borderColor = 'rgba(239,68,68,0.2)';
+            dot.style.background = '#ef4444';
+            dot.style.boxShadow = 'none';
+            text.textContent = 'Activate';
+        }
+    }
+
+    return { init, activateProfile };
 })();

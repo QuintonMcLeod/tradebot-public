@@ -1323,9 +1323,7 @@ function renderSystemTab(container) {
         "<strong>Core Runtime</strong><br><br>The fundamental settings that control how the bot operates — which strategy to use, how it loops, and whether it places real orders. Think of this as the cockpit's master control panel."
     ));
 
-    section.appendChild(createCard('Active Profile', 'Select symbol universe & trading cadence', 'APP_PROFILE', 'dropdown', {
-        items: Object.keys(configData.profiles || {}).map(p => ({ value: p, label: p }))
-    }));
+    // Active Profile selection moved to Profile tab (activate button on each profile card)
 
 
 
