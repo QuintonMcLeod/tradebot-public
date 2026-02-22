@@ -712,7 +712,11 @@ window.api.on('env-updated', (updates) => {
 });
 
 window.api.on('fromMain', (payload) => {
-    if (payload.type === 'log-chunk') {
+    if (payload.type === 'log-clear') {
+        // Clear the sys-log panel on GUI boot — start fresh
+        const term = document.getElementById('log-terminal') || document.querySelector('.log-terminal');
+        if (term) term.innerHTML = '';
+    } else if (payload.type === 'log-chunk') {
         // DO NOT WIPE CACHE. 
         // Wiping here causes markers to vanish when the log rotates or the bot restarts,
         // unless the log is in the current tiny 2kb buffer.

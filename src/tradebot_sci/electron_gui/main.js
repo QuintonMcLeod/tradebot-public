@@ -1238,12 +1238,11 @@ function startLogWatcher(win) {
     const logPath = path.join(USER_DATA_DIR, 'logs', 'tradebot.log');
     if (!fs.existsSync(logPath)) return;
 
+    // Start fresh — don't replay stale log history.
+    // The GUI log panel should only show entries from the current session.
+    win.webContents.send('fromMain', { type: 'log-clear' });
+
     let fileSize = fs.statSync(logPath).size;
-    const startPos = Math.max(0, fileSize - 2048);
-    const stream = fs.createReadStream(logPath, { start: startPos });
-    stream.on('data', (chunk) => {
-        win.webContents.send('fromMain', { type: 'log-chunk', data: chunk.toString() });
-    });
 
     fs.watchFile(logPath, { interval: 500 }, (curr, prev) => {
         if (curr.mtime <= prev.mtime) return;
