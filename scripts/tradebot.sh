@@ -61,6 +61,22 @@ if [[ ${#_migrated[@]} -gt 0 ]]; then
   done
 fi
 
+# ── Auto-cleanup stale ROOT files once XDG equivalents exist ──
+# These leftovers silently override GUI-written settings (keys, profiles, etc.)
+_cleaned=()
+for _stale in ".env.secrets" ".env" "config.json"; do
+  if [[ -f "$USER_DATA_DIR/$_stale" && -f "$ROOT_DIR/$_stale" ]]; then
+    rm -f "$ROOT_DIR/$_stale"
+    _cleaned+=("$_stale")
+  fi
+done
+if [[ ${#_cleaned[@]} -gt 0 ]]; then
+  echo "[CLEANUP] Removed ${#_cleaned[@]} stale file(s) from project root (XDG copies exist):"
+  for item in "${_cleaned[@]}"; do
+    echo "  $item"
+  done
+fi
+
 # Load secrets: legacy first, then XDG last (XDG wins — GUI writes there)
 set -a
 [ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" > /dev/null 2>&1 || true
