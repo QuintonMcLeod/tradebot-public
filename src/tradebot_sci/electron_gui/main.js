@@ -1359,9 +1359,11 @@ function createWindow() {
         try { if (fs.existsSync(stdoutPath)) fs.truncateSync(stdoutPath); } catch (e) { }
 
         // 3. Command construction
+        // The GUI user clicking "Start" IS their trading confirmation — inject it
+        // so the daemon doesn't die waiting for interactive stdin confirmation.
         let spawnCmd = isWindows()
             ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" -m tradebot_sci.runtime.controller --daemon`
-            : `bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon`;
+            : `TRADING_CONFIRMATION=YES bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);
         fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
