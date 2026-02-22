@@ -509,6 +509,9 @@ function setupIpcHandlers() {
             const model = get('model') || get('TRADE_SCI_MODEL_NAME') || defaultModels[provider] || 'deepseek-chat';
             let baseUrl = get('base_url') || get('TRADE_SCI_API_BASE_URL') || '';
 
+            // Guard: ignore placeholder example.com URLs from stale .env files
+            if (baseUrl.includes('example.com')) baseUrl = '';
+
             console.log(`[MAIN] AI Recommend - provider: ${provider}, model: ${model}, baseUrl: ${baseUrl}, apiKey: ${apiKey ? '***' + apiKey.slice(-6) : 'MISSING'}`);
 
             // No hard gate — if no API key, we fall back to GhostSpotter relay below
