@@ -1006,7 +1006,7 @@ class SafetySettings(BaseModel):
         default_factory=lambda: os.getenv("SAFETY_FEE_SHIELD_ENABLED", "True").lower() == "true"
     )
     safety_volatility_min_pct: float = Field(
-        default_factory=lambda: float(os.getenv("SAFETY_VOLATILITY_MIN_PCT", "0.05"))
+        default_factory=lambda: float(os.getenv("SAFETY_VOLATILITY_MIN_PCT", "0.02"))
     )
     safety_volatility_max_pct: float = Field(
         default_factory=lambda: float(os.getenv("SAFETY_VOLATILITY_MAX_PCT", "5.0"))
