@@ -565,7 +565,11 @@ def load_settings() -> Settings:
         settings.oanda = load_oanda_broker_options()
 
     # 4. Post-initialization normalization
-    settings.logging.file = _resolve_path(settings.logging.file) or settings.logging.file
+    # Log file path: resolve relative paths against USER_DATA_DIR/logs/
+    # (not APP_DIR) so the GUI and bot both read/write the same file.
+    _log_path = Path(settings.logging.file)
+    if not _log_path.is_absolute():
+        settings.logging.file = str(_paths.LOG_DIR / _log_path.name)
 
     # Auto-resolve empty paths to the user data directory
     if not settings.runtime.position_hold_store_path:

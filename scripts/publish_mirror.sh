@@ -84,6 +84,7 @@ rsync -av --delete \
     --include='config/settings_*.yaml' \
     --include='config.json' \
     --include='README.md' \
+    --include='VERSION' \
     --include='pyproject.toml' \
     --include='poetry.lock' \
     --exclude='*' \
