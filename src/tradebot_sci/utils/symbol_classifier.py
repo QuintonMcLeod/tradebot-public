@@ -11,7 +11,15 @@ class AssetClass(Enum):
     UNKNOWN = "unknown"
 
 # Known symbol patterns
-CRYPTO_SYMBOLS = {"BTC", "ETH", "SOL", "DOGE", "XRP", "ADA", "LINK", "AVAX", "SHIB", "LTC", "DOT", "ATOM", "NEAR", "POL"}
+CRYPTO_SYMBOLS = {
+    "BTC", "ETH", "SOL", "DOGE", "XRP", "ADA", "LINK", "AVAX", "SHIB", "LTC",
+    "DOT", "ATOM", "NEAR", "POL", "BCH", "ZEC", "AAVE", "COMP", "MATIC",
+    "UNI", "SUSHI", "MKR", "SNX", "YFI", "CRV", "BAL", "FIL", "MANA",
+    "SAND", "AXS", "ENJ", "BAT", "GRT", "LRC", "ALGO", "FTM", "ONE",
+    "HBAR", "ICP", "THETA", "VET", "EOS", "XLM", "TRX", "XTZ", "DASH",
+    "ETC", "PEPE", "WIF", "BONK", "RENDER", "FET", "TAO", "INJ", "TIA",
+    "SUI", "SEI", "APT", "ARB", "OP", "ONDO", "PENDLE", "RUNE", "STX",
+}
 FOREX_PAIRS = {"EUR", "USD", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"}
 METALS = {"XAU", "XAG", "XPT", "XPD", "GLD", "SLV", "GDX"}
 ETF_SYMBOLS = {"SPY", "QQQ", "DIA", "IWM", "VTI", "XLK", "XLF", "XLE", "XLY", "XLP", "XLI", "XLU", "SMH", "XLB", "XOP", "XME", "ARKK", "ARKF", "SOXX", "USO", "UNG", "EWU", "EWG", "EWQ", "EWT", "EWJ", "EWS", "FXI"}
