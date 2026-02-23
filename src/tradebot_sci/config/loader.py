@@ -208,6 +208,25 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         "sabbath_end_local", "sabbath_astronomical", "sabbath_lat", "sabbath_lon",
     ]
 
+    _PROMOTED_TREND_KEYS = [
+        "trend_adx_enabled", "trend_rsi_enabled", "trend_macd_enabled",
+        "trend_bollinger_enabled", "trend_supertrend_enabled",
+        "trend_ema_ribbon_enabled", "trend_ichimoku_enabled",
+        "trend_parabolic_sar_enabled", "trend_vwap_enabled",
+        "trend_hull_ma_enabled",
+        "adx_gate_threshold", "trend_chop_threshold",
+        "trend_min_swings", "trend_strength_floor",
+        "block_counter_trend_entries",
+    ]
+
+    _PROMOTED_GENERAL_KEYS = [
+        "stop_atr_multiplier", "target_leverage",
+        "min_hold_hours", "max_hold_hours",
+        "trailing_stop_min_profit_pct",
+        "breakeven_trail_pct",
+        "session_gate_enabled",
+    ]
+
     _profile_fields = set(TradingProfileSettings.model_fields.keys())
 
     profiles = {}
@@ -218,6 +237,10 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
                 merged[key] = risk_model_cfg[key]
         # Inject global sabbath settings as defaults (sabbath is global-only)
         for key in _PROMOTED_SABBATH_KEYS:
+            if key not in merged and key in g_cfg and key in _profile_fields:
+                merged[key] = g_cfg[key]
+        # Inject global trend indicator toggles into profiles
+        for key in _PROMOTED_TREND_KEYS + _PROMOTED_GENERAL_KEYS:
             if key not in merged and key in g_cfg and key in _profile_fields:
                 merged[key] = g_cfg[key]
 
