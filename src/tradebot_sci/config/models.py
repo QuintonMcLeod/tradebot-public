@@ -819,6 +819,10 @@ class TradingProfileSettings(BaseModel):
         """
         Get the appropriate strategy for a given symbol.
 
+        Priority: config.json globals (promoted by loader) → profile defaults → legacy fallback.
+        Note: STRATEGY_* env vars are intentionally NOT checked here — they go stale
+        because the Electron GUI writes to .env but config.json globals are the SSOT.
+
         Args:
             symbol: The trading symbol
 
@@ -828,14 +832,7 @@ class TradingProfileSettings(BaseModel):
         from tradebot_sci.utils.symbol_classifier import AssetClass, classify_symbol
         asset_class = classify_symbol(symbol)
 
-        # 1. Check for environment variable overrides (highest priority)
-        # e.g., STRATEGY_CRYPTO=robocop
-        env_key = f"STRATEGY_{asset_class.value.upper()}"
-        env_override = os.getenv(env_key)
-        if env_override:
-            return env_override.lower()
-
-        # 2. Check for profile-specific overrides
+        # 1. Check profile strategies (populated from config.json globals by loader)
         if self.strategies is not None:
             strategy_map = {
                 AssetClass.CRYPTO: self.strategies.crypto,
@@ -849,7 +846,7 @@ class TradingProfileSettings(BaseModel):
             if res:
                 return res
 
-        # 3. Fallback to legacy single strategy
+        # 2. Fallback to legacy single strategy
         return self.strategy_variant
 
 
