@@ -271,6 +271,20 @@ class ICCCoreStrategy(BaseStrategy):
         if pos_dir not in {"long", "short"}:
             return None
 
+        # Grace period: don't invalidate structure within 5 minutes of entry.
+        # Tiny swing breaks right after entry are noise, not signal.
+        entry_time = open_position.get("entry_time")
+        if entry_time:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            if isinstance(entry_time, str):
+                try:
+                    entry_time = datetime.fromisoformat(entry_time.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    entry_time = None
+            if entry_time and (now - entry_time).total_seconds() < 300:
+                return None  # Trade is less than 5 minutes old — skip invalidation
+
         # Check for structure invalidation (swing level broken by ATR buffer)
         inval = detect_structure_invalidation(snapshot.candles, pos_dir, atr_mult=0.5)
         if inval:
