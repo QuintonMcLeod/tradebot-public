@@ -1063,7 +1063,13 @@ def run_bot(
     last_holdings_log_ts = 0.0
     last_capital_check_ts = 0.0
     consecutive_error_iterations = 0
-    loop_iter = itertools.count() if iterations is None else range(iterations)
+    # Continuous mode: GUI toggle (profile_settings.continuous_mode) OR CLI --continuous (iterations=None)
+    if iterations is None or getattr(profile_settings, 'continuous_mode', False):
+        loop_iter = itertools.count()
+        logger.info("[LOOP] Continuous mode ENABLED — running indefinitely")
+    else:
+        loop_iter = range(iterations)
+        logger.info("[LOOP] Fixed iteration mode — %d iterations", iterations)
     start_ts = time.time()
     
     # Hot-Reload State
