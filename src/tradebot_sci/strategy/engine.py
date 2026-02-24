@@ -415,12 +415,11 @@ class StrategyEngine:
             position_is_young = (position_age is not None and position_age < HOLD_GUARD_SECONDS)
 
             if exit_decision:
-                is_sl_tp = getattr(exit_decision, 'emergency_exit', False)
-                if position_is_young and not is_sl_tp:
+                if position_is_young:
                     logger.info(
                         f"[HOLD GUARD] {self.symbol} strategy exit BLOCKED — "
                         f"age {position_age:.0f}s < {HOLD_GUARD_SECONDS}s "
-                        f"(only SL/TP allowed). Reason: {getattr(exit_decision, 'notes', 'N/A')[:80]}"
+                        f"(ALL exits blocked during hold). Reason: {getattr(exit_decision, 'notes', 'N/A')[:80]}"
                     )
                 else:
                     exit_decision.score = score
@@ -440,8 +439,7 @@ class StrategyEngine:
                 performance_exit = SafetyGuard.handle_runner_exit(decision_to_check, open_position)
                 if performance_exit:
                     # Apply hold guard to runner exits too
-                    is_runner_sl_tp = getattr(performance_exit, 'emergency_exit', False)
-                    if position_is_young and not is_runner_sl_tp:
+                    if position_is_young:
                         logger.info(
                             f"[HOLD GUARD] {self.symbol} runner exit BLOCKED — "
                             f"age {position_age:.0f}s < {HOLD_GUARD_SECONDS}s"
@@ -453,13 +451,12 @@ class StrategyEngine:
                         return performance_exit
             
             if safety_exit:
-                # Apply same 1-hour hold guard to safety exits
-                is_safety_sl_tp = getattr(safety_exit, 'emergency_exit', False)
-                if position_is_young and not is_safety_sl_tp:
+                # Apply hold guard to ALL safety exits — no exceptions
+                if position_is_young:
                     logger.info(
                         f"[HOLD GUARD] {self.symbol} safety exit BLOCKED — "
                         f"age {position_age:.0f}s < {HOLD_GUARD_SECONDS}s "
-                        f"(only SL/TP allowed). Reason: {getattr(safety_exit, 'notes', 'N/A')[:80]}"
+                        f"(ALL exits blocked during hold). Reason: {getattr(safety_exit, 'notes', 'N/A')[:80]}"
                     )
                 else:
                     safety_exit.score = score

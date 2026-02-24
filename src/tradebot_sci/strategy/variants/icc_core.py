@@ -297,7 +297,7 @@ class ICCCoreStrategy(BaseStrategy):
                 snapshot.symbol,
                 snapshot.timeframe,
                 reason=f"ICC Core: Structure Invalidation (swing={inval.swing_level:.4f})",
-                emergency_exit=True,
+                emergency_exit=False,  # NOT an SL/TP — must respect hold guard
             )
 
         # [SAFETY] All other exits managed by StrategyEngine via SafetyGuard
