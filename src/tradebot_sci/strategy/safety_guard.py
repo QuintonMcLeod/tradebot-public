@@ -148,9 +148,20 @@ class SafetyGuard:
         asset_class = classify_symbol(symbol)
         safety = getattr(settings, 'safety', None) if settings else None
 
-        # 0. State Updates
+        # 0. State Updates — with deposit detection
         hwm = cls._state.hwm_capital.get(asset_class, 0.0)
         if current_capital > hwm:
+            # Detect deposits: if capital jumped >20% in one cycle, it's a
+            # deposit, not a trade win.  Reset HWM and clear drawdown pause
+            # so partially-settled deposits don't trigger false drawdowns.
+            if hwm > 0 and (current_capital - hwm) / hwm > 0.20:
+                logger.info(
+                    f"[SAFETY] Deposit detected for {asset_class.value}: "
+                    f"${hwm:.2f} → ${current_capital:.2f} "
+                    f"(+{(current_capital - hwm)/hwm*100:.0f}%). "
+                    f"Resetting HWM and clearing drawdown pause."
+                )
+                cls._state.drawdown_pause_until.pop(asset_class, None)
             cls._state.hwm_capital[asset_class] = current_capital
         cls._update_daily_stats(current_capital, asset_class)
 
