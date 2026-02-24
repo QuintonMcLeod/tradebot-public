@@ -521,6 +521,20 @@ function checkConflicts(sourceKey, value) {
     const config = CONFLICT_MAP[conflictId];
 
     if (config) {
+        // Skip modal if all targets are already in the desired state (off/false)
+        if (config.type === 'modal' && config.targets.length > 0) {
+            const allAlreadyOff = config.targets.every(t => {
+                const cur = getActiveProfileSettings()[t];
+                return cur === false || cur === 'false' || cur === '' || cur === undefined || cur === null || cur === 'off' || cur === 'none';
+            });
+            if (allAlreadyOff) {
+                // No conflict — targets already disabled, just apply the change
+                updateValue(sourceKey, value);
+                renderTab();
+                return true;
+            }
+        }
+
         if (config.type === 'modal') {
             showConflictModal(
                 "Optimization Conflict",
@@ -542,45 +556,78 @@ function checkConflicts(sourceKey, value) {
 }
 
 function showConflictModal(title, message, onConfirm) {
-    // Check if modal container exists
+    // Remove any existing modal
     let modal = document.getElementById('conflict-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'conflict-modal';
-        modal.className = 'fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md opacity-0 pointer-events-none transition-opacity duration-300';
-        modal.innerHTML = `
-            <div class="bg-slate-900 border border-amber-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl shadow-amber-500/10">
-                <div class="flex items-center gap-3 mb-4">
-                    <span class="material-symbols-outlined text-amber-500">warning</span>
-                    <h3 class="text-lg font-bold text-white" id="modal-title"></h3>
-                </div>
-                <div class="text-sm text-slate-300 mb-6 leading-relaxed" id="modal-message"></div>
-                <div class="flex gap-3 justify-end">
-                    <button id="modal-cancel" class="px-4 py-2 rounded-lg bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white transition-all text-sm font-medium">Cancel</button>
-                    <button id="modal-confirm" class="px-4 py-2 rounded-lg bg-amber-500 text-black hover:bg-amber-400 transition-all text-sm font-bold">Proceed & Disable Conflict</button>
-                </div>
+    if (modal) modal.remove();
+
+    modal = document.createElement('div');
+    modal.id = 'conflict-modal';
+    Object.assign(modal.style, {
+        position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
+        zIndex: '99999', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)', padding: '24px',
+        opacity: '0', transition: 'opacity 0.3s ease',
+    });
+
+    modal.innerHTML = `
+        <div style="
+            background: linear-gradient(145deg, #1a1e2e 0%, #0f1219 100%);
+            border: 1px solid rgba(245,158,11,0.3);
+            border-radius: 16px; padding: 28px; max-width: 440px; width: 100%;
+            box-shadow: 0 25px 60px rgba(0,0,0,0.6), 0 0 40px rgba(245,158,11,0.08);
+            animation: modalSlideIn 0.3s ease forwards;
+        ">
+            <style>
+                @keyframes modalSlideIn {
+                    from { transform: translateY(20px) scale(0.95); opacity: 0; }
+                    to { transform: translateY(0) scale(1); opacity: 1; }
+                }
+            </style>
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+                <span class="material-symbols-outlined" style="color:#f59e0b; font-size:28px;">warning</span>
+                <h3 id="modal-title" style="font-size:18px; font-weight:700; color:#fff; margin:0;"></h3>
             </div>
-        `;
-        document.body.appendChild(modal);
-    }
+            <div id="modal-message" style="
+                font-size:14px; color:#94a3b8; line-height:1.7; margin-bottom:24px;
+                padding: 14px 16px; background: rgba(245,158,11,0.06);
+                border-left: 3px solid rgba(245,158,11,0.4); border-radius: 8px;
+            "></div>
+            <div style="display:flex; gap:12px; justify-content:flex-end;">
+                <button id="modal-cancel" style="
+                    padding:10px 20px; border-radius:10px; border:1px solid rgba(255,255,255,0.1);
+                    background:rgba(255,255,255,0.05); color:#94a3b8; cursor:pointer;
+                    font-size:13px; font-weight:500; transition:all 0.2s ease;
+                " onmouseover="this.style.background='rgba(255,255,255,0.1)';this.style.color='#fff'"
+                  onmouseout="this.style.background='rgba(255,255,255,0.05)';this.style.color='#94a3b8'"
+                >Cancel</button>
+                <button id="modal-confirm" style="
+                    padding:10px 20px; border-radius:10px; border:none;
+                    background:linear-gradient(135deg, #f59e0b, #d97706); color:#000; cursor:pointer;
+                    font-size:13px; font-weight:700; transition:all 0.2s ease;
+                    box-shadow: 0 4px 12px rgba(245,158,11,0.3);
+                " onmouseover="this.style.background='linear-gradient(135deg, #fbbf24, #f59e0b)';this.style.transform='translateY(-1px)'"
+                  onmouseout="this.style.background='linear-gradient(135deg, #f59e0b, #d97706)';this.style.transform='none'"
+                >Proceed & Resolve</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
 
     modal.querySelector('#modal-title').innerHTML = title;
     modal.querySelector('#modal-message').innerHTML = message;
 
-    const confirmBtn = modal.querySelector('#modal-confirm');
-    const cancelBtn = modal.querySelector('#modal-cancel');
-
     const closeModal = () => {
-        modal.classList.add('opacity-0', 'pointer-events-none');
+        modal.style.opacity = '0';
+        setTimeout(() => modal.remove(), 300);
     };
 
-    confirmBtn.onclick = () => {
-        onConfirm();
-        closeModal();
-    };
-    cancelBtn.onclick = closeModal;
+    modal.querySelector('#modal-confirm').onclick = () => { onConfirm(); closeModal(); };
+    modal.querySelector('#modal-cancel').onclick = closeModal;
+    modal.onclick = (e) => { if (e.target === modal) closeModal(); };
 
-    modal.classList.remove('opacity-0', 'pointer-events-none');
+    // Fade in
+    requestAnimationFrame(() => { modal.style.opacity = '1'; });
 }
 
 /**
