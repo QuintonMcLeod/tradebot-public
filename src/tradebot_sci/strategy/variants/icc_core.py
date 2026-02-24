@@ -229,8 +229,9 @@ class ICCCoreStrategy(BaseStrategy):
         )
         
         # 7. Stop/Target logic (ICT style)
-        # Stop: beyond the swing structure (1.5x ATR minimum for broker compliance)
-        min_stop_dist = max(atr * 2.0, last_close * 0.0015)
+        # Stop: beyond the swing structure, with generous floor to survive noise.
+        # 25-pip minimum for EURUSD-class pairs prevents sub-3-minute SL hits.
+        min_stop_dist = max(atr * 2.5, last_close * 0.0025)
         stop_dist = min_stop_dist
         
         if action == "enter_long":
