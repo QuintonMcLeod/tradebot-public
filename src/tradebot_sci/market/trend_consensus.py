@@ -51,6 +51,12 @@ logger = logging.getLogger(__name__)
 # never go below this.
 _STRENGTH_FLOOR = 0.25
 
+# ── Trend computation cache ──────────────────────────────────────────
+# Keyed on (last_candle_ts, candle_count, label) to avoid recomputing
+# 10+ expensive indicators when the same candle set is seen again.
+_TF_CACHE: dict[tuple, "_TimeframeResult"] = {}
+_TF_CACHE_MAX = 8  # Keep small — only need current bar's HTF/LTF per symbol
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Per-timeframe result (internal)
@@ -118,6 +124,15 @@ def _compute_timeframe(
     Returns:
         _TimeframeResult with direction, strength, and raw indicator data.
     """
+    # ── Cache check ──────────────────────────────────────────────────
+    global _TF_CACHE
+    _cache_key = None
+    if candles:
+        _cache_key = (candles[-1].timestamp, len(candles), label)
+        cached = _TF_CACHE.get(_cache_key)
+        if cached is not None:
+            return cached
+
     # ── Thresholds ────────────────────────────────────────────────────
     adx_threshold = float(getattr(profile, 'adx_gate_threshold', 20))
     chop_threshold = float(getattr(profile, 'trend_chop_threshold', 15))
@@ -321,7 +336,7 @@ def _compute_timeframe(
     if direction in ("long", "short") and strength < _STRENGTH_FLOOR:
         strength = _STRENGTH_FLOOR
 
-    return _TimeframeResult(
+    result = _TimeframeResult(
         direction=direction,
         strength=strength,
         adx=adx_val,
@@ -337,6 +352,16 @@ def _compute_timeframe(
         hull_ma=hma_data,
         votes=vote_trail,
     )
+
+    # ── Cache store ──────────────────────────────────────────────────
+    if _cache_key is not None:
+        if len(_TF_CACHE) >= _TF_CACHE_MAX:
+            # Evict oldest entries
+            for k in list(_TF_CACHE.keys())[:_TF_CACHE_MAX // 2]:
+                del _TF_CACHE[k]
+        _TF_CACHE[_cache_key] = result
+
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────

@@ -10,12 +10,155 @@ let settingsInitialized = false;
 // STATE MANAGEMENT
 // ═══════════════════════════════════════════════════════════
 
+let configData = {};
+let secretsData = {};
 let envData = {};
+let localChanges = {};
+let changeCount = 0;
+let autoSaveTimeout;
 let profilesContent = "";
 let currentTab = 'system';
 let subTabs = { brokers: 'ibkr', strategy: 'assets' };
-let localChanges = {};
-let changeCount = 0;
+
+// Property Mapping (Legacy Key -> JSON Path)
+const CONFIG_MAP = {
+    'APP_PROFILE': ['active_profile'],
+    'BOT_MODE': ['global', 'bot_mode'],
+    'BOT_ITERATIONS': ['global', 'bot_iterations'],
+    'EXECUTE_TRADES': ['global', 'execute_trades'],
+    'SABBATH_ENABLED': ['safety', 'sabbath_enabled'],
+    'SABBATH_CITY': ['safety', 'sabbath_city'],
+    'OANDA_ACCOUNT_ID': ['brokers', 'oanda', 'account_id'],
+    'OANDA_ENVIRONMENT': ['brokers', 'oanda', 'environment'],
+    'OANDA_READ_ONLY': ['brokers', 'oanda', 'read_only'],
+    'IBKR_HOST': ['brokers', 'ibkr', 'host'],
+    'IBKR_PORT': ['brokers', 'ibkr', 'port'],
+    'IBKR_CLIENT_ID': ['brokers', 'ibkr', 'client_id'],
+    'IBKR_ACCOUNT_ID': ['brokers', 'ibkr', 'account_id'],
+    'IBKR_PAPER': ['brokers', 'ibkr', 'paper'],
+    'IBKR_READ_ONLY': ['brokers', 'ibkr', 'read_only'],
+    'GEMINI_SANDBOX': ['brokers', 'gemini', 'sandbox'],
+    'CCXT_EXCHANGE': ['brokers', 'ccxt', 'exchange'],
+    'CCXT_DEFAULT_TYPE': ['brokers', 'ccxt', 'default_type'],
+    'CCXT_SANDBOX': ['brokers', 'ccxt', 'sandbox'],
+    'CCXT_ENABLE_RATE_LIMIT': ['brokers', 'ccxt', 'enable_rate_limit'],
+    'BROKER_CRYPTO': ['market', 'broker_crypto'],
+    'BROKER_FOREX': ['market', 'broker_forex'],
+    'BROKER_EQUITIES': ['market', 'broker_equities'],
+    'MARKET_DATA_MODE': ['market', 'market_data_mode'],
+    'LOG_LEVEL': ['logging', 'level'],
+    'TRADEBOT_LOG': ['logging', 'file'],
+    'WS_SERVER_PORT': ['runtime', 'ws_server_port'],
+    'GUI_WS_URL': ['runtime', 'gui_ws_url'],
+    'GUI_PNL_TIMEFRAME': ['runtime', 'pnl_timeframe'],
+    'GLOBAL_RISK_PCT': ['runtime', 'global_default_risk_pct'],
+    'FRIDAY_FADE_ENABLED': ['runtime', 'friday_fade_enabled'],
+    // Safety & Shields
+    'SAFETY_ATR_SHIELD_ENABLED': ['safety', 'safety_atr_shield_enabled'],
+    'SAFETY_SENTIMENT_SHIELD_ENABLED': ['safety', 'safety_sentiment_shield_enabled'],
+    'SAFETY_VOLATILITY_VETO_ENABLED': ['safety', 'safety_volatility_veto_enabled'],
+    'WEALTH_EXIT_GAMMA_ENABLED': ['safety', 'wealth_exit_gamma_enabled'],
+    'WEALTH_EXIT_MOONSHOT_ENABLED': ['safety', 'wealth_exit_moonshot_enabled'],
+    'WEALTH_EXIT_BLOWOFF_ENABLED': ['safety', 'wealth_exit_blowoff_enabled'],
+    'RISK_REWARD_RATIO': ['safety', 'risk_reward_ratio'],
+    'BREAKEVEN_TRAIL_PCT': ['safety', 'breakeven_trail_pct'],
+    'SAFETY_STALE_SNIPER_ENABLED': ['safety', 'safety_stale_sniper_enabled'],
+    'SAFETY_STALE_SNIPER_BARS': ['safety', 'safety_stale_sniper_bars'],
+    'SAFETY_FLASH_TRAP_ENABLED': ['safety', 'safety_flash_trap_enabled'],
+    'SAFETY_REGIME_FLIP_ENABLED': ['safety', 'safety_regime_flip_enabled'],
+    'BLOCK_COUNTER_TREND_ENTRIES': ['safety', 'block_counter_trend_entries'],
+    'SAFETY_SESSION_LOCKOUT_ENABLED': ['safety', 'safety_session_lockout_enabled'],
+    'SAFETY_SESSION_LOCKOUT_HOUR': ['safety', 'safety_session_lockout_hour'],
+    // Performance
+    'PERFORMANCE_MODE': ['performance', 'performance_mode'],
+    'TRAILING_STOP_ENABLED': ['performance', 'trailing_stop_enabled'],
+    'PYRAMID_CAP_OVERRIDE': ['performance', 'pyramid_cap_override'],
+    'COMPOUNDING_CAP_OVERRIDE': ['performance', 'compounding_cap_override'],
+    // Pyramiding (under global in config.json)
+    'MAX_PYRAMID_ENTRIES': ['global', 'max_pyramid_entries'],
+    'PYRAMID_PROFIT_BUFFER_PCT': ['global', 'pyramid_profit_buffer_pct'],
+    'PYRAMID_RISK_LOAD': ['global', 'pyramid_risk_load'],
+    'PYRAMID_RISK_SCALE': ['global', 'pyramid_risk_scale'],
+    'BREAKEVEN_TRAIL_AFTER_PYRAMIDS': ['global', 'breakeven_trail_after_pyramids'],
+    // Exit Logic & Position Management (under global in config.json)
+    'MIN_HOLD_HOURS': ['global', 'min_hold_hours'],
+    'MAX_HOLD_HOURS': ['global', 'max_hold_hours'],
+    'HTF_NEUTRAL_EXIT_BARS': ['global', 'htf_neutral_exit_bars'],
+    'TRAILING_STOP_MIN_PROFIT_PCT': ['global', 'trailing_stop_min_profit_pct'],
+    'AUTO_FLATTEN_ON_CLOSE': ['global', 'flatten_on_exit'],
+    'MULTI_POSITION_ENABLED': ['global', 'multi_position_enabled'],
+    'MAX_CONCURRENT_POSITIONS': ['global', 'max_concurrent_positions'],
+    'SMART_POSITIONS_ENABLED': ['global', 'smart_positions_enabled'],
+    'TARGET_PROFIT_DAILY_PCT': ['global', 'target_profit_daily_pct'],
+    // Trend Detection (under global in config.json)
+    'TREND_ADX_ENABLED': ['global', 'trend_adx_enabled'],
+    'TREND_RSI_ENABLED': ['global', 'trend_rsi_enabled'],
+    'TREND_MACD_ENABLED': ['global', 'trend_macd_enabled'],
+    'TREND_BOLLINGER_ENABLED': ['global', 'trend_bollinger_enabled'],
+    'TREND_SUPERTREND_ENABLED': ['global', 'trend_supertrend_enabled'],
+    'TREND_EMA_RIBBON_ENABLED': ['global', 'trend_ema_ribbon_enabled'],
+    'TREND_ICHIMOKU_ENABLED': ['global', 'trend_ichimoku_enabled'],
+    'TREND_PARABOLIC_SAR_ENABLED': ['global', 'trend_parabolic_sar_enabled'],
+    'TREND_VWAP_ENABLED': ['global', 'trend_vwap_enabled'],
+    'TREND_HULL_MA_ENABLED': ['global', 'trend_hull_ma_enabled'],
+    // ── Risk & ICC (Global — not per-profile) ──────────────────
+    'RISK_PER_TRADE_PCT': ['risk', 'risk_per_trade_pct'],
+    'RISK_PER_TRADE_DOLLARS': ['risk', 'risk_per_trade_dollars'],
+    'MAX_EXPOSURE_PCT': ['risk', 'max_exposure_pct'],
+    'LIMIT_LOSS_DAILY_PCT': ['risk', 'limit_loss_daily_pct'],
+    'AGGRESSIVE_RISK_PER_TRADE_PCT': ['risk', 'aggressive_risk_per_trade_pct'],
+    'ICC_AUTO_ENTRY_ENABLED': ['risk', 'icc_auto_entry_enabled'],
+    'ICC_AGGRESSIVE_MODE': ['risk', 'icc_aggressive_mode'],
+    'ICC_ENTRY_SCORE_THRESHOLD': ['risk', 'icc_entry_score_threshold'],
+    'ICC_AUTO_ENTRY_REQUIRE_SWEEP': ['risk', 'icc_auto_entry_require_sweep'],
+    'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH': ['risk', 'icc_auto_entry_min_htf_strength'],
+    'ICC_CONFIRMATION_BARS': ['risk', 'icc_confirmation_bars'],
+    'ICC_MAX_BARS_AFTER_SWEEP': ['risk', 'icc_max_bars_after_sweep'],
+    'ICC_REQUIRE_LIQUIDITY_GRAB': ['risk', 'icc_require_liquidity_grab'],
+    'ICC_STRICT_MODE': ['risk', 'icc_strict_mode'],
+    'ICC_HIGH_SCORE_OVERRIDE_THRESHOLD': ['risk', 'icc_high_score_override_threshold'],
+    'ICC_TWO_SIGNAL_OVERRIDE_ENABLED': ['risk', 'icc_two_signal_override_enabled'],
+    'ICC_AUTO_ENTRY_COOLDOWN_MINUTES': ['risk', 'icc_auto_entry_cooldown_minutes'],
+    'ICC_AUTO_ENTRY_MIN_SCORE': ['risk', 'icc_auto_entry_min_score'],
+    'ICC_SCORE_CONTINUATION_POINTS': ['risk', 'icc_score_continuation_points'],
+    'ICC_SCORE_SWEEP_POINTS': ['risk', 'icc_score_sweep_points'],
+    'ICC_SCORE_HTF_LTF_ALIGN_POINTS': ['risk', 'icc_score_htf_ltf_align_points'],
+    'ICC_SCORE_STRONG_HTF_POINTS': ['risk', 'icc_score_strong_htf_points'],
+    'ICC_SCORE_PHASE_POINTS': ['risk', 'icc_score_phase_points'],
+    'ICC_SCORE_INDICATION_POINTS': ['risk', 'icc_score_indication_points'],
+    'ICC_SCORE_HTF_STRENGTH_THRESHOLD': ['risk', 'icc_score_htf_strength_threshold'],
+    // Safety Suite 2.0 Shields
+    'SAFETY_DRAWDOWN_BREAKER_ENABLED': ['safety', 'safety_drawdown_breaker_enabled'],
+    'SAFETY_DRAWDOWN_MAX_PCT': ['safety', 'safety_drawdown_max_pct'],
+    'SAFETY_GREED_GUARD_ENABLED': ['safety', 'safety_greed_guard_enabled'],
+    'SAFETY_GREED_GUARD_TARGET': ['safety', 'safety_greed_guard_target'],
+    'SAFETY_STREAK_BREAKER_ENABLED': ['safety', 'safety_streak_breaker_enabled'],
+    'SAFETY_CHURN_BURNER_ENABLED': ['safety', 'safety_churn_burner_enabled'],
+    'SAFETY_CHURN_BURNER_MAX': ['safety', 'safety_churn_burner_max'],
+    'SAFETY_LEVERAGE_SENTRY_ENABLED': ['safety', 'safety_leverage_sentry_enabled'],
+    'SAFETY_MAX_TOTAL_LEVERAGE': ['safety', 'safety_max_total_leverage'],
+    'SAFETY_OPENING_SENTRY_ENABLED': ['safety', 'safety_opening_sentry_enabled'],
+    // AI Provider (nested under configData.ai)
+    'TRADE_SCI_PROVIDER': ['ai', 'provider'],
+    'TRADE_SCI_MODEL_NAME': ['ai', 'model'],
+    'TRADE_SCI_API_BASE_URL': ['ai', 'base_url'],
+    'AI_TEMPERATURE': ['ai', 'temperature'],
+    'AI_MAX_TOKENS': ['ai', 'max_tokens'],
+};
+
+const SECRETS_MAP = {
+    'OANDA_API_KEY': 'OANDA_API_KEY',
+    'GEMINI_API_KEY': 'GEMINI_API_KEY',
+    'GEMINI_API_SECRET': 'GEMINI_API_SECRET',
+    'CCXT_API_KEY': 'CCXT_API_KEY',
+    'CCXT_SECRET': 'CCXT_SECRET',
+    'PAXOS_API_KEY': 'PAXOS_API_KEY',
+    'PAXOS_API_SECRET': 'PAXOS_API_SECRET',
+    'KRAKEN_API_KEY': 'KRAKEN_API_KEY',
+    'KRAKEN_API_SECRET': 'KRAKEN_API_SECRET',
+    'TRADE_SCI_API_KEY': 'TRADE_SCI_API_KEY',
+    'CHATGPT_KEY': 'CHATGPT_KEY',
+};
 
 // ═══════════════════════════════════════════════════════════
 // TOOLTIP LIBRARY - Detailed, layman-friendly explanations
@@ -26,10 +169,11 @@ const TOOLTIPS = {
     APP_PROFILE: "Trading profiles define which markets you trade (stocks, forex, crypto), how often the bot checks for opportunities, and when it's allowed to trade. Think of it like choosing between 'day trader mode' vs '24/7 crypto mode'.",
     STRATEGY_VARIANT: "The trading strategy determines HOW the bot decides to enter and exit trades. Each strategy has different rules - some are aggressive scalpers, others wait for perfect setups. Choose based on your risk tolerance and market conditions.",
     BOT_MODE: "Controls how the bot runs: 'Continuous' keeps trading forever until you stop it. 'Scheduled' only trades during specific hours (like market open). 'Iterations' runs a fixed number of trade cycles then stops.",
-    EXECUTE_TRADES: "The master ON/OFF switch for real trading. When OFF, the bot analyzes markets and shows what it WOULD do, but never places actual orders. Perfect for testing strategies without risking real money.",
+    EXECUTE_TRADES: "The master ON/OFF switch for real trading. When OFF, the bot runs in Paper Trading mode — it still scans markets and executes simulated trades with a virtual balance, but never places actual orders. Perfect for testing strategies risk-free. A broker must still be configured for market data.",
     GUI_AUTOSTART_BOT: "When enabled, the trading bot automatically starts running as soon as you open this application. When disabled, you'll need to manually click 'Start' to begin trading.",
     CONTINUOUS_MODE: "Keeps the bot running indefinitely without stopping between trading sessions. Useful for 24/7 crypto markets. Disable this if you want the bot to pause after each session.",
     GUI_WS_URL: "The WebSocket URL for the trading bot. Change this if you are connecting to a bot running on a remote server or a different port (e.g., ws://192.168.1.10:8080/ws).",
+    GLOBAL_RISK_PCT: "The global default risk percentage used when no other risk is specified. For example, 0.04 is 4%. This acts as the manual 'floor' for all trades.",
     WS_SERVER_PORT: "The port number the trading bot should listen on for local connections. Default is 8080. If you change this, you must also update your WebConnect URL or external tools to match.",
     FRIDAY_FADE_ENABLED: "IMPORTANT (Forex Only): Automatically reduces risk to 0.25% after 12:00 PM EST on Fridays. This accounts for the sharp drop in Forex liquidity as markets approach the weekend close, preventing 'mean reversion' strategies from getting trapped in late-session drifts.",
     PDT_GUARD_ENABLED: "Enable the Pattern Day Trader guard. Prevents opening new positions if you have fewer than $25,000 Equity and have already made 3 day trades in a rolling 5-day window. (Only applies to US Equities via IBKR).",
@@ -48,16 +192,21 @@ const TOOLTIPS = {
 
     // Risk Management
     RISK_PER_TRADE_PCT: "How much of your account you're willing to lose on a single trade. 1% means if you have $10,000, you risk losing $100 max per trade. Higher = bigger profits AND losses. Most professionals use 1-2%.",
-    SHORT_RISK_PCT: "Risk percentage specifically for short (betting price goes down) positions. Some traders use lower risk for shorts since losses are theoretically unlimited.",
     MAX_EXPOSURE_PCT: "Maximum total risk across ALL open positions combined. If set to 10% with a $10,000 account, total risk across all trades can't exceed $1,000.",
     MAX_DAILY_LOSS_PCT: "Safety circuit breaker - if you lose this percentage of your account in one day, the bot stops trading to prevent catastrophic losses. Like a daily loss limit at a casino.",
     RISK_PER_TRADE_DOLLARS: "Fixed dollar amount to risk per trade instead of percentage. Useful if you want consistent $50 or $100 risk regardless of account size.",
     MAX_LOSS_PER_TRADE_DOLLARS: "Absolute maximum dollars you can lose on any single trade, even if percentage calculation says otherwise. A hard safety cap.",
+    LIMIT_LOSS_DAILY_PCT: "Maximum loss allowed for the daily interval (e.g. 0.06 = 6%). The bot will stop trading for the day if reached. Only activates when account capital is above $250 — on smaller accounts, this is like a fire alarm that goes off when you make toast. 🍞",
+    LIMIT_LOSS_WEEKLY_PCT: "Maximum loss allowed for the weekly interval (e.g. 0.15 = 15%). The bot will stop trading for the week if reached.",
+    LIMIT_LOSS_MONTHLY_PCT: "Maximum loss allowed for the monthly interval (e.g. 0.25 = 25%). The bot will stop trading for the month if reached.",
+    TARGET_PROFIT_DAILY_PCT: "Profit target for the daily interval (e.g. 0.02 = 2%). Once hit, the bot stops for the day to lock in profits and prevent 'giving it back'. 0 disables.",
+    TARGET_PROFIT_WEEKLY_PCT: "Profit target for the weekly interval (e.g. 0.05 = 5%). Once hit, the bot stops for the week to protect gains. 0 disables.",
+    TARGET_PROFIT_MONTHLY_PCT: "Profit target for the monthly interval (e.g. 0.10 = 10%). Once hit, the bot stops for the month for wealth retention. 0 disables.",
 
-    // Position Management
+    // Safety & Shields
     MULTI_POSITION_ENABLED: "Allow the bot to have multiple trades open at the same time across different symbols. When disabled, it finishes one trade before starting another.",
     MAX_CONCURRENT_POSITIONS: "Maximum number of trades that can be open simultaneously. More positions = more diversification but also more complexity and capital required.",
-    SMART_POSITIONS_ENABLED: "Prevents opening new trades unless your current open profits are high enough to 'pay for' the risk of the new position. Ensures you only scale up using profit, not principal.",
+    SMART_POSITIONS_ENABLED: "The core safety filter: only opens a new trade if your current open profits are high enough to 'pay for' the risk of the next trade. This ensures you only scale up using profit, protecting your principal capital.",
 
     // Pyramiding
     MAX_PYRAMID_ENTRIES: "Maximum times the bot can add to a winning position. 'Pyramiding' means buying more as a trade goes in your favor. 1 = no adding, just the initial entry.",
@@ -88,7 +237,8 @@ const TOOLTIPS = {
     AUTO_FLATTEN_ON_CLOSE: "Automatically close all positions at the end of the trading session. Prevents overnight/weekend risk.",
     TRAILING_STOP_ENABLED: "Enable trailing stops that follow price up (for longs) or down (for shorts), locking in profits as the trade moves in your favor.",
     TRAILING_STOP_MIN_PROFIT_PCT: "Minimum profit percentage before the trailing stop activates. Prevents premature stop-outs on normal price fluctuations.",
-    STOP_ATR_MULTIPLIER: "Stop distance as multiple of ATR (Average True Range). ATR measures volatility - higher multiplier = wider stops, more room for price to move.",
+    STOP_ATR_MULTIPLIER: "<strong>The 'Safe Distance' Calculator.</strong> Average True Range (ATR) measures how much a market normally 'breathes' or wiggles. A 1.5 multiplier means your stop-loss will be placed 1.5x that normal wiggle distance away from your entry. Tighter (1.0-1.2) = smaller losses but higher chance of getting 'shaken out'. Wider (2.0-3.0) = more breathing room but larger losses when it fails.",
+    SAFETY_STABILITY_MODE_ENABLED: "<strong>Master Survival Protocol.</strong> When your account is 'bleeding' or market conditions are uncertain, this is your primary shield. It enforces three strict rules: (1) It caps your risk at 1% per trade, (2) It ignores all low-quality signals, only taking setups that score 75/100 or higher, and (3) It resets aggressive performance modes back to Standard. Use this to protect your capital during rough patches.",
     MIN_HOLD_HOURS: "Minimum hours to hold a position before allowing exits. Prevents panic-selling or premature exits. 0 = no minimum.",
     MAX_HOLD_HOURS: "Maximum hours to hold a position - force exit after this time regardless of profit/loss. 0 = hold forever if needed.",
     HTF_NEUTRAL_EXIT_BARS: "Exit if higher timeframe stays neutral (no clear trend) for this many bars. Prevents capital from being tied up in directionless markets.",
@@ -98,6 +248,7 @@ const TOOLTIPS = {
     IBKR_PORT: "Connection port for IBKR. Use 7497 for Paper Trading in TWS, 7496 for Live TWS, 4002 for Paper Gateway, 4001 for Live Gateway.",
     IBKR_CLIENT_ID: "Unique identifier for this connection. If running multiple bots, each needs a different Client ID.",
     IBKR_ACCOUNT_ID: "Your IBKR account number. Found in Account Management. Format like DU1234567 (paper) or U1234567 (live).",
+    GUI_PNL_TIMEFRAME: "Select the timeframe for calculating Profit and Loss (PnL) on the dashboard and in analytics. '24h' is standard, but you can view performance over a week, month, or year for a broader perspective.",
     IBKR_PAPER: "Enable paper trading mode - uses IBKR's simulated trading environment. Always test here before going live!",
     IBKR_READ_ONLY: "Read-only mode - bot can view positions and data but cannot place orders. Safe for monitoring.",
     IBKR_DEFAULT_CCY: "Default currency for the account. Usually USD but could be EUR, GBP, etc. for international accounts.",
@@ -123,7 +274,7 @@ const TOOLTIPS = {
 
     // Broker Settings - Kraken
     KRAKEN_API_KEY: "Your Kraken API key. Enables the bot to trade on your behalf. Keep this secret!",
-    KRAKEN_API_SECRET: "Your Kraken API secret. Required for authentication. Never share this!",
+    KRAKEN_API_SECRET: "Your Kraken Private Key. Required for authentication. Never share this!",
     KRAKEN_ENVIRONMENT: "Choose 'production' for real trading or 'sandbox' for testing (if supported).",
 
     // Crypto Order Settings
@@ -149,6 +300,7 @@ const TOOLTIPS = {
     COMMENTARY_INTERVAL_MINUTES: "Time between AI updates when using 'Fixed Interval' policy. Range: 1-60 minutes.",
     COMMENTARY_LLM_DAILY_SLOTS: "Specific times to request AI commentary when using 'Scheduled Times' policy. Format: HH:MM, comma-separated.",
     COMMENTARY_LLM_MAX_CALLS_PER_DAY: "Hard limit on AI API calls per day. Prevents runaway costs regardless of policy.",
+    GUI_CAPITAL_DISPLAY_MODE: "Choose what to show in the main 'Overall Capital' dashboard display. 'Overall Liquidity' shows your total net worth (Cash + Assets). 'Buying Power' shows only your available cash for trading.",
 
     // Sabbath Settings
     SABBATH_ENABLED: "Block new trade entries during the Jewish Sabbath (Friday sunset to Saturday sunset). Existing positions are managed but no new trades opened.",
@@ -168,18 +320,31 @@ const TOOLTIPS = {
     SUPPLY_DEMAND: "Identifies areas where large institutional orders are likely waiting. The bot looks for a 'Break of Structure' (BOS) indicating a new trend, then waits for price to return to the 'Base' (Supply or Demand zone) before entering. High-accuracy institutional method.",
 
     // Safety & Shields
-    SAFETY_FLOOR_ENABLED: "Identifies robust zones with the 'No Body Close' rule and locks in principal at major account milestones ($200, $500, etc).",
+
+    // Trend Detection Indicator Tooltips
+    TREND_ADX_ENABLED: "<strong>Average Directional Index (ADX)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Strength</span><br><br>Think of ADX like a speedometer for trends. It doesn't tell you <em>which way</em> the market is going — just <em>how strongly</em> it's moving on a scale of 0 to 100.<br><br>When ADX is below 20, the market is going sideways with no real direction — like a car idling. Above 20, there's a real trend the bot can work with.<br><br><span style='color:#22c55e'>✓ Good for:</span> Keeping the bot from trading in sloppy, sideways markets where there's no clear direction.<br><span style='color:#ef4444'>✗ Heads up:</span> ADX tells you <em>how strong</em> but not <em>which way</em>. It also reacts slowly to sudden reversals.",
+    TREND_RSI_ENABLED: "<strong>Relative Strength Index (RSI)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Momentum</span><br><br>RSI measures how much buying vs selling pressure there is, on a scale from 0 to 100. Below 30 means everyone's been selling (oversold — could bounce). Above 70 means everyone's been buying (overbought — could dip).<br><br>The bot uses RSI as a direction hint: above 55 leans bullish, below 45 leans bearish.<br><br><span style='color:#22c55e'>✓ Good for:</span> Spotting when a market has been pushed too far in one direction and might reverse.<br><span style='color:#ef4444'>✗ Heads up:</span> In a strong uptrend, RSI can stay 'overbought' for a long time — it doesn't mean the trend is over.",
+    TREND_MACD_ENABLED: "<strong>MACD (Moving Average Convergence Divergence)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Momentum</span><br><br>MACD tracks the gap between a fast and slow moving average. When the fast one crosses above the slow one, momentum is shifting upward. When it crosses below, momentum is shifting down.<br><br>The histogram bar shows how fast momentum is changing — taller bars mean stronger moves.<br><br><span style='color:#22c55e'>✓ Good for:</span> Catching the moment a trend starts picking up steam in one direction.<br><span style='color:#ef4444'>✗ Heads up:</span> In flat, directionless markets, MACD bounces back and forth near zero giving false signals.",
+    TREND_BOLLINGER_ENABLED: "<strong>Bollinger Bands</strong><br><span style='color:#818cf8;font-size:10px'>Type: Volatility</span><br><br>Bollinger Bands are like an elastic band around the price. When the bands squeeze tight, the market is quiet — but a big move is usually coming. When they spread wide, the market is already moving fast.<br><br>The bot watches for squeezes and uses them to lower confidence — because during a squeeze, nobody knows <em>which way</em> the breakout will go.<br><br><span style='color:#22c55e'>✓ Good for:</span> Warning when the market is 'coiling up' before a big move, and measuring how wild price swings are.<br><span style='color:#ef4444'>✗ Heads up:</span> In strong trends, price 'rides' the outer band — touching it is NOT a reversal signal.",
+    TREND_SUPERTREND_ENABLED: "<strong>Supertrend</strong><br><span style='color:#818cf8;font-size:10px'>Type: Trend-Following</span><br><br>Supertrend places an invisible line that follows the price. When price is above the line, the trend is UP (buy). When price drops below, the trend flips to DOWN (sell). Simple as that — always one or the other, never 'maybe'.<br><br><span style='color:#22c55e'>✓ Good for:</span> Clear, no-nonsense direction calls. Great for markets that are trending cleanly in one direction.<br><span style='color:#ef4444'>✗ Heads up:</span> In choppy sideways markets, Supertrend flips back and forth rapidly — every flip is a potential false signal.",
+    TREND_EMA_RIBBON_ENABLED: "<strong>EMA Ribbon (8/21/55)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Structure</span><br><br>The EMA Ribbon uses three trend lines of different speeds (fast, medium, slow). When all three are stacked in order — fast on top — the trend is solidly UP. When stacked in reverse, it's solidly DOWN. When they tangle together, there's no clear trend.<br><br><span style='color:#22c55e'>✓ Good for:</span> Confirming that a trend is real and has momentum across multiple timeframes. The 'fanning out' of the ribbon is one of the strongest trend signals.<br><span style='color:#ef4444'>✗ Heads up:</span> Slow to react to sudden reversals. The ribbon tangles during market transitions, which can delay signals.",
+    TREND_ICHIMOKU_ENABLED: "<strong>Ichimoku Cloud</strong><br><span style='color:#818cf8;font-size:10px'>Type: Structure</span><br><br>Ichimoku draws a 'cloud' on the chart made from averaged highs and lows. When the price is <em>above</em> the cloud, the market is bullish. When it's <em>below</em> the cloud, it's bearish. When price is <em>inside</em> the cloud, the market is undecided.<br><br>The thicker the cloud, the stronger the support/resistance. This is one of the most complete indicators — it shows trend, momentum, and key levels all in one.<br><br><span style='color:#22c55e'>✓ Good for:</span> A comprehensive read on market direction. Very popular with professional crypto traders. The cloud acts as a 'comfort zone' for the price.<br><span style='color:#ef4444'>✗ Heads up:</span> Needs lots of data (52 candles minimum). In fast-moving markets, the cloud can lag behind the actual price action.",
+    TREND_PARABOLIC_SAR_ENABLED: "<strong>Parabolic SAR (Stop & Reverse)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Trend-Following</span><br><br>Parabolic SAR places dots above or below the price. Dots below = trend is UP. Dots above = trend is DOWN. When the dots 'flip' from one side to the other, the trend has reversed.<br><br>The dots accelerate as the trend continues — they follow more closely over time, almost like a trailing stop-loss that tightens automatically.<br><br><span style='color:#22c55e'>✓ Good for:</span> Catching trend reversals quickly. The flip is a clear, unmistakable signal. Also useful as a dynamic trailing stop level.<br><span style='color:#ef4444'>✗ Heads up:</span> In sideways markets, the dots flip constantly — every flip looks like a reversal but isn't.",
+    TREND_VWAP_ENABLED: "<strong>VWAP (Volume-Weighted Average Price)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Volume</span><br><br>VWAP is the average price that accounts for trading volume — it tells you what the 'fair price' is based on where the most trading happened. Big institutional traders (banks, hedge funds) use VWAP to judge whether they're getting a good deal.<br><br>Price above VWAP = buyers are in control (bullish). Price below VWAP = sellers are in control (bearish).<br><br><span style='color:#22c55e'>✓ Good for:</span> Understanding where the 'smart money' thinks the fair price is. Great for crypto and intraday trading.<br><span style='color:#ef4444'>✗ Heads up:</span> Less useful for long-term trends since VWAP resets with each session. Needs volume data to work properly.",
+    TREND_HULL_MA_ENABLED: "<strong>Hull Moving Average (HMA)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Smoothed Moving Average</span><br><br>A regular moving average is like looking in the rear-view mirror — you see where the price <em>was</em>, not where it <em>is</em>. Hull MA uses a special math trick to dramatically reduce this lag, giving you a smoother and more current read on the trend.<br><br>When the Hull MA is rising, the trend is UP. When it's falling, the trend is DOWN.<br><br><span style='color:#22c55e'>✓ Good for:</span> Getting a clean, responsive trend direction without the noise. Much faster than regular moving averages while still being smooth.<br><span style='color:#ef4444'>✗ Heads up:</span> Can be <em>too</em> responsive in very choppy markets, flipping direction on minor pullbacks.",
+    TREND_ADX_THRESHOLD: "The ADX value below which entries are blocked. When ADX is below this threshold, the bot considers the market 'choppy' and stands aside. Default: 20. Set to 0 to disable the gate entirely.",
     SAFETY_ATR_SHIELD_ENABLED: "Advanced ATR-based protection. Moves stops to breakeven after 1x ATR move and uses dynamic trailing stops.",
-    SAFETY_DRAWDOWN_BREAKER_ENABLED: "Account Circuit Breaker. If the account loses >5% from daily peak, all trades close and the bot pauses for 24h.",
+    SAFETY_DRAWDOWN_BREAKER_ENABLED: "Account Circuit Breaker. If the account drawdown exceeds the adaptive limit (25% for small accounts down to 5% for large accounts), all entries pause for 24h.",
     SAFETY_SESSION_LOCKOUT_ENABLED: "Prevents over-trading in choppy late-session markets. Automatically stops taking signals after 12:00 PM EST.",
 
     // Safety Suite 2.0 (New Additions)
     SAFETY_GREED_GUARD_ENABLED: "Profit Lock. Stops trading for the day once a specified daily profit target is hit (Quit while ahead).",
     SAFETY_CHURN_BURNER_ENABLED: "Anti-Churn. Limits the maximum number of trades per hour to prevent over-trading in chop.",
+    SAFETY_LEVERAGE_SENTRY_ENABLED: "Leverage Cap. Blocks new entries once total notional exposure exceeds a leverage multiple of your account equity. Disable for small accounts where even one position exceeds the cap.",
     SAFETY_VOLATILITY_VETO_ENABLED: "Volatility Filter. Blocks entries if the market is too dead (low ATR) or too explosive (high ATR).",
     SAFETY_STREAK_BREAKER_ENABLED: "Tilt Prevention. Pauses a specific symbol for 4 hours after 3 consecutive losses.",
-    SAFETY_STREAK_BREAKER_ENABLED: "Tilt Prevention. Pauses a specific symbol for 4 hours after 3 consecutive losses.",
     SAFETY_OPENING_SENTRY_ENABLED: "Morning Guard. Blocks all entries during the first 15 minutes of the market open (9:30-9:45 AM ET) to avoid volatility.",
+    SAFETY_SENTIMENT_SHIELD_ENABLED: "AI Veto Shield. Uses your configured AI Model to inspect every potential entry. If the AI detects 'DANGEROUS' market structure, the trade is blocked regardless of the strategy signal. Smart Defense.",
 
     // Performance & Profits (Wealth Creation) - Detailed Layman Tooltips
     PERFORMANCE_MODE_NONE: "<strong>Safe Mode (Standard):</strong> No account acceleration. The bot operates with its core risk management and standard position sizing. Recommended for initial testing.",
@@ -206,7 +371,65 @@ const TOOLTIPS = {
     PERFORMANCE_MODE_SENTIMENT: "<strong>AI Sentiment Fusion:</strong> Hype Train. Only allows high-risk trades when your configured AI confirms that global news sentiment for the asset is 'Highly Bullish'.",
     PERFORMANCE_MODE_GHOST: "<strong>Harmonic Ghost:</strong> Order Flow. Only takes trades that align with 'Hidden Institutional Liquidity' levels filtered through specialized flow analysis.",
     PERFORMANCE_MODE_PHOENIX: "<strong>The Phoenix:</strong> Reversion Scaling. After the 'Streak Breaker' pause ends, the bot takes the next signal at Double Risk, assuming a win is mathematically overdue.",
+
+    // Advanced Exit Shields
+    SAFETY_STALE_SNIPER_ENABLED: "Kills positions that haven't hit a target within a set number of bars. Prevents 'Zombie' trades from tying up capital.",
+    SAFETY_STALE_SNIPER_BARS: "Max candle bars to hold a sideways trade before the Sniper terminates it at market price.",
+    SAFETY_FLASH_TRAP_ENABLED: "Volatility Protection. Instantly closes trades if ATR spikes by 2.5x average, protecting you from flash-crashes.",
+    SAFETY_REGIME_FLIP_ENABLED: "HTF Trend Alignment. If the 4h trend turns against your 15m trade, the bot exits immediately to avoid a mismatch.",
+    BLOCK_COUNTER_TREND_ENTRIES: "Counter-Trend Entry Guard. Prevents opening long positions when the higher timeframe is bearish, and short positions when it's bullish. Stops the bot from catching falling knives.",
+
+    // Wealth Weapons Exits
+    WEALTH_EXIT_GAMMA_ENABLED: "Velocity Trail. Tightens trailing stops exponentially during vertical moves to capture 90% of the squeeze.",
+    WEALTH_EXIT_MOONSHOT_ENABLED: "Target Elevator. If a trade hits 1R target in under 3 bars, the TP is doubled automatically for a massive swing.",
+    WEALTH_EXIT_BLOWOFF_ENABLED: "V-Top Seller. Sells 100% at market if volatility hits a 100-bar high while price is vertically extended.",
 };
+
+function getValue(key) {
+    // Authority: Use the current session's timeframe from renderer.js
+    if (key === 'GUI_PNL_TIMEFRAME' && typeof window.pnlTimeframe !== 'undefined') {
+        return window.pnlTimeframe;
+    }
+    if (envData[key] !== undefined) return envData[key];
+    // Fallback search in configData if not in flattened envData
+    const mapping = CONFIG_MAP[key];
+    if (mapping) {
+        let val = configData;
+        for (const p of mapping) {
+            if (val[p] === undefined) { val = undefined; break; }
+            val = val[p];
+        }
+        if (val !== undefined) return String(val);
+    }
+    return undefined;
+}
+
+function syncEnvData() {
+    envData = {};
+    // 1. Load from Global Config
+    for (const [key, path] of Object.entries(CONFIG_MAP)) {
+        let val = configData;
+        for (const p of path) {
+            if (val && val[p] !== undefined) val = val[p];
+            else { val = undefined; break; }
+        }
+        if (val !== undefined) envData[key] = String(val);
+    }
+
+    // 2. Load from Secrets
+    for (const [envKey, secretKey] of Object.entries(SECRETS_MAP)) {
+        if (secretsData[secretKey]) envData[envKey] = secretsData[secretKey];
+    }
+
+    // 3. Load from Active Profile (Overrides)
+    const active = configData.active_profile;
+    if (active && configData.profiles && configData.profiles[active]) {
+        const profile = configData.profiles[active];
+        for (const [key, val] of Object.entries(profile)) {
+            envData[key.toUpperCase()] = String(val);
+        }
+    }
+}
 
 // ═══════════════════════════════════════════════════════════
 // CONFLICT RESOLUTION & CONSTRAINT ENGINE
@@ -225,8 +448,8 @@ const CONFLICT_MAP = {
         type: 'modal'
     },
     'performance:smooth': {
-        targets: ['SAFETY_FLOOR_ENABLED'],
-        message: "<strong>Equity Smoothing</strong> uses its own principal protection model. Enabling this will override the 'Staircase Floor' shield.",
+        targets: [],
+        message: "<strong>Equity Smoothing</strong> uses its own principal protection model.",
         type: 'modal'
     },
     'performance:gamma': {
@@ -243,6 +466,43 @@ const CONFLICT_MAP = {
         targets: ['RISK_PER_TRADE_PCT', 'RISK_PER_TRADE_DOLLARS'],
         message: "<strong>Kelly Criterion</strong> uses math-based optimal sizing. This ghosts your standard risk percentage/dollar settings.",
         type: 'ghost'
+    },
+    'SAFETY_STABILITY_MODE_ENABLED:true': {
+        targets: ['PERFORMANCE_MODE', 'NUCLEAR_OVERRIDES_ENABLED'],
+        message: "<strong>Stability Mode</strong> is a survival-first protocol. Enabling it will reset your Performance Mode to 'Standard', disable Nuclear Overrides, and enforce a strict 1% risk ceiling.",
+        type: 'modal'
+    },
+    'NUCLEAR_OVERRIDES_ENABLED:true': {
+        targets: ['SAFETY_STABILITY_MODE_ENABLED'],
+        message: "<strong>Nuclear Mode</strong> removes all hard-coded safety ceilings. This is incompatible with <strong>Stability Mode</strong> — Stability will be disabled.",
+        type: 'modal'
+    },
+    'performance:gamma': {
+        targets: ['TRAILING_STOP_ENABLED'],
+        message: "<strong>Gamma Squeeze</strong> uses hyper-tight trailing stops to lock in velocity. This will override your standard 'Trailing Stop' settings.",
+        type: 'ghost',
+        requires: { key: 'SAFETY_ATR_SHIELD_ENABLED', message: '<strong>Gamma Squeeze</strong> requires <strong>ATR Armor</strong> to be enabled. Its trailing logic runs inside the ATR Armor block — without it, Gamma is silently dead.' }
+    },
+    'MULTI_POSITION_ENABLED:false': {
+        targets: ['MAX_CONCURRENT_POSITIONS'],
+        message: '',
+        type: 'ghost'
+    },
+    'SABBATH_ASTRONOMICAL:true': {
+        targets: [],
+        message: "<strong>Astronomical Sabbath</strong> uses your geographic coordinates to calculate exact sunset times. Please verify your Latitude and Longitude are set correctly.",
+        type: 'modal'
+    },
+    // ── Loader-Silent Conflicts (P10: UI now warns instead of silent override) ──
+    'PDT_GUARD_ENABLED:true': {
+        targets: ['AUTO_FLATTEN_ON_CLOSE'],
+        message: "<strong>PDT Guard</strong> is incompatible with <strong>Auto-Flatten</strong>. The backend will force Auto-Flatten OFF to prevent accidental pattern day-trading violations.",
+        type: 'modal'
+    },
+    'CONTINUOUS_MODE:true': {
+        targets: ['INTRADAY_FLATTEN'],
+        message: "<strong>Continuous Mode</strong> runs 24/7 — <strong>Intraday Flatten</strong> will be forced OFF by the backend since there is no 'session end' to flatten at.",
+        type: 'modal'
     }
 };
 
@@ -320,7 +580,21 @@ function showConflictModal(title, message, onConfirm) {
  * Determines if a setting key is currently overridden by an active mode.
  */
 function isOverridden(key) {
-    const activePerformance = `performance:${envData['PERFORMANCE_MODE']}`;
+    // [STABILITY] Global override for aggressive performance modes and risk settings
+    if (getValue('SAFETY_STABILITY_MODE_ENABLED') === 'true') {
+        const stabilityGhosted = [
+            'PERFORMANCE_MODE',
+            'RISK_PER_TRADE_PCT',
+            'RISK_PER_TRADE_DOLLARS',
+            'ICC_ENTRY_SCORE_THRESHOLD'
+        ];
+        if (stabilityGhosted.includes(key) || (typeof key === 'string' && key.startsWith('PERF_') && key !== 'PERF_STABILITY')) {
+            return true;
+        }
+    }
+
+    const performanceMode = getValue('PERFORMANCE_MODE');
+    const activePerformance = `performance:${performanceMode}`;
     const config = CONFLICT_MAP[activePerformance];
     return config && config.targets.includes(key);
 }
@@ -330,6 +604,15 @@ function isOverridden(key) {
 // ═══════════════════════════════════════════════════════════
 
 const STRATEGIES = {
+    orb_breakout: {
+        name: "ORB (Opening Range Breakout)",
+        shortDesc: "NY Opening Range Breakout",
+        description: "The Opening Range Breakout (ORB) strategy. It watches the first 15 minutes of the New York Stock Market open (9:30 AM ET) to see where the big money is moving. It waits for the price to break out of that range, come back to test the level for safety, and form a 'flag' pattern before entering. ⚠️ BACKTESTED: 0% win rate on Forex — broken for short timeframes. Needs session-specific data.",
+        style: "Breakout",
+        risk: "Low-Medium",
+        bestFor: "NY Open (9:30-11:00 ET) — Stocks/ETFs only",
+        stats: { verified: "❌ Forex: -$1.7K", winRate: "0%", riskReward: "2:1" }
+    },
     rubberband_reaper: {
         name: "Rubberband Reaper",
         shortDesc: "Anti-Martingale Mean Reversion",
@@ -342,29 +625,29 @@ const STRATEGIES = {
     robocop: {
         name: "RoboCop",
         shortDesc: "Aggressive High-Frequency ICC",
-        description: "Lightning-fast execution with minimal confirmation requirements. Reacts to ANY valid micro-signal without waiting for corrections. Uses 1-bar confirmation and targets 3.0 ATR for maximum profit potential. Includes fast 'chop exit' to avoid ranging traps.",
+        description: "Lightning-fast execution with minimal confirmation requirements. Reacts to ANY valid micro-signal without waiting for corrections. Uses 1-bar confirmation and targets 3.0 ATR for maximum profit potential. Includes fast 'chop exit' to avoid ranging traps. ✅ CRYPTO: $2.5M profit, 33% win rate. ❌ FOREX: -$2K (spread eats all profit).",
         style: "Aggressive Scalping",
         risk: "High",
-        bestFor: "Trending markets, high volatility",
-        stats: { speed: "Ultra-fast", confirmation: "1 bar", target: "3.0 ATR" }
+        bestFor: "✅ Crypto only — DO NOT use for Forex",
+        stats: { crypto: "✅ +$2.5M", forex: "❌ -$2K", target: "3.0 ATR" }
     },
     evolution: {
         name: "Robot Evolution",
         shortDesc: "NTZ Range Scalper",
-        description: "Optimized for choppy, ranging markets. Identifies the 'No-Trade-Zone' (NTZ) between swing highs and lows, then trades liquidity sweeps at the edges. Targets 2.0R with conservative 1.5 ATR stops for consistent small wins.",
+        description: "Optimized for choppy, ranging markets. Identifies the 'No-Trade-Zone' (NTZ) between swing highs and lows, then trades liquidity sweeps at the edges. Targets 2.0R with conservative 1.5 ATR stops. ✅ CRYPTO: $2.3M profit, 27% win rate. ❌ FOREX: -$1.1K (NTZ scalping can't overcome OANDA spreads).",
         style: "Range Trading",
         risk: "Low-Medium",
-        bestFor: "Sideways markets, consolidation phases",
-        stats: { target: "2.0R", stop: "1.5 ATR", focus: "NTZ edges" }
+        bestFor: "✅ Crypto ranging markets — ❌ not profitable on Forex",
+        stats: { crypto: "✅ +$2.3M", forex: "❌ -$1.1K", focus: "NTZ edges" }
     },
     quantum: {
         name: "Quantum",
         shortDesc: "Trend-Following with SMA Pullback",
-        description: "Classic trend-following strategy that waits for price to pull back to the 20-period SMA before entering in the trend direction. Requires HTF/LTF alignment for high-probability entries. Exits automatically when the higher timeframe trend flips.",
+        description: "Classic trend-following strategy that waits for price to pull back to the 20-period SMA before entering in the trend direction. Requires HTF/LTF alignment and momentum confirmation. ⚠️ BACKTESTED: -$2K on Forex 15m (6% win rate). Forex spreads destroy the 2:1 R:R edge. May work on 4H+ timeframes or crypto where trends are stronger.",
         style: "Trend Following",
         risk: "Medium",
-        bestFor: "Strong trending forex pairs",
-        stats: { target: "1.6R", stop: "2.5 ATR", indicator: "20 SMA" }
+        bestFor: "⚠️ Crypto or 4H+ Forex only — NOT 15m Forex",
+        stats: { forex15m: "❌ -$2K", indicator: "20 SMA", target: "2:1 R:R" }
     },
     mean_reversion: {
         name: "Mean Reversion",
@@ -378,11 +661,11 @@ const STRATEGIES = {
     hyper_scalper: {
         name: "HyperScalper",
         shortDesc: "EMA Crossover Speed Trading",
-        description: "High-frequency 5-minute scalper using 9/21 EMA crossovers filtered by 200 EMA trend and RSI. Designed for aggressive compounding with 1% default risk per trade. Targets 3.0 ATR for 100%+ weekly return potential.",
+        description: "High-frequency 5-minute scalper using 9/21 EMA crossovers filtered by 200 EMA trend and RSI. Designed for aggressive compounding with 1% default risk per trade. ❌ BACKTESTED: 0% win rate on Forex, lost 100% of capital. Spread noise triggers false crossovers constantly.",
         style: "Fast Scalping",
-        risk: "High",
-        bestFor: "Liquid forex pairs, fast markets",
-        stats: { ema: "9/21/200", target: "3.0 ATR", risk: "1%" }
+        risk: "Very High",
+        bestFor: "❌ NOT RECOMMENDED — 0% win rate in backtest",
+        stats: { ema: "9/21/200", forex: "❌ -$2K (0% win)", risk: "1%" }
     },
     london_breakout: {
         name: "London Breakout",
@@ -412,31 +695,106 @@ const STRATEGIES = {
         stats: { strategies: "2 parallel", priority: "Scale > New", goal: "Always loaded" }
     },
     icc_core: {
-        name: "Indication, Correction, Continuation (ICC)",
-        shortDesc: "Strict Trade By Sci Logic",
-        description: "The pure, unmodified Trade By Sci Internal Capital Cycle methodology. Requires strict HTF/LTF alignment and follows the standard Indication (Sweep) -> Correction -> Continuation sequence. No Rubberband logic, no RoboCop bypasses. Pure Price Action.",
-        style: "Trend Following",
+        name: "ICC Core (ICT Methodology)",
+        shortDesc: "Displacement + OTE Pullback",
+        description: "Pure ICT (Inner Circle Trader) methodology: detects displacement (consecutive momentum candles), then enters on pullback to the Optimal Trade Entry zone (50-78.6% Fibonacci) or at a Fair Value Gap. Uses engine trend as directional bias. ⚠️ BACKTESTED: -$1.7K on Forex (9% win rate). Needs tuning — works on theory but fees eat edge on short timeframes.",
+        style: "Price Action / ICT",
         risk: "Low-Medium",
-        bestFor: "Aligned Trends",
-        stats: { alignment: "Strict", structure: "Standard", method: "Vanilla" }
+        bestFor: "⚠️ Experimental — needs tuning",
+        stats: { forex: "❌ -$1.7K", method: "ICT OTE+FVG", winRate: "9%" }
     },
     supply_demand: {
         name: "Supply & Demand",
         shortDesc: "Institutional Price Action",
-        description: "Uses the pure institutional methodology of Supply and Demand zones. It waits for a clear Break of Structure to identify a trend, then tags the 'Base' candle that caused the move as a high-probability zone. Enters only when price returns to 'tap' that zone on a candle break.",
+        description: "Uses the pure institutional methodology of Supply and Demand zones. Waits for a clear Break of Structure, tags the 'Base' candle as a high-probability zone, enters when price returns to 'tap' that zone. ✅ BACKTESTED #1 FOREX: $1.4M profit. ✅ #2 CRYPTO: $4.7M profit. Extreme R:R (avg win 250× avg loss) compensates for low 5-20% win rate.",
         style: "Price Action / Institutional",
         risk: "Low-Medium",
-        bestFor: "Clean trending markets, high-volume crypto",
-        stats: { method: "SND Zones", confirmation: "Zone Tap", trend: "BOS Based" }
+        bestFor: "✅ BEST strategy for both Forex and Crypto",
+        stats: { forex: "✅ #1 +$1.4M", crypto: "✅ #2 +$4.7M", method: "SND Zones" }
     },
     meta_sci: {
-        name: "Meta-SCI (Auto Strategy)",
-        shortDesc: "The Ensemble Master",
-        description: "The ultimate AI orchestration layer. Instead of running one strategy, Meta-SCI runs THEM ALL in parallel. It analyzes setups from SND, RoboCop, and Evolution simultaneously, then deploys capital only to the strategy with the highest A+ confidence score.",
-        style: "Ensemble / Macro",
+        name: 'Meta-SCI',
+        icon: 'auto_awesome',
+        shortDesc: 'AI-Enhanced Ensemble Strategy',
+        description: "The ultimate AI Brain. Runs multiple trading strategies simultaneously and uses an AI ensemble to pick the best signal per trade — like a manager who only listens to the most successful expert for each situation. ✅ BACKTESTED #1 CRYPTO: $8.2M profit, 30% win rate. ✅ #2 FOREX: $951K profit. Consistently profitable across all markets.",
+        style: "AI Ensemble",
         risk: "Dynamic",
-        bestFor: "All market regimes (Trend/Chop/Reversal)",
-        stats: { strategies: "All-in-One", selection: "Score-Based", mode: "Autonomous" }
+        bestFor: "✅ BEST for Crypto, EXCELLENT for Forex — all markets",
+        stats: { crypto: "✅ #1 +$8.2M", forex: "✅ #2 +$951K", ai: "Ensemble" }
+    },
+    trend_rider: {
+        name: 'Trend Rider',
+        shortDesc: 'EMA Pullback in Strong Trend',
+        description: "Waits for price to pull back to the 21 EMA during a confirmed strong trend. Requires HTF trend strength ≥ 0.5 and RSI between 40-60 to confirm a pullback. ❌ BACKTESTED: -$2K on Forex (2% win rate). Trend detection unreliable on 15m, stops constantly hit by spread noise.",
+        style: "Trend Following",
+        risk: "Medium",
+        bestFor: "⚠️ Crypto only — ❌ loses 100% on Forex 15m",
+        stats: { forex: "❌ -$2K (2% win)", indicator: "21 EMA", target: "2.0R" }
+    },
+    session_momentum: {
+        name: 'Session Momentum',
+        shortDesc: 'VWAP + Volume Surge at Open',
+        description: "Captures the initial directional move during the highest-volume period of the trading day. Active only in the first 30 minutes of London (08:00-08:30 UTC) or New York (09:30-10:00 ET) session. Requires a VWAP break with 2× average volume surge for entry.",
+        style: "Momentum / Session",
+        risk: "Medium-High",
+        bestFor: "London & NY session opens",
+        stats: { indicator: "VWAP", volume: "2× avg", target: "2.0R" }
+    },
+    bearish_engulfing: {
+        name: 'Engulfing Reversal',
+        shortDesc: 'Candle Pattern at Key Structure',
+        description: "Classic price action reversal pattern. Enters when a bullish or bearish engulfing candle forms at a key structural level (swing high/low) with HTF alignment. Optional RSI divergence detection for higher probability setups. Stop placed beyond the engulfing candle's wick.",
+        style: "Price Action / Reversal",
+        risk: "Medium",
+        bestFor: "Reversal zones, supply/demand levels",
+        stats: { pattern: "Engulfing", target: "2.0R", bonus: "RSI Divergence" }
+    },
+    // ──────────────────────────────────────────────────────────────
+    // 🪙 CRYPTO-SPECIFIC STRATEGIES
+    // HOW TO ADD A NEW STRATEGY:
+    //   1. Add entry here with name, shortDesc, description, style, risk, bestFor, stats
+    //   2. Add to System Tab dropdown (renderSystemTab → STRATEGY_VARIANT items)
+    //   3. Add to Strategy Toolbox grid (renderStrategyToolbox → strategies array)
+    //   4. Add to renderer.js Profile Editor (STRATEGY_OPTIONS array)
+    //   5. Add to settings.js System Tab dropdown (STRATEGY_VARIANT items)
+    //   6. Register in: src/tradebot_sci/strategy/engine.py STRATEGY_MAP
+    //   7. Add to Meta-SCI regime groups if applicable: strategy/variants/meta_sci.py
+    // ──────────────────────────────────────────────────────────────
+    crypto_rsi_macd: {
+        name: 'RSI + MACD (Crypto)',
+        shortDesc: 'Classic Momentum Combo for Crypto',
+        description: "Combines RSI oversold/overbought readings with MACD crossover confirmations. Designed for 24/7 crypto markets — no session gating. Waits for RSI to exit extreme zones while MACD histogram flips direction. ATR-based stops.",
+        style: "Momentum / Crypto",
+        risk: "Medium",
+        bestFor: "Trending crypto markets, BTC/ETH swing trades",
+        stats: { rsi: "30/70", macd: "12/26/9", target: "2.0R" }
+    },
+    crypto_vwap_reversion: {
+        name: 'VWAP Reversion (Crypto)',
+        shortDesc: 'Mean Reversion to VWAP',
+        description: "Enters when price deviates significantly from the volume-weighted average price and shows signs of reverting. Uses Bollinger-style bands around VWAP with volume confirmation. Optimized for high-volume crypto pairs.",
+        style: "Mean Reversion / Crypto",
+        risk: "Medium",
+        bestFor: "Ranging crypto markets, high-volume pairs",
+        stats: { indicator: "VWAP", bands: "2σ", target: "1.5R" }
+    },
+    crypto_double_macd: {
+        name: 'Double MACD Scalper (Crypto)',
+        shortDesc: 'Dual-Timeframe MACD Momentum',
+        description: "Uses two MACD indicators on different timeframes for confluence. Fast MACD (5/13/4) for entry timing, slow MACD (12/26/9) for trend filter. Designed for tight crypto scalps with quick exits on momentum fade.",
+        style: "Scalping / Crypto",
+        risk: "High",
+        bestFor: "Active crypto pairs, scalping BTC/SOL",
+        stats: { fast: "5/13/4", slow: "12/26/9", target: "1.5R" }
+    },
+    crypto_grid: {
+        name: 'Virtual Grid (Crypto)',
+        shortDesc: 'Grid Trading with Dynamic Levels',
+        description: "Places a virtual grid of buy/sell zones around the current market price. Profits from price oscillation within a range. Automatically adjusts grid spacing based on ATR volatility. No physical grid orders — all managed internally.",
+        style: "Grid / Crypto",
+        risk: "Medium-High",
+        bestFor: "Sideways/ranging crypto markets",
+        stats: { levels: "Dynamic", spacing: "ATR-based", target: "0.5-1.0R" }
     }
 };
 
@@ -467,7 +825,9 @@ const TABS = {
     brokers: { icon: 'lan', label: 'Brokers', render: renderBrokersTab },
     ai: { icon: 'auto_awesome', label: 'Intelligence', render: renderAITab },
     schedule: { icon: 'event_repeat', label: 'Schedule', render: renderScheduleTab },
-    advanced: { icon: 'terminal', label: 'Advanced', render: renderAdvancedTab }
+    appearance: { icon: 'palette', label: 'Appearance', render: renderAppearanceTab },
+    advanced: { icon: 'terminal', label: 'Advanced', render: renderAdvancedTab },
+    trends: { icon: 'analytics', label: 'Trends', render: renderTrendsTab },
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -475,9 +835,51 @@ const TABS = {
 // ═══════════════════════════════════════════════════════════
 
 async function init() {
+    // ── Browser Mock Mode ────────────────────────────────────────────
+    // When opened outside Electron (e.g. file:// in a plain browser),
+    // stub window.api so the entire settings UI renders interactively.
+    if (!window.api && !window.electronAPI) {
+        console.warn("[SETTINGS] No Electron API — running in BROWSER MOCK MODE");
+        const mockProfile = {
+            bot_mode: 'continuous',
+            TREND_ADX_ENABLED: 'true',
+            TREND_ADX_THRESHOLD: '20',
+            TREND_RSI_ENABLED: 'false',
+            TREND_MACD_ENABLED: 'false',
+            TREND_BOLLINGER_ENABLED: 'false',
+            TREND_SUPERTREND_ENABLED: 'false',
+            TREND_EMA_RIBBON_ENABLED: 'false',
+            TREND_ICHIMOKU_ENABLED: 'false',
+            TREND_PARABOLIC_SAR_ENABLED: 'false',
+            TREND_VWAP_ENABLED: 'false',
+            TREND_HULL_MA_ENABLED: 'false',
+            SAFETY_ATR_SHIELD_ENABLED: 'true',
+            SAFETY_DRAWDOWN_BREAKER_ENABLED: 'true',
+            SAFETY_SESSION_LOCKOUT_ENABLED: 'false',
+            PERFORMANCE_MODE: 'balanced',
+        };
+        window.api = {
+            readConfig: async () => ({
+                global: { bot_mode: 'continuous' },
+                active_profile: 'default',
+                profiles: { default: mockProfile },
+            }),
+            readSecrets: async () => ({}),
+            setEnv: async (key, val) => { console.log(`[MOCK] setEnv ${key}=${val}`); },
+            saveConfig: async (cfg) => { console.log('[MOCK] saveConfig', cfg); },
+            getBotStatus: () => { },
+            onBotStatus: () => { },
+            onConfigUpdated: () => { },
+        };
+    }
+
+    // Standardize API (support both window.api and window.electronAPI)
+    if (!window.api && window.electronAPI) {
+        window.api = window.electronAPI;
+    }
+
     // Prevent re-initialization
     if (settingsInitialized) {
-        // Just render the current tab if already initialized
         renderTab();
         return;
     }
@@ -490,21 +892,86 @@ async function init() {
         window.api.onBotStatus((status) => {
             updateBotStatusUI(status.running);
         });
-        // Initial check
         window.api.getBotStatus();
     }
 
-    // Load data from backend
-    try {
-        if (window.api) {
-            envData = await window.api.readEnv() || {};
-            profilesContent = await window.api.readProfiles() || "";
+    // Load data from backend (Simplified JSON loading)
+    await loadSettings();
+    switchTab('system');
+}
+
+async function loadSettings() {
+    if (window.api) {
+        try {
+            configData = await window.api.readConfig() || {};
+            secretsData = await window.api.readSecrets() || {};
+            syncEnvData();
+            profilesContent = JSON.stringify(configData, null, 2);
+            console.log("[SETTINGS] Config loaded and synced.");
+
+            // Listen for external config changes
+            if (window.api.onConfigUpdated) {
+                window.api.onConfigUpdated((newConfig) => {
+                    console.log("[SETTINGS] Syncing with external config change...");
+                    configData = newConfig;
+                    syncEnvData();
+                    profilesContent = JSON.stringify(configData, null, 2);
+                    renderTab();
+                    showNotice("Config Synced", "purple");
+                });
+            }
+        } catch (e) {
+            console.error("[SETTINGS] Load Error:", e);
+            showNotice("Failed to load settings", "red");
         }
-    } catch (e) {
-        console.error("Data load failed:", e);
+    } else {
+        console.warn("[SETTINGS] API not found. Using mock data.");
+        configData = { global: { bot_mode: 'continuous' }, profiles: {} };
+        syncEnvData();
+    }
+}
+
+
+/**
+ * Checks all settings for structural conflicts (e.g. Stability Mode vs Kelly)
+ * Returns true if any changes were made.
+ */
+function checkAllConflicts() {
+    let changed = false;
+    const active = configData.active_profile;
+    const profile = configData.profiles?.[active];
+    if (!profile) return false;
+
+    // 1. Stability Mode Conflict Logic
+    const stabilityEnabled = getValue('SAFETY_STABILITY_MODE_ENABLED') === 'true';
+
+    if (stabilityEnabled) {
+        // Enforce Performance Mode = Standard
+        let currentPerf = getValue('PERFORMANCE_MODE') || 'none';
+        if (currentPerf.includes('kelly') || currentPerf.includes('flywheel')) {
+            console.warn("[CONFLICT] Stability Mode active; resetting aggressive performance modes.");
+            updateValue('PERFORMANCE_MODE', 'stability');
+            changed = true;
+        }
+
+        // Enforce Risk Ceiling (1%)
+        const riskPct = parseFloat(getValue('RISK_PER_TRADE_PCT') || 0);
+        if (riskPct > 0.01) {
+            console.warn("[CONFLICT] Stability Mode active; clamping risk to 1%.");
+            updateValue('RISK_PER_TRADE_PCT', '0.01');
+            changed = true;
+        }
+
+        // Enforce Score Threshold (75)
+        const scoreThreshold = parseFloat(getValue('ICC_ENTRY_SCORE_THRESHOLD') || 0);
+        if (scoreThreshold < 75) {
+            console.warn("[CONFLICT] Stability Mode active; raising score threshold to 75.");
+            updateValue('ICC_ENTRY_SCORE_THRESHOLD', '75');
+            changed = true;
+        }
     }
 
-    switchTab('system');
+    return changed;
 }
 
 function setupGlobalEvents() {
@@ -554,45 +1021,23 @@ function setupGlobalEvents() {
 }
 
 function getProfileOptions() {
-    if (!profilesContent) return [
-        { value: 'auto_schedule', label: 'Auto (Equities/Crypto)' },
-        { value: 'forex_intraday', label: 'Forex Intraday' },
-        { value: 'forex_oanda', label: 'OANDA Forex' },
-        { value: 'crypto_247', label: 'Crypto 24/7' },
-        { value: 'intraday', label: 'Standard Intraday' },
-        { value: 'coinbase_futures', label: 'Coinbase Futures' },
-        { value: 'coinbase_futures_nano', label: 'Coinbase Nano Futures' }
-    ];
-
-    const options = [];
-    const lines = profilesContent.split('\n');
-    let inProfiles = false;
-
-    for (let line of lines) {
-        if (line.trim().startsWith('profiles:')) {
-            inProfiles = true;
-            continue;
-        }
-        if (inProfiles) {
-            const match = line.match(/^  ([\w-]+):/);
-            if (match) {
-                const value = match[1];
-                const label = value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                    .replace('Forex', 'Forex ').replace('Crypto', 'Crypto ').trim();
-                options.push({ value, label });
-            }
-        }
+    if (!configData.profiles) {
+        return [
+            { value: 'auto_schedule', label: 'Auto - Equities & Crypto' },
+            { value: 'forex_intraday', label: 'Forex Intraday' },
+            { value: 'forex_oanda', label: 'OANDA Forex' },
+            { value: 'crypto_247', label: 'Crypto 24/7' },
+            { value: 'intraday', label: 'Standard Intraday' },
+            { value: 'coinbase_futures', label: 'Coinbase Futures' },
+            { value: 'coinbase_futures_nano', label: 'Coinbase Nano Futures' }
+        ];
     }
 
-    return options.length > 0 ? options : [
-        { value: 'auto_schedule', label: 'Auto (Equities/Crypto)' },
-        { value: 'forex_intraday', label: 'Forex Intraday' },
-        { value: 'forex_oanda', label: 'OANDA Forex' },
-        { value: 'crypto_247', label: 'Crypto 24/7' },
-        { value: 'intraday', label: 'Standard Intraday' },
-        { value: 'coinbase_futures', label: 'Coinbase Futures' },
-        { value: 'coinbase_futures_nano', label: 'Coinbase Nano Futures' }
-    ];
+    return Object.keys(configData.profiles).map(value => {
+        const label = value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+            .replace('Forex', 'Forex ').replace('Crypto', 'Crypto ').trim();
+        return { value, label };
+    });
 }
 
 /**
@@ -600,52 +1045,28 @@ function getProfileOptions() {
  * This ensures the Settings UI reflects the actual running configuration.
  */
 function getActiveProfileSettings() {
-    const activeProfile = envData['APP_PROFILE'] || 'auto_schedule';
+    const activeProfile = configData.active_profile || 'auto_schedule';
     const settings = {
         strategy_variant: 'rubberband_reaper',
         strategies: {}
     };
 
-    if (!profilesContent) return settings;
+    if (configData.profiles && configData.profiles[activeProfile]) {
+        const profile = configData.profiles[activeProfile];
+        if (profile.strategy_variant) settings.strategy_variant = profile.strategy_variant;
+        if (profile.strategies) settings.strategies = { ...profile.strategies };
+    }
 
-    const lines = profilesContent.split('\n');
-    let inTargetProfile = false;
-    let inStrategies = false;
-
-    for (let line of lines) {
-        // Match profile start (2 spaces)
-        const profileMatch = line.match(/^  ([\w_]+):$/);
-        if (profileMatch) {
-            inTargetProfile = (profileMatch[1] === activeProfile);
-            inStrategies = false;
-            continue;
-        }
-
-        if (!inTargetProfile) continue;
-
-        // Match property (4 spaces) - strip inline comments
-        const propMatch = line.match(/^    ([a-z_]+):\s*(.*)$/);
-        if (propMatch) {
-            const key = propMatch[1];
-            const rawVal = propMatch[2].split('#')[0].trim();
-
-            if (key === 'strategies') {
-                inStrategies = true;
-                continue;
-            }
-            inStrategies = false;
-
-            if (key === 'strategy_variant') {
-                settings.strategy_variant = rawVal;
-            }
-        }
-
-        // Match strategy items (6 spaces)
-        if (inStrategies) {
-            const stratMatch = line.match(/^      ([a-z_]+):\s*(.+)$/);
-            if (stratMatch) {
-                settings.strategies[stratMatch[1]] = stratMatch[2].split('#')[0].trim();
-            }
+    // Also pull global per-asset strategies (set by AI Optimize) as fallbacks
+    const g = configData.global || {};
+    const globalStrategyMap = {
+        crypto: g.strategy_crypto, forex: g.strategy_forex,
+        stocks: g.strategy_stocks, etf: g.strategy_etf,
+        metals: g.strategy_metals, futures: g.strategy_futures,
+    };
+    for (const [asset, val] of Object.entries(globalStrategyMap)) {
+        if (val && !settings.strategies[asset]) {
+            settings.strategies[asset] = val;
         }
     }
 
@@ -696,12 +1117,24 @@ window.setSubTab = (category, tab) => {
 // UI BUILDERS
 // ═══════════════════════════════════════════════════════════
 
-function createSectionHeader(title, icon = null) {
+function createSectionHeader(title, icon = null, tooltip = null) {
     const header = document.createElement('div');
     header.className = 'settings-label text-glow-teal';
-    header.innerHTML = icon
+    let html = icon
         ? `<span class="material-symbols-outlined">${icon}</span>${title}`
         : title;
+    if (tooltip) {
+        html += ` <span class="material-symbols-outlined info-icon" style="font-size:14px;cursor:help;vertical-align:middle;color:var(--accent-teal);opacity:0.6">info</span>`;
+    }
+    header.innerHTML = html;
+    // Wire up tooltip hover if content provided
+    if (tooltip) {
+        const infoIcon = header.querySelector('.info-icon');
+        if (infoIcon && typeof showTooltip === 'function') {
+            infoIcon.addEventListener('mouseenter', (e) => showTooltip(e, title, tooltip));
+            infoIcon.addEventListener('mouseleave', hideTooltip);
+        }
+    }
     return header;
 }
 
@@ -733,7 +1166,8 @@ function createCard(title, desc, key, controlType, options = {}) {
     `;
 
     const controlContainer = card.querySelector('.card-control');
-    const value = envData[key] || options.default || '';
+    const rawValue = getValue(key);
+    const value = (rawValue !== null && rawValue !== undefined && rawValue !== '') ? rawValue : (options.default || '');
 
     const tooltipContent = options.tooltip || TOOLTIPS[key];
     if (tooltipContent && !locked) {
@@ -744,9 +1178,17 @@ function createCard(title, desc, key, controlType, options = {}) {
     if (controlType === 'toggle') {
         const toggle = document.createElement('div');
         toggle.className = `toggle ${value === 'true' ? 'toggle-active' : ''}`;
-        toggle.addEventListener('click', () => {
-            const active = toggle.classList.toggle('toggle-active');
-            updateValue(key, active ? 'true' : 'false');
+        toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isNowActive = !toggle.classList.contains('toggle-active');
+            const strVal = isNowActive ? 'true' : 'false';
+
+            // Check for conflicts (Modals/Auto-Ghosting)
+            if (checkConflicts(key, strVal)) return;
+
+            toggle.classList.toggle('toggle-active', isNowActive);
+            updateValue(key, strVal);
+            renderTab(); // Refresh to apply UI overrides (ghosting)
         });
         controlContainer.appendChild(toggle);
     }
@@ -760,7 +1202,43 @@ function createCard(title, desc, key, controlType, options = {}) {
         if (options.max !== undefined) input.max = options.max;
         if (options.step !== undefined) input.step = options.step;
         input.addEventListener('change', (e) => updateValue(key, e.target.value));
-        controlContainer.appendChild(input);
+        // Auto-save on typing (debounced) — critical for password/API key fields
+        // where users type and switch tabs without clicking away (blur), so 'change' never fires
+        let _inputDebounce;
+        input.addEventListener('input', (e) => {
+            clearTimeout(_inputDebounce);
+            _inputDebounce = setTimeout(() => updateValue(key, e.target.value), 800);
+        });
+
+        if (options.password) {
+            // Wrap in a container with an eyeball reveal/hide toggle
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'position:relative;display:flex;align-items:center;width:100%;';
+            input.style.cssText += 'flex:1;padding-right:36px;';
+            const eyeBtn = document.createElement('button');
+            eyeBtn.type = 'button';
+            eyeBtn.innerHTML = '👁';
+            eyeBtn.title = 'Show/hide value';
+            eyeBtn.style.cssText = 'position:absolute;right:8px;background:none;border:none;cursor:pointer;font-size:16px;opacity:0.5;padding:2px 4px;transition:opacity 0.2s;';
+            eyeBtn.addEventListener('mouseenter', () => { eyeBtn.style.opacity = '1'; });
+            eyeBtn.addEventListener('mouseleave', () => { eyeBtn.style.opacity = '0.5'; });
+            eyeBtn.addEventListener('click', () => {
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    eyeBtn.innerHTML = '👁‍🗨';
+                    eyeBtn.title = 'Hide value';
+                } else {
+                    input.type = 'password';
+                    eyeBtn.innerHTML = '👁';
+                    eyeBtn.title = 'Show value';
+                }
+            });
+            wrapper.appendChild(input);
+            wrapper.appendChild(eyeBtn);
+            controlContainer.appendChild(wrapper);
+        } else {
+            controlContainer.appendChild(input);
+        }
     }
     else if (controlType === 'dropdown') {
         const select = document.createElement('select');
@@ -778,6 +1256,20 @@ function createCard(title, desc, key, controlType, options = {}) {
         });
         controlContainer.appendChild(select);
     }
+    else if (controlType === 'time') {
+        const timeInput = document.createElement('input');
+        timeInput.type = 'time';
+        timeInput.className = 'input-field time-picker';
+        // Backend stores integer hour (e.g. 16), convert to HH:00
+        const hour = parseInt(value) || parseInt(options.default) || 12;
+        timeInput.value = String(hour).padStart(2, '0') + ':00';
+        timeInput.addEventListener('change', (e) => {
+            // Extract hour from HH:MM and save as integer string
+            const selectedHour = parseInt(e.target.value.split(':')[0]);
+            updateValue(key, String(selectedHour));
+        });
+        controlContainer.appendChild(timeInput);
+    }
 
     return card;
 }
@@ -785,7 +1277,14 @@ function createCard(title, desc, key, controlType, options = {}) {
 function createSliderCard(title, desc, key, min, max, step, unit = '%') {
     const card = document.createElement('div');
     card.className = 'slider-card';
-    const value = envData[key] || min;
+    const _raw = getValue(key);
+    let rawValue = (_raw !== null && _raw !== undefined && _raw !== '') ? _raw : min;
+
+    // The model stores fractions (0.045 = 4.5%).
+    // The slider displays human-friendly percentages (4.5%).
+    // Convert stored fraction → display % on load, and display % → fraction on save.
+    const isPct = (unit === '%');
+    const displayValue = isPct && rawValue < 1 ? (rawValue * 100).toFixed(1) : rawValue;
 
     card.innerHTML = `
         <div class="slider-header">
@@ -793,9 +1292,9 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%') {
                 <div class="slider-title">${title}</div>
                 <div class="slider-desc">${desc}</div>
             </div>
-            <div class="slider-value">${value}<span class="slider-value-small">${unit}</span></div>
+            <div class="slider-value">${displayValue}<span class="slider-value-small">${unit}</span></div>
         </div>
-        <input type="range" class="slider-input" min="${min}" max="${max}" step="${step}" value="${value}">
+        <input type="range" class="slider-input" min="${min}" max="${max}" step="${step}" value="${displayValue}">
         <div class="slider-key">${key}</div>
     `;
 
@@ -809,7 +1308,9 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%') {
 
     slider.addEventListener('input', (e) => {
         valueDisplay.innerHTML = `${e.target.value}<span class="slider-value-small">${unit}</span>`;
-        updateValue(key, e.target.value);
+        // Save as fraction if unit is '%' (e.g. slider 4.5 → save 0.045)
+        const saveValue = isPct ? (parseFloat(e.target.value) / 100).toString() : e.target.value;
+        updateValue(key, saveValue);
     });
 
     return card;
@@ -854,45 +1355,14 @@ function renderSystemTab(container) {
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    // Sync envData with active profile settings so UI reflects actual config
-    // Profile settings are authoritative - always prefer them over .env values
-    const profileSettings = getActiveProfileSettings();
-    if (profileSettings.strategy_variant) {
-        envData['STRATEGY_VARIANT'] = profileSettings.strategy_variant;
-    }
-    // Also sync per-asset strategies
-    const assetKeyMap = { crypto: 'STRATEGY_CRYPTO', forex: 'STRATEGY_FOREX', stocks: 'STRATEGY_STOCKS', etf: 'STRATEGY_ETF', metals: 'STRATEGY_METALS', futures: 'STRATEGY_FUTURES' };
-    for (const [asset, envKey] of Object.entries(assetKeyMap)) {
-        if (profileSettings.strategies[asset]) {
-            envData[envKey] = profileSettings.strategies[asset];
-        } else if (profileSettings.strategy_variant) {
-            envData[envKey] = profileSettings.strategy_variant; // Fallback to default
-        }
-    }
-
     // Core Runtime
-    section.appendChild(createSectionHeader('Core Runtime', 'dashboard'));
+    section.appendChild(createSectionHeader('Core Runtime', 'dashboard',
+        "<strong>Core Runtime</strong><br><br>The fundamental settings that control how the bot operates — which strategy to use, how it loops, and whether it places real orders. Think of this as the cockpit's master control panel."
+    ));
 
-    section.appendChild(createCard('Active Profile', 'Select symbol universe & trading cadence', 'APP_PROFILE', 'dropdown', {
-        items: getProfileOptions()
-    }));
+    // Active Profile selection moved to Profile tab (activate button on each profile card)
 
-    section.appendChild(createCard('Strategy Variant', 'Trading strategy algorithm', 'STRATEGY_VARIANT', 'dropdown', {
-        items: [
-            { value: 'rubberband_reaper', label: 'Rubberband Reaper (Anti-Martingale)' },
-            { value: 'robocop', label: 'RoboCop (Aggressive ICC)' },
-            { value: 'evolution', label: 'Robot Evolution (NTZ Scalper)' },
-            { value: 'quantum', label: 'Quantum (Trend Following)' },
-            { value: 'mean_reversion', label: 'Mean Reversion (Bollinger/RSI)' },
-            { value: 'hyper_scalper', label: 'HyperScalper (EMA Crossover)' },
-            { value: 'london_breakout', label: 'London Breakout (Session)' },
-            { value: 'volatility_breakout', label: 'Volatility Breakout' },
-            { value: 'aggregator', label: 'Singularity Aggregator (Multi-Strategy)' },
-            { value: 'icc_core', label: 'ICC (Indication, Correction, Continuation)' },
-            { value: 'supply_demand', label: 'Supply & Demand (Institutional)' }
-        ],
-        default: 'rubberband_reaper'
-    }));
+
 
     section.appendChild(createCard('Execution Mode', 'How the bot cycles through iterations', 'BOT_MODE', 'dropdown', {
         items: [
@@ -903,16 +1373,36 @@ function renderSystemTab(container) {
     }));
 
     section.appendChild(createCard('Live Trading', 'Master switch for real order execution', 'EXECUTE_TRADES', 'toggle'));
-    section.appendChild(createCard('Auto-Start Bot', 'Launch bot automatically with GUI', 'GUI_AUTOSTART_BOT', 'toggle', { default: 'true' }));
+    // REMOVED: 'Auto-Start Bot' (GUI_AUTOSTART_BOT) — Dead toggle, 0 runtime refs (Audit P0)
     section.appendChild(createCard('Continuous Mode', 'Keep runtime alive indefinitely', 'CONTINUOUS_MODE', 'toggle'));
     section.appendChild(createCard('Friday Fade Damper', 'Risk cap after 12:00 PM EST Fri (Forex Only)', 'FRIDAY_FADE_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('WebConnect URL', 'Remote bot connection address', 'GUI_WS_URL', 'input', { default: 'ws://localhost:8080/ws' }));
     section.appendChild(createCard('Bot Listening Port', 'Port the bot server listens on', 'WS_SERVER_PORT', 'input', { default: '8080' }));
 
+    section.appendChild(createCard('PnL Timeframe', 'Select performance measurement period for the dashboard', 'GUI_PNL_TIMEFRAME', 'dropdown', {
+        items: [
+            { value: 'holdings', label: 'Active Holdings Only' },
+            { value: '24h', label: 'Last 24 Hours (Realized + Unrealized)' },
+            { value: 'week', label: 'Last 7 Days (Realized + Unrealized)' },
+            { value: 'month', label: 'Last 30 Days (Realized + Unrealized)' },
+            { value: 'year', label: 'Last Year (Realized + Unrealized)' },
+            { value: 'all', label: 'All Time (Realized + Unrealized)' }
+        ],
+        default: '24h'
+    }));
+    // ── Profile Overrides ──────────────────────────────────
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Profile Overrides', 'tune',
+        "<strong>What are Profile Overrides?</strong><br><br>When enabled, global settings are saved separately for each profile. Switching profiles will load that profile's custom global settings.<br><br>When disabled, all profiles share the same global settings."
+    ));
+    section.appendChild(createCard('Profile Overrides', 'Allow each profile to have its own global settings', 'PROFILE_OVERRIDES_ENABLED', 'toggle', { default: 'false' }));
+
     section.appendChild(createDivider());
 
     // Runtime Control (Start/Stop/Restart)
-    section.appendChild(createSectionHeader('Runtime Control', 'play_circle'));
+    section.appendChild(createSectionHeader('Runtime Control', 'play_circle',
+        "<strong>Runtime Control</strong><br><br>Start, stop, or restart the trading bot directly from this panel. The bot runs in the background — use these buttons to control its lifecycle."
+    ));
 
     const controlGrid = document.createElement('div');
     controlGrid.className = 'card-grid card-grid-3 mb-8';
@@ -938,7 +1428,9 @@ function renderSystemTab(container) {
     section.appendChild(createDivider());
 
     // Timeframes
-    section.appendChild(createSectionHeader('Timeframes', 'schedule'));
+    section.appendChild(createSectionHeader('Timeframes', 'schedule',
+        "<strong>Timeframes</strong><br><br>Controls how often the bot checks the market and on what candle sizes. The <em>Higher Timeframe (HTF)</em> gives the big-picture trend (e.g. 15-minute candles), while the <em>Lower Timeframe (LTF)</em> is used for timing entries precisely (e.g. 5-minute candles)."
+    ));
 
     section.appendChild(createCard('Candle Timeframe', 'Primary data timeframe', 'CANDLE_TIMEFRAME', 'dropdown', {
         items: [
@@ -970,19 +1462,11 @@ function renderSystemTab(container) {
         default: '5m'
     }));
 
-    section.appendChild(createDivider());
 
-    // Trend Detection
-    section.appendChild(createSectionHeader('Trend Detection', 'trending_up'));
 
-    section.appendChild(createCard('Trend Window', 'Candles for HTF trend analysis', 'TREND_WINDOW', 'input', { number: true, default: '12', min: 5, max: 50 }));
-    section.appendChild(createCard('LTF Trend Window', 'Candles for LTF trend analysis', 'LTF_TREND_WINDOW', 'input', { number: true, default: '8', min: 3, max: 30 }));
-    section.appendChild(createCard('Swing Lookback', 'Fractal lookback for swing detection', 'TREND_SWING_LOOKBACK', 'input', { number: true, default: '2', min: 1, max: 5 }));
-    section.appendChild(createCard('Min Swings', 'Minimum swings for trend classification', 'TREND_MIN_SWINGS', 'input', { number: true, default: '2', min: 1, max: 5 }));
-    section.appendChild(createCard('Strength Floor', 'Minimum strength for non-neutral trend', 'TREND_STRENGTH_FLOOR', 'input', { number: true, default: '0.25', min: 0, max: 1, step: 0.05 }));
-
-    section.appendChild(createDivider());
-    section.appendChild(createSectionHeader('Market Guards', 'security'));
+    section.appendChild(createSectionHeader('Market Guards', 'security',
+        "<strong>Market Guards</strong><br><br>Safety checks that run before any trade is placed. These include things like the PDT (Pattern Day Trader) guard, automatic position flattening at market close, and cooldown timers that prevent overtrading."
+    ));
     section.appendChild(createCard('PDT Safety Guard', 'Prevent US Equity 25k rule violations', 'PDT_GUARD_ENABLED', 'toggle'));
 
     container.appendChild(section);
@@ -991,10 +1475,11 @@ function renderSystemTab(container) {
 
 function renderStrategyTab(container) {
     // Sync envData with active profile settings so UI reflects actual config
-    // Profile settings are authoritative - always prefer them over .env values
+    // Profile settings are authoritative - but skip keys with pending local changes
     const profileSettings = getActiveProfileSettings();
     const assetKeyMap = { crypto: 'STRATEGY_CRYPTO', forex: 'STRATEGY_FOREX', stocks: 'STRATEGY_STOCKS', etf: 'STRATEGY_ETF', metals: 'STRATEGY_METALS', futures: 'STRATEGY_FUTURES' };
     for (const [asset, envKey] of Object.entries(assetKeyMap)) {
+        if (localChanges[envKey]) continue; // Preserve unsaved user selection
         if (profileSettings.strategies[asset]) {
             envData[envKey] = profileSettings.strategies[asset];
         } else if (profileSettings.strategy_variant) {
@@ -1009,14 +1494,16 @@ function renderStrategyTab(container) {
         { id: 'risk', label: 'Global Risk' },
         { id: 'pyramid', label: 'Pyramiding' },
         { id: 'exits', label: 'Exit Logic' },
-        { id: 'yaml', label: 'YAML Editor' }
+        { id: 'yaml', label: 'JSON Editor' }
     ], 'strategy'));
 
     const section = document.createElement('div');
     section.className = 'settings-section';
 
     if (subTabs.strategy === 'assets') {
-        section.appendChild(createSectionHeader('Strategy per Asset Class', 'precision_manufacturing'));
+        section.appendChild(createSectionHeader('Strategy per Asset Class', 'precision_manufacturing',
+            "<strong>Strategy per Asset Class</strong><br><br>Each type of market (crypto, forex, stocks, etc.) can use a different trading strategy. For example, you might use a momentum strategy for crypto but a mean-reversion strategy for forex."
+        ));
 
         // Intro text
         const intro = document.createElement('div');
@@ -1035,7 +1522,7 @@ function renderStrategyTab(container) {
             card.className = 'asset-strategy-card';
 
             // Get current strategy for this asset
-            const currentStrategy = envData[asset.envKey] || 'rubberband_reaper';
+            const currentStrategy = getValue(asset.envKey) || 'rubberband_reaper';
             const strategyInfo = STRATEGIES[currentStrategy] || STRATEGIES.rubberband_reaper;
 
             card.innerHTML = `
@@ -1101,32 +1588,37 @@ function renderStrategyTab(container) {
         return;
 
     } else if (subTabs.strategy === 'risk') {
-        section.appendChild(createSectionHeader('Global Risk Limits', 'account_balance'));
+        section.appendChild(createSectionHeader('Global Risk Limits', 'account_balance',
+            "<strong>Global Risk Limits</strong><br><br>How much of your account you're willing to risk on each trade. These limits apply across all profiles and strategies — think of them as the guardrails that prevent any single trade from doing serious damage."
+        ));
 
         section.appendChild(createWarningBox('<strong>Note:</strong> These are global defaults and safety limits. Individual strategies in the <strong>Strategy Toolbox</strong> may override specific risk parameters (e.g. higher risk for high-probability setups).'));
 
         // Slider Grid
         const grid = document.createElement('div');
         grid.className = 'card-grid';
-        grid.appendChild(createSliderCard('Default Risk %', 'Fallback equity risk', 'RISK_PER_TRADE_PCT', 0.1, 5.0, 0.1, '%'));
-        grid.appendChild(createSliderCard('Short Risk', 'Risk for short positions', 'SHORT_RISK_PCT', 0.1, 5.0, 0.1, '%'));
+        grid.appendChild(createSliderCard('Default Risk %', 'Fallback equity risk', 'RISK_PER_TRADE_PCT', 0.1, 20.0, 0.1, '%'));
         grid.appendChild(createSliderCard('Max Exposure', 'Total open risk limit', 'MAX_EXPOSURE_PCT', 5, 100, 5, '%'));
-        grid.appendChild(createSliderCard('Max Daily Loss', 'Daily loss circuit breaker', 'MAX_DAILY_LOSS_PCT', 1, 20, 1, '%'));
+        grid.appendChild(createSliderCard('Daily Loss Limit', 'Circuit breaker — stops trading for the day 🍞', 'LIMIT_LOSS_DAILY_PCT', 1, 20, 1, '%'));
         section.appendChild(grid);
 
-        section.appendChild(createCard('Fixed Risk ($)', 'Fixed dollar risk (overrides %)', 'RISK_PER_TRADE_DOLLARS', 'input', { number: true, placeholder: '0.00' }));
-        section.appendChild(createCard('Max Loss Per Trade ($)', 'Hard cap per trade', 'MAX_LOSS_PER_TRADE_DOLLARS', 'input', { number: true, default: '500' }));
+        section.appendChild(createCard('Fixed Risk USD', 'Fixed dollar risk - overrides %', 'RISK_PER_TRADE_DOLLARS', 'input', { number: true, placeholder: '0.00' }));
+        section.appendChild(createCard('Max Loss Per Trade USD', 'Hard cap per trade', 'MAX_LOSS_PER_TRADE_DOLLARS', 'input', { number: true, default: '500' }));
 
         section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Position Management', 'layers'));
+        section.appendChild(createSectionHeader('Position Management', 'layers',
+            "<strong>Position Management</strong><br><br>Controls for how many trades the bot can hold at once across different symbols. Multi-position mode lets the bot trade multiple symbols simultaneously."
+        ));
 
-        section.appendChild(createCard('Multi-Position', 'Trade multiple symbols simultaneously', 'MULTI_POSITION_ENABLED', 'toggle'));
-        section.appendChild(createCard('Max Concurrent Positions', 'Maximum open positions', 'MAX_CONCURRENT_POSITIONS', 'input', { number: true, default: '1', min: 1, max: 10 }));
-        section.appendChild(createCard('Smart Positions', 'Fund new risk with open profits', 'SMART_POSITIONS_ENABLED', 'toggle'));
+        const grid2 = document.createElement('div');
+        grid2.className = 'card-grid';
+        // (Moved Multi-Position and Smart Positions to Safety Tab)
+        section.appendChild(grid2);
+        // REMOVED: Opening Range Sentry + AI Sentiment Shield duplicates — canonical controls live in Safety tab (Audit P2)
 
         // Initialize Financed Risk state
         setTimeout(() => {
-            const multiEnabled = envData['MULTI_POSITION_ENABLED'] === 'true';
+            const multiEnabled = getValue('MULTI_POSITION_ENABLED') === 'true';
             const smartToggle = section.querySelector('.control-card[data-key="SMART_POSITIONS_ENABLED"]');
             if (smartToggle && !multiEnabled) {
                 smartToggle.classList.add('opacity-50', 'pointer-events-none');
@@ -1134,10 +1626,12 @@ function renderStrategyTab(container) {
         }, 0);
 
     } else if (subTabs.strategy === 'pyramid') {
-        section.appendChild(createSectionHeader('Pyramid Configuration', 'stacked_line_chart'));
+        section.appendChild(createSectionHeader('Pyramid Configuration', 'stacked_line_chart',
+            "<strong>Pyramid Configuration</strong><br><br>Pyramiding means adding to a winning position. Instead of entering all at once, the bot can gradually add more as the trade moves in your favor. These settings control how many additional entries are allowed and what profit buffer is required before adding more."
+        ));
 
         section.appendChild(createCard('Max Pyramid Entries', 'Total entries per position', 'MAX_PYRAMID_ENTRIES', 'input', { number: true, default: '6', min: 1, max: 20 }));
-        section.appendChild(createCard('Profit Buffer %', 'Min profit before first add', 'PYRAMID_PROFIT_BUFFER_PCT', 'input', { number: true, default: '0.0015', min: 0, max: 0.05, step: 0.0005 }));
+        section.appendChild(createSliderCard('Profit Buffer %', 'Min profit before first add', 'PYRAMID_PROFIT_BUFFER_PCT', 0, 5, 0.1, '%'));
 
         const pyramidGrid = document.createElement('div');
         pyramidGrid.className = 'card-grid';
@@ -1146,41 +1640,54 @@ function renderStrategyTab(container) {
         section.appendChild(pyramidGrid);
 
         section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Breakeven Trail', 'shield'));
+        section.appendChild(createSectionHeader('Breakeven Trail', 'shield',
+            "<strong>Breakeven Trail</strong><br><br>Once a trade is profitable enough, the stop-loss moves up to your entry price. This means even if the market reverses, you won't lose money on that trade — you 'lock in' at breakeven."
+        ));
 
         section.appendChild(createCard('Trail After N Pyramids', '0 = disabled', 'BREAKEVEN_TRAIL_AFTER_PYRAMIDS', 'input', { number: true, default: '1', min: 0, max: 10 }));
-        section.appendChild(createCard('Trail Percentage', 'Above breakeven (0.003 = 0.3%)', 'BREAKEVEN_TRAIL_PCT', 'input', { number: true, default: '0.003', min: 0, max: 0.05, step: 0.001 }));
+        // REMOVED: 'Trail Percentage' (BREAKEVEN_TRAIL_PCT) duplicate — canonical in Safety tab (Audit P2)
 
     } else if (subTabs.strategy === 'exits') {
-        section.appendChild(createSectionHeader('Exit Configuration', 'exit_to_app'));
+        section.appendChild(createSectionHeader('Exit Configuration', 'exit_to_app',
+            "<strong>Exit Configuration</strong><br><br>Rules for how the bot decides when to close a position. This includes the risk/reward ratio (e.g. risk $1 to make $2) and how it uses the ATR (Average True Range) to set stop-loss distance."
+        ));
 
-        section.appendChild(createCard('HTF Flip Exit (Loss Only)', 'Exit on flip only if losing', 'EXIT_ON_HTF_FLIP_ONLY_IF_LOSING', 'toggle', { default: 'true' }));
+        // REMOVED: 'HTF Flip Exit (Loss Only)' (EXIT_ON_HTF_FLIP_ONLY_IF_LOSING) — Dead toggle, 0 Python refs (Audit P0)
         section.appendChild(createCard('Auto-Flatten on Close', 'Flatten positions at session end', 'AUTO_FLATTEN_ON_CLOSE', 'toggle'));
 
         section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Trailing Stop', 'trending_down'));
+        section.appendChild(createSectionHeader('Trailing Stop', 'trending_down',
+            "<strong>Trailing Stop</strong><br><br>A stop-loss that moves up with the price as your trade becomes more profitable. Once the profit reaches a minimum threshold, the trailing stop activates and follows the price upward — locking in profits while still giving the trade room to grow."
+        ));
 
-        section.appendChild(createCard('Trailing Stop Enabled', 'Enable trailing stop logic', 'TRAILING_STOP_ENABLED', 'toggle'));
-        section.appendChild(createCard('Min Profit to Trail', 'Activate at this profit %', 'TRAILING_STOP_MIN_PROFIT_PCT', 'input', { number: true, default: '1.0', min: 0, max: 10, step: 0.5 }));
-        section.appendChild(createCard('Stop ATR Multiplier', 'Distance from structure', 'STOP_ATR_MULTIPLIER', 'input', { number: true, default: '1.5', min: 0.5, max: 3, step: 0.1 }));
+        section.appendChild(createCard('The "Greedy Exit"', 'Enable trailing stop logic', 'TRAILING_STOP_ENABLED', 'toggle'));
+        section.appendChild(createSliderCard('The "Sniper Target"', 'Target Reward Ratio (R:R)', 'RISK_REWARD_RATIO', 1, 5, 0.5, 'R'));
+        section.appendChild(createSliderCard('Trailing Stop Min Profit %', 'Min profit to activate trail', 'TRAILING_STOP_MIN_PROFIT_PCT', 0, 10, 0.5, '%'));
+        // REMOVED: 'Stop ATR Multiplier' (STOP_ATR_MULTIPLIER) duplicate — canonical in Safety tab (Audit P2)
 
         section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Hold Time Rules', 'timer'));
+        section.appendChild(createSectionHeader('Hold Time Rules', 'timer',
+            "<strong>Hold Time Rules</strong><br><br>How long the bot should hold a trade before considering an exit. The minimum hold prevents premature exits from short-term noise, while the maximum hold forces exits on stale positions that aren't going anywhere."
+        ));
 
-        section.appendChild(createCard('Min Hold Hours', '0 = disabled', 'MIN_HOLD_HOURS', 'input', { number: true, default: '0', min: 0, max: 48 }));
-        section.appendChild(createCard('Max Hold Hours', '0 = disabled', 'MAX_HOLD_HOURS', 'input', { number: true, default: '0', min: 0, max: 168 }));
-        section.appendChild(createCard('HTF Neutral Exit Bars', 'Exit after N neutral bars', 'HTF_NEUTRAL_EXIT_BARS', 'input', { number: true, default: '48', min: 0, max: 200 }));
+        section.appendChild(createSliderCard('Min Hold Hours', '0 = disabled', 'MIN_HOLD_HOURS', 0, 48, 1, 'hrs'));
+        section.appendChild(createSliderCard('Max Hold Hours', '0 = disabled', 'MAX_HOLD_HOURS', 0, 168, 1, 'hrs'));
+        section.appendChild(createSliderCard('HTF Neutral Exit Bars', 'Exit after N neutral bars', 'HTF_NEUTRAL_EXIT_BARS', 0, 200, 5, 'bars'));
 
     } else if (subTabs.strategy === 'yaml') {
-        section.appendChild(createSectionHeader('Profiles YAML Editor', 'code'));
-        section.appendChild(createWarningBox('<strong>Warning:</strong> Direct YAML editing. Invalid syntax will break the bot. Use the other tabs for safer configuration.'));
+        section.appendChild(createSectionHeader('Config JSON Editor', 'code',
+            "<strong>Config JSON Editor</strong><br><br>Advanced: directly view and edit the raw JSON configuration file. All the settings you see in the GUI ultimately live in this file. Power users can make bulk changes here."
+        ));
+        section.appendChild(createWarningBox('<strong>Warning:</strong> Direct JSON editing. Invalid syntax will break the bot.'));
 
         const editor = document.createElement('textarea');
         editor.id = 'profiles-editor';
         editor.value = profilesContent;
+        editor.style.height = '500px';
+        editor.style.fontFamily = 'monospace';
         editor.addEventListener('input', (e) => {
             profilesContent = e.target.value;
-            localChanges['_profiles_'] = true;
+            localChanges['_config_'] = true;
             updateChangeCounter();
         });
         section.appendChild(editor);
@@ -1205,7 +1712,9 @@ function renderBrokersTab(container) {
     section.className = 'settings-section';
 
     if (subTabs.brokers === 'ibkr') {
-        section.appendChild(createSectionHeader('IBKR Connection', 'lan'));
+        section.appendChild(createSectionHeader('IBKR Connection', 'lan',
+            "<strong>IBKR Connection</strong><br><br>Connect to Interactive Brokers (IBKR) for executing stock, ETF, futures, and forex trades. You need TWS or IB Gateway running on the same machine or network."
+        ));
 
         section.appendChild(createCard('Host', 'TWS/Gateway IP address', 'IBKR_HOST', 'input', { default: '127.0.0.1' }));
         section.appendChild(createCard('Port', '7497 (Paper) / 4001 (Live Gateway)', 'IBKR_PORT', 'input', { number: true, default: '7497' }));
@@ -1213,24 +1722,28 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('Account ID', 'Specific sub-account', 'IBKR_ACCOUNT_ID', 'input'));
         section.appendChild(createCard('Paper Trading', 'Use paper trading mode', 'IBKR_PAPER', 'toggle', { default: 'true' }));
         section.appendChild(createCard('Read Only', 'Monitor mode only (no orders)', 'IBKR_READ_ONLY', 'toggle'));
-        section.appendChild(createCard('Default Currency', 'Base currency for positions', 'IBKR_DEFAULT_CCY', 'input', { default: 'USD' }));
+        section.appendChild(createCard('Default Currency', 'Base currency for positions', 'IBKR_DEFAULT_CCY', 'dropdown', { items: [{ value: 'USD', label: 'USD' }, { value: 'EUR', label: 'EUR' }, { value: 'GBP', label: 'GBP' }, { value: 'CHF', label: 'CHF' }, { value: 'JPY', label: 'JPY' }, { value: 'CAD', label: 'CAD' }, { value: 'AUD', label: 'AUD' }, { value: 'NZD', label: 'NZD' }], default: 'USD' }));
 
     } else if (subTabs.brokers === 'oanda') {
-        section.appendChild(createSectionHeader('OANDA Forex Connection', 'currency_exchange'));
+        section.appendChild(createSectionHeader('OANDA Forex Connection', 'currency_exchange',
+            "<strong>OANDA Forex Connection</strong><br><br>Connect to OANDA for forex (currency pair) trading. OANDA provides tight spreads and fractional position sizing. Enter your API key and account ID from your OANDA account dashboard."
+        ));
 
         section.appendChild(createCard('Account ID', 'Your OANDA account number', 'OANDA_ACCOUNT_ID', 'input', { placeholder: '101-001-1234567-001' }));
         section.appendChild(createCard('API Key', 'OANDA API access token', 'OANDA_API_KEY', 'input', { password: true }));
         section.appendChild(createCard('Environment', 'Trading environment', 'OANDA_ENVIRONMENT', 'dropdown', {
             items: [
-                { value: 'practice', label: 'Practice (Demo)' },
-                { value: 'live', label: 'Live (Real Money)' }
+                { value: 'practice', label: 'Practice - Demo' },
+                { value: 'live', label: 'Live - Real Money' }
             ],
             default: 'practice'
         }));
         section.appendChild(createCard('Read Only', 'Monitor only (no trading)', 'OANDA_READ_ONLY', 'toggle', { default: 'true' }));
 
         section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('OANDA Info', 'info'));
+        section.appendChild(createSectionHeader('OANDA Info', 'info',
+            "<strong>OANDA Account Info</strong><br><br>Displays your OANDA account balance, open trades, and connection status. This data refreshes automatically when the bot is running."
+        ));
 
         const infoBox = document.createElement('div');
         infoBox.className = 'warning-box';
@@ -1249,14 +1762,18 @@ function renderBrokersTab(container) {
         section.appendChild(infoBox);
 
     } else if (subTabs.brokers === 'gemini') {
-        section.appendChild(createSectionHeader('Gemini.com Connection', 'security'));
+        section.appendChild(createSectionHeader('Gemini.com Connection', 'security',
+            "<strong>Gemini Connection</strong><br><br>Connect to the Gemini crypto exchange for trading Bitcoin, Ethereum, and other cryptocurrencies. You'll need an API key and secret from your Gemini account settings."
+        ));
 
         section.appendChild(createCard('API Key', 'Gemini Master Key', 'GEMINI_API_KEY', 'input', { password: true }));
         section.appendChild(createCard('API Secret', 'Gemini Secret', 'GEMINI_API_SECRET', 'input', { password: true }));
         section.appendChild(createCard('Sandbox Mode', 'Use Gemini Exchange Testnet', 'GEMINI_SANDBOX', 'toggle', { default: 'false' }));
 
         section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Gemini Info', 'info'));
+        section.appendChild(createSectionHeader('Gemini Info', 'info',
+            "<strong>Gemini Account Info</strong><br><br>Your Gemini exchange account status, available balance, and connection health."
+        ));
 
         const geminiInfo = document.createElement('div');
         geminiInfo.className = 'warning-box';
@@ -1275,20 +1792,24 @@ function renderBrokersTab(container) {
         section.appendChild(geminiInfo);
 
     } else if (subTabs.brokers === 'kraken') {
-        section.appendChild(createSectionHeader('Kraken Connection', 'account_balance_wallet'));
+        section.appendChild(createSectionHeader('Kraken Connection', 'account_balance_wallet',
+            "<strong>Kraken Connection</strong><br><br>Connect to the Kraken crypto exchange. Kraken supports advanced order types and a wide range of crypto pairs."
+        ));
 
         section.appendChild(createCard('API Key', 'Kraken API Key', 'KRAKEN_API_KEY', 'input', { password: true }));
-        section.appendChild(createCard('API Secret', 'Kraken API Secret', 'KRAKEN_API_SECRET', 'input', { password: true }));
+        section.appendChild(createCard('Private Key', 'Kraken Private Key', 'KRAKEN_API_SECRET', 'input', { password: true }));
         section.appendChild(createCard('Environment', 'Trading Environment', 'KRAKEN_ENVIRONMENT', 'dropdown', {
             items: [
-                { value: 'production', label: 'Production (Live)' },
-                { value: 'sandbox', label: 'Sandbox (Test)' }
+                { value: 'production', label: 'Production - Live' },
+                { value: 'sandbox', label: 'Sandbox - Test' }
             ],
             default: 'production'
         }));
 
         section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Kraken Info', 'info'));
+        section.appendChild(createSectionHeader('Kraken Info', 'info',
+            "<strong>Kraken Account Info</strong><br><br>Your Kraken exchange account status and connection health."
+        ));
         const krakenInfo = document.createElement('div');
         krakenInfo.className = 'warning-box';
         krakenInfo.style.borderColor = 'rgba(20, 184, 166, 0.3)';
@@ -1299,33 +1820,39 @@ function renderBrokersTab(container) {
                 1. Log in to your Kraken account<br>
                 2. Navigate to <strong>Security -> API</strong><br>
                 3. Create a new API Key with appropriate permissions<br>
-                4. Paste your Key and Private Key (Secret) here<br>
+                4. Paste your API Key and Private Key here<br>
                 5. Note: Set <strong>Data Routing</strong> to use Kraken for Crypto.
             </div>
         `;
         section.appendChild(krakenInfo);
 
     } else if (subTabs.brokers === 'paxos') {
-        section.appendChild(createSectionHeader('Paxos / itBit Connection', 'token'));
+        section.appendChild(createSectionHeader('Paxos / itBit Connection', 'token',
+            "<strong>Paxos / itBit Connection</strong><br><br>Connect to the Paxos (itBit) crypto exchange. This is a regulated US exchange often used for institutional-grade trading."
+        ));
 
         section.appendChild(createCard('API Key', 'Paxos API Key', 'PAXOS_API_KEY', 'input', { password: true }));
         section.appendChild(createCard('API Secret', 'Paxos API Secret', 'PAXOS_API_SECRET', 'input', { password: true }));
         section.appendChild(createCard('Environment', 'Sandbox or Production', 'PAXOS_ENVIRONMENT', 'dropdown', {
             items: [
-                { value: 'sandbox', label: 'Sandbox (Test)' },
-                { value: 'production', label: 'Production (Live)' }
+                { value: 'sandbox', label: 'Sandbox - Test' },
+                { value: 'production', label: 'Production - Live' }
             ],
             default: 'sandbox'
         }));
 
         section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Paxos Info', 'info'));
+        section.appendChild(createSectionHeader('Paxos Info', 'info',
+            "<strong>Paxos Account Info</strong><br><br>Your Paxos exchange connection status and account details."
+        ));
         section.appendChild(createWarningBox('<strong>Note:</strong> Used for direct Crypto Spot trading. Ensure "Data Routing" is set to use Paxos for Crypto.'));
 
     } else if (subTabs.brokers === 'ccxt') {
-        section.appendChild(createSectionHeader('Coinbase / CCXT Engine', 'currency_bitcoin'));
+        section.appendChild(createSectionHeader('Coinbase / CCXT Engine', 'currency_bitcoin',
+            "<strong>Coinbase / CCXT Engine</strong><br><br>Connect to Coinbase (or any CCXT-supported exchange) for crypto trading. CCXT is a universal adapter that supports 100+ crypto exchanges with a single configuration."
+        ));
 
-        section.appendChild(createCard('Exchange ID', 'Provider name', 'CCXT_EXCHANGE', 'input', { default: 'coinbase' }));
+        section.appendChild(createCard('Exchange ID', 'Provider name', 'CCXT_EXCHANGE', 'dropdown', { items: [{ value: 'coinbase', label: 'Coinbase' }, { value: 'kraken', label: 'Kraken' }, { value: 'binance', label: 'Binance' }, { value: 'binanceus', label: 'Binance US' }, { value: 'bybit', label: 'Bybit' }, { value: 'okx', label: 'OKX' }, { value: 'bitfinex', label: 'Bitfinex' }, { value: 'gemini', label: 'Gemini' }, { value: 'kucoin', label: 'KuCoin' }], default: 'coinbase' }));
         section.appendChild(createCard('Market Type', 'Asset class', 'CCXT_DEFAULT_TYPE', 'dropdown', {
             items: [
                 { value: 'spot', label: 'Spot' },
@@ -1339,22 +1866,28 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('Rate Limit', 'Built-in rate limiting', 'CCXT_ENABLE_RATE_LIMIT', 'toggle', { default: 'true' }));
 
         section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Crypto Order Settings', 'paid'));
+        section.appendChild(createSectionHeader('Crypto Order Settings', 'paid',
+            "<strong>Crypto Order Settings</strong><br><br>Controls for how crypto orders are placed — including maker-first mode (limit orders for lower fees), slippage tolerance, and order timeouts. Fine-tune these to balance execution speed vs. cost."
+        ));
 
         section.appendChild(createCard('Fractional Enabled', 'Allow fractional sizing', 'CRYPTO_FRACTIONAL_ENABLED', 'toggle', { default: 'true' }));
         section.appendChild(createCard('Min Notional (USD)', 'Minimum trade size', 'CRYPTO_MIN_NOTIONAL_USD', 'input', { number: true, default: '20' }));
         section.appendChild(createCard('Max Notional (USD)', 'Maximum trade size', 'CRYPTO_MAX_NOTIONAL_USD', 'input', { number: true, default: '1000000' }));
         section.appendChild(createCard('Order Type', 'Limit vs Market', 'CRYPTO_ORDER_TYPE', 'dropdown', {
             items: [
-                { value: 'LIMIT', label: 'Limit (Safer)' },
-                { value: 'MARKET', label: 'Market (Guaranteed Fill)' }
+                { value: 'LIMIT', label: 'Limit - Safer' },
+                { value: 'MARKET', label: 'Market - Guaranteed Fill' }
             ]
         }));
 
     } else if (subTabs.brokers === 'routing') {
-        section.appendChild(createSectionHeader('Data & Execution Routing', 'route'));
+        section.appendChild(createSectionHeader('Data & Execution Routing', 'route',
+            "<strong>Data & Execution Routing</strong><br><br>Choose which broker provides market data and which one executes trades. In hybrid mode, you can get data from one source and execute on another."
+        ));
 
-        section.appendChild(createSectionHeader('Asset-Based Routing', 'route'));
+        section.appendChild(createSectionHeader('Asset-Based Routing', 'route',
+            "<strong>Asset-Based Routing</strong><br><br>Route different asset classes to different brokers automatically. For example, send forex orders to OANDA but crypto orders to Gemini — all from the same bot."
+        ));
 
         const infoBox = document.createElement('div');
         infoBox.className = 'warning-box';
@@ -1372,8 +1905,8 @@ function renderBrokersTab(container) {
                 { value: 'ccxt', label: 'Coinbase / CCXT' },
                 { value: 'gemini', label: 'Gemini.com' },
                 { value: 'kraken', label: 'Kraken' },
-                { value: 'paxos', label: 'Paxos (Native API)' },
-                { value: 'oanda', label: 'OANDA (Spot via Paxos)' },
+                { value: 'paxos', label: 'Paxos - Native API' },
+                { value: 'oanda', label: 'OANDA - Spot via Paxos' },
                 { value: 'ibkr', label: 'Interactive Brokers' }
             ],
             default: 'ccxt'
@@ -1381,7 +1914,7 @@ function renderBrokersTab(container) {
 
         section.appendChild(createCard('Forex Broker', 'eur/usd, jpy', 'BROKER_FOREX', 'dropdown', {
             items: [
-                { value: 'ibkr', label: 'Interactive Brokers (Primary)' },
+                { value: 'ibkr', label: 'Interactive Brokers - Primary' },
                 { value: 'oanda', label: 'OANDA' }
             ],
             default: 'ibkr'
@@ -1405,16 +1938,18 @@ function renderAITab(container) {
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    section.appendChild(createSectionHeader('AI Provider', 'smart_toy'));
+    section.appendChild(createSectionHeader('AI Provider', 'smart_toy',
+        "<strong>AI Provider</strong><br><br>Configure the AI model that powers the bot's analysis commentary. This is the AI that writes market insights on the dashboard — it does NOT make trading decisions (the strategy engine does that)."
+    ));
 
     section.appendChild(createCard('AI Provider', 'Backend service', 'TRADE_SCI_PROVIDER', 'dropdown', {
         items: [
             { value: 'gemini', label: 'Google Gemini Pro' },
-            { value: 'openai', label: 'OpenAI (GPT-4)' },
+            { value: 'openai', label: 'OpenAI - GPT-4' },
             { value: 'claude', label: 'Anthropic Claude' },
             { value: 'deepseek', label: 'DeepSeek' },
             { value: 'openrouter', label: 'OpenRouter' },
-            { value: 'local', label: 'Local AI (Ollama / LM Studio)' }
+            { value: 'local', label: 'Local AI - Ollama / LM Studio' }
         ],
         onChange: () => renderTab() // Force re-render to update dependent locks
     }));
@@ -1427,11 +1962,13 @@ function renderAITab(container) {
 
     section.appendChild(createCard('Model Name', 'e.g., gemini-1.5-pro-002', 'TRADE_SCI_MODEL_NAME', 'input'));
     section.appendChild(createCard('API Key', 'Provider authentication', 'CHATGPT_KEY', 'input', { password: true }));
-    section.appendChild(createCard('Temperature', 'Response randomness (0-2)', 'AI_TEMPERATURE', 'input', { number: true, default: '0.2', min: 0, max: 2, step: 0.1 }));
+    section.appendChild(createSliderCard('Temperature', 'AI creativity (0 = precise, 2 = wild)', 'AI_TEMPERATURE', 0, 2, 0.1, ''));
     section.appendChild(createCard('Max Tokens', 'Response length limit', 'AI_MAX_TOKENS', 'input', { number: true, default: '2048' }));
 
     section.appendChild(createDivider());
-    section.appendChild(createSectionHeader('AI Commentary', 'comment'));
+    section.appendChild(createSectionHeader('AI Commentary', 'comment',
+        "<strong>AI Commentary</strong><br><br>Settings for the AI-generated market analysis that appears on the dashboard. You can control how often it updates and what template it uses to generate insights."
+    ));
 
     // Master toggle
     section.appendChild(createCard('Enable Commentary', 'Show AI insights in dashboard', 'COMMENTARY_ENABLED', 'toggle', { default: 'true' }));
@@ -1447,7 +1984,7 @@ function renderAITab(container) {
     }));
 
     // Interval slider (shown when policy is 'interval')
-    section.appendChild(createCard('Interval (Minutes)', 'Time between AI updates', 'COMMENTARY_INTERVAL_MINUTES', 'input', {
+    section.appendChild(createCard('Interval - Minutes', 'Time between AI updates', 'COMMENTARY_INTERVAL_MINUTES', 'input', {
         number: true,
         default: '5',
         min: 1,
@@ -1468,7 +2005,9 @@ function renderScheduleTab(container) {
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    section.appendChild(createSectionHeader('Sabbath Configuration', 'synagogue'));
+    section.appendChild(createSectionHeader('Sabbath Configuration', 'synagogue',
+        "<strong>Sabbath Configuration</strong><br><br>When enabled, the bot automatically stops placing real trades from Friday sundown to Saturday sundown. During this time it switches to a simulated Paper Broker so no real money is at risk. You can set your location for accurate sunset times."
+    ));
 
     // City Resolver
     const resolver = document.createElement('div');
@@ -1484,19 +2023,21 @@ function renderScheduleTab(container) {
 
     section.appendChild(createCard('Enable Sabbath', 'Block trades during Sabbath', 'SABBATH_ENABLED', 'toggle'));
     section.appendChild(createCard('Astronomical Mode', 'Use actual sunset times', 'SABBATH_ASTRONOMICAL', 'toggle'));
-    section.appendChild(createCard('Timezone', 'IANA zone name', 'SABBATH_TIMEZONE', 'input', { default: 'America/New_York' }));
+    section.appendChild(createCard('Timezone', 'IANA zone name', 'SABBATH_TIMEZONE', 'dropdown', { items: [{ value: 'America/New_York', label: 'America/New_York' }, { value: 'America/Chicago', label: 'America/Chicago' }, { value: 'America/Denver', label: 'America/Denver' }, { value: 'America/Los_Angeles', label: 'America/Los_Angeles' }, { value: 'America/Toronto', label: 'America/Toronto' }, { value: 'Europe/London', label: 'Europe/London' }, { value: 'Europe/Paris', label: 'Europe/Paris' }, { value: 'Europe/Berlin', label: 'Europe/Berlin' }, { value: 'Asia/Jerusalem', label: 'Asia/Jerusalem' }, { value: 'Asia/Tokyo', label: 'Asia/Tokyo' }, { value: 'Australia/Sydney', label: 'Australia/Sydney' }, { value: 'UTC', label: 'UTC' }], default: 'America/New_York' }));
     section.appendChild(createCard('Latitude', 'Decimal coordinate', 'SABBATH_LAT', 'input'));
     section.appendChild(createCard('Longitude', 'Decimal coordinate', 'SABBATH_LON', 'input'));
-    section.appendChild(createCard('Start Time', 'Friday sunset (HH:MM)', 'SABBATH_START_LOCAL', 'input', { default: '18:00' }));
-    section.appendChild(createCard('End Time', 'Saturday sunset (HH:MM)', 'SABBATH_END_LOCAL', 'input', { default: '18:00' }));
+    section.appendChild(createCard('Start Time', 'Friday sunset - HH:MM', 'SABBATH_START_LOCAL', 'time', { default: '18:00' }));
+    section.appendChild(createCard('End Time', 'Saturday sunset - HH:MM', 'SABBATH_END_LOCAL', 'time', { default: '18:00' }));
 
     section.appendChild(createDivider());
-    section.appendChild(createSectionHeader('Session Gate', 'access_time'));
+    section.appendChild(createSectionHeader('Session Gate', 'access_time',
+        "<strong>Session Gate</strong><br><br>Restricts trading to specific market session hours. This prevents the bot from trading during low-liquidity periods (like overnight or between sessions) when spreads are wide and moves can be unpredictable."
+    ));
 
     section.appendChild(createCard('Session Gate Enabled', 'Enforce session health checks', 'SESSION_GATE_ENABLED', 'toggle', { default: 'true' }));
-    section.appendChild(createCard('Overlap Start Hour', 'Active session start (0-23)', 'SESSION_OVERLAP_START_HOUR', 'input', { number: true, default: '12', min: 0, max: 23 }));
-    section.appendChild(createCard('Overlap End Hour', 'Active session end (0-23)', 'SESSION_OVERLAP_END_HOUR', 'input', { number: true, default: '16', min: 0, max: 23 }));
-    section.appendChild(createCard('Session Timezone', 'For overlap hours', 'SESSION_OVERLAP_TIMEZONE', 'input', { default: 'UTC' }));
+    section.appendChild(createCard('Overlap Start Hour', 'Active session start', 'SESSION_OVERLAP_START_HOUR', 'time', { default: '12:00' }));
+    section.appendChild(createCard('Overlap End Hour', 'Active session end', 'SESSION_OVERLAP_END_HOUR', 'time', { default: '16:00' }));
+    section.appendChild(createCard('Session Timezone', 'For overlap hours', 'SESSION_OVERLAP_TIMEZONE', 'dropdown', { items: [{ value: 'UTC', label: 'UTC' }, { value: 'America/New_York', label: 'America/New_York' }, { value: 'America/Chicago', label: 'America/Chicago' }, { value: 'America/Denver', label: 'America/Denver' }, { value: 'America/Los_Angeles', label: 'America/Los_Angeles' }, { value: 'Europe/London', label: 'Europe/London' }, { value: 'Europe/Paris', label: 'Europe/Paris' }, { value: 'Asia/Tokyo', label: 'Asia/Tokyo' }, { value: 'Asia/Shanghai', label: 'Asia/Shanghai' }], default: 'UTC' }));
     section.appendChild(createCard('Auto Schedule', 'Auto switch equities/crypto', 'AUTO_SCHEDULE_ENABLED', 'toggle'));
 
     container.appendChild(section);
@@ -1522,11 +2063,191 @@ function renderScheduleTab(container) {
     });
 }
 
+// ═══════════════════════════════════════════════════════════
+// APPEARANCE TAB (Theme Selection)
+// ═══════════════════════════════════════════════════════════
+
+function renderAppearanceTab(container) {
+    const section = document.createElement('div');
+    section.className = 'settings-section';
+
+    const themes = window.ThemeEngine ? window.ThemeEngine.getThemes() : {};
+    const activeThemeId = window.ThemeEngine ? window.ThemeEngine.getActiveThemeId() : 'obsidian';
+    const isRandom = activeThemeId === 'random';
+
+    // Header
+    section.appendChild(createSectionHeader('Theme', 'palette',
+        "<strong>Theme</strong><br><br>Customize the look and feel of the dashboard. Choose from multiple color themes to match your preference."
+    ));
+
+    // Description
+    const desc = document.createElement('div');
+    desc.className = 'card-desc';
+    desc.style.cssText = 'margin-bottom: 24px; font-size: 13px; line-height: 1.6;';
+    desc.textContent = 'Choose a visual theme for your trading dashboard. Changes apply instantly.';
+    section.appendChild(desc);
+
+    // ── 🎲 Random Theme Card ──
+    const randomCard = document.createElement('div');
+    randomCard.className = `theme-card ${isRandom ? 'active' : ''}`;
+    randomCard.style.cssText = 'margin-bottom: 24px; width: 100%; max-width: 100%;';
+    randomCard.innerHTML = `
+        <div class="theme-swatches" style="background: linear-gradient(135deg, #6366f1, #ec4899, #f59e0b, #10b981); min-height: 48px; border-radius: 8px 8px 0 0; display: flex; align-items: center; justify-content: center;">
+            <span class="material-symbols-outlined" style="font-size: 28px; color: white; text-shadow: 0 2px 8px rgba(0,0,0,0.4);">casino</span>
+        </div>
+        <div class="theme-info">
+            <div class="theme-name">🎲 Random</div>
+            <div class="theme-desc">Surprise me — pick a different theme every time the app loads</div>
+        </div>
+        ${isRandom ? '<div class="theme-active-badge"><span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span> Active</div>' : ''}
+    `;
+    randomCard.addEventListener('click', () => {
+        if (window.ThemeEngine) {
+            window.ThemeEngine.applyTheme('random');
+            renderTab();
+        }
+    });
+    section.appendChild(randomCard);
+
+    // Group themes by category
+    const colorThemes = Object.entries(themes).filter(([, t]) => t.category === 'color');
+    const imageThemes = Object.entries(themes).filter(([, t]) => t.category === 'image');
+
+    // ── Color Themes ──
+    const colorLabel = document.createElement('div');
+    colorLabel.style.cssText = 'font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-muted); margin-bottom: 16px; margin-top: 8px;';
+    colorLabel.textContent = '🎨 Color Themes';
+    section.appendChild(colorLabel);
+
+    const colorGrid = document.createElement('div');
+    colorGrid.className = 'theme-grid';
+    colorThemes.forEach(([id, theme]) => {
+        colorGrid.appendChild(createThemeCard(id, theme, activeThemeId));
+    });
+    section.appendChild(colorGrid);
+
+    // ── Image Themes ──
+    const imageLabel = document.createElement('div');
+    imageLabel.style.cssText = 'font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-muted); margin-bottom: 16px; margin-top: 32px;';
+    imageLabel.textContent = '🖼️ Image Themes';
+    section.appendChild(imageLabel);
+
+    const imageGrid = document.createElement('div');
+    imageGrid.className = 'theme-grid';
+    imageThemes.forEach(([id, theme]) => {
+        imageGrid.appendChild(createThemeCard(id, theme, activeThemeId));
+    });
+    section.appendChild(imageGrid);
+
+    container.appendChild(section);
+}
+
+function createThemeCard(id, theme, activeId) {
+    const isActive = id === activeId;
+    const card = document.createElement('div');
+    card.className = `theme-card ${isActive ? 'active' : ''}`;
+    card.dataset.themeId = id;
+
+    // Preview: either image thumbnail or color swatches
+    let previewHTML = '';
+    if (theme.backgroundImage) {
+        previewHTML = `
+            <div class="theme-preview-image" style="background-image: url('${theme.backgroundImage}');"></div>
+        `;
+    } else {
+        const swatches = theme.preview.map(c => `<div class="theme-swatch" style="background: ${c};"></div>`).join('');
+        previewHTML = `<div class="theme-swatches">${swatches}</div>`;
+    }
+
+    card.innerHTML = `
+        ${previewHTML}
+        <div class="theme-info">
+            <div class="theme-name">${theme.name}</div>
+            <div class="theme-desc">${theme.description}</div>
+        </div>
+        ${isActive ? '<div class="theme-active-badge"><span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span> Active</div>' : ''}
+    `;
+
+    card.addEventListener('click', () => {
+        if (window.ThemeEngine) {
+            window.ThemeEngine.applyTheme(id);
+            // Re-render to update active state
+            renderTab();
+        }
+    });
+
+    return card;
+}
+
+// ═══════════════════════════════════════════════════════════
+// TREND DETECTION TAB
+// ═══════════════════════════════════════════════════════════
+function renderTrendsTab(container) {
+    const section = document.createElement('div');
+    section.className = 'settings-section';
+
+    // ── Intro blurb ────────────────────────────────────────
+    const intro = document.createElement('div');
+    intro.className = 'text-xs text-slate-400 leading-relaxed mb-4 px-1';
+    intro.innerHTML = `Choose which trend detection indicators the bot uses when evaluating trade setups. 
+        Each indicator has strengths and blind spots — hover over the <span class="material-symbols-outlined text-xs align-middle text-teal-400">info</span> icon for a full breakdown. 
+        Enabled indicators contribute to the bot's trend-reading confidence score.`;
+    section.appendChild(intro);
+
+    // ── Trend Strength ────────────────────────────────────
+    section.appendChild(createSectionHeader('Trend Strength', 'signal_cellular_alt',
+        "<strong>What is Trend Strength?</strong><br><br>These indicators measure <em>how strong</em> the current trend is — like a speedometer. They don't tell you which way the market is heading, just whether it's moving with conviction or sitting still.<br><br>When trend strength is low, the bot avoids trading because there's no clear direction to follow."
+    ));
+    section.appendChild(createCard('ADX — Trend Strength Gate', 'Blocks entries when market has no clear trend (ADX < threshold)', 'TREND_ADX_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createSliderCard('ADX Threshold', 'Entries blocked below this ADX value (0 = disabled)', 'TREND_ADX_THRESHOLD', 0, 60, 1, ''));
+
+    section.appendChild(createDivider());
+
+    // ── Momentum Indicators ───────────────────────────────
+    section.appendChild(createSectionHeader('Momentum', 'speed',
+        "<strong>What are Momentum Indicators?</strong><br><br>Momentum indicators measure how fast the price is moving and in which direction. Think of it like the engine under a trend — even if the 'direction' is unclear, momentum tells you which side has more energy right now.<br><br><span style='color:#818cf8'>💡 Tip:</span> You can enable both RSI and MACD — when they agree, the signal is stronger. When they disagree, the bot stays cautious."
+    ));
+    section.appendChild(createCard('RSI — Relative Strength Index', 'Detects overbought/oversold conditions (14-period)', 'TREND_RSI_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('MACD — Momentum Crossover', 'Catches momentum shifts via EMA crossovers (12/26/9)', 'TREND_MACD_ENABLED', 'toggle', { default: 'false' }));
+
+    section.appendChild(createDivider());
+
+    // ── Volatility ────────────────────────────────────────
+    section.appendChild(createSectionHeader('Volatility', 'expand',
+        "<strong>What are Volatility Indicators?</strong><br><br>Volatility measures how wildly the price is swinging. High volatility means big moves (up or down). Low volatility (a 'squeeze') means the market is quiet — but a big move is usually about to happen.<br><br>The bot uses volatility to adjust its confidence. During a squeeze, nobody knows which way the breakout will go, so the bot lowers its conviction."
+    ));
+    section.appendChild(createCard('Bollinger Bands — Squeeze Detection', 'Identifies low-volatility squeezes before breakouts (20-period, 2σ)', 'TREND_BOLLINGER_ENABLED', 'toggle', { default: 'false' }));
+
+    section.appendChild(createDivider());
+
+    // ── Direction Detection ───────────────────────────────
+    section.appendChild(createSectionHeader('Direction Detection', 'swap_vert',
+        "<strong>What are Direction Detectors?</strong><br><br>These are the most important indicators — they tell the bot <em>which way</em> to trade (up or down). Each one uses a different method to read the market, and each has blind spots.<br><br><span style='color:#818cf8'>💡 Why enable multiple?</span> No single indicator is right all the time. When you enable multiple direction detectors, they <strong>vote</strong> together. The bot only commits to a direction when the majority agree — this filters out false signals that any one indicator would produce alone. Think of it like asking 3 different experts instead of trusting just one."
+    ));
+    section.appendChild(createCard('Supertrend — Trend-Following Direction', 'Always gives a clear UP or DOWN signal using price volatility. Like a compass that always points somewhere.', 'TREND_SUPERTREND_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('EMA Ribbon — Structural Alignment', 'Three trend lines that show whether short, medium, and long-term trends all agree on direction.', 'TREND_EMA_RIBBON_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('Ichimoku Cloud — Complete Trend Picture', 'A \'cloud\' on the chart — price above it means uptrend, below means downtrend, inside means undecided.', 'TREND_ICHIMOKU_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('Parabolic SAR — Reversal Detector', 'Dots that flip above/below price when the trend changes direction. Great for catching trend reversals.', 'TREND_PARABOLIC_SAR_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('Hull Moving Average — Fast Trend Line', 'A moving average that reacts quickly to price changes with minimal lag. Rising = uptrend, falling = downtrend.', 'TREND_HULL_MA_ENABLED', 'toggle', { default: 'false' }));
+
+    section.appendChild(createDivider());
+
+    // ── Volume-Weighted ─────────────────────────────────
+    section.appendChild(createSectionHeader('Volume-Weighted', 'bar_chart',
+        "<strong>What are Volume-Weighted Indicators?</strong><br><br>Volume tells you <em>how many people</em> are trading, not just the price. VWAP combines price with volume to show the 'fair price' — the price where the most trading activity happened.<br><br>Big institutional traders (banks, hedge funds) use VWAP as their reference point. When the price is above VWAP, buyers are in control. Below VWAP, sellers are winning."
+    ));
+    section.appendChild(createCard('VWAP — Fair Value Reference', 'The average price weighted by trading volume. Used by big institutional traders to judge if the market is fairly priced.', 'TREND_VWAP_ENABLED', 'toggle', { default: 'false' }));
+
+    container.appendChild(section);
+}
+
 function renderAdvancedTab(container, filter = "") {
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    section.appendChild(createSectionHeader('All Environment Variables', 'terminal'));
+    section.appendChild(createSectionHeader('All Environment Variables', 'terminal',
+        "<strong>All Environment Variables</strong><br><br>Advanced: a raw view of every environment variable the bot reads. These are the underlying settings that power everything. Most users won't need to touch these directly."
+    ));
 
     const filteredKeys = Object.keys(envData).filter(key =>
         key.toLowerCase().includes(filter.toLowerCase()) ||
@@ -1562,48 +2283,64 @@ function renderSafetyTab(container) {
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    section.appendChild(createSectionHeader('Account Safety & Shields', 'shield'));
+    section.appendChild(createSectionHeader('Position Protection', 'layers',
+        "<strong>Position Protection</strong><br><br>Software-based stop-losses that protect your open positions even when the broker doesn't support native stops (like most crypto exchanges). These 'synthetic stops' are monitored by the bot and trigger market sells when hit."
+    ));
+    section.appendChild(createCard('Multi-Position', 'Trade multiple symbols simultaneously', 'MULTI_POSITION_ENABLED', 'toggle'));
+    section.appendChild(createSliderCard('Max Concurrent Positions', 'Maximum open positions', 'MAX_CONCURRENT_POSITIONS', 1, 10, 1, ''));
+    section.appendChild(createCard('Smart Positions', 'Fund new risk with open profits', 'SMART_POSITIONS_ENABLED', 'toggle'));
 
-    section.appendChild(createWarningBox('<strong>Safety First:</strong> These shields protect your principal from catastrophic drawdowns. When a shield triggers, the bot will prioritize safety over profits.'));
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Account Safety & Shields', 'shield',
+        "<strong>Account Safety & Shields</strong><br><br>Master safety switches that protect your entire account. These include maximum drawdown limits, equity circuit breakers, and loss caps that automatically shut down trading if things go wrong."
+    ));
 
-    section.appendChild(createCard('Staircase Floor', 'Principle Protection via No-Body-Close zones', 'SAFETY_FLOOR_ENABLED', 'toggle'));
-    section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle'));
-    section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker (5% Daily Cap)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle'));
-    section.appendChild(createCard('Session Lockout', 'Stops signals after 12:00 PM EST', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle'));
-    section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock (Quit while ahead)', 'SAFETY_GREED_GUARD_ENABLED', 'toggle'));
+    section.appendChild(createCard('Stability Mode', 'Ultra-safe risk management & quality filters (1% Cap)', 'SAFETY_STABILITY_MODE_ENABLED', 'toggle', {
+        tooltip: "<strong>Survival First.</strong> This is your emergency brake. It forces 1% max risk and a 75+ quality score floor. Perfect for preventing account 'bleeding' during choppy or unpredictable market regimes."
+    }));
+    section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createSliderCard('Stop ATR Multiplier', 'Standard stop distance (× ATR)', 'STOP_ATR_MULTIPLIER', 0.5, 5, 0.1, '×'));
+    section.appendChild(createSliderCard('The "Lock-In"', 'Lock Risk-Free at this profit level', 'BREAKEVEN_TRAIL_PCT', 0, 5, 0.1, '%'));
+    section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker — Adaptive (25% small → 5% large accounts)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Session Lockout', 'Stops new entries after cutoff time', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Lockout Time (EST)', 'No new entries after this time', 'SAFETY_SESSION_LOCKOUT_HOUR', 'time', { default: '16' }));
+    section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock - Quit while ahead', 'SAFETY_GREED_GUARD_ENABLED', 'toggle', { default: 'true' }));
 
     // Greed Guard Target Input (Conditional visibility logic handled via CSS/JS later, or just always show for now)
-    section.appendChild(createCard('Greed Guard Target ($)', 'Daily profit amount to trigger lockout', 'SAFETY_GREED_GUARD_TARGET', 'input', {
+    section.appendChild(createCard('Greed Guard Target USD', 'Daily profit amount to trigger lockout', 'SAFETY_GREED_GUARD_TARGET', 'input', {
         number: true,
         placeholder: '100.00',
         default: '100.00'
     }));
 
-    section.appendChild(createCard('Churn Burner', 'Rate Limit (Max trades/hour)', 'SAFETY_CHURN_BURNER_ENABLED', 'toggle'));
-    section.appendChild(createCard('Churn Burner Max', 'Maximum trades allowed per hour', 'SAFETY_CHURN_BURNER_MAX', 'input', {
-        number: true,
-        placeholder: '5',
-        default: '5'
-    }));
+    section.appendChild(createCard('Churn Burner', 'Rate Limit (Max trades/hour)', 'SAFETY_CHURN_BURNER_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createSliderCard('Churn Burner Max', 'Maximum trades allowed per hour', 'SAFETY_CHURN_BURNER_MAX', 1, 20, 1, 'trades/hr'));
+
+    section.appendChild(createCard('Leverage Sentry', 'Block entries above leverage cap', 'SAFETY_LEVERAGE_SENTRY_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createSliderCard('Max Leverage', 'Maximum total leverage allowed', 'SAFETY_MAX_TOTAL_LEVERAGE', 1, 50, 1, 'x'));
 
     section.appendChild(createCard('Volatility Veto', 'Block entries if ATR is too Low/High', 'SAFETY_VOLATILITY_VETO_ENABLED', 'toggle'));
-    section.appendChild(createCard('Veto Min ATR %', 'Block if volatility falls below this %', 'SAFETY_VOLATILITY_MIN_PCT', 'input', {
-        number: true,
-        placeholder: '0.05',
-        default: '0.05',
-        step: 0.01
-    }));
-    section.appendChild(createCard('Veto Max ATR %', 'Block if volatility exceeds this %', 'SAFETY_VOLATILITY_MAX_PCT', 'input', {
-        number: true,
-        placeholder: '5.0',
-        default: '5.0',
-        step: 0.1
-    }));
-    section.appendChild(createCard('Streak Breaker', 'Pause Symbol 4h after 3 Consecutive Losses', 'SAFETY_STREAK_BREAKER_ENABLED', 'toggle'));
-    section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle'));
+    section.appendChild(createSliderCard('Veto Min ATR %', 'Block if volatility falls below this', 'SAFETY_VOLATILITY_MIN_PCT', 0, 100, 1, '%'));
+    section.appendChild(createSliderCard('Veto Max ATR %', 'Block if volatility exceeds this', 'SAFETY_VOLATILITY_MAX_PCT', 0, 100, 1, '%'));
+    section.appendChild(createCard('Streak Breaker', 'Pause Symbol 4h after 3 Consecutive Losses', 'SAFETY_STREAK_BREAKER_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('AI Sentiment Shield', 'Smart Veto. AI blocks "Dangerous" setups.', 'SAFETY_SENTIMENT_SHIELD_ENABLED', 'toggle'));
 
     section.appendChild(createDivider());
-    section.appendChild(createSectionHeader('☢️ NUCLEAR OVERRIDES', 'emergency_home'));
+    section.appendChild(createSectionHeader('Advanced Exit Shields', 'cancel_schedule',
+        "<strong>Advanced Exit Shields</strong><br><br>Intelligent exit protections that go beyond simple stop-losses. These include ATR Armor (volatility-adjusted stops), Stability Mode (blocks trades during wild market swings), and the Drawdown Breaker (emergency kill switch)."
+    ));
+
+    section.appendChild(createCard('Stale Sniper', 'Terminate trades after N bars of no progress', 'SAFETY_STALE_SNIPER_ENABLED', 'toggle'));
+    section.appendChild(createSliderCard('Sniper Bars', 'Maximum bars to hold a trade', 'SAFETY_STALE_SNIPER_BARS', 5, 100, 5, 'bars'));
+    section.appendChild(createCard('Flash-Trap Shield', 'Exit instantly on extreme ATR spikes', 'SAFETY_FLASH_TRAP_ENABLED', 'toggle'));
+    section.appendChild(createCard('Regime-Flip Veto', 'Exit if HTF trend turns against position', 'SAFETY_REGIME_FLIP_ENABLED', 'toggle'));
+    section.appendChild(createCard('Counter-Trend Block', 'Block entries against HTF trend direction', 'BLOCK_COUNTER_TREND_ENTRIES', 'toggle', { default: 'true' }));
+
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('☢️ NUCLEAR OVERRIDES', 'emergency_home',
+        "<strong>☢️ Nuclear Overrides</strong><br><br><strong>DANGER ZONE.</strong> These switches override all other safety logic. Use only in emergencies — like force-closing all positions or bypassing all risk checks. Think of these as the 'break glass in case of fire' controls."
+    ));
 
     const nuclearWarning = document.createElement('div');
     nuclearWarning.className = 'warning-box';
@@ -1620,19 +2357,14 @@ function renderSafetyTab(container) {
     section.appendChild(nuclearWarning);
 
     section.appendChild(createCard('Nuclear Mode Active', 'Bypass all hard-coded safety ceilings', 'NUCLEAR_OVERRIDES_ENABLED', 'toggle', { default: 'false' }));
-    section.appendChild(createCard('Risk Cap Override (%)', 'New hard risk wall (e.g. 0.35 for 35%)', 'MAX_RISK_CAP_OVERRIDE', 'input', {
-        number: true,
-        default: '0.05',
-        locked: envData['NUCLEAR_OVERRIDES_ENABLED'] !== 'true',
-        lockMessage: 'Requires Nuclear Mode Activation.'
-    }));
-    section.appendChild(createCard('Compounding Cap Override ($)', 'New capital growth wall (e.g. 50000)', 'COMPOUNDING_CAP_OVERRIDE', 'input', {
+    section.appendChild(createSliderCard('Risk Cap Override %', 'New hard risk wall', 'MAX_RISK_CAP_OVERRIDE', 0, 50, 1, '%'));
+    section.appendChild(createCard('Compounding Cap Override USD', 'New capital growth wall - e.g. 50000', 'COMPOUNDING_CAP_OVERRIDE', 'input', {
         number: true,
         default: '10000',
         locked: envData['NUCLEAR_OVERRIDES_ENABLED'] !== 'true',
         lockMessage: 'Requires Nuclear Mode Activation.'
     }));
-    section.appendChild(createCard('Pyramid Cap Override ($)', 'New risk ceiling for pyramids', 'PYRAMID_CAP_OVERRIDE', 'input', {
+    section.appendChild(createCard('Pyramid Cap Override USD', 'New risk ceiling for pyramids', 'PYRAMID_CAP_OVERRIDE', 'input', {
         number: true,
         default: '750',
         locked: envData['NUCLEAR_OVERRIDES_ENABLED'] !== 'true',
@@ -1640,7 +2372,9 @@ function renderSafetyTab(container) {
     }));
 
     section.appendChild(createDivider());
-    section.appendChild(createSectionHeader('Safety Metrics (Live Feed)', 'query_stats'));
+    section.appendChild(createSectionHeader('Safety Metrics (Live Feed)', 'query_stats',
+        "<strong>Safety Metrics (Live Feed)</strong><br><br>Real-time readout of the bot's current safety status — equity levels, drawdown percentage, active shields, and circuit breaker status. Refreshes automatically while the bot is running."
+    ));
 
     const statsBox = document.createElement('div');
     statsBox.className = 'warning-box';
@@ -1657,6 +2391,7 @@ function renderSafetyTab(container) {
             </div>
             <div class="flex justify-between">
                 <span class="text-slate-400">Max Allowable Drawdown:</span>
+                <span class="text-teal-300">Adaptive (auto-scaled by account size)</span>
                 <span class="text-rose-400/70 font-bold">$5.00</span>
             </div>
         </div>
@@ -1670,63 +2405,172 @@ function renderPerformanceTab(container) {
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    section.appendChild(createSectionHeader('Performance & Profits', 'trending_up'));
+    section.appendChild(createSectionHeader('Performance & Profits', 'trending_up',
+        "<strong>Performance & Profits</strong><br><br>Controls how the bot calculates and reports performance — including fee handling, cost-basis methods, and PnL calculation. Properly configured, this ensures your reported numbers match reality."
+    ));
+    section.appendChild(createWarningBox('<strong>Stackable Architecture:</strong> Select ONE Base Risk Foundation, then stack compatible Multipliers to boost performance.'));
 
-    section.appendChild(createWarningBox('<strong>High Octane Mode:</strong> These tools are designed to accelerate account growth. Unlike Safety Shields, these are "Offensive" tools. <strong>Note:</strong> Only one Wealth Mode can be active at a time.'));
+    // 1. RISK FOUNDATION (Radio - Select One)
+    const foundationGroup = document.createElement('div');
+    foundationGroup.innerHTML = `<div class="text-sm text-slate-400 mb-2 font-bold uppercase tracking-wider">Step 1: Risk Foundation (Base Sizing)</div>`;
+    section.appendChild(foundationGroup);
 
-    section.appendChild(createPerformanceToggle('Standard Mode', 'No acceleration. Standard risk rules apply.', 'none'));
-    section.appendChild(createPerformanceToggle('House Money Accelerator', 'Unlock capital for new trades once profit > 2R', 'house_money'));
-    section.appendChild(createPerformanceToggle('The Sniper (A+)', 'Risk 5% only on high-confidence (Score > 90) signals', 'sniper'));
-    section.appendChild(createPerformanceToggle('The Runner', 'Scale 50% profit; trail moonshots', 'runner'));
-    section.appendChild(createPerformanceToggle('Regime Sync', 'Adaptive risk based on HTF trend strength', 'regime_sync'));
-    section.appendChild(createPerformanceToggle('Compound Flywheel', 'Accelerate risk per trade at profit milestones', 'flywheel'));
-    section.appendChild(createPerformanceToggle('Signal Stacker', 'Double risk for strategy confluence', 'stacker'));
+    // Foundations
+    section.appendChild(createPerformanceToggle('Standard Mode', 'Fixed risk per trade (Default)', 'none', 'foundation',
+        "<strong>The Baseline.</strong> Risks a fixed percentage (e.g., 1.5%) of your account balance on every trade. This is the foundation of professional trading: consistent, predictable, and devoid of emotional 'revenge' sizing. Best for scaling new accounts safely."));
+
+    section.appendChild(createPerformanceToggle('Stability Mode', 'Survival first: 1% risk cap & 75+ score setup', 'stability', 'foundation',
+        "<strong>Account Guardian.</strong> The ultimate defense against drawdown. If your account is 'bleeding' or you are experiencing a streak of losses, switch to this. It enforces a strict 1.0% risk ceiling and vetoes every trade setup that doesn't reach a Tier-1 Quality Score of 75+. It prioritizes total capital preservation above all else."));
+
+    section.appendChild(createPerformanceToggle('Kelly Criterion', 'Mathematical optimal sizing via win-rate analytics', 'kelly', 'foundation',
+        'The Gambler\'s Math. Uses your historical Win Rate and Reward Ratio to calculate the mathematically optimal bet size to maximize long-term wealth growth.'));
+
+    section.appendChild(createPerformanceToggle('Compound Flywheel', 'Accelerate risk per trade at profit milestones', 'flywheel', 'foundation',
+        'The Snowball Effect. Starts with standard risk, but as your daily profits grow, it slightly increases risk to accelerate the "good days".'));
+
+    section.appendChild(createPerformanceToggle('Equity Smoothing', 'Anti-tilt: boost on highs, slash on lows', 'smooth', 'foundation',
+        'The Tilt-Killer. If you are losing money today, it drastically cuts risk (Defensive). If you are winning, it slightly boosts it (Offensive).'));
 
     section.appendChild(createDivider());
-    section.appendChild(createSectionHeader('Pro Trading Algorithms', 'model_training'));
 
-    section.appendChild(createPerformanceToggle('Kelly Criterion', 'Mathematical optimal sizing via win-rate analytics', 'kelly'));
-    section.appendChild(createPerformanceToggle('Correlation Hydra', 'Cross-asset basket risk coordination', 'hydra'));
-    section.appendChild(createPerformanceToggle('Volatility Coil', 'Triple risk on quiet-market breakouts', 'coil'));
-    section.appendChild(createPerformanceToggle('Liquidity Vacuum', 'Trap hunter - high risk on fake-outs', 'vacuum'));
-    section.appendChild(createPerformanceToggle('Power Hour Alpha', 'Leverage session-specific volume overlaps', 'alpha'));
-    section.appendChild(createPerformanceToggle('Gamma Squeeze', 'Leverage vertical price velocity', 'gamma'));
-    section.appendChild(createPerformanceToggle('Equity Smoothing', 'Anti-tilt: boost on highs, slash on lows', 'smooth'));
-    section.appendChild(createPerformanceToggle('AI Hype Fusion', 'Sentiment confirmation via configured AI', 'sentiment'));
-    section.appendChild(createPerformanceToggle('Harmonic Ghost', 'Institutional Order Flow filtering', 'ghost'));
-    section.appendChild(createPerformanceToggle('Phoenix Protocol', 'Double risk after streak-recovery', 'phoenix'));
+    // 2. MULTIPLIERS (Checkbox - Stackable)
+    const multiplierGroup = document.createElement('div');
+    multiplierGroup.innerHTML = `<div class="text-sm text-slate-400 mb-2 font-bold uppercase tracking-wider">Step 2: Active Multipliers (Stackable Boosts)</div>`;
+    section.appendChild(multiplierGroup);
+
+    section.appendChild(createPerformanceToggle('The Sniper (A+)', 'Risk 1.5x on high-confidence (Score > 90) signals', 'sniper', 'multiplier',
+        'Precision strike. If the AI Score is >90 (A+ Setup), we boost risk by 1.5x because the probability of winning is higher.'));
+
+    section.appendChild(createPerformanceToggle('Regime Sync', 'Adaptive risk based on HTF trend strength (0.5x - 1.5x)', 'regime_sync', 'multiplier',
+        'Go with the flow. If the Higher Timeframe is trending strongly in your direction, we boost risk. If fighting the trend, we dampen it.'));
+
+    section.appendChild(createPerformanceToggle('House Money', 'Risk 1.5x if trade is financed by locked profit', 'house_money', 'multiplier',
+        'Playing with the casino\'s money. If you have another trade already in profit (2R+), we boost risk on this new trade by 1.5x.'));
+
+    section.appendChild(createPerformanceToggle('The Whale Watcher', '1.3x Boost on Volume Profile support', 'whale', 'multiplier',
+        'Follow the big money. If Volume is 2x the average, it means institutions are interested. We boost risk by 1.3x to ride their wave.'));
+
+    section.appendChild(createPerformanceToggle('The Contrarian', '1.5x Boost on RSI Reversals (Fade)', 'contrarian', 'multiplier',
+        'Fade the retail herd. When everyone else is FOMO-buying (RSI Overbought) but the price stalls, we short big (1.5x Risk).'));
+
+    section.appendChild(createPerformanceToggle('The News Surfer', '2.0x Boost on Post-News Compression', 'surfer', 'multiplier',
+        'Catch the breakout. After a news event, markets get quiet (Volatility Squeeze). We bet double (2.0x) on the explosive move that follows.'));
+
+    section.appendChild(createPerformanceToggle('Correlation Hydra', 'Basket coordination scaling', 'hydra', 'multiplier',
+        'Calculates risk based on your exposure to correlated assets (e.g., EURUSD and GBPUSD). Prevents accidental double-risk.'));
+
+    section.appendChild(createPerformanceToggle('Volatility Coil', 'Double risk on quiet-market breakouts', 'coil', 'multiplier',
+        'The Spring-Load. If the market has been flat (coiling) for a long time, the breakout is usually massive. We double risk to catch it.'));
+
+    section.appendChild(createPerformanceToggle('Power Hour Alpha', '1.2x Boost during key session overlaps', 'alpha', 'multiplier',
+        'Session overlap trading. Markets are most active when London and NY sessions overlap (09:00-11:00 EST). We boost risk by 1.2x.'));
+
+    section.appendChild(createPerformanceToggle('Gamma Squeeze', '1.2x Boost on vertical velocity', 'gamma', 'multiplier',
+        'Vertical Velocity. If price moves exceptionally fast in a short time, we boost risk to capture the momentum surge.'));
+
+    section.appendChild(createPerformanceToggle('AI Hype Fusion', '1.5x Boost if AI Sentiment aligns', 'sentiment', 'multiplier',
+        'Sentiment Confirmation. If our LLM (Claude/GPT) analyzes the news and says "BULLISH", we boost our Long entries.'));
+
+    section.appendChild(createPerformanceToggle('Harmonic Ghost', '1.5x Boost on psychological levels', 'ghost', 'multiplier',
+        'Smart Money Levels. Boosts risk if price reacts at a key psychological level (e.g., 50000) or Institutional Order Block.'));
+
+    section.appendChild(createPerformanceToggle('Phoenix Protocol', 'Recovery protocol after streaks', 'phoenix', 'multiplier',
+        'Recovery Mode. If you lost 3 trades in a row and the "Streak Breaker" paused you, this mode slightly boosts the first trade back.'));
+
+    // The Runner is unique (Exit Logic)
+    section.appendChild(createDivider());
+    section.appendChild(createPerformanceToggle('The Runner', 'Scale 50% profit; trail moonshots (Exit Logic)', 'runner', 'multiplier',
+        'Let it ride. Instead of closing all profit at the target, we leave 50% open with a trailing stop to catch "Moonshots".'));
+
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Wealth Weapons (Advanced Exits)', 'rocket_launch',
+        "<strong>Wealth Weapons (Advanced Exits)</strong><br><br>Premium exit strategies designed to maximize profits on winning trades. These include partial profit-taking at milestones, aggressive trailing stops, and momentum-based exit timing."
+    ));
+
+    section.appendChild(createCard('Gamma Squeeze Trail', 'Exponentially tighter trail on vertical moves', 'WEALTH_EXIT_GAMMA_ENABLED', 'toggle'));
+    section.appendChild(createCard('Moonshot Elevator', 'Double target if 1R is hit in <3 bars', 'WEALTH_EXIT_MOONSHOT_ENABLED', 'toggle'));
+    section.appendChild(createCard('Blow-off Seller', 'Sell peak on volatility exhaustion', 'WEALTH_EXIT_BLOWOFF_ENABLED', 'toggle'));
+
+    section.appendChild(createDivider());
+
+    // 3. P&L REWARDS & RETENTION (NEW)
+    const pnlGroup = document.createElement('div');
+    pnlGroup.innerHTML = `<div class="text-sm text-slate-400 mb-2 font-bold uppercase tracking-wider">Step 3: P&L Rewards & Retention (Targets & Limits)</div>`;
+    section.appendChild(pnlGroup);
+
+    section.appendChild(createSliderCard('Daily Profit Target %', 'Stop for the day once reached (0 = disabled)', 'TARGET_PROFIT_DAILY_PCT', 0, 10, 0.5, '%'));
+    // Daily Loss Limit slider is in Strategy Workshop → Global Risk tab
+
+    // REMOVED: 4 dead placeholders — WEEKLY/MONTHLY profit/loss targets not implemented (Audit P10)
 
     container.appendChild(section);
 }
 
 /**
  * Assistant to renderPerformanceTab for complex toggle behavior.
+ * type: 'foundation' (Radio Behavior) or 'multiplier' (Checkbox Behavior)
+ * tooltip: Detailed layman explanation.
  */
-function createPerformanceToggle(title, desc, modeValue) {
-    const activeMode = envData['PERFORMANCE_MODE'] || 'none';
-    const card = createCard(title, desc, `PERFORMANCE_MODE_${modeValue.toUpperCase()}`, 'toggle', {
-        default: activeMode === modeValue ? 'true' : 'false'
+function createPerformanceToggle(title, desc, modeValue, type = 'foundation', tooltip = '') {
+    const rawMode = envData['PERFORMANCE_MODE'] || 'none';
+    const activeModes = rawMode.split(',').map(s => s.trim().toLowerCase());
+
+    let isActive = false;
+    if (type === 'foundation') {
+        // If mode is "none" (Standard), and list is empty or has 'none', it's active
+        if (modeValue === 'none' && (activeModes.includes('none') || activeModes.length === 0)) isActive = true;
+        else isActive = activeModes.includes(modeValue);
+    } else {
+        isActive = activeModes.includes(modeValue);
+    }
+
+    const card = createCard(title, desc, `PERF_${modeValue.toUpperCase()}`, 'toggle', {
+        default: isActive ? 'true' : 'false',
+        tooltip: tooltip // Pass the tooltip here
     });
 
     const toggle = card.querySelector('.toggle');
     const newToggle = toggle.cloneNode(true);
-    toggle.parentNode.replaceChild(newToggle, toggle);
+    toggle.parentNode.replaceChild(newToggle, toggle); // Remove old listeners
 
     newToggle.addEventListener('click', (e) => {
         e.stopPropagation();
-        const isActive = newToggle.classList.contains('toggle-active');
 
-        if (!isActive) {
-            // Check for conflicts before proceeding
-            const intercepted = checkConflicts('PERFORMANCE_MODE', modeValue);
-            if (!intercepted) {
-                updateValue('PERFORMANCE_MODE', modeValue);
-                renderTab();
-            }
-        } else {
-            updateValue('PERFORMANCE_MODE', 'none');
-            renderTab();
+        let currentRaw = envData['PERFORMANCE_MODE'] || 'none';
+        let currentList = currentRaw.split(',').map(s => s.trim().toLowerCase()).filter(s => s);
+
+        // [STABILITY] Check for conflicts before proceeding
+        if (checkConflicts('PERFORMANCE_MODE', modeValue)) return;
+
+        // Remove 'none' from list if we are adding something else
+        if (currentList.includes('none')) currentList = currentList.filter(s => s !== 'none');
+
+        if (type === 'foundation') {
+            // Radio Logic: Remove other foundations, add this one
+            const foundations = ['kelly', 'flywheel', 'smooth', 'none'];
+            currentList = currentList.filter(m => !foundations.includes(m)); // Clear existing foundation
+            if (modeValue !== 'none') currentList.push(modeValue);
         }
+        else {
+            // Checkbox Logic: Toggle
+            if (currentList.includes(modeValue)) {
+                currentList = currentList.filter(m => m !== modeValue);
+            } else {
+                currentList.push(modeValue);
+            }
+        }
+
+        const newValue = currentList.length > 0 ? currentList.join(',') : 'none';
+
+        // [STABILITY] Sync performance mode 'stability' with the boolean flag
+        if (modeValue === 'stability') {
+            updateValue('SAFETY_STABILITY_MODE_ENABLED', 'true');
+        } else if (type === 'foundation') {
+            updateValue('SAFETY_STABILITY_MODE_ENABLED', 'false');
+        }
+
+        updateValue('PERFORMANCE_MODE', newValue);
+        renderTab(); // Re-render to show updates
     });
 
     return card;
@@ -1734,72 +2578,147 @@ function createPerformanceToggle(title, desc, modeValue) {
 
 
 function updateValue(key, value) {
-    envData[key] = value;
-    localChanges[key] = value;
-    updateChangeCounter();
+    const oldValue = getValue(key);
+    if (oldValue === value) return;
 
-    // Instant Settings Bridge: Trigger save immediately for real-time IPC feedback
-    if (window.api && window.api.saveEnv) {
-        window.api.saveEnv({ [key]: value }).catch(err => {
-            console.error(`[SETTINGS] Instant save failed for ${key}:`, err);
-        });
+    // 1. Update Secrets
+    if (SECRETS_MAP[key]) {
+        secretsData[SECRETS_MAP[key]] = value;
     }
+    // 2. Update Global Config
+    else if (CONFIG_MAP[key]) {
+        const path = CONFIG_MAP[key];
+        let current = configData;
+        for (let i = 0; i < path.length - 1; i++) {
+            if (!current[path[i]]) current[path[i]] = {};
+            current = current[path[i]];
+        }
 
-    if (key === 'MULTI_POSITION_ENABLED') {
-        const smartToggle = document.querySelector('.control-card[data-key="SMART_POSITIONS_ENABLED"]');
-        if (smartToggle) {
-            if (value === 'false') {
-                smartToggle.classList.add('opacity-50', 'pointer-events-none');
-            } else {
-                smartToggle.classList.remove('opacity-50', 'pointer-events-none');
-            }
+        let val = value;
+        if (value === 'true') val = true;
+        else if (value === 'false') val = false;
+        else if (!isNaN(value) && value.trim() !== "" && key !== 'OANDA_ACCOUNT_ID' && key !== 'IBKR_PORT' && key !== 'IBKR_CLIENT_ID') {
+            val = Number(value);
+        }
+
+        current[path[path.length - 1]] = val;
+
+        // Sync PnL timeframe back to renderer.js if changed
+        if (key === 'GUI_PNL_TIMEFRAME' && typeof window.syncPnLTimeframe === 'function') {
+            window.syncPnLTimeframe(value);
         }
     }
+    // 3. Update Active Profile
+    else {
+        const active = configData.active_profile;
+        if (active && configData.profiles && configData.profiles[active]) {
+            let val = value;
+            if (value === 'true') val = true;
+            else if (value === 'false') val = false;
+            else if (!isNaN(value) && value.trim() !== "") val = Number(value);
+            configData.profiles[active][key.toLowerCase()] = val;
+        }
+    }
+
+    localChanges[key] = true;
+    envData[key] = String(value); // Keep flat map in sync
+
+    // [STABILITY] Intercept toggle from Safety tab to sync with Performance foundation
+    if (key === 'SAFETY_STABILITY_MODE_ENABLED') {
+        let currentPerf = envData['PERFORMANCE_MODE'] || 'none';
+        let perfList = currentPerf.split(',').map(s => s.trim().toLowerCase());
+        const foundations = ['kelly', 'flywheel', 'smooth', 'stability', 'none'];
+
+        if (value === 'true') {
+            // Switch foundation to stability
+            perfList = perfList.filter(m => !foundations.includes(m));
+            perfList.push('stability');
+        } else {
+            // Revert foundation if it was stability
+            if (perfList.includes('stability')) {
+                perfList = perfList.filter(m => m !== 'stability');
+                if (!perfList.some(m => foundations.includes(m))) perfList.push('none');
+            }
+        }
+        const newValue = perfList.join(',') || 'none';
+        envData['PERFORMANCE_MODE'] = newValue;
+        localChanges['PERFORMANCE_MODE'] = true;
+
+        const active = configData.active_profile;
+        if (active && configData.profiles && configData.profiles[active]) {
+            configData.profiles[active]['performance_mode'] = newValue;
+        }
+    }
+
+    updateChangeCounter();
+    autoSave();
+}
+
+/**
+ * Debounced save to both .env and YAML
+ */
+function autoSave() {
+    clearTimeout(autoSaveTimeout);
+    autoSaveTimeout = setTimeout(async () => {
+        console.log("[SETTINGS] Auto-saving changes...");
+        await saveAll();
+    }, 1000);
 }
 
 function updateChangeCounter() {
     changeCount = Object.keys(localChanges).length;
     const el = document.getElementById('change-counter');
-    const saveBtn = document.getElementById('btn-save');
 
     if (changeCount > 0) {
-        el.textContent = `${changeCount} unsaved change${changeCount > 1 ? 's' : ''} detected`;
-        el.className = 'text-xs text-rose-400 font-bold';
-        saveBtn.classList.add('animate-pulse');
+        el.textContent = `Saving ${changeCount} change${changeCount > 1 ? 's' : ''}...`;
+        el.className = 'text-xs text-amber-400 font-bold';
     } else {
         el.textContent = 'All settings synced to disk';
-        el.className = 'text-xs text-slate-500 font-bold';
-        saveBtn.classList.remove('animate-pulse');
+        el.className = 'text-xs text-emerald-400/70 font-bold';
     }
 }
 
 async function saveAll() {
-    if (changeCount === 0) return;
+    if (Object.keys(localChanges).length === 0) {
+        showNotice("No changes to save");
+        return;
+    }
 
     const indicator = document.getElementById('save-indicator');
     if (indicator) indicator.style.opacity = '1';
 
-    try {
-        if (!window.api) {
-            throw new Error("Not connected to Electron backend");
+    // If Config Editor (JSON) was edited, parse it back into configData
+    if (localChanges['_config_']) {
+        try {
+            configData = JSON.parse(profilesContent);
+            console.log("[SETTINGS] Parsed updated JSON from editor");
+        } catch (e) {
+            showNotice("Invalid JSON Syntax", "red");
+            if (indicator) indicator.style.opacity = '0';
+            return;
         }
+    }
 
-        const envUpdates = { ...localChanges };
-        delete envUpdates['_profiles_'];
+    if (window.api) {
+        try {
+            // Save unified config
+            const res1 = await window.api.saveConfig(configData);
+            // Save secrets
+            const res2 = await window.api.saveSecrets(secretsData);
 
-        if (Object.keys(envUpdates).length > 0 && window.api.saveEnv) {
-            await window.api.saveEnv(envUpdates);
+            if (res1.success && res2.success) {
+                console.log("[SETTINGS] Save successful.");
+                showNotice("Settings Saved", "teal");
+                localChanges = {};
+                updateChangeCounter();
+            } else {
+                showNotice("Save Failed", "red");
+            }
+        } catch (e) {
+            console.error("[SETTINGS] Save error:", e);
+            showNotice("Save Error", "red");
         }
-        if (localChanges['_profiles_'] && window.api.saveProfiles) {
-            await window.api.saveProfiles(profilesContent);
-        }
-
-        localChanges = {};
-        updateChangeCounter();
         setTimeout(() => { if (indicator) indicator.style.opacity = '0'; }, 2000);
-    } catch (e) {
-        alert("Save Error: " + e.message);
-        if (indicator) indicator.style.opacity = '0';
     }
 }
 
@@ -1871,7 +2790,16 @@ function renderStrategyToolbox(container) {
         { id: 'volatility_breakout', label: 'Volatility Breakout', icon: 'show_chart', color: '#06b6d4' },
         { id: 'aggregator', label: 'Aggregator', icon: 'hub', color: '#a855f7' },
         { id: 'supply_demand', label: 'Supply & Demand', icon: 'layers', color: '#eab308' },
-        { id: 'meta_sci', label: 'Meta-SCI Alpha', icon: 'hub', color: '#14b8a6' }
+        { id: 'orb_breakout', label: 'ORB (Break & Retest)', icon: 'rule', color: '#6366f1' },
+        { id: 'meta_sci', label: 'Meta-SCI Alpha', icon: 'hub', color: '#14b8a6' },
+        { id: 'trend_rider', label: 'Trend Rider', icon: 'trending_up', color: '#10b981' },
+        { id: 'session_momentum', label: 'Session Momentum', icon: 'schedule_send', color: '#f43f5e' },
+        { id: 'bearish_engulfing', label: 'Engulfing Reversal', icon: 'candlestick_chart', color: '#d946ef' },
+        // 🪙 Crypto-Specific Strategies
+        { id: 'crypto_rsi_macd', label: 'RSI + MACD', icon: 'currency_bitcoin', color: '#f59e0b' },
+        { id: 'crypto_vwap_reversion', label: 'VWAP Reversion', icon: 'swap_horiz', color: '#84cc16' },
+        { id: 'crypto_double_macd', label: 'Double MACD', icon: 'speed', color: '#fb923c' },
+        { id: 'crypto_grid', label: 'Virtual Grid', icon: 'grid_on', color: '#a78bfa' }
     ];
 
     strategies.forEach(s => {
@@ -1926,18 +2854,22 @@ function renderStrategyToolbox(container) {
     section.className = 'settings-section';
 
     if (toolboxTab === 'icc') {
-        section.appendChild(createSectionHeader('ICC Core Logic', 'auto_mode'));
+        section.appendChild(createSectionHeader('ICC Core Logic', 'auto_mode',
+            "<strong>ICC Core Logic</strong><br><br>The ICC (Indication, Correction, Continuation) system automatically enters trades when it detects the classic three-phase pattern: a strong move (indication), a pullback (correction), and a resumption (continuation). These settings control whether it can auto-trade and how aggressive it is."
+        ));
 
         section.appendChild(createCard('ICC Auto-Entry', 'Auto-enter on valid signals', 'ICC_AUTO_ENTRY_ENABLED', 'toggle', { default: 'true' }));
         section.appendChild(createCard('Aggressive Mode', 'Enable aggressive sizing', 'ICC_AGGRESSIVE_MODE', 'toggle', { default: 'true' }));
         section.appendChild(createCard('Require Sweep', 'Must have liquidity sweep', 'ICC_AUTO_ENTRY_REQUIRE_SWEEP', 'toggle'));
-        section.appendChild(createCard('Min HTF Strength', 'Minimum trend strength', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 'input', { number: true, default: '0.25', min: 0, max: 1, step: 0.05 }));
-        section.appendChild(createCard('Confirmation Bars', 'Bars to confirm signal', 'ICC_CONFIRMATION_BARS', 'input', { number: true, default: '2', min: 1, max: 5 }));
+        section.appendChild(createSliderCard('Min HTF Strength', 'Minimum trend strength', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 0, 100, 5, '%'));
+        section.appendChild(createSliderCard('Confirmation Bars', 'Bars to confirm signal', 'ICC_CONFIRMATION_BARS', 1, 5, 1, 'bars'));
 
         section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('ICC Scoring Weights', 'leaderboard'));
+        section.appendChild(createSectionHeader('ICC Scoring Weights', 'leaderboard',
+            "<strong>ICC Scoring Weights</strong><br><br>How many points each signal component contributes to the overall ICC score. Higher scores mean more conviction. The entry threshold determines the minimum score needed before the bot places a trade."
+        ));
 
-        section.appendChild(createCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 'input', { number: true, default: '35', min: 0, max: 100 }));
+        section.appendChild(createSliderCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 0, 100, 5, 'pts'));
 
         const scoreGrid = document.createElement('div');
         scoreGrid.className = 'card-grid';
@@ -2046,9 +2978,35 @@ function renderStrategyToolbox(container) {
         }));
 
         section.appendChild(createCard('Strategy Blacklist', 'Comma-separated IDs to ignore', 'META_SCI_EXCLUDE_LIST', 'input', {
-            placeholder: 'evolution, quantum',
-            tooltip: 'Strategies listed here will be completely ignored by the Meta-SCI ensemble. Useful for filtering out strategies that you haven\'t yet tuned.'
+            default: '',
+            tooltip: 'Strategies to exclude from consensus.'
         }));
+
+    } else if (toolboxTab === 'orb_breakout') {
+        const stratInfo = STRATEGIES.orb_breakout;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'rule'));
+
+        section.appendChild(createWarningBox(`
+            <strong>Break & Retest Strategy:</strong><br>
+            Trades the NY Opening Range (09:30 - 09:45 ET). Waits for Break -> Retest -> Flag pattern.
+        `));
+
+        section.appendChild(createCard('Session Start', 'Range start time (ET)', 'ORB_START_TIME', 'time', {
+            default: '09:30',
+            tooltip: 'The time the Opening Range begins. Usually 09:30 AM ET (NY Open).'
+        }));
+        section.appendChild(createCard('Duration (Min)', 'Length of the Range', 'ORB_DURATION', 'input', {
+            number: true,
+            default: '15',
+            tooltip: 'How long the Opening Range lasts in minutes. Standard is 15 minutes (09:30-09:45).'
+        }));
+        section.appendChild(createCard('Risk %', 'Risk per trade', 'ORB_RISK_PCT', 'input', {
+            number: true,
+            default: '1.0',
+            tooltip: 'Percentage of account to risk on this strategy.'
+        }));
+
+
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Meta-SCI Strategy Feed', 'rss_feed'));
@@ -2074,23 +3032,9 @@ function renderStrategyToolbox(container) {
         `;
         section.appendChild(feedBox);
 
-    } else if (toolboxTab === 'icc') {
-        const stratInfo = STRATEGIES.icc_core || { description: "Standard ICC Logic" };
-        section.appendChild(createDescriptionBox(stratInfo.description, stratInfo.stats));
-
-        section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Indication, Correction, Continuation (ICC)', 'auto_mode'));
-
-        section.appendChild(createCard('ICC Auto-Entry', 'Auto-enter on valid signals', 'ICC_AUTO_ENTRY_ENABLED', 'toggle', { default: 'true' }));
-        section.appendChild(createCard('Aggressive Mode', 'Enable aggressive sizing', 'ICC_AGGRESSIVE_MODE', 'toggle', { default: 'true' }));
-        section.appendChild(createCard('Require Sweep', 'Must have liquidity sweep', 'ICC_AUTO_ENTRY_REQUIRE_SWEEP', 'toggle'));
-        section.appendChild(createCard('Min HTF Strength', 'Minimum trend strength', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 'input', { number: true, default: '0.25', min: 0, max: 1, step: 0.05 }));
-        section.appendChild(createCard('Confirmation Bars', 'Bars to confirm signal', 'ICC_CONFIRMATION_BARS', 'input', { number: true, default: '2', min: 1, max: 5 }));
-
-        section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('ICC Scoring Weights', 'leaderboard'));
-
-        section.appendChild(createCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 'input', { number: true, default: '35', min: 0, max: 100 }));
+    } else if (toolboxTab === 'icc_legacy_dead') {
+        // REMOVED: Dead ICC duplicate block — same condition already handled at line 2615 (Audit P2)
+        // The original ICC tab with scoring weights is the canonical one.
 
         const scoreGrid = document.createElement('div');
         scoreGrid.className = 'card-grid';
@@ -2110,8 +3054,8 @@ function renderStrategyToolbox(container) {
             RoboCop is designed for speed. Use "Combat Mode" to bypass safety checks (like HTF alignment) for maximum aggression.
         `));
 
-        section.appendChild(createCard('Combat Mode', 'Bypass all safety gates', 'COMBAT_MODE_ENABLED', 'toggle', {
-            tooltip: 'If enabled, RoboCop ignores "HTF Strength" and "Score Threshold" gates. It will take every valid liquidity sweep or continuation signal regardless of broader context. High risk, high volume.'
+        section.appendChild(createCard('Combat Mode', 'Bypass RoboCop HTF/Score gates only', 'COMBAT_MODE_ENABLED', 'toggle', {
+            tooltip: 'If enabled, RoboCop ignores its own "HTF Strength" and "Score Threshold" gates. It will take every valid liquidity sweep or continuation signal regardless of broader context. <strong>Note:</strong> This does NOT bypass global Safety Guards (Drawdown Breaker, Session Lockout, etc.) — only RoboCop-specific entry filters.'
         }));
 
         section.appendChild(createDivider());
@@ -2241,27 +3185,62 @@ function updateBotStatusUI(isRunning) {
 }
 
 function showNotice(message, color = 'teal') {
-    // Create toast element
-    const toast = document.createElement('div');
-    toast.className = `fixed top-12 left-1/2 -translate-x-1/2 z-[100] px-8 py-4 rounded-2xl bg-black/80 backdrop-blur-2xl border-2 border-${color}-500/30 shadow-2xl animate-in fade-in zoom-in slide-in-from-top-4 duration-500`;
+    // 1. Log to console for paper trail
+    console.log(`[GUI-NOTICE] ${message} (${color})`);
 
-    // Convert generic colors to valid tailwind/custom classes if needed
-    const colorClass = color === 'teal' ? 'teal' : (color === 'red' ? 'red' : 'purple');
+    // 2. Also send to main process for persistent logging if possible
+    if (window.api?.logNotice) {
+        window.api.logNotice(message, color);
+    }
+
+    // 3. Color mapping for inline styles (no Tailwind dynamic classes)
+    const colors = {
+        teal: { bg: 'rgba(20, 184, 166, 0.15)', border: 'rgba(20, 184, 166, 0.5)', text: '#5eead4', dot: '#14b8a6', glow: 'rgba(20, 184, 166, 0.6)' },
+        red: { bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(239, 68, 68, 0.5)', text: '#fca5a5', dot: '#ef4444', glow: 'rgba(239, 68, 68, 0.6)' },
+        purple: { bg: 'rgba(168, 85, 247, 0.15)', border: 'rgba(168, 85, 247, 0.5)', text: '#c4b5fd', dot: '#a855f7', glow: 'rgba(168, 85, 247, 0.6)' },
+    };
+    const c = colors[color] || colors.teal;
+
+    // 4. Build toast with inline styles (no broken Tailwind animate classes)
+    const toast = document.createElement('div');
+    Object.assign(toast.style, {
+        position: 'fixed',
+        top: '5.5rem',
+        left: '50%',
+        transform: 'translateX(-50%) translateY(-20px)',
+        zIndex: '9999',
+        padding: '0.875rem 2rem',
+        borderRadius: '1rem',
+        background: 'rgba(2, 6, 23, 0.95)',
+        backdropFilter: 'blur(24px)',
+        border: `2px solid ${c.border}`,
+        boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 40px ${c.glow}`,
+        opacity: '0',
+        transition: 'opacity 0.4s ease, transform 0.4s ease',
+        pointerEvents: 'none',
+    });
 
     toast.innerHTML = `
-        <div class="flex items-center gap-4">
-            <div class="w-3 h-3 rounded-full bg-${colorClass}-500 shadow-[0_0_15px_rgba(20,184,166,0.8)] animate-pulse"></div>
-            <span class="text-xs font-black uppercase tracking-[0.2em] text-${colorClass}-400">${message}</span>
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+            <div style="width:10px;height:10px;border-radius:50%;background:${c.dot};box-shadow:0 0 12px ${c.glow};animation:pulse 1.5s infinite;"></div>
+            <span style="font-size:0.8rem;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;color:${c.text};">${message}</span>
         </div>
     `;
 
     document.body.appendChild(toast);
 
-    // Smooth exit
+    // Animate in (next frame so transition triggers)
+    requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateX(-50%) translateY(0)';
+    });
+
+    // Auto-dismiss after 3 seconds
     setTimeout(() => {
-        toast.classList.add('animate-out', 'fade-out', 'zoom-out', 'slide-out-to-top-4');
-        setTimeout(() => toast.remove(), 500);
-    }, 4000);
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(-20px)';
+        setTimeout(() => toast.remove(), 400);
+    }, 3000);
 }
 
 // ═══════════════════════════════════════════════════════════

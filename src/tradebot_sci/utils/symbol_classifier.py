@@ -81,14 +81,16 @@ def classify_symbol(symbol: str) -> AssetClass:
 
 
 # ── Per-broker round-trip fee defaults (decimal, e.g. 0.008 = 0.8%) ──
+# These MUST reflect REAL costs or Fee Shield can't block unprofitable trades!
+# Round-trip = entry spread/commission + exit spread/commission
 BROKER_FEE_DEFAULTS: dict[AssetClass, float] = {
-    AssetClass.CRYPTO:  0.008,    # Gemini / CCXT: ~0.4% per leg × 2
-    AssetClass.FOREX:   0.0004,   # OANDA spread cost ~0.02% per leg × 2
-    AssetClass.STOCKS:  0.002,    # IBKR commission-based, ~0.1% per leg × 2
-    AssetClass.ETF:     0.002,    # Same as stocks
-    AssetClass.METALS:  0.001,    # Tight spread metals via OANDA / IBKR
-    AssetClass.FUTURES: 0.001,    # IBKR futures, low per-contract cost
-    AssetClass.UNKNOWN: 0.004,    # Conservative fallback
+    AssetClass.CRYPTO:  0.005,    # Gemini: ~0.25% taker per leg × 2 = 0.50%
+    AssetClass.FOREX:   0.00015,  # OANDA spread-only: EUR/USD ~1.4p, GBP/USD ~2.0p
+    AssetClass.STOCKS:  0.001,    # IBKR commission-based, ~0.05% per leg × 2
+    AssetClass.ETF:     0.001,    # Same as stocks
+    AssetClass.METALS:  0.0005,   # Metals spreads wider than forex (XAUUSD ~3 pips)
+    AssetClass.FUTURES: 0.0003,   # IBKR futures, low per-contract cost
+    AssetClass.UNKNOWN: 0.002,    # Conservative fallback
 }
 
 

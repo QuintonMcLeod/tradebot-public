@@ -65,6 +65,7 @@ window.profilesModule = (function () {
         { value: 'volatility_breakout', label: 'Volatility Breakout' },
         { value: 'aggregator', label: 'Singularity Aggregator' },
         { value: 'meta_sci', label: 'Meta-SCI (AI Ensemble)' },
+        { value: 'forex_conductor', label: 'Forex Conductor (Session Scheduler)' },
         { value: 'icc_core', label: 'ICC (Standard)' },
         { value: 'supply_demand', label: 'Supply & Demand' },
         { value: 'trend_rider', label: 'Trend Rider (EMA Pullback)' },

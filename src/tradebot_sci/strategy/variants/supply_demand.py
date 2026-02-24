@@ -54,17 +54,9 @@ class SupplyDemandStrategy(BaseStrategy):
         # Get limit
         max_daily = 100 # Default high
         
-        # 1. Try Profile
+        # 1. Try Profile (config.json globals are SSOT — no env var override)
         if "profile" in gates:
             max_daily = getattr(gates["profile"], "max_daily_trades", None) or 100
-            
-        # 2. Try Env (Override)
-        env_limit = os.getenv("MAX_DAILY_TRADES")
-        if env_limit:
-            try:
-                max_daily = int(env_limit)
-            except ValueError:
-                pass
         
         # KEY: Symbol + Date
         daily_key = f"{snapshot.symbol}_{current_date}"
@@ -121,6 +113,8 @@ class SupplyDemandStrategy(BaseStrategy):
                 stop_loss = zone.bottom - (atr * 0.5)
                 risk_dist = last_candle.close - stop_loss
                 if risk_dist <= 0: risk_dist = atr
+                # Cap risk distance to prevent absurd TP when zone is far from price
+                risk_dist = min(risk_dist, atr * 3.0)
                 take_profit = last_candle.close + (risk_dist * self.RR_TARGET)
 
                 action = "enter_long"
@@ -174,6 +168,8 @@ class SupplyDemandStrategy(BaseStrategy):
                 stop_loss = zone.top + (atr * 0.5)
                 risk_dist = stop_loss - last_candle.close
                 if risk_dist <= 0: risk_dist = atr
+                # Cap risk distance to prevent absurd TP when zone is far from price
+                risk_dist = min(risk_dist, atr * 3.0)
                 take_profit = last_candle.close - (risk_dist * self.RR_TARGET)
 
                 action = "enter_short"

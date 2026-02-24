@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -26,7 +26,7 @@ class TradeResult:
     side: str | None = None              # Position direction: "long" or "short"
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {k: v for k, v in self.__dict__.items()}
 
     @classmethod
     def from_dict(cls, data: dict) -> TradeResult:
@@ -46,12 +46,14 @@ class TradeResult:
         )
 
 class TradeResultStore:
-    def __init__(self, path: str, max_results: int = 100):
+    def __init__(self, path: str, max_results: int = 100, skip_save: bool = False):
         self.path = Path(path)
         self.max_results = max_results
         self.results: List[TradeResult] = []
-        self._ensure_directory()
-        self._load()
+        self._skip_save = skip_save
+        if not skip_save:
+            self._ensure_directory()
+            self._load()
 
     def _ensure_directory(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,7 +84,8 @@ class TradeResultStore:
         # Keep only the last max_results
         if len(self.results) > self.max_results:
             self.results = self.results[-self.max_results:]
-        self.save()
+        if not self._skip_save:
+            self.save()
 
     def get_recent_results(self, limit: int = 10) -> List[TradeResult]:
         return self.results[-limit:]

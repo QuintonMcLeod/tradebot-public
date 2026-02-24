@@ -38,10 +38,10 @@ class AITradeDecision(BaseModel):
     max_position_size_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     time_in_force_sec: Optional[int] = None
     urgency: Literal["low", "medium", "high"] = "medium"
-    structure_summary: str
-    invalidation_conditions: str
-    management_instructions: str
-    notes: str
+    structure_summary: str = ""
+    invalidation_conditions: str = ""
+    management_instructions: str = ""
+    notes: str = ""
     emergency_exit: bool = False
     gates: Optional[dict] = None
     decision_reason_codes: Optional[list[str]] = None

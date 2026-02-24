@@ -10,17 +10,29 @@ global:
 
 profiles:
   forex_continuous:
+    strategy_variant: forex_conductor
+    candle_timeframe: 15m
+    htf_timeframe: 1h
+    ltf_timeframe: 5m
+    risk_per_trade_pct: 0.045
+    trend_window: 12
+    ltf_trend_window: 8
+    min_hold_hours: 1.0
+    max_hold_hours: 0
+    block_counter_trend_entries: true
+    trend_strength_floor: 0.20
+    trend_adx_enabled: true
+    trend_ema_ribbon_enabled: true
+    trend_supertrend_enabled: true
+    trend_macd_enabled: true
+    multi_position_enabled: true
+    max_pyramid_entries: 3
+    continuous_mode: true
+    strategies:
+      forex: forex_conductor
     symbols:
     - EURUSD
     - GBPUSD
-    - USDJPY
-    - AUDUSD
-    - USDCAD
-    - USDCHF
-    - NZDUSD
-    - GBPJPY
-    - EURJPY
-    - AUDJPY
   forex_intraday:
     symbols:
     - EURUSD

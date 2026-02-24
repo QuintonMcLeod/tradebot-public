@@ -467,7 +467,7 @@ class OandaExchangeBroker(IExchangeBroker):
         except Exception as e:
             logger.error(f"[OANDA] Failed to cancel orders for {symbol}: {e}")
 
-    def flatten_symbol(self, symbol: str) -> None:
+    def flatten_symbol(self, symbol: str, exit_reason: str = "manual_flatten") -> None:
         """Closes any open positions for the symbol."""
         if self.read_only:
             logger.warning(f"[OANDA] Read-only mode: skipping flatten for {symbol}")
@@ -565,7 +565,7 @@ class OandaExchangeBroker(IExchangeBroker):
                         opened_at=entry_time_str,
                         duration_seconds=duration_secs,
                         strategy=_exit_strategy or "unknown",
-                        exit_reason="manual_flatten",
+                        exit_reason=exit_reason,
                         side=side.lower(),
                     ))
 
@@ -663,7 +663,14 @@ class OandaExchangeBroker(IExchangeBroker):
         action = decision.action
         
         if action == "close_position":
-            self.flatten_symbol(decision.symbol)
+            # Propagate the strategy/safety-guard reason so the ledger
+            # records WHY the position was closed (instead of generic
+            # "manual_flatten" for every exit).
+            reason = (getattr(decision, 'reason', None)
+                      or getattr(decision, 'notes', None)
+                      or getattr(decision, 'structure_summary', None)
+                      or "signal_close")
+            self.flatten_symbol(decision.symbol, exit_reason=reason)
             return ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, "flattened"), ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, decision.symbol, "flatten requested")
 
         entry_actions = {"long", "short", "enter_long", "enter_short", "scale_in", "add_to_position", "flip_to_long", "flip_to_short"}

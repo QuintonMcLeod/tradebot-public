@@ -74,6 +74,13 @@ const CONFIG_MAP = {
     'TRAILING_STOP_ENABLED': ['performance', 'trailing_stop_enabled'],
     'PYRAMID_CAP_OVERRIDE': ['performance', 'pyramid_cap_override'],
     'COMPOUNDING_CAP_OVERRIDE': ['performance', 'compounding_cap_override'],
+    // Asset Strategies (global SSOT — read by loader.py)
+    'STRATEGY_CRYPTO': ['global', 'strategy_crypto'],
+    'STRATEGY_FOREX': ['global', 'strategy_forex'],
+    'STRATEGY_STOCKS': ['global', 'strategy_stocks'],
+    'STRATEGY_ETF': ['global', 'strategy_etf'],
+    'STRATEGY_METALS': ['global', 'strategy_metals'],
+    'STRATEGY_FUTURES': ['global', 'strategy_futures'],
     // Pyramiding (under global in config.json)
     'MAX_PYRAMID_ENTRIES': ['global', 'max_pyramid_entries'],
     'PYRAMID_PROFIT_BUFFER_PCT': ['global', 'pyramid_profit_buffer_pct'],
@@ -607,11 +614,11 @@ const STRATEGIES = {
     orb_breakout: {
         name: "ORB (Opening Range Breakout)",
         shortDesc: "NY Opening Range Breakout",
-        description: "The Opening Range Breakout (ORB) strategy. It watches the first 15 minutes of the New York Stock Market open (9:30 AM ET) to see where the big money is moving. It waits for the price to break out of that range, come back to test the level for safety, and form a 'flag' pattern before entering. Very safe, very precise.",
+        description: "The Opening Range Breakout (ORB) strategy. It watches the first 15 minutes of the New York Stock Market open (9:30 AM ET) to see where the big money is moving. It waits for the price to break out of that range, come back to test the level for safety, and form a 'flag' pattern before entering. ⚠️ BACKTESTED: 0% win rate on Forex — broken for short timeframes. Needs session-specific data.",
         style: "Breakout",
         risk: "Low-Medium",
-        bestFor: "NY Open (9:30-11:00 ET)",
-        stats: { verified: "Simulated", winRate: "High", riskReward: "2:1" }
+        bestFor: "NY Open (9:30-11:00 ET) — Stocks/ETFs only",
+        stats: { verified: "❌ Forex: -$1.7K", winRate: "0%", riskReward: "2:1" }
     },
     rubberband_reaper: {
         name: "Rubberband Reaper",
@@ -625,29 +632,29 @@ const STRATEGIES = {
     robocop: {
         name: "RoboCop",
         shortDesc: "Aggressive High-Frequency ICC",
-        description: "Lightning-fast execution with minimal confirmation requirements. Reacts to ANY valid micro-signal without waiting for corrections. Uses 1-bar confirmation and targets 3.0 ATR for maximum profit potential. Includes fast 'chop exit' to avoid ranging traps.",
+        description: "Lightning-fast execution with minimal confirmation requirements. Reacts to ANY valid micro-signal without waiting for corrections. Uses 1-bar confirmation and targets 3.0 ATR for maximum profit potential. Includes fast 'chop exit' to avoid ranging traps. ✅ CRYPTO: $2.5M profit, 33% win rate. ❌ FOREX: -$2K (spread eats all profit).",
         style: "Aggressive Scalping",
         risk: "High",
-        bestFor: "Trending markets, high volatility",
-        stats: { speed: "Ultra-fast", confirmation: "1 bar", target: "3.0 ATR" }
+        bestFor: "✅ Crypto only — DO NOT use for Forex",
+        stats: { crypto: "✅ +$2.5M", forex: "❌ -$2K", target: "3.0 ATR" }
     },
     evolution: {
         name: "Robot Evolution",
         shortDesc: "NTZ Range Scalper",
-        description: "Optimized for choppy, ranging markets. Identifies the 'No-Trade-Zone' (NTZ) between swing highs and lows, then trades liquidity sweeps at the edges. Targets 2.0R with conservative 1.5 ATR stops for consistent small wins.",
+        description: "Optimized for choppy, ranging markets. Identifies the 'No-Trade-Zone' (NTZ) between swing highs and lows, then trades liquidity sweeps at the edges. Targets 2.0R with conservative 1.5 ATR stops. ✅ CRYPTO: $2.3M profit, 27% win rate. ❌ FOREX: -$1.1K (NTZ scalping can't overcome OANDA spreads).",
         style: "Range Trading",
         risk: "Low-Medium",
-        bestFor: "Sideways markets, consolidation phases",
-        stats: { target: "2.0R", stop: "1.5 ATR", focus: "NTZ edges" }
+        bestFor: "✅ Crypto ranging markets — ❌ not profitable on Forex",
+        stats: { crypto: "✅ +$2.3M", forex: "❌ -$1.1K", focus: "NTZ edges" }
     },
     quantum: {
         name: "Quantum",
         shortDesc: "Trend-Following with SMA Pullback",
-        description: "Classic trend-following strategy that waits for price to pull back to the 20-period SMA before entering in the trend direction. Requires HTF/LTF alignment for high-probability entries. Exits automatically when the higher timeframe trend flips.",
+        description: "Classic trend-following strategy that waits for price to pull back to the 20-period SMA before entering in the trend direction. Requires HTF/LTF alignment and momentum confirmation. ⚠️ BACKTESTED: -$2K on Forex 15m (6% win rate). Forex spreads destroy the 2:1 R:R edge. May work on 4H+ timeframes or crypto where trends are stronger.",
         style: "Trend Following",
         risk: "Medium",
-        bestFor: "Strong trending forex pairs",
-        stats: { target: "1.6R", stop: "2.5 ATR", indicator: "20 SMA" }
+        bestFor: "⚠️ Crypto or 4H+ Forex only — NOT 15m Forex",
+        stats: { forex15m: "❌ -$2K", indicator: "20 SMA", target: "2:1 R:R" }
     },
     mean_reversion: {
         name: "Mean Reversion",
@@ -661,11 +668,11 @@ const STRATEGIES = {
     hyper_scalper: {
         name: "HyperScalper",
         shortDesc: "EMA Crossover Speed Trading",
-        description: "High-frequency 5-minute scalper using 9/21 EMA crossovers filtered by 200 EMA trend and RSI. Designed for aggressive compounding with 1% default risk per trade. Targets 3.0 ATR for 100%+ weekly return potential.",
+        description: "High-frequency 5-minute scalper using 9/21 EMA crossovers filtered by 200 EMA trend and RSI. Designed for aggressive compounding with 1% default risk per trade. ❌ BACKTESTED: 0% win rate on Forex, lost 100% of capital. Spread noise triggers false crossovers constantly.",
         style: "Fast Scalping",
-        risk: "High",
-        bestFor: "Liquid forex pairs, fast markets",
-        stats: { ema: "9/21/200", target: "3.0 ATR", risk: "1%" }
+        risk: "Very High",
+        bestFor: "❌ NOT RECOMMENDED — 0% win rate in backtest",
+        stats: { ema: "9/21/200", forex: "❌ -$2K (0% win)", risk: "1%" }
     },
     london_breakout: {
         name: "London Breakout",
@@ -695,41 +702,51 @@ const STRATEGIES = {
         stats: { strategies: "2 parallel", priority: "Scale > New", goal: "Always loaded" }
     },
     icc_core: {
-        name: "Indication, Correction, Continuation (ICC)",
-        shortDesc: "Strict Trade By Sci Logic",
-        description: "The pure, unmodified Trade By Sci Internal Capital Cycle methodology. Requires strict HTF/LTF alignment and follows the standard Indication (Sweep) -> Correction -> Continuation sequence. No Rubberband logic, no RoboCop bypasses. Pure Price Action.",
-        style: "Trend Following",
+        name: "ICC Core (ICT Methodology)",
+        shortDesc: "Displacement + OTE Pullback",
+        description: "Pure ICT (Inner Circle Trader) methodology: detects displacement (consecutive momentum candles), then enters on pullback to the Optimal Trade Entry zone (50-78.6% Fibonacci) or at a Fair Value Gap. Uses engine trend as directional bias. ⚠️ BACKTESTED: -$1.7K on Forex (9% win rate). Needs tuning — works on theory but fees eat edge on short timeframes.",
+        style: "Price Action / ICT",
         risk: "Low-Medium",
-        bestFor: "Aligned Trends",
-        stats: { alignment: "Strict", structure: "Standard", method: "Vanilla" }
+        bestFor: "⚠️ Experimental — needs tuning",
+        stats: { forex: "❌ -$1.7K", method: "ICT OTE+FVG", winRate: "9%" }
     },
     supply_demand: {
         name: "Supply & Demand",
         shortDesc: "Institutional Price Action",
-        description: "Uses the pure institutional methodology of Supply and Demand zones. It waits for a clear Break of Structure to identify a trend, then tags the 'Base' candle that caused the move as a high-probability zone. Enters only when price returns to 'tap' that zone on a candle break.",
+        description: "Uses the pure institutional methodology of Supply and Demand zones. Waits for a clear Break of Structure, tags the 'Base' candle as a high-probability zone, enters when price returns to 'tap' that zone. ✅ BACKTESTED #1 FOREX: $1.4M profit. ✅ #2 CRYPTO: $4.7M profit. Extreme R:R (avg win 250× avg loss) compensates for low 5-20% win rate.",
         style: "Price Action / Institutional",
         risk: "Low-Medium",
-        bestFor: "Clean trending markets, high-volume crypto",
-        stats: { method: "SND Zones", confirmation: "Zone Tap", trend: "BOS Based" }
+        bestFor: "✅ BEST strategy for both Forex and Crypto",
+        stats: { forex: "✅ #1 +$1.4M", crypto: "✅ #2 +$4.7M", method: "SND Zones" }
     },
     meta_sci: {
         name: 'Meta-SCI',
         icon: 'auto_awesome',
         shortDesc: 'AI-Enhanced Ensemble Strategy',
-        description: "The ultimate AI Brain. It runs multiple trading strategies at the same time and uses an AI ensemble (Meta-SCI) to decide which one has the best chance of winning right now. It's like having a team of expert traders in a room, and the AI acts as the manager who only listens to the most successful ones for each specific trade.",
+        description: "The ultimate AI Brain. Runs multiple trading strategies simultaneously and uses an AI ensemble to pick the best signal per trade — like a manager who only listens to the most successful expert for each situation. ✅ BACKTESTED #1 CRYPTO: $8.2M profit, 30% win rate. ✅ #2 FOREX: $951K profit. Consistently profitable across all markets.",
         style: "AI Ensemble",
         risk: "Dynamic",
-        bestFor: "Complex markets, regime changes",
-        stats: { method: "Ensemble", ai: "Gemini Pro", strategies: "10+" }
+        bestFor: "✅ BEST for Crypto, EXCELLENT for Forex — all markets",
+        stats: { crypto: "✅ #1 +$8.2M", forex: "✅ #2 +$951K", ai: "Ensemble" }
+    },
+    forex_conductor: {
+        name: 'Forex Conductor',
+        icon: 'orchestration',
+        shortDesc: 'Session-Based Strategy Scheduler',
+        description: "Like an orchestra conductor, deploys exactly ONE proven strategy per forex session — no tournament, no signal suppression. Asian session → Volatility Breakout, London → London Breakout, US Open → ORB, off-peak → best recent all-rounder (ICC Core or HyperScalper). Captures near-combined individual PnL by eliminating tournament cannibalization.",
+        style: "Session Scheduler",
+        risk: "Dynamic",
+        bestFor: "✅ Forex — maximizes combined strategy PnL",
+        stats: { mode: "Direct dispatch", sessions: "4 slots", competition: "Zero" }
     },
     trend_rider: {
         name: 'Trend Rider',
         shortDesc: 'EMA Pullback in Strong Trend',
-        description: "Proven institutional method. Waits for price to pull back to the 21 EMA during a confirmed strong trend, then enters on the bounce. Requires HTF trend strength ≥ 0.5 and RSI between 40-60 to confirm a pullback, not a reversal. Targets 2:1 R:R with trailing to EMA after 1R profit.",
+        description: "Waits for price to pull back to the 21 EMA during a confirmed strong trend. Requires HTF trend strength ≥ 0.5 and RSI between 40-60 to confirm a pullback. ❌ BACKTESTED: -$2K on Forex (2% win rate). Trend detection unreliable on 15m, stops constantly hit by spread noise.",
         style: "Trend Following",
         risk: "Medium",
-        bestFor: "Strong trending markets, forex & crypto",
-        stats: { indicator: "21 EMA", target: "2.0R", filter: "HTF ≥ 0.5" }
+        bestFor: "⚠️ Crypto only — ❌ loses 100% on Forex 15m",
+        stats: { forex: "❌ -$2K (2% win)", indicator: "21 EMA", target: "2.0R" }
     },
     session_momentum: {
         name: 'Session Momentum',
@@ -2603,6 +2620,17 @@ function updateValue(key, value) {
 
         current[path[path.length - 1]] = val;
 
+        // Sync STRATEGY_* to active profile's nested strategies object
+        const stratKeyMatch = key.match(/^STRATEGY_(CRYPTO|FOREX|STOCKS|ETF|METALS|FUTURES)$/);
+        if (stratKeyMatch) {
+            const assetClass = stratKeyMatch[1].toLowerCase();
+            const active = configData.active_profile;
+            if (active && configData.profiles && configData.profiles[active]) {
+                if (!configData.profiles[active].strategies) configData.profiles[active].strategies = {};
+                configData.profiles[active].strategies[assetClass] = val;
+            }
+        }
+
         // Sync PnL timeframe back to renderer.js if changed
         if (key === 'GUI_PNL_TIMEFRAME' && typeof window.syncPnLTimeframe === 'function') {
             window.syncPnLTimeframe(value);
@@ -2792,6 +2820,7 @@ function renderStrategyToolbox(container) {
         { id: 'supply_demand', label: 'Supply & Demand', icon: 'layers', color: '#eab308' },
         { id: 'orb_breakout', label: 'ORB (Break & Retest)', icon: 'rule', color: '#6366f1' },
         { id: 'meta_sci', label: 'Meta-SCI Alpha', icon: 'hub', color: '#14b8a6' },
+        { id: 'forex_conductor', label: 'Forex Conductor', icon: 'orchestration', color: '#f59e0b' },
         { id: 'trend_rider', label: 'Trend Rider', icon: 'trending_up', color: '#10b981' },
         { id: 'session_momentum', label: 'Session Momentum', icon: 'schedule_send', color: '#f43f5e' },
         { id: 'bearish_engulfing', label: 'Engulfing Reversal', icon: 'candlestick_chart', color: '#d946ef' },

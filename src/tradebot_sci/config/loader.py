@@ -208,41 +208,28 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         "sabbath_end_local", "sabbath_astronomical", "sabbath_lat", "sabbath_lon",
     ]
 
-    _PROMOTED_TREND_KEYS = [
-        "trend_adx_enabled", "trend_rsi_enabled", "trend_macd_enabled",
-        "trend_bollinger_enabled", "trend_supertrend_enabled",
-        "trend_ema_ribbon_enabled", "trend_ichimoku_enabled",
-        "trend_parabolic_sar_enabled", "trend_vwap_enabled",
-        "trend_hull_ma_enabled",
-        "adx_gate_threshold", "trend_chop_threshold",
-        "trend_min_swings", "trend_strength_floor",
-        "block_counter_trend_entries",
-    ]
-
-    _PROMOTED_GENERAL_KEYS = [
-        "stop_atr_multiplier", "target_leverage",
-        "min_hold_hours", "max_hold_hours",
-        "trailing_stop_min_profit_pct",
-        "breakeven_trail_pct",
-        "session_gate_enabled",
-    ]
-
     _profile_fields = set(TradingProfileSettings.model_fields.keys())
 
     profiles = {}
     for name, p_data in config.get("profiles", {}).items():
         merged = dict(p_data)  # shallow copy
-        for key in _PROMOTED_RISK_KEYS:
-            if key not in merged and key in risk_model_cfg and key in _profile_fields:
+
+        # ── Universal global → profile promotion ─────────────────────
+        # Promote ALL config.json "global" keys that match a
+        # TradingProfileSettings field.  Profile-level values win;
+        # globals only fill gaps.  This replaces the old fragile
+        # allow-lists (_PROMOTED_RISK_KEYS, _PROMOTED_TREND_KEYS, etc.)
+        # that silently dropped settings when a new key was added to
+        # config.json but not to the promotion list.
+        for key in g_cfg:
+            if key not in merged and key in _profile_fields:
+                merged[key] = g_cfg[key]
+
+        # Risk-section keys are stored separately in config.json;
+        # promote them the same way.
+        for key in risk_model_cfg:
+            if key not in merged and key in _profile_fields:
                 merged[key] = risk_model_cfg[key]
-        # Inject global sabbath settings as defaults (sabbath is global-only)
-        for key in _PROMOTED_SABBATH_KEYS:
-            if key not in merged and key in g_cfg and key in _profile_fields:
-                merged[key] = g_cfg[key]
-        # Inject global trend indicator toggles into profiles
-        for key in _PROMOTED_TREND_KEYS + _PROMOTED_GENERAL_KEYS:
-            if key not in merged and key in g_cfg and key in _profile_fields:
-                merged[key] = g_cfg[key]
 
         # ── Inject global per-asset strategies into profiles ──
         # AI Optimize writes strategy_crypto, strategy_forex, etc.

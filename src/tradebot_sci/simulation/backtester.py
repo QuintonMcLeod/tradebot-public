@@ -77,16 +77,29 @@ from tradebot_sci.ai.client import TradeSciAIClient
 logger = logging.getLogger(__name__)
 
 
-def _calculate_pnl(entry_price: float, exit_price: float, size: float, direction: str) -> float:
-    """Calculate PnL correctly for both long and short positions.
+def _calculate_pnl(entry_price: float, exit_price: float, size: float, direction: str,
+                   symbol: str = "") -> float:
+    """Calculate PnL correctly for both long and short positions, MINUS fees.
 
-    Long: profit when price goes UP   -> (exit - entry) * size
-    Short: profit when price goes DOWN -> (entry - exit) * size
+    Long: profit when price goes UP   -> (exit - entry) * size - fees
+    Short: profit when price goes DOWN -> (entry - exit) * size - fees
+    
+    Fees are deducted as round-trip spread/commission costs based on the
+    symbol's asset class. This ensures backtests reflect real trading costs.
     """
     if direction == "short":
-        return (entry_price - exit_price) * size
+        raw_pnl = (entry_price - exit_price) * size
     else:  # long
-        return (exit_price - entry_price) * size
+        raw_pnl = (exit_price - entry_price) * size
+    
+    # Deduct round-trip fees (spread + commission)
+    if symbol:
+        from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+        fee_pct = get_fee_for_symbol(symbol)
+        notional = entry_price * abs(size)
+        fee_cost = notional * fee_pct
+        return raw_pnl - fee_cost
+    return raw_pnl
 
 
 def _resample_candles(candles: List[Candle], target_seconds: int) -> List[Candle]:
@@ -155,6 +168,7 @@ class SimulatedPosition:
     total_cost: float = 0.0  # Total capital deployed (for average price calc)
     htf_neutral_bars: int = 0  # Track how long HTF has been neutral
     entry_gates: Optional[dict] = None  # Score breakdown at entry time
+    strategy_name: str = "unknown"  # Strategy that opened this trade
 
 
 @dataclass
@@ -170,6 +184,7 @@ class SimulatedTrade:
     pnl: float
     exit_reason: str  # "stop", "target", "signal", "eod"
     entry_gates: Optional[dict] = None  # Score breakdown at entry time
+    strategy_name: str = "unknown"  # Which strategy managed this trade
 
 
 @dataclass
@@ -417,7 +432,15 @@ class HistoricalMarketDataProvider:
 
         htf_window = profile.trend_window
         ltf_window = profile.ltf_trend_window or htf_window
-        required_seconds = max(htf_window * htf_seconds, ltf_window * ltf_seconds)
+
+        # Indicators need MORE candles than the trend_window:
+        # EMA55 needs 55, MACD needs 35, Bollinger needs 20.
+        # Pass at least 60 candles so all indicator voters have enough data.
+        INDICATOR_MIN_CANDLES = 60
+        htf_indicator_window = max(htf_window, INDICATOR_MIN_CANDLES)
+        ltf_indicator_window = max(ltf_window, INDICATOR_MIN_CANDLES)
+
+        required_seconds = max(htf_indicator_window * htf_seconds, ltf_indicator_window * ltf_seconds)
         base_limit = max(200, math.ceil(required_seconds / base_seconds) + 10)
 
         candles = self.get_latest_candles(symbol, timeframe, limit=base_limit)
@@ -442,11 +465,30 @@ class HistoricalMarketDataProvider:
             candles=candles,
             trend_htf=_neutral,
             trend_ltf=_neutral,
-            htf_candles=htf_candles[-htf_window:] if len(htf_candles) >= htf_window else htf_candles,
-            ltf_candles=ltf_candles[-ltf_window:] if len(ltf_candles) >= ltf_window else ltf_candles,
+            htf_candles=htf_candles[-htf_indicator_window:] if len(htf_candles) >= htf_indicator_window else htf_candles,
+            ltf_candles=ltf_candles[-ltf_indicator_window:] if len(ltf_candles) >= ltf_indicator_window else ltf_candles,
             htf_timeframe=profile.htf_timeframe,
             ltf_timeframe=profile.ltf_timeframe or timeframe,
         )
+
+
+# ── Multi-position helpers ─────────────────────────────────────────────
+def _pos_key(symbol: str, meta_source: str | None) -> str:
+    """Build a compound position key: 'EURUSD:london_breakout' for multi-position."""
+    return f"{symbol}:{meta_source}" if meta_source else symbol
+
+def _symbol_from_key(key: str) -> str:
+    """Extract the real symbol from a position key."""
+    return key.split(":")[0]
+
+def _positions_for_symbol(positions: dict, symbol: str) -> list:
+    """Return all (key, position) tuples for a given symbol."""
+    return [(k, v) for k, v in positions.items() if _symbol_from_key(k) == symbol]
+
+def _sub_strategy_from_key(key: str) -> str | None:
+    """Extract the sub-strategy from a compound key, or None."""
+    parts = key.split(":", 1)
+    return parts[1] if len(parts) > 1 else None
 
 
 class Backtester:
@@ -562,8 +604,20 @@ class Backtester:
         completed_trades: List[SimulatedTrade] = []
         equity_curve: List[tuple[datetime, float]] = [(start_date, capital)]
         
+        # Detect multi-position strategy
+        is_multi_position = False
+        _reg_entry = StrategyEngine.STRATEGY_REGISTRY.get(profile.strategy_variant)
+        if _reg_entry:
+            import importlib
+            _mod = importlib.import_module(_reg_entry[0])
+            _cls = getattr(_mod, _reg_entry[1], None)
+            if _cls and getattr(_cls, 'multi_position', False):
+                is_multi_position = True
+        if is_multi_position:
+            logger.info(f"[BACKTEST] Multi-position mode ENABLED for {profile.strategy_variant}")
+        
         # Memory-based trade results for strategy awareness
-        trade_results_store = TradeResultStore(path="/tmp/backtest_results.json")
+        trade_results_store = TradeResultStore(path="/tmp/backtest_results.json", skip_save=True)
         trade_results_store.results = [] # Start fresh
 
         # Validate timeframe conversion
@@ -624,7 +678,8 @@ class Backtester:
                     )
 
             # Check stop/target hits for open positions
-            for symbol, pos in list(positions.items()):
+            for pos_key, pos in list(positions.items()):
+                symbol = _symbol_from_key(pos_key)
                 if symbol not in all_candles:
                     continue
                 current_candles = self.market_provider._cache.get(f"{symbol}:{timeframe}_current", [])
@@ -636,7 +691,7 @@ class Backtester:
 
                 if max_hold_seconds > 0 and held_seconds >= max_hold_seconds:
                     exit_price = current_bar.close
-                    pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction)
+                    pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                     capital += pnl
                     completed_trades.append(SimulatedTrade(
                         symbol=symbol,
@@ -649,6 +704,7 @@ class Backtester:
                         pnl=pnl,
                         exit_reason="max_hold",
                         entry_gates=getattr(pos, "entry_gates", None),
+                        strategy_name=getattr(pos, 'strategy_name', 'unknown'),
                     ))
                     trade_results_store.add_result(TradeResult(
                         symbol=symbol,
@@ -657,9 +713,12 @@ class Backtester:
                         pnl_usd=pnl,
                         is_win=pnl > 0,
                         tier="backtest",
-                        capital_at_close=capital
+                        capital_at_close=capital,
+                        strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                        exit_reason="max_hold",
+                        side=pos.direction,
                     ))
-                    del positions[symbol]
+                    del positions[pos_key]
                     logger.info(f"[BACKTEST] {symbol} max-hold exit: PnL=${pnl:.2f}")
                     continue
 
@@ -669,7 +728,7 @@ class Backtester:
                     and held_seconds >= min_hold_seconds
                 ):
                     mark_price = current_bar.close
-                    pnl = _calculate_pnl(pos.entry_price, mark_price, pos.size, pos.direction)
+                    pnl = _calculate_pnl(pos.entry_price, mark_price, pos.size, pos.direction, symbol=symbol)
                     if pnl > 0:
                         capital += pnl
                         completed_trades.append(SimulatedTrade(
@@ -691,9 +750,12 @@ class Backtester:
                             pnl_usd=pnl,
                             is_win=pnl > 0,
                             tier="backtest",
-                            capital_at_close=capital
+                            capital_at_close=capital,
+                            strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                            exit_reason="profit_hold",
+                            side=pos.direction,
                         ))
-                        del positions[symbol]
+                        del positions[pos_key]
                         logger.info(f"[BACKTEST] {symbol} profit-hold exit: PnL=${pnl:.2f}")
                         continue
 
@@ -701,15 +763,17 @@ class Backtester:
                 if pos.stop_price is not None and not disable_stops:
                     if min_hold_seconds > 0 and held_seconds < min_hold_seconds:
                         continue
-                    # Long: stop hit when price drops to/below stop
-                    # Short: stop hit when price rises to/above stop
-                    stop_hit = (
+                    # Stop can ONLY trigger if the candle actually traded at the stop price.
+                    # This prevents fantasy exits where stop is on the wrong side of entry
+                    # (e.g., long stop at 2.358 when entry was 1.178 — candle never reached it).
+                    stop_in_range = current_bar.low <= pos.stop_price <= current_bar.high
+                    stop_hit = stop_in_range and (
                         (pos.direction == "long" and current_bar.low <= pos.stop_price) or
                         (pos.direction == "short" and current_bar.high >= pos.stop_price)
                     )
                     if stop_hit:
                         exit_price = pos.stop_price
-                        pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction)
+                        pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                         capital += pnl
                         completed_trades.append(SimulatedTrade(
                             symbol=symbol,
@@ -730,17 +794,20 @@ class Backtester:
                             pnl_usd=pnl,
                             is_win=pnl > 0,
                             tier="backtest",
-                            capital_at_close=capital
+                            capital_at_close=capital,
+                            strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                            exit_reason="stop",
+                            side=pos.direction,
                         ))
-                        del positions[symbol]
+                        del positions[pos_key]
                         logger.info(f"[BACKTEST] {symbol} stop hit: PnL=${pnl:.2f}")
                         continue
 
                 # Check take profit
                 if pos.target_price is not None:
-                    # Long: target hit when price rises to/above target
-                    # Short: target hit when price drops to/below target
-                    target_hit = (
+                    # TP can ONLY trigger if the candle actually traded at the target price.
+                    target_in_range = current_bar.low <= pos.target_price <= current_bar.high
+                    target_hit = target_in_range and (
                         (pos.direction == "long" and current_bar.high >= pos.target_price) or
                         (pos.direction == "short" and current_bar.low <= pos.target_price)
                     )
@@ -748,7 +815,7 @@ class Backtester:
                         if min_hold_seconds > 0 and held_seconds < min_hold_seconds:
                             continue
                         exit_price = pos.target_price
-                        pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction)
+                        pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                         if pnl <= 0:
                             logger.info(f"[BACKTEST] {symbol} target hit but not profitable; holding.")
                             continue
@@ -772,25 +839,28 @@ class Backtester:
                             pnl_usd=pnl,
                             is_win=pnl > 0,
                             tier="backtest",
-                            capital_at_close=capital
+                            capital_at_close=capital,
+                            strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                            exit_reason="target",
+                            side=pos.direction,
                         ))
-                        del positions[symbol]
+                        del positions[pos_key]
                         logger.info(f"[BACKTEST] {symbol} target hit: PnL=${pnl:.2f}")
                         continue
 
                 # Update unrealized P&L
-                positions[symbol].unrealized_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction)
+                pos.unrealized_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction, symbol=symbol)
                 
                 # [SOLUTION 2] Hard Max Loss Cap - Exit if loss exceeds configured maximum
                 max_loss_dollars = getattr(profile, 'max_loss_per_trade_dollars', None)
-                if max_loss_dollars and positions[symbol].unrealized_pnl < -abs(max_loss_dollars):
+                if max_loss_dollars and pos.unrealized_pnl < -abs(max_loss_dollars):
                     logger.warning(
                         f"[MAX LOSS CAP] {symbol} hit max loss cap: "
-                        f"${positions[symbol].unrealized_pnl:.2f} < -${max_loss_dollars:.2f}"
+                        f"${pos.unrealized_pnl:.2f} < -${max_loss_dollars:.2f}"
                     )
                     # Execute immediate exit
                     exit_price = current_bar.close
-                    pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction)
+                    pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                     capital += pnl
                     completed_trades.append(SimulatedTrade(
                         symbol=symbol,
@@ -803,6 +873,7 @@ class Backtester:
                         pnl=pnl,
                         exit_reason="max_loss_cap",
                         entry_gates=getattr(pos, "entry_gates", None),
+                        strategy_name=getattr(pos, 'strategy_name', 'unknown'),
                     ))
                     trade_results_store.add_result(TradeResult(
                         symbol=symbol,
@@ -811,9 +882,12 @@ class Backtester:
                         pnl_usd=pnl,
                         is_win=pnl > 0,
                         tier="backtest",
-                        capital_at_close=capital
+                        capital_at_close=capital,
+                        strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                        exit_reason="max_loss_cap",
+                        side=pos.direction,
                     ))
-                    del positions[symbol]
+                    del positions[pos_key]
                     logger.info(f"[BACKTEST] {symbol} max loss cap exit: Net PnL=${pnl:.2f}")
                     continue
 
@@ -823,18 +897,18 @@ class Backtester:
                 if snapshot and snapshot.trend_htf:
                     from tradebot_sci.market.trend_enums import TrendDirection
                     if snapshot.trend_htf.direction == TrendDirection.NEUTRAL:
-                        positions[symbol].htf_neutral_bars += 1
+                        pos.htf_neutral_bars += 1
                     else:
                         # Reset counter when HTF becomes trending again
-                        positions[symbol].htf_neutral_bars = 0
+                        pos.htf_neutral_bars = 0
                 htf_neutral_exit_bars = int(getattr(profile, "htf_neutral_exit_bars", 0) or 0)
                 if (
                     htf_neutral_exit_bars > 0
-                    and positions[symbol].htf_neutral_bars >= htf_neutral_exit_bars
+                    and pos.htf_neutral_bars >= htf_neutral_exit_bars
                     and (min_hold_seconds <= 0 or held_seconds >= min_hold_seconds)
                 ):
                     exit_price = current_bar.close
-                    pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction)
+                    pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                     capital += pnl
                     completed_trades.append(SimulatedTrade(
                         symbol=symbol,
@@ -847,6 +921,7 @@ class Backtester:
                         pnl=pnl,
                         exit_reason="htf_neutral_timeout",
                         entry_gates=getattr(pos, "entry_gates", None),
+                        strategy_name=getattr(pos, 'strategy_name', 'unknown'),
                     ))
                     trade_results_store.add_result(TradeResult(
                         symbol=symbol,
@@ -855,9 +930,12 @@ class Backtester:
                         pnl_usd=pnl,
                         is_win=pnl > 0,
                         tier="backtest",
-                        capital_at_close=capital
+                        capital_at_close=capital,
+                        strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                        exit_reason="htf_neutral_timeout",
+                        side=pos.direction,
                     ))
-                    del positions[symbol]
+                    del positions[pos_key]
                     logger.info(f"[BACKTEST] {symbol} HTF neutral timeout exit: PnL=${pnl:.2f}")
                     continue
 
@@ -875,12 +953,13 @@ class Backtester:
                         bar_time = bar_time.replace(tzinfo=timezone.utc)
                     eastern_time = bar_time.astimezone(eastern_tz)
                     if eastern_time.hour >= 16 and last_flatten_date != eastern_time.date():
-                        for symbol, pos in list(positions.items()):
+                        for pos_key, pos in list(positions.items()):
+                            symbol = _symbol_from_key(pos_key)
                             current_candles = self.market_provider._cache.get(f"{symbol}:{timeframe}_current", [])
                             if not current_candles:
                                 continue
                             exit_price = current_candles[-1].close
-                            pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction)
+                            pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                             capital += pnl
                             completed_trades.append(SimulatedTrade(
                                 symbol=symbol,
@@ -893,6 +972,7 @@ class Backtester:
                                 pnl=pnl,
                                 exit_reason="eod",
                         entry_gates=getattr(pos, "entry_gates", None),
+                                strategy_name=getattr(pos, 'strategy_name', 'unknown'),
                             ))
                             trade_results_store.add_result(TradeResult(
                                 symbol=symbol,
@@ -901,9 +981,12 @@ class Backtester:
                                 pnl_usd=pnl,
                                 is_win=pnl > 0,
                                 tier="backtest",
-                                capital_at_close=capital
+                                capital_at_close=capital,
+                                strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                                exit_reason="eod",
+                                side=pos.direction,
                             ))
-                            del positions[symbol]
+                            del positions[pos_key]
                             logger.info(f"[BACKTEST] {symbol} EOD flatten: PnL=${pnl:.2f}")
                         last_flatten_date = eastern_time.date()
 
@@ -928,12 +1011,21 @@ class Backtester:
                         break
                     # If we have positions, still need to process exits below
 
+
                 for symbol in all_candles.keys():
                     # Always evaluate strategy, even when in position
                     # This allows for position management, exits, and multi-entry strategies
 
                     # [FIXED] Use current running capital for risk sizing
-                    current_position = positions.get(symbol)
+                    # Multi-position: find all sub-positions for this symbol
+                    symbol_positions = _positions_for_symbol(positions, symbol)
+                    
+                    # For multi-position strategies, current_position is None
+                    # (we handle per-sub-strategy lock after getting the decision)
+                    if is_multi_position:
+                        current_position = None  # Allow entry evaluation
+                    else:
+                        current_position = positions.get(symbol)
                     
                     # 1.5 Calculate Global Risk across all symbols
                     total_open_risk_dollars = 0.0
@@ -945,7 +1037,7 @@ class Backtester:
 
                     # Check if we have enough capital for NEW entries
                     # Skip capital check if we already have a position (for exit/management signals)
-                    if current_position is None:
+                    if current_position is None and not symbol_positions:
                         # Wind-Down Block: No new entries after end_date
                         if current_time > end_date:
                             if total_decision_checks % 100 == 0: # Reduce log spam
@@ -989,14 +1081,180 @@ class Backtester:
 
                         # Convert SimulatedPosition to a format the engine expects (if we have one)
                         open_position = None
-                        if current_position is not None:
+
+                        # ── Multi-position: per-sub-strategy exit loop ──────────
+                        if is_multi_position and symbol_positions:
+                            # Check exits for EACH sub-position independently
+                            for sp_key, sp_pos in list(symbol_positions):
+                                sp_meta = _sub_strategy_from_key(sp_key)
+                                last_close = snapshot.candles[-1].close
+                                sp_pnl = _calculate_pnl(
+                                    sp_pos.entry_price, last_close,
+                                    sp_pos.size, sp_pos.direction, symbol=symbol
+                                )
+                                sp_open_pos = {
+                                    'symbol': sp_pos.symbol,
+                                    'direction': sp_pos.direction,
+                                    'entry_price': sp_pos.entry_price,
+                                    'size': sp_pos.size,
+                                    'stop_price': sp_pos.stop_price,
+                                    'stop_loss': sp_pos.stop_price,
+                                    'target_price': sp_pos.target_price,
+                                    'take_profit': sp_pos.target_price,
+                                    'entry_time': sp_pos.entry_time.isoformat() if sp_pos.entry_time else None,
+                                    'unrealized_pnl': sp_pnl,
+                                    'pyramid_count': sp_pos.pyramid_count,
+                                    'htf_neutral_bars': sp_pos.htf_neutral_bars,
+                                    'meta_source': sp_meta,
+                                }
+                                # Engine call for exit check on this sub-position
+                                sp_engine = StrategyEngine(
+                                    ai_client=self.ai_client,
+                                    market_provider=self.market_provider,
+                                    profile=profile,
+                                    symbol=symbol,
+                                    trade_results=trade_results_store
+                                )
+                                sp_decision = sp_engine.decide(
+                                    timeframe=timeframe,
+                                    open_position=sp_open_pos,
+                                    snapshot=snapshot,
+                                    current_bar_time=current_time,
+                                )
+                                if sp_decision and sp_decision.action in ("exit_position", "close", "close_position", "exit_long", "exit_short"):
+                                    exit_price = snapshot.candles[-1].close
+                                    pnl = _calculate_pnl(sp_pos.entry_price, exit_price, sp_pos.size, sp_pos.direction, symbol=symbol)
+                                    capital += pnl
+                                    actual_reason = getattr(sp_decision, 'notes', 'signal') or 'signal'
+                                    completed_trades.append(SimulatedTrade(
+                                        symbol=symbol,
+                                        direction=sp_pos.direction,
+                                        entry_price=sp_pos.entry_price,
+                                        exit_price=exit_price,
+                                        size=sp_pos.size,
+                                        entry_time=sp_pos.entry_time,
+                                        exit_time=current_time,
+                                        pnl=pnl,
+                                        exit_reason=actual_reason,
+                                        entry_gates=getattr(sp_pos, "entry_gates", None),
+                                        strategy_name=getattr(sp_pos, 'strategy_name', 'unknown'),
+                                    ))
+                                    trade_results_store.add_result(TradeResult(
+                                        symbol=symbol,
+                                        closed_at=current_time.isoformat(),
+                                        pnl_pct=(pnl / (sp_pos.entry_price * sp_pos.size)) if (sp_pos.entry_price * sp_pos.size) != 0 else 0,
+                                        pnl_usd=pnl,
+                                        is_win=pnl > 0,
+                                        tier="backtest",
+                                        capital_at_close=capital,
+                                        strategy=sp_meta or getattr(sp_pos, 'strategy_name', 'unknown'),
+                                        exit_reason='signal',
+                                        side=sp_pos.direction,
+                                    ))
+                                    if sp_key in positions:
+                                        del positions[sp_key]
+                                    logger.info(f"[BACKTEST] {symbol}:{sp_meta} multi-pos EXIT: PnL=${pnl:.2f}")
+
+                                # ── Handle stop/target management + pyramiding ──
+                                elif sp_decision and sp_decision.action in ("hold", "scale_in", "scale_out"):
+                                    # Update stop if provided
+                                    if sp_decision.stop_loss is not None and sp_decision.stop_loss != sp_pos.stop_price:
+                                        old_stop = sp_pos.stop_price
+                                        sp_pos.stop_price = sp_decision.stop_loss
+                                        logger.info(
+                                            f"[BACKTEST] {symbol}:{sp_meta} stop updated: "
+                                            f"${old_stop:.5f} -> ${sp_decision.stop_loss:.5f} "
+                                            f"({getattr(sp_decision, 'notes', '')[:60]})"
+                                        )
+                                    if sp_decision.take_profit is not None and sp_decision.take_profit != sp_pos.target_price:
+                                        old_tp = sp_pos.target_price
+                                        sp_pos.target_price = sp_decision.take_profit
+                                        logger.info(
+                                            f"[BACKTEST] {symbol}:{sp_meta} target updated: "
+                                            f"${old_tp} -> ${sp_decision.take_profit:.5f}"
+                                        )
+
+                                    # ── Execute pyramid sizing on scale_in ──
+                                    if sp_decision.action == "scale_in":
+                                        add_price = snapshot.candles[-1].close
+                                        stop_price = sp_decision.stop_loss or sp_pos.stop_price
+                                        risk_per_share = abs(add_price - stop_price)
+
+                                        if hasattr(sp_decision, "risk_per_trade_pct") and sp_decision.risk_per_trade_pct:
+                                            risk_pct = float(sp_decision.risk_per_trade_pct)
+                                        else:
+                                            risk_pct = float(getattr(profile, "risk_per_trade_pct", 0.10))
+
+                                        min_stop_distance = add_price * 0.001
+                                        if risk_per_share < min_stop_distance:
+                                            risk_per_share = min_stop_distance
+
+                                        compounding_capital = min(capital, 10000.0)
+                                        max_risk = compounding_capital * risk_pct
+                                        add_size = max_risk / risk_per_share if risk_per_share > 0 else 0
+
+                                        if add_size > 0:
+                                            sp_pos.size += add_size
+                                            sp_pos.total_cost += add_price * add_size
+                                            sp_pos.entry_price = sp_pos.total_cost / sp_pos.size
+                                            sp_pos.pyramid_count += 1
+                                            logger.info(
+                                                f"[BACKTEST] {symbol}:{sp_meta} PYRAMID #{sp_pos.pyramid_count}: "
+                                                f"+{add_size:.0f} units @ {add_price:.5f} "
+                                                f"(avg={sp_pos.entry_price:.5f}, total={sp_pos.size:.0f})"
+                                            )
+
+                            # Build combined position info so sub-strategies can pyramid
+                            # Each sub-strategy only sees ITS OWN position via meta_source
+                            combined_open_pos = None
+                            if symbol_positions:
+                                # Pass all sub-position info; the Conductor routes to the
+                                # correct sub-strategy which checks its own position
+                                last_close = snapshot.candles[-1].close
+                                all_subs = {}
+                                for sp_key, sp_pos in symbol_positions:
+                                    sp_meta = _sub_strategy_from_key(sp_key)
+                                    sp_pnl = _calculate_pnl(
+                                        sp_pos.entry_price, last_close,
+                                        sp_pos.size, sp_pos.direction, symbol=symbol
+                                    )
+                                    all_subs[sp_meta] = {
+                                        'symbol': sp_pos.symbol,
+                                        'direction': sp_pos.direction,
+                                        'entry_price': sp_pos.entry_price,
+                                        'size': sp_pos.size,
+                                        'stop_price': sp_pos.stop_price,
+                                        'stop_loss': sp_pos.stop_price,
+                                        'target_price': sp_pos.target_price,
+                                        'take_profit': sp_pos.target_price,
+                                        'entry_time': sp_pos.entry_time.isoformat() if sp_pos.entry_time else None,
+                                        'unrealized_pnl': sp_pnl,
+                                        'pyramid_count': sp_pos.pyramid_count,
+                                        'htf_neutral_bars': sp_pos.htf_neutral_bars,
+                                        'meta_source': sp_meta,
+                                    }
+                                # Pass combined as open_position with _sub_positions for routing
+                                combined_open_pos = {
+                                    '_sub_positions': all_subs,
+                                    # Also set top-level fields from first sub-position for engine compatibility
+                                    **list(all_subs.values())[0],
+                                }
+
+                            decision = engine.decide(
+                                timeframe=timeframe,
+                                open_position=combined_open_pos,
+                                snapshot=snapshot,
+                                current_bar_time=current_time,
+                            )
+                        elif current_position is not None:
                             # [FIXED] Strategy needs to know its profit to pyramid!
                             last_close = snapshot.candles[-1].close
                             pnl = _calculate_pnl(
                                 current_position.entry_price, 
                                 last_close, 
                                 current_position.size, 
-                                current_position.direction
+                                current_position.direction,
+                                symbol=symbol
                             )
                             # Create a minimal position dict for the engine
                             open_position = {
@@ -1051,16 +1309,31 @@ class Backtester:
                         # Handle exit signals if we have an open position
                         if current_position is not None and decision.action in ("exit", "close_position"):
                             held_seconds = (current_time - current_position.entry_time).total_seconds()
-                            if min_hold_seconds > 0 and held_seconds < min_hold_seconds:
+                            # 1-HOUR HOLD GUARD: Only SL/TP exits allowed before 1 hour
+                            # Matches engine.py's HOLD_GUARD_SECONDS = 3600
+                            HOLD_GUARD_SECONDS = 3600
+                            is_sl_tp = getattr(decision, 'emergency_exit', False)
+                            if held_seconds < HOLD_GUARD_SECONDS and not is_sl_tp:
+                                logger.info(
+                                    f"[BACKTEST] [HOLD GUARD] {symbol} exit blocked — "
+                                    f"age {held_seconds:.0f}s < {HOLD_GUARD_SECONDS}s "
+                                    f"(only SL/TP exits allowed)"
+                                )
                                 continue
                             exit_price = snapshot.candles[-1].close
-                            pnl = _calculate_pnl(current_position.entry_price, exit_price, current_position.size, current_position.direction)
+                            pnl = _calculate_pnl(current_position.entry_price, exit_price, current_position.size, current_position.direction, symbol=symbol)
                             if pnl <= 0 and not allow_loss_exit_after_hold:
                                 logger.info(f"[BACKTEST] {symbol} exit signal ignored (not profitable).")
                                 continue
                             if pnl <= 0 and allow_loss_exit_after_hold:
                                 logger.info(f"[BACKTEST] {symbol} exit signal accepted after hold (loss allowed).")
                             capital += pnl
+                            # Propagate actual exit reason from decision
+                            actual_reason = (
+                                getattr(decision, 'notes', None)
+                                or getattr(decision, 'structure_summary', None)
+                                or "signal"
+                            )
                             completed_trades.append(SimulatedTrade(
                                 symbol=symbol,
                                 direction=current_position.direction,
@@ -1070,11 +1343,19 @@ class Backtester:
                                 entry_time=current_position.entry_time,
                                 exit_time=current_time,
                                 pnl=pnl,
-                                exit_reason="signal",
+                                exit_reason=actual_reason,
                                 entry_gates=getattr(current_position, "entry_gates", None),
+                                strategy_name=getattr(current_position, 'strategy_name', 'unknown'),
                             ))
-                            del positions[symbol]
-                            logger.info(f"[BACKTEST] {symbol} EXIT signal: PnL=${pnl:.2f}")
+                            # For multi-position, delete by the sub-strategy key
+                            if is_multi_position:
+                                meta_src = (getattr(current_position, 'entry_gates', None) or {}).get('meta_source')
+                                del_key = _pos_key(symbol, meta_src)
+                                if del_key in positions:
+                                    del positions[del_key]
+                            else:
+                                del positions[symbol]
+                            logger.info(f"[BACKTEST] {symbol} EXIT ({actual_reason[:50]}): PnL=${pnl:.2f}")
                             continue  # Skip to next symbol after exit
 
                         # Handle pyramid/add to position
@@ -1171,11 +1452,42 @@ class Backtester:
                         if current_position is not None and decision.action in ("hold", "scale_in", "scale_out"):
                             # Update stop/target if strategy provides new ones
                             if decision.stop_loss is not None and decision.stop_loss != current_position.stop_price:
-                                old_stop = current_position.stop_price
-                                current_position.stop_price = decision.stop_loss
-                                logger.info(
-                                    f"[BACKTEST] {symbol} stop updated: ${old_stop:.2f} -> ${decision.stop_loss:.2f}"
-                                )
+                                # ── Breakeven Stop Guard ────────────────────────────
+                                # Strategies often set stop_loss=entry_price (breakeven)
+                                # immediately. On 15m forex this triggers on the next
+                                # candle's noise, producing 0-pip exits with fee-only
+                                # losses (-$9 each). Block the move until the trade has
+                                # enough unrealized profit to survive the stop.
+                                allow_move = True
+                                new_stop = decision.stop_loss
+                                entry = current_position.entry_price
+                                direction = current_position.direction
+                                cur_price = current_bar.close
+
+                                # Is this a breakeven move? (new stop within 0.1% of entry)
+                                is_be_move = abs(new_stop - entry) / entry < 0.001
+
+                                if is_be_move:
+                                    # Calculate unrealized profit in price terms
+                                    if direction == "long":
+                                        unrealized = cur_price - entry
+                                    else:
+                                        unrealized = entry - cur_price
+
+                                    # Need at least 1.5× the fee cost in profit before moving to BE
+                                    # This prevents noise from immediately hitting the BE stop
+                                    from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                                    fee_pct = get_fee_for_symbol(symbol)
+                                    min_profit = entry * fee_pct * 3.0  # 3× fee to cover round-trip + buffer
+                                    if unrealized < min_profit:
+                                        allow_move = False
+
+                                if allow_move:
+                                    old_stop = current_position.stop_price
+                                    current_position.stop_price = decision.stop_loss
+                                    logger.info(
+                                        f"[BACKTEST] {symbol} stop updated: ${old_stop:.2f} -> ${decision.stop_loss:.2f}"
+                                    )
                             if decision.take_profit is not None and decision.take_profit != current_position.target_price:
                                 old_target = current_position.target_price
                                 current_position.target_price = decision.take_profit
@@ -1185,7 +1497,7 @@ class Backtester:
                             # Continue to next symbol (don't attempt new entry)
                             continue
 
-                        if current_position is not None and decision.action in ("enter_long", "enter_short"):
+                        if current_position is not None and not is_multi_position and decision.action in ("enter_long", "enter_short"):
                             potential_trades_blocked += 1
                             potential_trade_block_reasons["already_in_position"] += 1
                             logger.info(
@@ -1195,18 +1507,131 @@ class Backtester:
 
                         # Execute entry if signal is valid (no confidence check - AI decides via action field)
                         # Only allow new entries if we don't already have a position
-                        if current_position is None and decision.action in ("enter_long", "enter_short"):
-                            # ENSURE Strategy-defined risk is used (Scout=0.25%, Hammer=60%)
+                        # Multi-position: allow entry if this sub-strategy doesn't already have a position
+                        can_enter = False
+
+                        # ── Handle pyramiding (scale_in) in multi-position mode ──
+                        if decision.action in ("scale_in", "add_to_position") and is_multi_position:
+                            meta_src = (getattr(decision, 'gates', None) or {}).get('meta_source')
+                            sub_key = _pos_key(symbol, meta_src)
+                            existing = positions.get(sub_key)
+                            if existing:
+                                add_price = snapshot.candles[-1].close
+                                stop_price = decision.stop_loss or existing.stop_price
+                                risk_per_share = abs(add_price - stop_price)
+
+                                if hasattr(decision, "risk_per_trade_pct") and decision.risk_per_trade_pct:
+                                    risk_pct = float(decision.risk_per_trade_pct)
+                                else:
+                                    risk_pct = float(getattr(profile, "risk_per_trade_pct", 0.10))
+
+                                min_stop_distance = add_price * 0.001
+                                if risk_per_share < min_stop_distance:
+                                    risk_per_share = min_stop_distance
+
+                                compounding_capital = min(capital, 10000.0)
+                                max_risk = compounding_capital * risk_pct
+                                add_size = max_risk / risk_per_share if risk_per_share > 0 else 0
+
+                                if add_size > 0:
+                                    existing.size += add_size
+                                    existing.total_cost += add_price * add_size
+                                    existing.entry_price = existing.total_cost / existing.size
+                                    existing.pyramid_count += 1
+                                    if decision.stop_loss is not None:
+                                        existing.stop_price = decision.stop_loss
+                                    if decision.take_profit is not None:
+                                        existing.target_price = decision.take_profit
+                                    logger.info(
+                                        f"[BACKTEST] {symbol}:{meta_src} PYRAMID #{existing.pyramid_count}: "
+                                        f"+{add_size:.0f} units @ {add_price:.5f} "
+                                        f"(avg={existing.entry_price:.5f}, total={existing.size:.0f})"
+                                    )
+                            continue  # Don't fall through to new entry logic
+
+                        if decision.action in ("enter_long", "enter_short"):
+                            if is_multi_position:
+                                meta_src = (getattr(decision, 'gates', None) or {}).get('meta_source')
+                                sub_key = _pos_key(symbol, meta_src)
+                                if sub_key not in positions:
+                                    can_enter = True
+                                else:
+                                    potential_trades_blocked += 1
+                                    potential_trade_block_reasons["sub_strategy_in_position"] += 1
+                                    logger.info(f"[BACKTEST] {symbol}:{meta_src} multi-pos blocked (sub-strategy already in position)")
+                            elif current_position is None:
+                                can_enter = True
+
+                        if can_enter:
+                            # Use strategy-defined risk, but profile risk acts as FLOOR
+                            profile_risk = float(getattr(profile, "risk_per_trade_pct", 0.015))
                             if hasattr(decision, "risk_per_trade_pct") and decision.risk_per_trade_pct is not None:
-                                risk_pct = float(decision.risk_per_trade_pct)
+                                risk_pct = max(float(decision.risk_per_trade_pct), profile_risk)
                             else:
-                                # Fallback to Profile if variant forgot to specify
-                                risk_pct = float(getattr(profile, "risk_per_trade_pct", 0.10))
+                                risk_pct = profile_risk
+
+                            # ── Per-Symbol Risk Caps ──────────────────────────
+                            # Proven pairs get full risk; unproven get reduced
+                            symbol_risk_scale = {
+                                'EURUSD': 1.0, 'GBPUSD': 1.0,   # Proven performers
+                                'AUDUSD': 0.4, 'USDJPY': 0.4,   # Unproven — 40% risk
+                            }
+                            sym_scale = symbol_risk_scale.get(symbol, 0.5)  # Default 50% for unknown
+                            if sym_scale < 1.0:
+                                risk_pct *= sym_scale
+                                logger.info(f"[RISK-CAP] {symbol} scaled to {sym_scale:.0%} → risk={risk_pct*100:.2f}%")
                                 
+                            # ── Compound Flywheel ──────────────────────────────
+                            # Every $50 in cumulative profit → +0.1% risk on top
+                            # of the base risk_per_trade_pct. Capped at +2%.
+                            cumulative_pnl = capital - initial_capital
+                            if cumulative_pnl > 0:
+                                flywheel_milestone = 50.0
+                                flywheel_boost = (cumulative_pnl // flywheel_milestone) * 0.001
+                                flywheel_boost = min(flywheel_boost, 0.02)  # Cap at +2%
+                                risk_pct += flywheel_boost
+                                if flywheel_boost > 0:
+                                    logger.info(f"[FLYWHEEL] +{flywheel_boost*100:.1f}% boost (cum PnL=${cumulative_pnl:.2f}) → risk={risk_pct*100:.2f}%")
+
+                            # ── Performance Multipliers ───────────────────────
+                            boost_label = []
+
+                            # A. REGIME SYNC (1.5× when HTF trend strongly aligned)
+                            htf_strength = getattr(snapshot, 'trend_htf', None)
+                            if htf_strength:
+                                strength_val = getattr(htf_strength, 'strength', 0.0)
+                                htf_dir = getattr(htf_strength, 'direction', 'neutral')
+                                # Only boost if HTF is strongly aligned WITH the trade direction
+                                trade_dir = "long" if decision.action == "enter_long" else "short"
+                                if strength_val >= 0.7 and htf_dir == trade_dir:
+                                    risk_pct *= 1.5
+                                    boost_label.append(f"Regime({htf_dir} {strength_val:.2f})=1.5×")
+
+                            # B. GAMMA SQUEEZE (1.2× on 4-bar price velocity > 0.1%)
+                            if len(snapshot.candles) >= 5:
+                                start_price = snapshot.candles[-5].close
+                                end_price = snapshot.candles[-1].close
+                                velocity = abs(end_price - start_price) / start_price
+                                if velocity > 0.001:  # 0.1% move in 4 bars
+                                    risk_pct *= 1.2
+                                    boost_label.append(f"Gamma({velocity*100:.2f}%)=1.2×")
+
+                            # C. COIL BREAKOUT (2.0× on ATR compression)
+                            if len(snapshot.candles) >= 100:
+                                from tradebot_sci.strategy.safety_guard import calculate_atr
+                                recent_atr = calculate_atr(snapshot.candles[-14:], period=14)
+                                hist_atr = calculate_atr(snapshot.candles, period=100)
+                                if recent_atr and hist_atr and recent_atr < (hist_atr * 0.6):
+                                    risk_pct *= 2.0
+                                    boost_label.append(f"Coil({recent_atr/hist_atr:.2f})=2.0×")
+
+                            if boost_label:
+                                logger.info(f"[PERF] {symbol} {' | '.join(boost_label)} → risk={risk_pct*100:.2f}%")
+
                             # [RISK SATURATION] Cap compounding to prevent Nuclear Blowout
-                            comp_cap = 10000.0
+                            comp_cap = 50000.0  # Raised from 10k to allow more capital utilization
                             if getattr(profile, 'nuclear_overrides_enabled', False):
-                                comp_cap = getattr(profile, 'compounding_cap_override', 10000.0)
+                                comp_cap = getattr(profile, 'compounding_cap_override', 50000.0)
 
                             compounding_capital = min(capital, comp_cap)
                             max_risk = compounding_capital * risk_pct
@@ -1238,19 +1663,38 @@ class Backtester:
                             # Example: $100 risk / $3 stop = 33 shares = $20k notional (20× leverage)
                             size = max_risk / risk_per_share if risk_per_share > 0 else 0
 
-                            # Safety 2: Cap total notional (Config 13: 100x)
-                            lev_cap = float(os.getenv('RR_LEV_CAP', '100.0'))
-                            max_position_value = capital * lev_cap
+                            # Safety 2: Cap total notional to REALISTIC broker leverage
+                            # OANDA forex = 30:1, Crypto spot (Gemini/Kraken) = no margin = 1:1,
+                            # IBKR stocks = 4:1 day / 2:1 overnight
+                            from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
+                            asset_class = classify_symbol(symbol)
+                            REALISTIC_LEVERAGE = {
+                                AssetClass.FOREX: 30.0,    # OANDA retail max
+                                AssetClass.CRYPTO: 3.0,    # Gemini spot (no real margin)
+                                AssetClass.STOCKS: 4.0,    # IBKR reg-T day trading
+                                AssetClass.ETF: 4.0,       # Same as stocks
+                                AssetClass.METALS: 20.0,   # OANDA metals
+                                AssetClass.FUTURES: 15.0,  # IBKR futures margin
+                            }
+                            lev_cap = REALISTIC_LEVERAGE.get(asset_class, 5.0)
+                            # Allow env override for testing only
+                            if os.getenv('RR_LEV_CAP'):
+                                lev_cap = float(os.environ['RR_LEV_CAP'])
+                            max_position_value = compounding_capital * lev_cap
                             max_shares = max_position_value / entry_price
                             if size > max_shares:
                                 logger.warning(
                                     f"[BACKTEST] {symbol}: Position size capped from {size:.2f} to {max_shares:.2f} shares "
-                                    f"(max 30× leverage = ${max_position_value:.2f} notional on ${capital:.2f} capital)"
+                                    f"(max {lev_cap:.0f}× leverage = ${max_position_value:.2f} notional on ${compounding_capital:.2f} capital)"
                                 )
                                 size = max_shares
 
                             if size > 0:
-                                positions[symbol] = SimulatedPosition(
+                                # Build position key: compound for multi-position, simple otherwise
+                                meta_src = (getattr(decision, 'gates', None) or {}).get('meta_source')
+                                entry_pos_key = _pos_key(symbol, meta_src) if is_multi_position else symbol
+
+                                positions[entry_pos_key] = SimulatedPosition(
                                     symbol=symbol,
                                     direction="long" if decision.action == "enter_long" else "short",
                                     entry_price=entry_price,
@@ -1262,9 +1706,14 @@ class Backtester:
                                     total_cost=entry_price * size,
                                     htf_neutral_bars=0,
                                     entry_gates=getattr(decision, 'gates', None),
+                                    strategy_name=(
+                                        getattr(getattr(engine, '_strategy', None), 'name', None)
+                                        or getattr(engine, 'last_strat_name', 'unknown')
+                                    ),
                                 )
+                                sub_tag = f":{meta_src}" if meta_src else ""
                                 logger.info(
-                                    f"[BACKTEST] {symbol} ENTRY {decision.action.upper()} @ ${entry_price:.2f}, "
+                                    f"[BACKTEST] {symbol}{sub_tag} ENTRY {decision.action.upper()} @ ${entry_price:.2f}, "
                                     f"size={size:.2f}, stop=${stop_price:.2f}"
                                 )
 
@@ -1284,11 +1733,12 @@ class Backtester:
             processed_bar_index += 1
 
         # Close any remaining positions at end
-        for symbol, pos in positions.items():
+        for pos_key, pos in positions.items():
+            symbol = _symbol_from_key(pos_key)
             current_candles = self.market_provider._cache.get(f"{symbol}:{timeframe}_current", [])
             if current_candles:
                 exit_price = current_candles[-1].close
-                pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction)
+                pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                 capital += pnl
                 completed_trades.append(SimulatedTrade(
                     symbol=symbol,
@@ -1300,7 +1750,8 @@ class Backtester:
                     exit_time=end_date,
                     pnl=pnl,
                     exit_reason="eod",
-                        entry_gates=getattr(pos, "entry_gates", None),
+                    entry_gates=getattr(pos, "entry_gates", None),
+                    strategy_name=getattr(pos, 'strategy_name', 'unknown'),
                 ))
 
         # Calculate performance metrics

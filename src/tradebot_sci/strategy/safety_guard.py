@@ -378,7 +378,7 @@ class SafetyGuard:
         cls._state.trade_timestamps[asset_class].append(datetime.now())
 
     @classmethod
-    def augment_exit_decision(cls, decision: Optional[AITradeDecision], open_position: dict, snapshot: MarketSnapshot) -> AITradeDecision:
+    def augment_exit_decision(cls, decision: Optional[AITradeDecision], open_position: dict, snapshot: MarketSnapshot, sim_time: Optional[datetime] = None) -> AITradeDecision:
         """
         Applies Advanced Shields and Wealth Weapon exit safeguards.
         If the Strategy suggests an exit, we usually respect it (unless Vetoed).
@@ -414,8 +414,12 @@ class SafetyGuard:
         MIN_HOLD_SECONDS = 120  # 2 minutes
         position_age_seconds = 0
         if entry_time and isinstance(entry_time, datetime):
-            now = datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.now(tz=timezone.utc)
-            position_age_seconds = (now - entry_time).total_seconds()
+            _now = sim_time or (datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.now(tz=timezone.utc))
+            if _now.tzinfo is None:
+                _now = _now.replace(tzinfo=timezone.utc)
+            if entry_time.tzinfo is None:
+                entry_time = entry_time.replace(tzinfo=timezone.utc)
+            position_age_seconds = (_now - entry_time).total_seconds()
             if position_age_seconds < MIN_HOLD_SECONDS:
                 logger.debug(
                     f"[SAFETY] Churn Guard: {snapshot.symbol} position age {position_age_seconds:.0f}s "
@@ -495,7 +499,9 @@ class SafetyGuard:
             max_hold_h = 0.0
 
         if max_hold_h > 0 and entry_time and isinstance(entry_time, datetime):
-            now_tz = datetime.now(entry_time.tzinfo or ZoneInfo("UTC"))
+            now_tz = sim_time or datetime.now(entry_time.tzinfo or ZoneInfo("UTC"))
+            if now_tz.tzinfo is None:
+                now_tz = now_tz.replace(tzinfo=ZoneInfo("UTC"))
             hours_held = (now_tz - entry_time).total_seconds() / 3600
 
             phase1_end = max_hold_h * 0.70     # normal phase ends
@@ -507,7 +513,9 @@ class SafetyGuard:
 
                 # ── Market-halted guard: don't issue kill orders when the
                 #    broker can't execute them (e.g., forex weekends) ──
-                _now_utc = datetime.now(ZoneInfo("UTC"))
+                _now_utc = sim_time or datetime.now(ZoneInfo("UTC"))
+                if _now_utc.tzinfo is None:
+                    _now_utc = _now_utc.replace(tzinfo=ZoneInfo("UTC"))
                 if not is_market_open(snapshot.symbol, _now_utc, settings):
                     if not getattr(cls, '_weekend_warn_logged', {}).get(snapshot.symbol):
                         logger.warning(
@@ -692,7 +700,9 @@ class SafetyGuard:
              greedy_max_hours = settings.safety.greedy_exit_max_hold_hours if settings else 8.0
              hours_held = 0.0
              if entry_time and isinstance(entry_time, datetime):
-                 now_tz = datetime.now(entry_time.tzinfo or ZoneInfo("UTC"))
+                 now_tz = sim_time or datetime.now(entry_time.tzinfo or ZoneInfo("UTC"))
+                 if now_tz.tzinfo is None:
+                     now_tz = now_tz.replace(tzinfo=ZoneInfo("UTC"))
                  hours_held = (now_tz - entry_time).total_seconds() / 3600
 
              # Phase 3: Force close after max hold
@@ -722,12 +732,16 @@ class SafetyGuard:
                  potential_stop = current_price - trail_dist
                  # FLOOR: The Greedy Exit never loses money — stop can't go below entry
                  potential_stop = max(potential_stop, entry_price)
-                 # If price is at/below entry, nothing to retain — close now
-                 # [ANTI-CHURN] Require minimum 5 minutes held AND spread buffer
-                 # Before this fix, spread alone (1.5 pips) triggered instant exits
+                 # If price is at/below entry AND trade previously reached meaningful profit,
+                 # the setup proved itself then reversed — close to protect capital.
+                 # We check the PEAK R (highest high since entry), not current R
+                 # (which is ~0 at entry). Without peak R, the gate never fires.
                  min_greedy_age = getattr(settings.safety, 'safety_greedy_min_age_seconds', 300) if settings else 300
-                 if hours_held * 3600 >= min_greedy_age and current_price <= entry_price:
-                     logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} <= {entry_price:.5f}). Closing at breakeven.")
+                 relevant_candles = [c for c in snapshot.candles if entry_time and isinstance(entry_time, datetime) and c.timestamp >= entry_time]
+                 peak_price = max(c.high for c in relevant_candles) if relevant_candles else entry_price
+                 peak_r = (peak_price - entry_price) / initial_risk if initial_risk > 0 else 0
+                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.5 and current_price <= entry_price:
+                     logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} <= {entry_price:.5f}, peak was {peak_r:.1f}R). Closing at breakeven.")
                      return close_position_decision(snapshot.symbol, snapshot.timeframe,
                                                     reason=f"Greedy Exit: Back to entry (breakeven)")
                  # Only move UP
@@ -745,11 +759,14 @@ class SafetyGuard:
                  potential_stop = current_price + trail_dist
                  # FLOOR: The Greedy Exit never loses money — stop can't go above entry
                  potential_stop = min(potential_stop, entry_price)
-                 # If price is at/above entry, nothing to retain — close now
-                 # [ANTI-CHURN] Require minimum 5 minutes held AND spread buffer
+                 # If price is at/above entry AND trade previously reached meaningful profit,
+                 # the setup proved itself then reversed — close to protect capital.
                  min_greedy_age = getattr(settings.safety, 'safety_greedy_min_age_seconds', 300) if settings else 300
-                 if hours_held * 3600 >= min_greedy_age and current_price >= entry_price:
-                     logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} >= {entry_price:.5f}). Closing at breakeven.")
+                 relevant_candles = [c for c in snapshot.candles if entry_time and isinstance(entry_time, datetime) and c.timestamp >= entry_time]
+                 trough_price = min(c.low for c in relevant_candles) if relevant_candles else entry_price
+                 peak_r = (entry_price - trough_price) / initial_risk if initial_risk > 0 else 0
+                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.5 and current_price >= entry_price:
+                     logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} >= {entry_price:.5f}, peak was {peak_r:.1f}R). Closing at breakeven.")
                      return close_position_decision(snapshot.symbol, snapshot.timeframe,
                                                     reason=f"Greedy Exit: Back to entry (breakeven)")
                  # Only move DOWN

@@ -84,6 +84,7 @@ class StrategyEngine:
         "crypto_double_macd":   ("tradebot_sci.strategy.variants.crypto_double_macd",   "CryptoDoubleMACDStrategy"),
         "crypto_grid":          ("tradebot_sci.strategy.variants.crypto_grid",          "CryptoGridStrategy"),
         "aggregator":           ("tradebot_sci.strategy.variants.aggregator",           "AggregatorStrategy"),
+        "forex_conductor":      ("tradebot_sci.strategy.variants.forex_conductor",      "ForexConductorStrategy"),
     }
 
     def _instantiate_variant(self, variant: str):
@@ -297,22 +298,37 @@ class StrategyEngine:
         correction_signal = None
         continuation_signal = None
 
-        if len(candles) >= 40 and trend_dir in ("long", "short"):
-            try:
-                sweep_signal = detect_liquidity_sweep(candles, trend_dir)
-                indication_signal = detect_indication(candles)
-                if indication_signal:
-                    correction_signal = detect_correction(candles, indication_signal)
-                continuation_signal = detect_continuation(
-                    candles, trend_dir,
-                    sweep_signal,
-                    indication_signal,
-                    correction_signal,
-                    require_indication=bool(indication_signal),
-                    require_correction=bool(correction_signal),
-                )
-            except Exception as e:
-                logger.debug(f"[ENGINE] ICC signal calc error for {self.symbol}: {e}")
+        if len(candles) >= 40:
+            # When trend_dir is neutral, probe BOTH directions for structure signals.
+            # ICC Core depends on sweep+correction or continuation — if these exist
+            # in either direction, the strategy decides whether to trade.
+            probe_dirs = [trend_dir] if trend_dir in ("long", "short") else ["long", "short"]
+            for probe_dir in probe_dirs:
+                try:
+                    _sweep = detect_liquidity_sweep(candles, probe_dir)
+                    _indication = detect_indication(candles)
+                    _correction = None
+                    if _indication:
+                        _correction = detect_correction(candles, _indication)
+                    _continuation = detect_continuation(
+                        candles, probe_dir,
+                        _sweep, _indication, _correction,
+                        require_indication=bool(_indication),
+                        require_correction=bool(_correction),
+                    )
+                    # Take the first direction that produces structure signals
+                    has_structure = (_sweep and _correction) or _continuation
+                    if has_structure or _sweep:
+                        sweep_signal = _sweep
+                        indication_signal = _indication
+                        correction_signal = _correction
+                        continuation_signal = _continuation
+                        # If trend was neutral, adopt the direction from the structure
+                        if trend_dir == "neutral" and has_structure:
+                            trend_dir = probe_dir
+                        break
+                except Exception as e:
+                    logger.debug(f"[ENGINE] ICC signal calc error for {self.symbol} ({probe_dir}): {e}")
 
         # Determine phase from signals
         phase = "range"
@@ -371,27 +387,40 @@ class StrategyEngine:
                 current_capital=current_capital, 
                 trade_history=history
             )
-            if exit_decision:
-                # [CHURN GUARD] Block non-emergency strategy exits for young positions.
-                # Prevents strategies from contradicting their own entry within 30-40s.
-                entry_time = open_position.get("entry_time")
-                position_age = None
-                if entry_time:
-                    if isinstance(entry_time, str):
-                        try:
-                            from datetime import datetime as dt
-                            entry_time = dt.fromisoformat(entry_time.replace("Z", "+00:00"))
-                        except (ValueError, TypeError, AttributeError):
-                            logger.debug(f"[ENGINE] Churn Guard: failed to parse entry_time '{entry_time}'")
-                    if isinstance(entry_time, datetime):
-                        now = datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.now(tz=ZoneInfo("UTC"))
-                        position_age = (now - entry_time).total_seconds()
+            # ── Calculate position age (shared by hold guard + safety guard) ──
+            entry_time = open_position.get("entry_time")
+            position_age = None
+            if entry_time:
+                if isinstance(entry_time, str):
+                    try:
+                        from datetime import datetime as dt
+                        entry_time = dt.fromisoformat(entry_time.replace("Z", "+00:00"))
+                    except (ValueError, TypeError, AttributeError):
+                        logger.debug(f"[ENGINE] Hold Guard: failed to parse entry_time '{entry_time}'")
+                if isinstance(entry_time, datetime):
+                    _now = current_bar_time or (datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.now(tz=ZoneInfo("UTC")))
+                    if _now.tzinfo is None:
+                        _now = _now.replace(tzinfo=ZoneInfo("UTC"))
+                    if entry_time.tzinfo is None:
+                        entry_time = entry_time.replace(tzinfo=ZoneInfo("UTC"))
+                    position_age = (_now - entry_time).total_seconds()
 
-                is_emergency = getattr(exit_decision, 'emergency_exit', False)
-                if position_age is not None and position_age < 120 and not is_emergency:
-                    logger.debug(
-                        f"[ENGINE] Churn Guard: {self.symbol} strategy exit blocked — "
-                        f"position age {position_age:.0f}s < 120s minimum"
+            # ── 1-HOUR HOLD GUARD ────────────────────────────────────────────
+            # Only SL/TP (emergency_exit) exits are allowed before 1 hour.
+            # Structure invalidation, HTF flip, regime-flip veto, and all
+            # other "smart" exits are blocked until the trade has had time
+            # to work.  This prevents the bot from panic-closing positions
+            # within minutes of entry — the #1 cause of the 3.8% win rate.
+            HOLD_GUARD_SECONDS = 3600  # 1 hour
+            position_is_young = (position_age is not None and position_age < HOLD_GUARD_SECONDS)
+
+            if exit_decision:
+                is_sl_tp = getattr(exit_decision, 'emergency_exit', False)
+                if position_is_young and not is_sl_tp:
+                    logger.info(
+                        f"[HOLD GUARD] {self.symbol} strategy exit BLOCKED — "
+                        f"age {position_age:.0f}s < {HOLD_GUARD_SECONDS}s "
+                        f"(only SL/TP allowed). Reason: {getattr(exit_decision, 'notes', 'N/A')[:80]}"
                     )
                 else:
                     exit_decision.score = score
@@ -401,23 +430,42 @@ class StrategyEngine:
                     return exit_decision
             
             # [SAFETY GUARD] Augment with Safety Exits (ATR Armor, Trailing) if Strategy is silent
-            safety_exit = SafetyGuard.augment_exit_decision(None, open_position, snapshot)
+            safety_exit = SafetyGuard.augment_exit_decision(
+                None, open_position, snapshot, sim_time=current_bar_time
+            )
             
             # [WEALTH MODE] Check for "The Runner" partial exit
             if safety_exit or exit_decision:
                 decision_to_check = exit_decision or safety_exit
                 performance_exit = SafetyGuard.handle_runner_exit(decision_to_check, open_position)
                 if performance_exit:
-                    performance_exit.score = score
-                    performance_exit.grade = grade
+                    # Apply hold guard to runner exits too
+                    is_runner_sl_tp = getattr(performance_exit, 'emergency_exit', False)
+                    if position_is_young and not is_runner_sl_tp:
+                        logger.info(
+                            f"[HOLD GUARD] {self.symbol} runner exit BLOCKED — "
+                            f"age {position_age:.0f}s < {HOLD_GUARD_SECONDS}s"
+                        )
+                    else:
+                        performance_exit.score = score
+                        performance_exit.grade = grade
 
-                    return performance_exit
+                        return performance_exit
             
             if safety_exit:
-                 safety_exit.score = score
-                 safety_exit.grade = grade
+                # Apply same 1-hour hold guard to safety exits
+                is_safety_sl_tp = getattr(safety_exit, 'emergency_exit', False)
+                if position_is_young and not is_safety_sl_tp:
+                    logger.info(
+                        f"[HOLD GUARD] {self.symbol} safety exit BLOCKED — "
+                        f"age {position_age:.0f}s < {HOLD_GUARD_SECONDS}s "
+                        f"(only SL/TP allowed). Reason: {getattr(safety_exit, 'notes', 'N/A')[:80]}"
+                    )
+                else:
+                    safety_exit.score = score
+                    safety_exit.grade = grade
 
-                 return safety_exit
+                    return safety_exit
 
             # [PYRAMID CHECK] Before applying the position lock, give the strategy
             # a chance to emit a scale_in/add_to_position if it sees a new setup

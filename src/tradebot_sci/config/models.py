@@ -1021,8 +1021,8 @@ class SafetySettings(BaseModel):
         description="Minimum position age (seconds) before Greedy Exit floor can trigger.",
     )
     safety_fee_rt_pct: float = Field(
-        default_factory=lambda: float(os.getenv("SAFETY_FEE_RT_PCT", "0.0004")),
-        description="Estimated round-trip fee as decimal (0.0004 = 0.04% OANDA spread). "
+        default_factory=lambda: float(os.getenv("SAFETY_FEE_RT_PCT", "0.003")),
+        description="Estimated round-trip fee as decimal (0.003 = 0.3% OANDA spread). "
                     "Override via env: Gemini ~0.008, IBKR ~0.002.",
     )
 
@@ -1345,21 +1345,16 @@ class UserConfig:
     def FRIDAY_FADE_ENABLED(self): return self._settings().runtime.friday_fade_enabled
     @property
     def STOP_ATR_MULTIPLIER(self) -> float:
-        env_val = os.getenv("STOP_ATR_MULTIPLIER")
-        if env_val is not None:
-            try:
-                return float(env_val)
-            except ValueError:
-                pass
+        # config.json globals are the SSOT; env vars intentionally NOT
+        # checked here to prevent stale values from overriding.
         s = self._settings()
         profile = s.profiles.get(s.app.profile_name)
         return getattr(profile, "stop_atr_multiplier", 1.5)
 
     @property
     def STABILITY_MODE_ACTIVE(self) -> bool:
-        env_val = os.getenv("SAFETY_STABILITY_MODE_ENABLED")
-        if env_val is not None:
-            return env_val.lower() == "true"
+        # config.json globals are the SSOT; env vars intentionally NOT
+        # checked here to prevent stale values from overriding.
         s = self._settings()
         profile = s.profiles.get(s.app.profile_name)
         return getattr(profile, "stability_mode_active", False)

@@ -202,12 +202,164 @@ def run_simulation(cartridge_name, strategy_override=None, symbol_override=None)
         print(f"Profit/Loss: ${results.total_pnl:.2f}")
         print(f"Return: {results.total_return_pct:.2f}%")
         print(f"Total Trades: {len(results.trades)}")
+        print(f"Max Drawdown: {results.max_drawdown_pct:.2f}%")
         
         if results.trades:
-            print("\nTrade History:")
+            # ── Summary Stats ──────────────────────────────────────
+            wins = [t for t in results.trades if t.pnl > 0]
+            losses = [t for t in results.trades if t.pnl <= 0]
+            total = len(results.trades)
+            win_rate = len(wins) / total * 100 if total else 0
+            avg_win = sum(t.pnl for t in wins) / len(wins) if wins else 0
+            avg_loss = sum(t.pnl for t in losses) / len(losses) if losses else 0
+            gross_profit = sum(t.pnl for t in wins)
+            gross_loss = abs(sum(t.pnl for t in losses))
+            profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+            expectancy = results.total_pnl / total if total else 0
+            
+            # Max consecutive losses
+            max_streak = 0
+            current_streak = 0
             for t in results.trades:
-                print(f"[{t.exit_time.strftime('%Y-%m-%d %H:%M')}] {t.symbol} {t.direction} {t.exit_reason}")
-                print(f"  PnL: ${t.pnl:.4f} | Size: {t.size:.4f}")
+                if t.pnl <= 0:
+                    current_streak += 1
+                    max_streak = max(max_streak, current_streak)
+                else:
+                    current_streak = 0
+            
+            # Duration stats
+            durations = [(t.exit_time - t.entry_time).total_seconds() for t in results.trades]
+            avg_hold_min = sum(durations) / len(durations) / 60 if durations else 0
+            
+            print(f"\n┌─────────────────────────────────────────┐")
+            print(f"│          PERFORMANCE SUMMARY             │")
+            print(f"├─────────────────────────────────────────┤")
+            print(f"│ Win Rate:        {win_rate:6.1f}%                │")
+            print(f"│ Profit Factor:   {profit_factor:6.2f}                 │")
+            print(f"│ Expectancy:     ${expectancy:7.2f}/trade           │")
+            print(f"│ Avg Win:        ${avg_win:7.2f}                  │")
+            print(f"│ Avg Loss:       ${avg_loss:7.2f}                  │")
+            print(f"│ Max Consec Loss: {max_streak:3d}                    │")
+            print(f"│ Avg Hold:        {avg_hold_min:6.1f} min              │")
+            print(f"│ Max Drawdown:    {results.max_drawdown_pct:5.1f}%                │")
+            print(f"└─────────────────────────────────────────┘")
+            
+            # ── Exit Reason Breakdown ──────────────────────────────
+            from collections import defaultdict
+            exit_counts = defaultdict(lambda: {"count": 0, "pnl": 0.0, "wins": 0})
+            for t in results.trades:
+                reason = t.exit_reason[:60] if t.exit_reason else "unknown"
+                exit_counts[reason]["count"] += 1
+                exit_counts[reason]["pnl"] += t.pnl
+                if t.pnl > 0:
+                    exit_counts[reason]["wins"] += 1
+            
+            print(f"\n{'Exit Reason':<35} {'Count':>5}  {'Win%':>5}  {'Net P&L':>10}")
+            print("─" * 62)
+            for reason, stats in sorted(exit_counts.items(), key=lambda x: -x[1]["count"]):
+                wr = stats["wins"] / stats["count"] * 100 if stats["count"] else 0
+                print(f"  {reason:<33} {stats['count']:>5}  {wr:>4.0f}%  ${stats['pnl']:>9.2f}")
+            
+            # ── Strategy Breakdown ─────────────────────────────────
+            strat_counts = defaultdict(lambda: {"count": 0, "pnl": 0.0, "wins": 0})
+            for t in results.trades:
+                sn = getattr(t, 'strategy_name', 'unknown')
+                strat_counts[sn]["count"] += 1
+                strat_counts[sn]["pnl"] += t.pnl
+                if t.pnl > 0:
+                    strat_counts[sn]["wins"] += 1
+            
+            print(f"\n{'Strategy':<30} {'Count':>5}  {'Win%':>5}  {'Net P&L':>10}")
+            print("─" * 57)
+            for sn, stats in sorted(strat_counts.items(), key=lambda x: -x[1]["count"]):
+                wr = stats["wins"] / stats["count"] * 100 if stats["count"] else 0
+                print(f"  {sn:<28} {stats['count']:>5}  {wr:>4.0f}%  ${stats['pnl']:>9.2f}")
+            
+            # ── Symbol Breakdown ───────────────────────────────────
+            sym_counts = defaultdict(lambda: {"count": 0, "pnl": 0.0, "wins": 0})
+            for t in results.trades:
+                sym_counts[t.symbol]["count"] += 1
+                sym_counts[t.symbol]["pnl"] += t.pnl
+                if t.pnl > 0:
+                    sym_counts[t.symbol]["wins"] += 1
+            
+            print(f"\n{'Symbol':<15} {'Count':>5}  {'Win%':>5}  {'Net P&L':>10}")
+            print("─" * 42)
+            for sym, stats in sorted(sym_counts.items(), key=lambda x: -x[1]["pnl"]):
+                wr = stats["wins"] / stats["count"] * 100 if stats["count"] else 0
+                print(f"  {sym:<13} {stats['count']:>5}  {wr:>4.0f}%  ${stats['pnl']:>9.2f}")
+            
+            # ── Duration Buckets ───────────────────────────────────
+            buckets = {"<5m": [], "5-15m": [], "15-60m": [], "1-4h": [], "4h+": []}
+            for t in results.trades:
+                dur = (t.exit_time - t.entry_time).total_seconds()
+                if dur < 300: buckets["<5m"].append(t.pnl)
+                elif dur < 900: buckets["5-15m"].append(t.pnl)
+                elif dur < 3600: buckets["15-60m"].append(t.pnl)
+                elif dur < 14400: buckets["1-4h"].append(t.pnl)
+                else: buckets["4h+"].append(t.pnl)
+            
+            print(f"\n{'Duration':<12} {'Trades':>6}  {'Win%':>5}  {'Net P&L':>10}")
+            print("─" * 40)
+            for bucket, pnls in buckets.items():
+                if not pnls: continue
+                w = sum(1 for p in pnls if p > 0)
+                wr = w / len(pnls) * 100
+                net = sum(pnls)
+                print(f"  {bucket:<10} {len(pnls):>6}  {wr:>4.0f}%  ${net:>9.2f}")
+            
+            # ── Trade History (last 20) ────────────────────────────
+            print(f"\nTrade History (last 20 of {len(results.trades)}):")
+            for t in results.trades[-20:]:
+                dur_min = (t.exit_time - t.entry_time).total_seconds() / 60
+                sn = getattr(t, 'strategy_name', '?')
+                print(
+                    f"  [{t.exit_time.strftime('%Y-%m-%d %H:%M')}] {t.symbol:>8s} "
+                    f"{t.direction:>5s} {t.exit_reason[:30]:<30s} "
+                    f"PnL=${t.pnl:>8.4f}  Hold={dur_min:>6.1f}m  Strat={sn}"
+                )
+            
+            # ── JSON Ledger Export ─────────────────────────────────
+            import json
+            ledger = []
+            for t in results.trades:
+                dur = (t.exit_time - t.entry_time).total_seconds()
+                ledger.append({
+                    "symbol": t.symbol,
+                    "direction": t.direction,
+                    "entry_price": round(t.entry_price, 6),
+                    "exit_price": round(t.exit_price, 6),
+                    "size": round(t.size, 6),
+                    "entry_time": t.entry_time.isoformat(),
+                    "exit_time": t.exit_time.isoformat(),
+                    "duration_seconds": round(dur),
+                    "pnl_usd": round(t.pnl, 4),
+                    "exit_reason": t.exit_reason,
+                    "strategy_name": getattr(t, 'strategy_name', 'unknown'),
+                    "is_win": t.pnl > 0,
+                })
+            
+            ledger_dir = os.path.join(os.path.dirname(__file__), "../data")
+            os.makedirs(ledger_dir, exist_ok=True)
+            ledger_path = os.path.join(ledger_dir, "backtest_ledger.json")
+            with open(ledger_path, "w") as f:
+                json.dump({
+                    "cartridge": cartridge_name,
+                    "strategy": config.get("profile_settings", {}).strategy_variant if hasattr(config.get("profile_settings", {}), "strategy_variant") else "unknown",
+                    "period": f"{config['start_date'].date()} to {config['end_date'].date()}",
+                    "initial_capital": initial_capital,
+                    "final_capital": round(results.final_capital, 2),
+                    "total_pnl": round(results.total_pnl, 2),
+                    "total_return_pct": round(results.total_return_pct, 2),
+                    "win_rate": round(win_rate, 1),
+                    "profit_factor": round(profit_factor, 2) if profit_factor != float('inf') else "inf",
+                    "expectancy": round(expectancy, 4),
+                    "max_drawdown_pct": round(results.max_drawdown_pct, 2),
+                    "max_consecutive_losses": max_streak,
+                    "total_trades": total,
+                    "trades": ledger,
+                }, f, indent=2, default=str)
+            print(f"\n📊 Ledger written to: {os.path.abspath(ledger_path)}")
 
     except Exception as e:
         print(f"\n[CRITICAL FAILURE] Engine Crashed: {e}")

@@ -50,6 +50,9 @@ class MetaSCIStrategy(BaseStrategy):
         # but we'll load them on first need or cache them.
         self.strategies: Dict[str, BaseStrategy] = {}
         self._initialized = False
+        # [JUDGE] Track consecutive losses per strategy per symbol
+        # Key: (symbol, strategy_name) -> int (consecutive loss count)
+        self._loss_streaks: Dict[str, int] = {}
 
     def score_signal(self, snapshot: MarketSnapshot, gates: dict):
         """
@@ -76,7 +79,8 @@ class MetaSCIStrategy(BaseStrategy):
                 continue
             try:
                 s_score, s_grade, s_summary = strat.score_signal(snapshot, gates)
-                weight_bonus = self.STRATEGY_WEIGHTS.get(name, 0)
+                weights = self._get_weights(snapshot.symbol)
+                weight_bonus = weights.get(name, 0)
                 effective = s_score + weight_bonus
                 results.append((name, s_score, s_grade, effective))
                 logger.info(
@@ -108,7 +112,6 @@ class MetaSCIStrategy(BaseStrategy):
         if self._initialized: return
         
         # Registry of all eligible contenders
-        # To add a new strategy: import it here and add to self.strategies below
         from tradebot_sci.strategy.variants.supply_demand import SupplyDemandStrategy
         from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
         from tradebot_sci.strategy.variants.rubberband_reaper import RubberbandReaperStrategy
@@ -116,13 +119,14 @@ class MetaSCIStrategy(BaseStrategy):
         from tradebot_sci.strategy.variants.orb_breakout import ORBStrategy
         from tradebot_sci.strategy.variants.hyper_scalper import HyperScalperStrategy
         from tradebot_sci.strategy.variants.robocop import RoboCopStrategy
-        # [AUDIT] New market-condition-aware strategies
         from tradebot_sci.strategy.variants.trend_rider import TrendRiderStrategy
         from tradebot_sci.strategy.variants.session_momentum import SessionMomentumStrategy
         from tradebot_sci.strategy.variants.bearish_engulfing import BearishEngulfingStrategy
-        # [ROUND 4] Previously excluded profitable strategies
         from tradebot_sci.strategy.variants.quantum import QuantumStrategy
         from tradebot_sci.strategy.variants.mean_reversion import MeanReversionStrategy
+        # [PHASE 7] Previously missing — these are proven forex winners
+        from tradebot_sci.strategy.variants.breakout import VolatilityBreakoutStrategy
+        from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
         # [CRYPTO SUITE] Crypto-specific strategies
         from tradebot_sci.strategy.variants.crypto_rsi_macd import CryptoRSIMACDStrategy
         from tradebot_sci.strategy.variants.crypto_vwap_reversion import CryptoVWAPReversionStrategy
@@ -136,11 +140,13 @@ class MetaSCIStrategy(BaseStrategy):
             "hyper_scalper": HyperScalperStrategy(),
             "trend_rider": TrendRiderStrategy(),
             "quantum": QuantumStrategy(),
+            "volatility_breakout": VolatilityBreakoutStrategy(),  # [PHASE 7] Was missing!
             # --- Ranging / Reversal Market ---
             "rubberband_reaper": RubberbandReaperStrategy(),
             "icc_core": ICCCoreStrategy(),
             "bearish_engulfing": BearishEngulfingStrategy(),
             "mean_reversion": MeanReversionStrategy(),
+            "evolution": RobotEvolutionStrategy(),                     # [PHASE 7] Was missing!
             # --- Session Open ---
             "london_breakout": LondonBreakoutStrategy(),
             "orb_breakout": ORBStrategy(),
@@ -164,17 +170,29 @@ class MetaSCIStrategy(BaseStrategy):
             for strat in self.strategies.values():
                 strat.profile_risk_pct = float(risk_pct)
 
-        # Regime groupings for tournament filtering
-        # Directional regimes: bearish engulfing competes in bearish trends
-        # Trend-agnostic strategies (S&D, Quantum, etc.) appear in both directions
+        # [PHASE 7] Regime groupings — each strategy competes in its
+        # natural regime. Proven winners are placed in multiple regimes
+        # where they can fire (but session-restricted strategies stay
+        # in session_open only to avoid silent tournament entries).
         self.REGIME_GROUPS = {
-            "bearish_trending": ["supply_demand", "robocop", "hyper_scalper", "trend_rider", "quantum", "bearish_engulfing"],
-            "bullish_trending": ["supply_demand", "robocop", "hyper_scalper", "trend_rider", "quantum", "bearish_engulfing"],
-            "ranging": ["rubberband_reaper", "icc_core", "bearish_engulfing", "mean_reversion"],
-            "session_open": ["london_breakout", "orb_breakout", "session_momentum", "bearish_engulfing"],
-            # [2026-02-21] All strategies now eligible for crypto — trend indicators
-            # are fully implemented, removing the original reason for restriction.
-            # Crypto-specific strategies (crypto_rsi_macd, etc.) are also included.
+            "bearish_trending": [
+                "supply_demand", "robocop", "hyper_scalper", "trend_rider",
+                "quantum", "bearish_engulfing",
+                "volatility_breakout", "icc_core", "evolution",  # [PHASE 7] winners
+            ],
+            "bullish_trending": [
+                "supply_demand", "robocop", "hyper_scalper", "trend_rider",
+                "quantum", "bearish_engulfing",
+                "volatility_breakout", "icc_core", "evolution",  # [PHASE 7] winners
+            ],
+            "ranging": [
+                "rubberband_reaper", "icc_core", "bearish_engulfing",
+                "mean_reversion", "hyper_scalper", "evolution",   # [PHASE 7] winners
+            ],
+            "session_open": [
+                "london_breakout", "orb_breakout", "session_momentum",
+                "bearish_engulfing", "volatility_breakout",       # [PHASE 7] breakout
+            ],
             "crypto_trending": [
                 "supply_demand", "robocop", "hyper_scalper", "trend_rider", "quantum",
                 "rubberband_reaper", "icc_core", "bearish_engulfing", "mean_reversion",
@@ -187,15 +205,157 @@ class MetaSCIStrategy(BaseStrategy):
             ],
         }
 
-        # [ROUND 4] Tournament score weights — proven performers get a bonus
-        self.STRATEGY_WEIGHTS = {
-            "bearish_engulfing": 15,  # Proven dominant — gets priority in bearish + ranging
-            "supply_demand": 5,       # Solid +30.52% on 14-day
-            "quantum": 5,             # Good +24.87% on 14-day
-            "mean_reversion": 10,     # Crypto H2H champion: +75.3% over 7 days
+        # [PHASE 7] Asset-aware tournament weights based on 14-day audits
+        # FOREX weights: boost PROVEN forex winners from audit (2026-02-23)
+        self.FOREX_WEIGHTS = {
+            "london_breakout": 20,       # A-rated: +$254, 67% WR
+            "volatility_breakout": 15,   # A-rated: +$122, 34% WR
+            "hyper_scalper": 12,         # B-rated: +$104, 44% WR
+            "icc_core": 10,              # B-rated: +$78, 55% WR
+            "orb_breakout": 8,           # B-rated: +$33, 33% WR
         }
+        # CRYPTO weights: keep old weights (legacy, for when crypto is re-enabled)
+        self.CRYPTO_WEIGHTS = {
+            "bearish_engulfing": 15,
+            "supply_demand": 5,
+            "quantum": 5,
+            "mean_reversion": 10,
+        }
+        # Default fallback
+        self.STRATEGY_WEIGHTS = self.FOREX_WEIGHTS
 
         self._initialized = True
+
+    def _get_weights(self, symbol: str) -> dict:
+        """Return asset-class-aware tournament weights for the given symbol."""
+        from tradebot_sci.market.symbols import is_crypto
+        if is_crypto(symbol):
+            return self.CRYPTO_WEIGHTS
+        return self.FOREX_WEIGHTS
+
+    # ══════════════════════════════════════════════════════════════════
+    #  THE JUDGE — Asset-Aware Tournament Scoring
+    # ══════════════════════════════════════════════════════════════════
+    #
+    #  The Judge guarantees proven winners always dominate tournaments:
+    #
+    #  1. PROVEN WINNER boost: 10× score if strategy is a known winner
+    #     for this asset class (from backtested audit data).
+    #
+    #  2. SESSION WINDOW boost: 10× score if strategy is in its optimal
+    #     session window (e.g., London open for london_breakout).
+    #
+    #  3. These STACK: a proven winner in session = 100× score.
+    #
+    #  4. LOSS STREAK penalty: consecutive losses halve the boost each
+    #     time. 2 losses = 25% boost. 3+ losses = boost revoked.
+    #
+    # ══════════════════════════════════════════════════════════════════
+
+    # Proven winners per asset class — from 14-day audited backtests
+    FOREX_PROVEN_WINNERS = {
+        "london_breakout",      # A-rated: +$254, 67% WR
+        "volatility_breakout",  # A-rated: +$122, 34% WR
+        "hyper_scalper",        # B-rated: +$104, 44% WR
+        "icc_core",             # B-rated: +$78, 55% WR
+        "orb_breakout",         # B-rated: +$33, 33% WR
+    }
+
+    CRYPTO_PROVEN_WINNERS = set()  # None profitable yet
+
+    # Session windows: when each strategy is allowed to compete
+    # Format: {strategy_name: [(start_utc_hour, end_utc_hour), ...]}
+    # Strategies NOT listed here and NOT in ALL_AROUND_HITTERS cannot fire.
+    SESSION_WINDOWS = {
+        "london_breakout": [(8, 12)],          # London session: 08:00-12:00 UTC
+        "orb_breakout": [(13, 16)],             # US open: ~09:00-11:00 ET = 13:00-16:00 UTC
+        "volatility_breakout": [(0, 8)],        # Asian session: 00:00-08:00 UTC
+    }
+
+    # All-around hitters: can fire ANY time of day
+    ALL_AROUND_HITTERS = {
+        "icc_core",        # ICT methodology works in any session
+        "hyper_scalper",   # EMA scalps work anytime
+    }
+
+    def _is_in_session_window(self, strategy_name: str, snapshot) -> bool:
+        """Check if the strategy is currently in its optimal session window."""
+        # All-around hitters are ALWAYS in session
+        if strategy_name in self.ALL_AROUND_HITTERS:
+            return True
+
+        windows = self.SESSION_WINDOWS.get(strategy_name)
+        if not windows:
+            return False
+
+        if not snapshot.candles:
+            return False
+
+        from zoneinfo import ZoneInfo
+        ts = snapshot.candles[-1].timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=ZoneInfo("UTC"))
+        utc_hour = ts.astimezone(ZoneInfo("UTC")).hour
+
+        for start_h, end_h in windows:
+            if start_h <= utc_hour < end_h:
+                return True
+        return False
+
+    def _is_proven_winner(self, strategy_name: str, symbol: str) -> bool:
+        """Check if this strategy is a proven winner for the symbol's asset class."""
+        from tradebot_sci.market.symbols import is_crypto
+        if is_crypto(symbol):
+            return strategy_name in self.CRYPTO_PROVEN_WINNERS
+        return strategy_name in self.FOREX_PROVEN_WINNERS
+
+    def _get_loss_streak(self, symbol: str, strategy_name: str) -> int:
+        """Get the current consecutive loss count for a strategy on a symbol."""
+        key = f"{symbol}:{strategy_name}"
+        return self._loss_streaks.get(key, 0)
+
+    def _record_trade_result(self, symbol: str, strategy_name: str, is_win: bool):
+        """Update loss streak tracker after a trade completes."""
+        key = f"{symbol}:{strategy_name}"
+        if is_win:
+            self._loss_streaks[key] = 0  # Reset on win
+        else:
+            self._loss_streaks[key] = self._loss_streaks.get(key, 0) + 1
+
+    def _judge_boost(self, strategy_name: str, symbol: str, snapshot) -> float:
+        """
+        The Judge: calculate the tournament score multiplier.
+
+        Returns a multiplier (1.0 = no boost, 10.0 = proven winner,
+        100.0 = proven winner + in session, etc.)
+
+        Loss streaks reduce the boost:
+          0 losses: full boost
+          1 loss: 50% boost
+          2 losses: 25% boost
+          3+ losses: boost revoked (1.0 multiplier)
+        """
+        multiplier = 1.0
+
+        is_winner = self._is_proven_winner(strategy_name, symbol)
+        in_session = self._is_in_session_window(strategy_name, snapshot)
+
+        if is_winner:
+            multiplier *= 10.0
+        if in_session:
+            multiplier *= 10.0
+
+        # Apply loss streak penalty
+        if multiplier > 1.0:
+            losses = self._get_loss_streak(symbol, strategy_name)
+            if losses >= 3:
+                multiplier = 1.0  # Boost fully revoked
+            elif losses == 2:
+                multiplier *= 0.25  # 75% reduction
+            elif losses == 1:
+                multiplier *= 0.50  # 50% reduction
+
+        return multiplier
 
     def _detect_regime(self, snapshot: MarketSnapshot, gates: dict) -> str:
         """
@@ -271,7 +431,29 @@ class MetaSCIStrategy(BaseStrategy):
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
         self._ensure_strategies_loaded()
 
-        # ── Trend Direction Reference ─────────────────────────────────────
+        # ── [JUDGE] Derive loss streaks from trade history ──────────────
+        # Scan recent Meta-SCI trades to track consecutive losses per
+        # sub-strategy. This powers the Judge's loss streak penalty.
+        if trade_history:
+            # Group recent trades by (symbol, meta_source)
+            for t in reversed(trade_history[-50:]):  # Last 50 trades max
+                sym = t.get('symbol', '')
+                source = t.get('meta_source') or t.get('strategy_used', '')
+                if not source or source not in self.strategies:
+                    continue
+                pnl = t.get('pnl_realized', 0)
+                key = f"{sym}:{source}"
+                if key not in self._loss_streaks:
+                    # First time seeing this combo — count backward
+                    streak = 0
+                    for t2 in reversed(trade_history):
+                        s2 = t2.get('meta_source') or t2.get('strategy_used', '')
+                        if t2.get('symbol') == sym and s2 == source:
+                            if t2.get('pnl_realized', 0) <= 0:
+                                streak += 1
+                            else:
+                                break  # Win found, stop counting
+                    self._loss_streaks[key] = streak        # ── Trend Direction Reference ─────────────────────────────────────
         # Strategies use gates["htf_dir"] to orient their trade direction.
         # htf_dir = str(gates.get("htf_dir", "neutral")).lower()
 
@@ -308,6 +490,12 @@ class MetaSCIStrategy(BaseStrategy):
             if name == champion_name: continue # Already checked
             if name in exclude_list: continue
             if name not in eligible_names: continue  # [AUDIT] Regime filter
+            # [JUDGE] Gatekeeper: on forex, only proven winners may compete,
+            # AND only during their assigned session window.
+            if not self._is_proven_winner(name, snapshot.symbol):
+                continue
+            if not self._is_in_session_window(name, snapshot):
+                continue  # Not this strategy's time to shine
             
             try:
                 # Multi-Timeframe Routing
@@ -396,18 +584,35 @@ class MetaSCIStrategy(BaseStrategy):
             reason = f"Meta-SCI [{regime}] {champ_part}{len(rejects)} rejected{crash_part} | {breakdown}"
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, reason)
 
-        # 3. Pick Winner
-        # Logic: Highest Score + Grade Bonus + Strategy Weight -> Most Conviction
+        # 3. Pick Winner — THE JUDGE decides
+        #    Score = (base_score + grade_bonus) × judge_boost
+        #    Judge boost = 10× proven winner × 10× session window
+        #    Loss streaks reduce the boost (see _judge_boost)
         def _tournament_score(sig):
             base = sig.score or 0
             grade_bonus = 10 if sig.grade == 'A' else 0
-            weight_bonus = self.STRATEGY_WEIGHTS.get(sig.gates.get("meta_source", ""), 0)
-            return base + grade_bonus + weight_bonus
+            raw = base + grade_bonus
+            name = sig.gates.get("meta_source", "")
+            boost = self._judge_boost(name, snapshot.symbol, snapshot)
+            final = raw * boost
+            if boost > 1.0:
+                losses = self._get_loss_streak(snapshot.symbol, name)
+                logger.info(
+                    f"[JUDGE] {snapshot.symbol} {name.upper()}: "
+                    f"raw={raw:.0f} × boost={boost:.0f}× = {final:.0f} "
+                    f"(losses={losses})"
+                )
+            return final
         
         winner = max(signals, key=_tournament_score)
         
-        winner.notes = (winner.notes or "") + f" | [META] 🏆 Tournament Winner: {winner.gates['meta_source'].upper()}"
-        logger.info(f"[META-SCI] Tournament Won by {winner.gates['meta_source'].upper()} (Score: {winner.score})")
+        winner_name = winner.gates['meta_source']
+        winner_boost = self._judge_boost(winner_name, snapshot.symbol, snapshot)
+        winner.notes = (winner.notes or "") + (
+            f" | [META] 🏆 Tournament Winner: {winner_name.upper()}"
+            f" (Judge: {winner_boost:.0f}×)"
+        )
+        logger.info(f"[META-SCI] Tournament Won by {winner_name.upper()} (Score: {winner.score}, Judge: {winner_boost:.0f}×)")
         
         return winner
 

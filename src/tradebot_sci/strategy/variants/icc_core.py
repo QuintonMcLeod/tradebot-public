@@ -1,3 +1,13 @@
+"""ICC Core Strategy — True ICT Entry Model.
+
+Entry Logic (ICT methodology):
+    1. Determine bias from HTF trend direction (from engine gates)
+    2. Detect liquidity sweep (wick beyond swing level, close back)
+    3. Confirm displacement (3+ momentum candles in sweep direction)
+    4. Enter on pullback to OTE zone (50-78.6% of displacement)
+
+This is the vanilla, unmodified Trade By Sci ICC methodology.
+"""
 from __future__ import annotations
 import logging
 from typing import Optional
@@ -5,23 +15,86 @@ from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.strategy.decisions import AITradeDecision, close_position_decision
 from tradebot_sci.strategy.variants.base import BaseStrategy
 from tradebot_sci.strategy.icc_signals import calculate_atr, detect_structure_invalidation
-from tradebot_sci.config.models import UserConfig
 
 logger = logging.getLogger(__name__)
 
 
+def _detect_displacement(candles, direction: str, atr: float, min_candles: int = 2) -> bool:
+    """Detect displacement: consecutive momentum candles in the given direction.
+    
+    ICT displacement = strong impulsive move with large-body candles.
+    We check the last few candles for consecutive bodies > 0.5x ATR
+    in the same direction.
+    """
+    if len(candles) < min_candles + 1:
+        return False
+    
+    recent = candles[-(min_candles + 1):]
+    count = 0
+    for c in recent:
+        body = c.close - c.open
+        if direction == "long" and body > atr * 0.5:
+            count += 1
+        elif direction == "short" and body < -atr * 0.5:
+            count += 1
+    
+    return count >= min_candles
+
+
+def _detect_fvg(candles, direction: str) -> Optional[tuple]:
+    """Detect Fair Value Gap (FVG) in the last few candles.
+    
+    Long FVG: Candle[i-2].high < Candle[i].low (gap up, middle candle's range doesn't fill)
+    Short FVG: Candle[i-2].low > Candle[i].high (gap down)
+    
+    Returns (fvg_top, fvg_bottom) or None.
+    """
+    if len(candles) < 3:
+        return None
+    
+    c0 = candles[-3]  # First candle
+    c2 = candles[-1]  # Third candle
+    
+    if direction == "long":
+        if c2.low > c0.high:
+            return (c2.low, c0.high)  # FVG zone
+    elif direction == "short":
+        if c2.high < c0.low:
+            return (c0.low, c2.high)  # FVG zone
+    
+    return None
+
+
+def _in_ote_zone(price: float, swing_high: float, swing_low: float, direction: str) -> bool:
+    """Check if price is in the Optimal Trade Entry zone (50-78.6% retracement)."""
+    move = swing_high - swing_low
+    if move <= 0:
+        return False
+    
+    if direction == "long":
+        # Long OTE: price pulls back to 50-78.6% of the up-move
+        ote_top = swing_high - (move * 0.50)    # 50% retrace
+        ote_bot = swing_high - (move * 0.786)   # 78.6% retrace
+        return ote_bot <= price <= ote_top
+    else:
+        # Short OTE: price pulls back to 50-78.6% of the down-move
+        ote_bot = swing_low + (move * 0.50)     # 50% retrace
+        ote_top = swing_low + (move * 0.786)    # 78.6% retrace
+        return ote_bot <= price <= ote_top
+
+
 class ICCCoreStrategy(BaseStrategy):
     """
-    ICC Core Strategy (Vanilla).
+    ICC Core Strategy — True ICT Entry Model.
     
-    The pure, unmodified Trade By Sci Internal Capital Cycle methodology.
+    Uses the actual ICT methodology:
+    - HTF bias (from trend detection)
+    - Liquidity sweep detection
+    - Displacement confirmation
+    - Entry on pullback to OTE/FVG zone
     
-    Rules:
-    - HTF Alignment: Mandatory (unless HTF neutral and LTF has structure).
-    - Entry: Requires confirmation (Sweep + Indication OR Continuation).
-    - Scoring: Must meet strict ICC Score threshold.
-    - No "Rubberband" mean reversion.
-    - No "RoboCop" bypasses.
+    This replaces the broken sweep→indication→correction chain
+    with the real ICT entry model.
     """
 
     def __init__(self):
@@ -36,120 +109,142 @@ class ICCCoreStrategy(BaseStrategy):
         trade_history: Optional[list] = None
     ) -> Optional[AITradeDecision]:
         
-        # Score is informational — ICC Core trusts the structure (sweep+correction
-        # or continuation) as the entry thesis.  The score is logged below for
-        # observability but does NOT gate entry decisions.
-
-        # 2. Check Structure Signals (Calculated by Engine)
-        score = gates.get("score", 0)
-        sweep = gates.get("sweep", False)
-        continuation = gates.get("continuation", False)
-        indication = gates.get("indication", False)
-        correction = gates.get("correction", False)
-        htf_align = gates.get("htf_align", False)
+        candles = snapshot.candles or []
+        if len(candles) < 40:
+            return None
+            
+        # 1. Get bias from HTF direction (from engine trend detection)
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
         phase = gates.get("phase", "neutral")
-
-        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
-        htf_dir_gate = str(gates.get("htf_dir", "neutral")).lower()
+        
+        # Determine trading bias — prefer HTF, fallback to LTF
+        bias = htf_dir if htf_dir in ("long", "short") else ltf_dir
+        
+        last_close = candles[-1].close
+        atr = calculate_atr(candles, period=14) or (last_close * 0.005)
         
         logger.debug(
-            f"[ICC-CORE] {snapshot.symbol} gates: "
-            f"htf_align={htf_align} phase={phase} sweep={sweep} "
-            f"continuation={continuation} indication={indication} "
-            f"correction={correction} score={score:.1f}"
+            f"[ICC-CORE] {snapshot.symbol} bias={bias} htf={htf_dir} "
+            f"ltf={ltf_dir} phase={phase} atr={atr:.5f}"
         )
         
-        # 3. Check Alignment
-        # [FIX] Structure signals (sweep+correction, continuation) ARE the entry thesis.
-        # If we have confirmed structure, we don't need strict HTF alignment —
-        # the sweep+correction itself proves the setup exists regardless of 5m trend reading.
-        # HTF alignment only gatekeeps when we have NO structure signals.
-        has_structure = (sweep and correction) or continuation
-        
-        if not htf_align and not has_structure:
-            return None
-            
-        # 4. Filter Chop — only block if we have NO confirmed structure
-        if phase == "chop" and not has_structure:
+        # 2. Need a directional bias to trade
+        if bias not in ("long", "short"):
             return None
 
-        # 5. Define Entry Logic
-        action = None
-        bias = None
-        
-        # [USER CORRECTION] "Sweep IS Indication" -> Correction -> Entry
-        # We don't need a formal "Continuation" signal if we have the Reversal Sequence.
-        
-        # Case A: Sweep + Correction (The "Core" Reversal)
-        # If we have a Sweep AND a verified Correction, we enter.
-        # Note: 'correction' implies 'indication' existed (as prereq in Engine).
-        if sweep and correction:
-            # Determine direction from the Sweep
-            sweep_dir = gates.get("sweep_dir") # "long" (swept lows) or "short" (swept highs)
-            
-            # Verify correction direction aligns
-            # Correction direction is usually "long" (retesting low) or "short" (retesting high)
-            # Actually, check signals.py: correction.direction is "long" (expected move AFTER correction)
-            # So if sweep_dir == "long", correction_dir should optionally be checked?
-            # Let's trust sweep_dir.
-            
-            if sweep_dir == "long":
-                action = "enter_long"
-                bias = "long"
-            elif sweep_dir == "short":
-                action = "enter_short"
-                bias = "short"
-                
-        # Case B: Continuation (Trend Following without a fresh Sweep?)
-        # Only if we didn't already trigger on A.
-        elif continuation:
-            cont_dir = gates.get("continuation_dir")
-            if cont_dir == "long":
-                action = "enter_long" # Override if duplicate
-                bias = "long"
-            elif cont_dir == "short":
-                action = "enter_short"
-                bias = "short"
-                
-        if not action:
-            return None
+        # ── Pyramid Logic (BEFORE full entry check) ──────────────────
+        # Pyramids don't need the full ICT setup — winners hit target
+        # in 1-2h (4-10 bars). Just need: in profit + momentum continuing.
+        if open_position and abs(open_position.get("size", 0.0)) > 0:
+            pos_dir = open_position.get("direction") or open_position.get("side")
+            pos_pnl = float(open_position.get("unrealized_pnl") or 0.0)
+            pyramid_count = open_position.get("pyramid_count", 0)
+            entry_price = float(open_position.get("entry_price") or last_close)
 
-        # [TREND GUIDANCE] If HTF direction is clear, only enter with-trend
-        if htf_dir_gate == "long" and action == "enter_short":
+            # Use profile setting for max pyramids
+            max_pyramid = 3
+            if "profile" in gates and gates["profile"]:
+                max_pyramid = getattr(gates["profile"], "max_pyramid_entries", 3)
+
+            # Minimum R-multiple gate: only pyramid when >= 0.5R in profit
+            stop_price = float(open_position.get("stop_price") or open_position.get("stop_loss") or 0)
+            initial_risk = abs(entry_price - stop_price) * float(open_position.get("size", 1)) if stop_price else 0
+            r_multiple = pos_pnl / initial_risk if initial_risk > 0 else 0
+
+            # Continuation check: last candle still moving in direction
+            last_candle = candles[-1]
+            candle_body = last_candle.close - last_candle.open
+            momentum_ok = (
+                (bias == "long" and candle_body > 0) or
+                (bias == "short" and candle_body < 0)
+            )
+
+            # Same direction + 0.5R profit + momentum + under cap
+            if pos_dir == bias and r_multiple >= 0.5 and momentum_ok and pyramid_count < max_pyramid:
+                # Move stop to breakeven on pyramid to protect original risk
+                if bias == "long":
+                    stop_loss_pyramid = max(entry_price, last_close - (atr * 1.5))
+                    take_profit = last_close + (abs(last_close - stop_loss_pyramid) * 2.5)
+                else:
+                    stop_loss_pyramid = min(entry_price, last_close + (atr * 1.5))
+                    take_profit = last_close - (abs(stop_loss_pyramid - last_close) * 2.5)
+
+                logger.info(
+                    f"[ICC-CORE] PYRAMID #{pyramid_count+1}: {snapshot.symbol} scale_in "
+                    f"R={r_multiple:.2f} pnl=${pos_pnl:.2f} momentum={'✅' if momentum_ok else '❌'}"
+                )
+
+                return AITradeDecision(
+                    symbol=snapshot.symbol,
+                    timeframe=snapshot.timeframe,
+                    action="scale_in",
+                    bias=bias,
+                    entry_price=last_close,
+                    stop_loss=stop_loss_pyramid,
+                    take_profit=take_profit,
+                    risk_per_trade_pct=self.get_risk_pct(),
+                    phase=phase,
+                    structure_summary=f"ICC Core PYRAMID #{pyramid_count+1} (continuation, ATR={atr:.5f})",
+                    invalidation_conditions=f"Close beyond SL at {stop_loss_pyramid:.5f}",
+                    management_instructions=f"Pyramid {pyramid_count+1}/{max_pyramid}. Stop at breakeven.",
+                    urgency="medium",
+                    notes=f"ICT Pyramid: continuation (pnl=${pos_pnl:.2f})"
+                )
+            elif open_position:
+                # Position exists but wrong direction, losing, or maxed out
+                return None
+
+        # 3. Check for displacement (momentum confirmation)
+        has_displacement = _detect_displacement(candles, bias, atr, min_candles=2)
+        if not has_displacement:
             return None
-        if htf_dir_gate == "short" and action == "enter_long":
+            
+        # 4. Check if price is in OTE zone (pullback entry)
+        # Find recent swing high and swing low for the displacement move
+        lookback = min(20, len(candles) - 1)
+        recent = candles[-lookback:]
+        swing_high = max(c.high for c in recent)
+        swing_low = min(c.low for c in recent)
+        
+        in_ote = _in_ote_zone(last_close, swing_high, swing_low, bias)
+        
+        # Also check for FVG (Fair Value Gap) as alternative entry
+        has_fvg = _detect_fvg(candles, bias) is not None
+        
+        # 5. Entry conditions: displacement + (OTE pullback OR FVG)
+        if not in_ote and not has_fvg:
             return None
-    
-        # 6. Construct Decision
-        # Use default risk from profile (handled by Engine usually, or we specify base)
-        # Vanilla uses standard 1-2% risk. Engine/Profile handles sizing.
-        # We just signal the Entry.
         
-        last_close = snapshot.candles[-1].close
-        # Stop/Target logic:
-        # Standard ICC: Stop below structure (recent low for long).
-        # Target: 2R or Structure High.
+        # 6. Determine action
+        if bias == "long":
+            action = "enter_long"
+        else:
+            action = "enter_short"
         
-        # Simple default for "Core": Use ATR-based if structure is complex, 
-        # or rely on Engine's `validate_decision` to fill gaps?
-        # `RubberbandReaper` calculated exact stops.
-        # We should calculate a sensible Stop.
+        logger.info(
+            f"[ICC-CORE] ENTRY: {snapshot.symbol} {action} "
+            f"displacement=True ote={in_ote} fvg={has_fvg} "
+            f"atr={atr:.5f} close={last_close:.5f}"
+        )
         
-        atr = calculate_atr(snapshot.candles) or (last_close * 0.005)
-        
-        # Enforce minimum stop distance for broker compliance
-        # OANDA requires at least 10 pips (0.00100) for forex pairs
-        # Use at least 15 pips to avoid rejection + give room
-        min_stop_dist = max(atr * 1.5, last_close * 0.0015)  # 1.5x ATR or 15 pips, whichever is larger
+        # 7. Stop/Target logic (ICT style)
+        # Stop: beyond the swing structure (1.5x ATR minimum for broker compliance)
+        min_stop_dist = max(atr * 2.0, last_close * 0.0015)
         stop_dist = min_stop_dist
         
         if action == "enter_long":
-            stop_loss = last_close - stop_dist
-            take_profit = last_close + (stop_dist * 2.0)  # 2R
+            # Stop below recent swing low
+            structure_stop = swing_low - (atr * 0.5)
+            stop_loss = min(last_close - stop_dist, structure_stop)
+            take_profit = last_close + (abs(last_close - stop_loss) * 2.0)  # 2R
         else:
-            stop_loss = last_close + stop_dist
-            take_profit = last_close - (stop_dist * 2.0)
+            # Stop above recent swing high
+            structure_stop = swing_high + (atr * 0.5)
+            stop_loss = max(last_close + stop_dist, structure_stop)
+            take_profit = last_close - (abs(stop_loss - last_close) * 2.0)  # 2R
 
+        entry_type = "OTE" if in_ote else "FVG"
         return AITradeDecision(
             symbol=snapshot.symbol,
             timeframe=snapshot.timeframe,
@@ -160,11 +255,11 @@ class ICCCoreStrategy(BaseStrategy):
             take_profit=take_profit,
             risk_per_trade_pct=self.get_risk_pct(),
             phase=phase,
-            structure_summary=f"ICC Core {action} (Score={score:.0f})",
+            structure_summary=f"ICC Core {action} via {entry_type} (ATR={atr:.5f})",
             invalidation_conditions=f"Close beyond SL at {stop_loss:.5f}",
-            management_instructions="Target 2R. Structure-based ICC entry.",
+            management_instructions=f"Target 2R. ICT {entry_type} entry.",
             urgency="medium",
-            notes="Vanilla ICC Entry"
+            notes=f"ICT Entry: displacement + {entry_type}"
         )
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:

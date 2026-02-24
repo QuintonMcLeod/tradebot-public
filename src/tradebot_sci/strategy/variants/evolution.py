@@ -195,12 +195,18 @@ class RobotEvolutionStrategy(BaseStrategy):
                  return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias="long", phase="management", action="hold", stop_loss=entry_price,
+                    structure_summary="Move stop to breakeven",
+                    invalidation_conditions="N/A - management action",
+                    management_instructions="Stop moved to entry price (breakeven).",
                     notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
                 )
             if pos_dir == "short" and current_stop > entry_price and r_multiple >= 1.0:
                  return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias="short", phase="management", action="hold", stop_loss=entry_price,
+                    structure_summary="Move stop to breakeven",
+                    invalidation_conditions="N/A - management action",
+                    management_instructions="Stop moved to entry price (breakeven).",
                     notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
                 )
 

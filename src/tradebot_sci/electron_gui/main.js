@@ -709,21 +709,58 @@ Available strategies (pick one per asset class):
 • "rubberband_reaper" — Anti-Martingale Mean Reversion. Uses Bollinger Bands + RSI to catch reversals at extremes. Increases size after wins, decreases after losses. Best for: ranging markets, volatile assets. Risk: Adaptive.
 • "robocop" — Aggressive High-Frequency ICC. Lightning-fast with minimal confirmation. Best for: trending markets, high volatility. Risk: High.
 • "evolution" — NTZ Range Scalper. Trades liquidity sweeps at range edges. Best for: sideways markets, consolidation. Risk: Low-Medium.
-• "quantum" — Trend-Following SMA Pullback. Waits for pullback to 20 SMA, enters with HTF/LTF alignment. Best for: strong trending forex. Risk: Medium.
+• "quantum" — Trend-Following SMA Pullback. Waits for pullback to 20 SMA, enters with HTF/LTF alignment. Risk: Medium.
 • "mean_reversion" — Bollinger + RSI Extremes. Enters when price breaks outside bands with RSI confirmation. Best for: ranging crypto and forex. Risk: Medium.
-• "hyper_scalper" — EMA Crossover Speed Trading. High-frequency 5min scalper using 9/21/200 EMA. Best for: liquid forex, fast markets. Risk: High.
+• "hyper_scalper" — EMA Crossover Speed Trading. High-frequency 5min scalper using 9/21/200 EMA. Risk: High.
 • "london_breakout" — Session Opening Range Breakout. Trades London session range breakout. Best for: GBP pairs, European session. Risk: Medium.
-• "volatility_breakout" — Range Expansion Momentum. Catches breakouts from 20-period range with RSI. Best for: any market showing compression. Risk: Medium-High.
-• "icc_core" — Pure ICC methodology. Strict HTF/LTF alignment, Indication→Correction→Continuation. Best for: aligned trends. Risk: Low-Medium.
-• "supply_demand" — Supply & Demand zones with Break of Structure. Best for: clean trends, high-volume crypto. Risk: Low-Medium.
-• "meta_sci" — AI-Enhanced Ensemble. Runs multiple strategies simultaneously; AI picks the best one per trade. Best for: complex markets, regime changes. Risk: Dynamic.
-• "trend_rider" — EMA Pullback in Strong Trend. Waits for pullback to 21 EMA during confirmed trend. Best for: strong trending forex & crypto. Risk: Medium.
-• "session_momentum" — VWAP + Volume Surge at session open. Active first 30 min of London/NY. Best for: session opens only. Risk: Medium-High.
+• "volatility_breakout" — Range Expansion Momentum. Catches breakouts from 20-period range with RSI. Risk: Medium-High.
+• "icc_core" — Pure ICT methodology. Displacement + OTE zone pullback + FVG entry. Best for: aligned trends. Risk: Low-Medium.
+• "supply_demand" — Supply & Demand zones with Break of Structure. Risk: Low-Medium.
+• "meta_sci" — AI-Enhanced Ensemble. Runs multiple strategies simultaneously; AI picks the best one per trade. Risk: Dynamic.
+• "trend_rider" — EMA Pullback in Strong Trend. Waits for pullback to 21 EMA during confirmed trend. Risk: Medium.
+• "session_momentum" — VWAP + Volume Surge at session open. Active first 30 min of London/NY. Risk: Medium-High.
 • "bearish_engulfing" — Engulfing candle pattern at key structure with HTF alignment. Best for: reversal zones. Risk: Medium.
 • "crypto_rsi_macd" — RSI + MACD combo for 24/7 crypto. No session gating. Best for: trending crypto, BTC/ETH swings. Risk: Medium.
 • "crypto_vwap_reversion" — Mean reversion to VWAP using Bollinger bands + volume. Best for: ranging crypto, high-volume pairs. Risk: Medium.
 • "crypto_double_macd" — Dual-timeframe MACD scalper for tight crypto scalps. Best for: active crypto, BTC/SOL. Risk: High.
 • "crypto_grid" — Virtual grid trading with dynamic ATR-based levels. Best for: sideways/ranging crypto. Risk: Medium-High.
+
+═══════════════════════════════════════════════════
+BACKTESTED STRATEGY RATINGS (14-day audit, real broker fees, realistic exits)
+═══════════════════════════════════════════════════
+Use these ratings to guide your recommendations. Prefer A-rated strategies for each asset class.
+
+── FOREX Ratings (OANDA, ~1.4 pip EUR/USD, ~2.0 pip GBP/USD spread) ──
+Results on $2K capital / $100 capital (14 days):
+A  london_breakout  — Best forex strategy. +$254/$12.68 (67% WR). Low DD (5.4%). London session 08-12 UTC.
+A  volatility_breakout — Strong. +$122/$6.08 (34% WR). Good R:R on breakout moves. Asian session 00-08 UTC.
+B  hyper_scalper    — Profitable. +$104/$5.20 (44% WR). Quick EMA scalps with proper stops. All sessions.
+B  icc_core         — Profitable. +$78/$3.88 (55% WR). ICT methodology solid on forex. All sessions.
+B  meta_sci         — Profitable. +$38/$1.91 (36% WR). Judge system selects proven winners per session.
+B  orb_breakout     — Profitable. +$33/$1.64 (33% WR). US open session 13-16 UTC.
+D  session_momentum — Near breakeven. -$18 (50% WR). Only 2 trades, needs more data.
+D  evolution        — Slight loss. -$57 (36% WR). NTZ margin tight after fees.
+D  crypto_double_macd — -$73 (41% WR). Close to breakeven with tuning.
+D  bearish_engulfing — -$142 (26% WR). Pattern timing needs work.
+F  robocop          — -$245 (33% WR). High variance, needs wider stops.
+F  supply_demand    — -$250 (25% WR). Zone detection noisy on 15m.
+F  trend_rider      — -$341 (29% WR). EMA pullbacks too frequent on choppy forex.
+F  quantum          — -$454 (18% WR). Trend following loses on choppy forex.
+
+── CRYPTO Ratings (Gemini ActiveTrader, 0.25% taker per side = 0.50% RT) ──
+ALL STRATEGIES UNPROFITABLE on crypto due to 0.50% round-trip fees.
+Fee drag makes 15m strategies unviable. Consider longer timeframes or lower-fee exchanges.
+D  rubberband_reaper — Nearly breakeven. -$57 (80% WR). Best crypto option if forced.
+F  All others — Heavy losses. 0.5% RT fees dominate profit on every strategy.
+F  supply_demand    — -$1908 (13% WR). Zone detection too noisy on crypto.
+F  meta_sci         — -$1959 (21% WR). AI ensemble picks losers on crypto.
+
+── RATING KEY ──
+A = Highly recommended. Backtested profitable with good consistency.
+B = Recommended. Backtested profitable, some limitations.
+C = Acceptable. Profitable but low confidence (few trades or high variance).
+D = Not recommended. Marginal or unprofitable after fees.
+F = Avoid. Lost significant capital in backtesting.
 
 ── Global Risk Limits ──
 • RISK_PER_TRADE_PCT (number, 0.1-20): Percentage of account equity risked per trade. Conservative=1-2%, moderate=2-4%, aggressive=4+%.
