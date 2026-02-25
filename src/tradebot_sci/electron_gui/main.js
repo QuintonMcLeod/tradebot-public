@@ -901,7 +901,20 @@ RULES:
 4. VWAP is useless for forex-only profiles.
 5. Opening Sentry is irrelevant for 24/7 crypto-only profiles.
 6. Gamma Squeeze multiplier conflicts with standard trailing stop logic.
-7. Stop-and-Reverse settings (STOP_AND_REVERSE_ENABLED, REVERSAL_TP_R, REVERSAL_COST_AWARE_TP, REVERSAL_RISK_PER_TRADE, SCALE_OUT_FRACTION) should ONLY be enabled when the Conductor strategy is active. For all other strategies, set STOP_AND_REVERSE_ENABLED to false.
+7. CONDUCTOR STRATEGY OVERRIDE — MANDATORY: If you pick \"conductor\" for ANY asset class, you MUST use these EXACT settings. The Conductor is a self-contained strategy with its own internal pyramiding, de-risk, and exit logic. External settings that conflict with it (like fixed R:R or low pyramid caps) will BREAK the strategy. These values were tuned through extensive backtesting and are NON-NEGOTIABLE:
+   • RISK_PER_TRADE_PCT = 1.0 (1% entry risk — the Conductor manages risk internally via the 95% guillotine)
+   • RISK_REWARD_RATIO = 0 (DISABLED — the Conductor uses a dynamic ATR trailing stop, NOT a fixed TP. Setting any R:R caps winners and kills the strategy's edge)
+   • MAX_PYRAMID_ENTRIES = 50 (the Conductor pyramids at every 0.5R milestone — pyramids 4-8 are where the real money is. Do NOT cap below 50)
+   • STOP_AND_REVERSE_ENABLED = true
+   • REVERSAL_TP_R = 1.0 (quick 1R grab on reversals — tested vs uncapped, uncapped was $132 worse)
+   • REVERSAL_COST_AWARE_TP = true (pads TP by spread cost so net profit = true 1R)
+   • REVERSAL_RISK_PER_TRADE = 0.045 (4.5% — aggressive because reversals catch confirmed momentum)
+   • SCALE_OUT_FRACTION = 0.95 (the 95% guillotine — closes 95% at -0.3R, leaving only 5% for the stop)
+   • TRAILING_STOP_ENABLED = false (Conductor has its own ATR trail — the external one conflicts)
+   • SAFETY_GREED_GUARD_ENABLED = false (the Conductor lets winners compound through pyramids — a profit cap kills the compounding)
+   • SAFETY_CHURN_BURNER_ENABLED = false (pyramid adds fire in rapid succession — a trade rate limiter blocks them)
+   • MIN_HOLD_HOURS = 0.08 (5 minutes — the Conductor cuts losers fast via the guillotine)
+   If you pick Conductor and set ANY of these values differently, your output is WRONG. Explain in reasoning_strategy that these are backtester-proven values locked for the Conductor.
 
 Respond with ONLY a valid JSON object (no markdown, no explanation outside JSON) containing ALL the settings listed above with their recommended values. Include these reasoning keys:
 - "reasoning_strategies": 3-5 sentences in plain English explaining WHY you picked each strategy for each asset class. Name the strategy, explain what it does in simple terms (no jargon), and explain why it fits the user's specific symbols. Example: "For your forex pairs, I picked Quantum because it waits for the price to pull back to a key average before buying — like buying a dip during a clear uptrend. This works great for major pairs like EUR/USD and AUD/JPY because they tend to trend smoothly."
