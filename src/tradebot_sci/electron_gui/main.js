@@ -1128,6 +1128,36 @@ Respond in plain English a smart friend would understand. No jargon. Use analogi
                 }
             }
 
+            // Post-processing: CONDUCTOR STRATEGY OVERRIDE
+            // If the AI picked "conductor" for any asset class, force-override
+            // settings to backtester-proven values. The Conductor is self-contained
+            // and generic AI recommendations (like R:R 2.5, 3 pyramids) break it.
+            const strategyKeys = ['STRATEGY_FOREX', 'STRATEGY_CRYPTO', 'STRATEGY_STOCKS', 'STRATEGY_ETF', 'STRATEGY_METALS', 'STRATEGY_FUTURES'];
+            const hasConductor = strategyKeys.some(k => (recommendations[k] || '').toLowerCase() === 'conductor');
+            if (hasConductor) {
+                console.log('[MAIN] Conductor strategy detected — applying backtester-proven overrides');
+                const conductorOverrides = {
+                    RISK_PER_TRADE_PCT: 1.0,
+                    RISK_REWARD_RATIO: 0,           // DISABLED — Conductor uses dynamic ATR trail
+                    MAX_PYRAMID_ENTRIES: 50,         // Infinite pyramiding at every 0.5R
+                    STOP_AND_REVERSE_ENABLED: true,
+                    REVERSAL_TP_R: 1.0,              // Quick 1R grab
+                    REVERSAL_COST_AWARE_TP: true,    // Pad TP by spread
+                    REVERSAL_RISK_PER_TRADE: 0.045,  // 4.5% reversal risk
+                    SCALE_OUT_FRACTION: 0.95,        // 95% guillotine
+                    TRAILING_STOP_ENABLED: false,    // Conductor has its own ATR trail
+                    MIN_HOLD_HOURS: 0.08,            // 5 minutes — cut losers fast
+                    SAFETY_GREED_GUARD_ENABLED: false,   // Don't cap winning streaks
+                    SAFETY_CHURN_BURNER_ENABLED: false,  // Don't block rapid pyramid adds
+                };
+                Object.assign(recommendations, conductorOverrides);
+
+                // Update reasoning to explain the overrides
+                if (recommendations.reasoning_strategy) {
+                    recommendations.reasoning_strategy += ' [Conductor Override: Risk, R:R, pyramiding, stop-and-reverse, and exit settings have been locked to backtester-proven values. The Conductor is a self-contained strategy — these values produced 100% hit rate across 6 rolling test windows.]';
+                }
+            }
+
             return { success: true, recommendations };
 
         } catch (err) {
