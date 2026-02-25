@@ -343,11 +343,20 @@ function setupIpcHandlers() {
 
                 let content = fs.readFileSync(filePath, 'utf8');
 
-                // Resolve relative image paths to file:// URLs so Electron can load them
+                // Resolve relative image paths to base64 data URIs so Electron can display them
+                // (file:// protocol is blocked by webSecurity)
                 const docDir = path.dirname(resolved);
-                content = content.replace(/!\[([^\]]*)\]\((?!https?:\/\/|file:\/\/)([^)]+)\)/g, (match, alt, relPath) => {
-                    const absPath = path.resolve(docDir, relPath);
-                    return `![${alt}](file://${absPath})`;
+                content = content.replace(/!\[([^\]]*)\]\((?!https?:\/\/|data:)([^)]+)\)/g, (match, alt, relPath) => {
+                    try {
+                        const absPath = path.resolve(docDir, relPath);
+                        if (fs.existsSync(absPath)) {
+                            const ext = path.extname(absPath).toLowerCase().replace('.', '');
+                            const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp' }[ext] || 'image/png';
+                            const b64 = fs.readFileSync(absPath).toString('base64');
+                            return `![${alt}](data:${mime};base64,${b64})`;
+                        }
+                    } catch (e) { console.warn('[MAIN] Failed to embed image:', relPath, e.message); }
+                    return match;
                 });
 
                 return { success: true, data: { filename, title: valid.title, content } };
