@@ -724,6 +724,7 @@ Available strategies (pick one per asset class):
 • "crypto_vwap_reversion" — Mean reversion to VWAP using Bollinger bands + volume. Best for: ranging crypto, high-volume pairs. Risk: Medium.
 • "crypto_double_macd" — Dual-timeframe MACD scalper for tight crypto scalps. Best for: active crypto, BTC/SOL. Risk: High.
 • "crypto_grid" — Virtual grid trading with dynamic ATR-based levels. Best for: sideways/ranging crypto. Risk: Medium-High.
+• "conductor" — The Forex Conductor. EMA pullback entries + 95% loss guillotine + infinite pyramiding + stop-and-reverse. Cuts losers to ~$8, lets winners run 5-10R with dynamic ATR trail. A-rated for forex trending. Backtested 100% hit rate across 6 windows. Best for: trending forex (EUR/USD, GBP/USD). Risk: Aggressive (managed).
 
 ═══════════════════════════════════════════════════
 BACKTESTED STRATEGY RATINGS (14-day audit, real broker fees, realistic exits)
@@ -783,6 +784,14 @@ F = Avoid. Lost significant capital in backtesting.
 • TRAILING_STOP_ENABLED (boolean): Enable trailing stop that follows price up, locking in profits.
 • RISK_REWARD_RATIO (number, 1-5): Target reward as multiple of risk. 2.0 = risk $1, target $2.
 • TRAILING_STOP_MIN_PROFIT_PCT (number, 0-10): Minimum profit % before trailing stop activates.
+
+── Stop-and-Reverse (Conductor Strategy) ──
+Enable these ONLY when the Conductor strategy is active. The Conductor uses these to flip direction when a stop loss fires — catching the move that just stopped us out.
+• STOP_AND_REVERSE_ENABLED (boolean): When a stop fires, immediately enter in the opposite direction. Works best in trending markets. Default: true for Conductor, false for others.
+• REVERSAL_TP_R (number, 0.5-3.0): Take-profit target for reversal trades, as a multiple of risk. 1.0 = quick 1R grab. Higher values let reversals run but reduce win rate. Default: 1.0.
+• REVERSAL_COST_AWARE_TP (boolean): Pad the reversal TP target by the broker spread/fee so the NET profit is a true 1R. Essential for OANDA where spread eats ~10% of a typical reversal. Default: true.
+• REVERSAL_RISK_PER_TRADE (number, 0.01-0.10): Risk % of capital on each reversal trade. Higher than normal entry risk because reversals catch confirmed momentum. Default: 0.045 (4.5%).
+• SCALE_OUT_FRACTION (number, 0.25-1.0): Fraction of position to close on de-risk (loss mitigation). 0.95 = close 95% at -0.3R, leaving only 5% for the stop to hit. Default: 0.95.
 
 ── Hold Time Rules ──
 • MIN_HOLD_HOURS (number, 0-48): Minimum time to hold a trade. Prevents premature exits from noise.
@@ -892,6 +901,7 @@ RULES:
 4. VWAP is useless for forex-only profiles.
 5. Opening Sentry is irrelevant for 24/7 crypto-only profiles.
 6. Gamma Squeeze multiplier conflicts with standard trailing stop logic.
+7. Stop-and-Reverse settings (STOP_AND_REVERSE_ENABLED, REVERSAL_TP_R, REVERSAL_COST_AWARE_TP, REVERSAL_RISK_PER_TRADE, SCALE_OUT_FRACTION) should ONLY be enabled when the Conductor strategy is active. For all other strategies, set STOP_AND_REVERSE_ENABLED to false.
 
 Respond with ONLY a valid JSON object (no markdown, no explanation outside JSON) containing ALL the settings listed above with their recommended values. Include these reasoning keys:
 - "reasoning_strategies": 3-5 sentences in plain English explaining WHY you picked each strategy for each asset class. Name the strategy, explain what it does in simple terms (no jargon), and explain why it fits the user's specific symbols. Example: "For your forex pairs, I picked Quantum because it waits for the price to pull back to a key average before buying — like buying a dip during a clear uptrend. This works great for major pairs like EUR/USD and AUD/JPY because they tend to trend smoothly."
