@@ -12,13 +12,13 @@
 
 ## 🎬 The Opening Scene
 
-**CHAD** *(aggressive trader, sunglasses indoors)*: "Bro, my strategy just hit 2.5R. Time to take profit!"
+![C](img/chad.png) **CHAD** *(aggressive trader, sunglasses indoors)*: "Bro, my strategy just hit 2.5R. Time to take profit!"
 
-**CONDUCTOR** *(adjusts monocle)*: "Take profit? At 2.5R? My dear boy, we don't DO fixed take profits here. We removed those back in Act I. The trailing stop hasn't even warmed up yet."
+![M](img/conductor.png) **CONDUCTOR** *(adjusts monocle)*: "Take profit? At 2.5R? My dear boy, we don't DO fixed take profits here. We removed those back in Act I. The trailing stop hasn't even warmed up yet."
 
-**CHAD**: "But what if it reverses?!"
+![C](img/chad.png) **CHAD**: "But what if it reverses?!"
 
-**CONDUCTOR**: "Then the dynamic ATR trail catches it. And if it doesn't? We ride to 5R, 7R, 10R. Your 2.5R 'win' is frankly embarrassing."
+![M](img/conductor.png) **CONDUCTOR**: "Then the dynamic ATR trail catches it. And if it doesn't? We ride to 5R, 7R, 10R. Your 2.5R 'win' is frankly embarrassing."
 
 ---
 
@@ -39,13 +39,13 @@
 
 ## The Philosophy
 
-**CHAD**: "So what's the strategy in one sentence?"
+![C](img/chad.png) **CHAD**: "So what's the strategy in one sentence?"
 
-**CONDUCTOR**: "We enter trend pullbacks, make our losses microscopic, double down on winners until they beg for mercy, and when we DO lose, we immediately flip and profit from the very move that stopped us out."
+![M](img/conductor.png) **CONDUCTOR**: "We enter trend pullbacks, make our losses microscopic, double down on winners until they beg for mercy, and when we DO lose, we immediately flip and profit from the very move that stopped us out."
 
-**CHAD**: "That sounds illegal."
+![C](img/chad.png) **CHAD**: "That sounds illegal."
 
-**CONDUCTOR**: "It's not illegal. It's just... *aggressively optimized*."
+![M](img/conductor.png) **CONDUCTOR**: "It's not illegal. It's just... *aggressively optimized*."
 
 ### The Core Tenets
 
@@ -61,9 +61,9 @@
 
 ## Entry: The EMA Pullback
 
-**CHAD**: "OK so how do we get IN?"
+![C](img/chad.png) **CHAD**: "OK so how do we get IN?"
 
-**CONDUCTOR**: "Elementary, my dear Chad. We use the **Trend Rider** — an EMA pullback strategy. But we don't just buy blindly. There are LAYERS."
+![M](img/conductor.png) **CONDUCTOR**: "Elementary, my dear Chad. We use the **Trend Rider** — an EMA pullback strategy. But we don't just buy blindly. There are LAYERS."
 
 ### The Entry Checklist
 
@@ -80,9 +80,9 @@
 ✅ Price above EMA(21) for longs / below for shorts
 ```
 
-**CHAD**: "That's like ten filters!"
+![C](img/chad.png) **CHAD**: "That's like ten filters!"
 
-**CONDUCTOR**: "Precisely. We don't enter often. But when we do, the odds are stacked."
+![M](img/conductor.png) **CONDUCTOR**: "Precisely. We don't enter often. But when we do, the odds are stacked."
 
 ### The Stop Placement
 
@@ -95,9 +95,9 @@
 take_profit = None  # Let Conductor's dynamic trail manage exits
 ```
 
-**CHAD**: "No take profit?! You're insane!"
+![C](img/chad.png) **CHAD**: "No take profit?! You're insane!"
 
-**CONDUCTOR**: "The take profit was removed in the Great Decapping of February 2025. We learned that a 2.5R ceiling was COSTING us money. Our best trades run 4R, 5R, even 7R. Capping them at 2.5R was like telling Usain Bolt to stop at the 60m mark."
+![M](img/conductor.png) **CONDUCTOR**: "The take profit was removed in the Great Decapping of February 2025. We learned that a 2.5R ceiling was COSTING us money. Our best trades run 4R, 5R, even 7R. Capping them at 2.5R was like telling Usain Bolt to stop at the 60m mark."
 
 > **🔧 Bot Setting:** `take_profit` on entry decisions → Set to `None`
 > This is the default Trend Rider behavior when routed through the Conductor.
@@ -106,9 +106,9 @@ take_profit = None  # Let Conductor's dynamic trail manage exits
 
 ## Loss Mitigation: The 95% Guillotine
 
-**CHAD**: "OK but... what about losses?"
+![C](img/chad.png) **CHAD**: "OK but... what about losses?"
 
-**CONDUCTOR**: "Ah, losses. My favorite topic. Allow me to demonstrate."
+![M](img/conductor.png) **CONDUCTOR**: "Ah, losses. My favorite topic. Allow me to demonstrate."
 
 ### How It Works
 
@@ -122,9 +122,9 @@ If full stop hits: Loss on remaining = ~$4
 Total loss: partial close cost + $4 ≈ $8-22
 ```
 
-**CHAD**: "So instead of losing $75 on a stop, I lose $8?"
+![C](img/chad.png) **CHAD**: "So instead of losing $75 on a stop, I lose $8?"
 
-**CONDUCTOR**: "Now you're getting it. The 95% guillotine turns a $75 loss into an $8 loss. But here's the beautiful part — there's a **spread guard**. We only fire the guillotine if the loss exceeds 2× the spread cost. Otherwise the close itself would cost more than the loss."
+![M](img/conductor.png) **CONDUCTOR**: "Now you're getting it. The 95% guillotine turns a $75 loss into an $8 loss. But here's the beautiful part — there's a **spread guard**. We only fire the guillotine if the loss exceeds 2× the spread cost. Otherwise the close itself would cost more than the loss."
 
 > **🔧 Bot Setting:** `SCALE_OUT_FRACTION` in Exit Logic → **0.95** (95% partial close)  
 > Now fully configurable via the UI — slider from 0.25 to 1.0.  
@@ -135,9 +135,9 @@ Total loss: partial close cost + $4 ≈ $8-22
 
 ## Stop-and-Reverse: The Uno Reverse Card
 
-**CHAD**: "This is the one that blew my mind."
+![C](img/chad.png) **CHAD**: "This is the one that blew my mind."
 
-**CONDUCTOR**: *(smirking)* "When life gives you stop losses, you make lemonade. At gunpoint."
+![M](img/conductor.png) **CONDUCTOR**: *(smirking)* "When life gives you stop losses, you make lemonade. At gunpoint."
 
 ### How It Works
 
@@ -163,19 +163,19 @@ REVERSAL FIRES:
 Result: +$292 WIN ✅
 ```
 
-**CHAD**: "So the market stops you out, and you literally flip and ride the same move?"
+![C](img/chad.png) **CHAD**: "So the market stops you out, and you literally flip and ride the same move?"
 
-**CONDUCTOR**: "The logic is simple: if price moved with enough force to stop us, it's probably still moving. Why fight it? Join it. Take a quick 1R and walk away."
+![M](img/conductor.png) **CONDUCTOR**: "The logic is simple: if price moved with enough force to stop us, it's probably still moving. Why fight it? Join it. Take a quick 1R and walk away."
 
-**CHAD**: "Why only 1R? Why not let it run?"
+![C](img/chad.png) **CHAD**: "Why only 1R? Why not let it run?"
 
-**CONDUCTOR**: "We tried that. It was worse. Reversals catch **bounces**, not trends. Bounces are quick — they surge 1R then fade. By the time the trailing stop activates, the bounce is already dying. The 1R TP grabs the meat and gets out."
+![M](img/conductor.png) **CONDUCTOR**: "We tried that. It was worse. Reversals catch **bounces**, not trends. Bounces are quick — they surge 1R then fade. By the time the trailing stop activates, the bounce is already dying. The 1R TP grabs the meat and gets out."
 
 ### Cost-Aware TP: The Oanda Tax Dodger
 
-**CHAD**: "Wait, but the 1R TP doesn't actually net 1R after spreads, does it?"
+![C](img/chad.png) **CHAD**: "Wait, but the 1R TP doesn't actually net 1R after spreads, does it?"
 
-**CONDUCTOR**: "Ah, you've been paying attention! Correct. On OANDA, every trade eats 1.5 pips of spread. For a 15-pip stop, that's 10% of your risk evaporating into thin air. So we add the spread cost TO the TP target."
+![M](img/conductor.png) **CONDUCTOR**: "Ah, you've been paying attention! Correct. On OANDA, every trade eats 1.5 pips of spread. For a 15-pip stop, that's 10% of your risk evaporating into thin air. So we add the spread cost TO the TP target."
 
 ```
 Without cost-aware TP:
@@ -191,9 +191,9 @@ With cost-aware TP:
   Net PnL:   +$337 (true 1.0R) ✅
 ```
 
-**CHAD**: "So you're literally padding the TP to eat the spread?"
+![C](img/chad.png) **CHAD**: "So you're literally padding the TP to eat the spread?"
 
-**CONDUCTOR**: "The IRS calls it *tax optimization*. We call it *not being a chump*."
+![M](img/conductor.png) **CONDUCTOR**: "The IRS calls it *tax optimization*. We call it *not being a chump*."
 
 > **🔧 Bot Setting:** `STOP_AND_REVERSE_ENABLED` in Exit Logic → **True**  
 > **🔧 Bot Setting:** `REVERSAL_RISK_PER_TRADE` in Exit Logic → **0.045** (4.5% of capital)  
@@ -205,9 +205,9 @@ With cost-aware TP:
 
 ## R-Milestone Management: The Infinite Pyramid
 
-**CHAD**: "OK this part is nuts. You have INFINITE pyramids?!"
+![C](img/chad.png) **CHAD**: "OK this part is nuts. You have INFINITE pyramids?!"
 
-**CONDUCTOR**: "Up to 50, technically. But in practice you see 3-5 per trade. Here's the system:"
+![M](img/conductor.png) **CONDUCTOR**: "Up to 50, technically. But in practice you see 3-5 per trade. Here's the system:"
 
 ### The Milestone Table
 
@@ -220,9 +220,9 @@ With cost-aware TP:
 | **3.0R** | 2.0R | 4% | And stacking |
 | **...** | ... | 4% | Every 0.5R, forever |
 
-**CHAD**: "Wait, the FIRST pyramid is 30% risk?!"
+![C](img/chad.png) **CHAD**: "Wait, the FIRST pyramid is 30% risk?!"
 
-**CONDUCTOR**: "Yes. Because at 1R, the floor moves to breakeven. The original trade has ZERO risk. So we slam the gas with a 30% add. Every subsequent add is 4% — smaller but consistent. Death by a thousand pyramids."
+![M](img/conductor.png) **CONDUCTOR**: "Yes. Because at 1R, the floor moves to breakeven. The original trade has ZERO risk. So we slam the gas with a 30% add. Every subsequent add is 4% — smaller but consistent. Death by a thousand pyramids."
 
 > **🔧 Bot Setting:** `pyramid_levels` in Pyramiding config
 > The 30% initial add is the `initial_pyramid_risk_pct` setting.
@@ -233,7 +233,7 @@ With cost-aware TP:
 
 ## Momentum Acceleration: The Displacement Detector
 
-**CONDUCTOR**: "This one is subtle but powerful. If a single candle moves ≥ 0.3R in our direction, we pyramid immediately — don't wait for the next 0.5R milestone."
+![M](img/conductor.png) **CONDUCTOR**: "This one is subtle but powerful. If a single candle moves ≥ 0.3R in our direction, we pyramid immediately — don't wait for the next 0.5R milestone."
 
 ### The Logic
 
@@ -244,9 +244,9 @@ if candle_move >= initial_risk * 0.3:
     fire_momentum_pyramid()
 ```
 
-**CHAD**: "So you detect displacement and pile on?"
+![C](img/chad.png) **CHAD**: "So you detect displacement and pile on?"
 
-**CONDUCTOR**: "Exactly. A 0.3R candle is a sign of institutional flow. The market isn't pullback-bouncing anymore — it's RUNNING. We want maximum exposure when that happens."
+![M](img/conductor.png) **CONDUCTOR**: "Exactly. A 0.3R candle is a sign of institutional flow. The market isn't pullback-bouncing anymore — it's RUNNING. We want maximum exposure when that happens."
 
 > **🔧 Bot Setting:** `momentum_accel_threshold` → **0.3R** per candle
 > Fires only once per position (`momentum_accel` milestone key).
@@ -256,7 +256,7 @@ if candle_move >= initial_risk * 0.3:
 
 ## Pullback Re-Pyramiding: The Bounce Tracker
 
-**CONDUCTOR**: "This is the sneakiest feature. It tracks the peak R-level, detects pullbacks, and when price re-breaks the level... resets the pyramid milestone."
+![M](img/conductor.png) **CONDUCTOR**: "This is the sneakiest feature. It tracks the peak R-level, detects pullbacks, and when price re-breaks the level... resets the pyramid milestone."
 
 ### How It Works
 
@@ -265,9 +265,9 @@ if candle_move >= initial_risk * 0.3:
 3. Price climbs BACK to 2.0R → milestone `pyr_2.0r` RESET
 4. Fresh pyramid fires at 2.0R again!
 
-**CHAD**: "You're re-pyramiding on the SAME level?!"
+![C](img/chad.png) **CHAD**: "You're re-pyramiding on the SAME level?!"
 
-**CONDUCTOR**: "Only if the pullback proves the trend is still alive. If price pulled back 0.5R and came roaring back, that's a CONFIRMED bounce — stronger trend signal than the original. We'd be fools not to add."
+![M](img/conductor.png) **CONDUCTOR**: "Only if the pullback proves the trend is still alive. If price pulled back 0.5R and came roaring back, that's a CONFIRMED bounce — stronger trend signal than the original. We'd be fools not to add."
 
 > **🔧 Bot Setting:** This uses the existing pyramid infrastructure.
 > Add `re_pyramid_on_bounce` flag to Pyramiding config (default True).
@@ -277,7 +277,7 @@ if candle_move >= initial_risk * 0.3:
 
 ## Dynamic ATR Trailing: The Tightening Noose
 
-**CONDUCTOR**: "The pièce de résistance. As profit grows, the trailing stop TIGHTENS."
+![M](img/conductor.png) **CONDUCTOR**: "The pièce de résistance. As profit grows, the trailing stop TIGHTENS."
 
 ### The Trail Multipliers
 
@@ -287,9 +287,9 @@ if candle_move >= initial_risk * 0.3:
 | **2.0R - 2.9R** | 1.0 × ATR | Getting serious — tighten up |
 | **3.0R+** | 0.7 × ATR | Lock it DOWN — don't give back profit |
 
-**CHAD**: "Why tighten as profit grows?"
+![C](img/chad.png) **CHAD**: "Why tighten as profit grows?"
 
-**CONDUCTOR**: "At 1R, the trend is unproven — we need room for noise. At 3R+, we're sitting on serious profit. Every pip of pullback threatens real money. The 0.7× ATR trail at 3R+ means: 'You can breathe, market, but if you cough I'm OUT with my money.'"
+![M](img/conductor.png) **CONDUCTOR**: "At 1R, the trend is unproven — we need room for noise. At 3R+, we're sitting on serious profit. Every pip of pullback threatens real money. The 0.7× ATR trail at 3R+ means: 'You can breathe, market, but if you cough I'm OUT with my money.'"
 
 ### How It Interacts With Floors
 
@@ -298,9 +298,9 @@ The ATR trail and R-level floors work TOGETHER:
 - **ATR trail** provides continuous tightening between floors
 - The stop is always the HIGHER of the two (floor vs trail)
 
-**CHAD**: "So the floor is the minimum and the trail can be even tighter?"
+![C](img/chad.png) **CHAD**: "So the floor is the minimum and the trail can be even tighter?"
 
-**CONDUCTOR**: "Precisely. The floor says 'no matter what, you keep 1.0R.' The ATR trail says 'actually, you keep 2.3R because the trail is tighter right now.' Best of both worlds."
+![M](img/conductor.png) **CONDUCTOR**: "Precisely. The floor says 'no matter what, you keep 1.0R.' The ATR trail says 'actually, you keep 2.3R because the trail is tighter right now.' Best of both worlds."
 
 > **🔧 Bot Setting:** `atr_trail_multiplier` in Safety & Shields → Dynamic
 > Mapped to the existing `breakeven_trail` infrastructure.
@@ -355,7 +355,7 @@ The ATR trail and R-level floors work TOGETHER:
 
 ## The Numbers
 
-**CONDUCTOR**: "Let's end with the cold, hard math."
+![M](img/conductor.png) **CONDUCTOR**: "Let's end with the cold, hard math."
 
 ### Hell Test Results (Feb 25, 2025)
 
@@ -380,9 +380,9 @@ Avg Per Window: +$462
   15d ago  $  +271.63       6    33%    8.5%  ✅
 ```
 
-**CHAD**: "So it's profitable in every single window?"
+![C](img/chad.png) **CHAD**: "So it's profitable in every single window?"
 
-**CONDUCTOR**: "Six for six. Even with 20% win rate in the worst window, the math still works because the wins average 10× the losses. That's the beauty of uncapped winners with the guillotine on losers."
+![M](img/conductor.png) **CONDUCTOR**: "Six for six. Even with 20% win rate in the worst window, the math still works because the wins average 10× the losses. That's the beauty of uncapped winners with the guillotine on losers."
 
 ---
 
@@ -401,9 +401,9 @@ Avg Per Window: +$462
 > - **Do NOT cap pyramids at less than 50.** In trending markets, pyramids 4-8 are where the real money is.
 > - **Do NOT disable cost-aware TP.** Without it, every reversal nets 0.92R instead of 1.0R — that's $25/trade leaked to the broker.
 
-**CHAD**: "What if I just tweak ONE thi—"
+![C](img/chad.png) **CHAD**: "What if I just tweak ONE thi—"
 
-**CONDUCTOR**: "**NO.**"
+![M](img/conductor.png) **CONDUCTOR**: "**NO.**"
 
 ---
 

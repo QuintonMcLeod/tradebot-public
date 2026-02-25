@@ -489,6 +489,16 @@ window.helpModule = (() => {
                 border-radius: 0.5rem;
                 margin: 0.5rem 0;
             }
+            /* Dialogue avatar — small inline image inside a paragraph */
+            .help-p .help-img {
+                display: inline-block;
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                margin: 0 0.375rem -0.5rem 0;
+                border: 2px solid var(--accent-dim, rgba(20,184,166,0.3));
+                object-fit: cover;
+            }
 
             /* ── Search highlight ── */
             .help-search-highlight {
