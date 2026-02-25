@@ -24,16 +24,16 @@
 
 ## 📖 Table of Contents
 
-1. [The Philosophy](#the-philosophy)
-2. [Entry: The EMA Pullback](#entry-the-ema-pullback)
-3. [Loss Mitigation: The 95% Guillotine](#loss-mitigation-the-95-guillotine)
-4. [Stop-and-Reverse: The Uno Reverse Card](#stop-and-reverse-the-uno-reverse-card)
-5. [R-Milestone Management: The Infinite Pyramid](#r-milestone-management-the-infinite-pyramid)
-6. [Momentum Acceleration: The Displacement Detector](#momentum-acceleration-the-displacement-detector)
-7. [Pullback Re-Pyramiding: The Bounce Tracker](#pullback-re-pyramiding-the-bounce-tracker)
-8. [Dynamic ATR Trailing: The Tightening Noose](#dynamic-atr-trailing-the-tightening-noose)
-9. [Bot/UI Setting Mappings](#bot-ui-setting-mappings)
-10. [The Numbers](#the-numbers)
+1. The Philosophy
+2. Entry: The EMA Pullback
+3. Loss Mitigation: The 95% Guillotine
+4. Stop-and-Reverse: The Uno Reverse Card
+5. R-Milestone Management: The Infinite Pyramid
+6. Momentum Acceleration: The Displacement Detector
+7. Pullback Re-Pyramiding: The Bounce Tracker
+8. Dynamic ATR Trailing: The Tightening Noose
+9. Bot/UI Setting Mappings
+10. The Numbers
 
 ---
 
