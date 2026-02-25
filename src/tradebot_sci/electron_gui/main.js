@@ -341,7 +341,15 @@ function setupIpcHandlers() {
                     return { success: false, error: `Document not found: ${resolved}` };
                 }
 
-                const content = fs.readFileSync(filePath, 'utf8');
+                let content = fs.readFileSync(filePath, 'utf8');
+
+                // Resolve relative image paths to file:// URLs so Electron can load them
+                const docDir = path.dirname(resolved);
+                content = content.replace(/!\[([^\]]*)\]\((?!https?:\/\/|file:\/\/)([^)]+)\)/g, (match, alt, relPath) => {
+                    const absPath = path.resolve(docDir, relPath);
+                    return `![${alt}](file://${absPath})`;
+                });
+
                 return { success: true, data: { filename, title: valid.title, content } };
             } catch (error) {
                 return { success: false, error: error.message };
