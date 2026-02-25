@@ -905,6 +905,9 @@ RULES:
    • RISK_PER_TRADE_PCT = 1.0 (1% entry risk — the Conductor manages risk internally via the 95% guillotine)
    • RISK_REWARD_RATIO = 0 (DISABLED — the Conductor uses a dynamic ATR trailing stop, NOT a fixed TP. Setting any R:R caps winners and kills the strategy's edge)
    • MAX_PYRAMID_ENTRIES = 50 (the Conductor pyramids at every 0.5R milestone — pyramids 4-8 are where the real money is. Do NOT cap below 50)
+   • PYRAMID_RISK_LOAD = 30 (30% risk on the FIRST pyramid add at 1.0R — the floor moves to breakeven so the original trade has zero risk, allowing an aggressive first add)
+   • PYRAMID_RISK_SCALE = 4 (4% risk on all subsequent pyramid adds — smaller but consistent. Death by a thousand pyramids)
+   • BREAKEVEN_TRAIL_AFTER_PYRAMIDS = 1 (move stop to breakeven after the first pyramid — already locked at 1.0R floor)
    • STOP_AND_REVERSE_ENABLED = true
    • REVERSAL_TP_R = 1.0 (quick 1R grab on reversals — tested vs uncapped, uncapped was $132 worse)
    • REVERSAL_COST_AWARE_TP = true (pads TP by spread cost so net profit = true 1R)
