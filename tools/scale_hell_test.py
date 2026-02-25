@@ -25,7 +25,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import unittest.mock
 sys.modules["ib_insync"] = unittest.mock.MagicMock()
 os.environ["TRADING_CONFIRMATION"] = "YES"
-os.environ["SCALE_OUT_FRACTION"] = "0.95"
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -33,7 +32,7 @@ from tools.utils.local_provider import LocalJSONProvider
 from tradebot_sci.simulation.backtester import Backtester
 from tradebot_sci.config.models import (
     Settings, AppSettings, LoggingSettings, AISettings, MarketSettings,
-    TradingProfileSettings,
+    TradingProfileSettings, RuntimeSettings,
 )
 
 
@@ -68,6 +67,7 @@ def build_config():
         logging=LoggingSettings(),
         ai=AISettings(provider="openai"),
         market=MarketSettings(symbols=["EURUSD", "GBPUSD"]),
+        runtime=RuntimeSettings(scale_out_fraction=0.95),
         profiles={"A": profile},
     )
     return settings

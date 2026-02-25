@@ -1177,12 +1177,12 @@ class RuntimeSettings(BaseModel):
     infer_position_hold_from_executions: bool = Field(default=False)
     infer_position_hold_lookback_days: int = Field(default=7, ge=1)
     scale_out_fraction: float = Field(
-        default_factory=lambda: float(os.getenv("SCALE_OUT_FRACTION", "0.5")),
+        default=0.5,
         ge=0.0,
         le=1.0
     )
     min_position_size_to_scale: float = Field(
-        default_factory=lambda: float(os.getenv("MIN_POSITION_SIZE_TO_SCALE", "1.0")),
+        default=1.0,
         ge=0.0
     )
     emergency_stop_pct: float = Field(
