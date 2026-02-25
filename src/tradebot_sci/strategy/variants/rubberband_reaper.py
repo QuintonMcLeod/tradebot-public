@@ -196,28 +196,5 @@ class RubberbandReaperStrategy(BaseStrategy):
         return None
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, current_capital: Optional[float] = None, trade_history: Optional[list] = None) -> Optional[AITradeDecision]:
-        """Structure-based exit: close if the entry thesis is structurally invalid."""
-        if not open_position or not snapshot.candles or len(snapshot.candles) < 20:
-            return None
-
-        pos_dir = open_position.get("direction") or open_position.get("side")
-        if pos_dir not in {"long", "short"}:
-            return None
-
-        # Check for structure invalidation (swing level broken by ATR buffer)
-        inval = detect_structure_invalidation(snapshot.candles, pos_dir, atr_mult=0.5)
-        if inval:
-            logger.warning(
-                f"[REAPER] Structure Invalidation for {snapshot.symbol} ({pos_dir}): "
-                f"close={inval.last_close:.4f} broke swing={inval.swing_level:.4f} "
-                f"(buffer={inval.buffer:.4f})"
-            )
-            return close_position_decision(
-                snapshot.symbol,
-                snapshot.timeframe,
-                reason=f"Reaper: Structure Invalidation (swing={inval.swing_level:.4f})",
-                emergency_exit=True,
-            )
-
-        # [SAFETY] All other exits managed by StrategyEngine via SafetyGuard
+        """All exits managed by SafetyGuard. No strategy-level exit authority."""
         return None

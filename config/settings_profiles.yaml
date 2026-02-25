@@ -1,3 +1,10 @@
+# ═══════════════════════════════════════════════════════════════
+# DEPRECATED — DO NOT ADD NEW SETTINGS HERE
+# All settings now live in config.json and are managed via the GUI.
+# Global settings auto-promote into profiles via the universal
+# promotion loop in loader.py.  This file is only used by legacy
+# installs that haven't migrated yet.
+# ═══════════════════════════════════════════════════════════════
 global:
   sabbath_enabled: true
   sabbath_timezone: America/New_York

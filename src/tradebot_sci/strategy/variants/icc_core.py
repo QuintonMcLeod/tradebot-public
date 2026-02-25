@@ -83,6 +83,13 @@ def _in_ote_zone(price: float, swing_high: float, swing_low: float, direction: s
         return ote_bot <= price <= ote_top
 
 
+# ── Entry Cooldown (per-symbol) ───────────────────────────────────────
+# Prevents over-trading by enforcing minimum bar spacing between entries.
+_ENTRY_COOLDOWN_BARS = 8   # ~2h on 15m candles
+_last_entry_bar: dict = {}  # symbol → bar index
+_icc_bar_counter: int = 0
+
+
 class ICCCoreStrategy(BaseStrategy):
     """
     ICC Core Strategy — True ICT Entry Model.
@@ -90,7 +97,7 @@ class ICCCoreStrategy(BaseStrategy):
     Uses the actual ICT methodology:
     - HTF bias (from trend detection)
     - Liquidity sweep detection
-    - Displacement confirmation
+    - Displacement confirmation (3 candles for high conviction)
     - Entry on pullback to OTE/FVG zone
     
     This replaces the broken sweep→indication→correction chain
@@ -108,10 +115,18 @@ class ICCCoreStrategy(BaseStrategy):
         current_capital: Optional[float] = None, 
         trade_history: Optional[list] = None
     ) -> Optional[AITradeDecision]:
+        global _icc_bar_counter
+        _icc_bar_counter += 1
         
         candles = snapshot.candles or []
         if len(candles) < 40:
             return None
+        
+        # ── Entry cooldown: minimum 8-bar spacing per symbol ──────────
+        symbol = snapshot.symbol
+        last_bar = _last_entry_bar.get(symbol, -999)
+        if _icc_bar_counter - last_bar < _ENTRY_COOLDOWN_BARS:
+            return None  # Too soon after last entry on this symbol
             
         # 1. Get bias from HTF direction (from engine trend detection)
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
@@ -231,6 +246,7 @@ class ICCCoreStrategy(BaseStrategy):
         # 7. Stop/Target logic (ICT style)
         # Stop: beyond the swing structure, with generous floor to survive noise.
         # 25-pip minimum for EURUSD-class pairs prevents sub-3-minute SL hits.
+        # Wide stops keep losers from noise-clipping; the R:R does the heavy lifting.
         min_stop_dist = max(atr * 2.5, last_close * 0.0025)
         stop_dist = min_stop_dist
         
@@ -238,12 +254,15 @@ class ICCCoreStrategy(BaseStrategy):
             # Stop below recent swing low
             structure_stop = swing_low - (atr * 0.5)
             stop_loss = min(last_close - stop_dist, structure_stop)
-            take_profit = last_close + (abs(last_close - stop_loss) * 2.0)  # 2R
+            take_profit = last_close + (abs(last_close - stop_loss) * 2.5)  # 2.5R
         else:
             # Stop above recent swing high
             structure_stop = swing_high + (atr * 0.5)
             stop_loss = max(last_close + stop_dist, structure_stop)
-            take_profit = last_close - (abs(stop_loss - last_close) * 2.0)  # 2R
+            take_profit = last_close - (abs(stop_loss - last_close) * 2.5)  # 2.5R
+
+        # Record entry to enforce cooldown
+        _last_entry_bar[snapshot.symbol] = _icc_bar_counter
 
         entry_type = "OTE" if in_ote else "FVG"
         return AITradeDecision(
@@ -258,7 +277,7 @@ class ICCCoreStrategy(BaseStrategy):
             phase=phase,
             structure_summary=f"ICC Core {action} via {entry_type} (ATR={atr:.5f})",
             invalidation_conditions=f"Close beyond SL at {stop_loss:.5f}",
-            management_instructions=f"Target 2R. ICT {entry_type} entry.",
+            management_instructions=f"Target 2.5R. ICT {entry_type} entry.",
             urgency="medium",
             notes=f"ICT Entry: displacement + {entry_type}"
         )
@@ -298,7 +317,7 @@ class ICCCoreStrategy(BaseStrategy):
                 snapshot.symbol,
                 snapshot.timeframe,
                 reason=f"ICC Core: Structure Invalidation (swing={inval.swing_level:.4f})",
-                emergency_exit=False,  # NOT an SL/TP — must respect hold guard
+                emergency_exit=True,  # Bypass hold guard — cut losers immediately
             )
 
         # [SAFETY] All other exits managed by StrategyEngine via SafetyGuard

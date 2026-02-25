@@ -365,6 +365,8 @@ class StrategyEngine:
             "correction": bool(correction_signal),
             "continuation": bool(continuation_signal),
             "continuation_dir": continuation_signal.direction if continuation_signal else None,
+            "adx": htf_adx,
+            "market_regime": consensus.market_regime,
         }
 
         # Per-strategy scoring (gives each strategy its own grade)
@@ -411,17 +413,24 @@ class StrategyEngine:
             # other "smart" exits are blocked until the trade has had time
             # to work.  This prevents the bot from panic-closing positions
             # within minutes of entry — the #1 cause of the 3.8% win rate.
-            HOLD_GUARD_SECONDS = 3600  # 1 hour
+            HOLD_GUARD_SECONDS = 300  # 5 minutes — cut losers fast
             position_is_young = (position_age is not None and position_age < HOLD_GUARD_SECONDS)
 
             if exit_decision:
-                if position_is_young:
+                is_emergency = getattr(exit_decision, 'emergency_exit', False)
+                if position_is_young and not is_emergency:
                     logger.info(
                         f"[HOLD GUARD] {self.symbol} strategy exit BLOCKED — "
                         f"age {position_age:.0f}s < {HOLD_GUARD_SECONDS}s "
-                        f"(ALL exits blocked during hold). Reason: {getattr(exit_decision, 'notes', 'N/A')[:80]}"
+                        f"(non-emergency exits blocked during hold). "
+                        f"Reason: {getattr(exit_decision, 'notes', 'N/A')[:80]}"
                     )
                 else:
+                    if is_emergency and position_is_young:
+                        logger.info(
+                            f"[HOLD GUARD] {self.symbol} EMERGENCY EXIT allowed — "
+                            f"age {position_age:.0f}s (bypassed hold guard)"
+                        )
                     exit_decision.score = score
                     exit_decision.grade = grade
 

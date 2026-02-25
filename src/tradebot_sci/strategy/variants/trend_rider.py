@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 from tradebot_sci.market.models import MarketSnapshot
-from tradebot_sci.strategy.decisions import AITradeDecision, close_position_decision
+from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.strategy.variants.base import BaseStrategy
 from tradebot_sci.market.indicators import calculate_ema, calculate_rsi
 from tradebot_sci.strategy.icc_signals import calculate_atr
@@ -12,23 +12,27 @@ logger = logging.getLogger(__name__)
 
 class TrendRiderStrategy(BaseStrategy):
     """
-    Trend Rider: EMA Pullback in Strong Trend.
+    EMA Trend Rider — Pullback Entry on Confirmed Trend.
 
-    Proven institutional method. Waits for price to pull back to the
-    21 EMA during a confirmed strong trend, then enters on the bounce.
+    Production forex bot strategy (classic EMA pullback + crossover).
+    Waits for EMA(8)/EMA(21) crossover to establish trend direction,
+    then enters on pullback to the 21 EMA.
 
-    Entry criteria:
-    - HTF trend strength >= 0.5 (strong, not choppy)
-    - Price pulls back TO the 21 EMA (within 0.3 ATR)
-    - Bounce candle closes back in trend direction
-    - RSI between 40-60 (confirms pullback, not full reversal)
+    Filters:
+    - ADX > 20 (from trend detection gates) — confirms trending market
+    - HTF trend strength >= 0.5 — confirms institutional flow
+    - RSI 40-60 — confirms pullback (not reversal)
 
-    R:R: Always 2:1 minimum.
+    Entry: Price pulls back to EMA(21) and bounces in trend direction
+    Exit:  Trailing stop at 2× ATR OR reverse EMA crossover
+    Stop:  Swing low/high + 1.5× ATR minimum
+    Target: 2.5R (let winners run)
     """
 
-    def __init__(self, ema_period=21, rsi_period=14):
+    def __init__(self, fast_ema=8, slow_ema=21, rsi_period=14):
         super().__init__("Trend Rider")
-        self.ema_period = ema_period
+        self.fast_ema = fast_ema
+        self.slow_ema = slow_ema
         self.rsi_period = rsi_period
 
     def check_entry_signal(
@@ -42,15 +46,28 @@ class TrendRiderStrategy(BaseStrategy):
             return None
 
         closes = [c.close for c in snapshot.candles]
-        if len(closes) < self.ema_period + 5:
+        if len(closes) < self.slow_ema + 10:
             return None
 
-        ema_21 = calculate_ema(closes, self.ema_period)
+        ema_fast = calculate_ema(closes, self.fast_ema)
+        ema_fast_prev = calculate_ema(closes[:-1], self.fast_ema)
+        ema_slow = calculate_ema(closes, self.slow_ema)
+        ema_slow_prev = calculate_ema(closes[:-1], self.slow_ema)
         rsi = calculate_rsi(closes, self.rsi_period)
         atr = calculate_atr(snapshot.candles, period=14) or (closes[-1] * 0.001)
 
         last_close = closes[-1]
         prev_close = closes[-2]
+
+        # ── TRENDING MARKET FILTER ───────────────────────────────
+        # When used standalone (not via Conductor), ADX>20 ensures
+        # we only enter in trending markets. When Conductor routes us,
+        # market_regime already handles this (this acts as fallback).
+        adx = gates.get("adx", 25)
+        if gates.get("market_regime") is None:
+            # Standalone mode — apply our own regime filter
+            if adx is not None and adx < 20:
+                return None  # Market not trending — skip
 
         # Must have a strong HTF trend
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
@@ -59,71 +76,91 @@ class TrendRiderStrategy(BaseStrategy):
         if htf_dir == "neutral" or htf_strength < 0.5:
             return None
 
+        # ── EMA CROSSOVER CONFIRMATION ───────────────────────────
+        # Require that EMA(8) is on the correct side of EMA(21)
+        # This confirms the trend is established, not just starting
+        ema_aligned_bull = ema_fast > ema_slow
+        ema_aligned_bear = ema_fast < ema_slow
+
         # RSI must be between 40-60 (confirms pullback, not reversal)
         if rsi < 40 or rsi > 60:
             return None
 
-        # Distance from EMA
-        ema_dist = abs(last_close - ema_21)
-        proximity_threshold = atr * 0.3  # Within 0.3 ATR of the EMA
+        # Distance from slow EMA
+        ema_dist = abs(last_close - ema_slow)
+        proximity_threshold = atr * 0.3  # Within 0.3 ATR
 
-        # --- BULLISH PULLBACK ---
-        if htf_dir in ("long",):
-            # Price was above EMA, pulled back to it, and bounced
-            touched_ema = ema_dist < proximity_threshold or last_close <= ema_21
+        # ── BULLISH PULLBACK ─────────────────────────────────────
+        if htf_dir == "long" and ema_aligned_bull:
+            # Price pulled back to EMA(21) and bouncing
+            touched_ema = ema_dist < proximity_threshold or last_close <= ema_slow
             bounced = last_close > prev_close  # Closing higher = bounce
 
-            if touched_ema and bounced and last_close > ema_21:
+            if touched_ema and bounced and last_close > ema_slow:
                 # Find swing low for stop
                 recent_lows = [c.low for c in snapshot.candles[-10:]]
                 swing_low = min(recent_lows)
                 stop_dist = max(last_close - swing_low, atr * 1.5)
                 stop_loss = last_close - stop_dist
-                take_profit = last_close + (stop_dist * 2.0)  # 2:1 R:R
+                # take_profit = last_close + (stop_dist * 2.5)  # Was 2.5R ceiling
+                take_profit = None  # Let Conductor's dynamic trail manage exits
 
                 return AITradeDecision(
                     symbol=snapshot.symbol,
                     timeframe=snapshot.timeframe,
-                    bias="long",
-                    phase="trend",
-                    action="enter_long",
+                    bias="long", phase="trend", action="enter_long",
                     entry_price=last_close,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
                     risk_per_trade_pct=self.get_risk_pct(),
-                    structure_summary=f"Trend Rider: EMA21 Pullback Long (RSI={rsi:.1f}, HTF={htf_strength:.2f})",
-                    invalidation_conditions=f"Close below swing low {swing_low:.4f}",
-                    management_instructions="Target 2R. Trail stop to EMA once 1R in profit.",
-                    notes="EMA Pullback — proven trend continuation method",
+                    structure_summary=(
+                        f"Trend Rider Long: EMA pullback "
+                        f"(RSI={rsi:.1f}, ADX={adx:.0f}, "
+                        f"HTF={htf_strength:.2f})"
+                    ),
+                    invalidation_conditions=(
+                        f"Close below swing low {swing_low:.5f}"
+                    ),
+                    management_instructions=(
+                        "Target 2.5R. Trail stop to EMA21 once 1R in profit."
+                    ),
+                    notes="EMA pullback — confirmed uptrend",
                     urgency="medium",
                 )
 
-        # --- BEARISH PULLBACK ---
-        if htf_dir in ("short",):
-            touched_ema = ema_dist < proximity_threshold or last_close >= ema_21
+        # ── BEARISH PULLBACK ─────────────────────────────────────
+        if htf_dir == "short" and ema_aligned_bear:
+            touched_ema = ema_dist < proximity_threshold or last_close >= ema_slow
             bounced = last_close < prev_close  # Closing lower = bearish bounce
 
-            if touched_ema and bounced and last_close < ema_21:
+            if touched_ema and bounced and last_close < ema_slow:
                 recent_highs = [c.high for c in snapshot.candles[-10:]]
                 swing_high = max(recent_highs)
                 stop_dist = max(swing_high - last_close, atr * 1.5)
                 stop_loss = last_close + stop_dist
-                take_profit = last_close - (stop_dist * 2.0)  # 2:1 R:R
+                # take_profit = last_close - (stop_dist * 2.5)  # Was 2.5R ceiling
+                take_profit = None  # Let Conductor's dynamic trail manage exits
 
                 return AITradeDecision(
                     symbol=snapshot.symbol,
                     timeframe=snapshot.timeframe,
-                    bias="short",
-                    phase="trend",
-                    action="enter_short",
+                    bias="short", phase="trend", action="enter_short",
                     entry_price=last_close,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
                     risk_per_trade_pct=self.get_risk_pct(),
-                    structure_summary=f"Trend Rider: EMA21 Pullback Short (RSI={rsi:.1f}, HTF={htf_strength:.2f})",
-                    invalidation_conditions=f"Close above swing high {swing_high:.4f}",
-                    management_instructions="Target 2R. Trail stop to EMA once 1R in profit.",
-                    notes="EMA Pullback — proven trend continuation method",
+                    structure_summary=(
+                        f"Trend Rider Short: EMA pullback "
+                        f"(RSI={rsi:.1f}, ADX={adx:.0f}, "
+                        f"HTF={htf_strength:.2f})"
+                    ),
+                    invalidation_conditions=(
+                        f"Close above swing high {swing_high:.5f}"
+                    ),
+                    management_instructions=(
+                        "Target 2.5R. Trail stop to EMA21 once 1R in profit."
+                    ),
+                    notes="EMA pullback — confirmed downtrend",
                     urgency="medium",
                 )
 
@@ -136,21 +173,59 @@ class TrendRiderStrategy(BaseStrategy):
         gates: dict,
         **kwargs,
     ) -> Optional[AITradeDecision]:
-        """Exit if trend reverses (HTF flips against position direction)."""
-        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
-        pos_dir = open_position.get("direction")
+        """Exit on reverse EMA crossover or trail stop."""
+        if not snapshot.candles or len(snapshot.candles) < self.slow_ema + 2:
+            return None
 
-        if pos_dir == "long" and htf_dir in ("short",):
+        closes = [c.close for c in snapshot.candles]
+        ema_fast = calculate_ema(closes, self.fast_ema)
+        ema_slow = calculate_ema(closes, self.slow_ema)
+        direction = open_position.get("direction")
+
+        # Reverse EMA crossover = trend over
+        if direction == "long" and ema_fast < ema_slow:
+            from tradebot_sci.strategy.decisions import close_position_decision
             return close_position_decision(
-                snapshot.symbol,
-                snapshot.timeframe,
-                "Trend Rider: HTF trend reversed to bearish — exiting long",
+                snapshot.symbol, snapshot.timeframe,
+                f"Trend Rider: EMA({self.fast_ema}) crossed below "
+                f"EMA({self.slow_ema}) — trend exhausted"
             )
-        if pos_dir == "short" and htf_dir in ("long",):
+        if direction == "short" and ema_fast > ema_slow:
+            from tradebot_sci.strategy.decisions import close_position_decision
             return close_position_decision(
-                snapshot.symbol,
-                snapshot.timeframe,
-                "Trend Rider: HTF trend reversed to bullish — exiting short",
+                snapshot.symbol, snapshot.timeframe,
+                f"Trend Rider: EMA({self.fast_ema}) crossed above "
+                f"EMA({self.slow_ema}) — trend exhausted"
             )
+
+        # Breakeven trail management
+        entry_price = float(open_position["entry_price"])
+        current_price = closes[-1]
+        current_stop = float(open_position.get("stop_price") or 0.0)
+        initial_risk = abs(entry_price - current_stop)
+
+        if initial_risk > 0:
+            profit_dist = (
+                (current_price - entry_price)
+                if direction == "long"
+                else (entry_price - current_price)
+            )
+            r_multiple = profit_dist / initial_risk
+
+            # Move stop to breakeven at 1R
+            if direction == "long" and current_stop < entry_price and r_multiple >= 1.0:
+                return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="long", phase="management", action="hold",
+                    stop_loss=entry_price,
+                    notes="[MANAGEMENT] Trend Rider: stop → BREAKEVEN (1R)"
+                )
+            if direction == "short" and current_stop > entry_price and r_multiple >= 1.0:
+                return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="short", phase="management", action="hold",
+                    stop_loss=entry_price,
+                    notes="[MANAGEMENT] Trend Rider: stop → BREAKEVEN (1R)"
+                )
 
         return None

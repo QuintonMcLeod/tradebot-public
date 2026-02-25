@@ -166,25 +166,5 @@ class SessionMomentumStrategy(BaseStrategy):
         gates: dict,
         **kwargs,
     ) -> Optional[AITradeDecision]:
-        """Exit if VWAP is crossed back — session momentum has faded."""
-        vwap = self._calculate_vwap(snapshot)
-        if vwap is None:
-            return None
-
-        last_close = snapshot.candles[-1].close
-        pos_dir = open_position.get("direction")
-
-        if pos_dir == "long" and last_close < vwap:
-            return close_position_decision(
-                snapshot.symbol,
-                snapshot.timeframe,
-                f"Session Momentum: Price fell below VWAP ({vwap:.4f}) — momentum lost",
-            )
-        if pos_dir == "short" and last_close > vwap:
-            return close_position_decision(
-                snapshot.symbol,
-                snapshot.timeframe,
-                f"Session Momentum: Price rose above VWAP ({vwap:.4f}) — momentum lost",
-            )
-
+        """All exits managed by SafetyGuard. No strategy-level exit authority."""
         return None

@@ -42,6 +42,12 @@ CONFIG_JSON_FILE = _paths.CONFIG_FILE
 SECRETS_FILE = _paths.SECRETS_FILE
 
 # Legacy paths (for fallback if config.json doesn't exist yet)
+# DEPRECATED: YAML profiles are deprecated. All settings live in config.json
+# and are managed via the GUI.  Profile-specific YAML overrides are no longer
+# supported.  Global settings are auto-promoted into profiles by the universal
+# promotion loop (see _load_from_json).  If you need a setting to be per-profile,
+# just add the field to TradingProfileSettings in models.py — the loader will
+# pick it up from config.json["global"] automatically.
 CONFIG_DIR = _paths.CONFIG_DIR
 LEGACY_BASE_SETTINGS_FILE = CONFIG_DIR / "settings_base.yaml"
 LEGACY_PROFILE_SETTINGS_FILE = CONFIG_DIR / "settings_profiles.yaml"
@@ -185,12 +191,11 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     schedule_cfg = config.get("schedule", {})
 
     # ── Inject global risk/ICC values into profiles as defaults ──
-    # Risk & ICC are now stored in the global "risk" section (set by
-    # the UI's "Global Risk Limits" / "ICC Settings" panels).  We
-    # merge them into each profile as defaults so that every broker
-    # and strategy reading profile.risk_per_trade_pct etc. gets the
-    # global value automatically.  Profile-specific overrides still
-    # win if present.
+    # DEPRECATED: These explicit allow-lists are superseded by the
+    # universal promotion loop below (line ~224).  They are kept only
+    # for documentation / reference.  Any TradingProfileSettings field
+    # found in config.json["global"] or config.json["risk"] is auto-
+    # promoted into every profile where it isn't already set.
     _PROMOTED_RISK_KEYS = [
         "risk_per_trade_pct", "risk_per_trade_dollars",
         "aggressive_risk_per_trade_pct", "max_exposure_pct", "limit_loss_daily_pct",
@@ -203,6 +208,7 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         "icc_score_htf_strength_threshold",
     ]
 
+    # DEPRECATED: Same as above — kept for reference only.
     _PROMOTED_SABBATH_KEYS = [
         "sabbath_enabled", "sabbath_timezone", "sabbath_start_local",
         "sabbath_end_local", "sabbath_astronomical", "sabbath_lat", "sabbath_lon",
@@ -540,8 +546,10 @@ def load_settings() -> Settings:
         config = _load_json(CONFIG_JSON_FILE)
         settings = _load_from_json(config)
     else:
-        # Fallback to legacy YAML loading
-        logger.warning("[CONFIG] config.json not found, falling back to YAML files")
+        # DEPRECATED: Legacy YAML loading.  This path only fires if
+        # config.json does not exist.  New installs auto-migrate YAML
+        # to config.json on first boot.
+        logger.warning("[CONFIG] config.json not found, falling back to YAML files (DEPRECATED)")
         import yaml
         base_raw = _load_yaml(LEGACY_BASE_SETTINGS_FILE)
         profiles_raw = _load_yaml(LEGACY_PROFILE_SETTINGS_FILE)

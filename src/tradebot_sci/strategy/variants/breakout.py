@@ -103,14 +103,5 @@ class VolatilityBreakoutStrategy(BaseStrategy):
         return None
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
-        # Fast exit if RSI reverses significantly
-        rsi = calculate_rsi([c.close for c in snapshot.candles], 14)
-        pos_dir = open_position.get("direction")
-        
-        if pos_dir == "long" and rsi < 35:
-             return close_position_decision(snapshot.symbol, snapshot.timeframe, "Volatility Breakout: Momentum Reversal (RSI < 35)")
-        if pos_dir == "short" and rsi > 65:
-             return close_position_decision(snapshot.symbol, snapshot.timeframe, "Volatility Breakout: Momentum Reversal (RSI > 65)")
-
-        # [SAFETY] Managed by StrategyEngine via SafetyGuard
+        """All exits managed by SafetyGuard. No strategy-level exit authority."""
         return None

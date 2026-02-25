@@ -102,6 +102,8 @@ class TrendConsensus:
     bollinger: dict
     adx_data: dict         # Full ADX+DI data
     vote_sources: list     # Merged vote trail from both timeframes
+    # Regime classification for Conductor routing
+    market_regime: str = "unknown"  # "trending", "ranging", "transitional", "choppy"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -365,6 +367,104 @@ def _compute_timeframe(
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Regime Classifier (Conductor-aware)
+# ─────────────────────────────────────────────────────────────────────
+def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
+    """Classify market regime using multi-factor analysis.
+
+    Combines ADX, Bollinger bandwidth, EMA ribbon alignment, and
+    vote consensus to produce a single regime classification:
+
+    - 'trending':      Strong directional move (ADX>30, EMA aligned, BB expanding)
+    - 'ranging':       Sideways consolidation  (ADX<18, narrow BBs)
+    - 'transitional':  Regime shift in progress (ADX 20-30, squeeze breakout)
+    - 'choppy':        No clear regime          (conflicting signals)
+    """
+    adx = htf.adx
+    bb = htf.bollinger
+    ema = htf.ema_ribbon
+    strength = htf.strength
+
+    bb_bandwidth = bb.get("bandwidth", 0) if bb else 0
+    bb_squeeze = bb.get("squeeze", False) if bb else False
+    ema_aligned = ema.get("aligned", False) if ema else False
+
+    # ── Early choppy detection: HTF vs LTF disagreement ───────────
+    # If HTF says long and LTF says short (or vice versa), the market
+    # is conflicted — no strategy has an edge here.
+    htf_dir = htf.direction
+    ltf_dir = ltf.direction
+    if (htf_dir == "long" and ltf_dir == "short") or \
+       (htf_dir == "short" and ltf_dir == "long"):
+        logger.debug(
+            f"[REGIME] CHOPPY — HTF/LTF disagree ({htf_dir} vs {ltf_dir})"
+        )
+        return "choppy"
+
+    # ── TRENDING: Strong, confirmed directional move ───────────────
+    # Requires ALL of: ADX>30, EMA ribbon aligned, AND at least
+    # one confirmation (BB expanding or strong consensus).
+    # This is deliberately strict — false trending calls are expensive.
+    if adx > 30 and ema_aligned:
+        confirmations = 0
+        if bb_bandwidth > 0.01:  # Bands expanding
+            confirmations += 1
+        if strength >= 0.6:  # Strong indicator consensus
+            confirmations += 1
+        if htf_dir == ltf_dir:  # Timeframes agree
+            confirmations += 1
+
+        if confirmations >= 1:
+            logger.debug(
+                f"[REGIME] TRENDING (adx={adx:.0f}, bw={bb_bandwidth:.4f}, "
+                f"ema_aligned={ema_aligned}, str={strength:.2f}, conf={confirmations})"
+            )
+            return "trending"
+
+    # ── RANGING: Sideways consolidation ───────────────────────────
+    # ADX < 18 = definite no-trend. Narrow BBs = price is coiled.
+    ranging_signals = 0
+    if adx < 18:
+        ranging_signals += 2  # ADX is double-weighted
+    if bb_squeeze:
+        ranging_signals += 1
+    if bb_bandwidth < 0.006:  # Very narrow bands (tightened from 0.008)
+        ranging_signals += 1
+    if strength < 0.35:  # Weak directional consensus
+        ranging_signals += 1
+
+    if ranging_signals >= 3:
+        logger.debug(
+            f"[REGIME] RANGING (adx={adx:.0f}, bw={bb_bandwidth:.4f}, "
+            f"squeeze={bb_squeeze}, str={strength:.2f})"
+        )
+        return "ranging"
+
+    # ── TRANSITIONAL: Regime shift in progress ───────────────────
+    # ADX 20-30 with BB starting to expand from squeeze or BBs
+    # moderately wide. This is where breakout strategies thrive.
+    # Must also have directional agreement between timeframes.
+    if 20 <= adx <= 30:
+        has_breakout_signal = (
+            (bb_squeeze and bb_bandwidth > 0.003)  # Squeeze breaking out
+            or (bb_bandwidth > 0.008 and strength >= 0.4)  # Clear expansion + direction
+        )
+        if has_breakout_signal and htf_dir in ("long", "short"):
+            logger.debug(
+                f"[REGIME] TRANSITIONAL (adx={adx:.0f}, bw={bb_bandwidth:.4f}, "
+                f"squeeze={bb_squeeze}, str={strength:.2f})"
+            )
+            return "transitional"
+
+    # ── CHOPPY: Conflicting signals, no clear regime ─────────────
+    logger.debug(
+        f"[REGIME] CHOPPY (adx={adx:.0f}, bw={bb_bandwidth:.4f}, "
+        f"str={strength:.2f})"
+    )
+    return "choppy"
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────
 def detect_trend_direction(
@@ -396,6 +496,9 @@ def detect_trend_direction(
     htf = _compute_timeframe(htf_candles or candles, profile, label="HTF")
     ltf = _compute_timeframe(ltf_candles or candles, profile, label="LTF")
 
+    # ── Regime Classification ──────────────────────────────────────────
+    regime = _classify_regime(htf, ltf)
+
     # ── Multi-timeframe alignment ─────────────────────────────────────
     htf_align = (
         htf.direction == ltf.direction
@@ -403,18 +506,15 @@ def detect_trend_direction(
     )
 
     # ── Combined consensus ────────────────────────────────────────────
-    # When HTF and LTF agree → strong signal.
-    # When they disagree → defer to HTF (higher timeframe = more reliable).
-    # When both are neutral → neutral.
     if htf_align:
         combined_dir = htf.direction
         combined_str = round((htf.strength + ltf.strength) / 2, 2)
     elif htf.direction in ("long", "short"):
         combined_dir = htf.direction
-        combined_str = round(htf.strength * 0.75, 2)  # Reduced — no LTF confirmation
+        combined_str = round(htf.strength * 0.75, 2)
     elif ltf.direction in ("long", "short"):
         combined_dir = ltf.direction
-        combined_str = round(ltf.strength * 0.5, 2)   # Weaker — only LTF
+        combined_str = round(ltf.strength * 0.5, 2)
     else:
         combined_dir = "neutral"
         combined_str = 0.0
@@ -438,4 +538,5 @@ def detect_trend_direction(
         bollinger=htf.bollinger,
         adx_data=htf.adx_data,
         vote_sources=merged_votes,
+        market_regime=regime,
     )

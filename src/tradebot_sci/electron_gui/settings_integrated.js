@@ -97,6 +97,12 @@ const CONFIG_MAP = {
     'MAX_CONCURRENT_POSITIONS': ['global', 'max_concurrent_positions'],
     'SMART_POSITIONS_ENABLED': ['global', 'smart_positions_enabled'],
     'TARGET_PROFIT_DAILY_PCT': ['global', 'target_profit_daily_pct'],
+    // Stop-and-Reverse
+    'STOP_AND_REVERSE_ENABLED': ['global', 'stop_and_reverse_enabled'],
+    'REVERSAL_TP_R': ['global', 'reversal_tp_r'],
+    'REVERSAL_COST_AWARE_TP': ['global', 'reversal_cost_aware_tp'],
+    'REVERSAL_RISK_PER_TRADE': ['global', 'reversal_risk_per_trade'],
+    'SCALE_OUT_FRACTION': ['runtime', 'scale_out_fraction'],
     // Trend Detection (under global in config.json)
     'TREND_ADX_ENABLED': ['global', 'trend_adx_enabled'],
     'TREND_RSI_ENABLED': ['global', 'trend_rsi_enabled'],
@@ -390,6 +396,13 @@ const TOOLTIPS = {
     WEALTH_EXIT_GAMMA_ENABLED: "Velocity Trail. Tightens trailing stops exponentially during vertical moves to capture 90% of the squeeze.",
     WEALTH_EXIT_MOONSHOT_ENABLED: "Target Elevator. If a trade hits 1R target in under 3 bars, the TP is doubled automatically for a massive swing.",
     WEALTH_EXIT_BLOWOFF_ENABLED: "V-Top Seller. Sells 100% at market if volatility hits a 100-bar high while price is vertically extended.",
+
+    // Stop-and-Reverse
+    STOP_AND_REVERSE_ENABLED: "<strong>The Uno Reverse Card.</strong><br><br>When ANY stop loss fires, immediately open a new position in the <em>opposite</em> direction with a quick TP target. The logic: if price moved hard enough to stop you, it's probably still moving — ride it the other way.<br><br>This turns losing trades into <em>recovery trades</em>. Each reversal uses the 'Reversal Risk %' setting for sizing and targets a quick 1R profit.",
+    REVERSAL_TP_R: "<strong>Reversal Take Profit (R-Multiple).</strong><br><br>How much profit to target on stop-and-reverse trades, measured in R (risk units). 1.0R means the TP distance equals the risk distance. Higher values let reversals run further but risk more pullback.",
+    REVERSAL_COST_AWARE_TP: "<strong>Cost-Aware TP.</strong><br><br>Adds the estimated spread/fee cost to the reversal's TP distance. This ensures the <em>actual</em> bank balance sees a true 1:1 profit after Oanda/broker fees, instead of a slightly-below 1R fill.",
+    REVERSAL_RISK_PER_TRADE: "<strong>Reversal Risk %.</strong><br><br>Risk percentage for stop-and-reverse entries. Higher than normal entry risk because the reversal catches momentum. 4.5% means risking $337 on a $7,500 account per reversal.",
+    SCALE_OUT_FRACTION: "<strong>Partial Close %.</strong><br><br>When the Conductor fires a 'scale out' (de-risk) signal, this is the fraction of the position to close. 0.95 = close 95% of the position, leaving only 5% to absorb the stop. Higher = smaller losses but less room for recovery.",
 };
 
 function getValue(key) {
@@ -1737,6 +1750,17 @@ function renderStrategyTab(container) {
         section.appendChild(createSliderCard('Min Hold Hours', '0 = disabled', 'MIN_HOLD_HOURS', 0, 48, 1, 'hrs'));
         section.appendChild(createSliderCard('Max Hold Hours', '0 = disabled', 'MAX_HOLD_HOURS', 0, 168, 1, 'hrs'));
         section.appendChild(createSliderCard('HTF Neutral Exit Bars', 'Exit after N neutral bars', 'HTF_NEUTRAL_EXIT_BARS', 0, 200, 5, 'bars'));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Stop-and-Reverse', 'swap_horiz',
+            "<strong>Stop-and-Reverse (The Uno Reverse Card)</strong><br><br>When a stop loss fires, the bot can immediately open a new position in the opposite direction. This captures the momentum that just stopped you out. Configurable risk, TP target, and cost-awareness."
+        ));
+
+        section.appendChild(createCard('Enable Stop-and-Reverse', 'Flip direction on stop loss hits', 'STOP_AND_REVERSE_ENABLED', 'toggle'));
+        section.appendChild(createSliderCard('Reversal TP (R-Multiple)', 'Take profit target for reversals', 'REVERSAL_TP_R', 0.5, 5.0, 0.5, 'R'));
+        section.appendChild(createSliderCard('Reversal Risk %', 'Risk per reversal trade', 'REVERSAL_RISK_PER_TRADE', 0.01, 0.10, 0.005, '', { pctFormat: true }));
+        section.appendChild(createCard('Cost-Aware TP', 'Add spread buffer to TP target', 'REVERSAL_COST_AWARE_TP', 'toggle'));
+        section.appendChild(createSliderCard('Partial Close Fraction', 'De-risk close percentage', 'SCALE_OUT_FRACTION', 0.25, 1.0, 0.05, ''));
 
     } else if (subTabs.strategy === 'yaml') {
         section.appendChild(createSectionHeader('Config JSON Editor', 'code',

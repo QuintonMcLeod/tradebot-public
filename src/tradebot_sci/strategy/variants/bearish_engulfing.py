@@ -232,22 +232,5 @@ class BearishEngulfingStrategy(BaseStrategy):
         gates: dict,
         **kwargs,
     ) -> Optional[AITradeDecision]:
-        """Exit if structure invalidates (HTF reverses against us)."""
-        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
-        pos_dir = open_position.get("direction")
-
-        # If HTF flips in our favor, hold. If it goes against us, exit.
-        if pos_dir == "long" and htf_dir in ("short",):
-            return close_position_decision(
-                snapshot.symbol,
-                snapshot.timeframe,
-                "Engulfing Reversal: HTF turned bearish — exiting long",
-            )
-        if pos_dir == "short" and htf_dir in ("long",):
-            return close_position_decision(
-                snapshot.symbol,
-                snapshot.timeframe,
-                "Engulfing Reversal: HTF turned bullish — exiting short",
-            )
-
+        """All exits managed by SafetyGuard. No strategy-level exit authority."""
         return None

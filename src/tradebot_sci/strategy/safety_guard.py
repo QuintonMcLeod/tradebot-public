@@ -14,7 +14,7 @@ from tradebot_sci.strategy.decisions import (
     close_position_decision,
     hold_decision
 )
-from tradebot_sci.strategy.icc_signals import calculate_atr
+from tradebot_sci.strategy.icc_signals import calculate_atr, detect_structure_invalidation
 from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
 from tradebot_sci.config.models import UserConfig
 from tradebot_sci.config.loader import get_settings
@@ -494,6 +494,27 @@ class SafetyGuard:
                 if is_contradiction:
                     logger.info(f"[SAFETY] Regime-Flip TRIGGERED for {snapshot.symbol}. HTF is {htf_dir}.")
                     return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Regime Flip: {htf_dir.upper()}")
+
+        # ─────────────────────────────────────────────────────────────
+        # C2. STRUCTURE INVALIDATION (Centralized)
+        # ─────────────────────────────────────────────────────────────
+        # If the trade's structural thesis is broken (swing level violated
+        # by ATR buffer), cut it. This was previously scattered across
+        # individual strategies — now lives here as part of Safety Guard.
+        if False and getattr(settings.safety, 'safety_structure_invalidation_enabled', True):  # DISABLED: ICC Core has its own StructInval in check_exit_signal
+            if direction in ("long", "short") and snapshot.candles and len(snapshot.candles) >= 20:
+                inval = detect_structure_invalidation(snapshot.candles, direction, atr_mult=0.5)
+                if inval:
+                    logger.info(
+                        f"[SAFETY] Structure Invalidation for {snapshot.symbol} ({direction}): "
+                        f"close={inval.last_close:.4f} broke swing={inval.swing_level:.4f} "
+                        f"(buffer={inval.buffer:.4f})"
+                    )
+                    return close_position_decision(
+                        snapshot.symbol, snapshot.timeframe,
+                        reason=f"Structure Invalidation (swing={inval.swing_level:.4f})",
+                        emergency_exit=True,  # Bypass hold guard — cut losers immediately
+                    )
 
         # ─────────────────────────────────────────────────────────────
         # D. DAY TRADE ENFORCER (Max Hold Time)

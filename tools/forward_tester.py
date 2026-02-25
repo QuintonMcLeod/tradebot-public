@@ -33,7 +33,7 @@ sys.modules["ib_insync"] = unittest.mock.MagicMock()
 os.environ["TRADING_CONFIRMATION"] = "YES"
 
 from tradebot_sci.market.models import Candle, MarketSnapshot, TrendState
-from tradebot_sci.market.trend_consensus import detect_trend_direction
+from tradebot_sci.market.trend_consensus import detect_trend_direction, _TF_CACHE
 from tradebot_sci.config.models import (
     Settings, AppSettings, LoggingSettings, AISettings, MarketSettings,
     TradingProfileSettings,
@@ -163,6 +163,7 @@ def build_snapshot(candles: List[Candle], symbol: str = "EURUSD",
 
 def test_uptrend_detection():
     """TEST 1: Feed 250 uptrend candles. Assert HTF direction = 'long'."""
+    _TF_CACHE.clear()  # Prevent cache collision between tests
     profile = build_profile()
     candles = make_uptrend(250)
 
@@ -181,6 +182,7 @@ def test_uptrend_detection():
 
 def test_downtrend_detection():
     """TEST 2: Feed 250 downtrend candles. Assert HTF direction = 'short'."""
+    _TF_CACHE.clear()  # Prevent cache collision between tests
     profile = build_profile()
     candles = make_downtrend(250)
 

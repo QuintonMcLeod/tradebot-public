@@ -6,17 +6,25 @@ from tradebot_sci.strategy.decisions import AITradeDecision, close_position_deci
 from tradebot_sci.strategy.variants.base import BaseStrategy
 from tradebot_sci.market.indicators import calculate_bollinger_bands, calculate_rsi
 from tradebot_sci.strategy.icc_signals import calculate_atr
-from tradebot_sci.config.models import UserConfig
 
 logger = logging.getLogger(__name__)
 
+
 class MeanReversionStrategy(BaseStrategy):
     """
-    Standard Bollinger Band + RSI Mean Reversion strategy.
-    Entries occur when price is overextended outside bands and RSI shows exhaustion.
+    Mean Reversion Scalper — Bollinger Band + RSI.
+
+    Production forex bot strategy (Evening Scalper Pro style).
+    Trades when price is overextended outside bands and RSI shows exhaustion.
+    Best during quiet/ranging markets (ADX < 25).
+
+    Entry: Price closes outside BB(20,2) + RSI exhaustion
+    Exit:  Price returns to middle BB (SMA 20) = take profit
+    Stop:  1.5× ATR beyond the outer band
     """
-    
-    def __init__(self, bb_period=15, bb_std=2.5, rsi_period=14, rsi_overbought=75, rsi_oversold=25):
+
+    def __init__(self, bb_period=20, bb_std=2.0, rsi_period=14,
+                 rsi_overbought=70, rsi_oversold=30):
         super().__init__("Mean Reversion")
         self.bb_period = bb_period
         self.bb_std = bb_std
@@ -24,141 +32,139 @@ class MeanReversionStrategy(BaseStrategy):
         self.rsi_overbought = rsi_overbought
         self.rsi_oversold = rsi_oversold
 
-    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
-        closes = [c.close for c in snapshot.candles]
-        if len(closes) < self.bb_period:
+    def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict,
+                           open_position: Optional[dict] = None,
+                           **kwargs) -> Optional[AITradeDecision]:
+        if open_position:
             return None
-            
-        lower, middle, upper = calculate_bollinger_bands(closes, self.bb_period, self.bb_std)
+
+        closes = [c.close for c in snapshot.candles]
+        if len(closes) < self.bb_period + 5:
+            return None
+
+        lower, middle, upper = calculate_bollinger_bands(
+            closes, self.bb_period, self.bb_std
+        )
         rsi = calculate_rsi(closes, self.rsi_period)
         last_close = closes[-1]
+        prev_close = closes[-2]
         atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
 
-        # 1. Handle Pyramiding (Scale-in)
-        if open_position:
-            # Only pyramid if we haven't hit the limit (unless infinite)
-            max_entries = UserConfig.MAX_PYRAMID_ENTRIES
-            is_infinite = getattr(UserConfig, "INFINITE_PYRAMIDING", False)
-            if not is_infinite and open_position.get("pyramid_count", 0) >= max_entries:
-                return None
-                
-            # [COOLDOWN] Prevent back-to-back bar scaling (Wait 6 bars / 30 mins)
-            if open_position.get("bars_since_scale", 0) < 6:
-                return None
-            
-            pos_dir = open_position.get("direction")
-            entry_price = open_position.get("entry_price", last_close)
-            
-            # [SINGULARITY] Check for Scale-in on even deeper exhaustion
-            # If LONG: price must be even lower than lower band and entry_price
-            # SUPER-EXTREME: Only pyramid on RSI < 15 (not 25)
-            if pos_dir == "long" and last_close < lower and last_close < entry_price:
-                 if rsi < 15:  # Super-Extreme Oversold
-                    return AITradeDecision(
-                        symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                        bias="long", phase="correction", action="scale_in",
-                        entry_price=last_close, stop_loss=open_position.get("stop_loss"), take_profit=upper,
-                        risk_per_trade_pct=self.get_risk_pct(),
-                        structure_summary=f"Mean Reversal SUPER-SCALE (RSI={rsi:.1f})",
-                        invalidation_conditions=f"Close below stop {open_position.get('stop_loss')}",
-                        management_instructions="Target Opposite Bollinger Band (Scaled).",
-                        urgency="high",
-                        notes="Pyramiding into SUPER-EXTREME exhaustion."
-                    )
-            # If SHORT: price must be even higher than upper band and entry_price
-            # SUPER-EXTREME: Only pyramid on RSI > 85 (not 75)
-            if pos_dir == "short" and last_close > upper and last_close > entry_price:
-                 if rsi > 85:  # Super-Extreme Overbought
-                    return AITradeDecision(
-                        symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                        bias="short", phase="correction", action="scale_in",
-                        entry_price=last_close, stop_loss=open_position.get("stop_loss"), take_profit=lower,
-                        risk_per_trade_pct=self.get_risk_pct(),
-                        structure_summary=f"Mean Reversal SUPER-SCALE (RSI={rsi:.1f})",
-                        invalidation_conditions=f"Close above stop {open_position.get('stop_loss')}",
-                        management_instructions="Target Opposite Bollinger Band (Scaled).",
-                        urgency="high",
-                        notes="Pyramiding into SUPER-EXTREME exhaustion."
-                    )
-            return None
+        # ── RANGING MARKET FILTER ────────────────────────────────
+        # When used standalone (not via Conductor), ADX<25 ensures
+        # we only enter in ranging markets. When Conductor routes us,
+        # market_regime already handles this (this acts as fallback).
+        adx = gates.get("adx", 20)
+        if gates.get("market_regime") is None:
+            # Standalone mode — apply our own regime filter
+            if adx is not None and adx > 25:
+                return None  # Market is trending — skip
 
         # [TREND GUIDANCE] Follow the trend direction from HTF analysis
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
 
-        # 2. Handle Initial Entry
-        # Long Entry: Close below lower band + oversold RSI (only when trend allows)
-        if htf_dir in ("long", "neutral") and last_close < lower and rsi < self.rsi_oversold:
-            stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
-            stop_loss = last_close - stop_dist
-            # Target opposite BB, but enforce minimum 2:1 R:R
-            min_target = last_close + (stop_dist * 2.0)
-            target = max(upper, min_target)
-            
-            # Risk from profile
-            
-            return AITradeDecision(
-                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                bias="long", phase="correction", action="enter_long",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=target,
-                structure_summary=f"Mean Reversal (RSI={rsi:.1f})",
-                invalidation_conditions=f"Close below stop {stop_loss:.4f}",
-                management_instructions="Target Opposite Bollinger Band (min 2:1 R:R).",
-                risk_per_trade_pct=self.get_risk_pct(),
-                notes="Mean Reversion variant",
-                urgency="high" if rsi < 20 else "medium"
-            )
+        # ── BOUNCE CONFIRMATION ──────────────────────────────────
+        # Require that the previous candle touched/pierced the BB
+        # but the current candle is closing back inside = bounce started
 
-        # Short Entry: Close above upper band + overbought RSI (only when trend allows)
-        if htf_dir in ("short", "neutral") and last_close > upper and rsi > self.rsi_overbought:
-            stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
-            stop_loss = last_close + stop_dist
-            # Target opposite BB, but enforce minimum 2:1 R:R
-            min_target = last_close - (stop_dist * 2.0)
-            target = min(lower, min_target)
-            
-            # Risk from profile
-            
-            return AITradeDecision(
-                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                bias="short", phase="correction", action="enter_short",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=target,
-                structure_summary=f"Mean Reversal (RSI={rsi:.1f})",
-                invalidation_conditions=f"Close above stop {stop_loss:.4f}",
-                management_instructions="Target Opposite Bollinger Band (min 2:1 R:R).",
-                risk_per_trade_pct=self.get_risk_pct(),
-                notes="Mean Reversion variant",
-                urgency="high" if rsi > 80 else "medium"
-            )
+        # ── LONG: Price bouncing off lower BB ────────────────────
+        if htf_dir in ("long", "neutral"):
+            prev_touched_lower = prev_close <= lower or min(
+                c.low for c in snapshot.candles[-3:]
+            ) <= lower
+            bouncing_back = last_close > lower  # Closing back inside bands
+            rsi_oversold = rsi < self.rsi_oversold
+
+            if prev_touched_lower and bouncing_back and rsi_oversold:
+                stop_loss = last_close - (atr * 1.5)  # Moderately wide stop
+                risk = abs(last_close - stop_loss)
+                take_profit = last_close + (risk * 2.0)  # 2:1 R:R always
+
+                return AITradeDecision(
+                    symbol=snapshot.symbol,
+                    timeframe=snapshot.timeframe,
+                    bias="long", phase="correction", action="enter_long",
+                    entry_price=last_close,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    risk_per_trade_pct=self.get_risk_pct(fallback=0.01),
+                    structure_summary=(
+                        f"Mean Reversion Long: BB bounce "
+                        f"(RSI={rsi:.1f}, ADX={adx:.0f})"
+                    ),
+                    invalidation_conditions=f"Close below {stop_loss:.5f}",
+                    management_instructions="Target middle BB. Move to BE at 1R.",
+                    notes="BB+RSI mean reversion — ranging market",
+                    urgency="medium",
+                )
+
+        # ── SHORT: Price bouncing off upper BB ───────────────────
+        if htf_dir in ("short", "neutral"):
+            prev_touched_upper = prev_close >= upper or max(
+                c.high for c in snapshot.candles[-3:]
+            ) >= upper
+            bouncing_back = last_close < upper  # Closing back inside bands
+            rsi_overbought = rsi > self.rsi_overbought
+
+            if prev_touched_upper and bouncing_back and rsi_overbought:
+                stop_loss = last_close + (atr * 1.0)  # Tight stop
+                risk = abs(stop_loss - last_close)
+                take_profit = last_close - (risk * 2.0)  # 2:1 R:R always
+
+                return AITradeDecision(
+                    symbol=snapshot.symbol,
+                    timeframe=snapshot.timeframe,
+                    bias="short", phase="correction", action="enter_short",
+                    entry_price=last_close,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    risk_per_trade_pct=self.get_risk_pct(fallback=0.01),
+                    structure_summary=(
+                        f"Mean Reversion Short: BB bounce "
+                        f"(RSI={rsi:.1f}, ADX={adx:.0f})"
+                    ),
+                    invalidation_conditions=f"Close above {stop_loss:.5f}",
+                    management_instructions="Target middle BB. Move to BE at 1R.",
+                    notes="BB+RSI mean reversion — ranging market",
+                    urgency="medium",
+                )
 
         return None
 
-    def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
-        # [DYNAMIC RISK] Breakeven & Trailing
-        if not open_position: return None
-        
+    def check_exit_signal(self, snapshot: MarketSnapshot,
+                          open_position: dict, gates: dict,
+                          **kwargs) -> Optional[AITradeDecision]:
+        """All exits managed by backtester TP/SL. No early exit."""
+        if not open_position or not snapshot.candles:
+            return None
+
+        # Breakeven management only
         entry_price = float(open_position["entry_price"])
         current_price = snapshot.candles[-1].close
         current_stop = float(open_position.get("stop_price") or 0.0)
-        pos_dir = open_position.get("direction")
-        
+        direction = open_position.get("direction")
         initial_risk = abs(entry_price - current_stop)
+
         if initial_risk > 0:
-            profit_dist = (current_price - entry_price) if pos_dir == "long" else (entry_price - current_price)
+            profit_dist = (
+                (current_price - entry_price)
+                if direction == "long"
+                else (entry_price - current_price)
+            )
             r_multiple = profit_dist / initial_risk
-            
-            # 1. Breakeven
-            if pos_dir == "long" and current_stop < entry_price and r_multiple >= 1.0:
-                 return AITradeDecision(
+            if direction == "long" and current_stop < entry_price and r_multiple >= 1.0:
+                return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="long", phase="management", action="hold", stop_loss=entry_price,
-                    notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
+                    bias="long", phase="management", action="hold",
+                    stop_loss=entry_price,
+                    notes="[MANAGEMENT] Mean Reversion: stop → BREAKEVEN (1R)"
                 )
-            if pos_dir == "short" and current_stop > entry_price and r_multiple >= 1.0:
-                 return AITradeDecision(
+            if direction == "short" and current_stop > entry_price and r_multiple >= 1.0:
+                return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="short", phase="management", action="hold", stop_loss=entry_price,
-                    notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
+                    bias="short", phase="management", action="hold",
+                    stop_loss=entry_price,
+                    notes="[MANAGEMENT] Mean Reversion: stop → BREAKEVEN (1R)"
                 )
 
-        # [SAFETY] Managed by StrategyEngine via SafetyGuard
         return None

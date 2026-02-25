@@ -179,44 +179,6 @@ class RobotEvolutionStrategy(BaseStrategy):
         return stand_aside_decision(snapshot.symbol, snapshot.timeframe, final_reason)
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
-        # [DYNAMIC RISK] Breakeven & Trailing
-        entry_price = float(open_position["entry_price"])
-        current_price = snapshot.candles[-1].close
-        current_stop = float(open_position.get("stop_price") or 0.0)
-        pos_dir = open_position.get("direction")
-        
-        initial_risk = abs(entry_price - current_stop)
-        if initial_risk > 0:
-            profit_dist = (current_price - entry_price) if pos_dir == "long" else (entry_price - current_price)
-            r_multiple = profit_dist / initial_risk
-            
-            # 1. Breakeven
-            if pos_dir == "long" and current_stop < entry_price and r_multiple >= 1.0:
-                 return AITradeDecision(
-                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="long", phase="management", action="hold", stop_loss=entry_price,
-                    structure_summary="Move stop to breakeven",
-                    invalidation_conditions="N/A - management action",
-                    management_instructions="Stop moved to entry price (breakeven).",
-                    notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
-                )
-            if pos_dir == "short" and current_stop > entry_price and r_multiple >= 1.0:
-                 return AITradeDecision(
-                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="short", phase="management", action="hold", stop_loss=entry_price,
-                    structure_summary="Move stop to breakeven",
-                    invalidation_conditions="N/A - management action",
-                    management_instructions="Stop moved to entry price (breakeven).",
-                    notes="[MANAGEMENT] Moved stop to BREAKEVEN (1R)"
-                )
-
-        # [NEW] Take Profit Check
-        tp_target = float(open_position.get("take_profit") or 0.0)
-        if tp_target > 0:
-            if (pos_dir == "long" and current_price >= tp_target) or \
-               (pos_dir == "short" and current_price <= tp_target):
-                return close_position_decision(snapshot.symbol, snapshot.timeframe, f"Evolution TP: Target Hit @ {tp_target:.4f}")
-
-        # [SAFETY] Managed by StrategyEngine via SafetyGuard
+        """All exits managed by SafetyGuard. No strategy-level exit authority."""
         return None
 

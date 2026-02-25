@@ -396,6 +396,21 @@ class TradingProfileSettings(BaseModel):
         le=1.0,
         description="Specific risk % for high-confidence reversal setups.",
     )
+    # ── Stop-and-Reverse (fires on ANY stop loss exit) ─────────────
+    stop_and_reverse_enabled: bool = Field(
+        default=False,
+        description="When a stop fires, immediately open opposite direction with 1R TP. Different from RSI reversal logic.",
+    )
+    reversal_tp_r: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=10.0,
+        description="Take profit target in R-multiples for stop-and-reverse entries (1.0 = 1R).",
+    )
+    reversal_cost_aware_tp: bool = Field(
+        default=True,
+        description="Add estimated spread/fee buffer to reversal TP so net PnL is a true 1:1 after costs.",
+    )
     friction_stop_floor_pct: float = Field(
         default=0.0,
         ge=0.0,

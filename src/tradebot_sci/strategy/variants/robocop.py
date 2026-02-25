@@ -146,39 +146,5 @@ class RoboCopStrategy(BaseStrategy):
         )
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, current_capital: Optional[float] = None, **kwargs) -> Optional[AITradeDecision]:
-        pos_dir = open_position.get("direction")
-        entry_price = float(open_position.get("entry_price", 0))
-        current_stop = float(open_position.get("stop_loss", 0))
-        current_pnl = float(open_position.get("unrealized_pnl", 0))
-        capital = current_capital or 1000.0
-        
-        last_close = snapshot.candles[-1].close
-        atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
-        
-        # 1. Smart Exit: HTF Reversal (User Request: "Usually it's the htf that invalidates")
-        # If we are long, and HTF flips to short (or neutral?), bail.
-        htf_dir = snapshot.trend_htf.direction
-        if (pos_dir == "long" and htf_dir == "short") or (pos_dir == "short" and htf_dir == "long"):
-             return close_position_decision(snapshot.symbol, snapshot.timeframe, f"Sniper Exit: HTF Reversal ({htf_dir})")
-
-        # 2. Smart Exit: Opposing Indication (BOS against us)
-        # If we see a structure break against our position, get out before the stop.
-        opposing_ind = detect_indication(snapshot.candles, swing_lookback=2)
-        if opposing_ind and opposing_ind.direction != pos_dir:
-             return close_position_decision(snapshot.symbol, snapshot.timeframe, f"Sniper Exit: Opposing BOS ({opposing_ind.direction})")
-
-        # 3. Structure Invalidation (Tight)
-        inval = detect_structure_invalidation(snapshot.candles, pos_dir, atr_mult=0.5)
-        if inval:
-             return close_position_decision(snapshot.symbol, snapshot.timeframe, "Sniper Defeat: Structure Broken")
-
-        # [SAFETY] Managed by StrategyEngine via SafetyGuard
-        
-        # [NEW] Take Profit Check
-        tp_target = float(open_position.get("take_profit") or 0.0)
-        if tp_target > 0:
-            if (pos_dir == "long" and last_close >= tp_target) or \
-               (pos_dir == "short" and last_close <= tp_target):
-                return close_position_decision(snapshot.symbol, snapshot.timeframe, f"Sniper TP: Target Hit @ {tp_target:.4f}")
-
+        """All exits managed by SafetyGuard. No strategy-level exit authority."""
         return None

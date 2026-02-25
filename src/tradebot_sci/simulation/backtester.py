@@ -801,6 +801,47 @@ class Backtester:
                         ))
                         del positions[pos_key]
                         logger.info(f"[BACKTEST] {symbol} stop hit: PnL=${pnl:.2f}")
+
+                        # ── STOP-AND-REVERSE ──────────────────────────
+                        # Read from profile settings (non-exclusive).
+                        sar_enabled = bool(getattr(profile, 'stop_and_reverse_enabled', False))
+                        if sar_enabled and pos_key not in positions:
+                            rev_dir = "short" if pos.direction == "long" else "long"
+                            rev_entry = exit_price
+                            risk_dist = abs(pos.entry_price - pos.stop_price)
+                            # TP distance: reversal_tp_r × risk + optional spread buffer
+                            rev_tp_r = float(getattr(profile, 'reversal_tp_r', 1.0))
+                            tp_dist = risk_dist * rev_tp_r
+                            if bool(getattr(profile, 'reversal_cost_aware_tp', True)):
+                                from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                                fee_pct = get_fee_for_symbol(symbol)
+                                tp_dist += rev_entry * fee_pct  # Add spread buffer
+                            if rev_dir == "long":
+                                rev_sl = rev_entry - risk_dist
+                                rev_tp = rev_entry + tp_dist
+                            else:
+                                rev_sl = rev_entry + risk_dist
+                                rev_tp = rev_entry - tp_dist
+                            rev_risk_pct = float(getattr(profile, 'reversal_risk_per_trade', 0.045))
+                            rev_max_risk = capital * rev_risk_pct
+                            rev_size = rev_max_risk / risk_dist if risk_dist > 0 else 0
+                            if rev_size > 0:
+                                positions[pos_key] = type(pos)(
+                                    symbol=symbol,
+                                    direction=rev_dir,
+                                    entry_price=rev_entry,
+                                    size=rev_size,
+                                    stop_price=rev_sl,
+                                    target_price=rev_tp,
+                                    entry_time=current_time,
+                                    strategy_name="reversal",
+                                )
+                                logger.info(
+                                    f"[BACKTEST] {symbol} REVERSE → "
+                                    f"{rev_dir} @ {rev_entry:.5f}, "
+                                    f"SL={rev_sl:.5f}, "
+                                    f"TP={rev_tp:.5f} ({rev_tp_r}R+spread)"
+                                )
                         continue
 
                 # Check take profit
@@ -1268,6 +1309,7 @@ class Backtester:
                                 'unrealized_pnl': pnl,
                                 'pyramid_count': current_position.pyramid_count,
                                 'htf_neutral_bars': current_position.htf_neutral_bars,
+                                'entry_time': current_position.entry_time,
                             }
 
                         decision = engine.decide(
@@ -1309,9 +1351,8 @@ class Backtester:
                         # Handle exit signals if we have an open position
                         if current_position is not None and decision.action in ("exit", "close_position"):
                             held_seconds = (current_time - current_position.entry_time).total_seconds()
-                            # 1-HOUR HOLD GUARD: Only SL/TP exits allowed before 1 hour
-                            # Matches engine.py's HOLD_GUARD_SECONDS = 3600
-                            HOLD_GUARD_SECONDS = 3600
+                            # 5-MINUTE HOLD GUARD: Match engine.py
+                            HOLD_GUARD_SECONDS = 300
                             is_sl_tp = getattr(decision, 'emergency_exit', False)
                             if held_seconds < HOLD_GUARD_SECONDS and not is_sl_tp:
                                 logger.info(
@@ -1450,6 +1491,31 @@ class Backtester:
 
                         # Handle position management (stop/target updates)
                         if current_position is not None and decision.action in ("hold", "scale_in", "scale_out"):
+                            # ── PARTIAL CLOSE on scale_out ──────────────────
+                            if decision.action == "scale_out" and current_position.size > 0:
+                                # Read from runtime settings (non-exclusive)
+                                _rt = getattr(self.settings, 'runtime', None)
+                                close_frac = float(getattr(_rt, 'scale_out_fraction', 0.5)) if _rt else 0.5
+                                close_size = current_position.size * close_frac
+                                exit_price = snapshot.candles[-1].close
+                                partial_pnl = _calculate_pnl(
+                                    current_position.entry_price, exit_price,
+                                    close_size, current_position.direction,
+                                    symbol=symbol,
+                                )
+                                capital += partial_pnl
+                                current_position.size -= close_size
+                                current_position.total_cost = (
+                                    current_position.entry_price * current_position.size
+                                )
+                                logger.info(
+                                    f"[BACKTEST] {symbol} PARTIAL CLOSE: "
+                                    f"closed {close_size:.0f} units "
+                                    f"({close_frac*100:.0f}%), "
+                                    f"PnL=${partial_pnl:.2f}, "
+                                    f"remaining={current_position.size:.0f}"
+                                )
+
                             # Update stop/target if strategy provides new ones
                             if decision.stop_loss is not None and decision.stop_loss != current_position.stop_price:
                                 # ── Breakeven Stop Guard ────────────────────────────
@@ -1628,10 +1694,22 @@ class Backtester:
                             if boost_label:
                                 logger.info(f"[PERF] {symbol} {' | '.join(boost_label)} → risk={risk_pct*100:.2f}%")
 
+                            # ── HARD MAX RISK CAP ─────────────────────────────
+                            # After ALL performance multipliers, cap total risk
+                            # to prevent catastrophic single-trade losses.
+                            # At 30× leverage on $2k, 3% = $60 max loss per trade.
+                            MAX_RISK_PCT = 0.02  # 2% absolute ceiling
+                            if risk_pct > MAX_RISK_PCT:
+                                logger.info(
+                                    f"[RISK-CAP] {symbol}: risk {risk_pct*100:.2f}% → "
+                                    f"capped at {MAX_RISK_PCT*100:.1f}%"
+                                )
+                                risk_pct = MAX_RISK_PCT
+
                             # [RISK SATURATION] Cap compounding to prevent Nuclear Blowout
-                            comp_cap = 50000.0  # Raised from 10k to allow more capital utilization
+                            comp_cap = 10000.0  # Conservative cap for consistency
                             if getattr(profile, 'nuclear_overrides_enabled', False):
-                                comp_cap = getattr(profile, 'compounding_cap_override', 50000.0)
+                                comp_cap = getattr(profile, 'compounding_cap_override', 10000.0)
 
                             compounding_capital = min(capital, comp_cap)
                             max_risk = compounding_capital * risk_pct
