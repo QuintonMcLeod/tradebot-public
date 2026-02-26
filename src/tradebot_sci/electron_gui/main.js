@@ -742,7 +742,7 @@ Available strategies (pick one per asset class):
 • "crypto_vwap_reversion" — Mean reversion to VWAP using Bollinger bands + volume. Best for: ranging crypto, high-volume pairs. Risk: Medium.
 • "crypto_double_macd" — Dual-timeframe MACD scalper for tight crypto scalps. Best for: active crypto, BTC/SOL. Risk: High.
 • "crypto_grid" — Virtual grid trading with dynamic ATR-based levels. Best for: sideways/ranging crypto. Risk: Medium-High.
-• "conductor" — The Forex Conductor. EMA pullback entries + 95% loss guillotine + infinite pyramiding + stop-and-reverse. Cuts losers to ~$8, lets winners run 5-10R with dynamic ATR trail. A-rated for forex trending. Backtested 100% hit rate across 6 windows. Best for: trending forex (EUR/USD, GBP/USD). Risk: Aggressive (managed).
+• "conductor" — The Forex Conductor. Regime-based strategy router: trending → Trend Rider (EMA pullback), ranging → Mean Reversion (Bollinger bounce), transitional → Session Breakout, choppy → BLOCK all entries. Conservative gates: HTF/LTF alignment required, 2h entry cooldown, loss streak cooldown. Cuts losers to ~$3-8, trades in bursts when conditions align. Best for: all forex regimes (EUR/USD, GBP/USD). Risk: Dynamic (conservative gates).
 
 ═══════════════════════════════════════════════════
 BACKTESTED STRATEGY RATINGS (14-day audit, real broker fees, realistic exits)

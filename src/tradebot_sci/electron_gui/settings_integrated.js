@@ -792,21 +792,21 @@ const STRATEGIES = {
     forex_conductor: {
         name: 'Forex Conductor',
         icon: 'orchestration',
-        shortDesc: 'Session-Based Strategy Scheduler',
-        description: "Like an orchestra conductor, deploys exactly ONE proven strategy per forex session — no tournament, no signal suppression. Asian session → Volatility Breakout, London → London Breakout, US Open → ORB, off-peak → best recent all-rounder (ICC Core or HyperScalper). Captures near-combined individual PnL by eliminating tournament cannibalization.",
-        style: "Session Scheduler",
-        risk: "Dynamic",
-        bestFor: "✅ Forex — maximizes combined strategy PnL",
-        stats: { mode: "Direct dispatch", sessions: "4 slots", competition: "Zero" }
+        shortDesc: 'Regime-Based Strategy Router',
+        description: "Reads the market regime in real-time and routes to the right strategy: Trending → Trend Rider (EMA pullback entries), Ranging → Mean Reversion (Bollinger bounces), Transitional → Session Breakout (London open). Blocks ALL entries in choppy markets (HTF/LTF disagreement). Gates include 19% HTF strength minimum, 2h entry cooldown, loss streak cooldown, and HTF/LTF alignment checks. Trades in bursts when conditions align, sits out when they don't.",
+        style: "Regime Router",
+        risk: "Dynamic (conservative gates)",
+        bestFor: "✅ Forex — adapts to market conditions automatically",
+        stats: { regimes: "4 (trend/range/transition/choppy)", cooldown: "2h", gate: "HTF/LTF align" }
     },
     trend_rider: {
         name: 'Trend Rider',
         shortDesc: 'EMA Pullback in Strong Trend',
-        description: "Waits for price to pull back to the 21 EMA during a confirmed strong trend. Requires HTF trend strength ≥ 0.5 and RSI between 40-60 to confirm a pullback. ❌ BACKTESTED: -$2K on Forex (2% win rate). Trend detection unreliable on 15m, stops constantly hit by spread noise.",
+        description: "Waits for price to pull back to the EMA(21) during a confirmed strong HTF trend (strength ≥ 0.5). Requires EMA(8)/EMA(21) alignment, RSI 40-60 pullback zone, price within 0.3 ATR of slow EMA, and a confirming bounce. Used by the Conductor as its trending-regime sub-strategy — the Conductor's loss-cutting gates (Structure Invalidation at 0.5× ATR) keep avg losses to ~$3-8.",
         style: "Trend Following",
-        risk: "Medium",
-        bestFor: "⚠️ Crypto only — ❌ loses 100% on Forex 15m",
-        stats: { forex: "❌ -$2K (2% win)", indicator: "21 EMA", target: "2.0R" }
+        risk: "Medium (low when inside Conductor)",
+        bestFor: "✅ Forex trending regimes (via Conductor)",
+        stats: { filters: "6 entry gates", indicator: "EMA 8/21", avgLoss: "$3-8 (Conductor)" }
     },
     session_momentum: {
         name: 'Session Momentum',
