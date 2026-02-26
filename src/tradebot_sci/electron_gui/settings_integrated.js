@@ -674,156 +674,173 @@ const STRATEGIES = {
     orb_breakout: {
         name: "ORB (Opening Range Breakout)",
         shortDesc: "NY Opening Range Breakout",
+        assetClass: "forex",
         description: "The Opening Range Breakout (ORB) strategy. It watches the first 15 minutes of the New York Stock Market open (9:30 AM ET) to see where the big money is moving. It waits for the price to break out of that range, come back to test the level for safety, and form a 'flag' pattern before entering. ⚠️ BACKTESTED: 0% win rate on Forex — broken for short timeframes. Needs session-specific data.",
         style: "Breakout",
         risk: "Low-Medium",
-        bestFor: "NY Open (9:30-11:00 ET) — Stocks/ETFs only",
+        bestFor: "Forex: NY Open (9:30-11:00 ET), Stocks/ETFs",
         stats: { verified: "❌ Forex: -$1.7K", winRate: "0%", riskReward: "2:1" }
     },
     rubberband_reaper: {
         name: "Rubberband Reaper",
         shortDesc: "Anti-Martingale Mean Reversion",
+        assetClass: "universal",
         description: "Uses Bollinger Bands and RSI to catch price reversals at extremes. Features intelligent tiered risk management that INCREASES position size after wins and DECREASES after losses. Targets the opposite Bollinger Band for 3:1+ reward-to-risk ratios.",
         style: "Mean Reversion",
         risk: "Adaptive",
-        bestFor: "Ranging markets, volatile assets",
+        bestFor: "Universal: ranging markets, volatile assets",
         stats: { verified: "+7,036%", winRate: "39%", riskReward: "3.7:1" }
     },
     robocop: {
         name: "RoboCop",
         shortDesc: "Aggressive High-Frequency ICC",
+        assetClass: "crypto",
         description: "Lightning-fast execution with minimal confirmation requirements. Reacts to ANY valid micro-signal without waiting for corrections. Uses 1-bar confirmation and targets 3.0 ATR for maximum profit potential. Includes fast 'chop exit' to avoid ranging traps. ✅ CRYPTO: $2.5M profit, 33% win rate. ❌ FOREX: -$2K (spread eats all profit).",
         style: "Aggressive Scalping",
         risk: "High",
-        bestFor: "✅ Crypto only — DO NOT use for Forex",
+        bestFor: "Crypto: high-frequency scalping — DO NOT use for Forex",
         stats: { crypto: "✅ +$2.5M", forex: "❌ -$2K", target: "3.0 ATR" }
     },
     evolution: {
         name: "Robot Evolution",
         shortDesc: "NTZ Range Scalper",
+        assetClass: "crypto",
         description: "Optimized for choppy, ranging markets. Identifies the 'No-Trade-Zone' (NTZ) between swing highs and lows, then trades liquidity sweeps at the edges. Targets 2.0R with conservative 1.5 ATR stops. ✅ CRYPTO: $2.3M profit, 27% win rate. ❌ FOREX: -$1.1K (NTZ scalping can't overcome OANDA spreads).",
         style: "Range Trading",
         risk: "Low-Medium",
-        bestFor: "✅ Crypto ranging markets — ❌ not profitable on Forex",
+        bestFor: "Crypto: ranging markets, NTZ liquidity sweeps",
         stats: { crypto: "✅ +$2.3M", forex: "❌ -$1.1K", focus: "NTZ edges" }
     },
     quantum: {
         name: "Quantum",
         shortDesc: "Trend-Following with SMA Pullback",
+        assetClass: "crypto",
         description: "Classic trend-following strategy that waits for price to pull back to the 20-period SMA before entering in the trend direction. Requires HTF/LTF alignment and momentum confirmation. ⚠️ BACKTESTED: -$2K on Forex 15m (6% win rate). Forex spreads destroy the 2:1 R:R edge. May work on 4H+ timeframes or crypto where trends are stronger.",
         style: "Trend Following",
         risk: "Medium",
-        bestFor: "⚠️ Crypto or 4H+ Forex only — NOT 15m Forex",
+        bestFor: "Crypto: trend pullbacks, or 4H+ Forex only",
         stats: { forex15m: "❌ -$2K", indicator: "20 SMA", target: "2:1 R:R" }
     },
     mean_reversion: {
         name: "Mean Reversion",
         shortDesc: "Bollinger + RSI Extremes",
+        assetClass: "universal",
         description: "Enters when price breaks outside Bollinger Bands (15-period, 2.5 std) with RSI confirmation of oversold (<25) or overbought (>75). Supports pyramiding with 6-bar cooldown between adds. Simple but effective for ranging markets.",
         style: "Mean Reversion",
         risk: "Medium",
-        bestFor: "Ranging crypto and forex",
+        bestFor: "Universal: ranging Forex and Crypto markets",
         stats: { bands: "15p/2.5σ", rsi: "<25/>75", pyramid: "6-bar cool" }
     },
     hyper_scalper: {
         name: "HyperScalper",
         shortDesc: "EMA Crossover Speed Trading",
+        assetClass: "universal",
         description: "High-frequency 5-minute scalper using 9/21 EMA crossovers filtered by 200 EMA trend and RSI. Designed for aggressive compounding with 1% default risk per trade. ❌ BACKTESTED: 0% win rate on Forex, lost 100% of capital. Spread noise triggers false crossovers constantly.",
         style: "Fast Scalping",
         risk: "Very High",
-        bestFor: "❌ NOT RECOMMENDED — 0% win rate in backtest",
+        bestFor: "Universal: ❌ NOT RECOMMENDED — 0% win rate",
         stats: { ema: "9/21/200", forex: "❌ -$2K (0% win)", risk: "1%" }
     },
     london_breakout: {
         name: "London Breakout",
         shortDesc: "Session Opening Range",
+        assetClass: "forex",
         description: "Trades the breakout of the first hour of London session (08:00-09:00 GMT). Waits for the range to establish, then enters on breakout of the high or low before noon. Classic institutional strategy with 1.5R targets.",
         style: "Breakout",
         risk: "Medium",
-        bestFor: "GBP pairs, European session",
+        bestFor: "Forex: GBP pairs, European session",
         stats: { session: "08:00-12:00", target: "1.5R", window: "London" }
     },
     volatility_breakout: {
         name: "Volatility Breakout",
         shortDesc: "Range Expansion Momentum",
+        assetClass: "universal",
         description: "Catches explosive moves when price breaks out of a 20-period range with RSI confirmation (>60 long, <40 short). Features fast momentum exit when RSI reverses. Great for catching the start of new trends.",
         style: "Breakout",
         risk: "Medium-High",
-        bestFor: "Any market showing compression",
+        bestFor: "Universal: any market showing compression",
         stats: { range: "20 periods", target: "2.0R", rsi: ">60/<40" }
     },
     aggregator: {
         name: "Singularity Aggregator",
         shortDesc: "Multi-Strategy Parallel",
+        assetClass: "universal",
         description: "Runs Mean Reversion + HyperScalper simultaneously for maximum capital utilization. Prioritizes scale-ins on existing winners, then new entries. Keeps the bot 'always loaded' for potential 400%+ returns by never missing opportunities.",
         style: "Multi-Strategy",
         risk: "Variable",
-        bestFor: "Maximizing capital efficiency",
+        bestFor: "Universal: maximizing capital efficiency",
         stats: { strategies: "2 parallel", priority: "Scale > New", goal: "Always loaded" }
     },
     icc_core: {
         name: "ICC Core (ICT Methodology)",
         shortDesc: "Displacement + OTE Pullback",
+        assetClass: "universal",
         description: "Pure ICT (Inner Circle Trader) methodology: detects displacement (consecutive momentum candles), then enters on pullback to the Optimal Trade Entry zone (50-78.6% Fibonacci) or at a Fair Value Gap. Uses engine trend as directional bias. ⚠️ BACKTESTED: -$1.7K on Forex (9% win rate). Needs tuning — works on theory but fees eat edge on short timeframes.",
         style: "Price Action / ICT",
         risk: "Low-Medium",
-        bestFor: "⚠️ Experimental — needs tuning",
+        bestFor: "Universal: ⚠️ experimental — needs tuning",
         stats: { forex: "❌ -$1.7K", method: "ICT OTE+FVG", winRate: "9%" }
     },
     supply_demand: {
         name: "Supply & Demand",
         shortDesc: "Institutional Price Action",
+        assetClass: "universal",
         description: "Uses the pure institutional methodology of Supply and Demand zones. Waits for a clear Break of Structure, tags the 'Base' candle as a high-probability zone, enters when price returns to 'tap' that zone. ✅ BACKTESTED #1 FOREX: $1.4M profit. ✅ #2 CRYPTO: $4.7M profit. Extreme R:R (avg win 250× avg loss) compensates for low 5-20% win rate.",
         style: "Price Action / Institutional",
         risk: "Low-Medium",
-        bestFor: "✅ BEST strategy for both Forex and Crypto",
+        bestFor: "Universal: ✅ BEST for both Forex and Crypto",
         stats: { forex: "✅ #1 +$1.4M", crypto: "✅ #2 +$4.7M", method: "SND Zones" }
     },
     meta_sci: {
         name: 'Meta-SCI',
         icon: 'auto_awesome',
         shortDesc: 'AI-Enhanced Ensemble Strategy',
+        assetClass: "universal",
         description: "The ultimate AI Brain. Runs multiple trading strategies simultaneously and uses an AI ensemble to pick the best signal per trade — like a manager who only listens to the most successful expert for each situation. ✅ BACKTESTED #1 CRYPTO: $8.2M profit, 30% win rate. ✅ #2 FOREX: $951K profit. Consistently profitable across all markets.",
         style: "AI Ensemble",
         risk: "Dynamic",
-        bestFor: "✅ BEST for Crypto, EXCELLENT for Forex — all markets",
+        bestFor: "Universal: ✅ BEST for Crypto, EXCELLENT for Forex",
         stats: { crypto: "✅ #1 +$8.2M", forex: "✅ #2 +$951K", ai: "Ensemble" }
     },
     forex_conductor: {
         name: 'Forex Conductor',
         icon: 'orchestration',
         shortDesc: 'Regime-Based Strategy Router',
+        assetClass: "forex",
         description: "Reads the market regime in real-time and routes to the right strategy: Trending → Trend Rider (EMA pullback entries), Ranging → Mean Reversion (Bollinger bounces), Transitional → Session Breakout (London open). Blocks ALL entries in choppy markets (HTF/LTF disagreement). Gates include 19% HTF strength minimum, 2h entry cooldown, loss streak cooldown, and HTF/LTF alignment checks. Trades in bursts when conditions align, sits out when they don't.",
         style: "Regime Router",
         risk: "Dynamic (conservative gates)",
-        bestFor: "✅ Forex — adapts to market conditions automatically",
+        bestFor: "Forex: adapts to market conditions automatically",
         stats: { regimes: "4 (trend/range/transition/choppy)", cooldown: "2h", gate: "HTF/LTF align" }
     },
     trend_rider: {
         name: 'Trend Rider',
         shortDesc: 'EMA Pullback in Strong Trend',
+        assetClass: "forex",
         description: "Waits for price to pull back to the EMA(21) during a confirmed strong HTF trend (strength ≥ 0.5). Requires EMA(8)/EMA(21) alignment, RSI 40-60 pullback zone, price within 0.3 ATR of slow EMA, and a confirming bounce. Used by the Conductor as its trending-regime sub-strategy — the Conductor's loss-cutting gates (Structure Invalidation at 0.5× ATR) keep avg losses to ~$3-8.",
         style: "Trend Following",
         risk: "Medium (low when inside Conductor)",
-        bestFor: "✅ Forex trending regimes (via Conductor)",
+        bestFor: "Forex: trending regimes via Conductor",
         stats: { filters: "6 entry gates", indicator: "EMA 8/21", avgLoss: "$3-8 (Conductor)" }
     },
     session_momentum: {
         name: 'Session Momentum',
         shortDesc: 'VWAP + Volume Surge at Open',
+        assetClass: "forex",
         description: "Captures the initial directional move during the highest-volume period of the trading day. Active only in the first 30 minutes of London (08:00-08:30 UTC) or New York (09:30-10:00 ET) session. Requires a VWAP break with 2× average volume surge for entry.",
         style: "Momentum / Session",
         risk: "Medium-High",
-        bestFor: "London & NY session opens",
+        bestFor: "Forex: London & NY session opens",
         stats: { indicator: "VWAP", volume: "2× avg", target: "2.0R" }
     },
     bearish_engulfing: {
         name: 'Engulfing Reversal',
         shortDesc: 'Candle Pattern at Key Structure',
+        assetClass: "universal",
         description: "Classic price action reversal pattern. Enters when a bullish or bearish engulfing candle forms at a key structural level (swing high/low) with HTF alignment. Optional RSI divergence detection for higher probability setups. Stop placed beyond the engulfing candle's wick.",
         style: "Price Action / Reversal",
         risk: "Medium",
-        bestFor: "Reversal zones, supply/demand levels",
+        bestFor: "Universal: reversal zones, supply/demand levels",
         stats: { pattern: "Engulfing", target: "2.0R", bonus: "RSI Divergence" }
     },
     // ──────────────────────────────────────────────────────────────
@@ -840,37 +857,41 @@ const STRATEGIES = {
     crypto_rsi_macd: {
         name: 'RSI + MACD (Crypto)',
         shortDesc: 'Classic Momentum Combo for Crypto',
+        assetClass: "crypto",
         description: "Combines RSI oversold/overbought readings with MACD crossover confirmations. Designed for 24/7 crypto markets — no session gating. Waits for RSI to exit extreme zones while MACD histogram flips direction. ATR-based stops.",
         style: "Momentum / Crypto",
         risk: "Medium",
-        bestFor: "Trending crypto markets, BTC/ETH swing trades",
+        bestFor: "Crypto: trending markets, BTC/ETH swing trades",
         stats: { rsi: "30/70", macd: "12/26/9", target: "2.0R" }
     },
     crypto_vwap_reversion: {
         name: 'VWAP Reversion (Crypto)',
         shortDesc: 'Mean Reversion to VWAP',
+        assetClass: "crypto",
         description: "Enters when price deviates significantly from the volume-weighted average price and shows signs of reverting. Uses Bollinger-style bands around VWAP with volume confirmation. Optimized for high-volume crypto pairs.",
         style: "Mean Reversion / Crypto",
         risk: "Medium",
-        bestFor: "Ranging crypto markets, high-volume pairs",
+        bestFor: "Crypto: ranging markets, high-volume pairs",
         stats: { indicator: "VWAP", bands: "2σ", target: "1.5R" }
     },
     crypto_double_macd: {
         name: 'Double MACD Scalper (Crypto)',
         shortDesc: 'Dual-Timeframe MACD Momentum',
+        assetClass: "crypto",
         description: "Uses two MACD indicators on different timeframes for confluence. Fast MACD (5/13/4) for entry timing, slow MACD (12/26/9) for trend filter. Designed for tight crypto scalps with quick exits on momentum fade.",
         style: "Scalping / Crypto",
         risk: "High",
-        bestFor: "Active crypto pairs, scalping BTC/SOL",
+        bestFor: "Crypto: active pairs, scalping BTC/SOL",
         stats: { fast: "5/13/4", slow: "12/26/9", target: "1.5R" }
     },
     crypto_grid: {
         name: 'Virtual Grid (Crypto)',
         shortDesc: 'Grid Trading with Dynamic Levels',
+        assetClass: "crypto",
         description: "Places a virtual grid of buy/sell zones around the current market price. Profits from price oscillation within a range. Automatically adjusts grid spacing based on ATR volatility. No physical grid orders — all managed internally.",
         style: "Grid / Crypto",
         risk: "Medium-High",
-        bestFor: "Sideways/ranging crypto markets",
+        bestFor: "Crypto: sideways/ranging markets",
         stats: { levels: "Dynamic", spacing: "ATR-based", target: "0.5-1.0R" }
     }
 };
@@ -1614,11 +1635,26 @@ function renderStrategyTab(container) {
                 </div>
                 <div class="strategy-select-wrapper">
                     <select class="input-field" data-env-key="${asset.envKey}">
-                        ${Object.entries(STRATEGIES).map(([key, strat]) => `
-                            <option value="${key}" ${key === currentStrategy ? 'selected' : ''}>
-                                ${strat.name} — ${strat.shortDesc}
-                            </option>
-                        `).join('')}
+                        ${(() => {
+                    const groups = { forex: [], crypto: [], universal: [] };
+                    const labels = { forex: '📈 Forex', crypto: '🪙 Crypto', universal: '🌐 Universal' };
+                    Object.entries(STRATEGIES).forEach(([key, strat]) => {
+                        const cls = strat.assetClass || 'universal';
+                        groups[cls] = groups[cls] || [];
+                        groups[cls].push([key, strat]);
+                    });
+                    return Object.entries(groups)
+                        .filter(([, items]) => items.length > 0)
+                        .map(([cls, items]) => `
+                                    <optgroup label="${labels[cls] || cls}">
+                                        ${items.map(([key, strat]) => `
+                                            <option value="${key}" ${key === currentStrategy ? 'selected' : ''}>
+                                                ${strat.name} — ${strat.shortDesc}
+                                            </option>
+                                        `).join('')}
+                                    </optgroup>
+                                `).join('');
+                })()}
                     </select>
                 </div>
                 <div class="strategy-description" data-desc-for="${asset.envKey}">
