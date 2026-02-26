@@ -226,7 +226,7 @@
                 const gradeMatch = body.match(/grade=([A-F][+-]?)/i);
                 const forcedGrade = gradeMatch ? gradeMatch[1] : null;
 
-                const stratMatch = body.match(/strategy=([^\s|]+)/i);
+                const stratMatch = body.match(/strategy=(.+?)(?=\s+(?:strat_score|strat_grade|reason)=|\||\s*$)/i);
                 const stratGradeMatch = body.match(/strat_grade=([A-F][+-]?)/i);
                 const stratName = stratMatch ? stratMatch[1] : null;
                 const displayGrade = stratGradeMatch ? stratGradeMatch[1] : forcedGrade;
