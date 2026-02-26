@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.strategy.variants.base import BaseStrategy
@@ -34,6 +34,82 @@ class TrendRiderStrategy(BaseStrategy):
         self.fast_ema = fast_ema
         self.slow_ema = slow_ema
         self.rsi_period = rsi_period
+
+    def score_signal(self, snapshot: MarketSnapshot, gates: dict) -> Tuple[float, str, str]:
+        """Score how close the TrendRider entry filters are to triggering.
+
+        Each filter contributes points to a 0-100 score:
+          HTF direction (not neutral)    = 20 pts
+          HTF strength ≥ 0.5             = 15 pts
+          EMA(8)/EMA(21) aligned         = 20 pts
+          RSI in 40-60 (pullback zone)   = 15 pts
+          Price near EMA(21) (≤0.3 ATR)  = 15 pts
+          Bounce confirmed               = 15 pts
+        """
+        closes = [c.close for c in snapshot.candles]
+        if len(closes) < self.slow_ema + 10:
+            return 0.0, "F-", "Trend Rider: insufficient data"
+
+        score = 0.0
+        details = []
+
+        # 1. HTF direction
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        if htf_dir in ("long", "short"):
+            score += 20
+            details.append(f"HTF={htf_dir}")
+        else:
+            details.append("HTF=neutral")
+
+        # 2. HTF strength
+        htf_strength = float(gates.get("htf_strength", 0))
+        if htf_strength >= 0.5:
+            score += 15
+            details.append(f"str={htf_strength:.2f}")
+        else:
+            details.append(f"str={htf_strength:.2f}<0.5")
+
+        # 3. EMA alignment
+        ema_fast = calculate_ema(closes, self.fast_ema)
+        ema_slow = calculate_ema(closes, self.slow_ema)
+        aligned = (htf_dir == "long" and ema_fast > ema_slow) or \
+                  (htf_dir == "short" and ema_fast < ema_slow)
+        if aligned:
+            score += 20
+            details.append("EMA✓")
+        else:
+            details.append("EMA✗")
+
+        # 4. RSI in pullback zone (40-60)
+        rsi = calculate_rsi(closes, self.rsi_period)
+        if 40 <= rsi <= 60:
+            score += 15
+            details.append(f"RSI={rsi:.0f}")
+        else:
+            details.append(f"RSI={rsi:.0f}✗")
+
+        # 5. Price near EMA(21)
+        atr = calculate_atr(snapshot.candles, period=14) or (closes[-1] * 0.001)
+        ema_dist = abs(closes[-1] - ema_slow)
+        if ema_dist < atr * 0.3:
+            score += 15
+            details.append("proximity✓")
+        else:
+            details.append("proximity✗")
+
+        # 6. Bounce confirmation
+        if len(closes) >= 2:
+            bounce = (htf_dir == "long" and closes[-1] > closes[-2]) or \
+                     (htf_dir == "short" and closes[-1] < closes[-2])
+            if bounce:
+                score += 15
+                details.append("bounce✓")
+            else:
+                details.append("bounce✗")
+
+        grade = self.grade_from_score_100(score)
+        summary = f"Trend Rider: {score:.0f}% — {', '.join(details)}"
+        return score, grade, summary
 
     def check_entry_signal(
         self,
