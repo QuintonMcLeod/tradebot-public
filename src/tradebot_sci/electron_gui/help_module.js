@@ -628,6 +628,31 @@ window.helpModule = (() => {
                 color: #000;
             }
 
+            /* NEW badge for unread articles */
+            .mag-badge-new {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.25rem;
+                padding: 0.2rem 0.6rem;
+                border-radius: 999px;
+                font-size: 0.6rem;
+                font-weight: 900;
+                text-transform: uppercase;
+                letter-spacing: 0.15em;
+                background: linear-gradient(135deg, #f59e0b, #ef4444);
+                color: #fff;
+                box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+                z-index: 5;
+                animation: newBadgePulse 2s ease-in-out infinite;
+            }
+            @keyframes newBadgePulse {
+                0%, 100% { transform: scale(1); box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4); }
+                50% { transform: scale(1.08); box-shadow: 0 3px 12px rgba(245, 158, 11, 0.6); }
+            }
+
             /* Title + description */
             .help-mag-card h3 {
                 font-size: 0.875rem;
@@ -735,6 +760,11 @@ window.helpModule = (() => {
         // Build masonry grid — all cards in one grid
         html += `<div class="help-mag-grid">`;
 
+        // Read tracking via localStorage
+        const readKey = 'tradebot-help-read-docs';
+        let readDocs = [];
+        try { readDocs = JSON.parse(localStorage.getItem(readKey) || '[]'); } catch (e) { readDocs = []; }
+
         docCatalog.forEach((doc, i) => {
             // Assign size: featured = large, certain important ones = medium, rest = small
             let sizeClass = 'mag-sm';
@@ -747,9 +777,11 @@ window.helpModule = (() => {
             const icon = doc.icon || 'article';
             const badgeLabel = doc.featured ? '⭐ Featured' : (doc.category === 'guide' ? 'Quick Start' : (doc.category === 'adr' ? 'ADR' : 'RTFM'));
             const badgeClass = doc.featured ? 'mag-badge featured' : 'mag-badge';
+            const isUnread = !readDocs.includes(doc.filename);
 
             html += `
                 <div class="help-mag-card ${sizeClass}" data-filename="${doc.filename}">
+                    ${isUnread ? '<span class="mag-badge-new">✨ NEW</span>' : ''}
                     <div class="help-mag-card-inner">
                         <div class="help-mag-card-top">
                             <span class="material-symbols-outlined">${icon}</span>
@@ -765,11 +797,22 @@ window.helpModule = (() => {
         html += `</div></div>`;
         welcomeEl.innerHTML = html;
 
-        // Attach click handlers
+        // Attach click handlers + mark as read
         welcomeEl.querySelectorAll('[data-filename]').forEach(card => {
             card.addEventListener('click', (e) => {
-                console.log('[HELP] Card clicked:', card.dataset.filename);
-                loadDoc(card.dataset.filename);
+                const fn = card.dataset.filename;
+                console.log('[HELP] Card clicked:', fn);
+
+                // Mark as read in localStorage
+                if (!readDocs.includes(fn)) {
+                    readDocs.push(fn);
+                    localStorage.setItem(readKey, JSON.stringify(readDocs));
+                    // Remove the NEW badge immediately
+                    const badge = card.querySelector('.mag-badge-new');
+                    if (badge) badge.remove();
+                }
+
+                loadDoc(fn);
             });
         });
         console.log('[HELP] Attached click handlers to', welcomeEl.querySelectorAll('[data-filename]').length, 'cards');
