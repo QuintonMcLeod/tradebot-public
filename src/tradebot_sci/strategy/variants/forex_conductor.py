@@ -23,6 +23,7 @@ from tradebot_sci.strategy.variants.mean_reversion import MeanReversionStrategy
 from tradebot_sci.strategy.variants.trend_rider import TrendRiderStrategy
 from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
 from tradebot_sci.strategy.variants.session_momentum import SessionMomentumStrategy
+from tradebot_sci.strategy.variants.wind_down_truffle import WindDownTruffleStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -65,13 +66,19 @@ def _update_cooldown(symbol: str, is_loss: bool):
         _loss_streaks[symbol] = 0
 
 
-def _tick_cooldowns():
-    for sym in list(_cooldown_bars.keys()):
-        if _cooldown_bars[sym] > 0:
-            _cooldown_bars[sym] -= 1
-    for sym in list(_entry_cooldown.keys()):
-        if _entry_cooldown[sym] > 0:
-            _entry_cooldown[sym] -= 1
+def _tick_cooldowns(symbol: str):
+    """Tick cooldowns for a SINGLE symbol only.
+
+    This must only tick the given symbol because the function is called
+    once per symbol per bar.  With N symbols, calling it N times and
+    ticking ALL symbols each time would make cooldowns expire N× faster
+    — a nasty coupling bug that changes behaviour depending on how many
+    pairs are traded.
+    """
+    if symbol in _cooldown_bars and _cooldown_bars[symbol] > 0:
+        _cooldown_bars[symbol] -= 1
+    if symbol in _entry_cooldown and _entry_cooldown[symbol] > 0:
+        _entry_cooldown[symbol] -= 1
 
 
 class ForexConductorStrategy(BaseStrategy):
@@ -86,6 +93,7 @@ class ForexConductorStrategy(BaseStrategy):
             "session_breakout": LondonBreakoutStrategy(),
             "trend_rider": TrendRiderStrategy(),
             "session_momentum": SessionMomentumStrategy(),
+            "wind_down_truffle": WindDownTruffleStrategy(),
         }
 
     def check_entry_signal(
@@ -99,7 +107,7 @@ class ForexConductorStrategy(BaseStrategy):
         if open_position:
             return None
 
-        _tick_cooldowns()
+        _tick_cooldowns(snapshot.symbol)
 
         # ── Stop-and-Reverse: populate _reversal_pending ─────────
         # If enabled, scan trade_history for a recent stop exit on
@@ -144,6 +152,7 @@ class ForexConductorStrategy(BaseStrategy):
 
         # ── Loss streak cooldown ─────────────────────────────────
         if _check_loss_cooldown(snapshot.symbol):
+            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by loss streak cooldown")
             return None
 
         # ── Entry cooldown (2h between entries per symbol) ───────
@@ -151,6 +160,7 @@ class ForexConductorStrategy(BaseStrategy):
         # market is moving the other way — ride it)
         has_reversal = snapshot.symbol in _reversal_pending
         if _entry_cooldown.get(snapshot.symbol, 0) > 0 and not has_reversal:
+            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by entry cooldown ({_entry_cooldown.get(snapshot.symbol, 0)} bars remaining)")
             return None
 
         # ── Get regime from trend detection ──────────────────────
@@ -158,11 +168,13 @@ class ForexConductorStrategy(BaseStrategy):
 
         # ── CHOPPY: Block all entries ────────────────────────────
         if regime in ("choppy", "unknown"):
+            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by regime={regime}")
             return None
 
         # ── Strength gate: don't enter weak signals ──────────────
         htf_strength = gates.get("htf_strength", 0)
         if regime == "trending" and htf_strength < 0.3:
+            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by weak htf_strength={htf_strength:.2f} (need >=0.3)")
             return None  # Too weak to trust as trending
 
         # ── HTF/LTF alignment for directional regimes ────────────
@@ -174,6 +186,7 @@ class ForexConductorStrategy(BaseStrategy):
                 ltf_dir = gates.get("ltf_dir", "neutral")
                 # Allow if one is neutral (not conflicting, just undecided)
                 if htf_dir in ("long", "short") and ltf_dir in ("long", "short"):
+                    logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by HTF/LTF misalignment (htf={htf_dir}, ltf={ltf_dir})")
                     return None  # Conflicting directions — skip
 
         # ── NOTE: Macro trend filters tested and reverted ─────────
@@ -187,9 +200,18 @@ class ForexConductorStrategy(BaseStrategy):
 
         if primary_key and primary_key in self._strategies:
             candidates.append(primary_key)
+        
+        logger.info(
+            f"[CONDUCTOR] {snapshot.symbol}: regime={regime}, "
+            f"htf_str={htf_strength:.2f}, route={primary_key}, "
+            f"candidates={candidates + ['session_momentum']}"
+        )
 
         # Session Momentum is always a candidate (self-gates by time)
         candidates.append("session_momentum")
+
+        # Wind Down Truffle is always a candidate (self-gates to Friday PM)
+        candidates.append("wind_down_truffle")
 
         # ── Try each candidate ───────────────────────────────────
         for key in candidates:
@@ -204,8 +226,11 @@ class ForexConductorStrategy(BaseStrategy):
                 # ── CORRELATION GUARD ─────────────────────────────
                 # Prevent simultaneous entries on correlated pairs
                 # (e.g., EURUSD + GBPUSD both short at the same time)
-                # Check if any other forex pair has an open position
-                if trade_history:
+                # EXCEPTION: SAR reversal entries bypass this guard —
+                # they are time-critical and blocking them negates the
+                # entire stop-and-reverse recovery mechanism.
+                is_sar_entry = snapshot.symbol in _reversal_pending
+                if trade_history and not is_sar_entry:
                     from datetime import timedelta
                     now = snapshot.candles[-1].timestamp if snapshot.candles else None
                     if now:
@@ -274,6 +299,27 @@ class ForexConductorStrategy(BaseStrategy):
         if not open_position:
             return None
 
+        # ── FRIDAY 5PM CLOSE ─────────────────────────────────────────
+        # Close any position at 5PM ET Friday (forex weekly close).
+        # Wind Down Truffle trades specifically need this, but it's
+        # a good safety for any position approaching the weekly close.
+        if snapshot.candles:
+            ts = snapshot.candles[-1].timestamp
+            if ts.tzinfo is None:
+                from zoneinfo import ZoneInfo as _ZI
+                ts = ts.replace(tzinfo=_ZI("UTC"))
+            et = ts.astimezone(ZoneInfo("America/New_York"))
+            if et.weekday() == 4 and (et.hour >= 17 or (et.hour == 16 and et.minute >= 45)):
+                from tradebot_sci.strategy.decisions import close_position_decision
+                logger.info(
+                    f"[CONDUCTOR] {snapshot.symbol}: Friday 5PM close — "
+                    f"closing before weekly shutdown"
+                )
+                return close_position_decision(
+                    snapshot.symbol, snapshot.timeframe,
+                    reason="Conductor: Friday 5PM Close"
+                )
+
         # ── R-MILESTONE MANAGEMENT ─────────────────────────────────
         # Two-sided position management based on R-multiple:
         #   LOSING:  -0.3R → partial close 50% (only if loss > spread)
@@ -297,9 +343,15 @@ class ForexConductorStrategy(BaseStrategy):
                         pnl_dist = entry_price - current_price
                     r_multiple = pnl_dist / initial_risk
 
+                    # SAR reversals manage their own risk via SL/TP.
+                    # Skip ALL milestone management (de-risk, pyramids,
+                    # floors) so they can ride to their 1R target.
+                    if open_position.get("strategy_name") == "reversal":
+                        return None
+
                     # Track which milestones have already fired
                     sym = snapshot.symbol
-                    milestones_key = f"{sym}_{entry_price:.5f}"
+                    milestones_key = f"{sym}_{pos_dir}_{entry_price:.5f}"
                     if not hasattr(self, '_milestones_fired'):
                         self._milestones_fired = {}
                     fired = self._milestones_fired.setdefault(milestones_key, set())

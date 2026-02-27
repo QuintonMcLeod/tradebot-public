@@ -169,6 +169,7 @@ class SimulatedPosition:
     htf_neutral_bars: int = 0  # Track how long HTF has been neutral
     entry_gates: Optional[dict] = None  # Score breakdown at entry time
     strategy_name: str = "unknown"  # Strategy that opened this trade
+    cumulative_partial_pnl: float = 0.0  # Running total of partial close PnLs
 
 
 @dataclass
@@ -701,7 +702,7 @@ class Backtester:
                         size=pos.size,
                         entry_time=pos.entry_time,
                         exit_time=current_time,
-                        pnl=pnl,
+                        pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                         exit_reason="max_hold",
                         entry_gates=getattr(pos, "entry_gates", None),
                         strategy_name=getattr(pos, 'strategy_name', 'unknown'),
@@ -739,7 +740,7 @@ class Backtester:
                             size=pos.size,
                             entry_time=pos.entry_time,
                             exit_time=current_time,
-                            pnl=pnl,
+                            pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                             exit_reason="profit_hold",
                         entry_gates=getattr(pos, "entry_gates", None),
                         ))
@@ -783,7 +784,7 @@ class Backtester:
                             size=pos.size,
                             entry_time=pos.entry_time,
                             exit_time=current_time,
-                            pnl=pnl,
+                            pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                             exit_reason="stop",
                         entry_gates=getattr(pos, "entry_gates", None),
                         ))
@@ -869,7 +870,7 @@ class Backtester:
                             size=pos.size,
                             entry_time=pos.entry_time,
                             exit_time=current_time,
-                            pnl=pnl,
+                            pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                             exit_reason="target",
                         entry_gates=getattr(pos, "entry_gates", None),
                         ))
@@ -911,7 +912,7 @@ class Backtester:
                         size=pos.size,
                         entry_time=pos.entry_time,
                         exit_time=current_time,
-                        pnl=pnl,
+                        pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                         exit_reason="max_loss_cap",
                         entry_gates=getattr(pos, "entry_gates", None),
                         strategy_name=getattr(pos, 'strategy_name', 'unknown'),
@@ -959,7 +960,7 @@ class Backtester:
                         size=pos.size,
                         entry_time=pos.entry_time,
                         exit_time=current_time,
-                        pnl=pnl,
+                        pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                         exit_reason="htf_neutral_timeout",
                         entry_gates=getattr(pos, "entry_gates", None),
                         strategy_name=getattr(pos, 'strategy_name', 'unknown'),
@@ -1010,7 +1011,7 @@ class Backtester:
                                 size=pos.size,
                                 entry_time=pos.entry_time,
                                 exit_time=current_time,
-                                pnl=pnl,
+                                pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                                 exit_reason="eod",
                         entry_gates=getattr(pos, "entry_gates", None),
                                 strategy_name=getattr(pos, 'strategy_name', 'unknown'),
@@ -1175,7 +1176,7 @@ class Backtester:
                                         size=sp_pos.size,
                                         entry_time=sp_pos.entry_time,
                                         exit_time=current_time,
-                                        pnl=pnl,
+                                        pnl=pnl + getattr(sp_pos, "cumulative_partial_pnl", 0.0),
                                         exit_reason=actual_reason,
                                         entry_gates=getattr(sp_pos, "entry_gates", None),
                                         strategy_name=getattr(sp_pos, 'strategy_name', 'unknown'),
@@ -1310,6 +1311,7 @@ class Backtester:
                                 'pyramid_count': current_position.pyramid_count,
                                 'htf_neutral_bars': current_position.htf_neutral_bars,
                                 'entry_time': current_position.entry_time,
+                                'strategy_name': getattr(current_position, 'strategy_name', 'unknown'),
                             }
 
                         decision = engine.decide(
@@ -1383,7 +1385,7 @@ class Backtester:
                                 size=current_position.size,
                                 entry_time=current_position.entry_time,
                                 exit_time=current_time,
-                                pnl=pnl,
+                                pnl=pnl + getattr(current_position, "cumulative_partial_pnl", 0.0),
                                 exit_reason=actual_reason,
                                 entry_gates=getattr(current_position, "entry_gates", None),
                                 strategy_name=getattr(current_position, 'strategy_name', 'unknown'),
@@ -1504,6 +1506,7 @@ class Backtester:
                                     symbol=symbol,
                                 )
                                 capital += partial_pnl
+                                current_position.cumulative_partial_pnl += partial_pnl
                                 current_position.size -= close_size
                                 current_position.total_cost = (
                                     current_position.entry_price * current_position.size
@@ -1515,6 +1518,45 @@ class Backtester:
                                     f"PnL=${partial_pnl:.2f}, "
                                     f"remaining={current_position.size:.0f}"
                                 )
+
+                                # ── DUST GUARD: Auto-close position if remainder is negligible ──
+                                # After a 95% partial close, the leftover can be tiny (e.g. 12 units).
+                                # Subsequent pyramids on these remnants corrupt the average entry_price
+                                # (e.g. $0.48 instead of $1.18), causing catastrophic PnL errors.
+                                # Close the dust remainder entirely to keep accounting clean.
+                                MIN_REMAINING_UNITS = 100
+                                if current_position.size < MIN_REMAINING_UNITS:
+                                    dust_pnl = _calculate_pnl(
+                                        current_position.entry_price, exit_price,
+                                        current_position.size, current_position.direction,
+                                        symbol=symbol,
+                                    )
+                                    capital += dust_pnl
+                                    logger.info(
+                                        f"[BACKTEST] {symbol} DUST CLOSE: "
+                                        f"auto-closed {current_position.size:.0f} remaining units, "
+                                        f"PnL=${dust_pnl:.2f}"
+                                    )
+                                    # Record trade with combined partial + dust PnL
+                                    total_pnl = partial_pnl + dust_pnl
+                                    completed_trades.append(SimulatedTrade(
+                                        symbol=symbol,
+                                        direction=current_position.direction,
+                                        entry_price=current_position.entry_price,
+                                        exit_price=exit_price,
+                                        size=close_size + current_position.size,
+                                        entry_time=current_position.entry_time,
+                                        exit_time=current_time,
+                                        pnl=total_pnl,
+                                        exit_reason=decision.notes or "partial_close_dust",
+                                        entry_gates=getattr(current_position, "entry_gates", None),
+                                        strategy_name=getattr(current_position, 'strategy_name', 'unknown'),
+                                    ))
+                                    # Remove position
+                                    pos_key = next((k for k, v in positions.items() if v is current_position), None)
+                                    if pos_key:
+                                        del positions[pos_key]
+                                    continue  # Skip further processing for this symbol
 
                             # Update stop/target if strategy provides new ones
                             if decision.stop_loss is not None and decision.stop_loss != current_position.stop_price:
@@ -1826,14 +1868,18 @@ class Backtester:
                     size=pos.size,
                     entry_time=pos.entry_time,
                     exit_time=end_date,
-                    pnl=pnl,
+                    pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                     exit_reason="eod",
                     entry_gates=getattr(pos, "entry_gates", None),
                     strategy_name=getattr(pos, 'strategy_name', 'unknown'),
                 ))
 
         # Calculate performance metrics
-        total_pnl = capital - initial_capital
+        # Use authoritative trade PnL sum instead of running capital variable,
+        # which can drift due to partial close accounting interactions.
+        trade_pnl_sum = sum(t.pnl for t in completed_trades)
+        capital = initial_capital + trade_pnl_sum  # Reconcile capital
+        total_pnl = trade_pnl_sum
         total_return_pct = (total_pnl / initial_capital) * 100
 
         # Calculate weekly equity snapshots

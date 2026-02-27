@@ -306,7 +306,7 @@ class SafetyGuard:
                 # Max Volatility (Avoiding Explosions) - Default 5.0%
                 max_vol = safety.safety_volatility_max_pct
                 
-                if atr_pct < min_vol:
+                if atr_pct < min_vol - 0.01:  # 0.01% tolerance — if it's ~around the threshold, let it trade
                      return cls._reject(symbol, timeframe, "Volatility Veto", f"Volatility Veto: Too Dead (ATR {atr_pct:.3f}% < {min_vol}%)")
                 if atr_pct > max_vol:
                      return cls._reject(symbol, timeframe, "Volatility Veto", f"Volatility Veto: Too Volatile (ATR {atr_pct:.3f}% > {max_vol}%)")

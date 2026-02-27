@@ -145,13 +145,18 @@ def run_simulation(cartridge_name, strategy_override=None, symbol_override=None)
     # 2. Build Settings Object
     # We construct a synthetic Settings object to inject our custom profile
     profile_name = "MegaTest"
-    settings = Settings(
+    settings_kwargs = dict(
         app=AppSettings(profile_name=profile_name),
         logging=LoggingSettings(),
         ai=AISettings(provider="openai"), # Dummy
         market=MarketSettings(symbols=symbols),
         profiles={profile_name: profile_settings},
     )
+    # Allow cartridges to inject runtime settings (e.g. scale_out_fraction)
+    if "runtime_settings" in config:
+        from tradebot_sci.config.models import RuntimeSettings
+        settings_kwargs["runtime"] = RuntimeSettings(**config["runtime_settings"])
+    settings = Settings(**settings_kwargs)
     
     # 3. Initialize Backtester
     # Passing ib=None since we use local provider

@@ -4,7 +4,7 @@
 
 ---
 
-**Last Updated:** February 2025  
+**Last Updated:** February 2026  
 **Status:** 100% Hit Rate (6/6 windows) | +$653 Best Window | 9.3% Worst DD  
 **Authors:** A very tired human and an AI who now understands spreads *and* fees
 
@@ -32,8 +32,10 @@
 6. Momentum Acceleration: The Displacement Detector
 7. Pullback Re-Pyramiding: The Bounce Tracker
 8. Dynamic ATR Trailing: The Tightening Noose
-9. Bot/UI Setting Mappings
-10. The Numbers
+9. Wind Down Truffle: The Friday Fade
+10. Friday 5PM Close: The Weekly Shutdown
+11. Bot/UI Setting Mappings
+12. The Numbers
 
 ---
 
@@ -308,6 +310,83 @@ The ATR trail and R-level floors work TOGETHER:
 
 ---
 
+## Wind Down Truffle: The Friday Fade
+
+![C](img/chad.png) **CHAD**: "Wait, what happens on Friday afternoons? The bot just... sits there?"
+
+![M](img/conductor.png) **CONDUCTOR**: "It *used* to sit there. Friday afternoons are dead air — Session Momentum's window closed hours ago, Mean Reversion needs a BB extreme that rarely comes in thin liquidity. But the market has a tell: **it fades.**"
+
+![C](img/chad.png) **CHAD**: "So we short the fade?"
+
+![M](img/conductor.png) **CONDUCTOR**: "Precisely. Enter the **Wind Down Truffle** — small, reliable, and you find one every Friday."
+
+### How It Works
+
+**Active Window:** Friday 12:00 PM – 4:30 PM ET (self-gates — won't fire any other time)
+
+**Entry Criteria:**
+```
+✅ Friday afternoon (weekday == 4, 12:00-16:30 ET)
+✅ Price below VWAP (confirming the fade)
+✅ EMA(8) < EMA(21) (short-term momentum declining)
+✅ No volume surge (< 2.5× avg volume — thin liquidity = fade, not breakout)
+```
+
+**Direction:** Short only. Always.
+
+**Stop:** ATR × 1.2 + VWAP distance above entry  
+**TP:** 2:1 R:R (but trades typically exit at Friday 5PM close before hitting TP)
+
+![C](img/chad.png) **CHAD**: "Why short only? What if it goes up?"
+
+![M](img/conductor.png) **CONDUCTOR**: "Then we don't enter. All four gates must pass. If price is above VWAP or EMA(8) > EMA(21), we stand aside. And if it DOES spike while we're in? That's what SAR is for."
+
+### Backtest Results
+
+```
+Capital:        $7,500
+Risk:           4.5%/trade
+Fridays Tested: 3 (7 weeks of Oanda data)
+Trades:         4
+Win Rate:       100%
+Profit:         +$100.86
+Avg Per Trade:  ~$25
+```
+
+![C](img/chad.png) **CHAD**: "$25 a trade? That's it?"
+
+![M](img/conductor.png) **CONDUCTOR**: "It's a *truffle*, not a gold bar. Small, consistent, zero losses. $50/Friday × 52 weeks = $2,600/year of free weekend money. And it's running in dead time when the bot would otherwise just be staring at charts."
+
+> **🔧 Bot Setting:** Wind Down Truffle is self-gated — no config needed.  
+> It fires automatically on Fridays via the Conductor's candidate list.
+
+---
+
+## Friday 5PM Close: The Weekly Shutdown
+
+![C](img/chad.png) **CHAD**: "What happens to open positions at the end of Friday?"
+
+![M](img/conductor.png) **CONDUCTOR**: "We close them. ALL of them. At 4:45 PM ET — the last candle before the forex weekly shutdown."
+
+### Why 4:45 PM and Not 5 PM?
+
+The forex market closes at 5 PM ET on Friday, but brokers stop providing data at 4:45 PM. The last actionable candle is the 4:45 bar. If we waited for 5 PM, we'd be trying to close into a market that's already shutting down.
+
+```python
+# In forex_conductor.py check_exit_signal:
+if et.weekday() == 4 and (et.hour >= 17 or (et.hour == 16 and et.minute >= 45)):
+    return close_position_decision("Conductor: Friday 5PM Close")
+```
+
+![C](img/chad.png) **CHAD**: "What if I'm up 3R on a trade?"
+
+![M](img/conductor.png) **CONDUCTOR**: "You take the 3R and enjoy your weekend. Weekend gaps can erase 3R in a single tick. The Friday close is a safety net, not a suggestion."
+
+> **🔧 Bot Setting:** Hardcoded in Conductor exit logic. No config needed.  
+> Fires for ALL open positions on Friday at 4:45 PM ET.
+
+---
+
 ## Bot/UI Setting Mappings
 
 ### Complete Feature → Setting Map
@@ -335,6 +414,8 @@ The ATR trail and R-level floors work TOGETHER:
 | **Entry Risk** | `RISK_PER_TRADE_PCT` | Risk | 0.01 |
 | **Entry Cooldown** | (Conductor hardcoded) | — | 8 bars (2h) |
 | **Loss Streak Cooldown** | (Conductor hardcoded) | — | 3 losses |
+| **Wind Down Truffle** | (self-gated) | — | Fri 12-4:30 PM ET |
+| **Friday 5PM Close** | (Conductor hardcoded) | — | Fri 4:45 PM ET |
 | **Min Hold** | `MIN_HOLD_HOURS` | Entry | 0.08 (5min) |
 
 ### Existing Bot Infrastructure Used
@@ -350,6 +431,8 @@ The ATR trail and R-level floors work TOGETHER:
 | HTF/LTF Gates | Profile trend settings | `models.py` |
 | Flywheel | Compound sizing | `backtester.py:1607+` |
 | Regime Sync | 1.5× performance boost | `backtester.py:1620+` |
+| Wind Down Truffle | Friday fade strategy | `wind_down_truffle.py` |
+| Friday 5PM Close | Weekly shutdown | `forex_conductor.py` |
 
 ---
 

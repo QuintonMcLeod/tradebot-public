@@ -422,9 +422,9 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
             return "trending"
 
     # ── RANGING: Sideways consolidation ───────────────────────────
-    # ADX < 18 = definite no-trend. Narrow BBs = price is coiled.
+    # ADX <= 20 = no meaningful trend. Narrow BBs = price is coiled.
     ranging_signals = 0
-    if adx < 18:
+    if adx <= 20:
         ranging_signals += 2  # ADX is double-weighted
     if bb_squeeze:
         ranging_signals += 1
@@ -444,7 +444,7 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
     # ADX 20-30 with BB starting to expand from squeeze or BBs
     # moderately wide. This is where breakout strategies thrive.
     # Must also have directional agreement between timeframes.
-    if 20 <= adx <= 30:
+    if 20 < adx <= 30:
         has_breakout_signal = (
             (bb_squeeze and bb_bandwidth > 0.003)  # Squeeze breaking out
             or (bb_bandwidth > 0.008 and strength >= 0.4)  # Clear expansion + direction
@@ -456,7 +456,18 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
             )
             return "transitional"
 
-    # ── CHOPPY: Conflicting signals, no clear regime ─────────────
+        # No breakout signal at ADX 20-30 = moderate, directionless
+        # market.  This is ranging, not choppy.  Choppy implies
+        # genuinely conflicting signals (long vs short whipsaw).
+        logger.debug(
+            f"[REGIME] RANGING (adx={adx:.0f} in 20-30 band, no breakout, "
+            f"bw={bb_bandwidth:.4f}, str={strength:.2f})"
+        )
+        return "ranging"
+
+    # ── CHOPPY: Genuinely conflicting signals ─────────────────────
+    # Only fires for ADX > 30 that didn't qualify as trending
+    # (contradictory indicators at high ADX = real whipsaw).
     logger.debug(
         f"[REGIME] CHOPPY (adx={adx:.0f}, bw={bb_bandwidth:.4f}, "
         f"str={strength:.2f})"
