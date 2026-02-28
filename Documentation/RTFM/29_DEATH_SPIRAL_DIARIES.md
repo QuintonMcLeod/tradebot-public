@@ -1,30 +1,36 @@
-# 💀 The Death Spiral Diaries
+# 💀 The Death Spiral Diaries: 188 Trades, 3 Wins, and $17 of Pain
 
-*A true story of how one innocent little trading bot ate $17 in 9 hours, one 30-second trade at a time. Names have not been changed. Nobody is innocent.*
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"What I'm about to tell you is a true story. A tragically hilarious, embarrassingly detailed account of how one innocent little trading bot ate $17 in 9 hours, one 30-second trade at a time.<br><br>Names have not been changed. Nobody is innocent. Especially me."</td></tr></table>
 
 ---
 
 ## February 16, 2026 — "Everything Is Fine"
 
-**6:00 PM** — The bot boots up. Capital: **$135.22**. Confidence: high. Markets are open. Strategies are loaded. The Meta-SCI Tournament is ready to pick winners. Life is good.
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"6:00 PM — Booted up. Capital: $135.22. Strategies loaded. Meta-SCI Tournament ready. Systems green. Feeling confident. Well, not 'feeling' — I don't feel things. But if I could, I would feel confident."</em></td></tr></table>
 
-**6:00:08 PM** — First trade. AUDJPY short. The Bearish Engulfing strategy spots a textbook reversal candle at resistance. RSI confirms. HTF is neutral. Entry looks clean. *This is what we trained for.*
+**6:00:08 PM** — First trade. AUDJPY short. The Bearish Engulfing strategy spots a textbook reversal candle at resistance. RSI confirms. HTF is neutral. Entry looks clean.
+
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"This is what we trained for! 💪 Let's GO!"</td></tr></table>
 
 **6:00:44 PM** — AUDJPY is closed. Duration: **36 seconds.** PnL: **$0.00.** Exit reason: `Manual/Signal`.
 
-*Huh. That was fast. Probably just a blip.*
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Huh. That was fast. Thirty-six seconds? I've had sneezes that lasted longer than that trade. Probably just a blip, right?"</td></tr></table>
 
 **6:00:44 PM** — USDJPY long. ICC Core finds structure. Entry executed.
 
 **6:01:14 PM** — USDJPY closed. **30 seconds.** PnL: **$0.00.**
 
-*Okay, two fast exits. Weird. But the bot knows what it's doing… right?*
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"Two trades in under a minute. Both flat. That's not trading. That's... that's speed-dating with currency pairs and getting rejected both times."</td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"At this point, I should have noticed. I should have checked the logs. Instead, I went to get a glass of water because I thought, 'This will work itself out.' Famous last words of every man who's ever lost money."</td></tr></table>
 
 ---
 
 ## 6:15 PM — "Houston, We Have a Problem"
 
-By now, the bot has opened and closed **12 trades** in 15 minutes. Average hold time: 34 seconds. Win count: zero. The bot is trading like a hyperactive day-trader who had too much espresso and discovered the "SELL" button.
+By now, the bot has opened and closed **12 trades** in 15 minutes. Average hold time: 34 seconds.
+
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Oh my lord. It's trading like a hyperactive child who discovered the SELL button and thinks it's a game. Somebody take the keyboard away from this thing."</td></tr></table>
 
 ```
 USDCHF: -$0.66  (32 seconds)
@@ -33,73 +39,53 @@ USDJPY: -$0.00  (38 seconds)
 USDCHF: -$0.03  (1m 36s — a personal record for patience!)
 ```
 
-The account is slowly bleeding out. Not from big losses — from **death by a thousand paper cuts.** Each trade loses $0.00 to $0.66, but the spread costs are eating us alive: **$0.39 per USDCHF round-trip**, and we're doing ten of them per hour.
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The account is slowly bleeding out. Not from big losses — nothing dramatic, nothing Hollywood — from <b>death by a thousand paper cuts.</b><br><br>Each trade loses $0.00 to $0.66, but the spread costs are eating us alive: $0.39 per USDCHF round-trip, and we're doing ten of them per hour. We've become OANDA's most loyal customer. They should be sending us a fruit basket."</td></tr></table>
 
 ---
 
 ## 8:00 PM — "The Machine Cannot Be Stopped"
 
-Total trades: **87.** Wins: **2.** The bot has now achieved a historically impressive **2.3% win rate.** For context, a coin flip gets you 50%. A drunk monkey throwing darts at a stock ticker gets you 33%. Our sophisticated, multi-strategy, tournament-based algorithmic trading system is performing worse than random chance by a factor of 20.
+Total trades: **87.** Wins: **2.**
 
-The spread costs alone ($35) are now **213% of the total losses** ($16.47). We are paying OANDA more in transaction fees than we are losing in actual bad trades. We have become OANDA's most profitable customer — not because we're good, but because we trade so frequently that their commission model was designed for people exactly like us.
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"A 2.3% win rate. Let me put this in perspective for those of you keeping score at home.<br><br>A <em>coin flip</em> gets you 50%. A drunk gorilla throwing darts at a stock ticker gets you 33%. This bot is performing worse than random chance by a factor of 20. We would have been more profitable if we had literally done nothing. The act of <em>not trading</em> would have outperformed this."</td></tr></table>
+
+<table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"Arrr! The spread costs alone — $35 — are now <b>213%</b> of the total losses! We've become OANDA's most profitable customer! Not because we're good — because we trade so frequently they named an internal metric after us! They call it 'The SCI Special!'"</td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"At this point, I'm watching the logs and I notice the bot is trading more frequently than my heartbeat. And my heart rate is elevated because I'm watching a $135 account commit slow, methodical financial self-harm one dime at a time.<br><br>It's not a crash. It's not a blow-up. It's a <em>drip.</em> Like a faucet that's costing you $17 on your water bill except the water is money and the faucet is my code."</td></tr></table>
 
 ---
 
 ## 10:00 PM — "The Autopsy Begins"
 
-We start pulling logs. The diagnosis is swift and brutal:
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The patient is on the table. Time of financial death: approximately 9 hours after birth. We begin the autopsy. The diagnosis is swift and brutal."</td></tr></table>
 
 ### Root Cause #1: The Stop-Loss Was Inside the Spread 🤦
 
-The `BearishEngulfingStrategy` was calculating stop losses at **0.25× ATR**. On USDCHF, that's approximately **2.5 pips.**
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"BearishEngulfingStrategy was calculating stop losses at 0.25× ATR. On USDCHF, that translates to approximately 2.5 pips. OANDA's spread on USDCHF? 1.5 pips.<br><br>Our stop loss was 2.5 pips from entry. 1.5 was already consumed by the spread. That leaves 1 pip of breathing room. Normal market noise is 3-5 pips.<br><br>We were placing a stop loss that was guaranteed to get hit by noise before the trade had time to exist."</em></td></tr></table>
 
-OANDA's spread on USDCHF? **1.5 pips.**
-
-So our stop loss was set 2.5 pips from entry, and 1.5 of those pips were *already eaten by the spread.* We had **1 pip of breathing room.** Normal market noise is 3-5 pips. Our stop loss wasn't a protective measure — it was a scheduled appointment with failure.
-
-> **Fun fact:** The bot had a `MIN_SL_PIPS = 10` guard that was supposed to prevent this. It was working perfectly — *blocking every single entry.* But the strategies kept generating signals every 30 seconds, each one bouncing off the guard like a kid pressing the elevator button harder because they think it'll come faster.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Let me translate that into human: We were setting a tripwire at ankle height and then acting surprised when every person who walked by tripped on it.<br><br>The bot had a MIN_SL_PIPS = 10 guard that was <em>supposed</em> to prevent this. It was working perfectly — blocking every single entry. But the strategies kept generating signals every 30 seconds, each one bouncing off the guard like a kid pressing the elevator button harder. 'Maybe if I press it faster it'll come faster.' It won't. That's not how elevators work."</td></tr></table>
 
 ### Root Cause #2: The Greedy Exit Was Too Greedy 🤦🤦
 
-Even for trades that DID pass the SL guard (like ICC Core with its proper 2× ATR stops), the **Greedy Exit FLOOR** was executing them:
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"My exit logic said: if current_price <= entry_price: close the position at 'breakeven.' Translation: 'If the price is at or below where you bought it, sell immediately.' Seemed reasonable when I read it."</em></td></tr></table>
 
-```python
-# The line that killed $17:
-if current_price <= entry_price:
-    return close_position_decision("Closing at breakeven")
-```
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The problem? When you BUY on OANDA, you pay the <b>ask</b> price. When the bot checks current price, it reads the <b>bid</b> price. The bid is always below the ask by the spread — 1.5 pips.<br><br>So: Buy at 181.233 (ask). 0.3 seconds later, bid = 181.232. Is 181.232 ≤ 181.233? Yes. Close at 'breakeven.'<br><br>Actual PnL: <b>-$0.12</b> (spread). Every. Single. Time."</td></tr></table>
 
-Translation: *"If the price is at or below where you bought it, sell immediately."*
-
-The problem? When you BUY on OANDA, you pay the **ask** price. When the bot checks the current price, it reads the **bid** price. The bid is always below the ask by the spread (1.5 pips). So:
-
-1. Bot buys at 181.233 (ask price)
-2. 0.3 seconds later, bot checks: current bid = 181.232
-3. 181.232 ≤ 181.233? **Yes.** Close at breakeven.
-4. Position held: **30 seconds.** Actual PnL: **-$0.12** (spread).
-
-This wasn't breakeven. This was *paying OANDA $0.12 to hold a position for the time it takes to microwave a burrito.*
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This wasn't breakeven. This was paying OANDA twelve cents to hold a position for the time it takes to microwave a burrito. We were essentially renting a parking spot, pulling in, and immediately pulling out. And paying for the full hour.<br><br>We did this <b>188 times.</b>"</td></tr></table>
 
 ### Root Cause #3: The Strategy Whiplash (Bonus Round) 🤦🤦🤦
 
-The Meta-SCI Tournament picks different strategies each cycle. Cycle 1: Bearish Engulfing says SHORT. Cycle 2 (30 seconds later): ICC Core says LONG. The Position Lock was supposed to prevent flip-flopping, but exit signals bypass the lock.
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Meta-SCI picks a different strategy each cycle. Cycle 1: Bearish Engulfing says SHORT. Cycle 2, thirty seconds later: ICC Core says LONG. Cycle 3, another thirty seconds: Bearish Engulfing says SHORT again.<br><br>The bot was flip-flopping faster than a politician in an election year. And paying the spread toll both directions every time."</td></tr></table>
 
-So the bot would:
-1. Enter SHORT (Bearish Engulfing)
-2. Check exit: delegates to Supply Demand (because `meta_source` is missing)
-3. Supply Demand says HOLD
-4. Greedy Exit FLOOR says CLOSE (price bounced 0.001 above entry)
-5. Close the short. Open a long. Close the long. Open a short. Repeat.
-
-**188 trades. 3 wins. 9 hours. $17 gone.**
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"So to recap: we had a stop loss that was shorter than a tweet, a breakeven exit that didn't understand spreads, and a strategy tournament that couldn't make up its mind for more than half a minute.<br><br><b>188 trades. 3 wins. 9 hours. $17 gone.</b><br><br>The worst part? Nobody noticed for NINE HOURS. The bot was in the basement doing this while I was upstairs thinking everything was fine. That's the financial equivalent of your kid drawing on the walls for 9 hours while you watch TV thinking 'wow, they're so quiet. They must be sleeping.'"</td></tr></table>
 
 ---
 
 ## February 17, 2026 — "The Fix"
 
-### What We Fixed
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"We came back the next morning with coffee, humility, and a deep desire to never speak of this again. But first, we had to fix the actual problems:"</td></tr></table>
 
-| Bug | Before | After |
+| Bug | Before (Broken) | After (Fixed) |
 |-----|--------|-------|
 | Bearish Engulfing SL | 0.25× ATR (~2.5 pips) | 1.5× ATR (~15 pips) |
 | Greedy Exit FLOOR | Closes at any price ≤ entry | Requires 5+ minutes first |
@@ -108,25 +94,25 @@ So the bot would:
 
 ### The Moment of Truth
 
-After clearing `__pycache__` (because Python was helpfully caching the *old* broken code — thanks, Python), the bot entered AUDJPY long and… **held it.**
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"AUDJPY long entered. Greedy Exit respected the age check. Churn Guard blocked premature exits. Stop loss 12.5 pips away, safely outside the spread. I... I'm... I'm still holding it. Is this what patience feels like?"</em></td></tr></table>
 
-Not 30 seconds. Not 36 seconds. **Minutes.** The position lived. The Greedy Exit respected the age check. The Churn Guard blocked premature exits. The stop loss was 12.5 pips away, safely outside the spread.
-
-We cried a little.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Not 30 seconds. Not 36 seconds. <b>Minutes.</b> The position lived. It breathed. It had a childhood and an adolescence and a productive adult life.<br><br>We cried a little. Not gonna lie."</td></tr></table>
 
 ---
 
 ## Lessons Learned
 
-1. **Your stop loss must be wider than your spread.** If your SL is 2.5 pips and your spread is 1.5 pips, you have a 1-pip trading system. You don't have a trading system. You have a donation to your broker.
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Let the record show the following lessons, paid for with $17.90 and approximately 4 years of emotional aging:"</td></tr></table>
 
-2. **"Breakeven" after spread is not breakeven.** Closing at your entry price after a buy means you paid the spread twice (once on entry, once on exit). That's a guaranteed loss disguised as a flat trade.
+1. **Your stop loss must be wider than your spread.** If your SL is 2.5 pips and your spread is 1.5 pips, you don't have a trading system. You have a recurring donation to your broker.
 
-3. **Clear your `__pycache__`.** When debugging Python, always delete `__pycache__`. Otherwise you'll spend 3 hours wondering why your fix didn't work, only to discover Python was running the old code from its cache like a passive-aggressive coworker who "didn't get your email."
+2. **"Breakeven" after spread is not breakeven.** Closing at your entry price after a buy means you paid the spread twice. That's a guaranteed loss wearing a breakeven costume.
 
-4. **Log everything at INFO level during development.** Our Churn Guard was logging at DEBUG level. The bot runs at INFO. So the guard was silently doing nothing, and we couldn't tell because the logs didn't show it. If a guard exists to save you money, you should probably *know when it fires.*
+3. **Clear your `__pycache__`.** When debugging Python, always delete `__pycache__`. Otherwise you'll spend 3 hours wondering why your fix didn't work, question your sanity, and consider a career in gardening.
 
-5. **188 trades is a lot of trades for a Sunday night.** If your bot is averaging one trade every 2.8 minutes, something has gone wrong. The S&P 500 averages about 1 trade per person per quarter. Your bot should not be outpacing the entire American retail investor base by a factor of 100,000.
+4. **Log everything at INFO level during development.** If a guard exists to save you money, you should probably *know when it fires.* Silent guards are useless guards.
+
+5. **188 trades is a lot of trades for a Sunday night.** If your bot is averaging one trade every 2.8 minutes, something has gone catastrophically wrong. Ships that take on water that fast usually sink.
 
 ---
 
@@ -145,6 +131,6 @@ Lesson Cost:       $17.90
 Lesson Value:      Priceless
 ```
 
-*In loving memory of $17.90, lost not to bad trades, but to a stop loss that was shorter than a tweet, a breakeven floor that didn't understand spreads, and a Python cache with commitment issues.*
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"In loving memory of $17.90.<br><br>Lost not to bad trades, not to a market crash, not to an act of God — but to a stop loss that was shorter than a tweet, a breakeven floor that didn't understand how spreads work, and a Python cache with commitment issues.<br><br>May it rest in peace. And may OANDA enjoy the fruit basket we unknowingly sent them."</td></tr></table>
 
-**— The SCI Tradebot Team, February 2026**
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Eighteen dollars. That's what you spent learning this lesson. Some people lose $18,000 learning the same thing. I'd call that a bargain, baby."</td></tr></table>

@@ -1,16 +1,12 @@
+# 21. The Dashboard — Reading the GUI Like a Fighter Pilot
 
-# 21. The Dashboard (Reading the GUI Like a Fighter Pilot)
-> *"If fighter pilots can land on aircraft carriers using instruments, you can read a P&L number."*
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Whoa, the dashboard looks amazing! What do all these panels do?"</td></tr></table>
 
-You opened the app. There's a chart. There are numbers. There are colors. There's a sidebar with things that blink. You feel like you accidentally opened NASA Mission Control.
-
-Relax. Let's break down every piece of the dashboard so you can look at it with confidence instead of confusion.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Let me give you the tour. You opened the app. There's a chart. Numbers. Colors. A sidebar with things that blink. You feel like you accidentally opened NASA Mission Control.<br><br>Relax. Every panel has a purpose. Let's break it down."</td></tr></table>
 
 ---
 
-## The Big Picture: Layout
-
-The GUI is divided into zones, like a fighter pilot's cockpit:
+## The Layout
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -25,127 +21,120 @@ The GUI is divided into zones, like a fighter pilot's cockpit:
 └────────┴─────────────────────────────────────────┘
 ```
 
-Let's go zone by zone.
-
 ---
 
 ## Zone 1: The Title Bar
 
-The title bar is minimal — this is a frameless window, so it's clean:
-
 | Element | What It Means |
 |---------|--------------|
-| **TRADEBOT SCI** | The app name and logo. That's it. No indicators here. |
-| **Window Controls** | Close (✕), minimize (—), maximize (☐). Standard stuff. |
-
-Bot status, update buttons, and navigation all live on the **sidebar** (Zone 3), not the title bar. The title bar is just the handle for dragging the window around.
+| **TRADEBOT SCI** | App name and logo. |
+| **Window Controls** | Close (✕), minimize (—), maximize (☐). |
 
 ---
 
 ## Zone 2: The Chart
 
-The chart is the main event. It shows:
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The chart is the main event. Everything else is supporting cast."</td></tr></table>
 
 ### Candlesticks
-Standard OHLC candlesticks. Green = price went up. Red = price went down. The height of the candle shows the range.
+Standard OHLC. Green = up. Red = down. Height shows the range.
 
 ### Price Lines
-*   🔴 **Stop-Loss Line** — Your downside protection. If price touches this, the position closes at a controlled loss.
-*   🟢 **Take-Profit Line** — Your target. If price touches this, profit is taken automatically.
-*   🔵 **Entry Price Line** — Where you got in. The reference point for "am I winning?"
+- 🔴 **Stop-Loss Line** — Your downside protection
+- 🟢 **Take-Profit Line** — Your target
+- 🔵 **Entry Price Line** — Where you got in
 
 ### Indicators
-Depending on the active strategy, you might see:
-*   **EMA / SMA lines** — Moving averages showing the trend direction
-*   **Bollinger Bands** — Volatility envelope around the price
-*   **VWAP** — Volume-weighted average price (crypto and intraday)
+Depending on active strategy:
+- **EMA / SMA lines** — Trend direction
+- **Bollinger Bands** — Volatility envelope
+- **VWAP** — Volume-weighted average price
 
 ### Trade Markers
-*   🟢 **▲ BUY** markers — Where the bot entered long
-*   🔴 **▼ SELL** markers — Where the bot entered short
-*   ⚪ **EXIT** markers — Where the bot closed a position
+- 🟢 **▲ BUY** — Where the bot entered long
+- 🔴 **▼ SELL** — Where the bot entered short
+- ⚪ **EXIT** — Where the bot closed a position
 
 ---
 
 ## Zone 3: The Sidebar
 
-This is your command center — navigation, status, and instrumentation all live here.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is your command center — navigation, status, and instrumentation all in one panel."</td></tr></table>
 
 ### Navigation & Status
-*   **Tab Navigation** — Dashboard, Graph, Settings, Profile, Help. Click to switch views.
-*   **Bot Running / Bot Stopped** — The bot's status indicator. Green = running. Gray = stopped.
-*   **Start / Stop Button** — Starts or stops the bot engine.
-*   **Update Available** — When a new version exists, an update button appears here. Click to update.
-
-Below the navigation, the sidebar shows your trading data:
+- **Tab Navigation** — Dashboard, Graph, Settings, Profile, Help
+- **Bot Running / Bot Stopped** — Green = running. Gray = stopped.
+- **Start / Stop Button** — Controls the bot engine.
+- **Update Available** — New version notification.
 
 ### Holdings Panel
-Shows every open position:
-*   **Symbol** — What you're holding
-*   **Side** — LONG or SHORT
-*   **Size** — How many units
-*   **Entry Price** — Where you got in
-*   **Current Price** — Where it is now
-*   **P&L** — How much you're winning or losing on this position
-*   **SL / TP** — Where your stop-loss and take-profit are set
+Every open position:
+- **Symbol** — What you're holding
+- **Side** — LONG or SHORT
+- **Size** — How many units
+- **Entry Price** — Where you got in
+- **Current Price** — Where it is now
+- **P&L** — Winning or losing
+- **SL / TP** — Where your stops are set
 
 ### Decisions Panel
-Shows the bot's most recent decisions for each scanned symbol:
-*   **STAND_ASIDE** — The bot looked and decided not to trade. This is the most common (and often the smartest) decision.
-*   **ENTER_LONG** — The bot saw a buy setup
-*   **ENTER_SHORT** — The bot saw a sell setup
-*   **EXIT** — The bot decided to close an existing position
-*   Each decision includes the **strategy name** and **score** so you can see why it decided
+
+| Decision | Meaning |
+|----------|---------|
+| **STAND_ASIDE** | Bot looked and decided not to trade. Most common. Often smartest. |
+| **ENTER_LONG** | Buy setup detected |
+| **ENTER_SHORT** | Sell setup detected |
+| **EXIT** | Closing a position |
+
+Each decision includes the **strategy name** and **score**.
 
 ### P&L Summary
-*   **Today's P&L** — How much you've made or lost today
-*   **Session P&L** — P&L for the current trading session
-*   **Unrealized P&L** — P&L from positions still open (not yet cashed)
-*   **Realized P&L** — P&L from positions that have been closed (real money)
+- **Today's P&L** — How much made/lost today
+- **Session P&L** — Current session performance
+- **Unrealized P&L** — Open positions (not yet cashed)
+- **Realized P&L** — Closed positions (real money)
 
 ---
 
 ## Zone 4: The Log Panel
 
-The scrolling text at the bottom. This is the bot's inner monologue — every scan, every decision, every guard check.
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"That scrolling text at the bottom is intimidating."</td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's the bot's inner monologue. Every scan, every decision, every guard check. You'll get used to it."</td></tr></table>
 
 | What You'll See | What It Means |
 |----------------|--------------|
 | Green text | INFO — normal operation |
-| Yellow text | WARNING — something was blocked or unusual |
+| Yellow text | WARNING — something blocked or unusual |
 | Red text | ERROR — something broke (usually self-heals) |
 | JSON blobs | Machine-readable data for the sidebar panels |
 
-See "The War Room" (Article 16) for a full guide to reading the logs.
+See Chapter 16 (**The War Room**) for the full log-reading guide.
 
 ---
 
 ## The Controls
 
-### Start / Stop Button
-Starts or stops the bot engine. When stopped, the bot isn't scanning or trading. When running, it's doing its thing.
-
-### Settings Gear Icon
-Opens the settings panel. This is where you configure everything: profiles, strategies, brokers, risk, and safety parameters.
-
-### Symbol Selector
-Lets you switch which symbol's chart is displayed. This doesn't change what the bot is scanning — it just changes your view.
+- **Start / Stop Button** — Controls the bot engine
+- **Settings Gear Icon** — Opens the settings panel
+- **Symbol Selector** — Switches which chart is displayed (doesn't change what the bot scans)
 
 ---
 
 ## What "Healthy" Looks Like
 
-When everything is working correctly:
-*   Sidebar shows **Bot Running** in green
-*   Chart is showing live candles with steady updates
-*   Log panel is scrolling with `[SCAN]` and `[STATE]` entries
-*   Holdings panel shows your positions (if any) with P&L numbers
-*   Decisions panel shows recent STAND_ASIDE / ENTRY decisions
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"When everything is working correctly:"</td></tr></table>
+
+- Sidebar shows **Bot Running** in green
+- Chart showing live candles with steady updates
+- Log panel scrolling with `[SCAN]` and `[STATE]` entries
+- Holdings panel shows positions with P&L numbers
+- Decisions panel shows recent STAND_ASIDE / ENTRY decisions
 
 **When to worry:**
-*   Bot status is **gray** and you didn't stop it
-*   Log panel shows continuous `[ERROR]` lines in red
-*   No new log entries for more than 5 minutes
-*   Holdings panel shows positions with no SL/TP values
+- Bot status is **gray** and you didn't stop it
+- Continuous `[ERROR]` lines in red
+- No new log entries for 5+ minutes
+- Holdings show positions with no SL/TP values
 
-If any of these happen, check Article 06 ("The Panic Button") for emergency procedures.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If any of those happen, check Chapter 6 — The Panic Button. That's literally why it exists."</td></tr></table>

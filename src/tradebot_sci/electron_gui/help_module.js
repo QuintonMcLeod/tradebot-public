@@ -173,6 +173,13 @@ window.helpModule = (() => {
                 continue;
             }
 
+            // Raw HTML passthrough (e.g. <table> dialogue boxes with avatars)
+            if (trimmed.startsWith('<')) {
+                flushTable(); flushList(); flushBlockquote();
+                html += trimmed;
+                continue;
+            }
+
             // Regular paragraph
             html += `<p class="help-p">${inlineFormat(trimmed)}</p>`;
         }
@@ -259,44 +266,108 @@ window.helpModule = (() => {
                 padding: 1rem 0.875rem 0.375rem;
             }
 
-            /* ── Markdown Content Styles ── */
+            /* ══════════════════════════════════════════════ */
+            /* ── Magazine-Style Article Layout ──             */
+            /* ══════════════════════════════════════════════ */
+
+            /* ── Article Container ── */
+            #help-markdown {
+                position: relative;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 0 2rem 3rem 2rem;
+            }
+            #help-markdown::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 4px;
+                background: linear-gradient(90deg, #14b8a6 0%, #0ea5e9 50%, #8b5cf6 100%);
+                border-radius: 2px;
+            }
+
+            /* ── Chapter Title (H1) ── */
             .help-h1 {
-                font-size: 2.125rem;
+                font-size: 2.5rem;
+                font-weight: 900;
+                color: #f1f5f9;
+                margin: 2rem 0 1.5rem 0;
+                padding-bottom: 1rem;
+                line-height: 1.2;
+                letter-spacing: -0.02em;
+                border-bottom: none;
+                position: relative;
+                text-shadow: 0 2px 12px rgba(20,184,166,0.15);
+            }
+            .help-h1::after {
+                content: '';
+                display: block;
+                width: 80px;
+                height: 4px;
+                background: linear-gradient(90deg, #14b8a6, #0ea5e9);
+                border-radius: 2px;
+                margin-top: 0.75rem;
+            }
+
+            /* ── Section Header (H2) ── */
+            .help-h2 {
+                font-size: 1.5rem;
                 font-weight: 800;
                 color: var(--text-primary, #e2e8f0);
-                margin: 0 0 1rem 0;
-                padding-bottom: 0.75rem;
-                border-bottom: 2px solid var(--accent-dim, rgba(20,184,166,0.15));
+                margin: 3rem 0 1rem 0;
+                padding: 0.75rem 0 0.75rem 1.25rem;
                 line-height: 1.3;
+                letter-spacing: -0.01em;
+                border-left: 4px solid #14b8a6;
+                background: linear-gradient(90deg, rgba(20,184,166,0.08) 0%, transparent 70%);
+                border-radius: 0 0.5rem 0.5rem 0;
+                position: relative;
             }
-            .help-h2 {
-                font-size: 1.625rem;
-                font-weight: 700;
-                color: var(--text-primary, #e2e8f0);
-                margin: 2rem 0 0.75rem 0;
-                padding-bottom: 0.5rem;
-                border-bottom: 1px solid rgba(255,255,255,0.06);
-                line-height: 1.3;
+            .help-h2::before {
+                content: '◆';
+                position: absolute;
+                left: -0.7rem;
+                top: 50%;
+                transform: translateY(-50%);
+                color: #14b8a6;
+                font-size: 0.625rem;
+                background: var(--bg-primary, #0f172a);
+                padding: 2px 0;
             }
+
+            /* ── Subsection Header (H3) ── */
             .help-h3 {
-                font-size: 1.325rem;
+                font-size: 1.25rem;
                 font-weight: 700;
                 color: var(--accent, #14b8a6);
-                margin: 1.5rem 0 0.5rem 0;
+                margin: 2rem 0 0.75rem 0;
+                padding-bottom: 0.5rem;
                 line-height: 1.3;
+                border-bottom: 1px solid rgba(20,184,166,0.15);
+                font-style: italic;
             }
+
+            /* ── Minor Headers ── */
             .help-h4, .help-h5, .help-h6 {
-                font-size: 1.125rem;
+                font-size: 1.1rem;
                 font-weight: 700;
                 color: var(--text-primary, #e2e8f0);
-                margin: 1.25rem 0 0.375rem 0;
+                margin: 1.5rem 0 0.5rem 0;
                 line-height: 1.3;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                font-size: 0.9rem;
             }
+
+            /* ── Body Paragraphs ── */
             .help-p {
-                font-size: 1.0625rem;
-                line-height: 1.75;
+                font-size: 1.05rem;
+                line-height: 1.85;
                 color: var(--text-secondary, #94a3b8);
-                margin: 0.5rem 0;
+                margin: 0.75rem 0;
+                max-width: 70ch;
             }
             .help-p strong {
                 color: var(--text-primary, #e2e8f0);
@@ -306,64 +377,84 @@ window.helpModule = (() => {
                 color: var(--text-primary, #e2e8f0);
                 font-style: italic;
             }
+
+            /* ── Drop Cap — first paragraph after H1 ── */
+            .help-h1 + .help-p::first-letter {
+                font-size: 3.5em;
+                font-weight: 900;
+                float: left;
+                line-height: 0.85;
+                margin: 0.05em 0.12em 0 0;
+                color: #14b8a6;
+                text-shadow: 0 2px 8px rgba(20,184,166,0.3);
+            }
+
+            /* ── Links ── */
             .help-link {
                 color: var(--accent, #14b8a6);
                 text-decoration: none;
                 font-weight: 600;
-                border-bottom: 1px solid var(--accent-dim, rgba(20,184,166,0.3));
-                transition: all 0.15s ease;
+                border-bottom: 1px solid rgba(20,184,166,0.3);
+                transition: all 0.2s ease;
             }
             .help-link:hover {
-                border-bottom-color: var(--accent, #14b8a6);
+                border-bottom-color: #14b8a6;
+                text-shadow: 0 0 8px rgba(20,184,166,0.3);
             }
+
+            /* ── Inline Code ── */
             .help-inline-code {
-                background: rgba(0,0,0,0.35);
-                border: 1px solid rgba(255,255,255,0.08);
+                background: rgba(20,184,166,0.08);
+                border: 1px solid rgba(20,184,166,0.15);
                 border-radius: 4px;
-                padding: 0.125rem 0.375rem;
+                padding: 0.15rem 0.4rem;
                 font-family: 'JetBrains Mono', 'Fira Code', monospace;
-                font-size: 0.8em;
+                font-size: 0.85em;
                 color: var(--accent, #14b8a6);
             }
+
+            /* ── Code Blocks ── */
             .help-code-block {
                 position: relative;
-                margin: 1rem 0;
+                margin: 1.25rem 0;
                 border-radius: 0.75rem;
                 overflow: hidden;
-                border: 1px solid rgba(255,255,255,0.06);
-                background: rgba(0,0,0,0.4);
+                border: 1px solid rgba(255,255,255,0.08);
+                background: rgba(0,0,0,0.45);
+                backdrop-filter: blur(8px);
             }
             .help-code-lang {
                 position: absolute;
                 top: 0;
                 right: 0;
-                padding: 0.25rem 0.75rem;
+                padding: 0.3rem 0.75rem;
                 font-size: 0.625rem;
                 font-weight: 700;
                 text-transform: uppercase;
                 letter-spacing: 0.1em;
-                color: var(--text-muted, #64748b);
-                background: rgba(0,0,0,0.3);
+                color: var(--accent, #14b8a6);
+                background: rgba(20,184,166,0.1);
                 border-bottom-left-radius: 0.5rem;
             }
             .help-code-block pre {
                 margin: 0;
-                padding: 1rem 1.25rem;
+                padding: 1.25rem 1.5rem;
                 overflow-x: auto;
             }
             .help-code-block code {
                 font-family: 'JetBrains Mono', 'Fira Code', monospace;
-                font-size: 0.9375rem;
-                line-height: 1.6;
+                font-size: 0.9rem;
+                line-height: 1.7;
                 color: var(--text-primary, #e2e8f0);
             }
 
-            /* ── Tables ── */
+            /* ── Data Tables ── */
             .help-table-wrap {
                 overflow-x: auto;
-                margin: 1rem 0;
+                margin: 1.25rem 0;
                 border-radius: 0.75rem;
-                border: 1px solid rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.08);
+                background: rgba(0,0,0,0.15);
             }
             .help-table {
                 width: 100%;
@@ -372,133 +463,281 @@ window.helpModule = (() => {
             }
             .help-table th {
                 text-align: left;
-                padding: 0.625rem 1rem;
+                padding: 0.75rem 1rem;
                 font-weight: 700;
-                font-size: 0.8125rem;
+                font-size: 0.8rem;
                 text-transform: uppercase;
                 letter-spacing: 0.06em;
                 color: var(--accent, #14b8a6);
-                background: rgba(0,0,0,0.3);
-                border-bottom: 1px solid rgba(255,255,255,0.06);
+                background: rgba(20,184,166,0.06);
+                border-bottom: 2px solid rgba(20,184,166,0.15);
             }
             .help-table td {
-                padding: 0.5rem 1rem;
+                padding: 0.625rem 1rem;
                 color: var(--text-secondary, #94a3b8);
-                border-bottom: 1px solid rgba(255,255,255,0.03);
-                line-height: 1.5;
+                border-bottom: 1px solid rgba(255,255,255,0.04);
+                line-height: 1.6;
             }
             .help-table td strong {
                 color: var(--text-primary, #e2e8f0);
             }
             .help-table tr:hover td {
-                background: rgba(255,255,255,0.02);
+                background: rgba(20,184,166,0.03);
             }
             .help-table tr:last-child td {
                 border-bottom: none;
             }
 
-            /* ── Blockquotes ── */
+            /* ── Blockquotes → Pull Quotes ── */
             .help-blockquote {
-                border-left: 3px solid var(--accent-dim, rgba(20,184,166,0.3));
-                padding: 0.5rem 1rem;
-                margin: 1rem 0;
+                position: relative;
+                border-left: none;
+                border: 1px solid rgba(255,255,255,0.06);
+                padding: 1.5rem 1.75rem 1.25rem 2.5rem;
+                margin: 1.5rem 1rem;
                 color: var(--text-secondary, #94a3b8);
-                font-size: 1.0625rem;
+                font-size: 1.1rem;
                 font-style: italic;
-                background: rgba(0,0,0,0.15);
-                border-radius: 0 0.5rem 0.5rem 0;
+                line-height: 1.8;
+                background: rgba(0,0,0,0.2);
+                border-radius: 0.75rem;
+                backdrop-filter: blur(4px);
+            }
+            .help-blockquote::before {
+                content: '"';
+                position: absolute;
+                top: -0.1rem;
+                left: 0.75rem;
+                font-size: 3.5rem;
+                font-weight: 900;
+                color: rgba(20,184,166,0.25);
+                font-family: Georgia, serif;
+                line-height: 1;
             }
             .help-blockquote strong {
                 color: var(--text-primary, #e2e8f0);
             }
 
-            /* ── GitHub-style alerts ── */
+            /* ── GitHub-style Alert Callouts ── */
             .help-alert {
-                border-left: 3px solid;
-                padding: 0.75rem 1rem;
-                margin: 1rem 0;
-                border-radius: 0 0.5rem 0.5rem 0;
+                border-left: 4px solid;
+                padding: 1rem 1.25rem;
+                margin: 1.5rem 0;
+                border-radius: 0 0.75rem 0.75rem 0;
                 background: rgba(0,0,0,0.2);
+                backdrop-filter: blur(4px);
             }
             .help-alert-header {
                 display: flex;
                 align-items: center;
-                gap: 0.375rem;
-                font-size: 0.875rem;
+                gap: 0.5rem;
+                font-size: 0.85rem;
                 font-weight: 800;
                 text-transform: uppercase;
-                letter-spacing: 0.05em;
-                margin-bottom: 0.375rem;
+                letter-spacing: 0.06em;
+                margin-bottom: 0.5rem;
             }
             .help-alert-body {
                 font-size: 1.0rem;
-                line-height: 1.6;
+                line-height: 1.7;
                 color: var(--text-secondary, #94a3b8);
             }
             .help-alert-body strong {
                 color: var(--text-primary, #e2e8f0);
             }
 
-            /* ── Lists ── */
+            /* ── Lists → Premium Styled ── */
             .help-list {
-                margin: 0.625rem 0;
-                padding-left: 1.5rem;
-                font-size: 1.0625rem;
-                line-height: 1.75;
+                margin: 1rem 0;
+                padding-left: 0;
+                font-size: 1.05rem;
+                line-height: 1.85;
                 color: var(--text-secondary, #94a3b8);
+                list-style: none;
             }
             .help-list li {
-                margin: 0.25rem 0;
+                margin: 0.5rem 0;
+                padding-left: 1.75rem;
+                position: relative;
             }
             .help-list li strong {
                 color: var(--text-primary, #e2e8f0);
             }
             .help-list li code {
-                background: rgba(0,0,0,0.35);
-                border: 1px solid rgba(255,255,255,0.08);
+                background: rgba(20,184,166,0.08);
+                border: 1px solid rgba(20,184,166,0.15);
                 border-radius: 4px;
                 padding: 0.125rem 0.375rem;
                 font-family: 'JetBrains Mono', 'Fira Code', monospace;
-                font-size: 0.8em;
+                font-size: 0.85em;
                 color: var(--accent, #14b8a6);
             }
-            ul.help-list {
-                list-style-type: disc;
+            /* Unordered: accent diamond bullets */
+            ul.help-list li::before {
+                content: '◆';
+                position: absolute;
+                left: 0;
+                color: #14b8a6;
+                font-size: 0.5rem;
+                top: 0.6em;
             }
-            ul.help-list li::marker {
-                color: var(--accent, #14b8a6);
-            }
+            /* Ordered: accent numbered circles */
             ol.help-list {
-                list-style-type: decimal;
+                counter-reset: ol-counter;
             }
-            ol.help-list li::marker {
-                color: var(--accent, #14b8a6);
+            ol.help-list li {
+                counter-increment: ol-counter;
+                padding-left: 2.5rem;
+            }
+            ol.help-list li::before {
+                content: counter(ol-counter);
+                position: absolute;
+                left: 0;
+                top: 0.1em;
+                width: 1.6rem;
+                height: 1.6rem;
+                border-radius: 50%;
+                background: rgba(20,184,166,0.12);
+                border: 1px solid rgba(20,184,166,0.25);
+                color: #14b8a6;
                 font-weight: 700;
+                font-size: 0.8rem;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                line-height: 1;
             }
 
-            /* ── Horizontal Rule ── */
+            /* ── Horizontal Rule → Decorative Divider ── */
             .help-hr {
                 border: none;
-                border-top: 1px solid rgba(255,255,255,0.06);
-                margin: 2rem 0;
+                height: 1px;
+                background: linear-gradient(90deg, transparent 0%, rgba(20,184,166,0.3) 20%, rgba(20,184,166,0.3) 80%, transparent 100%);
+                margin: 2.5rem auto;
+                max-width: 60%;
+                position: relative;
+            }
+            .help-hr::after {
+                content: '◆';
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                font-size: 0.5rem;
+                color: #14b8a6;
+                background: var(--bg-primary, #0f172a);
+                padding: 0 0.75rem;
             }
 
-            /* ── Images ── */
+            /* ── Images (standalone inline) ── */
             .help-img {
                 max-width: 100%;
-                border-radius: 0.5rem;
-                margin: 0.5rem 0;
+                border-radius: 0.75rem;
+                margin: 0.75rem 0;
+                border: 1px solid rgba(255,255,255,0.06);
             }
-            /* Dialogue avatar — inline image inside a paragraph */
             .help-p .help-img {
                 display: inline-block;
                 width: 160px;
                 height: 160px;
                 border-radius: 50%;
                 margin: 0.5rem 0.75rem 0.5rem 0;
-                border: 3px solid var(--accent-dim, rgba(20,184,166,0.3));
+                border: 3px solid rgba(20,184,166,0.3);
                 object-fit: cover;
                 vertical-align: middle;
+            }
+
+            /* ══════════════════════════════════════════ */
+            /* ── Character Dialogue — Chat Bubbles ──   */
+            /* ══════════════════════════════════════════ */
+
+            /* Dialogue table container */
+            #help-markdown table:not(.help-table) {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 1rem 0;
+                background: transparent;
+                border-radius: 0;
+                overflow: visible;
+                border: none;
+            }
+            #help-markdown table:not(.help-table) tr {
+                display: flex;
+                align-items: flex-start;
+                gap: 0;
+                margin-bottom: 0.25rem;
+            }
+            /* Avatar cell */
+            #help-markdown table:not(.help-table) td:first-child {
+                padding: 0;
+                vertical-align: top;
+                width: 120px;
+                min-width: 120px;
+                flex-shrink: 0;
+            }
+            /* Transparent avatar — character floats */
+            #help-markdown table:not(.help-table) img {
+                display: block;
+                width: 110px;
+                height: 110px;
+                margin: 0 auto;
+                object-fit: contain;
+                image-rendering: -webkit-optimize-contrast;
+                -webkit-backface-visibility: hidden;
+                transform: translateZ(0) scale(1);
+                transition: transform 0.3s ease, filter 0.3s ease;
+                cursor: pointer;
+                filter: drop-shadow(0 3px 10px rgba(0,0,0,0.5));
+            }
+            #help-markdown table:not(.help-table) img:hover {
+                transform: translateZ(0) scale(1.25);
+                filter: drop-shadow(0 4px 16px rgba(20,184,166,0.3)) drop-shadow(0 8px 24px rgba(0,0,0,0.5));
+                z-index: 10;
+                position: relative;
+            }
+            /* Speech bubble cell */
+            #help-markdown table:not(.help-table) td:last-child {
+                padding: 0.75rem 1.25rem;
+                color: var(--text-secondary, #94a3b8);
+                font-size: 1.0rem;
+                line-height: 1.7;
+                background: rgba(255,255,255,0.03);
+                border: 1px solid rgba(255,255,255,0.06);
+                border-radius: 0 1rem 1rem 1rem;
+                position: relative;
+                flex: 1;
+                margin-top: 0.5rem;
+                backdrop-filter: blur(4px);
+            }
+            /* Speech bubble arrow */
+            #help-markdown table:not(.help-table) td:last-child::before {
+                content: '';
+                position: absolute;
+                left: -8px;
+                top: 14px;
+                width: 0;
+                height: 0;
+                border-top: 6px solid transparent;
+                border-bottom: 6px solid transparent;
+                border-right: 8px solid rgba(255,255,255,0.06);
+            }
+            /* Character name — accent badge */
+            #help-markdown table:not(.help-table) b {
+                display: inline-block;
+                color: #14b8a6;
+                font-weight: 800;
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                background: rgba(20,184,166,0.1);
+                padding: 0.15rem 0.5rem;
+                border-radius: 4px;
+                margin-bottom: 0.25rem;
+            }
+            /* Dialogue text emphases */
+            #help-markdown table:not(.help-table) em {
+                color: var(--text-primary, #e2e8f0);
+                font-style: italic;
             }
 
             /* ── Search highlight ── */

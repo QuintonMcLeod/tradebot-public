@@ -1,8 +1,10 @@
+# 4. The Map — Complete Project Navigation
 
-# 4. Map & Table of Contents
-> *"Where is `main.py` again?"*
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Lost? Good. That means you're looking for the map. This IS the map. The complete directory structure, every file's purpose, and quick navigation to wherever you need to go.<br><br>Think of this as the airport terminal map. You don't need to visit every gate — just find the one that gets you where you're going."</td></tr></table>
 
-The project structure is classic Python with an Electron GUI layer on top.
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Where is main.py again?"</td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Look down."</td></tr></table>
 
 ---
 
@@ -134,6 +136,8 @@ The project structure is classic Python with an Electron GUI layer on top.
 
 ## Quick Navigation
 
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Don't wander. Tell me what you need and I'll tell you exactly where to go:"</td></tr></table>
+
 | Task | Go To |
 |------|-------|
 | Change **what symbols** to trade | `config.json` → `profiles` → `symbols` (or Profile Editor UI) |
@@ -150,6 +154,8 @@ The project structure is classic Python with an Electron GUI layer on top.
 ---
 
 ## Key Files by Purpose
+
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"If the directory tree above is the map, this is the legend. Organized by function, not by folder."</td></tr></table>
 
 ### Strategy Selection
 | File | Purpose |
@@ -181,3 +187,5 @@ The project structure is classic Python with an Electron GUI layer on top.
 | `electron_gui/index.html` | Dashboard + Profile Editor |
 | `electron_gui/settings_integrated.js` | Settings window logic (all tabs) |
 | `electron_gui/renderer.js` | Dashboard logic |
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you're lost after reading this, you're not lost — you're not reading. This map has literally everything. Go back to the Quick Navigation table and start there."</td></tr></table>

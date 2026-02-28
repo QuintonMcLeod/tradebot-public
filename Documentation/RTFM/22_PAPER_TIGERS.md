@@ -1,60 +1,55 @@
+# 22. Paper Tigers — Simulation & Paper Trading
 
-# 22. Paper Tigers (Simulation & Paper Trading)
-> *"Would you test a parachute by jumping off a cliff? Then don't test a trading strategy with real money."*
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br><em>"Would you test a parachute by jumping off a cliff? Then don't test a trading strategy with real money."</em></td></tr></table>
 
-Before you connect your broker, enter your API keys, and let the bot loose on the live markets with your hard-earned cash — **stop.**
-
-Run it in Paper Mode first.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Before you connect your broker, enter your API keys, and let the bot loose on the live markets with your hard-earned cash — STOP.<br><br>Run it in Paper Mode first. I don't care how confident you are. I don't care if the backtest looked incredible. Paper trade it. The market has a way of humbling people who skip this step."</td></tr></table>
 
 ---
 
 ## What is Paper Trading?
 
-Paper trading is simulated trading. The bot does everything exactly the same as live trading — scans markets, analyzes charts, applies strategies, makes decisions — except at the moment of execution, instead of sending a real order to a real broker, it writes the trade on a piece of virtual paper.
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Paper trading is simulated trading. The bot does everything exactly the same as live — scans markets, analyzes charts, applies strategies, makes decisions — except at the moment of execution, instead of sending a real order, it writes the trade on virtual paper."</td></tr></table>
 
-*   **Market data?** Real. Live prices from real exchanges.
-*   **Strategy logic?** Identical to live. Same code path. Same decisions.
-*   **Orders?** Simulated. No real money moves. No real positions opened. No real fills.
-*   **P&L?** Tracked virtually. You can see exactly how much you would have made (or lost).
+- **Market data?** Real. Live prices from real exchanges.
+- **Strategy logic?** Identical to live. Same code path.
+- **Orders?** Simulated. No real money moves.
+- **P&L?** Tracked virtually.
 
 ---
 
 ## Why Paper Trading Matters
 
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Do I really need to paper trade? Can't I just go live?"</td></tr></table>
+
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"Famous last words."</td></tr></table>
+
 ### 1. Strategy Validation
-"Does Meta-SCI actually work on crypto?" Paper trade it for a week and find out. Zero risk.
+"Does Meta-SCI work on crypto?" Paper trade it for a week. Zero risk.
 
 ### 2. Configuration Testing
-"What happens if I set `structure_score_threshold` to 50 instead of 60?" Try it in paper mode. If the bot starts taking 47 trades a day, you know the threshold was too low.
+"What happens if I lower `structure_score_threshold` to 50?" Try it in paper. If 47 trades fire in one day, that threshold was too low.
 
 ### 3. Learning the System
-If you've never used the bot before, Paper Mode is your training wheels. Watch how it scans, decides, and would have traded. Understand the rhythm before you put money on the line.
+Paper Mode is your training wheels. Watch how the bot scans, decides, and would have traded.
 
 ### 4. New Asset Testing
-Want to add GBP/JPY to your universe? Paper trade it first. That currency pair is nicknamed "The Dragon" for a reason — it moves 200+ pips a day and will eat your stop-loss for breakfast.
+
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Want to add GBP/JPY to your universe? Paper trade it first. That pair is nicknamed 'The Dragon' — 200+ pips a day. It will eat your stop-loss for breakfast."</em></td></tr></table>
 
 ---
 
 ## How to Enable Paper Mode
 
-There are two ways:
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Just toggle Live Trading OFF, sweetie."</td></tr></table>
 
-### Method 1: The Simple Way
-Set `execute_trades` to `false` in your settings:
-
-> 📺 **In the UI:** Settings → **System** → toggle **Live Trading** OFF
+> 📺 Settings → **System** → toggle **Live Trading** OFF
 
 ```yaml
 runtime:
   execute_trades: false
 ```
 
-The bot runs normally but never sends orders. Simple. Clean. Safe.
-
-### Method 2: The Paper Broker
-The bot has a built-in `PaperBroker` that simulates order fills, tracks virtual positions, and calculates P&L as if the trades were real.
-
-This is what Sabbath Mode uses internally — during Sabbath, the `PaperBroker` takes over from the real broker. But you can use it anytime by running in simulation mode.
+The bot runs normally but never sends orders. The built-in `PaperBroker` simulates fills, tracks positions, and calculates P&L as if trades were real.
 
 ---
 
@@ -62,54 +57,47 @@ This is what Sabbath Mode uses internally — during Sabbath, the `PaperBroker` 
 
 | Metric | How It's Calculated |
 |--------|-------------------|
-| **Virtual Positions** | Tracks symbol, side, size, entry price — just like a real broker |
-| **Unrealized P&L** | Calculated from current live market price vs. entry price |
-| **Realized P&L** | Logged when a virtual position is closed |
-| **Win Rate** | Percentage of paper trades that were profitable |
-| **Trade Count** | How many trades the bot took in paper mode |
+| **Virtual Positions** | Symbol, side, size, entry price — just like a real broker |
+| **Unrealized P&L** | Current price vs. entry price |
+| **Realized P&L** | Logged when virtual position closes |
+| **Win Rate** | Percentage of profitable paper trades |
+| **Trade Count** | Total paper trades taken |
 
-All of this is stored in `data/paper_trade_results.json` and `data/paper_ledger.json`.
+Stored in `data/paper_trade_results.json` and `data/paper_ledger.json`.
 
 ---
 
-## Paper Mode vs. Backtesting: What's the Difference?
+## Paper Mode vs. Backtesting
+
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Both are important. Here's the distinction:"</td></tr></table>
 
 | Feature | Paper Mode | Backtesting |
 |---------|-----------|-------------|
-| **Data** | Live, real-time market data | Historical data |
-| **Speed** | Real-time (1 scan every X seconds) | Fast-forward (weeks in seconds) |
+| **Data** | Live, real-time | Historical |
+| **Speed** | Real-time | Fast-forward |
 | **Fills** | Simulated at market price | Simulated at historical price |
-| **Purpose** | "How does the bot behave right now?" | "How would the bot have performed last month?" |
+| **Purpose** | "How does the bot behave NOW?" | "How would it have performed THEN?" |
 | **Duration** | Days to weeks | Minutes to hours |
-
-**Use backtesting** to quickly validate a strategy over historical data.
-**Use paper mode** to see how the strategy handles live, never-before-seen market conditions.
-
-Both are important. Backtesting tells you the past. Paper mode tells you the present.
 
 ---
 
 ## When to Graduate to Live
 
-The checklist for going live:
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"The checklist:"</td></tr></table>
 
 - [ ] Paper traded for at least 1 week
-- [ ] Win rate is reasonable (40%+ for trend strategies, 55%+ for mean reversion)
-- [ ] Profit factor is above 1.0 (you made more than you lost)
-- [ ] Max drawdown is within your tolerance
+- [ ] Win rate is reasonable (40%+ trend, 55%+ mean reversion)
+- [ ] Profit factor above 1.0
+- [ ] Max drawdown within tolerance
 - [ ] You understand every decision the bot made
-- [ ] You're not doing this because of FOMO
-- [ ] You've read the risk management article (The Shield Wall, Article 18)
-- [ ] You're starting with small position sizes (you can always scale up)
+- [ ] You're NOT doing this because of FOMO
+- [ ] You've read The Shield Wall (Article 18)
+- [ ] Starting with small position sizes
 
-If you can't check every box, keep paper trading. There's no prize for going live early. The market will still be there next week.
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"If you can't check every box, keep paper trading. There's no prize for going live early. The market will still be there next week."</em></td></tr></table>
 
 ---
 
 ## The Harsh Truth
 
-Paper trading has one limitation: it doesn't simulate **your emotions.** In paper mode, watching a -$200 unrealized loss feels like nothing. In live mode, that same -$200 makes you want to close the trade early, override the bot, and "manage" the position.
-
-Paper mode teaches you the system. Live mode teaches you yourself.
-
-Start paper. Graduate to live with small sizes. Scale up only when you trust both the bot and yourself.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Paper trading has one limitation: it doesn't simulate <b>your emotions.</b> In paper mode, watching -$200 feels like nothing. In live mode, that same -$200 makes you want to close early, override the bot, and 'manage' the position.<br><br>Paper mode teaches you the system. Live mode teaches you yourself.<br><br>Start paper. Graduate to live with small sizes. Scale up only when you trust both the bot and yourself."</td></tr></table>

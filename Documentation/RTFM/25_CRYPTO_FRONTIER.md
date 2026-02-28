@@ -1,67 +1,60 @@
+# 25. The Crypto Frontier — The Wild West of 24/7 Markets
 
-# 25. The Crypto Frontier (The Wild West of 24/7 Markets)
-> *"Crypto: where 'stability' means it only moved 8% today."*
+<table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"Crypto! The wild seas! 24/7 markets, no rules, maximum chaos! 🏴‍☠️"</td></tr></table>
 
-Welcome to the asset class that never sleeps, rarely makes sense, and occasionally drops 40% because someone tweeted a meme.
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Please be careful out there, sweetie. Crypto is volatile."</td></tr></table>
 
-Trading crypto is fundamentally different from trading forex or stocks. The rules change. The hours change. The volatility changes. And the bot adapts to all of it.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Welcome to the asset class that never sleeps, rarely makes sense, and occasionally drops 40% because someone tweeted a meme. Trading crypto is fundamentally different from forex or stocks. The rules change. The hours change. The volatility changes. And the bot adapts to all of it."</td></tr></table>
 
 ---
 
 ## The Big Differences
 
 ### 1. No Closing Bell
-Forex takes weekends off. The NYSE closes at 4 PM. Crypto? **24 hours a day, 7 days a week, 365 days a year.** Christmas Eve? Trading. Your wedding? Trading. The sun exploding? Still trading until the servers melt.
 
-**What this means for the bot:**
-*   **No weekend flattening** for crypto positions. The `flatten_on_exit` logic skips crypto symbols.
-*   **No session detection** unless you're overlaying session awareness for volatility purposes.
-*   Crypto symbols run in the `crypto_247` profile with no time restrictions.
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"24/7/365. Your wedding? Trading. The sun exploding? Still trading until the servers melt."</td></tr></table>
+
+- No weekend flattening for crypto positions
+- No session detection unless overlaying for volatility
+- Runs in `crypto_247` profile with no time restrictions
 
 ### 2. Volatility on Steroids
-EUR/USD moves about 0.5-1.0% per day. That's considered normal. BTC/USD can move 5-10% in a day and that's **also** considered normal. On spicy days, 15-20% swings happen.
 
-**What this means for the bot:**
-*   **ATR-based stops are wider.** The bot automatically adjusts stop-loss distance based on the symbol's volatility. BTC gets a wider stop than EUR/USD because its "normal" movement is bigger.
-*   **Position sizes are smaller.** More volatility = smaller positions to keep risk constant.
+EUR/USD moves 0.5-1.0% per day (normal). BTC/USD can move 5-10% per day (also "normal"). On spicy days: 15-20% swings.
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"ATR-based stops automatically widen for crypto. Position sizes automatically shrink. More volatility = smaller positions = same risk per trade. The math stays the same, the numbers just get bigger."</td></tr></table>
 
 ### 3. Spreads and Slippage
-Forex pairs on OANDA have 1-2 pip spreads. Some crypto pairs on smaller exchanges can have spreads measured in percentages. Even major pairs like BTC/USD can have 0.1-0.3% effective spreads when you factor in the exchange's fees.
 
-**What this means for the bot:**
-*   The **Friction Model** calculates expected transaction costs before each trade. If the cost eats too much of the expected profit, the trade is downgraded.
-*   **Fee-aware position sizing** ensures the trade's risk/reward accounts for the round-trip cost of entering and exiting.
+Forex: 1-2 pip spreads. Some crypto pairs: spreads measured in percentages.
+
+The **Friction Model** calculates expected transaction costs before each trade. If the cost eats too much of the expected profit → trade downgraded.
 
 ### 4. Liquidity Varies Wildly
-BTC and ETH are highly liquid. You can move millions without moving the price. But SOL at 3 AM on a Sunday? XRP during a regulatory announcement? Liquidity can evaporate faster than a puddle in the Sahara.
 
-**What this means for the bot:**
-*   **Volume confirmation** is baked into several strategies. No volume = no conviction = no trade.
-*   The bot prefers **high-volume symbols** configured in the crypto profile for exactly this reason.
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"BTC and ETH are highly liquid. SOL at 3 AM on a Sunday? Liquidity can evaporate faster than a puddle in the Sahara."</em></td></tr></table>
+
+Volume confirmation is baked into strategies. No volume = no conviction = no trade.
 
 ---
 
 ## Crypto-Optimized Strategies
 
-The bot includes strategies specifically designed for crypto's unique behavior:
-
 | Strategy | Why It Works for Crypto |
 |----------|----------------------|
-| **RSI + MACD** | Crypto trends hard, and these momentum indicators catch the beginning of a move |
-| **VWAP Reversion** | Crypto drifts from VWAP constantly, creating mean reversion opportunities |
-| **Double MACD** | Dual timeframe confirmation catches crypto scalps during ranging periods |
-| **Virtual Grid** | Crypto ranges are predictable during consolidation — perfect for grid accumulation |
-| **Rubberband Reaper** | Crypto's extreme BB extensions create high-probability snap-back trades |
+| **RSI + MACD** | Catches the beginning of momentum moves |
+| **VWAP Reversion** | Crypto drifts from VWAP constantly |
+| **Double MACD** | Dual timeframe scalps during ranging periods |
+| **Virtual Grid** | Predictable ranges during consolidation |
+| **Rubberband Reaper** | Extreme BB extensions create high-probability snap-backs |
 
-When running Meta-SCI on crypto symbols, these strategies autom atically enter the tournament alongside the universal strategies.
+When running Meta-SCI on crypto symbols, these strategies automatically enter the tournament alongside universal strategies.
 
 ---
 
 ## Crypto Quantity Steps
 
-Crypto uses different position sizing than forex. You can't buy "10,000 units of Bitcoin" — you buy fractions. The bot uses **quantity steps** to size positions correctly:
-
-> ⚙️ **Config only:** Crypto quantity steps are set in `config.json` under your profile — there is no GUI field for this setting yet.
+> ⚙️ Config only: `config.json` under your profile
 
 ```yaml
 crypto_qty_steps:
@@ -70,22 +63,16 @@ crypto_qty_steps:
   SOLUSD: 0.1      # Minimum 0.1 SOL per trade
 ```
 
-These are configured per-symbol because each crypto has different minimum trade sizes on the exchange.
-
 ---
 
 ## The Whales and the Plankton
 
-Here's the brutal truth about crypto markets: **they're heavily manipulated.**
-
-*   **Whales** (wallets holding massive amounts) can move the market by sneezing.
-*   **Wash trading** inflates volume on some exchanges, making it look like there's more activity than there is.
-*   **Twitter influencers** can pump a coin 30% with a single post and dump it an hour later.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's the brutal truth: crypto markets are heavily manipulated. Whales move the market by sneezing. Wash trading inflates volume. Influencers pump and dump in the same hour."</td></tr></table>
 
 The bot's defense:
-*   **Structure over narrative.** The bot doesn't read Twitter. It reads candles.
-*   **Volume confirmation.** Fake volume often doesn't create real structure.
-*   **Stop-losses respect volatility.** Even if a whale dumps BTC 5%, the ATR-based stop accounts for that kind of movement.
+- **Structure over narrative.** Doesn't read Twitter. Reads candles.
+- **Volume confirmation.** Fake volume often doesn't create real structure.
+- **Stop-losses respect volatility.** ATR accounts for whale-sized moves.
 
 ---
 
@@ -93,17 +80,13 @@ The bot's defense:
 
 | Risk | Mitigation |
 |------|-----------|
-| Exchange downtime | Paper mode catches the gap. Stop-losses at the exchange won't lapse. |
-| Flash crashes | Wide ATR stops absorb flash movements. Daily Loss Limit caps total damage. |
-| Regulatory news | Structure-based trading ignores news. The bot trades what the chart shows, not what CNN says. |
-| Rug pulls / delistings | Only trade established coins (BTC, ETH, SOL, XRP). Leave the memecoins to Reddit. |
+| Exchange downtime | Paper mode catches gaps. Server-side stops hold. |
+| Flash crashes | Wide ATR stops absorb flash movements. Daily Loss Limit caps damage. |
+| Regulatory news | Structure-based trading ignores news. |
+| Rug pulls / delistings | Only trade established coins (BTC, ETH, SOL, XRP). |
 
 ---
 
 ## The Bottom Line
 
-Crypto is the most exciting and the most dangerous asset class you can trade. The rewards are larger, the risks are larger, and the variance is enough to make a casino blush.
-
-The bot treats crypto with respect — wider stops, smaller sizes, dedicated strategies. It doesn't fear crypto. It just sizes its bets appropriately.
-
-*"Fortune favors the bold. But position sizing favors the alive."*
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Crypto is the most exciting and the most dangerous asset class you can trade. The rewards are larger, the risks are larger, and the variance is enough to make a casino blush.<br><br>The bot treats crypto with respect — wider stops, smaller sizes, dedicated strategies. It doesn't fear crypto. It just sizes its bets appropriately.<br><br><em>Fortune favors the bold. But position sizing favors the alive.</em>"</td></tr></table>

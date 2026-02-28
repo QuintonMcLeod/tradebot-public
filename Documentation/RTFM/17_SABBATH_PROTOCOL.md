@@ -1,20 +1,18 @@
+# 17. The Sabbath Protocol — When the Bot Takes a Day Off
 
-# 17. The Sabbath Protocol (When the Bot Takes a Day Off)
-> *"Even God rested on the seventh day. The bot just switches to paper trading."*
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Sabbath Protocol is not optional. Rest is not weakness — it is strategy. Even the Most High rested. The bot follows suit."</td></tr></table>
 
-Some of us observe the Sabbath. The sun goes down Friday evening, and for approximately 25 hours, you're supposed to rest, reflect, and absolutely NOT be glued to a trading terminal watching candles like a degenerate.
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"But the market is still moving! What about my trades?!"</td></tr></table>
 
-But the market doesn't observe your Sabbath. EUR/USD doesn't care about your spiritual practices. Bitcoin has never heard of Shabbat.
-
-So we built a solution.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Your trades have server-side stops and take-profits. They're protected. And the bot doesn't actually stop — it switches to paper. It keeps watching, keeps analyzing, keeps taking notes. It just doesn't use real money. When Sabbath ends, it picks up right where it left off. Nothing lost. Nothing missed."</td></tr></table>
 
 ---
 
 ## The Dilemma
 
-You have two conflicting requirements:
-1. **No real trading during Sabbath.** No buying. No selling. No profit-seeking. The commandments are pretty clear on this one.
-2. **The markets are still moving.** Missing 25 hours of market data means missing potential setups, missing exit signals, and coming back on Saturday night to discover your position went sideways while you were eating challah.
+Two conflicting requirements:
+1. **No real trading during Sabbath.** No buying. No selling. No profit-seeking.
+2. **The markets are still moving.** Missing 25 hours of data means missing setups, missing exits, and coming back Saturday night to discover your position went sideways.
 
 The answer: **Sabbath Mode.**
 
@@ -22,29 +20,28 @@ The answer: **Sabbath Mode.**
 
 ## How It Works
 
-When the Sabbath candle-lighting time arrives (calculated astronomically based on your GPS coordinates), the bot does three things:
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"When candle-lighting time arrives — calculated astronomically based on your GPS coordinates — the bot does three things:"</td></tr></table>
 
 ### 1. The Swap
-The bot swaps from the **real broker** to the **Paper Broker**. All new signals get routed to the paper engine. Real money stops moving. The bot continues to scan, analyze, and make decisions — it just writes them on paper instead of sending them to the exchange.
+The bot swaps from the **real broker** to the **Paper Broker**. All new signals go to paper. Real money stops moving. The bot continues scanning, analyzing, making decisions — it just writes them on paper instead of sending them to the exchange.
 
 ### 2. The Heartbeat Goes Silent
-The execution heartbeat — the part that actually sends orders — goes quiet. No new orders. No modifications. No cancellations. Existing positions stay as they are, protected by their server-side stop-losses and take-profits (which are already placed at the broker and don't require the bot to be active).
+The execution heartbeat goes quiet. No new orders. No modifications. No cancellations. Existing positions stay as they are, protected by server-side stop-losses and take-profits (already at the broker, don't require the bot).
 
 ### 3. The Paper Ledger
-A separate paper trading ledger tracks what the bot *would have* done during Sabbath. This means:
-*   You can review the paper trades Saturday night and see if you "missed" anything
-*   The bot's strategy engine stays calibrated (it doesn't lose context from a 25-hour gap)
-*   Your live positions remain untouched and protected
+A separate paper trading ledger tracks what the bot *would have* done during Sabbath:
+- Review paper trades Saturday night
+- Bot's strategy engine stays calibrated (no 25-hour context gap)
+- Live positions remain untouched and protected
 
 ---
 
 ## When Does It Start and End?
 
-The bot uses **astronomical calculations** to determine:
-*   **Sabbath Start:** Candle-lighting time (18 minutes before sunset, Friday)
-*   **Sabbath End:** Three stars visible (approximately 42-72 minutes after sunset, Saturday)
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The bot uses astronomical calculations. Not a fixed time — because sunset changes throughout the year:"</td></tr></table>
 
-You configure your location:
+- **Sabbath Start:** Candle-lighting time (18 minutes before sunset, Friday)
+- **Sabbath End:** Three stars visible (approximately 42-72 minutes after sunset, Saturday)
 
 > 📺 **In the UI:** Settings → **Hours & Sabbath** → use the **Location Resolver** (enter your city and click Resolve), or manually enter **Latitude**, **Longitude**, and **Timezone**
 
@@ -54,22 +51,22 @@ sabbath_lon: -84.386    # Your longitude
 sabbath_timezone: "America/New_York"
 ```
 
-The bot calculates the exact sunset time for your location, every single week. It doesn't use a fixed time because sunset changes throughout the year. In June, Sabbath starts at 8:30 PM. In December, it starts at 5:15 PM. The bot handles this automatically.
+In June, Sabbath starts at 8:30 PM. In December, it starts at 5:15 PM. The bot handles this automatically. Every week.
 
 ---
 
 ## What Happens to Live Positions?
 
-Live positions are **not touched** during Sabbath. Here's why that's safe:
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Live positions are NOT touched during Sabbath. Here's why that's safe:"</td></tr></table>
 
 | Protection | Status During Sabbath |
 |-----------|---------------------|
 | **Stop-Loss** | Server-side. Active 24/7 regardless of bot state. |
 | **Take-Profit** | Server-side. Active 24/7 regardless of bot state. |
 | **Position Lock** | Still active — no new positions on the same symbol. |
-| **Daily Loss Limit** | Still tracked. If positions stop out, the kill switch still fires. |
+| **Daily Loss Limit** | Still tracked. Kill switch still fires if positions stop out. |
 
-Your live positions are as protected during Sabbath as they are at any other time. The only thing that changes is that new trades go to paper.
+Your live positions are as protected during Sabbath as they are at any other time. The only change: new trades go to paper.
 
 ---
 
@@ -77,20 +74,18 @@ Your live positions are as protected during Sabbath as they are at any other tim
 
 When Sabbath ends (three stars), the bot automatically:
 1. **Switches back** to the real broker
-2. **Logs the transition** — `[SABBATH] Sabbath ended. Resuming live execution.`
+2. **Logs the transition:** `[SABBATH] Sabbath ended. Resuming live execution.`
 3. **Resumes normal operation**
 
-You can then review the paper ledger (`data/paper_ledger.json`) to see what the bot did during Sabbath:
-*   How many paper trades it took
-*   What the paper P&L would have been
-*   Whether you "missed" a big move (spoiler: you didn't miss anything. You observed Sabbath. That's the whole point.)
+Review the paper ledger (`data/paper_ledger.json`) to see:
+- How many paper trades it took
+- What the paper P&L would have been
+- Whether you "missed" a big move
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Spoiler: you didn't miss anything. You observed Sabbath. That's the whole point."</td></tr></table>
 
 ---
 
 ## The Philosophy
 
-Trading is a tool. It serves you — you don't serve it. If your faith requires rest, the bot respects that. It doesn't guilt-trip you for taking a day off. It doesn't FOMO you with "look what you missed!" notifications.
-
-It simply says: "I've got this. Go rest. I'll keep watching and take notes. We'll compare notes Saturday night."
-
-That's the Sabbath Protocol.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Trading is a tool. It serves you — you don't serve it. If your faith requires rest, the bot respects that. It doesn't guilt-trip you. It doesn't FOMO you with 'look what you missed!' notifications.<br><br>It simply says: 'I've got this. Go rest. I'll keep watching and take notes. We'll compare notes Saturday night.'<br><br>That's the Sabbath Protocol."</td></tr></table>

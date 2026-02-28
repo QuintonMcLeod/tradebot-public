@@ -1,16 +1,19 @@
+# 3. Functions & Datasets — The Technical Guts
 
-# 3. Functions & Datasets
-> *"The devil is in the details. And the bugs."*
+<table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"Every function has a purpose. Every data structure has a reason. If you are debugging this machine, you need to know what the data actually looks like. Let me catalog them for you — organ by organ, nerve by nerve."</em></td></tr></table>
 
-If you are debugging this thing, you need to know what the data actually looks like.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is the chapter for debuggers and developers. If you're just trading, you can skip this. But if the bot does something weird at 2 AM and you need to figure out WHY, this is where you come. Bookmark it. You'll be back."</td></tr></table>
 
 ---
 
 ## The Core Data Objects
-These are the data packets passed around like hot potatoes.
+
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"These are the data packets passed around the system like hot potatoes. Each one has a specific shape, a specific purpose, and touching them incorrectly will break things in ways that are surprisingly hard to diagnose."</td></tr></table>
 
 ### 1. `MarketSnapshot` (`src/tradebot_sci/market/models.py`)
-This is the "Source of Truth" for a symbol at a specific time.
+
+The "Source of Truth" for a symbol at a specific time.
+
 ```python
 @dataclass
 class MarketSnapshot:
@@ -20,10 +23,13 @@ class MarketSnapshot:
     trend_htf: TrendState   # Higher Timeframe Trend (Bullish/Bearish/Neutral)
     trend_ltf: TrendState   # Lower Timeframe Trend
 ```
-*   **Philosophy:** Immutable. Once created, I don't mess with it. It represents "What Happened".
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This object is <b>immutable.</b> Once created, nobody touches it. It represents 'What Happened.' Past tense. Facts. Not opinions. Not predictions. Just cold, hard market data packaged neatly for consumption.<br><br>If I catch anyone mutating a MarketSnapshot after creation, I will find you. And I will revert your commit."</td></tr></table>
 
 ### 2. `AITradeDecision` (`src/tradebot_sci/strategy/decisions.py`)
-This is the "Verdict".
+
+The "Verdict."
+
 ```python
 @dataclass
 class AITradeDecision:
@@ -34,12 +40,15 @@ class AITradeDecision:
     stop_loss: float         # Proposed stop ("The line in the sand")
     take_profit: float       # Proposed target ("The moon")
     reason: str              # "Because the stars aligned (and RSI < 30)"
-    strategy_used: str       # Which strategy made the decision (e.g., "rubberband_reaper")
+    strategy_used: str       # Which strategy made this decision
 ```
-*   **Philosophy:** Actionable. The Broker takes this and executes it blindly (after checking the wallet).
+
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"This is what the Brain outputs. Four possible actions: enter long, enter short, hold, or stand aside. The Broker takes this object and executes it — after checking the wallet, the leverage, and about six other safety guards, because we don't trust the Brain to have considered everything. Smart people do dumb things."</td></tr></table>
 
 ### 3. `AssetClass` (Enum)
+
 Used for per-asset strategy selection.
+
 ```python
 class AssetClass(Enum):
     CRYPTO = "crypto"       # BTC, ETH, altcoins
@@ -51,12 +60,14 @@ class AssetClass(Enum):
 ```
 
 ### 4. `PerAssetStrategies` (`src/tradebot_sci/strategy/profiles.py`)
+
 Maps asset classes to strategies.
+
 ```python
 @dataclass
 class PerAssetStrategies:
-    crypto: str = "meta_sci"          # Meta-SCI auto-selects best strategy
-    forex: str = "meta_sci"           # Recommended default for all classes
+    crypto: str = "meta_sci"          # Meta-SCI auto-selects best
+    forex: str = "meta_sci"           # Recommended default for all
     stocks: str = "meta_sci"
     etf: str = "meta_sci"
     metals: str = "meta_sci"
@@ -67,16 +78,20 @@ class PerAssetStrategies:
         return getattr(self, asset_class.value)
 ```
 
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Notice how every default is meta_sci? That's not laziness. That's intention. Meta-SCI picks the best strategy automatically. Unless you have a tested, backtested, verified reason to override this, leave it alone."</td></tr></table>
+
 **Available strategies:** `meta_sci` ⭐, `rubberband_reaper`, `robocop`, `mean_reversion`, `supply_demand`, `trend_rider`, `session_momentum`, `bearish_engulfing`, `icc_core`, `orb_breakout`, `crypto_rsi_macd`, `crypto_vwap_reversion`, `crypto_double_macd`, `crypto_grid`, `evolution`, `quantum`, `hyper_scalper`, `london_breakout`, `volatility_breakout`, `aggregator`.
 
 ---
 
 ## Key Functions (The Heavy Hitters)
 
-### `classify_symbol(symbol: str) -> AssetClass`
-*   **Location:** `src/tradebot_sci/utils/symbol_classifier.py`
-*   **Purpose:** Determines which asset class a symbol belongs to.
-*   **Logic:**
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"These are the functions that do the actual work. Everything else is plumbing. These are the pumps."</td></tr></table>
+
+### `classify_symbol(symbol: str) → AssetClass`
+- **Location:** `src/tradebot_sci/utils/symbol_classifier.py`
+- **Purpose:** Determines which asset class a symbol belongs to.
+- **Logic:**
     - `BTC/USD`, `ETH/USD` → `CRYPTO`
     - `EUR/USD`, `GBP_JPY` → `FOREX`
     - `AAPL`, `TSLA` → `STOCKS`
@@ -85,16 +100,19 @@ class PerAssetStrategies:
     - `ES`, `NQ`, `MES` → `FUTURES`
 
 ### `StrategyEngine.decide(...)`
-*   **Location:** `src/tradebot_sci/strategy/engine.py`
-*   **Purpose:** Takes a `MarketSnapshot` and returns an `AITradeDecision`.
-*   **Flow:**
-    1.  `classify_symbol()`: Determine asset class.
-    2.  `get_strategy_for_asset()`: Get the correct strategy for this asset class.
-    3.  `build_market_context()`: Formats data for analysis.
-    4.  `strategy.evaluate()`: Run the strategy-specific logic.
-    5.  Returns a Decision.
+- **Location:** `src/tradebot_sci/strategy/engine.py`
+- **Purpose:** Takes a `MarketSnapshot` and returns an `AITradeDecision`.
+- **Flow:**
+    1. `classify_symbol()`: Determine asset class.
+    2. `get_strategy_for_asset()`: Get the correct strategy.
+    3. `build_market_context()`: Format data for analysis.
+    4. `strategy.evaluate()`: Run strategy-specific logic.
+    5. Returns a Decision.
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Five steps. Clean. Predictable. If something goes wrong, you can trace it step by step. That's not an accident — that's design. When things blow up at 3 AM, you need a clean trace, not spaghetti."</td></tr></table>
 
 ### Broker Execution
+
 Each broker has its own execution method:
 
 | Broker | Method | Location |
@@ -105,26 +123,31 @@ Each broker has its own execution method:
 | **Paxos** | `execute_decision()` | `broker/paxos_broker.py` |
 
 **Common Flow:**
-1.  **Affordability Check:** `if wallet < req_cash: return BLOCKED`.
-2.  **Order Sizing:** Calculates position size based on Risk %.
-3.  **API Call:** Broker-specific order placement.
-4.  **Stop Loss:** Places the protective stop order immediately after entry.
+1. **Affordability Check:** `if wallet < req_cash: return BLOCKED`.
+2. **Order Sizing:** Calculates position size based on Risk %.
+3. **API Call:** Broker-specific order placement.
+4. **Stop Loss:** Places the protective stop order immediately after entry.
+
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"The stop goes on immediately. Not after coffee. Not after checking the chart. Immediately. A position without a stop is not a trade — it is a prayer."</em></td></tr></table>
 
 ### `run_bot(...)`
-*   **Location:** `src/tradebot_sci/runtime/loop.py`
-*   **Purpose:** The eternal loop.
-*   **Flow:**
-    ```
-    preflight_broker_check()           # Refuse to start without a broker
-    while True:
-        for symbol in symbols:
-            if position_locked(symbol):     # Position Lock check
-                continue
-            asset_class = classify_symbol(symbol)
-            strategy = get_strategy_for_asset(asset_class)
-            snapshot = fetch_market_data(symbol)
-            decision = strategy.evaluate(snapshot)
-            if leverage_ok(decision):       # Leverage Sentry
-                execute_decision(decision)
-        sleep(interval)
-    ```
+- **Location:** `src/tradebot_sci/runtime/loop.py`
+- **Purpose:** The eternal loop.
+- **Flow:**
+
+```
+preflight_broker_check()           # Refuse to start without a broker
+while True:
+    for symbol in symbols:
+        if position_locked(symbol):     # Position Lock check
+            continue
+        asset_class = classify_symbol(symbol)
+        strategy = get_strategy_for_asset(asset_class)
+        snapshot = fetch_market_data(symbol)
+        decision = strategy.evaluate(snapshot)
+        if leverage_ok(decision):       # Leverage Sentry
+            execute_decision(decision)
+    sleep(interval)
+```
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's the whole bot. Right there. Everything else is implementation detail. The loop wakes up, checks every symbol, asks the strategy what to do, checks the guards, and either executes or moves on. Simple. Elegant. Like a heartbeat — it just keeps going."</td></tr></table>

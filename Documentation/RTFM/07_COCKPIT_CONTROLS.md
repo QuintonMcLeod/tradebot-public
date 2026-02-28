@@ -1,19 +1,17 @@
-# 7. The Cockpit Controls (Configuration)
+# 7. The Cockpit Controls — Configuration Guide
 
-> *"What does this button do?" — Last words of a former trader.*
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"What does this button do?"</td></tr></table>
 
-The bot is configured through the **Settings GUI**, `config.json`, or `config/settings_profiles.yaml` (legacy). This guide covers the most important controls.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Famous last words. That's literally on the tombstone of a former trader. He clicked 'EXECUTE_TRADES = true' before he understood what anything else did and lost $1,200 in forty-five minutes.<br><br>This chapter explains every knob, lever, and switch in the cockpit. Read it before you touch anything."</td></tr></table>
 
 ---
 
 ## Quick Access: Settings GUI
 
-Launch the visual Settings interface:
 ```bash
 ./scripts/tradebot.sh --gui
 ```
-
-Or from within the GUI dashboard, click the **Settings** button.
+Or from within the dashboard, click **Settings**.
 
 ### GUI Tabs Overview
 
@@ -35,7 +33,7 @@ Or from within the GUI dashboard, click the **Settings** button.
 
 ### Per-Asset Strategy Assignment
 
-The most important control: **different strategies for different asset classes**.
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The most important control in the entire cockpit: <b>different strategies for different asset classes.</b> Crypto behaves nothing like forex. Forex behaves nothing like metals. If you're running the same strategy on everything, you're wearing the same outfit to the beach AND the boardroom."</td></tr></table>
 
 **In GUI:** Settings → Strategy Workshop → Asset Strategies
 
@@ -81,18 +79,22 @@ The most important control: **different strategies for different asset classes**
 | 🪙 **Double MACD** | `crypto_double_macd` | Crypto scalping |
 | 🪙 **Virtual Grid** | `crypto_grid` | Crypto sideways markets |
 
-See `09_FEET_WET_STRATEGY.md` for detailed explanations of each strategy.
+See Chapter 9 (**20 Weapons of War**) for detailed explanations of each.
 
 ---
 
 ## The "Aggression" Levers
 
+<table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"Where's the 'FULL SEND' button?! 🏴‍☠️"</td></tr></table>
+
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"There is no 'FULL SEND' button, honey. And if there were, I'd disable it. But here are the aggression levers, and please be careful with them..."</td></tr></table>
+
 ### `icc_entry_score_threshold` (Default: `55.0`)
 - **What it does:** Sets the quality bar for trade entries (0-100 scale)
-- **Higher (e.g., 70.0):** Only A+ setups. May wait days for a trade.
-- **Lower (e.g., 40.0):** More trades, lower quality. Higher risk.
+- **Higher (70.0):** Only A+ setups. May wait days.
+- **Lower (40.0):** More trades, lower quality. Higher risk.
 - **Danger Zone:** Below 30.0 is basically random.
-- 📺 **In the UI:** Settings → **Strategy Workshop** → **Strategy Toolbox** sub-tab (ICC scoring thresholds are per-strategy)
+- 📺 **In the UI:** Settings → **Strategy Workshop** → **Strategy Toolbox** sub-tab
 
 ### `risk_per_trade_pct` (Default: `0.02` = 2%)
 - **What it does:** How much of your account to risk per trade
@@ -101,17 +103,19 @@ See `09_FEET_WET_STRATEGY.md` for detailed explanations of each strategy.
 - **Aggressive:** 4-5% (not recommended for beginners)
 - 📺 **In the UI:** Settings → **Strategy Workshop** → **Global Risk** sub-tab → **Default Risk %** slider
 
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The difference between 2% and 5% risk doesn't sound like much. But after 5 consecutive losses, 2% risk means you're down 9.6%. 5% risk means you're down 22.6%. Some differences only reveal themselves under pressure. Like character. And trading parameters."</td></tr></table>
+
 ---
 
 ## Safety & Shields
 
-These are your protective guardrails. Most are enabled by default.
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"These are your protective guardrails. Most are enabled by default. Do not disable them unless you understand the consequences. And 'I want more trades' is not understanding the consequences."</td></tr></table>
 
 ### Position Lock (Always On)
-- **What it does:** Once a position is open on a symbol, ALL new entry signals for that symbol are rejected until the position closes naturally (SL/TP/exit logic).
+- **What it does:** Once a position is open on a symbol, ALL new entry signals for that symbol are rejected until the position closes naturally.
 - **Why:** Prevents whipsaw flipping (long→short→long) which destroys accounts.
-- **Override:** Cannot be disabled. This is by design.
-- **Important:** If you manually close a bot-managed trade, Position Lock won't know. Restart the bot to clear it.
+- **Override:** Cannot be disabled. This is by design. Not a limitation — a feature.
+- **Important:** If you manually close a bot-managed trade, Position Lock won't know. Restart the bot.
 
 ### Leverage Sentry
 - **What it does:** Blocks new trades if total leverage exceeds your cap
@@ -123,38 +127,36 @@ These are your protective guardrails. Most are enabled by default.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `max_daily_loss_pct` | `0.10` (10%) | Circuit breaker — stops all trading |
-- **What it does:** If daily losses exceed this % of equity, ALL trading stops
-- **Why:** Prevents "tilt" spirals during bad days
-- **Reset:** Resets automatically at midnight (UTC) or on restart
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you lose 10% in a day, the bot shuts down trading entirely. That's not a suggestion — it's a circuit breaker. Because after losing 10%, the human reaction is 'I need to win it back.' That reaction leads to losing another 10%. And then 10% more. The circuit breaker says 'go to bed.' Which is always the right call."</td></tr></table>
 
 ### Breakeven Trail
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `breakeven_enabled` | `true` | Move SL to breakeven after profit threshold |
 | `breakeven_trigger_pct` | `0.005` (0.5%) | Minimum unrealized profit to trigger |
-- **What it does:** After price moves X% in your favor, moves stop-loss to entry price (breakeven)
-- **Why:** Ensures you can't lose money once a trade has shown sufficient profit
+
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"After price moves in your favor, I move your stop-loss to entry price. You can't lose money on a trade that's already proven itself. Free ride."</em></td></tr></table>
 
 ### Trailing Stop
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `trailing_stop_enabled` | `true` | Ratchet SL up as price advances |
 | `trailing_stop_pct` | `0.01` (1%) | Trail distance from current price |
-- **What it does:** As price moves in your favor, the stop-loss follows behind
-- **Why:** Locks in profits without capping upside
 
 ---
 
-## The "Safety" Master Switches
+## The Safety Master Switches
 
 ### `EXECUTE_TRADES` (Default: `false`)
-- **THE MASTER SWITCH:** Must be `true` to place real orders
+
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"This is <b>THE MASTER SWITCH.</b> Must be <code>true</code> to place real orders. Leave it <code>false</code> until you're absolutely, positively, bet-your-house ready. And even then, start small."</td></tr></table>
+
 - **`false`:** Simulation mode — logs decisions but doesn't trade
 - **`true`:** Live trading — real money at risk
 - 📺 **In the UI:** Settings → **System** → toggle **Live Trading**
 
 ### `max_concurrent_positions` (Default: `5`)
-- **What it does:** How many symbols can be traded simultaneously
 - **Safe:** 3-4 positions
 - **Advanced:** 5-8 positions (requires more capital)
 - 📺 **In the UI:** Settings → **Safety & Shields** → **Max Concurrent Positions**
@@ -164,7 +166,6 @@ These are your protective guardrails. Most are enabled by default.
 ## The "Time" Levers
 
 ### `candle_timeframe` (Default: `1h`)
-- **What it does:** Main chart resolution
 - **5m:** Scalping. High noise, fast action.
 - **15m:** Intraday, cleaner signals.
 - **1h:** Swing trading (recommended).
@@ -174,19 +175,17 @@ These are your protective guardrails. Most are enabled by default.
 ### `htf_timeframe` / `ltf_timeframe`
 - **HTF:** Higher timeframe for trend direction (e.g., `4h`)
 - **LTF:** Lower timeframe for entry precision (e.g., `15m`)
-- 📺 **In the UI:** Settings → **System** → **HTF Timeframe** / **LTF Timeframe** dropdowns
+- 📺 Settings → **System** → **HTF/LTF Timeframe** dropdowns
 
 ### `sabbath_enabled` (Default: `true`)
 - **What it does:** Blocks new entries Friday sunset to Saturday sunset
-- **Why:** Lower liquidity, choppy markets, and rest is important
-- **Override:** Force OFF in settings if you need 24/7 operation
-- 📺 **In the UI:** Settings → **Hours & Sabbath** → toggle **Enable Sabbath**
+- 📺 Settings → **Hours & Sabbath** → toggle **Enable Sabbath**
 
 ---
 
 ## Broker Controls
 
-All broker settings are available in the UI: Settings → **Broker Suite**.
+All broker settings: Settings → **Broker Suite**.
 
 ### IBKR Settings
 | Setting | Purpose |
@@ -208,7 +207,7 @@ All broker settings are available in the UI: Settings → **Broker Suite**.
 ### CCXT / Crypto Exchange Settings
 | Setting | Purpose |
 |---------|---------|
-| `CCXT_EXCHANGE` | Exchange ID (e.g., `gemini`, `coinbase`, `kraken`) |
+| `CCXT_EXCHANGE` | Exchange ID (`gemini`, `coinbase`, `kraken`) |
 | `CCXT_API_KEY` | API key |
 | `CCXT_SECRET` | API secret |
 | `CCXT_SANDBOX` | Enable testnet |
@@ -223,7 +222,7 @@ All broker settings are available in the UI: Settings → **Broker Suite**.
 
 ## AI/Commentary Controls
 
-> 📺 **In the UI:** Settings → **Intelligence** — select provider, model, and commentary policy
+> 📺 Settings → **Intelligence** — select provider, model, and commentary policy
 
 ### `TRADE_SCI_PROVIDER`
 - **Options:** `gemini`, `openai`, `claude`, `deepseek`, `openrouter`, `local`
@@ -252,6 +251,9 @@ All broker settings are available in the UI: Settings → **Broker Suite**.
 - `max_daily_loss_pct` — Circuit breaker threshold
 
 ### Red Levers 🔴 (Danger — Expert Only)
+
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Touch these without knowing what you're doing... and the market will make you pay tuition."</em></td></tr></table>
+
 - `EXECUTE_TRADES` — Live trading toggle
 - `IBKR_PORT` — Wrong port = wrong account
 - `market_poll_interval_seconds` — Too low = API ban
@@ -259,4 +261,4 @@ All broker settings are available in the UI: Settings → **Broker Suite**.
 
 ---
 
-> *"The best traders aren't the ones who touch every button. They're the ones who know which buttons NOT to touch."*
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The best traders aren't the ones who touch every button. They're the ones who know which buttons NOT to touch. The cockpit has 50 controls. A good pilot uses 6 of them 99% of the time. Be a good pilot."</td></tr></table>

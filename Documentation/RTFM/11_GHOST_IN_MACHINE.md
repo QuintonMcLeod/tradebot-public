@@ -1,331 +1,167 @@
+# 11. The Ghost in the Machine — How the Bot Thinks
 
-# 11. The Ghost in the Machine (AI & Strategy)
-> *"I think, therefore I trade."*
+<table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"I think, therefore I trade. But unlike Descartes, when I'm wrong, it costs money. Which is why I think VERY carefully."</em></td></tr></table>
 
-You know the bot trades. But *how* does it decide?
-This document explains the **Brain** (`strategy/engine.py`), the **Strategy Arsenal**, and the **Soul** (The AI Backup).
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You know the bot trades. But HOW does it decide? That's the question that separates the curious from the clueless. This article explains the Brain, the 21-strong Strategy Arsenal, and the AI Backup — the three layers between 'candle data' and 'order placed.'"</td></tr></table>
 
 ---
 
 ## The Theory: ICC (Indication, Correction, Continuation)
 
-The core logic follows the ICC model. The bot does not guess tops or bottoms. It waits for the market to show its hand.
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The core logic follows the ICC model. The bot does not guess tops or bottoms. It does not chase pumps. It does not revenge trade. It waits for the market to show its hand. Then it acts. Like a poker player who only plays pocket aces."</td></tr></table>
 
 ### Step 1: Indication (The "Hint")
 The price moves aggressively in one direction.
-*   **The Bot Sees:** A "Clean Close" above a swing high.
-*   **The Bot Thinks:** "Hmm. The bulls are awake."
-*   **Action:** Nothing yet. I don't chase pumps.
+
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"I see a Clean Close above a swing high. The bulls are awake. But I don't chase pumps. Not yet. Chasing pumps is for people who see a green candle and feel FOMO in their bones. That's not analysis. That's a medical condition."</em></td></tr></table>
 
 ### Step 2: Correction (The "Pullback")
 The price comes back down to test the waters.
-*   **The Bot Sees:** Price dipping into a "Discount Zone" or sweeping a "Liquidity Pool" (fancy words for "lots of stop losses").
-*   **The Bot Thinks:** "Are they trapping the bears? Let's see if it holds."
-*   **Action:** Still waiting.
+
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Price dipping into a Discount Zone, sweeping a Liquidity Pool. Are they trapping the bears? Let's see if it holds. I'm watching like a hawk with a mathematics degree."</em></td></tr></table>
 
 ### Step 3: Continuation (The "Go Signal")
 The price rips back up, breaking local structure.
-*   **The Bot Sees:** A candle closing above the correction range.
-*   **The Bot Thinks:** "Okay, the Correction is over. The Trend is resuming. SEND IT."
-*   **Action:** **ENTRY.**
+
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Candle closing above the correction range. The Correction is over. The Trend is resuming. Three steps. Three confirmations. NOW we go. SEND IT."</em></td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"ICC is like a three-step handshake before a relationship. The market says 'I'm going up' (Indication). Then it says 'let me think about it' (Correction). Then it says 'yeah, I'm definitely going up' (Continuation). We only invest after step three. Because step one and two are just... talking."</td></tr></table>
 
 ---
 
 ## The Execution: Meta-SCI ⭐
 
-> *"Why pick one strategy when the bot can hold tryouts every cycle?"*
-
-Instead of committing to one strategy, Meta-SCI runs ALL eligible strategies in parallel and picks the best signal. It's like a talent show where the judges are math.
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Why pick one strategy when the bot can hold tryouts every cycle? That's what Meta-SCI does. It's a talent show where the judges are math and the losers don't get a consolation prize."</td></tr></table>
 
 ### Step 1: Regime Detection (The "What Kind of Day Is It?")
-*   **The Bot Sees:** Market data flowing in — candles, volume, volatility.
-*   **The Bot Thinks:** "Is this market trending, ranging, mean-reverting, or just pure chaos?"
-*   **Action:** Classifies the current regime.
+
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Market data flowing in — candles, volume, volatility. Is this market trending, ranging, mean-reverting, or just pure chaos? I need to know because each regime needs different tools. Using a trend strategy in a ranging market is like bringing a surfboard to a swimming pool."</em></td></tr></table>
 
 ### Step 2: The Tournament (The "Hunger Games")
-*   **The Bot Sees:** 10+ strategies all raising their hands.
-*   **The Bot Thinks:** "Trend Rider, you only work in trends. Sit down. Rubberband Reaper, this isn't ranging. You too. Session Momentum... is it even session open? No? OUT."
-*   **Action:** Disqualifies strategies that don't match the regime.
+
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Trend Rider, you only work in trends. Sit down. Rubberband Reaper, this isn't ranging — you're irrelevant right now. You too. Session Momentum... is it even session open? No? GET OUT.<br><br>Everyone who's left — show me your best signal. Highest score wins. Losers go home empty-handed."</td></tr></table>
 
 ### Step 3: Winner Selection (The "And the Oscar Goes To...")
-*   **The Bot Sees:** 3-4 surviving strategies, each with a score.
-*   **The Bot Thinks:** "Trend Rider scored 78.5. Supply & Demand scored 65.2. We have a winner."
-*   **Action:** **Executes the highest-scoring signal.** If nobody scores above threshold → STAND ASIDE.
+
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"Trend Rider scored 78.5! Supply & Demand scored 65.2! WE HAVE A WINNER! 🏆"</td></tr></table>
+
+If nobody scores above threshold → **STAND ASIDE.** No trade. No forced play. The bot sits on its hands and waits for a better market. Which is more than most humans can do.
 
 ---
 
 ## The Sniper: Rubberband Reaper
 
-> *"Price is a rubber band. Stretch it far enough and it WILL snap back."*
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Price is a rubber band. Stretch it far enough and it WILL snap back. Physics doesn't care about your feelings."</em></td></tr></table>
 
 Mean Reversion + Anti-Martingale. Best for ranging markets and volatile crypto.
 
 ### Step 1: The Stretch (The "That's Too Far")
-Price flies way outside Bollinger Bands — 2.5 standard deviations from the mean.
-*   **The Bot Sees:** Price shooting through the upper or lower Bollinger Band like it's trying to leave the chart.
-*   **The Bot Thinks:** "Okay you're being dramatic. Nobody goes up 2.5 standard deviations and stays there."
-*   **Action:** Starts watching closely.
+
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Price shooting through the upper Bollinger Band like it's trying to leave the chart. You're being dramatic. Nobody goes up 2.5 standard deviations and stays there. Gravity is undefeated."</em></td></tr></table>
 
 ### Step 2: RSI Confirmation (The "Are You Sure?")
-*   **The Bot Sees:** RSI below 25 (oversold) or above 75 (overbought).
-*   **The Bot Thinks:** "RSI agrees. This thing is exhausted. The rubber band is fully stretched."
-*   **Action:** Prepares to enter the snap-back trade.
+
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"RSI below 25. Even RSI agrees — this thing is exhausted. The rubber band is fully stretched. It's not a matter of IF it snaps. It's WHEN."</em></td></tr></table>
 
 ### Step 3: The Snap (The "I Told You So")
-*   **The Bot Sees:** Price starting to reverse toward the mean.
-*   **The Bot Thinks:** "Physics is physics. ENTRY. Target: the opposite Bollinger Band. That's a 3:1 minimum."
-*   **Action:** **ENTRY.** And if I won the last trade, I'm sizing UP. If I lost? Sizing DOWN. That's anti-Martingale, baby.
+
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Physics is physics. ENTRY. Target: opposite Bollinger Band. 3:1 minimum. And if I won the last trade? Sizing UP. Lost? Sizing DOWN. That's anti-Martingale. You double down on proof, not on hope."</em></td></tr></table>
 
 ---
 
 ## The Enforcer: RoboCop
 
-> *"Dead or alive, you're coming with me."*
+<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"Dead or alive, you're coming with me."</td></tr></table>
 
 Sniper precision. Best for high-conviction setups only.
 
-### Step 1: Structural Scan (The "Nothing Gets Past Me")
-*   **The Bot Sees:** Multi-timeframe structure aligning — HTF trend, LTF confirmation, ICC gate scores.
-*   **The Bot Thinks:** "I don't care about your 'gut feeling.' Show me the structure. Show me confluence. Show me MATH."
-*   **Action:** Waiting. RoboCop does not chase. RoboCop waits for the setup to come to him.
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Multi-timeframe structure aligning — HTF trend, LTF confirmation, ICC gate scores. I don't care about your 'gut feeling.' Show me the structure. Show me confluence. Show me MATH. If you can't show me math, I can't show you a trade."</em></td></tr></table>
 
-### Step 2: High-Conviction Filter (The "Is This A+ or Not?")
-*   **The Bot Sees:** Score above threshold. Multiple timeframes agree. The chart is clean.
-*   **The Bot Thinks:** "This is the shot. Wide target — 3.0 ATR. I don't take trades to make pocket change."
-*   **Action:** **ENTRY.** Fewer trades, bigger wins. Precision over frequency.
-
-### Step 3: Chop Detection (The "I'm Not Sitting Here All Day")
-*   **The Bot Sees:** Price going sideways. No conviction. Range-bound nonsense.
-*   **The Bot Thinks:** "This isn't a trade anymore, it's a hostage situation. I'm getting OUT."
-*   **Action:** **Chop exit.** Close the trade, free the capital, move on.
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Score above threshold. Multiple timeframes agree. This is the shot. Wide target — 3.0 ATR. I don't take trades to make pocket change. And if price goes sideways? That's not a trade anymore — it's a hostage situation. I'm getting OUT."</em></td></tr></table>
 
 ---
 
 ## The Mathematician: Mean Reversion
 
-> *"What goes up must come down. What goes down must come up. Repeat forever."*
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"What goes up must come down. What goes down must come up. Repeat forever. This isn't optimism — this is statistics."</td></tr></table>
 
 Bollinger + RSI. Best for ranging crypto and forex.
 
-### Step 1: The Overshoot (The "That Was Excessive")
-*   **The Bot Sees:** Price breaking outside 15-period, 2.5 std Bollinger Bands.
-*   **The Bot Thinks:** "You went too far. The mean is calling. She wants you back."
-*   **Action:** Marks the extreme. First entry loaded.
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Price breaking outside 15-period, 2.5 std Bollinger Bands. You went too far, buddy. The mean is calling. She wants you back. She always wants you back."</em></td></tr></table>
 
-### Step 2: Pyramiding (The "Oh You're Still Going? Fine, I'll Add More")
-*   **The Bot Sees:** Price continuing to push away from the mean.
-*   **The Bot Thinks:** "Every step further is a bigger rubber band. I'll add up to 6 entries with cooldown between each. You CAN'T stay out here forever."
-*   **Action:** Adds entries as price extends. Up to 6 layers deep.
+<table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"Every step further is a bigger rubber band! Add up to 6 entries! Pyramid it! You CAN'T stay out here forever! 💰"</td></tr></table>
 
-### Step 3: The Return (The "Welcome Home")
-*   **The Bot Sees:** Price crawling back to the middle Bollinger Band.
-*   **The Bot Thinks:** "There she is. The mean. Like gravity — patient and inevitable."
-*   **Action:** **EXIT.** All layers close. Profit collected across the entire pyramid.
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"And there she is. The mean. Like gravity — patient and inevitable."</em></td></tr></table>
+
+**EXIT.** All layers close. Profit collected across the entire pyramid.
 
 ---
 
 ## The Tracker: Supply & Demand
 
-> *"I don't trade at random prices. I trade where the institutions left their footprints."*
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"I don't trade at random prices. I trade where the institutions left their footprints. They buy in bulk — they have to come back to the same level. I'll be waiting."</em></td></tr></table>
 
-Institutional zones. Best for support/resistance plays.
-
-### Step 1: Zone Mapping (The "Who Was Here Before Me?")
-*   **The Bot Sees:** Historical price action. Areas where price exploded away from a level.
-*   **The Bot Thinks:** "Someone with serious money was buying here. They'll probably be back. Institutions don't just buy once — they accumulate."
-*   **Action:** Maps supply zones (sell walls) and demand zones (buy floors).
-
-### Step 2: Zone Strength Scoring (The "Has This Floor Been Tested?")
-*   **The Bot Sees:** A zone that's held 3+ times. Each bounce makes it stronger.
-*   **The Bot Thinks:** "Three bounces. This zone is LEGIT. The big players keep defending it."
-*   **Action:** Marks the zone as high-priority for entry.
-
-### Step 3: The Retest (The "Right on Schedule")
-*   **The Bot Sees:** Price drifting back into a strong demand zone.
-*   **The Bot Thinks:** "Welcome back to the zone. The institutions are loading up again. I'll ride with them."
-*   **Action:** **ENTRY.** Target: the nearest supply zone. Clean, institutional-grade risk/reward.
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Historical price action. Areas where price exploded away from a level. Someone with serious money was buying here. They'll probably be back. Three bounces? This zone is LEGIT. The big players keep defending it like it's their firstborn child."</em></td></tr></table>
 
 ---
 
 ## The Surfer: Trend Rider
 
-> *"The trend is your friend. I wait for it to come pick me up."*
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"The trend is your friend! I wait for it to come pick me up! 🏄‍♂️"</td></tr></table>
 
-EMA pullback. Best for strong trending markets.
-
-### Step 1: The Pullback (The "Come Back Down Here")
-*   **The Bot Sees:** Price in a strong uptrend, pulling back toward the EMA.
-*   **The Bot Thinks:** "Good. You raced ahead too fast. Come back to the EMA and I'll hop on."
-*   **Action:** Waiting for price to touch the moving average.
-
-### Step 2: Trend Confirmation (The "Everyone Agrees")
-*   **The Bot Sees:** HTF trend is bullish. LTF trend is bullish. Both timeframes pointing the same direction.
-*   **The Bot Thinks:** "Two timeframes agree. This isn't a fake rally. This is the real deal."
-*   **Action:** Ready to enter.
-
-### Step 3: The Bounce (The "Get On the Horse")
-*   **The Bot Sees:** Price bouncing off the EMA in the trend direction. The pullback is over.
-*   **The Bot Thinks:** "The trend just picked me up. Riding this wave until the higher timeframe flips."
-*   **Action:** **ENTRY.** Exit when HTF trend reverses — not a moment sooner.
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Price in a strong uptrend, pulling back toward the EMA. You raced ahead too fast. Come back to the EMA and I'll hop on. HTF bullish, LTF bullish — two timeframes agree. This isn't a fake rally. This is the real deal. Riding this wave until the higher timeframe flips."</em></td></tr></table>
 
 ---
 
 ## The Clock Watcher: Session Momentum
 
-> *"When London wakes up, the money starts moving. I'll be waiting at the door."*
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"When London wakes up, the money starts moving. I'll be waiting at the door with my bags packed."</td></tr></table>
 
-VWAP at session open. Best for London/NY session opens.
-
-### Step 1: Session Detection (The "The Bell Just Rang")
-*   **The Bot Sees:** Clock hits 08:00 GMT (London) or 13:30 GMT (New York).
-*   **The Bot Thinks:** "The big boys just sat down at their desks with their overpriced coffee. Volatility incoming in 3... 2... 1..."
-*   **Action:** Calculates VWAP as the fair value anchor for the session.
-
-### Step 2: Momentum Read (The "Which Way Are They Pushing?")
-*   **The Bot Sees:** Early session price action relative to VWAP.
-*   **The Bot Thinks:** "Price is above VWAP and pushing. The institutional flow is bullish. I'll go with the smart money, not against it."
-*   **Action:** **ENTRY** in the direction of early session momentum.
-
-### Step 3: Session Clock (The "Closing Time")
-*   **The Bot Sees:** Session nearing its end. Target not hit.
-*   **The Bot Thinks:** "The party's over. Liquidity is about to dry up. I'm not holding through the dead zone."
-*   **Action:** **EXIT** before session close if target isn't reached.
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Clock hits 08:00 GMT. London is open. The big boys just sat down at their desks with their overpriced coffee. Price above VWAP and pushing — the institutional flow is bullish. I'll go with the smart money. Session nearing its end? Target not hit? The party's over. I'm out before the dead zone."</em></td></tr></table>
 
 ---
 
 ## The Pattern Reader: Engulfing Reversal
 
-> *"One candle to rule them all."*
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"One candle to rule them all."</td></tr></table>
 
-Candlestick patterns. Best for key reversal levels.
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"WHOA! That candle just ate the last one alive!"</td></tr></table>
 
-### Step 1: Pattern Detection (The "Did You See That?!")
-*   **The Bot Sees:** A massive candle that completely engulfs the previous one. The bulls ate the bears alive (or vice versa).
-*   **The Bot Thinks:** "That's not a normal candle. That's a statement. Someone just said 'we're going THIS way now.'"
-*   **Action:** Flags the engulfing pattern.
-
-### Step 2: Key Level Filter (The "But WHERE Did It Happen?")
-*   **The Bot Sees:** The engulfing candle formed at a significant support/resistance level.
-*   **The Bot Thinks:** "An engulfing candle in the middle of nowhere? Boring. An engulfing candle AT a key level? That's a reversal signal."
-*   **Action:** Confirms location is significant. Checks volume — above average? Yes? Good.
-
-### Step 3: The Reversal (The "New Sheriff in Town")
-*   **The Bot Sees:** Confirmation bar following the engulfing pattern.
-*   **The Bot Thinks:** "The engulfing happened at a key level, with volume. This trend is done. New direction confirmed."
-*   **Action:** **ENTRY.** Stop beyond the engulfing candle's range. Tight risk, clean setup.
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"That's not a normal candle. That's a statement. Someone just said 'we're going THIS way now.' But WHERE it happened matters. In the middle of nowhere? Boring. At a key level? That's a reversal signal. Location, location, location."</em></td></tr></table>
 
 ---
 
 ## The Purist: ICC Core
 
-> *"Pure structure. No shortcuts. No feelings. Just textbook."*
-
-The purest implementation of the Indication-Correction-Continuation framework. Zero shortcuts. Zero aggressive entries. This is the strategy for people who believe in discipline the way monks believe in silence. It follows the exact same three steps as "The Theory" above — but applies them with maximum patience and zero deviation.
-
-### Step 1: Indication — Wait for proof.
-### Step 2: Correction — Wait for the pullback.
-### Step 3: Continuation — Wait for the market to resume. Then execute.
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"Pure structure. No shortcuts. No feelings. Just textbook ICC. This is discipline in its highest form. Indication. Correction. Continuation. Three steps. No skipping."</em></td></tr></table>
 
 ---
 
 ## The Early Bird: ORB Breakout
 
-> *"The first 15 minutes write the story for the day."*
+<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"The first 15 minutes write the story for the day."</td></tr></table>
 
-Opening range breakout. Best for first-hour range breaks.
-
-### Step 1: Mark the Range (The "Draw the Lines")
-*   **The Bot Sees:** The first 15-30 minutes of the session forming a high and a low.
-*   **The Bot Thinks:** "The opening range is set. This is the battlefield. Everything above is bull territory. Everything below is bear territory."
-*   **Action:** Records the Opening Range — high and low.
-
-### Step 2: The Break (The "Someone Kicked the Door In")
-*   **The Bot Sees:** Price smashing through the top or bottom of the opening range.
-*   **The Bot Thinks:** "BREAK! And the volume is strong — this isn't a fake-out. The market has chosen a direction."
-*   **Action:** **ENTRY** on the breakout side.
-
-### Step 3: The Target (The "How Far Can This Go?")
-*   **The Bot Sees:** Price extending past the range.
-*   **The Bot Thinks:** "Target is 1.5-2.0x the range height. Clean, mathematical, no guessing."
-*   **Action:** Holds until target or stops out. No negotiation.
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"First 15-30 minutes forming a high and a low. This is the battlefield. Everything above is bull territory. Everything below is bear territory. Then someone kicks the door in — volume is strong, this isn't a fake-out. Target: 1.5-2.0× the range height. Clean, mathematical, no guessing."</em></td></tr></table>
 
 ---
 
-## The Crypto Specialists
+## The Crypto Specialists 🪙
 
-These strategies are automatically included in Meta-SCI tournaments when scanning crypto symbols.
+### The Duo: RSI + MACD
 
----
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Two indicators walk into a bar. They both agree. Now THAT's a signal. If either disagrees? No trade. Democracy requires consensus."</td></tr></table>
 
-### The Duo: RSI + MACD 🪙
+### The Gravity Well: VWAP Reversion
 
-> *"Two indicators walk into a bar. They both agree. Now THAT's a signal."*
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"Price always visits VWAP. It's like gravity for crypto. Drift far enough and the pull becomes irresistible."</em></td></tr></table>
 
-Momentum crossover. Best for crypto trending markets.
+### The Scalper: Double MACD
 
-### Step 1: RSI reads the exhaustion.
-*   **The Bot Sees:** RSI dropping below 30.
-*   **The Bot Thinks:** "RSI says oversold."
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Two timeframes, one verdict. Fast MACD crosses bullish. Slow MACD already bullish. Both agree. Quick in, quick out. Don't overstay the welcome."</em></td></tr></table>
 
-### Step 2: MACD confirms the shift.
-*   **The Bot Sees:** MACD histogram turning green.
-*   **The Bot Thinks:** "MACD says momentum is shifting. When both agree, crypto tends to rip."
+### The Pinball Machine: Virtual Grid
 
-### Step 3: Both agree — or no deal.
-*   **Action:** **ENTRY.** If either indicator disagrees — no trade. Both must confirm or I walk.
-
----
-
-### The Gravity Well: VWAP Reversion 🪙
-
-> *"Price always visits VWAP. It's like gravity for crypto."*
-
-Mean reversion to VWAP. Best for ranging crypto.
-
-### Step 1: Measure the drift.
-*   **The Bot Sees:** Price drifting far from the session VWAP.
-
-### Step 2: Watch the fuel gauge.
-*   **The Bot Sees:** Volume is exhausting at the extreme.
-*   **The Bot Thinks:** "You're 3% above VWAP with dying volume. You've got no fuel left. Come back home."
-
-### Step 3: Trade the return.
-*   **Action:** **ENTRY** toward VWAP. Target: VWAP itself. Simple. Effective. Repeatable.
-
----
-
-### The Scalper: Double MACD 🪙
-
-> *"Two timeframes, one verdict."*
-
-Dual-timeframe scalping. Best for fast crypto scalps.
-
-### Step 1: Fast chart signals entry.
-*   **The Bot Sees:** Fast timeframe MACD crossing bullish.
-
-### Step 2: Slow chart confirms the wind direction.
-*   **The Bot Sees:** Slow timeframe MACD already bullish.
-*   **The Bot Thinks:** "The fast chart says 'go.' The slow chart says 'we're already going.' Two timeframes confirm."
-
-### Step 3: Quick in, quick out.
-*   **Action:** **ENTRY.** Short-duration trade. Get in, get out, don't overstay the welcome.
-
----
-
-### The Pinball Machine: Virtual Grid 🪙
-
-> *"Grid trading without the grid. All the upside, none of the baggage."*
-
-Virtual grid trading. Best for crypto sideways markets.
-
-### Step 1: Identify the range.
-*   **The Bot Sees:** Crypto moving sideways in a well-defined range. No trend. Just oscillation.
-
-### Step 2: Set virtual zones.
-*   **The Bot Thinks:** "You're bouncing between $95K and $97K like a pinball. I'll set virtual buy zones at the bottom and sell zones at the top. Every bounce is a trade."
-
-### Step 3: Accumulate on every bounce.
-*   **Action:** **Buys at low levels, sells at high levels.** No actual grid orders placed — all virtual. Accumulates during consolidation.
+<table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"Grid trading without the grid! Bouncing between supports like a pinball, collecting coins at every bounce! No actual grid orders — all virtual. 🏴‍☠️"</td></tr></table>
 
 ---
 
@@ -344,9 +180,9 @@ Virtual grid trading. Best for crypto sideways markets.
 
 ## Per-Asset Strategy Selection
 
-Different assets behave differently. That's why you can assign different strategies per asset class:
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Different assets behave differently. Crypto at 3 AM is nothing like forex at London open. That's why you assign different strategies per asset class:"</td></tr></table>
 
-> 📺 **In the UI:** Settings → **Strategy Workshop** → **Asset Strategies** sub-tab — choose a strategy per asset class (Crypto, Forex, Stocks, Metals)
+> 📺 **In the UI:** Settings → **Strategy Workshop** → **Asset Strategies** sub-tab
 
 ```json
 {
@@ -374,10 +210,8 @@ With `meta_sci`: Step 2 becomes "run a tournament of all eligible strategies."
 ---
 
 ## The AI Backup
-The hard-coded algorithm handles 90% of the work. But sometimes, the chart needs a second opinion.
 
-### When the AI Steps In
-The AI provides market commentary and decision validation. It doesn't replace the strategy — it augments it.
+<table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"The hard-coded algorithm handles 90% of the work. But sometimes, the chart needs a second opinion. That's where I come in. I don't replace the strategy — I augment it. Think of me as the co-pilot who can also read."</em></td></tr></table>
 
 **The Flow:**
 > Strategy signals ENTER_LONG on EURUSD → AI reviews the context → "Market structure is clean, volume supports the move. Confirmed." → Trade executes.
@@ -387,7 +221,7 @@ The AI provides market commentary and decision validation. It doesn't replace th
 |----------|-------|
 | **Gemini** | Recommended. Fast, cheap, good quality. |
 | **OpenAI** | GPT-4, GPT-4 Turbo — premium analysis |
-| **Claude** | Anthropic's Claude 3.5 — nuanced reasoning |
+| **Claude** | Claude 3.5 — nuanced reasoning |
 | **DeepSeek** | Cost-effective alternative |
 | **OpenRouter** | Access multiple models via one API key |
 | **Local (Ollama)** | Free, private, runs on your machine |
@@ -396,27 +230,31 @@ The AI provides market commentary and decision validation. It doesn't replace th
 
 ## The Safety Layer
 
-Between the strategy's decision and execution, an entire safety layer validates the trade:
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Between the strategy's decision and execution, an entire safety layer validates the trade. Nobody enters without my approval. Nobody."</td></tr></table>
 
 | Guard | What It Checks |
 |-------|---------------|
-| **Position Lock** | Is there already an open position on this symbol? → Block |
+| **Position Lock** | Already an open position on this symbol? → Block |
 | **Leverage Sentry** | Would this trade exceed the leverage cap? → Block |
 | **Daily Loss Limit** | Have daily losses hit the circuit breaker? → Block all trading |
-| **ICC Gatekeeper** | Is the ICC score above the minimum threshold? → Block if too low |
-| **Affordability** | Is there enough capital for the position size? → Block if insufficient |
+| **ICC Gatekeeper** | Is the ICC score above minimum threshold? → Block if too low |
+| **Affordability** | Enough capital for the position size? → Block if insufficient |
 
 These guards fire in sequence. If any one fails, the trade is blocked and logged with a clear reason.
 
 ---
 
-## Why This Works (The Guarantee)
-This system guarantees **process**, not outcome.
-*   It *guarantees* you won't buy the top (because it waits for Correction).
-*   It *guarantees* you won't sell the bottom (because it waits for Indication).
-*   It *guarantees* you won't flip positions recklessly (Position Lock).
-*   It *guarantees* the right strategy for the right market (Meta-SCI).
-*   It *guarantees* you won't over-leverage (Leverage Sentry).
-*   It *guarantees* you won't blow up in one day (Daily Loss Limit).
+## Why This Works
 
-In a chaotic market, a solid process is the closest thing to a money printer you will find.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This system guarantees <b>process</b>, not outcome. And in trading, process IS the outcome over a long enough timeline."</td></tr></table>
+
+- It *guarantees* you won't buy the top (because it waits for Correction).
+- It *guarantees* you won't sell the bottom (because it waits for Indication).
+- It *guarantees* you won't flip positions recklessly (Position Lock).
+- It *guarantees* the right strategy for the right market (Meta-SCI).
+- It *guarantees* you won't over-leverage (Leverage Sentry).
+- It *guarantees* you won't blow up in one day (Daily Loss Limit).
+
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"But does it guarantee profits?"</td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Nothing guarantees profits. Anyone who tells you otherwise is selling something. But in a chaotic market, a solid process is the closest thing to a money printer you will find. And this process has math on its side."</td></tr></table>

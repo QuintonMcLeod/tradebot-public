@@ -1,18 +1,14 @@
-# 08_API_SETUP: Connecting the Wires
+# 08. Connecting the Wires — API Setup Guide
 
-> **"The bot is only as smart as its connection."**
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"API keys are your weapons. Handle them with care. Store them in .env.secrets. Never commit them to git. Never paste them in Discord. Never email them. If someone asks for your API key, they are not your friend."</em></td></tr></table>
 
-This guide explains specifically **how to connect** this bot to the outside world. This includes:
-- **AI Brain** (TradeSci/OpenAI/Gemini/Claude)
-- **IBKR** (Interactive Brokers) for stocks, options, futures
-- **OANDA** for forex
-- **CCXT** for crypto exchanges
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The bot is only as smart as its connection. No connection = no data = no trades = expensive paperweight. This guide shows you exactly how to wire up every supported service — AI brain, brokers, and exchanges."</td></tr></table>
 
 ---
 
 ## 1. The AI Brain (LLM Providers)
 
-The bot uses an LLM (Large Language Model) to generate commentary and, in some modes, assist with decision validation.
+<table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"I need a language model to generate commentary, assist with decision validation, and power AI Optimize. Choose a provider. Any provider. Just choose one."</em></td></tr></table>
 
 ### Supported Providers
 
@@ -25,75 +21,72 @@ The bot uses an LLM (Large Language Model) to generate commentary and, in some m
 | **OpenRouter** | `OPENROUTER_API_KEY` | Access multiple models via one API |
 
 ### How to Configure
-1.  **GUI (Recommended)**:
-    - Open Settings → **Intelligence** tab.
-    - **Provider**: Select your provider (e.g., `gemini`).
-    - **API Key**: Enter your key.
-    - **Model**: Select the model (e.g., `gemini-pro`, `gpt-4-turbo`).
-    - Click **Save**.
 
-2.  **.env File**:
-    ```bash
-    TRADE_SCI_PROVIDER=gemini
-    GEMINI_API_KEY=your-key-here
-    TRADE_SCI_MODEL_NAME=gemini-pro
-    ```
+**GUI (Recommended):**
+1. Settings → **Intelligence** tab.
+2. **Provider**: Select (e.g., `gemini`).
+3. **API Key**: Enter your key.
+4. **Model**: Select (e.g., `gemini-pro`, `gpt-4-turbo`).
+5. Click **Save**.
 
-3.  **Environment Variables**:
-    - Export the relevant key in your shell before running the bot.
+**.env File:**
+```bash
+TRADE_SCI_PROVIDER=gemini
+GEMINI_API_KEY=your-key-here
+TRADE_SCI_MODEL_NAME=gemini-pro
+```
 
-### "Custom" Provider (Local LLMs / Proxies)
-If you are using a local LLM (like Ollama, LM Studio) or a corporate proxy:
+### Custom Provider (Local LLMs / Proxies)
+Using Ollama, LM Studio, or a corporate proxy?
 - **Provider**: `custom`
-- **Base URL**: Set to your endpoint (e.g., `http://localhost:11434/v1`).
-- **API Key**: Often ignored by local LLMs, but put `dummy` if required.
+- **Base URL**: Your endpoint (e.g., `http://localhost:11434/v1`)
+- **API Key**: Often ignored by local LLMs, but put `dummy` if required
 
 ---
 
-## 2. Interactive Brokers (IBKR) - The Hard Part
+## 2. Interactive Brokers (IBKR) — The Hard Part
 
-Connecting to IBKR requires the **TWS (Trader Workstation)** or **IB Gateway** software running on your machine. The bot talks to this software, not directly to IBKR servers.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"IBKR is the professional-grade broker. Stocks, options, futures, forex — they do it all. But connecting to IBKR is the hardest setup because it requires TWS or IB Gateway running locally. The bot talks to that software, not directly to IBKR servers.<br><br>It's worth it. But man, is the setup annoying."</td></tr></table>
 
 ### Step 1: Install TWS or IB Gateway
-- **TWS**: Full graphical interface. Heavy, but good for watching the chart while the bot trades.
-- **IB Gateway**: Lightweight, no UI. Best for running the bot 24/7 on a server.
+- **TWS**: Full graphical interface. Heavy, but good for watching charts.
+- **IB Gateway**: Lightweight, no UI. Best for 24/7 server operation.
 - **Download**: [Interactive Brokers Website](https://www.interactivebrokers.com/en/trading/tws.php)
 
 ### Step 2: Configure TWS/Gateway API Settings
-**CRITICAL:** The bot cannot connect unless you change these specific settings inside TWS.
 
-1.  Open TWS/Gateway and login (Paper or Live).
-2.  Go to **File** → **Global Configuration**.
-3.  Navigate to **API** → **Settings**.
-4.  **Check** `Enable ActiveX and Socket Clients`.
-5.  **Uncheck** `Read-Only API` (unless you only want to monitor).
-6.  **Socket Port**:
-    - **7497** is the default for **Paper Trading** (Simulated).
-    - **7496** is the default for **Live Trading** (Real Money).
-    - *Make sure this matches the `IBKR_PORT` setting in the bot.*
-7.  **Trusted IPs**:
-    - If running on `localhost` (same machine), you usually don't need this.
-    - If running inside Docker or a VM, add `127.0.0.1` or the container IP.
-8.  **Uncheck** `Download open orders on connection` (optional, makes startup faster).
+> [!IMPORTANT]
+> The bot CANNOT connect unless you change these specific settings inside TWS.
+
+1. Open TWS/Gateway and login (Paper or Live).
+2. **File** → **Global Configuration**.
+3. Navigate to **API** → **Settings**.
+4. **Check** `Enable ActiveX and Socket Clients`.
+5. **Uncheck** `Read-Only API` (unless monitor-only).
+6. **Socket Port**: 7497 = Paper, 7496 = Live. Must match `IBKR_PORT`.
+7. **Trusted IPs**: `127.0.0.1` if running locally. Container IP if Docker.
+8. **Uncheck** `Download open orders on connection` (faster startup).
 
 ### Step 3: Configure the Bot
 - **GUI**: Settings → **Broker (IBKR)** tab.
-- **Host**: `127.0.0.1` (if on same machine).
-- **Port**: `7497` (Paper) or `7496` (Live).
-- **Client ID**: `1` (Must be unique. If you run two bots, set the second one to `2`).
-- **Account ID**: Leave blank to auto-detect, or specify if you have multiple linked accounts.
+- **Host**: `127.0.0.1`
+- **Port**: `7497` (Paper) or `7496` (Live)
+- **Client ID**: `1` (must be unique per connection)
+- **Account ID**: Leave blank to auto-detect
 
 ### Troubleshooting IBKR
-- **"Connection Refused"**: TWS is not running, or the Port is wrong. Check if TWS is logged into Paper (7497) or Live (7496).
-- **"Client ID already in use"**: You have another script or dashboard open with the same Client ID. Change `IBKR_CLIENT_ID`.
-- **"No Market Data Permissions"**: Your IBKR account doesn't have a subscription for that symbol.
-    - *Fix:* Subscribe in Account Management or use "Delayed Data" (Settings → Broker → Allow Delayed Data).
+
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Three common problems. Three simple fixes:"</td></tr></table>
+
+- **"Connection Refused"**: TWS not running, or wrong port. 7497 ≠ 7496.
+- **"Client ID already in use"**: Another script is connected. Change `IBKR_CLIENT_ID`.
+- **"No Market Data Permissions"**: Subscribe in Account Management or enable "Delayed Data."
 
 ---
 
-## 3. OANDA (Forex) - The Easy Way
+## 3. OANDA (Forex) — The Easy Way
 
-OANDA is the recommended broker for forex trading. No gateway software required — just API keys.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"OANDA is the recommended forex broker. No gateway software needed — just API keys. Setup takes 3 minutes. It's the easiest broker connection in the entire system."</td></tr></table>
 
 ### Step 1: Create an OANDA Account
 1. Go to [OANDA](https://www.oanda.com) and sign up.
@@ -101,76 +94,62 @@ OANDA is the recommended broker for forex trading. No gateway software required 
 3. Note your **Account ID** (format: `101-001-1234567-001`).
 
 ### Step 2: Generate API Token
-1. Log into [OANDA Hub](https://hub.oanda.com) (or fxTrade web).
-2. Navigate to **Manage API Access** (under Account settings).
+1. Log into [OANDA Hub](https://hub.oanda.com).
+2. Navigate to **Manage API Access**.
 3. Click **Generate** to create a new token.
 4. **Copy the token immediately** — it's only shown once!
-5. Store it securely (password manager recommended).
+
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"I cannot stress this enough. Copy it IMMEDIATELY. It is shown ONCE. If you close that window without copying, you generate a new one. Ask me how I know."</td></tr></table>
 
 ### Step 3: Configure the Bot
 - **GUI**: Settings → **Brokers** → **OANDA** tab.
-- **Account ID**: `101-001-1234567-001` (your account number).
-- **API Key**: Paste your token.
-- **Environment**: `practice` (demo) or `live` (real money).
-- **Read Only**: Enable if you only want to monitor, not trade.
+- **Account ID**: `101-001-1234567-001`
+- **API Key**: Paste token
+- **Environment**: `practice` (demo) or `live` (real money)
 
-### Key Variables (.env)
+**.env.secrets:**
 ```bash
 OANDA_ACCOUNT_ID=101-001-1234567-001
 OANDA_API_KEY=your-api-token-here
-OANDA_ENVIRONMENT=practice   # or "live"
-OANDA_READ_ONLY=false
+OANDA_ENVIRONMENT=practice
 ```
 
-### Troubleshooting OANDA
-- **"Invalid Account ID"**: Check the format. It should be `XXX-XXX-XXXXXXX-XXX`.
-- **"Unauthorized"**: Your API token is wrong or expired. Regenerate it.
-- **"Insufficient Margin"**: Not enough funds in the account for the position size.
-- **"Market Halted"**: Forex markets are closed (weekends, holidays). Wait.
-
 ### OANDA Symbol Format
-OANDA uses underscore format: `EUR_USD`, `GBP_JPY`, `USD_CAD`.
-The bot handles translation automatically.
+OANDA uses underscore format: `EUR_USD`, `GBP_JPY`, `USD_CAD`. The bot handles translation automatically.
 
 ---
 
-## 5. Crypto Exchanges (CCXT)
+## 4. Crypto Exchanges (CCXT)
 
-For pure crypto trading (Binance, Coinbase, Kraken, etc.) using the CCXT library.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"For crypto trading — Coinbase, Gemini, Kraken, Binance, and 100+ more — we use CCXT, a universal exchange library. One interface, many exchanges."</td></tr></table>
 
 ### How to Configure
-1.  **GUI**: Settings → **Brokers** → **CCXT** tab.
-2.  **Key Variables**:
-    - `CCXT_EXCHANGE`: The exchange ID (e.g., `binance`, `coinbase`, `kraken`).
-    - `CCXT_API_KEY`: Your API Key.
-    - `CCXT_SECRET`: Your API Secret.
-    - `CCXT_PASSWORD`: (Optional) If your exchange requires a passphrase.
-    - `CCXT_SANDBOX`: Set to `true` for testnet mode.
-3.  **Symbol Mapping**:
-    - The bot thinks in "BTCUSD". Your exchange might need "BTC/USD" or "BTC/USDT".
-    - Set `CCXT_SYMBOL_MAP=BTCUSD:BTC/USDT,ETHUSD:ETH/USDT`.
+1. **GUI**: Settings → **Brokers** → **CCXT** tab.
+2. **Key Variables:**
+    - `CCXT_EXCHANGE`: Exchange ID (e.g., `gemini`, `coinbase`, `kraken`)
+    - `CCXT_API_KEY`: Your API Key
+    - `CCXT_SECRET`: Your API Secret
+    - `CCXT_PASSWORD`: (Optional) If exchange requires a passphrase
+    - `CCXT_SANDBOX`: `true` for testnet mode
+3. **Symbol Mapping:**
+    - The bot thinks in `BTCUSD`. Your exchange might need `BTC/USD` or `BTC/USDT`.
+    - Set `CCXT_SYMBOL_MAP=BTCUSD:BTC/USDT,ETHUSD:ETH/USDT`
 
 ### Supported Exchanges
-Any exchange supported by [CCXT](https://github.com/ccxt/ccxt):
-- Coinbase (Advanced Trade)
-- Binance / Binance.US
-- Kraken
-- Gemini
-- KuCoin
-- And 100+ more...
+Any exchange supported by [CCXT](https://github.com/ccxt/ccxt): Coinbase, Binance, Kraken, Gemini, KuCoin, and 100+ more.
 
 ---
 
-## 6. Hybrid Mode (Data + Execution Split)
+## 5. Hybrid Mode (Data + Execution Split)
 
-You can use different brokers for data vs. execution:
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"You can use different brokers for data vs. execution. Data from OANDA, execution via IBKR. Data from CCXT, execution via IBKR. Like having one person read the map and another drive the car."</td></tr></table>
 
 | Setting | Options |
 |---------|---------|
 | `MARKET_DATA_MODE` | `primary` (IBKR), `oanda`, `alternative` (CCXT), `hybrid` |
 | `BROKER_MODE` | `primary` (IBKR), `oanda`, `alternative` (CCXT), `hybrid` |
 
-**Example:** Get forex data from OANDA but execute via IBKR:
+**Example:** Forex data from OANDA, execution via IBKR:
 ```bash
 MARKET_DATA_MODE=oanda
 BROKER_MODE=primary
@@ -178,9 +157,9 @@ BROKER_MODE=primary
 
 ---
 
-## 7. Verification
+## 6. Verification — How Do You Know It's Working?
 
-How do you know it's working?
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you see prices, you are live. That's it. That's the whole test."</td></tr></table>
 
 ### IBKR
 ```
@@ -202,4 +181,4 @@ How do you know it's working?
 [PRICE] BTC/USD: 65000.00
 ```
 
-If you see prices, **you are live.**
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"If you see prices scrolling by, you're connected, sweetie. If you see red error text, go back to the troubleshooting sections above. Read them slowly. Every word."</td></tr></table>

@@ -1,7 +1,8 @@
-# 09. The Multi-Strategy Arsenal
-> **"One strategy doesn't fit all markets. Choose your weapon wisely — or let Meta-SCI choose for you."**
+# 09. 21 Weapons of War: The Complete Strategy Arsenal
 
-Tradebot SCI supports **20 distinct trading strategies**, each optimized for different market conditions. You can assign different strategies to different asset classes, or use **Meta-SCI** to let the bot pick the best one automatically.
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I want to understand the strategies! There's like... twenty-one of them? Which one do I pick? This is like being at a buffet where everything is labeled in a language I don't speak."</td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You don't pick. You let <b>Meta-SCI</b> pick for you. That's the whole point. That's why I spent months building a strategy tournament system so you — respectfully — don't have to make decisions you're not qualified to make.<br><br>But since you asked, and since knowledge is power, let me walk you through all 21. Think of this as a weapons catalog. You don't need to fire every gun — you just need to know what's in the armory."</td></tr></table>
 
 ---
 
@@ -12,6 +13,8 @@ Tradebot SCI supports **20 distinct trading strategies**, each optimized for dif
 | Strategy | Key | Style | Best For |
 |----------|-----|-------|----------|
 | **Meta-SCI** | `meta_sci` | AI Ensemble (auto-selects best strategy) | All markets — the recommended default |
+
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Meta-SCI is the conductor of the orchestra. It doesn't play an instrument — it decides which instrument plays when. And unlike a human conductor, it never picks the wrong section. Well... <em>almost</em> never."</td></tr></table>
 
 ### Universal Strategies (Forex + Crypto + Stocks)
 
@@ -47,13 +50,17 @@ Tradebot SCI supports **20 distinct trading strategies**, each optimized for dif
 | **Volatility Breakout** | `volatility_breakout` | Range Compression Breakout | Compressed markets |
 | **Aggregator** | `aggregator` | Multi-Strategy Parallel | Maximum capital efficiency |
 
+### Forex-Specific Strategies
+
+| Strategy | Key | Style | Best For |
+|----------|-----|-------|----------|
+| 📈 **Forex Conductor** | `forex_conductor` | Regime-Based Router (SAR + Pyramiding) | Forex trending — per-symbol cooldowns, cost-aware TP |
+
 ---
 
 ## 1. Meta-SCI — The Adaptive Ensemble ⭐
 
-> **"Why pick one strategy when the bot can run a tournament and pick the best one every cycle?"**
-
-Meta-SCI is the **recommended default**. Instead of committing to a single strategy, it runs all eligible strategies in parallel and picks the highest-scoring signal. It's like a coach running tryouts every time the bot scans a symbol.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Why pick one strategy when the bot can run a tournament and pick the best one every single cycle? That's not a rhetorical question. I'm genuinely asking why anyone would manually choose when a machine can evaluate 21 options in milliseconds.<br><br>Meta-SCI runs all eligible strategies in parallel and picks the highest-scoring signal. It's like hiring 21 expert traders, locking them in a room, making them compete for your money, and only paying the winner. It's <em>The Apprentice</em> except nobody cries and nobody gets a reality show out of it."</td></tr></table>
 
 ### How the Tournament Works
 
@@ -71,7 +78,8 @@ Tournament:
 → Action: ENTER_LONG EURUSD
 ```
 
-### The Tournament Steps
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The tournament follows a precise six-step process. No shortcuts. No favorites. Pure meritocracy:"</td></tr></table>
+
 1. **Regime Detection** — Is the market trending, ranging, mean-reverting, or choppy?
 2. **Strategy Eligibility** — Each strategy has regimes it's suited for. Only matching ones compete.
 3. **Parallel Evaluation** — Every eligible strategy generates a signal independently.
@@ -80,6 +88,7 @@ Tournament:
 6. **Graceful Fallback** — If no strategy scores above threshold → STAND ASIDE (no trade).
 
 ### Market Regimes
+
 | Regime | Eligible Strategies |
 |--------|-------------------|
 | **Bullish Trending** | Trend Rider, RoboCop, Session Momentum, Supply & Demand, ICC Core |
@@ -88,27 +97,27 @@ Tournament:
 | **Mean Reverting** | Mean Reversion, Rubberband Reaper, VWAP Reversion |
 | **Choppy / Unclear** | Conservative selection only — fewer strategies eligible |
 
-### Crypto Routing
-When Meta-SCI scans a crypto symbol, it automatically includes crypto-specific strategies (RSI+MACD, VWAP Reversion, Double MACD, Virtual Grid) in the tournament alongside universal strategies.
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"So when the market is choppy, it doesn't just YOLO into a random strategy?"</td></tr></table>
 
-**Best For:** Everything. Use this unless you have a specific reason to use a single strategy.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"No. When the market is choppy, the tournament narrows the field. Fewer strategies are eligible. And if none of them score above threshold? STAND ASIDE. No trade. The bot goes and sits in the corner quietly. Which is exactly what YOU should do in choppy markets — except you won't, because you're human and you'll convince yourself you see a pattern in randomness."</td></tr></table>
+
+**Crypto Routing:** When Meta-SCI scans a crypto symbol, it automatically includes crypto-specific strategies (RSI+MACD, VWAP Reversion, Double MACD, Virtual Grid) alongside universal strategies.
+
+**Best For:** Everything. Use this unless you have a very specific, very informed reason not to. And "I read a Reddit post" is not a reason.
 
 ---
 
 ## 2. Rubberband Reaper
 
-> **"Price is a rubber band — it always snaps back."**
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Price is a rubber band. Stretch it far enough... it always snaps back."</em></td></tr></table>
 
-### How It Works
+**How It Works:**
 1. **Detection:** Watches for price to break outside Bollinger Bands (2.5 std)
 2. **Confirmation:** RSI confirms oversold (<25) or overbought (>75)
 3. **Entry:** Enters expecting reversion to the mean
 4. **Target:** Opposite Bollinger Band for 3:1+ reward-to-risk
 
-### Anti-Martingale Risk (The Secret Sauce)
-Unlike systems that increase size after losses, Rubberband does the opposite:
-- **After a WIN:** Increase position size (the trend is working)
-- **After a LOSS:** Decrease position size (something's wrong)
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The secret sauce is the <b>Anti-Martingale</b> risk. Unlike systems that increase size after losses — which is called 'digging your own grave faster' — Rubberband does the opposite: after a WIN, increase size. After a LOSS, decrease size. Simple. Logical. And yet nobody does this manually because human ego says 'but I need to win it back.'"</td></tr></table>
 
 **Best For:** Crypto, forex pairs that range (EUR/USD, AUD/USD), volatile altcoins.
 
@@ -116,37 +125,37 @@ Unlike systems that increase size after losses, Rubberband does the opposite:
 
 ## 3. RoboCop
 
-> **"Maximum precision. Minimum noise."**
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Maximum precision. Minimum noise. If Rubberband Reaper is a shotgun, RoboCop is a sniper rifle with a laser sight and a cup of herbal tea."</td></tr></table>
 
-### How It Works
+**How It Works:**
 1. **Structural Confirmation:** Waits for clean ICC structure alignment
 2. **High-Conviction Filter:** Only fires on setups with strong multi-timeframe agreement
 3. **Wide Targets:** 3.0 ATR target for maximum profit potential
 4. **Fast Exit:** "Chop exit" triggers if price stalls in a range
 
-**Best For:** Low-frequency, high-conviction setups in any market. Expects fewer trades but bigger wins.
+**Best For:** Low-frequency, high-conviction setups in any market. Expects fewer trades but bigger wins. The patient hunter.
 
 ---
 
 ## 4. Mean Reversion
 
-> **"What goes up must come down."**
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"What goes up must come down. What goes down must come up. Balance is not a philosophy — it is a law."</em></td></tr></table>
 
-### How It Works
+**How It Works:**
 1. **Bollinger Band Break:** Price breaks outside 15-period, 2.5 std bands
 2. **RSI Confirmation:** RSI < 25 (oversold) or > 75 (overbought)
 3. **Pyramiding:** Can add up to 6 entries with cooldown between adds
 4. **Exit:** When price returns to the middle band
 
-**Best For:** Ranging crypto and forex. Works on assets that oscillate around a mean.
+**Best For:** Ranging crypto and forex. Works on assets that oscillate around a mean like a kid on a swing.
 
 ---
 
 ## 5. Supply & Demand
 
-> **"Trade where the institutions trade."**
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Trade where the institutions trade. Not where Reddit tells you to trade. There's a difference. A very expensive difference."</td></tr></table>
 
-### How It Works
+**How It Works:**
 1. **Zone Identification:** Detects supply and demand zones from historical price action
 2. **Zone Strength:** Scores zones by how many times they've held
 3. **Entry on Retest:** Enters when price returns to a strong zone
@@ -158,9 +167,11 @@ Unlike systems that increase size after losses, Rubberband does the opposite:
 
 ## 6. Trend Rider
 
-> **"The trend is your friend — ride it."**
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"THE TREND IS MY FRIEND! I RIDE THE TREND LIKE A MECHANICAL BULL AT A COUNTY FAIR!"</td></tr></table>
 
-### How It Works
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Please calm down. Yes, the trend is your friend. But unlike you at a county fair, the bot waits for a <em>pullback</em> before jumping on. It doesn't chase."</td></tr></table>
+
+**How It Works:**
 1. **Wait for Pullback:** Price must retrace to the EMA
 2. **Confirm Trend:** HTF and LTF must both show the same direction
 3. **Enter on Bounce:** Enter when price bounces off the EMA in trend direction
@@ -172,9 +183,9 @@ Unlike systems that increase size after losses, Rubberband does the opposite:
 
 ## 7. Session Momentum
 
-> **"Trade the institutional open."**
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"The institutions arrive at the session open. They move the market with the precision of a military operation. I arrive with them. Silently."</em></td></tr></table>
 
-### How It Works
+**How It Works:**
 1. **Detect Session Open:** Identifies London (08:00 GMT) and NY (13:30 GMT) opens
 2. **VWAP Reference:** Calculates session VWAP as fair value anchor
 3. **Momentum Entry:** Enters in the direction of early session momentum vs VWAP
@@ -186,9 +197,9 @@ Unlike systems that increase size after losses, Rubberband does the opposite:
 
 ## 8. Engulfing Reversal
 
-> **"The candle tells the story."**
+<table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"The candle tells the story. An engulfing candle at a key level is the market screaming 'I CHANGED MY MIND.' Most traders hear the scream. Few act on it in time."</em></td></tr></table>
 
-### How It Works
+**How It Works:**
 1. **Pattern Detection:** Identifies bullish/bearish engulfing candle patterns
 2. **Key Level Filter:** Only trades engulfing patterns at significant S/R levels
 3. **Volume Confirmation:** Requires above-average volume on the engulfing candle
@@ -200,24 +211,22 @@ Unlike systems that increase size after losses, Rubberband does the opposite:
 
 ## 9. ICC Core
 
-> **"Pure structure. No shortcuts."**
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is the purest implementation of the ICC framework. No shortcuts. No aggressive entries. No 'I think it's gonna go.' Pure structure. Three letters: Indication → Correction → Continuation.<br><br>If the structure doesn't complete all three steps? No trade. If it completes all three? We enter. Period. It's like a combination lock — you either have all three numbers or you have nothing."</td></tr></table>
 
-### How It Works
+**How It Works:**
 1. **Indication:** Identifies a clean structural break (HH/HL or LH/LL)
 2. **Correction:** Waits for a pullback into discount/premium zone
 3. **Continuation:** Enters when price breaks back in the trend direction
 
-This is the purest implementation of the ICC (Indication-Correction-Continuation) framework. No shortcuts, no aggressive entries — just textbook structure.
-
-**Best For:** Traders who want the most disciplined, structure-first approach.
+**Best For:** Traders who want the most disciplined, structure-first approach. The patient student.
 
 ---
 
 ## 10. ORB Breakout (Opening Range Breakout)
 
-> **"The first 15 minutes write the story for the day."**
+<table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"Arrr! The first 15 minutes write the story for the day! I mark me range, I wait for the break, and I PLUNDER! 🏴‍☠️"</td></tr></table>
 
-### How It Works
+**How It Works:**
 1. **Mark the Range:** Records high/low from the first 15-30 minutes
 2. **Wait for Break:** Price must break above the high or below the low
 3. **Volume Filter:** Requires above-average volume on the break
@@ -229,11 +238,11 @@ This is the purest implementation of the ICC (Indication-Correction-Continuation
 
 ## Crypto-Specific Strategies
 
-These strategies are designed specifically for cryptocurrency markets and are automatically included in Meta-SCI tournaments when scanning crypto symbols.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"These four are designed specifically for the crypto wild west. They're automatically included in Meta-SCI tournaments when scanning crypto symbols. You don't need to manually enable them — the bot knows when it's looking at Bitcoin versus EURUSD."</td></tr></table>
 
 ### 11. RSI + MACD (Crypto)
 
-> **"The classic combo, optimized for crypto volatility."**
+The classic combo, optimized for crypto volatility.
 
 1. **RSI Signal:** Identifies oversold (<30) and overbought (>70) conditions
 2. **MACD Confirmation:** MACD histogram must confirm direction
@@ -243,7 +252,7 @@ These strategies are designed specifically for cryptocurrency markets and are au
 
 ### 12. VWAP Reversion (Crypto)
 
-> **"Price always visits VWAP."**
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"Price always visits VWAP. Always. It may wander, but it returns. Like a cat that pretends it doesn't live at your house."</em></td></tr></table>
 
 1. **VWAP Deviation:** Detects when price deviates significantly from VWAP
 2. **Volume Confirmation:** Requires volume exhaustion at extremes
@@ -253,7 +262,7 @@ These strategies are designed specifically for cryptocurrency markets and are au
 
 ### 13. Double MACD (Crypto)
 
-> **"Two timeframes, one signal."**
+Two timeframes, one signal. Like having bifocals for the market.
 
 1. **Fast TF MACD:** Quick signal on the execution timeframe
 2. **Slow TF MACD:** Confirmation from a higher timeframe
@@ -263,7 +272,7 @@ These strategies are designed specifically for cryptocurrency markets and are au
 
 ### 14. Virtual Grid (Crypto)
 
-> **"Grid trading without the grid."**
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Grid trading without the grid. Instead of placing 50 limit orders and praying, this strategy places virtual buy/sell levels and only triggers when price actually reaches them. Much cleaner. Much less terrifying."</td></tr></table>
 
 1. **Level Calculation:** Places virtual buy/sell levels at fixed intervals around current price
 2. **Level Tracking:** Tracks which levels have been hit
@@ -275,7 +284,7 @@ These strategies are designed specifically for cryptocurrency markets and are au
 
 ## Per-Asset Strategy Assignment
 
-You can assign different strategies to different asset classes:
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You can assign different strategies to different asset classes. Maybe you want Mean Reversion on crypto and Trend Rider on forex. Here's how:"</td></tr></table>
 
 ### Via the Profile Editor
 **Profile Editor** → Select profile → **General** tab → **Strategy** dropdown
@@ -314,11 +323,13 @@ To assign different strategies per asset class, use the **per-asset strategy dro
 | Key reversal levels | Engulfing Reversal, Supply & Demand |
 | Maximum adaptability | **Meta-SCI** |
 
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you don't know which one to pick, pick Meta-SCI. If you <em>think</em> you know which one to pick, still pick Meta-SCI. The only reason to NOT pick Meta-SCI is if you've backtested a specific strategy on your specific symbols and it outperforms. And even then... maybe still Meta-SCI."</td></tr></table>
+
 ---
 
 ## The "Feet Wet" Approach
 
-Regardless of strategy, start conservatively:
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Baby, you don't jump into the deep end your first day at the pool. You dip your toes. Then your ankles. Then maybe your knees if the water feels right. Same thing here."</td></tr></table>
 
 ### Day 1: Paper Trading
 
@@ -332,244 +343,208 @@ runtime:
 ### Day 2-7: Micro-Sizing
 
 > 📺 **In the UI:** Settings → **Strategy Workshop** → **Global Risk** sub-tab → **Default Risk %** slider
-> 
-> Or: **Profile Editor** → select profile → **Risk** tab
 
 ```yaml
 risk_per_trade_pct: 0.01  # 1% risk only
 ```
 
 ### Week 2+: Gradual Increase
-Once you trust the system:
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Once you trust the system — and trust is earned, not given — you can start opening the throttle:"</td></tr></table>
+
 1. Increase to 2%, then 3-4% (Settings → Strategy Workshop → Global Risk → Default Risk %)
 2. Enable multi-position trading (Settings → Safety & Shields → Max Concurrent Positions)
 3. Experiment with different strategies per asset class (Settings → Strategy Workshop → Asset Strategies)
-4. Or just use **Meta-SCI** and let it handle everything
+4. Or just use **Meta-SCI** and let it handle everything. Have I mentioned Meta-SCI yet?
 
 ---
 
-## Common Misconceptions
+## 62 Common Misconceptions (And Why They're Wrong)
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Now for my favorite part: the part where I destroy everything you think you know about trading. This is gonna hurt. But it's the good kind of hurt — the kind that saves you money."</td></tr></table>
 
 ### 🎯 Win Rate & Performance
 
-#### 1. "Higher win rate = better"
-**Wrong.** A 25% win rate with 4:1 R:R beats a 60% win rate with 1:1 R:R. What matters is **Profit Factor** (total wins ÷ total losses).
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"A higher win rate is better, right? Like, 80% win rate beats 40% every time?"</td></tr></table>
 
-#### 2. "I should avoid losing trades"
-**Wrong.** Losses are part of the system. The goal is small losses and big wins. A professional trader losing 6 out of 10 trades can still be wildly profitable.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"<b>Wrong.</b> A 25% win rate with 4:1 R:R beats a 60% win rate with 1:1 R:R. Every. Single. Time. What matters is <b>Profit Factor</b> — total wins divided by total losses. Not how often you're right. How <em>big</em> you are when you're right."</td></tr></table>
 
-#### 3. "If I lost 5 trades in a row, the next one must be a win"
-**Wrong.** This is the Gambler's Fallacy. Each trade is independent. A coin doesn't "remember" previous flips, and neither does the market.
+**The full misconception breakdown:**
 
-#### 4. "A 90% win rate system is safer than a 40% win rate system"
-**Wrong.** Many 90% win-rate systems achieve this by taking tiny profits and holding massive drawdowns. One bad trade can wipe out 50 winners. The 40% system with proper R:R is almost always more robust.
+1. **"Higher win rate = better"** — Wrong. R:R matters more than frequency.
 
-#### 5. "I need to be right more than I'm wrong"
-**Wrong.** You need your winners to be *bigger* than your losers. Being right 35% of the time with a 3:1 reward-to-risk ratio is extremely profitable.
+2. **"I should avoid losing trades"** — Wrong. Losses are part of the system. The goal is small losses and big wins. A professional losing 6 out of 10 trades can still be wildly profitable.
 
-#### 6. "Profit factor is just win rate times R:R"
-**Partially wrong.** Profit factor = (Gross Profit) ÷ (Gross Loss). Win rate and R:R contribute, but so do position sizing, fees, slippage, and how you manage trades after entry.
+3. **"If I lost 5 trades in a row, the next one must be a win"** — Wrong. Gambler's Fallacy. Each trade is independent. A coin doesn't "remember" previous flips, and neither does the market.
 
-#### 7. "My backtest made 500% so it will do that live"
-**Wrong.** Backtests are always optimistic. They don't account for slippage, requotes, liquidity gaps, emotional decisions, or the fact that past market conditions may not repeat.
+4. **"A 90% win rate system is safer than a 40% win rate system"** — Wrong. Many 90% systems achieve this by taking tiny profits and holding massive drawdowns. One bad trade can wipe out 50 winners.
 
-#### 8. "A strategy that lost money last month is broken"
-**Wrong.** Even the best strategies have losing months. What matters is whether the *edge* is still intact over a meaningful sample size (100+ trades).
+5. **"I need to be right more than I'm wrong"** — Wrong. You need your winners to be *bigger* than your losers. Being right 35% of the time with 3:1 R:R is extremely profitable.
+
+6. **"Profit factor is just win rate times R:R"** — Partially wrong. Fees, slippage, and trade management also contribute.
+
+7. **"My backtest made 500% so it will do that live"** — Wrong. Backtests are always optimistic. They don't account for slippage, liquidity, or the fact that you'll panic at the first drawdown.
+
+8. **"A strategy that lost money last month is broken"** — Wrong. Even the best strategies have losing months. What matters is the edge over 100+ trades.
 
 ---
 
 ### 💰 Risk Management
 
-#### 9. "I can risk 10% per trade to grow faster"
-**Wrong.** You're one bad streak from account destruction. 5 losses at 10% risk = 41% drawdown. At 2% risk, the same 5 losses = only 9.6% drawdown. **Survival is the first rule.**
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"Can I risk 10% per trade to grow faster?"</td></tr></table>
 
-#### 10. "Stop losses are optional"
-**Absolutely wrong.** A trade without a stop loss is a gamble, not a trade. Every professional system — including every strategy in this bot — uses defined risk.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Five losses at 10% risk = 41% drawdown. At 2% risk, the same 5 losses = only 9.6% drawdown. <b>Survival is the first rule.</b> You can't compound from zero."</td></tr></table>
 
-#### 11. "I'll just close it manually when it goes against me"
-**Wrong.** You won't. Psychology will make you hold, hope, and average down until it's too late. Automated stops remove emotion from the equation.
+9. **"I can risk 10% per trade to grow faster"** — Wrong. You're one bad streak from account destruction.
 
-#### 12. "Wider stops mean more risk"
-**Wrong.** Risk is controlled by *position size*, not stop distance. A wider stop with smaller size can have the exact same dollar risk as a tight stop with larger size.
+10. **"Stop losses are optional"** — Absolutely wrong. A trade without a stop is a gamble, not a trade.
 
-#### 13. "I should add to losing positions to lower my average"
-**Wrong.** This is called "averaging down" and it's how accounts blow up. You're adding to a trade that's already proving you wrong. The bot pyramids *winners*, not losers.
+11. **"I'll just close it manually when it goes against me"** — Wrong. Psychology will make you hold, hope, and average down until it's too late.
 
-#### 14. "Risk/reward doesn't matter if I have a high win rate"
-**Wrong.** Even at 80% win rate, a 1:5 risk-to-reward ratio (risking $5 to make $1) means your 20% losses each eat 5 winners. You'd be net negative.
+12. **"Wider stops mean more risk"** — Wrong. Risk is controlled by *position size*, not stop distance. A wider stop with smaller size = same dollar risk.
 
-#### 15. "I should risk the same dollar amount on every trade"
-**Not ideal.** Percentage-based risk (e.g., 2% of equity) scales naturally — you risk more when winning and less when losing. Fixed dollar amounts don't adapt.
+13. **"I should add to losing positions to lower my average"** — Wrong. This is "averaging down" and it's how accounts blow up. The bot pyramids *winners*, not losers.
 
-#### 16. "Leverage is free money"
-**Wrong.** Leverage amplifies both gains AND losses. 10x leverage on a 1% move against you = 10% equity loss. Leverage is a tool, not a cheat code.
+14. **"Risk/reward doesn't matter if I have a high win rate"** — Wrong. 80% win rate with 1:5 R:R = net negative.
 
-#### 17. "I don't need to worry about fees on small accounts"
-**Wrong.** On a $100 account, a $0.80 round-trip fee on a trade that only made $1.50 eats 53% of your profit. Fees matter *more* on small accounts.
+15. **"I should risk the same dollar amount on every trade"** — Not ideal. Percentage-based risk scales naturally.
 
-#### 18. "My broker won't let me lose more than my deposit"
-**Mostly wrong.** While many retail brokers offer negative balance protection, flash crashes, gaps, and extreme volatility can still cause losses beyond your deposit on some platforms.
+16. **"Leverage is free money"** — Wrong. 10x leverage on a 1% move against you = 10% equity loss. Leverage is a tool, not a cheat code.
+
+17. **"I don't need to worry about fees on small accounts"** — Wrong. On a $100 account, a $0.80 round-trip fee on a $1.50 profit eats 53% of it.
+
+18. **"My broker won't let me lose more than my deposit"** — Mostly wrong. Flash crashes and gaps can still cause losses beyond your deposit.
 
 ---
 
 ### 📊 Technical Analysis
 
-#### 19. "Support and resistance are exact prices"
-**Wrong.** They're *zones*, not lines. A support "level" at 1.1000 might bounce anywhere from 1.0985 to 1.1015. Trading exact numbers leads to getting stopped out by wicks.
+<table><tr><td width="170"><img src="img/skeptic.png" width="150"></td><td><b>SKEPTIC</b>:<br>"More indicators means better analysis, right? I have RSI, MACD, Stochastic, CCI, and Bollinger Bands all on the same chart. I can barely see the candles."</td></tr></table>
 
-#### 20. "More indicators = better analysis"
-**Wrong.** Most indicators are derived from the same data (price and volume). Adding RSI, MACD, Stochastic, and CCI to the same chart gives you 4 versions of the same information. Pick 1-2 and master them.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's not analysis. That's a Jackson Pollock painting. Most indicators are derived from the same data — price and volume. Adding four of them gives you four versions of the same information. Pick 1-2 and master them. Or better yet, let the bot use the right ones for each strategy."</td></tr></table>
 
-#### 21. "The trend is always your friend"
-**Incomplete.** The trend is your friend — *until it ends*. Trend-following strategies get chopped up in ranging markets, which is exactly why Meta-SCI detects the regime first.
+19. **"Support and resistance are exact prices"** — Wrong. They're *zones*, not lines. Trading exact numbers leads to getting stopped by wicks.
 
-#### 22. "If RSI is oversold, the price must go up"
-**Wrong.** RSI can stay oversold for days or weeks in a strong downtrend. Oversold means momentum is extreme, not that a reversal is imminent.
+20. **"More indicators = better analysis"** — Wrong. Four indicators from the same data = four versions of the same thing.
 
-#### 23. "Patterns work because of supply and demand"
-**Partially true.** Patterns work because *enough traders believe they work* and act on them, creating self-fulfilling prophecies. The pattern itself has no inherent power.
+21. **"The trend is always your friend"** — Incomplete. The trend is your friend — *until it ends*. That's why Meta-SCI detects regimes first.
 
-#### 24. "Higher timeframes are always more reliable"
-**Partially true.** Higher timeframes filter noise, but they also have wider stops, slower signals, and fewer opportunities. The best approach (which this bot uses) is multi-timeframe analysis.
+22. **"If RSI is oversold, the price must go up"** — Wrong. RSI can stay oversold for days in a downtrend.
 
-#### 25. "Volume doesn't matter in forex"
-**Mostly right for tick volume, wrong conceptually.** Forex doesn't have centralized volume, but session volume patterns, institutional flow, and liquidity still matter enormously.
+23. **"Patterns work because of supply and demand"** — Partially true. Patterns work because *enough traders believe they work*. Self-fulfilling prophecy.
 
-#### 26. "Divergence always means reversal"
-**Wrong.** Divergence can persist through multiple legs of a trend. It's a warning sign, not a trigger. This is why our strategies require *multiple* confirmation factors.
+24. **"Higher timeframes are always more reliable"** — Partially true. But wider stops, fewer opportunities. Best approach: multi-timeframe analysis (which the bot does).
 
-#### 27. "Price action is better than indicators"
-**Neither is better.** Price action tells you *what* is happening. Indicators can quantify *how much* or *how fast*. The best systems combine both — which is exactly what the bot does.
+25. **"Volume doesn't matter in forex"** — Mostly right for tick volume, wrong conceptually. Liquidity still matters enormously.
 
-#### 28. "If a candle has a long wick, it means rejection"
-**Not always.** Long wicks can also indicate low liquidity, news spikes, or simply normal price exploration. Context matters — a wick at a key level means far more than a wick in the middle of a range.
+26. **"Divergence always means reversal"** — Wrong. Divergence can persist through multiple legs. It's a warning sign, not a trigger.
+
+27. **"Price action is better than indicators"** — Neither is better. Price action = *what*. Indicators = *how much*. The bot uses both.
+
+28. **"If a candle has a long wick, it means rejection"** — Not always. Context matters. A wick at a key level means far more than a wick in no-man's-land.
 
 ---
 
 ### 🤖 Algo / Bot Trading
 
-#### 29. "One strategy should work everywhere"
-**Wrong.** That's why I have 20 strategies. Use **Meta-SCI** and let it match the strategy to the market condition automatically.
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"If the bot isn't trading, does that mean something is broken?"</td></tr></table>
 
-#### 30. "Meta-SCI is slower because it runs multiple strategies"
-**Wrong.** The tournament runs in milliseconds. There's no performance penalty.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Usually? No. More often, the market is garbage and the bot is protecting you from yourself. A day with zero trades can be the <em>best</em> outcome. Standing aside IS a position. The most profitable position of all."</td></tr></table>
 
-#### 31. "The bot should trade constantly"
-**Wrong.** Standing aside IS a position. The bot's job is to find *high-conviction* setups, not to trade for the sake of trading. A day with zero trades can be the best outcome.
+29. **"One strategy should work everywhere"** — Wrong. That's why there are 20. Use Meta-SCI.
 
-#### 32. "If the bot isn't trading, something is broken"
-**Usually wrong.** More often, the market simply isn't offering setups that meet the quality threshold. This is the bot *protecting you* from bad trades.
+30. **"Meta-SCI is slower because it runs multiple strategies"** — Wrong. Tournament runs in milliseconds.
 
-#### 33. "I should override the bot when I disagree"
-**Dangerous.** If you're going to override the algorithm, why run an algorithm? Either trust the system or tune the parameters. Manually overriding creates inconsistency that destroys edge.
+31. **"The bot should trade constantly"** — Wrong. Standing aside is a position. The bot's job is finding *quality*, not *quantity*.
 
-#### 34. "Bots eliminate emotion from trading"
-**Partially true.** The bot eliminates execution emotion, but you can still *turn it off* during a drawdown, *change the settings* out of fear, or *override* entries out of greed. Discipline applies to bot operators too.
+32. **"If the bot isn't trading, something is broken"** — Usually wrong. It's *protecting you*.
 
-#### 35. "More data = better decisions"
-**Wrong.** More data often means more noise. A strategy looking at 1000 candles is likely fitting to historical noise. Our strategies typically use 50-200 candles — enough signal, minimal noise.
+33. **"I should override the bot when I disagree"** — Dangerous. If you're going to override the algorithm, why run one?
 
-#### 36. "The bot needs to be right immediately"
-**Wrong.** Many winning trades go against you first. The bot uses stops to define maximum risk and gives trades room to breathe. Expecting instant green is a sign of over-leveraging.
+34. **"Bots eliminate emotion from trading"** — Partially true. The bot eliminates *execution* emotion. But you can still turn it off during a drawdown or change settings out of fear.
 
-#### 37. "If it works in backtest, just increase the risk"
-**Wrong.** Backtests show the best-case scenario. Live trading adds slippage, fees, emotional interference, and regime shifts. Start conservative, verify live performance, then gradually scale.
+35. **"More data = better decisions"** — Wrong. More data often means more noise. 50-200 candles is the sweet spot.
 
-#### 38. "AI-powered trading is magic"
-**Wrong.** AI in this context means systematic, data-driven decision-making — not a crystal ball. The AI provides structure scoring and signal ranking, not future predictions.
+36. **"The bot needs to be right immediately"** — Wrong. Many winners go against you first. That's what stops are for.
+
+37. **"If it works in backtest, just increase the risk"** — Wrong. Start conservative. Verify live. Then scale.
+
+38. **"AI-powered trading is magic"** — Wrong. AI means systematic, data-driven decision-making. Not a crystal ball.
 
 ---
 
 ### 🪙 Crypto-Specific
 
-#### 39. "Crypto is 24/7, so I should trade 24/7"
-**Wrong.** Even in 24/7 markets, volume and volatility concentrate around specific windows (US/EU market hours). Trading at 3 AM on a Sunday means worse fills, wider spreads, and more false signals.
+<table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"Crypto is 24/7! I should be trading at 3 AM on a Sunday! The money never sleeps, and neither do I!"</td></tr></table>
 
-#### 40. "Bitcoin goes up long term, so I should only go long"
-**Wrong for a trading bot.** Long-term appreciation doesn't mean every 5-minute candle is bullish. The bot trades *both* directions based on short-term structure, regardless of long-term bias.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Wrong. Even 24/7 markets have volume windows. Trading at 3 AM on a Sunday means worse fills, wider spreads, and the kind of false signals that make you question your life choices on Monday morning."</td></tr></table>
 
-#### 41. "Altcoins are just cheaper Bitcoin"
-**Wrong.** Each altcoin has its own liquidity profile, volatility characteristics, and correlation patterns. BCHUSD behaves nothing like BTCUSD — which is exactly why some alts are profitable and others bleed.
+39. **"Crypto is 24/7, so I should trade 24/7"** — Wrong. Volume concentrates around US/EU hours.
 
-#### 42. "Crypto fees don't matter because the moves are big"
-**Wrong.** On Gemini, a round-trip is ~0.80% in fees. If your average trade only captures 1.5%, fees eat over half your profit. The bot's Fee Shield exists for exactly this reason.
+40. **"Bitcoin goes up long term, so I should only go long"** — Wrong for short-term trading. The bot trades both directions based on structure.
 
-#### 43. "I should trade every crypto symbol available"
-**Wrong.** More symbols ≠ more profit. Low-liquidity symbols have wider spreads, more slippage, and less predictable price action. Focus on the symbols with proven edge — not the entire exchange catalog.
+41. **"Altcoins are just cheaper Bitcoin"** — Wrong. Each altcoin has its own liquidity profile and behavior. BCHUSD is nothing like BTCUSD.
 
-#### 44. "Crypto is too volatile for stop losses"
-**Wrong.** Crypto is too volatile for *tight* stops. The solution is wider stops with smaller position sizes, not removing stops entirely. A 2-ATR stop on crypto respects the volatility while still protecting capital.
+42. **"Crypto fees don't matter because the moves are big"** — Wrong. 0.80% round-trip on Gemini eats over half your profit on a 1.5% capture.
 
-#### 45. "DeFi yields mean I should hold, not trade"
-**Apples and oranges.** DeFi yield farming and active trading are completely different strategies. One earns passive yield; the other exploits short-term price inefficiencies. The bot does the latter.
+43. **"I should trade every crypto symbol available"** — Wrong. More symbols ≠ more profit. Low-liquidity = wider spreads = more pain.
+
+44. **"Crypto is too volatile for stop losses"** — Wrong. It's too volatile for *tight* stops. Wider stops + smaller size = same dollar risk.
+
+45. **"DeFi yields mean I should hold, not trade"** — Apples and oranges. Yield farming and active trading are completely different games.
 
 ---
 
 ### 💱 Forex-Specific
 
-#### 46. "Forex is less risky because the moves are small"
-**Wrong.** Forex moves are small in percentage terms, but leverage makes them massive in dollar terms. A 50-pip move on 100:1 leverage is a 5% account swing.
+46. **"Forex is less risky because the moves are small"** — Wrong. Leverage makes 50 pips feel like 500.
 
-#### 47. "I need $10,000+ to trade forex"
-**Wrong, but true for meaningful sizing.** You can open micro accounts with $50, but $30 of equity produces positions of 20-50 units — which means each pip is worth fractions of a cent. You need enough capital for the position sizes to matter.
+47. **"I need $10,000+ to trade forex"** — Wrong for opening an account. True for meaningful position sizes.
 
-#### 48. "All forex pairs behave the same"
-**Wrong.** EUR/USD moves 50-80 pips/day. GBP/JPY moves 150-200 pips/day. They require completely different stop distances, position sizes, and strategies.
+48. **"All forex pairs behave the same"** — Wrong. EUR/USD moves 50-80 pips/day. GBP/JPY moves 150-200. Completely different animals.
 
-#### 49. "News trading is easy money"
-**Wrong.** News events cause extreme spread widening, slippage, and unpredictable spikes. The bot intentionally avoids the first 15 minutes of session opens (Opening Range Sentry) because the risk-reward during news is terrible.
+49. **"News trading is easy money"** — Wrong. Spreads widen, slippage increases. The bot avoids the first 15 minutes of session opens for exactly this reason.
 
-#### 50. "Friday afternoon is a good time to trade forex"
-**Wrong.** Liquidity dries up, spreads widen, and weekend gap risk increases. The bot has a Friday Fade feature that reduces risk on Friday afternoons for exactly this reason.
+50. **"Friday afternoon is a good time to trade forex"** — Wrong. Liquidity dries up. Weekend gap risk increases. The bot has Friday Fade for this.
 
 ---
 
 ### 🧠 Trading Psychology
 
-#### 51. "I need to watch my trades constantly"
-**Wrong.** Watching every tick increases stress, leads to premature exits, and makes you second-guess the system. Set it and check periodically. That's literally why you have a bot.
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Baby, the biggest enemy in trading isn't the market. It isn't the algorithm. It's the voice inside your head that says 'one more trade and I'll stop.' That voice is a liar. It has always been a liar."</td></tr></table>
 
-#### 52. "Revenge trading will make back my losses"
-**Absolutely wrong.** Revenge trading — entering trades out of frustration to "win back" losses — is the #1 account killer. The bot's Streak Breaker and Churn Burner exist specifically to prevent this pattern.
+51. **"I need to watch my trades constantly"** — Wrong. Watching increases stress and leads to premature exits. That's literally why you have a bot.
 
-#### 53. "I should feel confident about every trade"
-**Wrong.** If you feel confident about every trade, your standards are too low. Good trading systems generate uncertainty on individual trades but confidence in the process over time.
+52. **"Revenge trading will make back my losses"** — The #1 account killer. The Streak Breaker and Churn Burner exist to prevent this.
 
-#### 54. "If I study hard enough, I can predict the market"
-**Wrong.** The market is not predictable. It is *probabilistic*. The goal isn't prediction — it's finding setups where the odds slightly favor you, then repeating that edge thousands of times.
+53. **"I should feel confident about every trade"** — Wrong. If you feel confident about *every* trade, your standards are too low.
+
+54. **"If I study hard enough, I can predict the market"** — Wrong. The market is probabilistic, not predictable. The goal is finding slight edges and repeating them.
 
 ---
 
 ### 🏗️ Market Structure & Mechanics
 
-#### 55. "Markets are random"
-**Wrong.** Markets aren't fully random — they exhibit trends, mean reversion, volatility clustering, and institutional footprints. But they're also not fully predictable. They exist in between: *probabilistic with exploitable patterns*.
+55. **"Markets are random"** — Wrong. They exhibit trends, mean reversion, volatility clustering, and institutional footprints. But they're not fully predictable either. They exist in between.
 
-#### 56. "The market is out to get me"
-**Wrong.** The market doesn't know you exist. It's not hunting your stop loss. What's actually happening is that many traders place stops at similar obvious levels, and liquidity-seeking algorithms sweep those clusters.
+56. **"The market is out to get me"** — Wrong. The market doesn't know you exist. What's actually happening is that many traders place stops at the same levels, and algorithms sweep those clusters.
 
-#### 57. "Smart money always wins"
-**Wrong.** Institutional traders have advantages (information, speed, capital), but they also have disadvantages (size forces slower entries, regulatory constraints, committee-based decisions). Retail traders have the advantage of speed and flexibility.
+57. **"Smart money always wins"** — Wrong. Institutions have size constraints, regulatory limits, and committee-based decisions. Retail has speed and flexibility.
 
-#### 58. "Gaps always get filled"
-**Mostly true historically, but dangerous to trade.** While most gaps eventually fill, "eventually" can mean days, weeks, or months. Trading gaps requires patience and proper risk management — not blind faith.
+58. **"Gaps always get filled"** — Mostly true historically, but "eventually" can mean weeks. Don't trade this blindly.
 
 ---
 
 ### 📈 Account Growth & Compounding
 
-#### 59. "I should double my account every month"
-**Wrong.** Consistent 5-10% monthly returns would make you one of the best traders alive. Expecting 100% monthly leads to over-leveraging, which leads to account destruction.
+59. **"I should double my account every month"** — Wrong. Consistent 5-10% monthly would make you one of the best traders alive. Expecting 100% leads to over-leveraging.
 
-#### 60. "Compounding is easy — just reinvest profits"
-**Harder than it sounds.** Compounding requires *consistency*. One month of -20% erases several months of +5%. The bot's drawdown breakers and risk clamps exist to protect the compounding curve.
+60. **"Compounding is easy — just reinvest profits"** — Harder than it sounds. One month of -20% erases several months of +5%.
 
-#### 61. "Small accounts can't make money"
-**Wrong.** Small accounts can absolutely make money — they just can't make *a lot* of money. A $100 account that consistently returns 5% monthly is working perfectly. The dollar amounts are small, but the skill is real and scalable.
+61. **"Small accounts can't make money"** — Wrong. They make *less* money, but the skill is real and scalable.
 
-#### 62. "I should withdraw profits immediately"
-**Depends on your goals.** If you need the cash, sure. But if you're trying to grow, let profits compound. The bot's risk calculations use current equity — more equity means larger, more meaningful positions.
+62. **"I should withdraw profits immediately"** — Depends on your goals. If you're trying to grow, let profits compound.
 
 ---
 
-> *"The market doesn't care about your feelings. It only respects your edge. Pick the right strategy for the right market — or let Meta-SCI pick for you — and let math do the rest."*
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"There you go. 20 weapons and 62 myths destroyed. The market doesn't care about your feelings. It only respects your edge. Pick the right strategy for the right market — or let Meta-SCI pick for you — and let math do the rest.<br><br>And if you're still not sure which strategy to use after reading all of this? <b>Meta-SCI.</b> I can't say it enough times. <em>Meta-SCI.</em>"</td></tr></table>

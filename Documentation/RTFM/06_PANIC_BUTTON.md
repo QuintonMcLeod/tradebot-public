@@ -1,64 +1,81 @@
+# 6. The Panic Button — Troubleshooting Guide
 
-# 6. The Panic Button (Troubleshooting)
-> *"Something is wrong. Make it stop."*
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Something is wrong. Make it stop. MAKE IT STOP."</td></tr></table>
 
-So, the bot is screaming in red text, or worse—it's doing nothing at all.
-Don't panic. Read this.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"OK. Deep breath. The bot is either screaming in red text — or worse, doing absolutely nothing at all. Both are terrifying in their own way. The silence is actually scarier. But don't panic. That's what this chapter is for.<br><br>Every error you're about to see? I've seen it first. Usually at 2 AM. With coffee. And regret."</td></tr></table>
 
 ---
 
 ## 1. "Kill Switch Activated"
-**Symptom:** The logs say `[KILL SWITCH] Too many consecutive errors. Shutting down.`
-**Cause:** The bot tried to do something 5 times in a row and failed every time. It shut itself down to save your API quota and your sanity.
+
+**Symptom:** `[KILL SWITCH] Too many consecutive errors. Shutting down.`
+
+<table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"I tried 5 times in a row and failed every time. I shut myself down to save your API quota and your sanity. I am not going to keep banging my head against a wall. That's YOUR job."</em></td></tr></table>
+
 **Fix:**
-1.  **Read the error above the Kill Switch.**
-    *   `Insufficient Funds`? You are broke. (See section 2).
-    *   `Permission Denied`? Your API key assumes you can trade Futures, but the Exchange disagrees.
-    *   `Timeout`? The internet is bad.
-2.  **Reset:** Run `./scripts/tradebot.sh --restart`.
+1. **Read the error above the Kill Switch.** The Kill Switch is the symptom. The cause is always the line before it.
+    - `Insufficient Funds`? You are broke. (See section 2.)
+    - `Permission Denied`? Your API key doesn't have the permissions it needs.
+    - `Timeout`? The internet is bad. Or the broker's API is having a moment.
+2. **Reset:** `./scripts/tradebot.sh --restart`.
 
 ---
 
 ## 2. "Insufficient Funds" / "Affordability Block"
+
 **Symptom:** `[CCXT] AFFORDABILITY BLOCK: Required $50 > Free $3.50`
+
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"You. Ran. Out. Of. Money. <em>Shocking.</em>"</td></tr></table>
+
 **Cause:**
-*   **Futures:** Some brokers (notably Coinbase) require USDC/USD in the **Spot Wallet** to collateralize futures, ignoring the Futures wallet balance.
-*   **Spot:** You ran out of money.
-*   **Rounding:** The contract size is 1.0, but you only have money for 0.8. The bot cannot buy 0.8 of a Future.
+- **Futures:** Some brokers (notably Coinbase) require USDC/USD in the **Spot Wallet** to collateralize futures, ignoring the Futures wallet balance.
+- **Spot:** You ran out of money. There's no polite way to say it.
+- **Rounding:** Contract size is 1.0 but you only have money for 0.8. The bot can't buy 80% of a future.
+
 **Fix:**
-*   Add funds.
-*   Move funds to Spot.
-*   Trade a cheaper asset (DOGE instead of BTC).
+- Add funds.
+- Move funds to Spot wallet.
+- Trade a cheaper asset (DOGE instead of BTC).
 
 ---
 
 ## 3. "Risk Suppressed"
+
 **Symptom:** `[GUARD] Risk Suppressed: buying power $100 < required $150`
-**Cause:** The bot *could* afford it, but the **Risk Manager** said "No."
-*   Maybe you hit your `max_daily_loss`?
-*   Maybe you have too many open positions?
+
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The bot <em>could</em> technically afford it, but the Risk Manager said 'No.' You may have hit your max_daily_loss, or you have too many open positions already. The bot is protecting you from over-committing. This is a feature, not a bug."</td></tr></table>
+
 **Fix:**
-*   Check your profile settings. Raise `max_exposure_pct` if you feel comfortable.
-*   Review the Leverage Sentry cap in Settings → Safety & Shields.
+- Check your profile settings. Raise `max_exposure_pct` if you feel comfortable.
+- Review the Leverage Sentry cap in Settings → Safety & Shields.
 
 ---
 
 ## 4. "It's Not Trading!" (The Silent Treatment)
+
 **Symptom:** The bot is running, scanning, but never entering.
-**Cause:**
-*   **Position Lock:** Is there already an open position for that symbol? Position Lock blocks ALL new entries until that position closes.
-*   **Leverage Sentry:** Is your total leverage over the cap? Check for `[SAFETY] Entry Blocked: Leverage Sentry` in logs.
-*   **The Market Sucks:** If the `selection_score` is 45.0 and your threshold is 55.0, the bot is doing its job. It is saving you from losing money in chop.
-*   **Meta-SCI Tournament:** If using Meta-SCI, check for `[META-SCI] Tournament: No qualifying signals found`. This means all strategies evaluated the market and none saw a high-quality setup.
-*   **Sabbath Mode:** Is it Friday night? The bot might be resting.
-*   **Balance:** See "Insufficient Funds".
-*   **Wrong Strategy:** The assigned strategy for that asset class might not be firing in current conditions.
+
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"WHY WON'T IT DO SOMETHING?! It's just sitting there! Looking at charts! DOING NOTHING!"</td></tr></table>
+
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"Patience. Silence is not failure — it is discipline. The absence of a trade IS a decision. And often the best one."</em></td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's the diagnostic checklist. Go through these IN ORDER before you assume something is broken:"</td></tr></table>
+
+**Cause Checklist:**
+- **Position Lock:** Already an open position for that symbol? Lock blocks ALL new entries.
+- **Leverage Sentry:** Total leverage over the cap? Check for `[SAFETY] Entry Blocked: Leverage Sentry`.
+- **The Market Sucks:** If score is 45.0 and threshold is 55.0, the bot is protecting you from chop. That's its JOB.
+- **Meta-SCI Tournament:** Check for `[META-SCI] Tournament: No qualifying signals found`. This means every strategy looked at the market and said "nah."
+- **Sabbath Mode:** Is it Friday evening? The bot might be resting. As it should be.
+- **Balance:** See "Insufficient Funds" above.
+- **Wrong Strategy:** The assigned strategy might not fire in current conditions.
+
 **Fix:**
-*   Check the logs for `[POSITION LOCK]` — if locked, wait for position to close or restart bot.
-*   Check for `[SAFETY]` entries — these show exactly what guard blocked the trade.
-*   Check `[SELECT]` logs. If it sees candidates but scores them low, be patient.
-*   If it sees *nothing*, check your `symbols` list.
-*   Check `[META-SCI]` logs to see tournament results.
+- Check logs for `[POSITION LOCK]` — if locked, wait for position to close or restart.
+- Check for `[SAFETY]` entries — these show exactly which guard blocked the trade.
+- Check `[SELECT]` logs — if it sees candidates but scores them low, be patient.
+- Check `[META-SCI]` logs to see tournament results.
+- If it sees *nothing*, check your `symbols` list. You probably forgot to add symbols.
 
 ---
 
@@ -66,16 +83,12 @@ Don't panic. Read this.
 
 ### "Connection Refused"
 **Symptom:** `[IBKR] Connection Refused: 127.0.0.1:7497`
-**Cause:** TWS or IB Gateway isn't running, or wrong port.
-**Fix:**
-*   Start TWS or IB Gateway.
-*   Check port: 7497 = Paper, 7496 = Live.
-*   Verify API is enabled in TWS settings.
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"TWS or IB Gateway isn't running. Or you're on the wrong port. 7497 = Paper. 7496 = Live. Verify API is enabled in TWS settings. This is always the first thing people forget."</td></tr></table>
 
 ### "Client ID in Use"
 **Symptom:** `[IBKR] Client ID 1 already in use`
-**Cause:** Another instance or script is connected with the same ID.
-**Fix:** Change `IBKR_CLIENT_ID` to a different number (2, 3, etc.).
+**Fix:** Change `IBKR_CLIENT_ID` to a different number (2, 3, etc.). Another instance is hogging it.
 
 ---
 
@@ -83,27 +96,25 @@ Don't panic. Read this.
 
 ### "Invalid Account ID"
 **Symptom:** `[OANDA] Invalid Account ID`
-**Cause:** Account ID format is wrong.
-**Fix:** Use format `101-001-1234567-001` (with dashes).
+**Fix:** Use format `101-001-1234567-001` (with dashes). People always forget the dashes.
 
 ### "Unauthorized"
 **Symptom:** `[OANDA] 401 Unauthorized`
-**Cause:** API token is wrong, expired, or revoked.
+
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Your credentials are compromised or expired. Generate new ones. Immediately. Not tomorrow. Not after lunch. Now."</em></td></tr></table>
+
 **Fix:**
-1.  Go to [OANDA Hub](https://hub.oanda.com)
-2.  Navigate to Manage API Access
-3.  Generate a new token
-4.  Update `OANDA_API_KEY` in settings
+1. Go to [OANDA Hub](https://hub.oanda.com)
+2. Manage API Access → Generate new token
+3. Update `OANDA_API_KEY` in settings
 
 ### "Market Halted"
 **Symptom:** `[OANDA] Market is halted for EUR_USD`
-**Cause:** Forex markets are closed (weekend or holiday).
-**Fix:** Wait for markets to reopen. Forex trades Sunday 5 PM ET to Friday 5 PM ET.
+**Fix:** Forex markets are closed (weekend or holiday). Sunday 5 PM ET to Friday 5 PM ET.
 
 ### "Insufficient Margin"
 **Symptom:** `[OANDA] Insufficient margin for 10000 EUR_USD`
-**Cause:** Not enough funds for the position size + margin requirement.
-**Fix:** Add funds or reduce position size via `risk_per_trade_pct`.
+**Fix:** Add funds or reduce `risk_per_trade_pct`.
 
 ---
 
@@ -111,36 +122,43 @@ Don't panic. Read this.
 
 ### "Rate Limit Exceeded"
 **Symptom:** `[CCXT] Rate limit exceeded`
-**Cause:** Too many API calls too fast.
-**Fix:** Increase `market_poll_interval_seconds` in your profile.
+**Fix:** Increase `market_poll_interval_seconds` in your profile. You're hitting the exchange too often.
 
 ### "Symbol Not Found"
 **Symptom:** `[CCXT] Symbol BTCUSD not found`
-**Cause:** Wrong symbol format for the exchange.
-**Fix:** Check `CCXT_SYMBOL_MAP`. Use format like `BTC/USD` or `BTC/USDT`.
+**Fix:** Use `BTC/USD` or `BTC/USDT`. Check `CCXT_SYMBOL_MAP` for the exchange-specific format.
 
 ---
 
 ## 8. EMERGENCY STOP (How to Kill It)
-If the bot goes rogue (Skynet scenario):
-1.  **Ctrl+C** in the terminal.
-2.  **`./scripts/tradebot.sh --exit-all`** (The Nuclear Option).
-3.  **Log into your Broker (Coinbase, Kraken, IBKR, OANDA, Gemini, Paxos, etc.)** and manually close positions.
-    *   *Note:* Killing the bot does **not** automatically sell your bags. It just stops the bot from buying more.
-    *   *Note:* If you manually close a position, the bot's Position Lock won't know. Restart the bot to clear it.
+
+<table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"SKYNET SCENARIO! THE BOT'S GONE ROGUE! 🏴‍☠️"</td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Calm down. It hasn't gone rogue. It's doing exactly what the code tells it to do. Which might be wrong. But it's not rogue. Three options to stop it:"</td></tr></table>
+
+1. **Ctrl+C** in the terminal.
+2. **`./scripts/tradebot.sh --exit-all`** (The Nuclear Option).
+3. **Log into your broker** (Coinbase, Kraken, IBKR, OANDA, etc.) and manually close positions.
+
+> **Important:** Killing the bot does NOT automatically sell your positions. It just stops the bot from making NEW decisions. Your existing positions are still open on the exchange. Log into your broker to manage them.
+
+> **Also important:** If you manually close a position, the bot's Position Lock won't know. Restart the bot to clear it.
 
 ---
 
 ## 9. "NO BROKER CONFIGURED" (Preflight Failure)
-**Symptom:** The bot prints a big error box saying `❌ NO BROKER CONFIGURED — CANNOT START` and exits.
-**Cause:** You haven't configured any broker API keys yet.
-**Fix:**
-1.  Open the GUI: `./scripts/tradebot.sh --gui`
-2.  Go to Settings → **Brokers** tab.
-3.  Enter API credentials for at least ONE broker (OANDA, IBKR, CCXT, etc.).
-4.  Save and restart.
 
-See `08_API_SETUP.md` for step-by-step broker setup.
+**Symptom:** Big error box: `❌ NO BROKER CONFIGURED — CANNOT START`
+
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Honey, you forgot to set up your broker keys. You can't trade without an account. That's like trying to drive without a car."</td></tr></table>
+
+**Fix:**
+1. Open the GUI: `./scripts/tradebot.sh --gui`
+2. Settings → **Brokers** tab
+3. Enter API credentials for at least ONE broker
+4. Save and restart
+
+See Chapter 8 (**API Setup**) for step-by-step broker setup.
 
 ---
 
@@ -156,4 +174,6 @@ See `08_API_SETUP.md` for step-by-step broker setup.
 | Insufficient funds | Balance in correct wallet? Margin requirements? |
 | Wrong strategy | Profile has correct strategy assignment? |
 | API errors | Key/secret correct? Not expired? Has trade permissions? |
-| Won't start | No broker configured? See Preflight Check error above |
+| Won't start | No broker configured? See Preflight Check above |
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you've gone through this entire chapter and nothing fixed your problem, check the logs again. The answer is always in the logs. Always. I didn't write 500 log messages for my health."</td></tr></table>

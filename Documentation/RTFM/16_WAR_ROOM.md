@@ -1,10 +1,8 @@
+# 16. The War Room — Decoding the Log Output
 
-# 16. The War Room (Decoding the Log Output)
-> *"I see the Matrix now. It's mostly INFO lines."*
+<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"Welcome to the War Room. This is where we review the carnage and plan the next assault."</td></tr></table>
 
-You opened the log panel. You saw a wall of text scrolling by at the speed of anxiety. Half of it is green, half of it is yellow, and there's an occasional red line that makes your heart skip a beat.
-
-Don't worry. This is normal. Let's learn to read the Matrix.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You opened the log panel. You saw a wall of text scrolling by at the speed of anxiety. Half of it is green, half is yellow, and there's an occasional red line that makes your heart skip a beat.<br><br>Don't worry. This is normal. Let's learn to read the Matrix."</td></tr></table>
 
 ---
 
@@ -17,8 +15,8 @@ Every log line follows this format:
 
 | Part | What It Means |
 |------|--------------|
-| **Timestamp** | When it happened. Yes, these are in YOUR timezone. |
-| **Level** | How serious it is: DEBUG, INFO, WARNING, ERROR, CRITICAL |
+| **Timestamp** | When it happened. In YOUR timezone. |
+| **Level** | How serious: DEBUG, INFO, WARNING, ERROR, CRITICAL |
 | **Tag** | The subsystem talking: [STATE], [GUARD], [DECISION], etc. |
 | **Message** | What actually happened in plain-ish English |
 
@@ -28,8 +26,10 @@ Every log line follows this format:
 
 ### Core System Tags
 
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Each tag is a subsystem announcing what it's doing. Think of it like a police radio — each department has its own frequency."</td></tr></table>
+
 | Tag | Translation |
-|-----|------------|
+|-----|-----------|
 | `[STATE]` | "Here's what I'm looking at right now." Position snapshots, sizes, prices. |
 | `[DECISION]` | "I made a call." The strategy's verdict: BUY, SELL, or STAND ASIDE. |
 | `[GUARD]` | "Something tried to trade but I blocked it." Safety guard intervention. |
@@ -43,37 +43,37 @@ Every log line follows this format:
 ### Safety & Guard Tags
 
 | Tag | Translation |
-|-----|------------|
-| `[POSITION_LOCK]` | "There's already a trade on this symbol. Blocked." |
-| `[LEVERAGE]` | "Adding this trade would exceed your leverage cap. Blocked." |
-| `[AFFORDABILITY]` | "You can't afford this trade. Blocked." |
-| `[RISK]` | "The risk math doesn't check out. Blocked." |
-| `[KILL_SWITCH]` | "Daily loss limit hit. ALL trading blocked until reset." |
+|-----|-----------|
+| `[POSITION_LOCK]` | "Already a trade on this symbol. Blocked." |
+| `[LEVERAGE]` | "Adding this would exceed leverage cap. Blocked." |
+| `[AFFORDABILITY]` | "You can't afford this. Blocked." |
+| `[RISK]` | "Risk math doesn't check out. Blocked." |
+| `[KILL_SWITCH]` | "Daily loss limit hit. ALL trading blocked." |
 | `[STABILITY]` | "Things are too volatile. Taking it easy." |
 
 ### Market & Data Tags
 
 | Tag | Translation |
-|-----|------------|
+|-----|-----------|
 | `[MARKET]` | "Fetching candles, prices, or market data." |
 | `[PROVIDER]` | "The data source said something." IBKR, OANDA, CCXT responses. |
-| `[WS]` | "WebSocket communication." GUI-to-backend chatter. |
+| `[WS]` | "WebSocket." GUI-to-backend chatter. |
 | `[CANDLE]` | "New candle data received." The bot's bread and butter. |
 
 ### Broker Tags
 
 | Tag | Translation |
-|-----|------------|
-| `[OANDA]` | "The OANDA broker is talking." Orders, fills, errors. |
-| `[CCXT]` | "The crypto exchange is talking." Same energy, different market. |
-| `[IBKR]` | "Interactive Brokers is talking." Usually complaining about something. |
-| `[PAPER]` | "This is a simulated trade." Paper mode active. |
+|-----|-----------|
+| `[OANDA]` | "OANDA is talking." Orders, fills, errors. |
+| `[CCXT]` | "Crypto exchange is talking." Same energy, different market. |
+| `[IBKR]` | "Interactive Brokers is talking." Usually complaining. |
+| `[PAPER]` | "This is simulated." Paper mode active. |
 
 ---
 
 ## Reading a Trade's Lifecycle
 
-Here's what a successful trade looks like in the logs:
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's what a successful trade looks like in the logs. Read this until you can parse it in your sleep:"</td></tr></table>
 
 ```
 14:32:07 | INFO | [SCAN] Evaluating EURUSD...
@@ -85,7 +85,7 @@ Here's what a successful trade looks like in the logs:
 14:32:08 | INFO | [OANDA] Order filled: EURUSD BUY 10000 @ 1.08503
 ```
 
-And here's a blocked trade:
+And here's a **blocked** trade:
 
 ```
 14:35:12 | INFO | [SCAN] Evaluating GBPUSD...
@@ -94,7 +94,7 @@ And here's a blocked trade:
 14:35:13 | WARNING | [POSITION_LOCK] GBPUSD already has LONG position. Blocked.
 ```
 
-The bot wanted to go short on GBPUSD, but there's already a long position open. Position Lock said no. This is exactly how it should work — no position whiplash.
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"The bot wanted to go short, but there's already a long position. Position Lock said no. This is exactly how it should work — no position whiplash."</td></tr></table>
 
 ---
 
@@ -102,30 +102,28 @@ The bot wanted to go short on GBPUSD, but there's already a long position open. 
 
 | Level | What It Means | Should You Worry? |
 |-------|--------------|-------------------|
-| `DEBUG` | Internal details. The bot talking to itself. | No. You shouldn't even see these. |
-| `INFO` | Normal operation. Everything is fine. | No. This is the good stuff. |
-| `WARNING` | Something unexpected but recoverable. | Glance at it. Usually a blocked trade or a timeout. |
-| `ERROR` | Something broke but the bot recovered. | Read it. Usually a broker API hiccup. |
-| `CRITICAL` | Something is seriously wrong. | **Yes.** This means action is needed. |
+| `DEBUG` | Internal details. Bot talking to itself. | No. |
+| `INFO` | Normal operation. Everything fine. | No. This is the good stuff. |
+| `WARNING` | Unexpected but recoverable. | Glance. Usually a blocked trade. |
+| `ERROR` | Something broke but bot recovered. | Read it. Usually an API hiccup. |
+| `CRITICAL` | Something is seriously wrong. | **Yes.** Action needed. |
 
 ---
 
 ## The JSON Blobs
 
-Occasionally, you'll see a line that looks like someone vomited JSON:
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"What's all that weird JSON garbage in the logs?"</td></tr></table>
 
-```
-[HOLDINGS] {"count": 3, "positions": [{"symbol": "EURUSD", ...}], "total_unrealized_pnl": 47.32}
-```
-
-This is intentional. The JSON is machine-readable so the GUI can parse it and display your holdings panel, charts, and P&L numbers. You don't need to read it with your human eyes. The GUI reads it with its robot eyes and shows you the pretty version.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's the GUI data feed. The JSON is machine-readable so the dashboard can parse it and show you the pretty version. You don't need to read it with your human eyes. The GUI reads it with its robot eyes. Trust the process."</td></tr></table>
 
 ---
 
 ## Pro Tips for Log Reading
 
-1. **Filter by tag.** If you only care about trades, filter for `[ENTRY]` and `[EXIT]`.
-2. **Watch the `[GUARD]` tags.** If you see a lot of blocks, your safety settings might be too tight — or the market is genuinely dangerous right now.
-3. **Red lines aren't always bad.** An `ERROR` for a brief IBKR reconnect is normal. It self-heals. Only worry if you see the same error repeating continuously.
-4. **The log rotates.** Old logs roll into `tradebot.log.1`, `.2`, etc. Your current session is always in `tradebot.log`.
-5. **The most powerful log line is `[DECISION]`.** It tells you what the bot decided, what score it gave, and which strategy made the call. If you want to evaluate the bot's intelligence, this is where you look.
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Five rules for the War Room:"</em></td></tr></table>
+
+1. **Filter by tag.** Only care about trades? Filter for `[ENTRY]` and `[EXIT]`.
+2. **Watch `[GUARD]` tags.** Lots of blocks = settings too tight or dangerous market.
+3. **Red lines aren't always bad.** A brief IBKR reconnect `ERROR` is normal. Only worry if it repeats.
+4. **Logs rotate.** Old logs → `tradebot.log.1`, `.2`, etc. Current session → `tradebot.log`.
+5. **`[DECISION]` is the most powerful line.** It tells you what the bot decided, the score, and which strategy called it. This is where you evaluate the bot's intelligence.

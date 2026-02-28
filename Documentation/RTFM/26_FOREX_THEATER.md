@@ -1,10 +1,8 @@
+# 26. The Forex Theater — Sessions, Spreads, and the Global Money Dance
 
-# 26. The Forex Theater (Sessions, Spreads, and the Global Money Dance)
-> *"The forex market is a theater. Three acts per day. The actors are central banks with printing presses."*
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Welcome to the Forex Theater. Three acts per day. The actors are central banks with printing presses. The audience is $7.5 trillion in daily volume."</td></tr></table>
 
-Every day, $7.5 trillion changes hands in the foreign exchange market. That's more than the GDP of Japan. Every. Single. Day. And it happens in three acts, on three stages, across three continents.
-
-Understanding these sessions isn't just trivia — it's the difference between trading in a liquid ocean and trading in a puddle.
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Every day, $7.5 trillion changes hands in the foreign exchange market. That's more than the GDP of Japan. Every. Single. Day. And it happens in three acts, on three stages, across three continents.<br><br>Understanding these sessions isn't trivia — it's the difference between trading in a liquid ocean and trading in a puddle."</td></tr></table>
 
 ---
 
@@ -14,14 +12,10 @@ Understanding these sessions isn't just trivia — it's the difference between t
 **Main Characters:** JPY, AUD, NZD
 **Personality:** Polite, orderly, occasionally sneaky
 
-The Asian session is the calmest of the three. Movements are smaller. Spreads are reasonable for JPY pairs but wider for everything else. This session sets the stage — it establishes ranges that London will either respect or obliterate.
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The Asian session is the calmest. Smaller movements. Tighter ranges. This session sets the stage — establishes ranges that London will either respect or obliterate."</td></tr></table>
 
-**Best Strategies for Tokyo:**
-*   Mean Reversion — Ranges tend to hold
-*   Virtual Grid (crypto) — Crypto ranges during this session
-*   VWAP Reversion — Drifts from fair value are common
-
-**Avoid:** Breakout strategies. Tokyo rarely breaks out. When it does, it's usually a false breakout that retraces by London open.
+**Best Strategies:** Mean Reversion, Virtual Grid, VWAP Reversion
+**Avoid:** Breakout strategies. Tokyo rarely breaks out. When it does, it's usually a false breakout that retraces by London.
 
 ---
 
@@ -31,17 +25,11 @@ The Asian session is the calmest of the three. Movements are smaller. Spreads ar
 **Main Characters:** EUR, GBP, CHF
 **Personality:** Aggressive, decisive, occasionally dramatic
 
-London is where the real money lives. European banks, hedge funds, and institutional traders are all awake and swinging big. This session accounts for **~35% of daily forex volume.**
+<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"London is where the real money lives. ~35% of daily forex volume. The first 90 minutes are the most volatile period of the day."</td></tr></table>
 
-The first 90 minutes of London are the most volatile and liquid period of the day. Price tends to choose a direction early and commit.
+**Best Strategies:** Session Momentum, Trend Rider, ORB Breakout, Supply & Demand
 
-**Best Strategies for London:**
-*   Session Momentum — VWAP-based, designed for session opens
-*   Trend Rider — London sets the daily trend
-*   ORB Breakout — The opening range is powerful during London
-*   Supply & Demand — Institutional zones get tested
-
-**The London Fake-Out:** London's favorite party trick. Price breaks above the Asian range to grab stop-losses, then reverses hard. If you've ever seen price spike up, then immediately crash, that's London saying "thanks for the liquidity, retail."
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"London's favorite party trick: the Fake-Out. Price breaks above the Asian range to grab stop-losses, then reverses hard. London saying 'thanks for the liquidity, retail.'"</td></tr></table>
 
 ---
 
@@ -51,14 +39,9 @@ The first 90 minutes of London are the most volatile and liquid period of the da
 **Main Characters:** USD, CAD
 **Personality:** Powerful, data-driven, sometimes explosive
 
-The New York session is dominated by US economic data releases. Non-Farm Payrolls, CPI, FOMC decisions — these events can move currencies 100+ pips in seconds.
+The **London-New York Overlap (8 AM – 12 PM EST)** is the most important 4-hour window. Both active simultaneously. Maximum volume. Tightest spreads. Prime time.
 
-**The London-New York Overlap (8:00 AM – 12:00 PM EST)** is the most important 4-hour window in forex. Both London and New York are active. Volume is maximum. Spreads are tightest. This is prime time.
-
-**Best Strategies for NY:**
-*   Meta-SCI — Let the tournament decide based on conditions
-*   RoboCop — High-conviction setups during overlap
-*   Engulfing Reversal — Major reversals often happen during NY
+**Best Strategies:** Meta-SCI, RoboCop, Engulfing Reversal
 
 ---
 
@@ -68,18 +51,11 @@ The New York session is dominated by US economic data releases. Non-Farm Payroll
 **Main Characters:** Nobody
 **Personality:** A parking lot at midnight
 
-Between the New York close and the Tokyo open, the forex market enters a dead zone. Spreads widen. Liquidity evaporates. Whatever you think you see on the chart during this window is probably noise.
-
-**What the Bot Does:** Depending on your profile, either:
-*   Switches to crypto (which is active 24/7)
-*   Reduces scan frequency
-*   Skips forex symbols entirely
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"Spreads widen. Liquidity evaporates. Whatever you think you see on the chart during this window is probably noise."</td></tr></table>
 
 ---
 
-## Spread Economics: Why It Matters
-
-The **spread** is the difference between the buy price (ask) and the sell price (bid). It's the broker's fee for facilitating your trade.
+## Spread Economics
 
 | Time | EUR/USD Spread | GBP/JPY Spread |
 |------|---------------|----------------|
@@ -88,15 +64,7 @@ The **spread** is the difference between the buy price (ask) and the sell price 
 | Dead Zone | 2.5 pips | 8.0+ pips |
 | NFP Release | 3.0+ pips | 12.0+ pips |
 
-The bot's **Friction Model** accounts for spreads. If the expected profit from a trade is 15 pips but the spread is 8 pips, the effective R:R just got cut in half. The Friction Model flags this and may downgrade the trade quality.
-
----
-
-## The Carry Trade: Making Money by Existing
-
-Some forex traders don't even trade movement. They exploit **interest rate differentials** between currencies. Borrow in a low-rate currency (JPY at 0.5%), invest in a high-rate currency (MXN at 11%). Keep the position open. Collect the daily swap.
-
-The bot doesn't do carry trades (it's a structure-based system), but understanding carry helps explain why certain currency pairs move the way they do. High-carry pairs attract long-term institutional flows.
+The **Friction Model** accounts for spreads. If the cost eats too much of the expected profit → trade downgraded.
 
 ---
 
@@ -104,12 +72,12 @@ The bot doesn't do carry trades (it's a structure-based system), but understandi
 
 | Pair | Nickname | Personality |
 |------|----------|------------|
-| EUR/USD | "The King" | Most liquid pair. Smooth trends. Reliable. |
+| EUR/USD | "The King" | Most liquid. Smooth trends. Reliable. |
 | GBP/USD | "The Cable" | Volatile. Big moves. Loves fake-outs. |
 | GBP/JPY | "The Dragon" | Violent. 200+ pip daily range. Not for beginners. |
-| USD/JPY | "The Ninja" | Quiet... until it's not. Central bank interventions are sudden. |
+| USD/JPY | "The Ninja" | Quiet... until it's not. Central bank surprises. |
 | AUD/USD | "The Commodity Queen" | Follows commodities and risk appetite. |
-| USD/CAD | "The Oil Compass" | Tracks crude oil prices inversely. |
+| USD/CAD | "The Oil Compass" | Tracks crude oil inversely. |
 | EUR/GBP | "The Snoozer" | Tiny ranges. Scalpers only. |
 | NZD/USD | "The Kiwi" | Small, erratic, sensitive to dairy prices. Yes, dairy. |
 
@@ -117,6 +85,4 @@ The bot doesn't do carry trades (it's a structure-based system), but understandi
 
 ## The Meta Point
 
-Forex isn't one market — it's three overlapping markets with different personalities, actors, and optimal strategies. The bot knows which session is active and adjusts accordingly. Your only job is to tell it which sessions you want to trade.
-
-*"The market is always right. But it's more right during London."*
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Forex isn't one market — it's three overlapping markets with different personalities, actors, and optimal strategies. The bot knows which session is active and adjusts accordingly. Your only job is to tell it which sessions to trade.<br><br><em>The market is always right. But it's more right during London.</em>"</td></tr></table>
