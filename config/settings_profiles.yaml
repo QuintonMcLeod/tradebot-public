@@ -1,0 +1,180 @@
+forex_continuous:
+  symbols:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - USDCAD
+  - USDCHF
+  - NZDUSD
+  - EURJPY
+  - GBPJPY
+  - AUDJPY
+  strategy_forex: london_breakout
+  strategy_variant: forex_conductor
+  risk_per_trade_pct: 0.045
+  strategies:
+    forex: forex_conductor
+    stocks: robocop
+    etf: meta_sci
+    metals: orb_breakout
+    futures: supply_demand
+  continuous_mode: true
+  sabbath_astronomical: true
+forex_intraday:
+  symbols:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - USDCAD
+  - USDCHF
+  - NZDUSD
+  - GBPJPY
+  - EURJPY
+  - AUDJPY
+  - BTCUSD
+  - ETHUSD
+  - SOLUSD
+  - XRPUSD
+  - LINKUSD
+  - LTCUSD
+  - DOGEUSD
+  - SOLUSD
+scalp:
+  symbols: null
+intraday:
+  symbols: null
+swing:
+  symbols: null
+coinbase_futures:
+  symbols:
+  - AVAX/USD
+  - SHIB/USD
+  - ETH/USD
+  - ADA/USD
+  - SOL/USD
+  - DOGE/USD
+  - LINK/USD
+  - LTC/USD
+  - BTC/USD
+crypto_247:
+  symbols:
+  - BTCUSD
+  - ETHUSD
+  - SOLUSD
+  - XRPUSD
+  - LINKUSD
+  - LTCUSD
+  - DOGEUSD
+  - SOLUSD
+  - XRPUSD
+  - ZECUSD
+  - BCHUSD
+  profile_overrides_enabled: true
+all_247:
+  symbols:
+  - SPY
+  - QQQ
+  - DIA
+  - IWM
+  - VTI
+  - XLK
+  - XLF
+  - XLE
+  - XLY
+  - XLP
+  - XLI
+  - XLU
+  - SMH
+  - XLB
+  - XOP
+  - XME
+  - ARKK
+  - ARKF
+  - SOXX
+  - GLD
+  - SLV
+  - GDX
+  - USO
+  - UNG
+  - EWU
+  - EWG
+  - EWQ
+  - EWT
+  - EWJ
+  - EWS
+  - FXI
+  - BTCUSD
+  - ETHUSD
+  - SOLUSD
+  - XRPUSD
+  - LINKUSD
+  - LTCUSD
+  - DOGEUSD
+  - SOLUSD
+  - XRPUSD
+  - ZECUSD
+  - BCHUSD
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - NZDUSD
+  - USDCAD
+  - USDCHF
+  - XAUUSD
+  - XAGUSD
+  - MES
+  - MNQ
+  - M2K
+  - MGC
+  - CL
+auto_schedule:
+  symbols:
+  - BTCUSD
+  - ETHUSD
+  - SOLUSD
+  - XRPUSD
+  - LINKUSD
+  - LTCUSD
+  - DOGEUSD
+  - LTCUSD
+  - BCHUSD
+  - XRPUSD
+  - ZECUSD
+  - SOLUSD
+coinbase_futures_nano:
+  symbols: null
+oanda_multi_asset:
+  symbols: null
+forex_crypto_hybrid:
+  symbols:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - USDCAD
+  - USDCHF
+  - NZDUSD
+  - GBPJPY
+  - EURJPY
+  - AUDJPY
+  - EURGBP
+  - GBPCHF
+  - NZDJPY
+  - CADJPY
+  - BTCUSD
+  - ETHUSD
+  - SOLUSD
+  - XRPUSD
+  - LINKUSD
+  - LTCUSD
+  - DOGEUSD
+  - ZECUSD
+  - BCHUSD
+  - AAVEUSD
+  - COMPUSD
+  - MATICUSD
+  safety_stability_mode_enabled: false
+  performance_mode: flywheel,sniper,regime_sync,hydra
