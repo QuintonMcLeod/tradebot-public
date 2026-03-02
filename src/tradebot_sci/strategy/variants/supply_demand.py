@@ -48,11 +48,17 @@ class SupplyDemandStrategy(BaseStrategy):
         # Note: Backtester injects profile settings into gates? Usually 'profile' key.
         # Use snapshot time for date
         if not snapshot.candles: return None
+
+        # VOLUME GATE: Skip low volume — zone reactions unreliable in dead sessions
+        recent_volumes = [c.volume for c in snapshot.candles[-20:-1] if c.volume > 0]
+        avg_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 1.0
+        if snapshot.candles[-1].volume < avg_volume:
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Low volume")
         
         current_date = snapshot.candles[-1].timestamp.strftime("%Y-%m-%d")
         
         # Get limit
-        max_daily = 100 # Default high
+        max_daily = 2 # Strict: max 2 trades per symbol per day
         
         # 1. Try Profile (config.json globals are SSOT — no env var override)
         if "profile" in gates:
@@ -68,16 +74,11 @@ class SupplyDemandStrategy(BaseStrategy):
         if trades_today >= max_daily:
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"SND: Daily Limit Reached ({trades_today}/{max_daily})")
 
-        # Step 1: Find a Trend
+        # Step 1: Find a Trend (HTF only — no LTF fallback)
         trend_dir = snapshot.trend_htf.direction
-        
-        # Relaxation: If HTF is neutral, check LTF. 
-        # We need at least ONE timeframe to have a directional bias.
-        if trend_dir == "neutral":
-            trend_dir = snapshot.trend_ltf.direction
             
         if trend_dir not in {"long", "short"}:
-            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: No directional bias (HTF & LTF Neutral)")
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: No HTF directional bias")
 
         # Step 2: Wait for Break of Structure (BOS)
         # We use 'detect_indication' which finds breaks of recent swing highs/lows
@@ -107,15 +108,13 @@ class SupplyDemandStrategy(BaseStrategy):
                 if last_candle.close < last_candle.open:
                     return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Demand tap rejected (bearish candle)")
 
-                # Calculate Trade Params
+                # Proven S&D approach: stop tight to zone edge + tiny buffer
                 atr = calculate_atr(snapshot.candles) or (last_candle.high - last_candle.low)
                 
-                stop_loss = zone.bottom - (atr * 0.5)
+                stop_loss = zone.bottom - (atr * 0.1)  # Proven: tight to zone (5-10 pips)
                 risk_dist = last_candle.close - stop_loss
-                if risk_dist <= 0: risk_dist = atr
-                # Cap risk distance to prevent absurd TP when zone is far from price
-                risk_dist = min(risk_dist, atr * 3.0)
-                take_profit = last_candle.close + (risk_dist * self.RR_TARGET)
+                if risk_dist <= 0: risk_dist = atr * 0.5
+                take_profit = last_candle.close + (risk_dist * 3.0)  # 3:1 R:R (proven S&D)
 
                 action = "enter_long"
                 if open_position:
@@ -162,15 +161,13 @@ class SupplyDemandStrategy(BaseStrategy):
                 if last_candle.close > last_candle.open:
                     return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Supply tap rejected (bullish candle)")
 
-                # Calculate Trade Params
+                # Proven S&D approach: stop tight to zone edge + tiny buffer
                 atr = calculate_atr(snapshot.candles) or (last_candle.high - last_candle.low)
 
-                stop_loss = zone.top + (atr * 0.5)
+                stop_loss = zone.top + (atr * 0.1)  # Proven: tight to zone (5-10 pips)
                 risk_dist = stop_loss - last_candle.close
-                if risk_dist <= 0: risk_dist = atr
-                # Cap risk distance to prevent absurd TP when zone is far from price
-                risk_dist = min(risk_dist, atr * 3.0)
-                take_profit = last_candle.close - (risk_dist * self.RR_TARGET)
+                if risk_dist <= 0: risk_dist = atr * 0.5
+                take_profit = last_candle.close - (risk_dist * 3.0)  # 3:1 R:R (proven S&D)
 
                 action = "enter_short"
                 if open_position:
@@ -210,7 +207,58 @@ class SupplyDemandStrategy(BaseStrategy):
 
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, current_capital: Optional[float] = None, **kwargs) -> Optional[AITradeDecision]:
-        """All exits managed by SafetyGuard. No strategy-level exit authority."""
+        """
+        S&D zone trailing stop: trail 0.5× ATR behind price after 1R.
+        Tight trail appropriate for zone entries with precise placement.
+        """
+        if not snapshot.candles or not open_position:
+            return None
+
+        entry_price = float(open_position.get("entry_price", 0))
+        stop_price = float(open_position.get("stop_price", 0) or open_position.get("stop_loss", 0))
+        current_price = snapshot.candles[-1].close
+        direction = open_position.get("direction", "long")
+
+        if entry_price <= 0 or stop_price <= 0:
+            return None
+
+        initial_risk = abs(entry_price - stop_price)
+        if initial_risk <= 0:
+            return None
+
+        atr = calculate_atr(snapshot.candles, period=14) or (current_price * 0.001)
+
+        if direction == "long":
+            profit = current_price - entry_price
+        else:
+            profit = entry_price - current_price
+
+        r_multiple = profit / initial_risk
+
+        if r_multiple < 1.0:
+            return None
+
+        # Trail stop 0.5× ATR behind price (tight for zone trading)
+        trail_distance = atr * 0.5
+        if direction == "long":
+            new_stop = current_price - trail_distance
+            if new_stop > stop_price:
+                from tradebot_sci.strategy.decisions import hold_decision
+                return hold_decision(
+                    snapshot.symbol, snapshot.timeframe,
+                    reason=f"SND: Trail stop to {new_stop:.5f} ({r_multiple:.1f}R)",
+                    stop_loss=new_stop,
+                )
+        else:
+            new_stop = current_price + trail_distance
+            if new_stop < stop_price:
+                from tradebot_sci.strategy.decisions import hold_decision
+                return hold_decision(
+                    snapshot.symbol, snapshot.timeframe,
+                    reason=f"SND: Trail stop to {new_stop:.5f} ({r_multiple:.1f}R)",
+                    stop_loss=new_stop,
+                )
+
         return None
 
 

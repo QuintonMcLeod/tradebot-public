@@ -113,9 +113,10 @@ class SessionMomentumStrategy(BaseStrategy):
 
         # --- BULLISH: Price breaks ABOVE VWAP with volume (only when trend allows) ---
         if htf_dir in ("long", "neutral") and prev_close <= vwap and last_close > vwap:
-            stop_dist = atr * 1.5 + abs(last_close - vwap)
-            stop_loss = last_close - stop_dist
-            take_profit = last_close + (stop_dist * 2.0)  # 2:1 R:R
+            # Proven ORB: stop near VWAP (the structural pivot) + small buffer
+            stop_loss = vwap - (atr * 0.3)
+            risk_dist = last_close - stop_loss
+            take_profit = last_close + (risk_dist * 2.5)  # 2.5:1 R:R (proven ORB)
 
             return AITradeDecision(
                 symbol=snapshot.symbol,
@@ -136,9 +137,10 @@ class SessionMomentumStrategy(BaseStrategy):
 
         # --- BEARISH: Price breaks BELOW VWAP with volume (only when trend allows) ---
         if htf_dir in ("short", "neutral") and prev_close >= vwap and last_close < vwap:
-            stop_dist = atr * 1.5 + abs(vwap - last_close)
-            stop_loss = last_close + stop_dist
-            take_profit = last_close - (stop_dist * 2.0)  # 2:1 R:R
+            # Proven ORB: stop near VWAP (the structural pivot) + small buffer
+            stop_loss = vwap + (atr * 0.3)
+            risk_dist = stop_loss - last_close
+            take_profit = last_close - (risk_dist * 2.5)  # 2.5:1 R:R (proven ORB)
 
             return AITradeDecision(
                 symbol=snapshot.symbol,
@@ -166,5 +168,84 @@ class SessionMomentumStrategy(BaseStrategy):
         gates: dict,
         **kwargs,
     ) -> Optional[AITradeDecision]:
-        """All exits managed by SafetyGuard. No strategy-level exit authority."""
+        """
+        Proven ORB exit management:
+        1. Time-based exit: close if > 8 bars and losing (stalled momentum)
+        2. At 1R: move to breakeven
+        3. After 1R: trail 0.5× ATR behind price
+        """
+        if not snapshot.candles or not open_position:
+            return None
+
+        entry_price = float(open_position.get("entry_price", 0))
+        stop_price = float(open_position.get("stop_price", 0) or open_position.get("stop_loss", 0))
+        current_price = snapshot.candles[-1].close
+        direction = open_position.get("direction", "long")
+
+        if entry_price <= 0 or stop_price <= 0:
+            return None
+
+        initial_risk = abs(entry_price - stop_price)
+        if initial_risk <= 0:
+            return None
+
+        atr = calculate_atr(snapshot.candles, period=14) or (current_price * 0.001)
+
+        if direction == "long":
+            profit = current_price - entry_price
+        else:
+            profit = entry_price - current_price
+
+        r_multiple = profit / initial_risk
+
+        # TIME-BASED EXIT: If open > 8 bars and still losing, close
+        # (proven ORB technique — stalled momentum rarely recovers)
+        entry_time = open_position.get("entry_time")
+        if entry_time and r_multiple < 0:
+            # Count bars since entry using candle timestamps
+            bars_since = 0
+            for c in reversed(snapshot.candles):
+                if c.timestamp <= entry_time:
+                    break
+                bars_since += 1
+            if bars_since >= 8:
+                return close_position_decision(
+                    snapshot.symbol, snapshot.timeframe,
+                    reason=f"Session Momentum: Time exit ({bars_since} bars, {r_multiple:.1f}R)",
+                    emergency_exit=True,
+                )
+
+        # At 1R: move to breakeven (proven ORB technique)
+        if r_multiple >= 1.0:
+            already_at_be = (direction == "long" and stop_price >= entry_price) or \
+                            (direction == "short" and stop_price <= entry_price)
+
+            if not already_at_be:
+                from tradebot_sci.strategy.decisions import hold_decision
+                return hold_decision(
+                    snapshot.symbol, snapshot.timeframe,
+                    reason=f"Session Momentum: Move to BE at {r_multiple:.1f}R",
+                    stop_loss=entry_price,
+                )
+
+            # After BE: trail 0.5× ATR behind price (tight for momentum)
+            trail_distance = atr * 0.5
+            from tradebot_sci.strategy.decisions import hold_decision
+            if direction == "long":
+                new_stop = current_price - trail_distance
+                if new_stop > stop_price:
+                    return hold_decision(
+                        snapshot.symbol, snapshot.timeframe,
+                        reason=f"Session Momentum: Trail {new_stop:.5f} ({r_multiple:.1f}R)",
+                        stop_loss=new_stop,
+                    )
+            else:
+                new_stop = current_price + trail_distance
+                if new_stop < stop_price:
+                    return hold_decision(
+                        snapshot.symbol, snapshot.timeframe,
+                        reason=f"Session Momentum: Trail {new_stop:.5f} ({r_multiple:.1f}R)",
+                        stop_loss=new_stop,
+                    )
+
         return None

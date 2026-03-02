@@ -12,7 +12,8 @@ from tradebot_sci.strategy.decisions import (
     AITradeDecision, 
     stand_aside_decision, 
     close_position_decision,
-    hold_decision
+    hold_decision,
+    scale_out_decision,
 )
 from tradebot_sci.strategy.icc_signals import calculate_atr, detect_structure_invalidation
 from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
@@ -110,7 +111,12 @@ class SafetyGuard:
             cls._state.last_reset_date[asset_class] = today
             cls._state.trade_timestamps[asset_class] = [] # Reset churn counter
             cls._state.sentiment_cache[asset_class] = {} # Fix: Dictionary for symbols
-            logger.info(f"[SAFETY] New Day Detected for {asset_class.value}. Resetting Daily PnL. Start Capital: ${current_capital:.2f}")
+            # Reset HWM to current capital on new session — prevents stale
+            # high-water marks from prior weeks triggering false drawdowns
+            # at session open (e.g., Sunday 6 PM) when no trades have occurred.
+            cls._state.hwm_capital[asset_class] = current_capital
+            cls._state.drawdown_pause_until.pop(asset_class, None)
+            logger.info(f"[SAFETY] New Day Detected for {asset_class.value}. Resetting Daily PnL + HWM. Start Capital: ${current_capital:.2f}")
         else:
             start_cap = cls._state.daily_start_capital.get(asset_class)
             if start_cap:
@@ -469,8 +475,14 @@ class SafetyGuard:
         if settings.safety.safety_stale_sniper_enabled:
             bars_limit = settings.safety.safety_stale_sniper_bars
             if bars_since >= bars_limit:
-                 logger.info(f"[SAFETY] Stale Sniper TRIGGERED for {snapshot.symbol} after {bars_since} bars.")
-                 return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Stale Exit ({bars_since} bars)")
+                # PROFIT GUARD: NEVER stale-exit a profitable trade.
+                # If the trade is in the green, let TP/trail handle the exit.
+                # Only stale-exit trades that are underwater.
+                if r_multiple < 0.0:
+                    logger.info(f"[SAFETY] Stale Sniper TRIGGERED for {snapshot.symbol} after {bars_since} bars (R={r_multiple:.2f}).")
+                    return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Stale Exit ({bars_since} bars)")
+                else:
+                    logger.debug(f"[SAFETY] Stale Sniper SKIPPED for {snapshot.symbol}: profitable ({r_multiple:.2f}R), letting run.")
 
         # B. Flash-Trap / Blow-off Seller (Volatility Exhaustion)
         shield_v = settings.safety.safety_flash_trap_enabled
@@ -492,8 +504,15 @@ class SafetyGuard:
                 is_contradiction = (direction == "long" and htf_dir == "short") or \
                                    (direction == "short" and htf_dir == "long")
                 if is_contradiction:
-                    logger.info(f"[SAFETY] Regime-Flip TRIGGERED for {snapshot.symbol}. HTF is {htf_dir}.")
-                    return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Regime Flip: {htf_dir.upper()}")
+                    # PROFIT GUARD: Don't regime-flip exit a strongly profitable trade.
+                    # If trade is > 1.0R, the original entry thesis was right — let it run.
+                    # Note: Tested r < 0.0 but it HURT ICC Core and Bearish Eng — they need
+                    # regime protection to cut contradicting trades before full stop hit.
+                    if r_multiple < 1.0:
+                        logger.info(f"[SAFETY] Regime-Flip TRIGGERED for {snapshot.symbol}. HTF is {htf_dir} (R={r_multiple:.2f}).")
+                        return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Regime Flip: {htf_dir.upper()}")
+                    else:
+                        logger.debug(f"[SAFETY] Regime-Flip SKIPPED for {snapshot.symbol}: profitable ({r_multiple:.2f}R), ignoring HTF flip.")
 
         # ─────────────────────────────────────────────────────────────
         # C2. STRUCTURE INVALIDATION (Centralized)

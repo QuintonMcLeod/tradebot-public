@@ -161,7 +161,8 @@ class MetaSCIStrategy(BaseStrategy):
         # [CRYPTO SUITE] Strategies restricted to crypto symbols only
         self.CRYPTO_STRATEGIES = {
             "crypto_rsi_macd", "crypto_vwap_reversion",
-            "crypto_double_macd", "crypto_grid"
+            "crypto_double_macd", "crypto_grid",
+            "hyper_scalper",  # EMA scalper — designed for crypto volatility, not forex
         }
 
         # Propagate profile risk to all strategies
@@ -170,28 +171,29 @@ class MetaSCIStrategy(BaseStrategy):
             for strat in self.strategies.values():
                 strat.profile_risk_pct = float(risk_pct)
 
-        # [PHASE 7] Regime groupings — each strategy competes in its
-        # natural regime. Proven winners are placed in multiple regimes
-        # where they can fire (but session-restricted strategies stay
-        # in session_open only to avoid silent tournament entries).
+        # [PHASE 7] Regime groupings — curated by 14-day solo battle-hardening.
+        # Only strategies that are individually profitable or near-profitable
+        # are included in forex regime groups. Losers drag the ensemble down.
+        # REMOVED from forex: supply_demand (-$16K), bearish_engulfing (-$5K),
+        #   robocop (-$4K), quantum (-$3K), evolution (-$3K),
+        #   volatility_breakout (0 trades), trend_rider (0 trades)
         self.REGIME_GROUPS = {
             "bearish_trending": [
-                "supply_demand", "robocop", "hyper_scalper", "trend_rider",
-                "quantum", "bearish_engulfing",
-                "volatility_breakout", "icc_core", "evolution",  # [PHASE 7] winners
+                "icc_core",             # ✅ +$1,237 solo (ATR*2.0, 2.0R, profit guard)
+                "mean_reversion",       # Near-break (R:R 0.82, best of losers)
             ],
             "bullish_trending": [
-                "supply_demand", "robocop", "hyper_scalper", "trend_rider",
-                "quantum", "bearish_engulfing",
-                "volatility_breakout", "icc_core", "evolution",  # [PHASE 7] winners
+                "icc_core",             # ✅ +$1,237 solo
+                "mean_reversion",
             ],
             "ranging": [
-                "rubberband_reaper", "icc_core", "bearish_engulfing",
-                "mean_reversion", "hyper_scalper", "evolution",   # [PHASE 7] winners
+                "icc_core",             # ✅ Works in all regimes
+                "mean_reversion",       # Mean reversion natural in ranging
             ],
             "session_open": [
-                "london_breakout", "orb_breakout", "session_momentum",
-                "bearish_engulfing", "volatility_breakout",       # [PHASE 7] breakout
+                "london_breakout",      # Session-specific (London open)
+                "orb_breakout",         # ✅ +$1,718 solo (Opening Range Breakout)
+                "session_momentum",     # Session-specific
             ],
             "crypto_trending": [
                 "supply_demand", "robocop", "hyper_scalper", "trend_rider", "quantum",
@@ -205,14 +207,14 @@ class MetaSCIStrategy(BaseStrategy):
             ],
         }
 
-        # [PHASE 7] Asset-aware tournament weights based on 14-day audits
-        # FOREX weights: boost PROVEN forex winners from audit (2026-02-23)
+        # [PHASE 7] Asset-aware tournament weights based on 14-day battle-hardening
+        # FOREX weights: only boost PROVEN profitable strategies
         self.FOREX_WEIGHTS = {
-            "london_breakout": 20,       # A-rated: +$254, 67% WR
-            "volatility_breakout": 15,   # A-rated: +$122, 34% WR
-            "hyper_scalper": 12,         # B-rated: +$104, 44% WR
-            "icc_core": 10,              # B-rated: +$78, 55% WR
-            "orb_breakout": 8,           # B-rated: +$33, 33% WR
+            "icc_core": 20,              # ✅ +$1,237 solo — top forex strategy
+            "orb_breakout": 20,          # ✅ +$1,718 solo — session breakout king
+            "london_breakout": 10,       # Session-only, -$116 in Meta-SCI context
+            "mean_reversion": 8,         # Best remaining R:R (0.82)
+            "session_momentum": 5,       # Low volume, session-specific
         }
         # CRYPTO weights: keep old weights (legacy, for when crypto is re-enabled)
         self.CRYPTO_WEIGHTS = {
@@ -254,11 +256,9 @@ class MetaSCIStrategy(BaseStrategy):
 
     # Proven winners per asset class — from 14-day audited backtests
     FOREX_PROVEN_WINNERS = {
-        "london_breakout",      # A-rated: +$254, 67% WR
-        "volatility_breakout",  # A-rated: +$122, 34% WR
-        "hyper_scalper",        # B-rated: +$104, 44% WR
-        "icc_core",             # B-rated: +$78, 55% WR
-        "orb_breakout",         # B-rated: +$33, 33% WR
+        "icc_core",             # ✅ +$1,237 solo (battle-hardened)
+        "orb_breakout",         # ✅ +$1,718 solo (battle-hardened)
+        "london_breakout",      # Session-specific, near-profitable in ensemble
     }
 
     CRYPTO_PROVEN_WINNERS = set()  # None profitable yet
@@ -275,7 +275,7 @@ class MetaSCIStrategy(BaseStrategy):
     # All-around hitters: can fire ANY time of day
     ALL_AROUND_HITTERS = {
         "icc_core",        # ICT methodology works in any session
-        "hyper_scalper",   # EMA scalps work anytime
+        "mean_reversion",  # Mean reversion works in any session (best R:R 0.82)
     }
 
     def _is_in_session_window(self, strategy_name: str, snapshot) -> bool:

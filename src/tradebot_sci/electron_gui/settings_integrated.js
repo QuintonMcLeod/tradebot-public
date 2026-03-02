@@ -99,6 +99,8 @@ const CONFIG_MAP = {
     'TARGET_PROFIT_DAILY_PCT': ['global', 'target_profit_daily_pct'],
     // Stop-and-Reverse
     'STOP_AND_REVERSE_ENABLED': ['global', 'stop_and_reverse_enabled'],
+    'COUNTER_REVERSAL_ENABLED': ['global', 'counter_reversal_enabled'],
+    'SAR_KEEP_OPEN': ['global', 'sar_keep_open'],
     'REVERSAL_TP_R': ['global', 'reversal_tp_r'],
     'REVERSAL_COST_AWARE_TP': ['global', 'reversal_cost_aware_tp'],
     'REVERSAL_RISK_PER_TRADE': ['global', 'reversal_risk_per_trade'],
@@ -399,6 +401,8 @@ const TOOLTIPS = {
 
     // Stop-and-Reverse
     STOP_AND_REVERSE_ENABLED: "<strong>The Uno Reverse Card.</strong><br><br>When ANY stop loss fires, immediately open a new position in the <em>opposite</em> direction with a quick TP target. The logic: if price moved hard enough to stop you, it's probably still moving — ride it the other way.<br><br>This turns losing trades into <em>recovery trades</em>. Each reversal uses the 'Reversal Risk %' setting for sizing and targets a quick 1R profit.",
+    COUNTER_REVERSAL_ENABLED: "<strong>Counter-Reversal (CR).</strong><br><br>When the SAR trade starts losing, fire a <em>second</em> trade in the opposite direction at 2× risk with a tight 0.5R stop. If the SAR was wrong, the CR catches the real move. Think of it as insurance: small cost if wrong, big payoff if right.<br><br>CR has its own trailing stop that activates at 0.5R profit.",
+    SAR_KEEP_OPEN: "<strong>Keep SAR Open (Strategy-Specific).</strong><br><br>Controls how SAR and CR interact:<br>• <em>ON:</em> SAR stays open when CR fires (triggers at SAR -0.5R). CR exits if SAR recovers to break-even. Best for RoboCop and Evolution.<br>• <em>OFF:</em> SAR closes at break-even and CR fires immediately. Best for Session Momentum, Quantum, and Supply Demand.<br><br>This is a per-strategy optimization.",
     REVERSAL_TP_R: "<strong>Reversal Take Profit (R-Multiple).</strong><br><br>How much profit to target on stop-and-reverse trades, measured in R (risk units). 1.0R means the TP distance equals the risk distance. Higher values let reversals run further but risk more pullback.",
     REVERSAL_COST_AWARE_TP: "<strong>Cost-Aware TP.</strong><br><br>Adds the estimated spread/fee cost to the reversal's TP distance. This ensures the <em>actual</em> bank balance sees a true 1:1 profit after Oanda/broker fees, instead of a slightly-below 1R fill.",
     REVERSAL_RISK_PER_TRADE: "<strong>Reversal Risk %.</strong><br><br>Risk percentage for stop-and-reverse entries. Higher than normal entry risk because the reversal catches momentum. 4.5% means risking $337 on a $7,500 account per reversal.",
@@ -771,15 +775,15 @@ const STRATEGIES = {
         bestFor: "Universal: maximizing capital efficiency",
         stats: { strategies: "2 parallel", priority: "Scale > New", goal: "Always loaded" }
     },
-    icc_core: {
+    icc_core_standalone: {
         name: "ICC Core (ICT Methodology)",
         shortDesc: "Displacement + OTE Pullback",
         assetClass: "universal",
-        description: "Pure ICT (Inner Circle Trader) methodology: detects displacement (consecutive momentum candles), then enters on pullback to the Optimal Trade Entry zone (50-78.6% Fibonacci) or at a Fair Value Gap. Uses engine trend as directional bias. ⚠️ BACKTESTED: -$1.7K on Forex (9% win rate). Needs tuning — works on theory but fees eat edge on short timeframes.",
+        description: "Pure ICT (Inner Circle Trader) methodology: detects displacement (consecutive momentum candles), then enters on pullback to the Optimal Trade Entry zone (50-78.6% Fibonacci) or at a Fair Value Gap. Uses engine trend as directional bias. Tight 1.5× ATR stops for better risk control.",
         style: "Price Action / ICT",
         risk: "Low-Medium",
-        bestFor: "Universal: ⚠️ experimental — needs tuning",
-        stats: { forex: "❌ -$1.7K", method: "ICT OTE+FVG", winRate: "9%" }
+        bestFor: "Universal: ICT methodology with tight risk",
+        stats: { method: "ICT OTE+FVG", stop: "1.5× ATR", target: "2.0R" }
     },
     supply_demand: {
         name: "Supply & Demand",
@@ -893,8 +897,220 @@ const STRATEGIES = {
         risk: "Medium-High",
         bestFor: "Crypto: sideways/ranging markets",
         stats: { levels: "Dynamic", spacing: "ATR-based", target: "0.5-1.0R" }
+    },
+    yoyo: {
+        name: 'Yo-Yo',
+        shortDesc: 'Momentum Reversal Engine',
+        assetClass: "universal",
+        description: "Proven trend-following SAR strategy. Uses 50 SMA as trend filter (only long above, short below), requires strong directional candle confirmation (close in top/bottom 30% of range), and swing-based structural stops. 2:1 R:R target. On stop hit, SAR reverses automatically. Risk escalates +1% after each profitable exit. Best with SAR enabled.",
+        style: "Trend / SAR",
+        risk: "Medium",
+        bestFor: "Universal: trending markets with SAR enabled",
+        stats: { target: "2:1 R:R", stop: "Swing-based", sar: "Auto-reverse", cap: "3/day/symbol" }
     }
 };
+
+// ═══════════════════════════════════════════════════════════
+// STRATEGY PRESETS — optimal settings per strategy
+// When a strategy is selected, these settings auto-apply.
+// Users can still adjust individual settings afterwards.
+// ═══════════════════════════════════════════════════════════
+
+const STRATEGY_PRESETS = {
+    // --- Universal Strategies ---
+    rubberband_reaper: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '6',
+        RISK_REWARD_RATIO: '3.0',
+        SCALE_OUT_FRACTION: '0.50',
+    },
+    mean_reversion: {
+        RISK_PER_TRADE_PCT: '2.0',  // Backtested optimal: +$881 at 2.0% (was +$535 at 1%)
+        STOP_AND_REVERSE_ENABLED: 'false', // SAR hurts MR (-$589)
+        TRAILING_STOP_ENABLED: 'false',
+        MAX_PYRAMID_ENTRIES: '6',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    supply_demand: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '50',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    bearish_engulfing: {
+        RISK_PER_TRADE_PCT: '2.5',  // Backtested optimal: +$11 at 2.5% (only profitable level)
+        STOP_AND_REVERSE_ENABLED: 'false', // SAR hurts BE
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '3',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    // --- Forex Strategies ---
+    london_breakout: {
+        RISK_PER_TRADE_PCT: '0.5',  // Backtested optimal: -$55 at 0.5% (1.17 R:R, best loss level)
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '1',
+        RISK_REWARD_RATIO: '1.5',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    forex_conductor: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'true',   // SAR is the Conductor's cornerstone
+        REVERSAL_TP_R: '1.0',
+        REVERSAL_COST_AWARE_TP: 'true',
+        REVERSAL_RISK_PER_TRADE: '0.045',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '50',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    trend_rider: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '3',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    session_momentum: {
+        RISK_PER_TRADE_PCT: '1.5',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '1',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    // --- RoboCop: ICC Core + SAR + Guillotine + higher risk ---
+    robocop: {
+        RISK_PER_TRADE_PCT: '2.0',
+        STOP_AND_REVERSE_ENABLED: 'true',
+        REVERSAL_TP_R: '1.0',
+        REVERSAL_COST_AWARE_TP: 'true',
+        REVERSAL_RISK_PER_TRADE: '0.02',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '50',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    // --- Yo-Yo: SAR reversal engine ---
+    yoyo: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'true',
+        REVERSAL_TP_R: '1.0',
+        REVERSAL_COST_AWARE_TP: 'true',
+        REVERSAL_RISK_PER_TRADE: '0.015',
+        TRAILING_STOP_ENABLED: 'false',
+        MAX_PYRAMID_ENTRIES: '1',
+        RISK_REWARD_RATIO: '1.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    // --- ICC Core variants ---
+    icc_core: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '50',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    icc_core_standalone: {
+        RISK_PER_TRADE_PCT: '1.6',  // Backtested optimal: +$3,564 at 1.6% with SAR
+        STOP_AND_REVERSE_ENABLED: 'true', // SAR critical for ICC Core
+        REVERSAL_TP_R: '1.0',
+        REVERSAL_COST_AWARE_TP: 'true',
+        REVERSAL_RISK_PER_TRADE: '0.016',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '50',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    // --- Evolution and Quantum ---
+    evolution: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '50',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    quantum: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '3',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+    // --- Crypto Strategies ---
+    hyper_scalper: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'false',
+        MAX_PYRAMID_ENTRIES: '1',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.50',
+    },
+    crypto_rsi_macd: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '3',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.50',
+    },
+    crypto_vwap_reversion: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'false',
+        MAX_PYRAMID_ENTRIES: '3',
+        RISK_REWARD_RATIO: '1.5',
+        SCALE_OUT_FRACTION: '0.50',
+    },
+    // --- Multi/Meta ---
+    meta_sci: {
+        RISK_PER_TRADE_PCT: '1.0',
+        STOP_AND_REVERSE_ENABLED: 'true',
+        REVERSAL_TP_R: '1.0',
+        REVERSAL_COST_AWARE_TP: 'true',
+        REVERSAL_RISK_PER_TRADE: '0.045',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '50',
+        RISK_REWARD_RATIO: '2.0',
+        SCALE_OUT_FRACTION: '0.95',
+    },
+};
+
+/**
+ * Apply a strategy's preset settings when selected.
+ * Updates all mapped settings via updateValue() and shows a notification.
+ */
+function applyStrategyPreset(strategyKey) {
+    const preset = STRATEGY_PRESETS[strategyKey];
+    if (!preset) return; // No preset defined for this strategy
+
+    const stratName = STRATEGIES[strategyKey]?.name || strategyKey;
+    const changes = [];
+
+    for (const [key, value] of Object.entries(preset)) {
+        const current = getValue(key);
+        if (String(current) !== String(value)) {
+            updateValue(key, value);
+            changes.push(key);
+        }
+    }
+
+    if (changes.length > 0) {
+        console.log(`[PRESET] Applied ${stratName} preset: ${changes.join(', ')}`);
+        showNotice(`${stratName} preset applied (${changes.length} settings)`, 'teal');
+        renderTab(); // Refresh UI to reflect changes
+    }
+}
 
 // Asset class definitions for strategy assignment
 const ASSET_CLASSES = [
@@ -1690,6 +1906,9 @@ function renderStrategyTab(container) {
 
                 // Save the value
                 updateValue(asset.envKey, newStrategy);
+
+                // Auto-apply strategy preset settings
+                applyStrategyPreset(newStrategy);
             });
 
             section.appendChild(card);
@@ -1793,6 +2012,8 @@ function renderStrategyTab(container) {
         ));
 
         section.appendChild(createCard('Enable Stop-and-Reverse', 'Flip direction on stop loss hits', 'STOP_AND_REVERSE_ENABLED', 'toggle'));
+        section.appendChild(createCard('Enable Counter-Reversal', 'Fire 2× trade when SAR is losing', 'COUNTER_REVERSAL_ENABLED', 'toggle'));
+        section.appendChild(createCard('Keep SAR Open', 'SAR stays open alongside CR (per-strategy)', 'SAR_KEEP_OPEN', 'toggle'));
         section.appendChild(createSliderCard('Reversal TP (R-Multiple)', 'Take profit target for reversals', 'REVERSAL_TP_R', 0.5, 5.0, 0.5, 'R'));
         section.appendChild(createSliderCard('Reversal Risk %', 'Risk per reversal trade', 'REVERSAL_RISK_PER_TRADE', 0.01, 0.10, 0.005, '', { pctFormat: true }));
         section.appendChild(createCard('Cost-Aware TP', 'Add spread buffer to TP target', 'REVERSAL_COST_AWARE_TP', 'toggle'));

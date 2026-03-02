@@ -70,12 +70,20 @@ class WebSocketServer:
                                 self.subscriptions[ws] = {"symbol": symbol, "tf": tf or "15m"}
                                 logger.info(f"[WS] Client subscribed to {symbol} ({tf})")
                                 if self._on_subscribe_cb:
-                                    self._on_subscribe_cb(symbol, tf or "15m")
+                                    # Run in thread pool — callback makes blocking HTTP calls
+                                    loop = asyncio.get_event_loop()
+                                    await loop.run_in_executor(
+                                        None, self._on_subscribe_cb, symbol, tf or "15m"
+                                    )
                         elif data.get('type') == 'tick':
                             symbol = data.get('symbol')
                             tf = (data.get('tf') or '15m').lower()
                             if symbol and self._on_tick_cb:
-                                self._on_tick_cb(symbol, tf)
+                                # Run in thread pool — callback makes blocking HTTP calls
+                                loop = asyncio.get_event_loop()
+                                await loop.run_in_executor(
+                                    None, self._on_tick_cb, symbol, tf
+                                )
                         elif data.get('type') == 'log':
                             # Bridge frontend logs to backend for easier debugging
                             lvl = data.get('level', 'INFO').upper()

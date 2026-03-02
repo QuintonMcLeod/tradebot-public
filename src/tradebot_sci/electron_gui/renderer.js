@@ -1599,14 +1599,28 @@ if (document.readyState === 'loading') {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PANEL RESIZE (Generic — works with all .panel-resize-handle elements)
+// PANEL RESIZE (Independent — each panel resizes without affecting others)
 // ═══════════════════════════════════════════════════════════════════════════
 (function initPanelResize() {
     const STORAGE_KEY = 'tradebot_panel_heights';
+    const ALL_PANELS = ['chart-panel', 'decisions-panel', 'log-panel'];
     const MIN_HEIGHTS = {
-        'decisions-panel': 160,
-        'log-panel': 100,
+        'chart-panel': 200,
+        'decisions-panel': 120,
+        'log-panel': 80,
     };
+
+    // Lock ALL panels to explicit pixel heights so flex can't redistribute
+    function lockAllPanels() {
+        ALL_PANELS.forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.style.flex !== 'none') {
+                const h = el.getBoundingClientRect().height;
+                el.style.flex = 'none';
+                el.style.height = Math.round(h) + 'px';
+            }
+        });
+    }
 
     function setup() {
         const handles = document.querySelectorAll('.panel-resize-handle');
@@ -1616,20 +1630,28 @@ if (document.readyState === 'loading') {
         restoreHeights();
 
         let activeHandle = null;
-        let targetPanel = null;
+        let abovePanel = null;
+        let belowPanel = null;
         let startY = 0;
-        let startH = 0;
+        let aboveStartH = 0;
+        let belowStartH = 0;
 
         handles.forEach(handle => {
             handle.addEventListener('mousedown', (e) => {
                 e.preventDefault();
-                const targetId = handle.dataset.above;
-                targetPanel = document.getElementById(targetId);
-                if (!targetPanel) return;
+                const aboveId = handle.dataset.above;
+                const belowId = handle.dataset.below;
+                abovePanel = document.getElementById(aboveId);
+                belowPanel = document.getElementById(belowId);
+                if (!abovePanel) return;
+
+                // Lock all panels to current pixel heights first
+                lockAllPanels();
 
                 activeHandle = handle;
                 startY = e.clientY;
-                startH = targetPanel.getBoundingClientRect().height;
+                aboveStartH = abovePanel.getBoundingClientRect().height;
+                belowStartH = belowPanel ? belowPanel.getBoundingClientRect().height : 0;
 
                 document.body.style.cursor = 'row-resize';
                 document.body.style.userSelect = 'none';
@@ -1646,14 +1668,33 @@ if (document.readyState === 'loading') {
         document.addEventListener('mousemove', (e) => {
             if (!activeHandle) return;
             const delta = e.clientY - startY;
-            let newH = startH + delta;
 
-            const minH = MIN_HEIGHTS[targetPanel.id] || 100;
-            if (newH < minH) newH = minH;
+            // Resize above panel (grows/shrinks with drag)
+            const aboveMin = MIN_HEIGHTS[abovePanel.id] || 100;
+            let newAboveH = Math.max(aboveStartH + delta, aboveMin);
 
-            // Only resize this one panel; the other keeps its size
-            targetPanel.style.flex = 'none';
-            targetPanel.style.height = newH + 'px';
+            // If there's a below panel, resize inversely
+            if (belowPanel) {
+                const belowMin = MIN_HEIGHTS[belowPanel.id] || 80;
+                let newBelowH = belowStartH - delta;
+                if (newBelowH < belowMin) {
+                    newBelowH = belowMin;
+                    newAboveH = aboveStartH + belowStartH - belowMin;
+                }
+                belowPanel.style.height = Math.round(newBelowH) + 'px';
+            }
+
+            abovePanel.style.height = Math.round(newAboveH) + 'px';
+
+            // Trigger chart resize if chart panel was involved
+            if (abovePanel.id === 'chart-panel' || (belowPanel && belowPanel.id === 'chart-panel')) {
+                if (chart) {
+                    const container = document.getElementById('chart-area');
+                    if (container) {
+                        chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+                    }
+                }
+            }
         });
 
         document.addEventListener('mouseup', () => {
@@ -1672,15 +1713,23 @@ if (document.readyState === 'loading') {
             // Save all panel heights
             saveHeights();
 
+            // Final chart resize
+            setTimeout(() => {
+                if (chart) {
+                    const container = document.getElementById('chart-area');
+                    if (container) chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+                }
+            }, 50);
+
             activeHandle = null;
-            targetPanel = null;
+            abovePanel = null;
+            belowPanel = null;
         });
     }
 
     function saveHeights() {
-        const panels = ['decisions-panel', 'log-panel'];
         const heights = {};
-        panels.forEach(id => {
+        ALL_PANELS.forEach(id => {
             const el = document.getElementById(id);
             if (el) heights[id] = Math.round(el.getBoundingClientRect().height);
         });
@@ -1701,6 +1750,26 @@ if (document.readyState === 'loading') {
             });
         } catch (_) { /* ignore */ }
     }
+
+    // Global reset function — clears saved heights so original CSS flex classes take over
+    window.resetPanelLayout = function () {
+        localStorage.removeItem(STORAGE_KEY);
+        ALL_PANELS.forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            // Clear inline overrides — original Tailwind classes (flex-[3], flex-[1.5], flex-1) take over
+            el.style.flex = '';
+            el.style.height = '';
+        });
+        // Resize chart after layout settles
+        setTimeout(() => {
+            if (chart) {
+                const container = document.getElementById('chart-area');
+                if (container) chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+            }
+        }, 100);
+        console.log('[UI] Panel layout reset to defaults');
+    };
 
     // Initialize after DOM is ready
     if (document.readyState === 'loading') {

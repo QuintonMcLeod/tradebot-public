@@ -134,19 +134,30 @@ class BearishEngulfingStrategy(BaseStrategy):
         if engulfing is None:
             return None
 
+        # [HARDENED] Engulfing body must be significant (≥ 0.4× ATR)
+        engulfing_body = abs(curr.close - curr.open)
+        if engulfing_body < atr * 0.4:
+            return None  # Weak engulfing — body too small
+
         # Must be at a key level
         if not self._at_key_level(snapshot, engulfing):
             return None
 
         # HTF alignment
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        htf_strength = float(gates.get("htf_strength", 0))
+        if htf_strength < 0.2:
+            return None  # [HARDENED] Need meaningful trend
         has_divergence = self._check_rsi_divergence(snapshot, engulfing)
         rsi = calculate_rsi([c.close for c in snapshot.candles], self.rsi_period)
 
         # --- BEARISH ENGULFING at resistance ---
         if engulfing == "bearish":
-            # Only enter short when trend is bearish or neutral
-            if htf_dir not in ("short", "neutral"):
+            # [HARDENED] Only enter short when trend is bearish — no neutral
+            if htf_dir != "short":
+                return None
+            # [HARDENED] RSI must be elevated (overbought zone)
+            if rsi < 60:
                 return None
 
             # Pyramid check: only scale into SHORT positions
@@ -158,9 +169,9 @@ class BearishEngulfingStrategy(BaseStrategy):
                 if entry_price > 0 and curr.close >= entry_price:
                     return None  # Not at a better price for shorts
 
-            stop_loss = curr.high + (atr * 1.5)  # 1.5 ATR buffer — safe from spread
+            stop_loss = curr.high + (atr * 0.8)  # [HARDENED] Tighter: 0.8 ATR buffer
             stop_dist = stop_loss - curr.close
-            take_profit = curr.close - (stop_dist * 2.0)  # 2:1 R:R
+            take_profit = curr.close - (stop_dist * 2.5)  # [HARDENED] 2.5:1 R:R
 
             div_note = " + RSI Divergence" if has_divergence else ""
             action = "scale_in" if is_pyramid else "enter_short"
@@ -185,8 +196,11 @@ class BearishEngulfingStrategy(BaseStrategy):
 
         # --- BULLISH ENGULFING at support ---
         if engulfing == "bullish":
-            # Only enter long when trend is bullish or neutral
-            if htf_dir not in ("long", "neutral"):
+            # [HARDENED] Only enter long when trend is bullish — no neutral
+            if htf_dir != "long":
+                return None
+            # [HARDENED] RSI must be depressed (oversold zone)
+            if rsi > 40:
                 return None
 
             # Pyramid check: only scale into LONG positions
@@ -198,9 +212,9 @@ class BearishEngulfingStrategy(BaseStrategy):
                 if entry_price > 0 and curr.close <= entry_price:
                     return None  # Not at a better price for longs
 
-            stop_loss = curr.low - (atr * 1.5)  # 1.5 ATR buffer — safe from spread
+            stop_loss = curr.low - (atr * 0.8)  # [HARDENED] Tighter: 0.8 ATR buffer
             stop_dist = curr.close - stop_loss
-            take_profit = curr.close + (stop_dist * 2.0)  # 2:1 R:R
+            take_profit = curr.close + (stop_dist * 2.5)  # [HARDENED] 2.5:1 R:R
 
             div_note = " + RSI Divergence" if has_divergence else ""
             action = "scale_in" if is_pyramid else "enter_long"

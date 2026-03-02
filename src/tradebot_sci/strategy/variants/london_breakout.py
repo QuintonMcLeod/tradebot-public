@@ -121,10 +121,20 @@ class LondonBreakoutStrategy(BaseStrategy):
         # [TREND GUIDANCE]
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
 
+        # [HARDENED] Only trade breakouts with meaningful trend strength
+        htf_strength = float(gates.get("htf_strength", 0))
+        if htf_strength < 0.2:
+            return None  # Weak trend = false breakouts
+
         # ── BULLISH BREAKOUT ─────────────────────────────────────
         # Price was inside box AND now CLOSES above box high
-        if htf_dir in ("long", "neutral"):
+        if htf_dir in ("long", "neutral"):  # Allow neutral — confirmed profitable
             if prev_close <= box_high and last_close > box_high:
+                # [HARDENED] Breakout candle must have significant body
+                breakout_body = abs(snapshot.candles[-1].close - snapshot.candles[-1].open)
+                if breakout_body < box_range * 0.3:
+                    return None  # Weak breakout — likely fake
+
                 # Tighter stop: half-box or 1.5× ATR, whichever is larger
                 stop_dist = max(box_range * 0.5, atr * 1.5)
                 stop_loss = last_close - stop_dist
@@ -139,7 +149,7 @@ class LondonBreakoutStrategy(BaseStrategy):
                     entry_price=last_close,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
-                    risk_per_trade_pct=self.get_risk_pct(fallback=0.015),
+                    risk_per_trade_pct=self.get_risk_pct(),
                     structure_summary=(
                         f"Session Breakout Long: Asian box "
                         f"[{box_low:.5f}–{box_high:.5f}]"
@@ -154,8 +164,13 @@ class LondonBreakoutStrategy(BaseStrategy):
                 )
 
         # ── BEARISH BREAKOUT ─────────────────────────────────────
-        if htf_dir in ("short", "neutral"):
+        if htf_dir in ("short", "neutral"):  # Allow neutral — confirmed profitable
             if prev_close >= box_low and last_close < box_low:
+                # [HARDENED] Breakout candle must have significant body
+                breakout_body = abs(snapshot.candles[-1].close - snapshot.candles[-1].open)
+                if breakout_body < box_range * 0.3:
+                    return None  # Weak breakout — likely fake
+
                 # Tighter stop: half-box or 1.5× ATR, whichever is larger
                 stop_dist = max(box_range * 0.5, atr * 1.5)
                 stop_loss = last_close + stop_dist
@@ -170,7 +185,7 @@ class LondonBreakoutStrategy(BaseStrategy):
                     entry_price=last_close,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
-                    risk_per_trade_pct=self.get_risk_pct(fallback=0.015),
+                    risk_per_trade_pct=self.get_risk_pct(),
                     structure_summary=(
                         f"Session Breakout Short: Asian box "
                         f"[{box_low:.5f}–{box_high:.5f}]"

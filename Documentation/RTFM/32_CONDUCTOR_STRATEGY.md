@@ -87,6 +87,34 @@ take_profit = None  # Let Conductor's dynamic trail manage exits
 
 ---
 
+## Regime Classification: ADX Thresholds
+
+The Conductor routes entries based on the market regime, which is determined by ADX in `trend_consensus.py`'s `_classify_regime()` function.
+
+### Forex-Tuned Thresholds (March 2026)
+
+| Regime | ADX Condition | Routes To |
+|--------|:------------:|:----------|
+| **Trending** | ADX > 20 + EMA aligned | Trend Rider |
+| **Transitional** | ADX 12-20 | Session Breakout |
+| **Ranging** | ADX ≤ 12 | Mean Reversion |
+| **Choppy** | No conditions met | BLOCKED |
+
+### Chop Gate (profile settings)
+
+| Setting | Value | Effect |
+|---------|:-----:|:-------|
+| `adx_gate_threshold` | 12 | ADX < 12 → halve trend strength |
+| `trend_chop_threshold` | 8 | ADX < 8 → kill direction entirely |
+
+> [!WARNING]
+> **These thresholds were lowered from crypto/stock defaults (30/20/15) specifically for forex.** Forex on 1H rarely pushes ADX above 25. With the old thresholds, 100% of bars classified as "ranging" — the Conductor never saw trending or transitional markets. Verified via 14-day backtest.
+
+> **🔧 File:** `src/tradebot_sci/market/trend_consensus.py` → `_classify_regime()` (lines ~408-450)
+> **🔧 Profile:** `adx_gate_threshold=12`, `trend_chop_threshold=8`
+
+---
+
 ## Loss Mitigation: The 95% Guillotine
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"OK but... what about losses? That's the part that keeps me up at night."</td></tr></table>
@@ -368,7 +396,8 @@ if et.weekday() == 4 and (
 | ATR Calculation | `calculate_atr()` | `icc_signals.py` |
 | EMA Calculation | `calculate_ema()` | `indicators.py` |
 | Floor Management | R-milestone system | `forex_conductor.py` |
-| Trend Detection | Regime classifier | `safety_guard.py` |
+| Trend Detection | Regime classifier | `trend_consensus.py` |
+| ADX Thresholds | Forex-tuned (20/12/8) | `trend_consensus.py` |
 | HTF/LTF Gates | Profile trend settings | `models.py` |
 | Flywheel | Compound sizing | `backtester.py:1607+` |
 | Regime Sync | 1.5× performance boost | `backtester.py:1620+` |
@@ -423,6 +452,7 @@ Avg Per Window: +$462
 > - **Do NOT reduce reversal risk below 4.5%.** 1% (+$64), 2% (+$127), 4.5% (+$292). Each step up improved results.
 > - **Do NOT cap pyramids at less than 50.** Pyramids 4-8 are where the real money is.
 > - **Do NOT disable cost-aware TP.** Without it, every reversal nets 0.92R instead of 1.0R — that's $25/trade leaked to the broker.
+> - **Do NOT raise ADX thresholds back to 30/20/15.** Those are crypto/stock defaults. Forex on 1H needs 20/12/8 or the Conductor sees 100% ranging.
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"What if I just tweak ONE thi—"</td></tr></table>
 

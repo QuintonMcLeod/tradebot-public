@@ -97,6 +97,12 @@ class RobotEvolutionStrategy(BaseStrategy):
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         if not snapshot.candles or len(snapshot.candles) < 20:
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Insufficient candle history (<20)")
+
+        # VOLUME GATE: Skip low volume — no trend in dead sessions
+        recent_volumes = [c.volume for c in snapshot.candles[-20:-1] if c.volume > 0]
+        avg_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 1.0
+        if snapshot.candles[-1].volume < avg_volume:
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Evolution: Low volume")
             
         htf_candles = snapshot.htf_candles or snapshot.candles
         ltf_candles = snapshot.ltf_candles or snapshot.candles
@@ -117,25 +123,28 @@ class RobotEvolutionStrategy(BaseStrategy):
             
         atr = calculate_atr(snapshot.candles, period=14) or (ntz_range * 0.1)
         
-        # [ARMOR] 2.0 ATR Stops
+        # ATR×1.0 stop works better for NTZ — swing stops were too tight (48% WR)
         atr_floor = current_price * 0.002
         effective_atr = max(atr, atr_floor)
-        stop_dist = effective_atr * UserConfig.STOP_ATR_MULTIPLIER
+        stop_dist = effective_atr * 1.0
         
         rejection_reasons = []
 
         # [TREND GUIDANCE] Follow the trend direction from HTF analysis
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        htf_strength = float(gates.get("htf_strength", 0))
+        if htf_strength < 0.2:
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Evolution: weak HTF trend")
 
-        # Long: Sweep of NTZ Low + Bullish Indication (only when trend allows)
+        # Long: Sweep of NTZ Low + Bullish Indication (only when trend is long)
         lowest_recent = min(c.low for c in snapshot.candles[-5:])
-        if htf_dir in ("long", "neutral") and indication.direction == "long":
+        if htf_dir == "long" and indication.direction == "long":  # [HARDENED] No neutral
             if lowest_recent < ntz.low and current_price > ntz.low:
                 if last_bar.close > last_bar.open:
                     stop_loss = lowest_recent - stop_dist
-                    target = current_price + (stop_dist * 2.0)
+                    target = current_price + (stop_dist * 2.0)  # 2R target
                     
-                    notes = f"Robot Evolution Long: {UserConfig.STOP_ATR_MULTIPLIER}ATR Stop / 2.0R Target (Effective ATR: {effective_atr:.4f})"
+                    notes = f"Robot Evolution Long: 1.0ATR Stop / 2R Target (ATR: {effective_atr:.4f})"
                     return AITradeDecision(
                         symbol=snapshot.symbol,
                         timeframe=snapshot.timeframe,
@@ -151,15 +160,15 @@ class RobotEvolutionStrategy(BaseStrategy):
             else:
                 rejection_reasons.append(f"Price not sweeping NTZ Low ({ntz.low:.2f}) correctly")
 
-        # Short: Sweep of NTZ High + Bearish Indication (only when trend allows)
+        # Short: Sweep of NTZ High + Bearish Indication (only when trend is short)
         highest_recent = max(c.high for c in snapshot.candles[-5:])
-        if htf_dir in ("short", "neutral") and indication.direction == "short":
+        if htf_dir == "short" and indication.direction == "short":  # [HARDENED] No neutral
             if highest_recent > ntz.high and current_price < ntz.high:
                 if last_bar.close < last_bar.open:
                     stop_loss = highest_recent + stop_dist
-                    target = current_price - (stop_dist * 2.0)
+                    target = current_price - (stop_dist * 2.0)  # 2R target
                     
-                    notes = f"Robot Evolution Short: {UserConfig.STOP_ATR_MULTIPLIER}ATR Stop / 2.0R Target (Effective ATR: {effective_atr:.4f})"
+                    notes = f"Robot Evolution Short: 1.0ATR Stop / 2R Target (ATR: {effective_atr:.4f})"
                     return AITradeDecision(
                         symbol=snapshot.symbol,
                         timeframe=snapshot.timeframe,
@@ -179,6 +188,66 @@ class RobotEvolutionStrategy(BaseStrategy):
         return stand_aside_decision(snapshot.symbol, snapshot.timeframe, final_reason)
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
-        """All exits managed by SafetyGuard. No strategy-level exit authority."""
+        """
+        Chandelier Exit (Charles Le Beau): trail from highest high / lowest low
+        minus ATR×2. Proven for breakout strategies — gives room for pullbacks
+        while protecting profits.
+        """
+        if not snapshot.candles or not open_position:
+            return None
+
+        entry_price = float(open_position.get("entry_price", 0))
+        stop_price = float(open_position.get("stop_price", 0) or open_position.get("stop_loss", 0))
+        current_price = snapshot.candles[-1].close
+        direction = open_position.get("direction", "long")
+
+        if entry_price <= 0 or stop_price <= 0:
+            return None
+
+        initial_risk = abs(entry_price - stop_price)
+        if initial_risk <= 0:
+            return None
+
+        atr = calculate_atr(snapshot.candles, period=14) or (current_price * 0.001)
+
+        # Calculate current R-multiple
+        if direction == "long":
+            profit = current_price - entry_price
+        else:
+            profit = entry_price - current_price
+
+        r_multiple = profit / initial_risk
+
+        if r_multiple < 1.0:
+            return None  # Not yet profitable enough to trail
+
+        # Chandelier Exit: trail from highest high / lowest low (last 10 bars)
+        lookback = min(10, len(snapshot.candles))
+        recent = snapshot.candles[-lookback:]
+        chandelier_mult = 2.0  # Standard forex Chandelier multiplier
+
+        from tradebot_sci.strategy.decisions import hold_decision
+
+        if direction == "long":
+            highest_high = max(c.high for c in recent)
+            new_stop = highest_high - (atr * chandelier_mult)
+            # Only move stop UP, never down
+            if new_stop > stop_price:
+                return hold_decision(
+                    snapshot.symbol, snapshot.timeframe,
+                    reason=f"Evolution Chandelier: {new_stop:.5f} (HH={highest_high:.5f}, {r_multiple:.1f}R)",
+                    stop_loss=new_stop,
+                )
+        else:
+            lowest_low = min(c.low for c in recent)
+            new_stop = lowest_low + (atr * chandelier_mult)
+            # Only move stop DOWN, never up
+            if new_stop < stop_price:
+                return hold_decision(
+                    snapshot.symbol, snapshot.timeframe,
+                    reason=f"Evolution Chandelier: {new_stop:.5f} (LL={lowest_low:.5f}, {r_multiple:.1f}R)",
+                    stop_loss=new_stop,
+                )
+
         return None
 

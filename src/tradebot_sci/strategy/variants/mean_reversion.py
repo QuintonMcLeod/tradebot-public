@@ -24,7 +24,7 @@ class MeanReversionStrategy(BaseStrategy):
     """
 
     def __init__(self, bb_period=20, bb_std=2.0, rsi_period=14,
-                 rsi_overbought=70, rsi_oversold=30):
+                 rsi_overbought=75, rsi_oversold=25):
         super().__init__("Mean Reversion")
         self.bb_period = bb_period
         self.bb_std = bb_std
@@ -49,6 +49,12 @@ class MeanReversionStrategy(BaseStrategy):
         last_close = closes[-1]
         prev_close = closes[-2]
         atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
+
+        # ── BB WIDTH FILTER ──────────────────────────────────────
+        # Skip entries when bands are too narrow (squeeze) — false bounces
+        bb_width = upper - lower
+        if bb_width < atr * 0.5:
+            return None  # Bands too narrow, squeeze condition
 
         # ── RANGING MARKET FILTER ────────────────────────────────
         # When used standalone (not via Conductor), ADX<25 ensures
@@ -76,7 +82,7 @@ class MeanReversionStrategy(BaseStrategy):
             rsi_oversold = rsi < self.rsi_oversold
 
             if prev_touched_lower and bouncing_back and rsi_oversold:
-                stop_loss = last_close - (atr * 1.5)  # Moderately wide stop
+                stop_loss = last_close - (atr * 1.2)  # Moderately wide stop
                 risk = abs(last_close - stop_loss)
                 take_profit = last_close + (risk * 2.0)  # 2:1 R:R always
 
@@ -107,7 +113,7 @@ class MeanReversionStrategy(BaseStrategy):
             rsi_overbought = rsi > self.rsi_overbought
 
             if prev_touched_upper and bouncing_back and rsi_overbought:
-                stop_loss = last_close + (atr * 1.0)  # Tight stop
+                stop_loss = last_close + (atr * 1.2)  # Equalized with long side
                 risk = abs(stop_loss - last_close)
                 take_profit = last_close - (risk * 2.0)  # 2:1 R:R always
 

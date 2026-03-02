@@ -986,6 +986,20 @@ def run_bot(
         logger.warning(f"[WS] Dedicated chart provider failed, falling back to shared: {e}")
         _chart_provider = provider
 
+    # Dedicated OANDA provider for chart tick fetches (forex).
+    # The main OANDA provider MUST NOT be shared across threads.
+    _forex_chart_provider = None
+    try:
+        from tradebot_sci.market.oanda_provider import OandaMarketDataProvider
+        oanda_id = settings.broker.oanda_account_id
+        oanda_key = settings.broker.oanda_api_key
+        oanda_env = settings.broker.oanda_environment or "practice"
+        if oanda_id and oanda_key:
+            _forex_chart_provider = OandaMarketDataProvider(oanda_id, oanda_key, oanda_env)
+            logger.info("[WS] Created dedicated OANDA chart provider for forex ticks")
+    except Exception as e:
+        logger.warning(f"[WS] Dedicated OANDA chart provider failed: {e}")
+
     def on_subscribe(symbol, tf):
         from tradebot_sci.runtime.provider_factory import _get_asset_key
         asset_key = _get_asset_key(symbol)
@@ -998,7 +1012,7 @@ def run_bot(
             # but use the main hybrid provider for forex (OANDA) since the
             # CCXT chart provider only has crypto data.
             if asset_key == "forex":
-                chart_prov = provider  # main provider has OANDA access
+                chart_prov = _forex_chart_provider or provider
             else:
                 chart_prov = _chart_provider or provider
             hist = chart_prov.get_latest_candles(symbol, tf, limit=500)
@@ -1031,7 +1045,7 @@ def run_bot(
         key = (symbol.upper(), tf.lower())
         # Use main provider for forex (OANDA), dedicated CCXT for crypto
         if _get_asset_key(symbol) == "forex":
-            chart_prov = provider
+            chart_prov = _forex_chart_provider or provider
         else:
             chart_prov = _chart_provider or provider
         try:
@@ -1042,7 +1056,7 @@ def run_bot(
                 controller.broadcast_candle(symbol, tf, candle)
                 return
         except Exception as e:
-            logger.debug(f"[WS-TICK] Live fetch failed for {symbol} {tf}: {e}")
+            logger.warning(f"[WS-TICK] Live fetch failed for {symbol} {tf}: {e}")
 
         # Fallback to cache if live fetch fails
         cached = _candle_cache.get(key)

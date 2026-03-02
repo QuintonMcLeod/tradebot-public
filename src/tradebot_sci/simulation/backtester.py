@@ -170,6 +170,15 @@ class SimulatedPosition:
     entry_gates: Optional[dict] = None  # Score breakdown at entry time
     strategy_name: str = "unknown"  # Strategy that opened this trade
     cumulative_partial_pnl: float = 0.0  # Running total of partial close PnLs
+    stop_was_trailed: bool = False  # True once stop moves from initial position (SAR gate)
+
+    def __post_init__(self):
+        # Auto-resolve strategy_name from entry_gates if still defaulted
+        if self.strategy_name == "unknown" and self.entry_gates:
+            meta_src = self.entry_gates.get("meta_source")
+            if meta_src:
+                self.strategy_name = meta_src
+
 
 
 @dataclass
@@ -186,6 +195,12 @@ class SimulatedTrade:
     exit_reason: str  # "stop", "target", "signal", "eod"
     entry_gates: Optional[dict] = None  # Score breakdown at entry time
     strategy_name: str = "unknown"  # Which strategy managed this trade
+
+    def __post_init__(self):
+        if self.strategy_name == "unknown" and self.entry_gates:
+            meta_src = self.entry_gates.get("meta_source")
+            if meta_src:
+                self.strategy_name = meta_src
 
 
 @dataclass
@@ -742,7 +757,8 @@ class Backtester:
                             exit_time=current_time,
                             pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                             exit_reason="profit_hold",
-                        entry_gates=getattr(pos, "entry_gates", None),
+                            entry_gates=getattr(pos, "entry_gates", None),
+                            strategy_name=getattr(pos, 'strategy_name', 'unknown'),
                         ))
                         trade_results_store.add_result(TradeResult(
                             symbol=symbol,
@@ -786,7 +802,8 @@ class Backtester:
                             exit_time=current_time,
                             pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                             exit_reason="stop",
-                        entry_gates=getattr(pos, "entry_gates", None),
+                            entry_gates=getattr(pos, "entry_gates", None),
+                            strategy_name=getattr(pos, 'strategy_name', 'unknown'),
                         ))
                         trade_results_store.add_result(TradeResult(
                             symbol=symbol,
@@ -806,11 +823,12 @@ class Backtester:
                         # ── STOP-AND-REVERSE ──────────────────────────
                         # Read from profile settings (non-exclusive).
                         sar_enabled = bool(getattr(profile, 'stop_and_reverse_enabled', False))
-                        if sar_enabled and pos_key not in positions:
+                        # SAR fires on initial stops; B/E exit logic handles risk management
+                        if sar_enabled and not pos.stop_was_trailed and pos_key not in positions:
                             rev_dir = "short" if pos.direction == "long" else "long"
                             rev_entry = exit_price
                             risk_dist = abs(pos.entry_price - pos.stop_price)
-                            # TP distance: reversal_tp_r × risk + optional spread buffer
+                            # Fixed 1R target
                             rev_tp_r = float(getattr(profile, 'reversal_tp_r', 1.0))
                             tp_dist = risk_dist * rev_tp_r
                             if bool(getattr(profile, 'reversal_cost_aware_tp', True)):
@@ -836,12 +854,13 @@ class Backtester:
                                     target_price=rev_tp,
                                     entry_time=current_time,
                                     strategy_name="reversal",
+                                    total_cost=rev_entry * rev_size,
                                 )
                                 logger.info(
                                     f"[BACKTEST] {symbol} REVERSE → "
                                     f"{rev_dir} @ {rev_entry:.5f}, "
                                     f"SL={rev_sl:.5f}, "
-                                    f"TP={rev_tp:.5f} ({rev_tp_r}R+spread)"
+                                    f"TP={rev_tp:.5f} ({rev_tp_r}R)"
                                 )
                         continue
 
@@ -872,7 +891,8 @@ class Backtester:
                             exit_time=current_time,
                             pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                             exit_reason="target",
-                        entry_gates=getattr(pos, "entry_gates", None),
+                            entry_gates=getattr(pos, "entry_gates", None),
+                            strategy_name=getattr(pos, 'strategy_name', 'unknown'),
                         ))
                         trade_results_store.add_result(TradeResult(
                             symbol=symbol,
@@ -892,6 +912,160 @@ class Backtester:
 
                 # Update unrealized P&L
                 pos.unrealized_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction, symbol=symbol)
+
+                # ── COUNTER-REVERSAL (CR) MANAGEMENT ──────────────────────
+                cr_enabled = bool(getattr(profile, 'counter_reversal_enabled', False))
+                sar_keep_open = bool(getattr(profile, 'sar_keep_open', False))
+                if cr_enabled:
+                    if pos.strategy_name == "reversal":
+                        cr_key = f"{symbol}:counter_reversal"
+                        sar_risk_dist = abs(pos.entry_price - pos.stop_price) if pos.stop_price else 0
+                        if sar_risk_dist > 0 and cr_key not in positions:
+                            if pos.direction == "long":
+                                sar_r = (current_bar.close - pos.entry_price) / sar_risk_dist
+                            else:
+                                sar_r = (pos.entry_price - current_bar.close) / sar_risk_dist
+
+                            # MODE A: sar_keep_open=True → CR fires at -0.5R, SAR stays open
+                            # MODE B: sar_keep_open=False → SAR closes at B/E (R≤0), CR fires
+                            cr_trigger = (sar_r <= -0.5) if sar_keep_open else (sar_r <= 0)
+
+                            if cr_trigger:
+                                # In Mode B, close SAR first
+                                if not sar_keep_open:
+                                    sar_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction, symbol=symbol)
+                                    capital += sar_pnl
+                                    completed_trades.append(SimulatedTrade(
+                                        symbol=symbol,
+                                        direction=pos.direction,
+                                        entry_price=pos.entry_price,
+                                        exit_price=current_bar.close,
+                                        size=pos.size,
+                                        entry_time=pos.entry_time,
+                                        exit_time=current_time,
+                                        pnl=sar_pnl,
+                                        exit_reason="sar_be_exit",
+                                        strategy_name="reversal",
+                                    ))
+                                    trade_results_store.add_result(TradeResult(
+                                        symbol=symbol,
+                                        closed_at=current_time.isoformat(),
+                                        pnl_pct=(sar_pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                                        pnl_usd=sar_pnl,
+                                        is_win=sar_pnl > 0,
+                                        tier="backtest",
+                                        capital_at_close=capital,
+                                        strategy="reversal",
+                                        exit_reason="sar_be_exit",
+                                        side=pos.direction,
+                                    ))
+                                    del positions[pos_key]
+                                    logger.info(
+                                        f"[BACKTEST] {symbol} SAR B/E exit: PnL=${sar_pnl:.2f} ({sar_r:.2f}R)"
+                                    )
+
+                                # Fire CR
+                                cr_dir = "short" if pos.direction == "long" else "long"
+                                cr_entry = current_bar.close
+                                cr_stop_dist = sar_risk_dist * 0.5  # Tight 0.5R stop
+                                # CR sizing: capital-based if cr_risk_pct set, else 2× SAR
+                                cr_risk_pct = float(getattr(profile, 'cr_risk_pct', 0.0))
+                                if cr_risk_pct > 0 and cr_stop_dist > 0:
+                                    cr_risk_dollars = capital * cr_risk_pct
+                                    cr_size = cr_risk_dollars / cr_stop_dist
+                                else:
+                                    cr_size = pos.size * 2.0  # Default: 2× SAR
+                                if cr_dir == "long":
+                                    cr_sl = cr_entry - cr_stop_dist
+                                    cr_tp = cr_entry + sar_risk_dist  # 1R target
+                                else:
+                                    cr_sl = cr_entry + cr_stop_dist
+                                    cr_tp = cr_entry - sar_risk_dist
+                                positions[cr_key] = SimulatedPosition(
+                                    symbol=symbol,
+                                    direction=cr_dir,
+                                    entry_price=cr_entry,
+                                    size=cr_size,
+                                    stop_price=cr_sl,
+                                    target_price=cr_tp,
+                                    entry_time=current_time,
+                                    strategy_name="counter_reversal",
+                                    total_cost=cr_entry * cr_size,
+                                )
+                                logger.info(
+                                    f"[BACKTEST] {symbol} COUNTER-REVERSAL → "
+                                    f"{cr_dir} @ {cr_entry:.5f}, "
+                                    f"SL={cr_sl:.5f}, TP={cr_tp:.5f} (2× risk)"
+                                )
+                                if not sar_keep_open:
+                                    continue  # SAR is gone, skip to next
+
+                    # CR EXIT IF SAR RECOVERS TO B/E (only in keep-open mode)
+                    if sar_keep_open and pos.strategy_name == "counter_reversal":
+                        sar_candidates = [
+                            (k, v) for k, v in positions.items()
+                            if v.strategy_name == "reversal" and _symbol_from_key(k) == symbol
+                        ]
+                        for sar_key, sar_pos in sar_candidates:
+                            sar_risk_dist = abs(sar_pos.entry_price - sar_pos.stop_price) if sar_pos.stop_price else 0
+                            if sar_risk_dist > 0:
+                                if sar_pos.direction == "long":
+                                    sar_r = (current_bar.close - sar_pos.entry_price) / sar_risk_dist
+                                else:
+                                    sar_r = (sar_pos.entry_price - current_bar.close) / sar_risk_dist
+                                if sar_r >= 0:
+                                    cr_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction, symbol=symbol)
+                                    capital += cr_pnl
+                                    completed_trades.append(SimulatedTrade(
+                                        symbol=symbol,
+                                        direction=pos.direction,
+                                        entry_price=pos.entry_price,
+                                        exit_price=current_bar.close,
+                                        size=pos.size,
+                                        entry_time=pos.entry_time,
+                                        exit_time=current_time,
+                                        pnl=cr_pnl,
+                                        exit_reason="cr_sar_recovered",
+                                        strategy_name="counter_reversal",
+                                    ))
+                                    trade_results_store.add_result(TradeResult(
+                                        symbol=symbol,
+                                        closed_at=current_time.isoformat(),
+                                        pnl_pct=(cr_pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                                        pnl_usd=cr_pnl,
+                                        is_win=cr_pnl > 0,
+                                        tier="backtest",
+                                        capital_at_close=capital,
+                                        strategy="counter_reversal",
+                                        exit_reason="cr_sar_recovered",
+                                        side=pos.direction,
+                                    ))
+                                    del positions[pos_key]
+                                    logger.info(
+                                        f"[BACKTEST] {symbol} CR closed (SAR recovered to B/E): PnL=${cr_pnl:.2f}"
+                                    )
+                                    break
+
+                    # CR TRAIL: At 0.5R, start trailing 0.3R behind (floor = initial stop)
+                    if pos.strategy_name == "counter_reversal" and pos_key in positions:
+                        cr_risk_dist = abs(pos.entry_price - pos.stop_price) if pos.stop_price else 0
+                        if cr_risk_dist > 0:
+                            if pos.direction == "long":
+                                cr_r = (current_bar.close - pos.entry_price) / cr_risk_dist
+                            else:
+                                cr_r = (pos.entry_price - current_bar.close) / cr_risk_dist
+                            if cr_r >= 0.5:
+                                trail_dist = cr_risk_dist * 0.3
+                                if pos.direction == "long":
+                                    new_stop = current_bar.close - trail_dist
+                                    if new_stop > pos.stop_price:
+                                        pos.stop_price = new_stop
+                                        pos.stop_was_trailed = True
+                                else:
+                                    new_stop = current_bar.close + trail_dist
+                                    if new_stop < pos.stop_price:
+                                        pos.stop_price = new_stop
+                                        pos.stop_was_trailed = True
                 
                 # [SOLUTION 2] Hard Max Loss Cap - Exit if loss exceeds configured maximum
                 max_loss_dollars = getattr(profile, 'max_loss_per_trade_dollars', None)
@@ -1047,14 +1221,15 @@ class Backtester:
                     )
 
                 # [FIX] Stop trading if capital is depleted (account blown)
-                if capital <= 0:
-                    if not positions:  # No open positions to manage
-                        logger.warning(f"[BACKTEST] Account depleted (capital=${capital:.2f}). Stopping backtest.")
+                reconciled_capital = initial_capital + sum(t.pnl for t in completed_trades)
+                if reconciled_capital <= 0:
+                    if not positions:
+                        logger.warning(f"[BACKTEST] Account depleted (capital=${reconciled_capital:.2f}). Stopping backtest.")
                         break
-                    # If we have positions, still need to process exits below
 
 
                 for symbol in all_candles.keys():
+
                     # Always evaluate strategy, even when in position
                     # This allows for position management, exits, and multi-entry strategies
 
@@ -1203,6 +1378,7 @@ class Backtester:
                                     if sp_decision.stop_loss is not None and sp_decision.stop_loss != sp_pos.stop_price:
                                         old_stop = sp_pos.stop_price
                                         sp_pos.stop_price = sp_decision.stop_loss
+                                        sp_pos.stop_was_trailed = True
                                         logger.info(
                                             f"[BACKTEST] {symbol}:{sp_meta} stop updated: "
                                             f"${old_stop:.5f} -> ${sp_decision.stop_loss:.5f} "
@@ -1403,6 +1579,43 @@ class Backtester:
 
                         # Handle pyramid/add to position
                         if current_position is not None and decision.action in ("add_to_position", "scale_in"):
+                            # ── DUST GUARD (pre-pyramid) ──────────────────────
+                            # If existing position is dust (< 100 units), close it first.
+                            # Pyramiding onto dust corrupts entry_price via weighted average
+                            # (e.g. $0.037 instead of $1.18 → phantom -$264K PnL).
+                            MIN_PYRAMID_BASE = 100
+                            if current_position.size < MIN_PYRAMID_BASE:
+                                exit_price = snapshot.candles[-1].close
+                                dust_pnl = _calculate_pnl(
+                                    current_position.entry_price, exit_price,
+                                    current_position.size, current_position.direction,
+                                    symbol=symbol,
+                                )
+                                capital += dust_pnl
+                                completed_trades.append(SimulatedTrade(
+                                    symbol=symbol,
+                                    direction=current_position.direction,
+                                    entry_price=current_position.entry_price,
+                                    exit_price=exit_price,
+                                    size=current_position.size,
+                                    entry_time=current_position.entry_time,
+                                    exit_time=current_time,
+                                    pnl=dust_pnl + getattr(current_position, "cumulative_partial_pnl", 0.0),
+                                    exit_reason="dust_before_pyramid",
+                                    entry_gates=getattr(current_position, "entry_gates", None),
+                                    strategy_name=getattr(current_position, 'strategy_name', 'unknown'),
+                                ))
+                                pos_key = next((k for k, v in positions.items() if v is current_position), None)
+                                if pos_key:
+                                    del positions[pos_key]
+                                logger.info(
+                                    f"[BACKTEST] {symbol} DUST GUARD (pre-pyramid): closed {current_position.size:.0f} "
+                                    f"dust units @ ${exit_price:.6f}, PnL=${dust_pnl:.2f}"
+                                )
+                                current_position = None
+                                # Fall through to new entry logic below (don't pyramid onto dust)
+                                continue
+
                             add_price = snapshot.candles[-1].close
 
                             # Calculate size for pyramid entry (same risk % as initial entry)
@@ -1467,6 +1680,7 @@ class Backtester:
                                 # Update stop if provided
                                 if decision.stop_loss is not None:
                                     current_position.stop_price = decision.stop_loss
+                                    current_position.stop_was_trailed = True
 
                                 logger.info(
                                     f"[BACKTEST] {symbol} PYRAMID #{current_position.pyramid_count}: "
@@ -1497,7 +1711,7 @@ class Backtester:
                             if decision.action == "scale_out" and current_position.size > 0:
                                 # Read from runtime settings (non-exclusive)
                                 _rt = getattr(self.settings, 'runtime', None)
-                                close_frac = float(getattr(_rt, 'scale_out_fraction', 0.5)) if _rt else 0.5
+                                close_frac = float(getattr(_rt, 'scale_out_fraction', 0.95)) if _rt else 0.95  # Guillotine: 95%
                                 close_size = current_position.size * close_frac
                                 exit_price = snapshot.candles[-1].close
                                 partial_pnl = _calculate_pnl(
@@ -1593,6 +1807,7 @@ class Backtester:
                                 if allow_move:
                                     old_stop = current_position.stop_price
                                     current_position.stop_price = decision.stop_loss
+                                    current_position.stop_was_trailed = True
                                     logger.info(
                                         f"[BACKTEST] {symbol} stop updated: ${old_stop:.2f} -> ${decision.stop_loss:.2f}"
                                     )
@@ -1648,6 +1863,7 @@ class Backtester:
                                     existing.pyramid_count += 1
                                     if decision.stop_loss is not None:
                                         existing.stop_price = decision.stop_loss
+                                        existing.stop_was_trailed = True
                                     if decision.take_profit is not None:
                                         existing.target_price = decision.take_profit
                                     logger.info(
@@ -1766,9 +1982,15 @@ class Backtester:
                             # Safety 1: Enforce minimum stop distance (0.1% of entry - allows heavy scalping leverage)
                             min_stop_distance = entry_price * 0.001
                             if risk_per_share < min_stop_distance:
+                                # Compute original R:R so we can preserve it after widening
+                                original_rr = 2.5  # Default R:R
+                                if decision.take_profit and risk_per_share > 0:
+                                    tp_dist = abs(decision.take_profit - entry_price)
+                                    original_rr = tp_dist / risk_per_share
+
                                 logger.warning(
                                     f"[BACKTEST] {symbol}: Stop too tight (${risk_per_share:.4f} < ${min_stop_distance:.4f}), "
-                                    f"widening to minimum"
+                                    f"widening to minimum (preserving {original_rr:.1f}R target)"
                                 )
                                 risk_per_share = min_stop_distance
                                 # Adjust stop price to match minimum distance
@@ -1776,6 +1998,13 @@ class Backtester:
                                     stop_price = entry_price - min_stop_distance
                                 else:
                                     stop_price = entry_price + min_stop_distance
+
+                                # Scale take_profit to preserve original R:R
+                                if decision.take_profit:
+                                    if decision.action == "enter_long":
+                                        decision.take_profit = entry_price + (min_stop_distance * original_rr)
+                                    else:
+                                        decision.take_profit = entry_price - (min_stop_distance * original_rr)
 
                             # Calculate position size based on risk
                             # ICC methodology: size = risk_amount / stop_distance
@@ -1827,8 +2056,12 @@ class Backtester:
                                     htf_neutral_bars=0,
                                     entry_gates=getattr(decision, 'gates', None),
                                     strategy_name=(
-                                        getattr(getattr(engine, '_strategy', None), 'name', None)
-                                        or getattr(engine, 'last_strat_name', 'unknown')
+                                        # 1. Sub-strategy name from Meta-SCI gate
+                                        (getattr(decision, 'gates', None) or {}).get('meta_source')
+                                        # 2. Engine's loaded strategy name
+                                        or getattr(getattr(engine, '_strategy', None), 'name', None)
+                                        # 3. Strategy variant from profile
+                                        or getattr(profile, 'strategy_variant', 'untagged')
                                     ),
                                 )
                                 sub_tag = f":{meta_src}" if meta_src else ""

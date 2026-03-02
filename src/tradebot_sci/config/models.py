@@ -175,13 +175,13 @@ class TradingProfileSettings(BaseModel):
         description="Fractal lookback used to detect swing highs/lows.",
     )
     adx_gate_threshold: float = Field(
-        default=20.0,
+        default=12.0,  # Forex-tuned (was 20 — too high for forex 1H)
         ge=0.0,
         le=100.0,
         description="ADX value below which entries are blocked (no trend). Set to 0 to disable.",
     )
     trend_chop_threshold: float = Field(
-        default=15.0,
+        default=8.0,  # Forex-tuned (was 15 — too high for forex 1H)
         ge=0.0,
         le=100.0,
         description="ADX value below which the market is considered choppy. Direction is forced neutral. Must be <= adx_gate_threshold.",
@@ -400,6 +400,20 @@ class TradingProfileSettings(BaseModel):
     stop_and_reverse_enabled: bool = Field(
         default=False,
         description="When a stop fires, immediately open opposite direction with 1R TP. Different from RSI reversal logic.",
+    )
+    counter_reversal_enabled: bool = Field(
+        default=False,
+        description="When SAR drops to -0.2R, open a 2× counter-reversal in the opposite direction to capitalize on failed SAR.",
+    )
+    sar_keep_open: bool = Field(
+        default=False,
+        description="If True, SAR stays open when CR fires (CR at -0.5R). If False, SAR closes at B/E and CR fires at that point.",
+    )
+    cr_risk_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="If >0, CR uses this % of capital for sizing instead of 2× SAR. 0 = use 2× SAR (default).",
     )
     reversal_tp_r: float = Field(
         default=1.0,
@@ -1177,7 +1191,7 @@ class RuntimeSettings(BaseModel):
     infer_position_hold_from_executions: bool = Field(default=False)
     infer_position_hold_lookback_days: int = Field(default=7, ge=1)
     scale_out_fraction: float = Field(
-        default=0.5,
+        default=0.95,  # Guillotine: close 95% at de-risk trigger
         ge=0.0,
         le=1.0
     )

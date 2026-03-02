@@ -66,11 +66,12 @@ window.profilesModule = (function () {
         { value: 'aggregator', label: 'Singularity Aggregator' },
         { value: 'meta_sci', label: 'Meta-SCI (AI Ensemble)' },
         { value: 'forex_conductor', label: 'Forex Conductor (Session Scheduler)' },
-        { value: 'icc_core', label: 'ICC (Standard)' },
+        { value: 'icc_core_standalone', label: 'ICC Core (ICT Methodology)' },
         { value: 'supply_demand', label: 'Supply & Demand' },
         { value: 'trend_rider', label: 'Trend Rider (EMA Pullback)' },
         { value: 'session_momentum', label: 'Session Momentum (VWAP)' },
         { value: 'bearish_engulfing', label: 'Engulfing Reversal' },
+        { value: 'yoyo', label: 'Yo-Yo (Momentum Reversal)' },
         // 🪙 Crypto-Specific Strategies
         { value: 'crypto_rsi_macd', label: '🪙 RSI + MACD (Crypto)' },
         { value: 'crypto_vwap_reversion', label: '🪙 VWAP Reversion (Crypto)' },

@@ -80,9 +80,9 @@ class TrendRiderStrategy(BaseStrategy):
         else:
             details.append("EMA✗")
 
-        # 4. RSI in pullback zone (40-60)
+        # 4. RSI in pullback zone (25-75)
         rsi = calculate_rsi(closes, self.rsi_period)
-        if 40 <= rsi <= 60:
+        if 25 <= rsi <= 75:
             score += 15
             details.append(f"RSI={rsi:.0f}")
         else:
@@ -158,8 +158,8 @@ class TrendRiderStrategy(BaseStrategy):
         ema_aligned_bull = ema_fast > ema_slow
         ema_aligned_bear = ema_fast < ema_slow
 
-        # RSI must be between 40-60 (confirms pullback, not reversal)
-        if rsi < 40 or rsi > 60:
+        # RSI must be between 25-75 (filters only extreme exhaustion)
+        if rsi < 25 or rsi > 75:
             return None
 
         # Distance from slow EMA

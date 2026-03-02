@@ -51,6 +51,7 @@ class StrategyEngine:
         
         # Load the Strategy Variant
         self._strategy = self._load_strategy_variant()
+        self._variant_key = self._resolve_variant_key()  # For SAR exclusion
         
         # Propagate profile risk to the strategy
         risk_pct = getattr(self.profile, 'risk_per_trade_pct', None)
@@ -58,6 +59,34 @@ class StrategyEngine:
             self._strategy.profile_risk_pct = float(risk_pct)
         
         logger.info(f" [PHOENIX] === ENGINE LOADED === Symbol: {symbol} | Variant: {self._strategy.name.upper()} ")
+
+    # ── SAR (Stop-and-Reverse) — Engine-Level ────────────────────────
+    # These strategies manage their own sub-strategy routing and handle
+    # SAR internally or shouldn't have it.  All others get engine SAR.
+    _SAR_EXCLUDED = {"forex_conductor", "aggregator"}
+    _sar_pending: dict[str, str] = {}  # symbol → reversal direction
+
+    def _resolve_variant_key(self) -> str:
+        """Get the registry key for the loaded strategy variant."""
+        from tradebot_sci.config.models import UserConfig
+        if hasattr(self.profile, "get_strategy_for_symbol"):
+            return self.profile.get_strategy_for_symbol(self.symbol).lower()
+        return getattr(UserConfig, "STRATEGY_VARIANT", "evolution").lower()
+
+    @staticmethod
+    def _timeframe_to_seconds(tf: str) -> int:
+        """Convert timeframe string (e.g., '15m', '1h', '5m') to seconds."""
+        tf = tf.strip().lower()
+        try:
+            if tf.endswith("m"):
+                return int(tf[:-1]) * 60
+            if tf.endswith("h"):
+                return int(tf[:-1]) * 3600
+            if tf.endswith("d"):
+                return int(tf[:-1]) * 86400
+        except ValueError:
+            pass
+        return 900  # Default: 15 minutes
 
     # ── Strategy Registry ────────────────────────────────────────────
     # Single registry: add new strategies here (keeps both load methods
@@ -70,6 +99,7 @@ class StrategyEngine:
         "rubberband_reaper":    ("tradebot_sci.strategy.variants.rubberband_reaper",    "RubberbandReaperStrategy"),
         "volatility_breakout":  ("tradebot_sci.strategy.variants.breakout",             "VolatilityBreakoutStrategy"),
         "icc_core":             ("tradebot_sci.strategy.variants.icc_core",             "ICCCoreStrategy"),
+        "icc_core_standalone":  ("tradebot_sci.strategy.variants.icc_core_standalone",  "ICCCoreStandaloneStrategy"),
         "supply_demand":        ("tradebot_sci.strategy.variants.supply_demand",         "SupplyDemandStrategy"),
         "meta_sci":             ("tradebot_sci.strategy.variants.meta_sci",             "MetaSCIStrategy"),
         "trend_rider":          ("tradebot_sci.strategy.variants.trend_rider",          "TrendRiderStrategy"),
@@ -78,6 +108,7 @@ class StrategyEngine:
         "hyper_scalper":        ("tradebot_sci.strategy.variants.hyper_scalper",        "HyperScalperStrategy"),
         "orb_breakout":         ("tradebot_sci.strategy.variants.orb_breakout",         "ORBStrategy"),
         "quantum":              ("tradebot_sci.strategy.variants.quantum",              "QuantumStrategy"),
+        "yoyo":                 ("tradebot_sci.strategy.variants.yoyo",                "YoYoStrategy"),
         "mean_reversion":       ("tradebot_sci.strategy.variants.mean_reversion",       "MeanReversionStrategy"),
         "crypto_rsi_macd":      ("tradebot_sci.strategy.variants.crypto_rsi_macd",      "CryptoRSIMACDStrategy"),
         "crypto_vwap_reversion":("tradebot_sci.strategy.variants.crypto_vwap_reversion","CryptoVWAPReversionStrategy"),
@@ -532,6 +563,56 @@ class StrategyEngine:
             logger.info(f"[SAFETY] Entry Blocked for {self.symbol}: {safety_decision.notes}")
             return safety_decision
 
+        # ── ENGINE-LEVEL SAR (Stop-and-Reverse) ──────────────────────
+        # Detect recent stop exits and set reversal direction.
+        # Excluded for tournament strategies that handle SAR internally.
+        sar_dir = None  # Will be "long" or "short" if SAR should fire
+        sar_enabled = bool(getattr(self.profile, "stop_and_reverse_enabled", False))
+        if sar_enabled and self._variant_key not in self._SAR_EXCLUDED:
+            if self.symbol not in self._sar_pending:
+                # Scan trade_history for a recent stop exit on this symbol
+                if history:
+                    from datetime import datetime as _dt
+                    _now = snapshot.candles[-1].timestamp if snapshot.candles else None
+                    if _now:
+                        for t in reversed(history):  # newest first
+                            if t.get("symbol") != self.symbol:
+                                continue
+                            reason = (t.get("exit_reason") or "").lower()
+                            if "stop" not in reason:
+                                continue
+                            # SAR window: must be wider than candle interval
+                            # so the backtester can detect on the next bar.
+                            # Live bot uses 5 min; backtester needs at least
+                            # 2× the candle interval to be safe.
+                            candle_secs = self._timeframe_to_seconds(timeframe)
+                            sar_window = max(900, candle_secs * 2)
+                            closed_at = t.get("closed_at", "")
+                            try:
+                                _closed = _dt.fromisoformat(str(closed_at).replace("Z", "+00:00"))
+                                if hasattr(_now, 'tzinfo') and _now.tzinfo and not _closed.tzinfo:
+                                    _closed = _closed.replace(tzinfo=_now.tzinfo)
+                                age_sec = (_now - _closed).total_seconds()
+                                if age_sec > sar_window:
+                                    break  # Too old
+                            except Exception:
+                                break
+                            # Set reversal direction: opposite of stopped side
+                            old_side = (t.get("side") or "").lower()
+                            if old_side == "long":
+                                self._sar_pending[self.symbol] = "short"
+                            elif old_side == "short":
+                                self._sar_pending[self.symbol] = "long"
+                            if self.symbol in self._sar_pending:
+                                logger.info(
+                                    f"[ENGINE SAR] {self.symbol}: STOP DETECTED → "
+                                    f"reversal pending {self._sar_pending[self.symbol]}"
+                                )
+                            break
+
+            # Read and consume pending reversal
+            sar_dir = self._sar_pending.pop(self.symbol, None)
+
         # B. Check for ENTRY / SCALE_IN
         decision = self._strategy.check_entry_signal(
             snapshot, 
@@ -540,6 +621,51 @@ class StrategyEngine:
             current_capital=current_capital, 
             trade_history=history
         )
+
+        # ── SAR Direction Enforcement / Forced Entry ─────────────────
+        if sar_dir:
+            if decision and decision.action in ("enter_long", "enter_short"):
+                # Strategy returned a signal — enforce SAR direction
+                signal_dir = "long" if decision.action == "enter_long" else "short"
+                if signal_dir != sar_dir:
+                    logger.info(
+                        f"[ENGINE SAR] {self.symbol}: Strategy signal {signal_dir} "
+                        f"rejected — SAR requires {sar_dir}"
+                    )
+                    decision = None  # Will fall through to forced entry below
+                else:
+                    # Strategy agrees with SAR direction — tag it
+                    decision.notes = f"[SAR] {decision.notes or ''}"
+                    logger.info(
+                        f"[ENGINE SAR] {self.symbol}: Strategy agrees with "
+                        f"SAR direction ({sar_dir}) — entry confirmed"
+                    )
+
+            if decision is None or decision.action in ("stand_aside", "hold"):
+                # Force a reversal entry — the stop itself IS the signal
+                rev_risk = float(getattr(self.profile, "reversal_risk_per_trade", 0.015))
+                rev_action = "enter_long" if sar_dir == "long" else "enter_short"
+                rev_bias = sar_dir
+                logger.info(
+                    f"[ENGINE SAR] {self.symbol}: Forcing {rev_action} "
+                    f"(risk={rev_risk*100:.1f}%)"
+                )
+                decision = AITradeDecision(
+                    symbol=self.symbol,
+                    timeframe=timeframe,
+                    bias=rev_bias,
+                    phase="correction",
+                    action=rev_action,
+                    entry_price=None,  # Backtester/executor fills market price
+                    stop_loss=None,  # Strategy/executor will set from ATR
+                    take_profit=None,
+                    risk_per_trade_pct=rev_risk,
+                    urgency="high",
+                    structure_summary=f"[SAR] Stop-and-Reverse: forced {sar_dir} after stop exit",
+                    notes=f"[SAR] Automatic reversal entry ({self._strategy.name})",
+                )
+                decision.score = score
+                decision.grade = grade
 
         if decision:
             decision.score = score
@@ -576,6 +702,26 @@ class StrategyEngine:
                     blocked.score = score
                     blocked.grade = grade
 
+                    return blocked
+
+            # ── CHOP-PHASE ENTRY REJECTION ────────────────────────────
+            # If both HTF and LTF trend strengths are weak (< 0.15),
+            # the market is indecisive — no directional conviction.
+            # Entries during chop get stopped at ~40% rate. Block them.
+            # SAR entries bypass this (they're reactive, not structural).
+            is_sar_entry = decision.notes and "[SAR]" in decision.notes
+            if not is_sar_entry and decision.action in ("enter_long", "enter_short"):
+                htf_str = gates.get("htf_strength", 0.0)
+                ltf_str = gates.get("ltf_strength", 0.0)
+                if htf_str < 0.15 and ltf_str < 0.15:
+                    reason = f"Chop Filter: HTF={htf_str:.2f} LTF={ltf_str:.2f} (both < 0.15)"
+                    logger.info(f"[CHOP_GUARD] {self.symbol} {reason}")
+                    from tradebot_sci.strategy.decisions import stand_aside_decision
+                    from tradebot_sci.runtime.rejection_journal import rejection_journal
+                    rejection_journal.log(self.symbol, timeframe, "ChopGuard", reason)
+                    blocked = stand_aside_decision(snapshot.symbol, snapshot.timeframe, reason)
+                    blocked.score = score
+                    blocked.grade = grade
                     return blocked
 
             # [WEALTH MODE] Augment with Performance Overrides (Sniper, Regime, etc.)

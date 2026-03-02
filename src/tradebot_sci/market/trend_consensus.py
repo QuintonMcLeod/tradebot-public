@@ -389,23 +389,24 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
     bb_squeeze = bb.get("squeeze", False) if bb else False
     ema_aligned = ema.get("aligned", False) if ema else False
 
-    # ── Early choppy detection: HTF vs LTF disagreement ───────────
+    # ── Early ranging detection: HTF vs LTF disagreement ────────
     # If HTF says long and LTF says short (or vice versa), the market
-    # is conflicted — no strategy has an edge here.
+    # is directionless — route to mean reversion rather than blocking.
     htf_dir = htf.direction
     ltf_dir = ltf.direction
     if (htf_dir == "long" and ltf_dir == "short") or \
        (htf_dir == "short" and ltf_dir == "long"):
         logger.debug(
-            f"[REGIME] CHOPPY — HTF/LTF disagree ({htf_dir} vs {ltf_dir})"
+            f"[REGIME] RANGING — HTF/LTF disagree ({htf_dir} vs {ltf_dir}), "
+            f"routing to mean reversion"
         )
-        return "choppy"
+        return "ranging"
 
     # ── TRENDING: Strong, confirmed directional move ───────────────
     # Requires ALL of: ADX>30, EMA ribbon aligned, AND at least
     # one confirmation (BB expanding or strong consensus).
     # This is deliberately strict — false trending calls are expensive.
-    if adx > 30 and ema_aligned:
+    if adx > 20 and ema_aligned:  # Lowered from 30 for forex (ADX rarely >30 on 1H)
         confirmations = 0
         if bb_bandwidth > 0.01:  # Bands expanding
             confirmations += 1
@@ -424,7 +425,7 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
     # ── RANGING: Sideways consolidation ───────────────────────────
     # ADX <= 20 = no meaningful trend. Narrow BBs = price is coiled.
     ranging_signals = 0
-    if adx <= 20:
+    if adx <= 12:  # Lowered from 20 for forex
         ranging_signals += 2  # ADX is double-weighted
     if bb_squeeze:
         ranging_signals += 1
@@ -444,7 +445,7 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
     # ADX 20-30 with BB starting to expand from squeeze or BBs
     # moderately wide. This is where breakout strategies thrive.
     # Must also have directional agreement between timeframes.
-    if 20 < adx <= 30:
+    if 12 < adx <= 20:  # Lowered from 20-30 for forex
         has_breakout_signal = (
             (bb_squeeze and bb_bandwidth > 0.003)  # Squeeze breaking out
             or (bb_bandwidth > 0.008 and strength >= 0.4)  # Clear expansion + direction

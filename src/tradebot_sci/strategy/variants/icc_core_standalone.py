@@ -90,22 +90,18 @@ _last_entry_bar: dict = {}  # symbol → bar index
 _icc_bar_counter: int = 0
 
 
-class ICCCoreStrategy(BaseStrategy):
+class ICCCoreStandaloneStrategy(BaseStrategy):
     """
-    ICC Core Strategy — True ICT Entry Model.
+    ICC Core Standalone — Tighter stops for solo use.
     
-    Uses the actual ICT methodology:
-    - HTF bias (from trend detection)
-    - Liquidity sweep detection
-    - Displacement confirmation (3 candles for high conviction)
-    - Entry on pullback to OTE/FVG zone
-    
-    This replaces the broken sweep→indication→correction chain
-    with the real ICT entry model.
+    This is a copy of ICC Core with 1.5× ATR stops (vs 2.0× in ensemble).
+    The ensemble version needs wide stops because SAR reversals depend
+    on ICC Core stop-outs as trigger signals. This standalone version
+    can be freely tuned without affecting the Meta-SCI ensemble.
     """
 
     def __init__(self):
-        super().__init__("ICC Core")
+        super().__init__("ICC Core Standalone")
 
     def check_entry_signal(
         self, 
@@ -179,10 +175,10 @@ class ICCCoreStrategy(BaseStrategy):
             if pos_dir == bias and r_multiple >= 0.5 and momentum_ok and pyramid_count < max_pyramid:
                 # Move stop to breakeven on pyramid to protect original risk
                 if bias == "long":
-                    stop_loss_pyramid = max(entry_price, last_close - (atr * 1.5))
+                    stop_loss_pyramid = max(entry_price, last_close - (atr * 1.2))
                     take_profit = last_close + (abs(last_close - stop_loss_pyramid) * 2.0)
                 else:
-                    stop_loss_pyramid = min(entry_price, last_close + (atr * 1.5))
+                    stop_loss_pyramid = min(entry_price, last_close + (atr * 1.2))
                     take_profit = last_close - (abs(stop_loss_pyramid - last_close) * 2.0)
 
                 logger.info(
@@ -243,10 +239,9 @@ class ICCCoreStrategy(BaseStrategy):
             f"atr={atr:.5f} close={last_close:.5f}"
         )
         
-        # 7. Stop/Target logic (ICT style)
-        # Stop: beyond the swing structure. ATR*2.0 balances noise tolerance
-        # with position size control. 2.0R target is achievable on 15m forex.
-        min_stop_dist = max(atr * 2.0, last_close * 0.002)
+        # 7. Stop/Target logic (ICT style) — STANDALONE: Tighter 1.5× ATR
+        # Ensemble version uses 2.0× because SAR depends on wider stops.
+        min_stop_dist = max(atr * 1.5, last_close * 0.002)
         stop_dist = min_stop_dist
         
         if action == "enter_long":
@@ -320,9 +315,9 @@ class ICCCoreStrategy(BaseStrategy):
         initial_risk = initial_risk_per_unit * size if initial_risk_per_unit > 0 else 1
         r_multiple = pos_pnl / initial_risk if initial_risk > 0 else 0
 
-        # Only check structure invalidation if LOSING — never cut profitable trades
-        if r_multiple >= 0.0:
-            return None  # [HARDENED] Any profit = let TP/trail handle it (was 0.5R)
+        # Only check structure invalidation if losing or barely profitable
+        if r_multiple >= 0.5:
+            return None  # Trade is 0.5R+ profitable — let it run to target
 
         # Check for structure invalidation (swing level broken by ATR buffer)
         # Use 1.0× ATR buffer (was 0.5×) to avoid noise triggers
