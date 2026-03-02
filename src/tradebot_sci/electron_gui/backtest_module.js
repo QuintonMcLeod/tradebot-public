@@ -18,6 +18,7 @@
     // ── State ────────────────────────────────────────────────
     let _running = false;
     let _profiles = [];
+    let _profileData = {};   // full profile objects from config.json
     let _recordedSymbols = [];
 
     // ── DOM refs (lazy) ──────────────────────────────────────
@@ -34,12 +35,15 @@
     async function _loadProfiles() {
         try {
             const config = await api.readConfig();
-            _profiles = Object.keys(config?.profiles || {});
+            _profileData = config?.profiles || {};
+            _profiles = Object.keys(_profileData);
             const sel = $('bt-profile-select');
             if (!sel) return;
             sel.innerHTML = _profiles.map(p =>
                 `<option value="${p}" ${p === config?.active_profile ? 'selected' : ''}>${p}</option>`
             ).join('');
+            // Load symbols for the initially selected profile
+            _updateSymbolPills();
         } catch (e) {
             console.warn('[Backtest] Failed to load profiles:', e);
         }
@@ -62,9 +66,19 @@
         const container = $('bt-symbol-pills');
         if (!container) return;
 
-        // If we have recorded symbols, use those; otherwise fall back to profile symbols
-        const symbols = _recordedSymbols.length > 0 ? _recordedSymbols :
-            ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'EURJPY', 'GBPJPY', 'AUDJPY'];
+        // Get symbols from selected profile, fall back to recorded, then defaults
+        const sel = $('bt-profile-select');
+        const selectedProfile = sel?.value;
+        const profileSymbols = selectedProfile && _profileData[selectedProfile]?.symbols;
+
+        let symbols;
+        if (_recordedSymbols.length > 0) {
+            symbols = _recordedSymbols;
+        } else if (Array.isArray(profileSymbols) && profileSymbols.length > 0) {
+            symbols = profileSymbols;
+        } else {
+            symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'EURJPY', 'GBPJPY', 'AUDJPY'];
+        }
 
         container.innerHTML = symbols.map(s => `
             <label class="bt-symbol-pill" data-symbol="${s}">
@@ -110,6 +124,13 @@
                 if (label) label.textContent = modeToggle.checked ? 'Replay Mode' : 'Bar Close';
             });
             modeToggle._wired = true;
+        }
+
+        // Profile dropdown → update symbols on change
+        const profileSel = $('bt-profile-select');
+        if (profileSel && !profileSel._wired) {
+            profileSel.addEventListener('change', () => _updateSymbolPills());
+            profileSel._wired = true;
         }
     }
 

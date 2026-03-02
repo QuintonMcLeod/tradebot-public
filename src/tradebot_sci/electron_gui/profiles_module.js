@@ -213,13 +213,18 @@ window.profilesModule = (function () {
 
     async function loadProfiles() {
         try {
-            const result = await window.api.invoke('read-profiles');
-            if (result) {
-                // Parse YAML using simple regex (no external lib needed for reading)
-                allProfiles = parseYaml(result);
+            // Read profiles from config.json (single source of truth)
+            const config = await window.api.readConfig();
+            if (config && config.profiles) {
+                allProfiles = config.profiles;
+            } else {
+                // Fallback: try YAML file
+                const result = await window.api.invoke('read-profiles');
+                if (result) {
+                    allProfiles = parseYaml(result);
+                }
             }
             // Read active_profile from config so sidebar dots render correctly on startup
-            const config = await window.api.readConfig();
             if (config && config.active_profile) {
                 activeProfileName = config.active_profile;
             }
