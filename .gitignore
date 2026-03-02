@@ -1,0 +1,16 @@
+# Internal Documentation (AI handoffs, dev notes, audit docs)
+Documentation/AI_HANDOFF_PROMPT.md
+Documentation/AI_CHALLENGE_DISSERTATION.md
+Documentation/PASSING_THE_BATON.md
+Documentation/APOLOGY_TO_THE_AUDITOR.md
+Documentation/AUDITOR_QUESTIONS.md
+Documentation/AUDITOR_RESPONSES.md
+Documentation/BACKTESTER_RULES.md
+Documentation/BACKTESTER_STOP_LOGIC_GUIDE.md
+Documentation/ANALYTICS_IMPLEMENTATION_PLAN.md
+Documentation/IMPLEMENTATION_PLAN_MULTI_STRATEGY.md
+Documentation/CHANGELOG_LAST_24H.md
+Documentation/Rubberband_Reaper_Strategy.md
+Documentation/dissertation_appendix.md
+Documentation/rent_final_report.md
+Documentation/adr/
