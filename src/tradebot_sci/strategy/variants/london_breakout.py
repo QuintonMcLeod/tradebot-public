@@ -41,6 +41,92 @@ class LondonBreakoutStrategy(BaseStrategy):
     def __init__(self):
         super().__init__("London Breakout")
 
+    def score_signal(self, snapshot: MarketSnapshot, gates: dict):
+        """Score how close current conditions are to a London Breakout entry.
+
+        Each factor contributes points to a 0-100 score:
+          In London time window (07-10 UTC)   = 25 pts
+          Asian Box exists and well-formed    = 20 pts
+          Price near box edge (≤0.3× range)   = 20 pts
+          HTF trend strength ≥ 0.2            = 20 pts
+          Candle body momentum                = 15 pts
+        """
+        from typing import Tuple
+        closes = [c.close for c in snapshot.candles]
+        if not snapshot.candles or len(closes) < 10:
+            return 0.0, "F-", "Session Breakout: insufficient data"
+
+        score = 0.0
+        details = []
+
+        # 1. Time window — are we in the London breakout window?
+        current_utc = self._to_utc(snapshot.candles[-1].timestamp).time()
+        if self.LONDON_START <= current_utc <= self.LONDON_END:
+            score += 25
+            details.append("London✓")
+        elif time(6, 0) <= current_utc < self.LONDON_START:
+            score += 10  # Pre-London — box is forming
+            details.append("pre-London")
+        else:
+            details.append("off-session")
+
+        # 2. Asian Box quality
+        asian_box = self._get_asian_box(snapshot)
+        if asian_box:
+            box_low, box_high = asian_box
+            box_range = box_high - box_low
+            atr = calculate_atr(snapshot.candles, period=14) or (closes[-1] * 0.001)
+            if box_range >= atr * 0.5:
+                score += 20
+                details.append(f"box={box_range:.5f}")
+            else:
+                score += 10
+                details.append("box=narrow")
+
+            # 3. Price proximity to box edge
+            last_close = closes[-1]
+            dist_to_high = abs(last_close - box_high)
+            dist_to_low = abs(last_close - box_low)
+            nearest_edge = min(dist_to_high, dist_to_low)
+            if nearest_edge <= box_range * 0.1:
+                score += 20
+                details.append("edge✓")
+            elif nearest_edge <= box_range * 0.3:
+                score += 12
+                details.append("near-edge")
+            else:
+                details.append("mid-box")
+        else:
+            details.append("no-box")
+
+        # 4. HTF trend strength
+        htf_strength = float(gates.get("htf_strength", 0))
+        if htf_strength >= 0.5:
+            score += 20
+            details.append(f"str={htf_strength:.2f}")
+        elif htf_strength >= 0.2:
+            score += 12
+            details.append(f"str={htf_strength:.2f}")
+        else:
+            details.append(f"str={htf_strength:.2f}✗")
+
+        # 5. Candle body momentum (recent candle body vs range)
+        if len(closes) >= 2:
+            body = abs(snapshot.candles[-1].close - snapshot.candles[-1].open)
+            candle_range = snapshot.candles[-1].high - snapshot.candles[-1].low
+            if candle_range > 0 and body / candle_range > 0.6:
+                score += 15
+                details.append("momentum✓")
+            elif candle_range > 0 and body / candle_range > 0.3:
+                score += 8
+                details.append("momentum~")
+            else:
+                details.append("momentum✗")
+
+        grade = self.grade_from_score_100(score)
+        summary = f"Session Breakout: {score:.0f}% — {', '.join(details)}"
+        return score, grade, summary
+
     def _to_utc(self, dt):
         """Convert timestamp to UTC."""
         if dt.tzinfo is None:

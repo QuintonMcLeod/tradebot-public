@@ -24,13 +24,117 @@ class MeanReversionStrategy(BaseStrategy):
     """
 
     def __init__(self, bb_period=20, bb_std=2.0, rsi_period=14,
-                 rsi_overbought=75, rsi_oversold=25):
+                 rsi_overbought=70, rsi_oversold=30):
         super().__init__("Mean Reversion")
         self.bb_period = bb_period
         self.bb_std = bb_std
         self.rsi_period = rsi_period
         self.rsi_overbought = rsi_overbought
         self.rsi_oversold = rsi_oversold
+
+    def score_signal(self, snapshot: MarketSnapshot, gates: dict):
+        """Score how close current conditions are to a Mean Reversion entry.
+
+        Each factor contributes points to a 0-100 score:
+          Price at/outside BB edge            = 25 pts
+          RSI in exhaustion zone (≤25 or ≥75) = 25 pts
+          BB width (not squeezed)             = 20 pts
+          HTF direction alignment             = 15 pts
+          Bounce confirmation (last 3 bars)   = 15 pts
+        """
+        closes = [c.close for c in snapshot.candles]
+        if len(closes) < self.bb_period + 5:
+            return 0.0, "F-", "Mean Reversion: insufficient data"
+
+        score = 0.0
+        details = []
+
+        lower, middle, upper = calculate_bollinger_bands(
+            closes, self.bb_period, self.bb_std
+        )
+        rsi = calculate_rsi(closes, self.rsi_period)
+        last_close = closes[-1]
+        atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
+
+        # 1. BB proximity — how close/beyond the bands?
+        if last_close <= lower:
+            score += 25
+            details.append("BB-lower✓")
+        elif last_close >= upper:
+            score += 25
+            details.append("BB-upper✓")
+        else:
+            bb_range = upper - lower
+            if bb_range > 0:
+                dist_to_edge = min(abs(last_close - lower), abs(last_close - upper))
+                pct_from_edge = dist_to_edge / bb_range
+                if pct_from_edge < 0.15:
+                    score += 15
+                    details.append("BB-near")
+                elif pct_from_edge < 0.3:
+                    score += 8
+                    details.append("BB-mid")
+                else:
+                    details.append("BB-center")
+
+        # 2. RSI exhaustion
+        if rsi <= self.rsi_oversold:
+            score += 25
+            details.append(f"RSI={rsi:.0f}↓")
+        elif rsi >= self.rsi_overbought:
+            score += 25
+            details.append(f"RSI={rsi:.0f}↑")
+        elif rsi <= 35 or rsi >= 65:
+            score += 12
+            details.append(f"RSI={rsi:.0f}~")
+        else:
+            details.append(f"RSI={rsi:.0f}")
+
+        # 3. BB width (not squeezed)
+        bb_width = upper - lower
+        if bb_width >= atr * 1.0:
+            score += 20
+            details.append("width✓")
+        elif bb_width >= atr * 0.5:
+            score += 10
+            details.append("width~")
+        else:
+            details.append("squeeze")
+
+        # 4. HTF direction alignment
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        if (last_close <= lower and htf_dir in ("long", "neutral")) or \
+           (last_close >= upper and htf_dir in ("short", "neutral")):
+            score += 15
+            details.append(f"HTF={htf_dir}✓")
+        elif htf_dir != "neutral":
+            score += 5
+            details.append(f"HTF={htf_dir}")
+        else:
+            details.append("HTF=neutral")
+
+        # 5. Bounce confirmation (recent candles showing reversal)
+        if len(closes) >= 3:
+            recent_lows_touching = any(
+                c.low <= lower for c in snapshot.candles[-3:]
+            )
+            recent_highs_touching = any(
+                c.high >= upper for c in snapshot.candles[-3:]
+            )
+            bounce_up = last_close > closes[-2] and recent_lows_touching
+            bounce_down = last_close < closes[-2] and recent_highs_touching
+            if bounce_up or bounce_down:
+                score += 15
+                details.append("bounce✓")
+            elif recent_lows_touching or recent_highs_touching:
+                score += 8
+                details.append("touch~")
+            else:
+                details.append("no-touch")
+
+        grade = self.grade_from_score_100(score)
+        summary = f"Mean Reversion: {score:.0f}% — {', '.join(details)}"
+        return score, grade, summary
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict,
                            open_position: Optional[dict] = None,

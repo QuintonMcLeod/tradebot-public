@@ -1,0 +1,276 @@
+/**
+ * Backtest Module — GUI-based strategy backtester
+ * Uses the same glass/card design system as analytics.css
+ * All colors via CSS variables from the theme engine.
+ */
+
+(function () {
+    'use strict';
+
+    // ── Browser-safe API shim ─────────────────────────────────
+    const api = window.api || {
+        invoke: async () => null,
+        readConfig: async () => ({}),
+        send: () => { },
+        on: () => { },
+    };
+
+    // ── State ────────────────────────────────────────────────
+    let _running = false;
+    let _profiles = [];
+    let _recordedSymbols = [];
+
+    // ── DOM refs (lazy) ──────────────────────────────────────
+    const $ = id => document.getElementById(id);
+
+    // ── Init (called when Backtest nav is clicked) ───────────
+    function init() {
+        _loadProfiles();
+        _loadRecordedData();
+        _wireEvents();
+    }
+
+    // ── Load profiles into dropdown ──────────────────────────
+    async function _loadProfiles() {
+        try {
+            const config = await api.readConfig();
+            _profiles = Object.keys(config?.profiles || {});
+            const sel = $('bt-profile-select');
+            if (!sel) return;
+            sel.innerHTML = _profiles.map(p =>
+                `<option value="${p}" ${p === config?.active_profile ? 'selected' : ''}>${p}</option>`
+            ).join('');
+        } catch (e) {
+            console.warn('[Backtest] Failed to load profiles:', e);
+        }
+    }
+
+    // ── Load recorded data info ──────────────────────────────
+    async function _loadRecordedData() {
+        try {
+            const info = await api.invoke('get-recording-info');
+            if (!info) return;
+            _recordedSymbols = info.symbols || [];
+            _updateSymbolPills();
+            _updateDateRange(info);
+        } catch (e) {
+            console.warn('[Backtest] No recorded data available:', e);
+        }
+    }
+
+    function _updateSymbolPills() {
+        const container = $('bt-symbol-pills');
+        if (!container) return;
+
+        // If we have recorded symbols, use those; otherwise fall back to profile symbols
+        const symbols = _recordedSymbols.length > 0 ? _recordedSymbols :
+            ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'EURJPY', 'GBPJPY', 'AUDJPY'];
+
+        container.innerHTML = symbols.map(s => `
+            <label class="bt-symbol-pill" data-symbol="${s}">
+                <input type="checkbox" value="${s}" checked class="hidden">
+                <span class="pill-text">${s}</span>
+            </label>
+        `).join('');
+
+        // Wire click toggle
+        container.querySelectorAll('.bt-symbol-pill').forEach(pill => {
+            pill.addEventListener('click', () => {
+                const cb = pill.querySelector('input');
+                cb.checked = !cb.checked;
+                pill.classList.toggle('active', cb.checked);
+            });
+            // Initial state
+            pill.classList.add('active');
+        });
+    }
+
+    function _updateDateRange(info) {
+        const startInput = $('bt-start-date');
+        const endInput = $('bt-end-date');
+        if (!startInput || !endInput) return;
+
+        if (info.earliest) startInput.value = info.earliest;
+        if (info.latest) endInput.value = info.latest;
+    }
+
+    // ── Wire events ──────────────────────────────────────────
+    function _wireEvents() {
+        const runBtn = $('bt-run-btn');
+        if (runBtn && !runBtn._wired) {
+            runBtn.addEventListener('click', _runBacktest);
+            runBtn._wired = true;
+        }
+
+        // Mode toggle
+        const modeToggle = $('bt-mode-toggle');
+        if (modeToggle && !modeToggle._wired) {
+            modeToggle.addEventListener('change', () => {
+                const label = $('bt-mode-label');
+                if (label) label.textContent = modeToggle.checked ? 'Replay Mode' : 'Bar Close';
+            });
+            modeToggle._wired = true;
+        }
+    }
+
+    // ── Run backtest ─────────────────────────────────────────
+    async function _runBacktest() {
+        if (_running) return;
+
+        const startDate = $('bt-start-date')?.value;
+        const endDate = $('bt-end-date')?.value;
+        const profile = $('bt-profile-select')?.value;
+        const replayMode = $('bt-mode-toggle')?.checked ?? true;
+
+        // Get selected symbols
+        const pills = document.querySelectorAll('#bt-symbol-pills input:checked');
+        const symbols = Array.from(pills).map(cb => cb.value);
+
+        if (!startDate || !endDate) {
+            _showStatus('Please select a date range', 'error');
+            return;
+        }
+        if (symbols.length === 0) {
+            _showStatus('Please select at least one symbol', 'error');
+            return;
+        }
+
+        _running = true;
+        _showStatus('Running backtest...', 'running');
+        _setRunButtonState(true);
+        _hideResults();
+
+        try {
+            const result = await api.invoke('run-backtest', {
+                start_date: startDate,
+                end_date: endDate,
+                profile: profile,
+                symbols: symbols,
+                replay: replayMode,
+            });
+
+            if (result?.error) {
+                _showStatus(result.error, 'error');
+            } else {
+                _showStatus('Backtest complete', 'success');
+                _renderResults(result);
+            }
+        } catch (e) {
+            _showStatus(`Error: ${e.message || e}`, 'error');
+        } finally {
+            _running = false;
+            _setRunButtonState(false);
+        }
+    }
+
+    // ── Status badge ─────────────────────────────────────────
+    function _showStatus(msg, type) {
+        const badge = $('bt-status-badge');
+        if (!badge) return;
+        badge.textContent = msg;
+        badge.className = 'bt-status-badge';
+        if (type === 'error') badge.classList.add('error');
+        else if (type === 'running') badge.classList.add('running');
+        else if (type === 'success') badge.classList.add('success');
+        badge.classList.remove('hidden');
+    }
+
+    function _setRunButtonState(running) {
+        const btn = $('bt-run-btn');
+        if (!btn) return;
+        if (running) {
+            btn.innerHTML = `<span class="material-symbols-outlined bt-spin" style="font-size:16px;">progress_activity</span> Running...`;
+            btn.disabled = true;
+            btn.style.opacity = '0.6';
+        } else {
+            btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">play_arrow</span> Run Backtest`;
+            btn.disabled = false;
+            btn.style.opacity = '1';
+        }
+    }
+
+    // ── Hide results ─────────────────────────────────────────
+    function _hideResults() {
+        const resultsSection = $('bt-results');
+        if (resultsSection) resultsSection.classList.add('hidden');
+    }
+
+    // ── Render results ───────────────────────────────────────
+    function _renderResults(data) {
+        const resultsSection = $('bt-results');
+        if (!resultsSection) return;
+        resultsSection.classList.remove('hidden');
+
+        // Hero metrics
+        const pnl = data.total_pnl || 0;
+        const winRate = data.win_rate || 0;
+        const trades = data.total_trades || 0;
+        const maxDD = data.max_drawdown || 0;
+
+        const pnlEl = $('bt-metric-pnl');
+        if (pnlEl) {
+            pnlEl.textContent = `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
+            pnlEl.style.color = pnl >= 0 ? 'var(--success)' : 'var(--error)';
+        }
+
+        const wrEl = $('bt-metric-winrate');
+        if (wrEl) wrEl.textContent = `${winRate.toFixed(1)}%`;
+
+        const trEl = $('bt-metric-trades');
+        if (trEl) trEl.textContent = trades;
+
+        const ddEl = $('bt-metric-drawdown');
+        if (ddEl) ddEl.textContent = `${maxDD.toFixed(2)}%`;
+
+        // Profit Factor
+        const pfEl = $('bt-metric-pf');
+        if (pfEl) pfEl.textContent = (data.profit_factor || 0).toFixed(2);
+
+        // Avg Win/Loss
+        const awEl = $('bt-metric-avgwin');
+        if (awEl) awEl.textContent = `$${(data.avg_win || 0).toFixed(2)}`;
+        const alEl = $('bt-metric-avgloss');
+        if (alEl) alEl.textContent = `$${(data.avg_loss || 0).toFixed(2)}`;
+
+        // R:R
+        const rrEl = $('bt-metric-rr');
+        if (rrEl) rrEl.textContent = data.risk_reward ? `${data.risk_reward.toFixed(1)}:1` : 'N/A';
+
+        // Trade history table
+        _renderTradeHistory(data.trades || []);
+
+        // Scroll to results
+        resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function _renderTradeHistory(trades) {
+        const tbody = $('bt-trade-tbody');
+        if (!tbody) return;
+
+        if (trades.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:40px 16px; font-style:italic;">
+                <span class="material-symbols-outlined" style="font-size:28px; display:block; margin-bottom:8px; opacity:0.25;">search_off</span>
+                No trades in this backtest
+            </td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = trades.map(t => {
+            const pnl = t.pnl || 0;
+            const isWin = pnl >= 0;
+            return `<tr>
+                <td style="color:var(--text-secondary);">${t.time ? new Date(t.time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}</td>
+                <td style="font-weight:700; color:var(--text-main);">${t.symbol || '--'}</td>
+                <td style="text-align:center;"><span class="side-badge ${t.side || ''}">${(t.side || '--').toUpperCase()}</span></td>
+                <td style="text-align:center;"><span class="wl-dot ${isWin ? 'win' : 'loss'}"></span>${isWin ? 'Win' : 'Loss'}</td>
+                <td style="text-align:right; font-weight:700; color:${isWin ? 'var(--success)' : 'var(--error)'};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
+                <td style="color:var(--text-muted);">${t.duration || '--'}</td>
+                <td style="color:var(--text-muted);">${t.reason || '--'}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // ── Expose module ────────────────────────────────────────
+    window.backtestModule = { init };
+
+})();

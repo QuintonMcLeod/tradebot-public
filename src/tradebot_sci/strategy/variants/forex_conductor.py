@@ -194,12 +194,67 @@ class ForexConductorStrategy(BaseStrategy):
         # all killed more winners than losers in transitional markets.
         # Partial close + tight stops already limit loss sizes.
 
+        # ── CONSECUTIVE-LOSS COOLDOWN ─────────────────────────────
+        # After 2 consecutive losses on a symbol, sit out for 4 bars
+        # (~1 hour on 15m) to avoid churn on choppy pairs.
+        # SAR entries bypass this — they're time-critical.
+        if not hasattr(self, '_loss_streak'):
+            self._loss_streak = {}  # symbol → consecutive loss count
+            self._cooldown_until = {}  # symbol → bar index to resume
+            self._bar_index = 0
+
+        self._bar_index += 1
+        sym = snapshot.symbol
+
+        # Update loss streak from trade history
+        if trade_history:
+            # Find last closed trade for this symbol
+            closed = [t for t in trade_history
+                      if t.get("symbol") == sym and t.get("exit_time")]
+            if closed:
+                last = closed[-1]
+                last_pnl = last.get("pnl", 0)
+                last_key = f"{sym}_{last.get('exit_time')}"
+                if not hasattr(self, '_last_seen_exit'):
+                    self._last_seen_exit = {}
+                if last_key != self._last_seen_exit.get(sym):
+                    self._last_seen_exit[sym] = last_key
+                    if last_pnl <= 0:
+                        self._loss_streak[sym] = self._loss_streak.get(sym, 0) + 1
+                    else:
+                        self._loss_streak[sym] = 0
+                        self._cooldown_until.pop(sym, None)
+
+        streak = self._loss_streak.get(sym, 0)
+        cooldown_bar = self._cooldown_until.get(sym, 0)
+
+        if streak >= 2 and cooldown_bar == 0:
+            # Start cooldown: 4 bars (~1 hour)
+            self._cooldown_until[sym] = self._bar_index + 4
+            cooldown_bar = self._cooldown_until[sym]
+
+        is_sar_pending = sym in _reversal_pending
+        if cooldown_bar > self._bar_index and not is_sar_pending:
+            bars_left = cooldown_bar - self._bar_index
+            logger.info(
+                f"[CONDUCTOR] {sym}: COOLDOWN ({streak} consecutive losses, "
+                f"{bars_left} bars remaining)"
+            )
+            return None
+
         # ── Route to primary strategy for this regime ────────────
         primary_key = _REGIME_MAP.get(regime)
         candidates = []
 
         if primary_key and primary_key in self._strategies:
             candidates.append(primary_key)
+
+        # ── Transitional fallback: also try mean_reversion ────────
+        # Session Breakout only fires on actual Asian Box breakouts,
+        # which are rare. If the breakout hasn't happened, Mean Reversion
+        # can catch BB bounce opportunities during transitional periods.
+        if regime == "transitional" and "mean_reversion" in self._strategies:
+            candidates.append("mean_reversion")
         
         logger.info(
             f"[CONDUCTOR] {snapshot.symbol}: regime={regime}, "
@@ -356,8 +411,8 @@ class ForexConductorStrategy(BaseStrategy):
                         self._milestones_fired = {}
                     fired = self._milestones_fired.setdefault(milestones_key, set())
 
-                    # ── LOSING SIDE: Partial close at -0.3R ───────────
-                    if r_multiple <= -0.3 and "de_risk" not in fired:
+                    # ── LOSING SIDE: Partial close at -0.6R ───────────
+                    if r_multiple <= -0.6 and "de_risk" not in fired:
                         # Spread guard: only exit if loss > 2× spread cost
                         from tradebot_sci.utils.symbol_classifier import (
                             get_fee_for_symbol,

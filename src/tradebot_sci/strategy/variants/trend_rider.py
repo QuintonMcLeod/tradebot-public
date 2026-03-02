@@ -164,7 +164,16 @@ class TrendRiderStrategy(BaseStrategy):
 
         # Distance from slow EMA
         ema_dist = abs(last_close - ema_slow)
-        proximity_threshold = atr * 0.3  # Within 0.3 ATR
+        proximity_threshold = atr * 1.0  # Within 1.0 ATR of slow EMA
+
+        # ── DIAGNOSTIC: log why trend_rider returns None ─────────
+        logger.info(
+            f"[TREND-RIDER] {snapshot.symbol}: htf_dir={htf_dir} str={htf_strength:.2f} "
+            f"ema_bull={ema_aligned_bull} ema_bear={ema_aligned_bear} "
+            f"close={last_close:.5f} ema21={ema_slow:.5f} "
+            f"dist={ema_dist:.5f} thresh={proximity_threshold:.5f} "
+            f"rsi={rsi:.1f} bounced_up={last_close > prev_close} bounced_dn={last_close < prev_close}"
+        )
 
         # ── BULLISH PULLBACK ─────────────────────────────────────
         if htf_dir == "long" and ema_aligned_bull:
@@ -178,8 +187,7 @@ class TrendRiderStrategy(BaseStrategy):
                 swing_low = min(recent_lows)
                 stop_dist = max(last_close - swing_low, atr * 1.5)
                 stop_loss = last_close - stop_dist
-                # take_profit = last_close + (stop_dist * 2.5)  # Was 2.5R ceiling
-                take_profit = None  # Let Conductor's dynamic trail manage exits
+                take_profit = last_close + (stop_dist * 2.5)  # 2.5R target (Conductor trail may exit earlier)
 
                 return AITradeDecision(
                     symbol=snapshot.symbol,
@@ -214,8 +222,7 @@ class TrendRiderStrategy(BaseStrategy):
                 swing_high = max(recent_highs)
                 stop_dist = max(swing_high - last_close, atr * 1.5)
                 stop_loss = last_close + stop_dist
-                # take_profit = last_close - (stop_dist * 2.5)  # Was 2.5R ceiling
-                take_profit = None  # Let Conductor's dynamic trail manage exits
+                take_profit = last_close - (stop_dist * 2.5)  # 2.5R target (Conductor trail may exit earlier)
 
                 return AITradeDecision(
                     symbol=snapshot.symbol,

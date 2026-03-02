@@ -464,10 +464,16 @@ class HistoricalMarketDataProvider:
         # Get active profile
         profile = self.settings.get_active_profile()
 
-        # Infer trends from swing structure using resampled HTF/LTF candles.
-        htf_candles = (
-            _resample_candles(candles, htf_seconds) if htf_seconds != base_seconds else candles
-        )
+        # Use NATIVE HTF candles from cache if available (loaded from Oanda),
+        # otherwise fall back to resampling (legacy behavior).
+        htf_cache_key = f"{symbol}:{profile.htf_timeframe}_current"
+        native_htf = self._cache.get(htf_cache_key)
+        if native_htf and len(native_htf) >= INDICATOR_MIN_CANDLES:
+            htf_candles = native_htf
+        else:
+            htf_candles = (
+                _resample_candles(candles, htf_seconds) if htf_seconds != base_seconds else candles
+            )
         ltf_candles = (
             _resample_candles(candles, ltf_seconds) if ltf_seconds != base_seconds else candles
         )
@@ -557,6 +563,7 @@ class Backtester:
         symbols: Optional[List[str]] = None,
         wind_down_days: int = 0,
         data_paths: Optional[Dict[str, str]] = None,
+        htf_data_paths: Optional[Dict[str, str]] = None,
     ) -> BacktestResult:
         """Run a complete backtest over the specified date range.
 
@@ -567,6 +574,9 @@ class Backtester:
             symbols: List of symbols to trade (defaults to settings.market.symbols)
             wind_down_days: Days to continue simulation AFTER end_date to manage exits (no new entries)
             data_paths: Optional map of symbol to local JSON data file path
+            htf_data_paths: Optional map of symbol to local JSON HTF data file path
+                (e.g., native 4h candles from Oanda). If provided, these are used
+                instead of resampling LTF candles, matching live bot behavior.
 
         Returns:
             BacktestResult containing P&L, trades, and performance metrics
@@ -610,6 +620,35 @@ class Backtester:
             if candles:
                 all_candles[symbol] = candles
                 logger.info(f"[BACKTEST] {symbol}: {len(candles)} candles from {candles[0].timestamp.date()} to {candles[-1].timestamp.date()}")
+
+        # Load native HTF candles (e.g., real 4h from Oanda) if provided
+        # Load ALL candles from the file — don't date-filter here.
+        # The per-bar cache update handles time-based filtering.
+        # We need 60+ HTF candles for reliable ADX/indicator computation.
+        all_htf_candles: Dict[str, List[Candle]] = {}
+        if htf_data_paths:
+            htf_tf = profile.htf_timeframe
+            for symbol in symbols:
+                htf_path = htf_data_paths.get(symbol)
+                if htf_path and os.path.exists(htf_path):
+                    import json as _json
+                    with open(htf_path) as _f:
+                        raw_htf = _json.load(_f)
+                    htf_candles_loaded = []
+                    for r in raw_htf:
+                        ts_str = r["timestamp"]
+                        ts_str = ts_str.replace("000000000Z", "Z")
+                        if ts_str.endswith("Z"):
+                            ts_str = ts_str[:-1] + "+00:00"
+                        htf_candles_loaded.append(Candle(
+                            timestamp=datetime.fromisoformat(ts_str),
+                            open=float(r["open"]), high=float(r["high"]),
+                            low=float(r["low"]), close=float(r["close"]),
+                            volume=int(r.get("volume", 0)),
+                        ))
+                    if htf_candles_loaded:
+                        all_htf_candles[symbol] = htf_candles_loaded
+                        logger.info(f"[BACKTEST] {symbol} HTF ({htf_tf}): {len(htf_candles_loaded)} native candles loaded")
 
         if not all_candles:
             raise ValueError("No historical data available for any symbol")
@@ -686,11 +725,22 @@ class Backtester:
                 cache_key = f"{symbol}:{timeframe}_current"
                 self.market_provider._cache[cache_key] = current_candles
 
+                # Also update native HTF candle cache if available
+                if symbol in all_htf_candles:
+                    htf_tf = profile.htf_timeframe
+                    htf_current = [
+                        c for c in all_htf_candles[symbol]
+                        if c.timestamp <= current_time
+                    ]
+                    htf_cache_key = f"{symbol}:{htf_tf}_current"
+                    self.market_provider._cache[htf_cache_key] = htf_current
+
                 # DEBUG: Log candle availability for first few bars
                 if processed_bar_index < 3:
+                    htf_count = len(self.market_provider._cache.get(f"{symbol}:{profile.htf_timeframe}_current", []))
                     logger.info(
-                        f"[BACKTEST] Bar {processed_bar_index}: {symbol} has {len(current_candles)} candles "
-                        f"up to {current_time.strftime('%Y-%m-%d %H:%M')}"
+                        f"[BACKTEST] Bar {processed_bar_index}: {symbol} has {len(current_candles)} LTF candles, "
+                        f"{htf_count} HTF candles up to {current_time.strftime('%Y-%m-%d %H:%M')}"
                     )
 
             # Check stop/target hits for open positions
@@ -828,6 +878,10 @@ class Backtester:
                             rev_dir = "short" if pos.direction == "long" else "long"
                             rev_entry = exit_price
                             risk_dist = abs(pos.entry_price - pos.stop_price)
+                            # Enforce minimum stop distance for SAR (same as normal entries)
+                            min_stop_dist = rev_entry * 0.001
+                            if risk_dist < min_stop_dist:
+                                risk_dist = min_stop_dist
                             # Fixed 1R target
                             rev_tp_r = float(getattr(profile, 'reversal_tp_r', 1.0))
                             tp_dist = risk_dist * rev_tp_r
@@ -841,7 +895,8 @@ class Backtester:
                             else:
                                 rev_sl = rev_entry + risk_dist
                                 rev_tp = rev_entry - tp_dist
-                            rev_risk_pct = float(getattr(profile, 'reversal_risk_per_trade', 0.045))
+                            # SAR reversal risk: 1% (standard risk)
+                            rev_risk_pct = float(getattr(profile, 'risk_per_trade_pct', 0.01))
                             rev_max_risk = capital * rev_risk_pct
                             rev_size = rev_max_risk / risk_dist if risk_dist > 0 else 0
                             if rev_size > 0:
@@ -1579,6 +1634,15 @@ class Backtester:
 
                         # Handle pyramid/add to position
                         if current_position is not None and decision.action in ("add_to_position", "scale_in"):
+                            # ── PYRAMID LIMIT GUARD ──────────────────────
+                            max_pyramids = int(getattr(profile, 'max_pyramid_entries', 1))
+                            if current_position.pyramid_count >= max_pyramids:
+                                logger.info(
+                                    f"[BACKTEST] {symbol} PYRAMID BLOCKED: "
+                                    f"already at {current_position.pyramid_count}/{max_pyramids} entries"
+                                )
+                                continue
+
                             # ── DUST GUARD (pre-pyramid) ──────────────────────
                             # If existing position is dust (< 100 units), close it first.
                             # Pyramiding onto dust corrupts entry_price via weighted average
@@ -1885,6 +1949,46 @@ class Backtester:
                                     logger.info(f"[BACKTEST] {symbol}:{meta_src} multi-pos blocked (sub-strategy already in position)")
                             elif current_position is None:
                                 can_enter = True
+
+                        if can_enter:
+                            # ── CONSECUTIVE-LOSS COOLDOWN ─────────────────
+                            # After 2 consecutive losses on a symbol, sit out
+                            # for 4 bars to avoid churn on choppy pairs.
+                            if not hasattr(self, '_symbol_cooldown'):
+                                self._symbol_cooldown = {}  # symbol → resume_bar_idx
+                                self._bar_counter = 0
+                            self._bar_counter += 1
+
+                            # Count consecutive recent losses for this symbol
+                            sym_trades = [t for t in completed_trades if t.symbol == symbol]
+                            consec_losses = 0
+                            for t in reversed(sym_trades):
+                                if t.pnl <= 0:
+                                    consec_losses += 1
+                                else:
+                                    break
+
+                            # Start cooldown after 2 consecutive losses
+                            if consec_losses >= 2 and symbol not in self._symbol_cooldown:
+                                self._symbol_cooldown[symbol] = self._bar_counter + 4
+                                logger.info(
+                                    f"[BACKTEST] {symbol} COOLDOWN STARTED: "
+                                    f"{consec_losses} consecutive losses, "
+                                    f"sitting out 4 bars"
+                                )
+
+                            # Check if in cooldown (SAR reversals bypass)
+                            is_sar = getattr(decision, 'notes', '') and 'reversal' in str(getattr(decision, 'notes', '')).lower()
+                            resume_bar = self._symbol_cooldown.get(symbol, 0)
+                            if resume_bar > self._bar_counter and not is_sar:
+                                can_enter = False
+                                logger.info(
+                                    f"[BACKTEST] {symbol} ENTRY BLOCKED (cooldown): "
+                                    f"{resume_bar - self._bar_counter} bars remaining"
+                                )
+                            elif resume_bar > 0 and self._bar_counter >= resume_bar:
+                                # Cooldown expired — clear it
+                                del self._symbol_cooldown[symbol]
 
                         if can_enter:
                             # Use strategy-defined risk, but profile risk acts as FLOOR

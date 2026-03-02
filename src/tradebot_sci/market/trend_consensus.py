@@ -130,7 +130,7 @@ def _compute_timeframe(
     global _TF_CACHE
     _cache_key = None
     if candles:
-        _cache_key = (candles[-1].timestamp, len(candles), label)
+        _cache_key = (candles[-1].timestamp, len(candles), label, candles[0].close)
         cached = _TF_CACHE.get(_cache_key)
         if cached is not None:
             return cached
@@ -425,7 +425,7 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
     # ── RANGING: Sideways consolidation ───────────────────────────
     # ADX <= 20 = no meaningful trend. Narrow BBs = price is coiled.
     ranging_signals = 0
-    if adx <= 12:  # Lowered from 20 for forex
+    if adx <= 10:  # Tightened from 12: ADX 10-12 was letting choppy markets through
         ranging_signals += 2  # ADX is double-weighted
     if bb_squeeze:
         ranging_signals += 1
@@ -445,7 +445,7 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
     # ADX 20-30 with BB starting to expand from squeeze or BBs
     # moderately wide. This is where breakout strategies thrive.
     # Must also have directional agreement between timeframes.
-    if 12 < adx <= 20:  # Lowered from 20-30 for forex
+    if 10 < adx <= 20:  # Extended from 12: captures ADX 10-12 that was leaking into ranging
         has_breakout_signal = (
             (bb_squeeze and bb_bandwidth > 0.003)  # Squeeze breaking out
             or (bb_bandwidth > 0.008 and strength >= 0.4)  # Clear expansion + direction

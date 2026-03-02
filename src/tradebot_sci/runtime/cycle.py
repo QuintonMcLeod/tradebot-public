@@ -59,6 +59,14 @@ def fetch_snapshot(
             htf_timeframe=htf_timeframe,
             ltf_timeframe=ltf_timeframe,
         )
+
+        # Record snapshot for replay backtesting
+        try:
+            from tradebot_sci.runtime.candle_recorder import get_recorder
+            get_recorder().record(cache[key])
+        except Exception:
+            pass  # Never let recording failures affect the live bot
+
     return cache[key]
 
 
@@ -294,6 +302,19 @@ def process_candidate_cycle(
                 handle_execution_result(outcome, strike_tracker)
                 if result and result.status.value == "executed":
                     success_symbol = symbol
+                    # ── Log a [DECISION] line for fills so the GUI Decision Panel gets score/grade ──
+                    fill_score = (decision.score * 100.0) if (decision.score is not None) else 0.0
+                    fill_grade = decision.grade if (decision.grade is not None) else "N/A"
+                    fill_strat_name = engines[symbol].last_strat_name if symbol in engines else "unknown"
+                    fill_strat_grade = engines[symbol].last_strat_grade if symbol in engines else "N/A"
+                    fill_strat_score = engines[symbol].last_strat_score if symbol in engines else 0.0
+                    logger.info(
+                        f"[DECISION] symbol={symbol} action={decision.action.upper()} "
+                        f"score={fill_score:.1f} grade={fill_grade} "
+                        f"strategy={fill_strat_name} strat_score={fill_strat_score:.1f} "
+                        f"strat_grade={fill_strat_grade} "
+                        f"reason=FILL executed @ {decision.entry_price or 'market'}"
+                    )
                     # [CHURN BURNER] Only count ACTUAL fills, not signals
                     from tradebot_sci.strategy.safety_guard import SafetyGuard
                     SafetyGuard.notify_entry(symbol)

@@ -811,8 +811,8 @@ class StrategyEngine:
         # 5. Default: Stand Aside
         from tradebot_sci.strategy.decisions import stand_aside_decision
         decision = stand_aside_decision(snapshot.symbol, timeframe, "No strategy signal detected.")
-        decision.score = score
-        decision.grade = grade
+        decision.score = strat_score / 100.0  # Normalize to 0-1 (cycle.py × 100 for display)
+        decision.grade = strat_grade
 
         return decision
 

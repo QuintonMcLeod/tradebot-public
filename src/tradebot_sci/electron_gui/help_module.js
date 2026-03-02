@@ -749,9 +749,22 @@ window.helpModule = (() => {
                 font-weight: 700;
             }
 
-            /* ── Smooth scroll for content ── */
+            /* scrolling handled by JS kinetic scroll */
             #help-content {
-                scroll-behavior: smooth;
+                scroll-behavior: auto;
+            }
+            #help-content::-webkit-scrollbar {
+                width: 10px;
+            }
+            #help-content::-webkit-scrollbar-thumb {
+                background: rgba(255,255,255,0.15);
+                border-radius: 5px;
+            }
+            #help-content::-webkit-scrollbar-thumb:hover {
+                background: rgba(255,255,255,0.3);
+            }
+            #help-content::-webkit-scrollbar-track {
+                background: rgba(0,0,0,0.1);
             }
 
             /* ══════════════════════════════════════ */
@@ -1063,7 +1076,7 @@ window.helpModule = (() => {
         renderMagazine();
 
         const contentArea = document.getElementById('help-content');
-        if (contentArea) contentArea.scrollTop = 0;
+        if (contentArea) contentArea.scrollTo({ top: 0, behavior: 'smooth' });
 
         const backBtn = document.getElementById('help-back-btn');
         if (backBtn) backBtn.classList.add('hidden');
@@ -1116,7 +1129,7 @@ window.helpModule = (() => {
             }
 
             const contentArea = document.getElementById('help-content');
-            if (contentArea) contentArea.scrollTop = 0;
+            if (contentArea) contentArea.scrollTo({ top: 0, behavior: 'smooth' });
 
         } catch (err) {
             console.error('[HELP] Error loading doc:', err);
@@ -1130,8 +1143,64 @@ window.helpModule = (() => {
         const contentArea = document.getElementById('help-content');
         if (btn && contentArea) {
             btn.addEventListener('click', () => {
-                contentArea.scrollTop = 0;
+                contentArea.scrollTo({ top: 0, behavior: 'smooth' });
             });
+        }
+    }
+
+    // ── Smooth Scrolling (target-based lerp) ──────────────────
+    // Each wheel tick pushes a target further; an animation loop
+    // eases the actual scroll position toward the target so
+    // multiple ticks blend into one fluid, decelerating glide.
+    function setupKineticScroll() {
+        const el = document.getElementById('help-content');
+        if (!el) return;
+
+        // Force instant scrollTop so our lerp loop works
+        el.style.scrollBehavior = 'auto';
+
+        let target = el.scrollTop;
+        let running = false;
+        const speed = 400;   // pixels per wheel notch (generous throw)
+        const ease = 0.04;  // lerp factor (lower = longer rolling stop)
+
+        el.addEventListener('wheel', (e) => {
+            e.preventDefault();
+
+            // Normalize delta
+            let d = e.deltaY;
+            if (e.deltaMode === 1) d *= 20;            // line mode
+            else if (e.deltaMode === 2) d *= el.clientHeight;  // page mode
+
+            // Push the target (direction only, fixed step size for consistency)
+            target += Math.sign(d) * speed;
+
+            // Clamp to scrollable range
+            const max = el.scrollHeight - el.clientHeight;
+            target = Math.max(0, Math.min(target, max));
+
+            if (!running) { running = true; step(); }
+        }, { passive: false });
+
+        // Sync target when user drags the scrollbar manually
+        let wheelActive = false;
+        el.addEventListener('wheel', () => { wheelActive = true; }, { passive: true });
+        el.addEventListener('scroll', () => {
+            if (!wheelActive && !running) {
+                target = el.scrollTop;
+            }
+            wheelActive = false;
+        });
+
+        function step() {
+            const diff = target - el.scrollTop;
+            if (Math.abs(diff) < 1) {
+                el.scrollTop = target;
+                running = false;
+                return;
+            }
+            el.scrollTop += diff * ease;
+            requestAnimationFrame(step);
         }
     }
 
@@ -1212,6 +1281,7 @@ window.helpModule = (() => {
 
         renderMagazine();
         setupScrollTop();
+        setupKineticScroll();
         setupHelpSearch();
 
         // Back button

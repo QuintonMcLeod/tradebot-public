@@ -497,6 +497,130 @@ function setupIpcHandlers() {
     });
 
     // =============================================
+    // Backtest — Recording Info & Execution
+    // =============================================
+    const CANDLE_HISTORY_DIR = path.join(USER_DATA_DIR, 'data', 'candle_history');
+
+    ipcMain.handle('get-recording-info', async () => {
+        try {
+            if (!fs.existsSync(CANDLE_HISTORY_DIR)) {
+                return { symbols: [], earliest: null, latest: null };
+            }
+            const symbols = [];
+            let globalEarliest = null;
+            let globalLatest = null;
+
+            const dirs = fs.readdirSync(CANDLE_HISTORY_DIR, { withFileTypes: true });
+            for (const d of dirs) {
+                if (!d.isDirectory()) continue;
+                symbols.push(d.name);
+                const symDir = path.join(CANDLE_HISTORY_DIR, d.name);
+                const files = fs.readdirSync(symDir).filter(f => f.endsWith('.jsonl'));
+                for (const f of files) {
+                    const match = f.match(/_(\d{4}-\d{2}-\d{2})\.jsonl$/);
+                    if (match) {
+                        const date = match[1];
+                        if (!globalEarliest || date < globalEarliest) globalEarliest = date;
+                        if (!globalLatest || date > globalLatest) globalLatest = date;
+                    }
+                }
+            }
+            return { symbols: symbols.sort(), earliest: globalEarliest, latest: globalLatest };
+        } catch (e) {
+            console.error('[MAIN] get-recording-info error:', e);
+            return { symbols: [], earliest: null, latest: null };
+        }
+    });
+
+    ipcMain.handle('run-backtest', async (_event, config) => {
+        console.log('[MAIN] run-backtest called:', JSON.stringify(config));
+        try {
+            const { spawn } = require('child_process');
+
+            // Resolve the mega_backtester.py path
+            const backtesterPath = path.join(__dirname, '../../../tools/mega_backtester.py');
+            if (!fs.existsSync(backtesterPath)) {
+                return { error: 'Backtester script not found' };
+            }
+
+            // Build command arguments
+            const args = [backtesterPath];
+            if (config.replay) {
+                args.push('--replay');
+            }
+            args.push('--json-output');
+            if (config.start_date) args.push('--start', config.start_date);
+            if (config.end_date) args.push('--end', config.end_date);
+            if (config.profile) args.push('--profile', config.profile);
+            if (config.symbols && config.symbols.length > 0) {
+                args.push('--symbols', config.symbols.join(','));
+            }
+
+            // Find Python executable
+            const pythonCandidates = ['python3', 'python'];
+            let pythonExe = 'python3';
+            for (const candidate of pythonCandidates) {
+                try {
+                    require('child_process').execSync(`${candidate} --version`, { stdio: 'pipe' });
+                    pythonExe = candidate;
+                    break;
+                } catch (_) { continue; }
+            }
+
+            return new Promise((resolve) => {
+                let stdout = '';
+                let stderr = '';
+
+                const proc = spawn(pythonExe, args, {
+                    cwd: path.join(__dirname, '../../..'),
+                    env: { ...process.env, PYTHONPATH: path.join(__dirname, '../../..') },
+                    timeout: 300000, // 5 minute timeout
+                });
+
+                proc.stdout.on('data', (data) => { stdout += data.toString(); });
+                proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+                proc.on('close', (code) => {
+                    console.log(`[MAIN] Backtester exited with code ${code}`);
+                    if (code !== 0) {
+                        console.error('[MAIN] Backtester stderr:', stderr.slice(-500));
+                        resolve({ error: `Backtester failed (exit ${code}): ${stderr.slice(-200)}` });
+                        return;
+                    }
+
+                    // Try to parse JSON from stdout
+                    try {
+                        // Find the last JSON object in stdout (skip any log lines)
+                        const lines = stdout.trim().split('\n');
+                        let jsonStr = null;
+                        for (let i = lines.length - 1; i >= 0; i--) {
+                            const line = lines[i].trim();
+                            if (line.startsWith('{')) {
+                                jsonStr = line;
+                                break;
+                            }
+                        }
+                        if (jsonStr) {
+                            resolve(JSON.parse(jsonStr));
+                        } else {
+                            resolve({ error: 'No JSON output from backtester', raw: stdout.slice(-500) });
+                        }
+                    } catch (parseErr) {
+                        resolve({ error: `Failed to parse results: ${parseErr.message}`, raw: stdout.slice(-500) });
+                    }
+                });
+
+                proc.on('error', (err) => {
+                    resolve({ error: `Failed to start backtester: ${err.message}` });
+                });
+            });
+        } catch (e) {
+            console.error('[MAIN] run-backtest error:', e);
+            return { error: e.message };
+        }
+    });
+
+    // =============================================
     // AI Recommend — Profile Optimization
     // =============================================
     ipcMain.handle('ai-recommend', async (_event, profileName) => {

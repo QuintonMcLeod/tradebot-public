@@ -692,7 +692,7 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
 
 // --- IPC / Socket Logic ---
 let capitalDisplayMode = 'equity';
-window.api.on('env-updated', (updates) => {
+window.api?.on('env-updated', (updates) => {
     console.log("[UI] Environment updated:", updates);
     if (updates.GUI_CAPITAL_DISPLAY_MODE) {
         capitalDisplayMode = updates.GUI_CAPITAL_DISPLAY_MODE;
@@ -712,7 +712,7 @@ window.api.on('env-updated', (updates) => {
     }
 });
 
-window.api.on('fromMain', (payload) => {
+window.api?.on('fromMain', (payload) => {
     if (payload.type === 'log-clear') {
         // Clear the sys-log panel on GUI boot — start fresh
         const term = document.getElementById('log-terminal') || document.querySelector('.log-terminal');
@@ -982,7 +982,7 @@ function setupCalendar() {
 
 let botIsRunning = false;
 
-window.api.on('bot-status', (payload) => {
+window.api?.on('bot-status', (payload) => {
     botIsRunning = payload.running;
     console.log("Bot Status Update:", botIsRunning);
     updatePanicButtonState();
@@ -1020,7 +1020,7 @@ function setPanicState(isStopped) {
 const WATCHED_SYMBOLS = ['BTCUSD', 'ETHUSD', 'SOLUSD']; // Default to crypto, will be updated from backend
 let currentSymbolIndex = 0;
 
-let updateSymbolDisplay; // Forward declaration for use in WS sync
+let updateSymbolDisplay = () => { }; // Forward declaration for use in WS sync
 
 function setupInteractiveElements() {
     const symbolLabel = document.getElementById('chart-symbol-label');
@@ -1196,10 +1196,10 @@ function setupInteractiveElements() {
     setTimeout(checkForUpdatesUI, 10000);
     setInterval(checkForUpdatesUI, 30 * 60 * 1000);
 
-    ['nav-dashboard', 'nav-profile', 'nav-settings', 'nav-graph', 'nav-help'].forEach(id => {
+    ['nav-dashboard', 'nav-profile', 'nav-settings', 'nav-graph', 'nav-backtest', 'nav-help'].forEach(id => {
         document.getElementById(id)?.addEventListener('click', (e) => {
             // Remove active style from all
-            ['nav-dashboard', 'nav-profile', 'nav-settings', 'nav-graph', 'nav-help'].forEach(navId => {
+            ['nav-dashboard', 'nav-profile', 'nav-settings', 'nav-graph', 'nav-backtest', 'nav-help'].forEach(navId => {
                 const btn = document.getElementById(navId);
                 if (btn) {
                     btn.className = "flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-white transition-all text-sm font-medium";
@@ -1209,7 +1209,7 @@ function setupInteractiveElements() {
             e.currentTarget.className = "flex items-center gap-4 px-4 py-3.5 rounded-xl bg-teal-500/20 text-teal-300 font-bold text-sm border-2 border-teal-500/30 shadow-[0_0_20px_rgba(20,184,166,0.3)] transition-all";
 
             const name = e.currentTarget.innerText.trim();
-            appendLog("INFO", `[UI] Switched to ${name} view.`);
+            try { appendLog("INFO", `[UI] Switched to ${name} view.`); } catch (_) { }
 
             // Handle view switching
             const dashboardView = document.getElementById('view-dashboard');
@@ -1217,6 +1217,7 @@ function setupInteractiveElements() {
             const profilesView = document.getElementById('view-profiles');
             const settingsView = document.getElementById('view-settings');
             const helpView = document.getElementById('view-help');
+            const backtestView = document.getElementById('view-backtest');
 
             // Hide all views first
             if (dashboardView) dashboardView.classList.add('hidden');
@@ -1224,6 +1225,7 @@ function setupInteractiveElements() {
             if (profilesView) profilesView.classList.add('hidden');
             if (settingsView) settingsView.classList.add('hidden');
             if (helpView) helpView.classList.add('hidden');
+            if (backtestView) backtestView.classList.add('hidden');
 
             if (id === 'nav-settings') {
                 // Show integrated Settings view
@@ -1254,6 +1256,14 @@ function setupInteractiveElements() {
             } else if (id === 'nav-dashboard') {
                 // Show Dashboard view
                 if (dashboardView) dashboardView.classList.remove('hidden');
+            } else if (id === 'nav-backtest') {
+                // Show Backtest view
+                if (backtestView) {
+                    backtestView.classList.remove('hidden');
+                    if (window.backtestModule && window.backtestModule.init) {
+                        window.backtestModule.init();
+                    }
+                }
             } else if (id === 'nav-help') {
                 // Show Help view
                 if (helpView) {
@@ -1555,23 +1565,27 @@ function init() {
         setupPanelRotation();
         setupCalendar();
 
-        // Request initial bot status
-        window.api.send('get-bot-status');
+        // Request initial bot status (Electron-only)
+        try { window.api?.send('get-bot-status'); } catch (_) { }
 
-        // Initialize PnL Timeframe from env (overrides stale localStorage)
-        window.api.invoke('read-env').then(env => {
-            if (env.GUI_PNL_TIMEFRAME) {
-                pnlTimeframe = env.GUI_PNL_TIMEFRAME;
-                localStorage.setItem('pnlTimeframe', pnlTimeframe);
-            }
-            if (window.updateRealizedPnL) window.updateRealizedPnL();
-        });
+        // Initialize PnL Timeframe from env (Electron-only)
+        try {
+            window.api?.invoke('read-env')?.then(env => {
+                if (env?.GUI_PNL_TIMEFRAME) {
+                    pnlTimeframe = env.GUI_PNL_TIMEFRAME;
+                    localStorage.setItem('pnlTimeframe', pnlTimeframe);
+                }
+                if (window.updateRealizedPnL) window.updateRealizedPnL();
+            });
+        } catch (_) { }
 
-        // Fetch and display app version from VERSION file
-        window.api.invoke('get-app-version').then(ver => {
-            const badge = document.getElementById('version-badge');
-            if (badge && ver) badge.textContent = `β ${ver}`;
-        }).catch(() => { });
+        // Fetch and display app version from VERSION file (Electron-only)
+        try {
+            window.api?.invoke('get-app-version')?.then(ver => {
+                const badge = document.getElementById('version-badge');
+                if (badge && ver) badge.textContent = `β ${ver}`;
+            }).catch(() => { });
+        } catch (_) { }
 
         // Chart Refresh Interval (15 Seconds)
         setInterval(() => {
@@ -1583,6 +1597,8 @@ function init() {
         console.log("Other UI modules initialized.");
     } catch (e) {
         console.error("UI setup failed:", e);
+        // Ensure nav still works even if other setup fails
+        try { setupInteractiveElements(); } catch (_) { }
     }
 }
 
