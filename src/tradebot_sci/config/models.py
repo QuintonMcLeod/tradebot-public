@@ -328,10 +328,10 @@ class TradingProfileSettings(BaseModel):
         description="Maximum fraction of liquid balance allowed for a single asset's total exposure.",
     )
     target_leverage: float = Field(
-        default=1.0,
+        default=10.0,
         ge=1.0,
         le=100.0,
-        description="Target leverage for the asset class (Asset Class dependent).",
+        description="Target leverage for the asset class (Asset Class dependent). Forex default 10x (OANDA offers up to 50:1).",
     )
     icc_entry_score_threshold: float = Field(
         default=60.0,

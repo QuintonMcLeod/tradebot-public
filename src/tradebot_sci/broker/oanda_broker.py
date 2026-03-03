@@ -751,24 +751,67 @@ class OandaExchangeBroker(IExchangeBroker):
             pip_value = self.PIP_VALUE_JPY if "JPY" in decision.symbol.upper() else self.PIP_VALUE_STANDARD
             spread_cost = self.AVG_SPREAD_PIPS * pip_value
             effective_stop_dist = stop_dist + spread_cost
-            logger.debug(f"[OANDA] Spread buffer: raw_stop_dist={stop_dist:.5f} + spread={spread_cost:.5f} = effective={effective_stop_dist:.5f}")
-                
+
+            # ── JPY QUOTE CONVERSION ─────────────────────────────────
+            # For JPY-quoted pairs (USDJPY, EURJPY, etc.), stop_dist is
+            # in JPY, but risk_amount is in USD.  Convert stop_dist to
+            # USD-per-unit so the formula gives correct units.
+            is_jpy_quote = "JPY" in decision.symbol.upper()
+            if is_jpy_quote and price > 0:
+                effective_stop_dist = effective_stop_dist / price
+
+            logger.debug(
+                f"[OANDA] Spread buffer: raw_stop_dist={stop_dist:.5f} + "
+                f"spread={spread_cost:.5f} = effective={effective_stop_dist:.8f}"
+                f"{' (JPY→USD converted)' if is_jpy_quote else ''}"
+            )
+
+            # ── CAPITAL STALENESS GUARD ───────────────────────────────
+            # If _liquid_capital is very low, force a refresh before sizing.
+            # Prevents stale cached values from API failures.
+            if self._liquid_capital < 100.0:
+                logger.warning(
+                    f"[OANDA] ⚠ Capital is suspiciously low (${self._liquid_capital:.2f}). "
+                    f"Forcing account refresh before sizing..."
+                )
+                self.refresh_account_summary()
+                if self._liquid_capital < 100.0:
+                    logger.critical(
+                        f"[OANDA] Capital still ${self._liquid_capital:.2f} after refresh! "
+                        f"Blocking trade to prevent micro-sizing."
+                    )
+                    return (
+                        ExecutionResult(ExecutionStatus.ERROR, decision.symbol, f"capital too low: ${self._liquid_capital:.2f}"),
+                        ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, f"capital too low: ${self._liquid_capital:.2f}")
+                    )
+
             risk_amount = self.profile.risk_per_trade_dollars
             if risk_amount <= 0:
                 risk_amount = self._liquid_capital * self.profile.risk_per_trade_pct
                 
-            # units = risk / effective_stop_dist (spread-adjusted)
+            # units = risk / effective_stop_dist (spread-adjusted, JPY-converted)
             units = risk_amount / effective_stop_dist
             
             # Leverage-based sizing Cap
             # Prevent units from exceeding account_equity * target_leverage
-            target_leverage = getattr(self.profile, "target_leverage", 1.0)
+            target_leverage = getattr(self.profile, "target_leverage", 10.0)
             if target_leverage > 0:
                 max_notional = self._liquid_capital * target_leverage
                 max_units = max_notional / price if price > 0 else 0
                 if abs(units) > max_units and max_units > 0:
-                    logger.warning(f"[OANDA] Sizing Cap: Calculated units {abs(units):.2f} exceeds leverage cap {max_units:.2f} (Leverage={target_leverage}x)")
+                    logger.warning(
+                        f"[OANDA] Sizing Cap: Calculated units {abs(units):.2f} exceeds "
+                        f"leverage cap {max_units:.2f} (Leverage={target_leverage}x)"
+                    )
                     units = max_units if units > 0 else -max_units
+
+            logger.info(
+                f"[OANDA] [SIZING] {decision.symbol}: capital=${self._liquid_capital:.2f} "
+                f"risk_pct={self.profile.risk_per_trade_pct} risk=${risk_amount:.2f} "
+                f"stop_dist={stop_dist:.5f} eff_stop={effective_stop_dist:.8f} "
+                f"raw_units={risk_amount/effective_stop_dist:.0f} "
+                f"lev_cap={target_leverage}x final_units={int(abs(units))}"
+            )
 
             if is_short:
                 units = -units
