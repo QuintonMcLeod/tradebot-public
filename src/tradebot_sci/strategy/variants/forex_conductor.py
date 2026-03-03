@@ -123,21 +123,22 @@ class ForexConductorStrategy(BaseStrategy):
                 for t in reversed(trade_history):  # newest first
                     if t.get("symbol") != snapshot.symbol:
                         continue
-                    reason = (t.get("exit_reason") or "").lower()
-                    if "stop" not in reason:
-                        continue
-                    # Only react to stops within last 5 minutes
+                    # SAR fires on ANY losing trade, not just "stop" exits
+                    is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
+                    if not is_loss:
+                        break  # last trade was a win — no reversal needed
+                    # Only react to recent losses (within 30 min)
                     closed_at = t.get("closed_at", "")
                     try:
                         _closed = _dt.fromisoformat(str(closed_at).replace("Z", "+00:00"))
                         if hasattr(_now, 'tzinfo') and _now.tzinfo and not _closed.tzinfo:
                             _closed = _closed.replace(tzinfo=_now.tzinfo)
                         age_sec = (_now - _closed).total_seconds()
-                        if age_sec > 300:  # older than 5 min — skip
+                        if age_sec > 1800:  # older than 30 min — skip
                             break
                     except Exception:
                         break
-                    # Set reversal direction: opposite of the stopped side
+                    # Set reversal direction: opposite of the losing side
                     old_side = (t.get("side") or "").lower()
                     if old_side == "long":
                         _reversal_pending[snapshot.symbol] = "short"
@@ -145,7 +146,7 @@ class ForexConductorStrategy(BaseStrategy):
                         _reversal_pending[snapshot.symbol] = "long"
                     if snapshot.symbol in _reversal_pending:
                         logger.info(
-                            f"[CONDUCTOR] {snapshot.symbol}: STOP DETECTED → "
+                            f"[CONDUCTOR] {snapshot.symbol}: LOSS DETECTED → "
                             f"reversal pending {_reversal_pending[snapshot.symbol]}"
                         )
                     break  # only process most recent
