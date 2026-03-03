@@ -399,6 +399,59 @@ class ForexConductorStrategy(BaseStrategy):
                         self._milestones_fired = {}
                     fired = self._milestones_fired.setdefault(milestones_key, set())
 
+                    # ── LOWER-HIGH / HIGHER-LOW INVALIDATION ─────────
+                    # If the trade's swing structure breaks (lower high
+                    # for longs, higher low for shorts), exit 80%.
+                    if "struct_inval_lh" not in fired:
+                        from tradebot_sci.market.swing_analysis import swing_points
+                        trade_candles = snapshot.candles[-40:]
+                        if len(trade_candles) >= 10:
+                            sh_idx, sl_idx = swing_points(trade_candles, lookback=2)
+
+                            if pos_dir == "long" and len(sh_idx) >= 2:
+                                last_sh = float(trade_candles[sh_idx[-1]].high)
+                                prev_sh = float(trade_candles[sh_idx[-2]].high)
+                                if last_sh < prev_sh and current_price < last_sh:
+                                    fired.add("struct_inval_lh")
+                                    from tradebot_sci.strategy.decisions import (
+                                        scale_out_decision,
+                                    )
+                                    logger.info(
+                                        f"[CONDUCTOR] STRUCT INVAL {sym}: "
+                                        f"Lower High ({prev_sh:.5f} → "
+                                        f"{last_sh:.5f}), closing 80%%"
+                                    )
+                                    return scale_out_decision(
+                                        sym, snapshot.timeframe,
+                                        reason=(
+                                            f"Conductor: Lower-High "
+                                            f"Invalidation ({prev_sh:.5f}"
+                                            f" → {last_sh:.5f})"
+                                        ),
+                                    )
+
+                            elif pos_dir == "short" and len(sl_idx) >= 2:
+                                last_sl = float(trade_candles[sl_idx[-1]].low)
+                                prev_sl = float(trade_candles[sl_idx[-2]].low)
+                                if last_sl > prev_sl and current_price > last_sl:
+                                    fired.add("struct_inval_lh")
+                                    from tradebot_sci.strategy.decisions import (
+                                        scale_out_decision,
+                                    )
+                                    logger.info(
+                                        f"[CONDUCTOR] STRUCT INVAL {sym}: "
+                                        f"Higher Low ({prev_sl:.5f} → "
+                                        f"{last_sl:.5f}), closing 80%%"
+                                    )
+                                    return scale_out_decision(
+                                        sym, snapshot.timeframe,
+                                        reason=(
+                                            f"Conductor: Higher-Low "
+                                            f"Invalidation ({prev_sl:.5f}"
+                                            f" → {last_sl:.5f})"
+                                        ),
+                                    )
+
                     # ── LOSING SIDE: Partial close at -0.6R ───────────
                     if r_multiple <= -0.6 and "de_risk" not in fired:
                         # Spread guard: only exit if loss > 2× spread cost

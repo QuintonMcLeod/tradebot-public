@@ -640,6 +640,56 @@ class OandaExchangeBroker(IExchangeBroker):
         except Exception:
             return None
 
+    def modify_stop_loss(self, symbol: str, new_stop: float) -> bool:
+        """Move the stop-loss on the primary open trade for *symbol*.
+
+        Uses the OANDA v20 TradeCRCDO endpoint to replace the
+        existing stop-loss order with a new price.
+
+        Returns True if the modification succeeded, False otherwise.
+        """
+        if not self._authorized:
+            logger.warning("[OANDA] Cannot modify SL: not authorized")
+            return False
+        try:
+            instrument = symbol.replace("/", "_").upper()
+            r_pos = oanda_positions.PositionDetails(self.account_id, instrument)
+            self.client.request(r_pos)
+            pos = r_pos.response.get("position", {})
+            long_units = float(pos.get("long", {}).get("units", 0))
+            short_units = float(pos.get("short", {}).get("units", 0))
+            side = "long" if abs(long_units) > abs(short_units) else "short"
+            trade_ids = pos.get(side, {}).get("tradeIDs", [])
+            if not trade_ids:
+                logger.warning(f"[OANDA] modify_stop_loss: no trade IDs for {symbol}")
+                return False
+
+            # Determine price format (JPY pairs use 3 decimals, others use 5)
+            fmt = ".3f" if "JPY" in instrument else ".5f"
+
+            # Modify all open trades for this symbol (usually just 1)
+            for tid in trade_ids:
+                data = {
+                    "stopLoss": {"price": f"{new_stop:{fmt}}"}
+                }
+                r_mod = trades.TradeCRCDO(
+                    accountID=self.account_id,
+                    tradeID=tid,
+                    data=data,
+                )
+                self.client.request(r_mod)
+                logger.info(
+                    f"[OANDA] STOP MODIFIED {symbol} trade#{tid}: "
+                    f"new SL={new_stop:{fmt}}"
+                )
+            return True
+        except Exception as e:
+            logger.error(
+                f"[OANDA] Failed to modify stop for {symbol}: {e}",
+                exc_info=True,
+            )
+            return False
+
     def list_open_position_symbols(self) -> list[str]:
         """Returns list of canonical symbols with open positions."""
         if not self._authorized:
@@ -678,6 +728,55 @@ class OandaExchangeBroker(IExchangeBroker):
                       or "signal_close")
             self.flatten_symbol(decision.symbol, exit_reason=reason)
             return ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, "flattened"), ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, decision.symbol, "flatten requested")
+
+        if action in ("scale_out", "scale_out_leg"):
+            # ── PARTIAL CLOSE: close a fraction of the open position ──
+            reason = (getattr(decision, 'reason', None)
+                      or getattr(decision, 'notes', None)
+                      or getattr(decision, 'structure_summary', None)
+                      or "scale_out")
+            pos = self.get_open_position_snapshot(decision.symbol)
+            if not pos or abs(pos.get("size", 0)) < 1e-8:
+                logger.info(f"[OANDA] scale_out: no position for {decision.symbol}")
+                return (
+                    ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "no position to scale out"),
+                    ExecutionOutcome(ExecutionOutcomeType.SKIPPED, decision.symbol, "no position")
+                )
+            current_size = abs(pos.get("size", 0))
+            # Default 80% close; the remaining 20% runs as a trailer
+            close_fraction = 0.80
+            close_units = int(current_size * close_fraction)
+            if close_units < 1:
+                # Position too small to partial — flatten entirely
+                self.flatten_symbol(decision.symbol, exit_reason=reason)
+                return (
+                    ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, "flattened (too small for partial)"),
+                    ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, decision.symbol, "flatten (dust)")
+                )
+            # Partial close via OANDA reduce endpoint
+            try:
+                instrument = decision.symbol.replace("/", "_")
+                side_sign = -1 if pos.get("side") == "long" else 1
+                partial_units = str(int(close_units * side_sign))
+                resp = self.client.order.market(
+                    self.account_id,
+                    instrument=instrument,
+                    units=partial_units,
+                )
+                logger.info(
+                    f"[OANDA] SCALE OUT {decision.symbol}: closed {close_units} of "
+                    f"{int(current_size)} units ({close_fraction:.0%}) — {reason}"
+                )
+                return (
+                    ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, f"scale_out {close_fraction:.0%}"),
+                    ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, decision.symbol, f"partial close {close_units} units")
+                )
+            except Exception as e:
+                logger.error(f"[OANDA] scale_out failed for {decision.symbol}: {e}", exc_info=True)
+                return (
+                    ExecutionResult(ExecutionStatus.PROVIDER_ERROR, decision.symbol, f"scale_out error: {e}"),
+                    ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, f"scale_out error: {e}")
+                )
 
         entry_actions = {"long", "short", "enter_long", "enter_short", "scale_in", "add_to_position", "flip_to_long", "flip_to_short"}
         if action not in entry_actions:

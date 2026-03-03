@@ -281,6 +281,22 @@ def process_candidate_cycle(
                 d_strat_grade = engines[symbol].last_strat_grade
                 d_strat_score = engines[symbol].last_strat_score
                 logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} strategy={d_strat_name} strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} reason={reason}")
+
+                # ── Propagate stop modifications from hold decisions ──
+                # The Conductor returns hold+stop_loss to trail stops.
+                # Forward to broker so OANDA actually moves the stop.
+                if (
+                    decision
+                    and decision.action == "hold"
+                    and getattr(decision, "stop_loss", None) is not None
+                    and executor
+                    and hasattr(executor, "modify_stop_loss")
+                ):
+                    try:
+                        executor.modify_stop_loss(symbol, float(decision.stop_loss))
+                    except Exception as e:
+                        logger.warning(f"[TRAIL] Stop modification failed for {symbol}: {e}")
+
                 blocked += 1
                 continue
             
