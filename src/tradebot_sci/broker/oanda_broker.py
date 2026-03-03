@@ -794,14 +794,21 @@ class OandaExchangeBroker(IExchangeBroker):
             
             # Leverage-based sizing Cap
             # Prevent units from exceeding account_equity * target_leverage
-            target_leverage = getattr(self.profile, "target_leverage", 10.0)
+            # NOTE: For USD-base pairs (USD/JPY, USD/CHF), 1 unit = $1,
+            # so notional_per_unit = 1.0.  For other pairs (EUR/USD, GBP/USD),
+            # 1 unit costs price in USD, so notional_per_unit = price.
+            target_leverage = getattr(self.profile, "target_leverage", 50.0)
             if target_leverage > 0:
                 max_notional = self._liquid_capital * target_leverage
-                max_units = max_notional / price if price > 0 else 0
+                sym_upper = decision.symbol.upper().replace("_", "")
+                is_usd_base = sym_upper.startswith("USD")
+                notional_per_unit = 1.0 if is_usd_base else (price if price > 0 else 1.0)
+                max_units = max_notional / notional_per_unit
                 if abs(units) > max_units and max_units > 0:
                     logger.warning(
                         f"[OANDA] Sizing Cap: Calculated units {abs(units):.2f} exceeds "
-                        f"leverage cap {max_units:.2f} (Leverage={target_leverage}x)"
+                        f"leverage cap {max_units:.2f} (Leverage={target_leverage}x, "
+                        f"notional_per_unit={'$1' if is_usd_base else f'${notional_per_unit:.4f}'})"
                     )
                     units = max_units if units > 0 else -max_units
 
