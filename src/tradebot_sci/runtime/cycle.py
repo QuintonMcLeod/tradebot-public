@@ -64,8 +64,9 @@ def fetch_snapshot(
         try:
             from tradebot_sci.runtime.candle_recorder import get_recorder
             get_recorder().record(cache[key])
-        except Exception:
-            pass  # Never let recording failures affect the live bot
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).debug(f"[RECORDER] Recording failed: {e}")
 
     return cache[key]
 

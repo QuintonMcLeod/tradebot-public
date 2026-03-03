@@ -156,6 +156,7 @@ class SafetyGuard:
 
         # 0. State Updates — with deposit detection
         hwm = cls._state.hwm_capital.get(asset_class, 0.0)
+        deposit_just_detected = False
         if current_capital > hwm:
             # Detect deposits: if capital jumped >20% in one cycle, it's a
             # deposit, not a trade win.  Reset HWM and clear drawdown pause
@@ -168,6 +169,7 @@ class SafetyGuard:
                     f"Resetting HWM and clearing drawdown pause."
                 )
                 cls._state.drawdown_pause_until.pop(asset_class, None)
+                deposit_just_detected = True
             cls._state.hwm_capital[asset_class] = current_capital
         cls._update_daily_stats(current_capital, asset_class)
 
@@ -223,19 +225,25 @@ class SafetyGuard:
             if pause_until and now < pause_until:
                 return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker ({asset_class.value.upper()}) active until {pause_until.strftime('%H:%M')}")
 
-            # Check trigger
-            hwm = cls._state.hwm_capital.get(asset_class, 0.0)
-            if hwm > 0:
-                drawdown = (hwm - current_capital) / hwm
-                # Adaptive scaling: use configured value as floor, but never
-                # tighter than what the account size warrants.
-                configured_limit = getattr(safety, 'safety_drawdown_max_pct', 0.05)
-                adaptive_limit = adaptive_drawdown_limit(current_capital)
-                drawdown_limit = max(configured_limit, adaptive_limit)
-                if drawdown > drawdown_limit:
-                     cls._state.drawdown_pause_until[asset_class] = now + timedelta(hours=24)
-                     logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}% > {drawdown_limit*100:.1f}% limit, adaptive={adaptive_limit*100:.0f}%). Pausing 24h.")
-                     return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
+            # Skip drawdown trigger check if a deposit was just detected.
+            # The HWM may have been set with aggregate capital from one
+            # broker check, while current_capital is per-broker for the
+            # next check — causing a phantom drawdown (e.g., HWM=$10K
+            # aggregate vs $7.5K per-broker = 25% false drawdown).
+            if not deposit_just_detected:
+                # Check trigger
+                hwm = cls._state.hwm_capital.get(asset_class, 0.0)
+                if hwm > 0:
+                    drawdown = (hwm - current_capital) / hwm
+                    # Adaptive scaling: use configured value as floor, but never
+                    # tighter than what the account size warrants.
+                    configured_limit = getattr(safety, 'safety_drawdown_max_pct', 0.05)
+                    adaptive_limit = adaptive_drawdown_limit(current_capital)
+                    drawdown_limit = max(configured_limit, adaptive_limit)
+                    if drawdown > drawdown_limit:
+                         cls._state.drawdown_pause_until[asset_class] = now + timedelta(hours=24)
+                         logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}% > {drawdown_limit*100:.1f}% limit, adaptive={adaptive_limit*100:.0f}%). Pausing 24h.")
+                         return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
         else:
             # Breaker disabled — clear any lingering pause so it takes
             # effect immediately on hot-plug toggle-off.

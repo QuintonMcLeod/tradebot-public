@@ -134,6 +134,7 @@ class TrendRiderStrategy(BaseStrategy):
 
         last_close = closes[-1]
         prev_close = closes[-2]
+        prev2_close = closes[-3] if len(closes) >= 3 else prev_close
 
         # ── TRENDING MARKET FILTER ───────────────────────────────
         # When used standalone (not via Conductor), ADX>20 ensures
@@ -166,22 +167,42 @@ class TrendRiderStrategy(BaseStrategy):
         ema_dist = abs(last_close - ema_slow)
         proximity_threshold = atr * 1.0  # Within 1.0 ATR of slow EMA
 
+        # ── BOUNCE CONFIRMATION ──────────────────────────────────
+        # Require EITHER:
+        #   A) 2 consecutive candles closing in the trend direction, OR
+        #   B) RSI divergence (price makes new extreme but RSI doesn't)
+        # This prevents trigger-happy entries on single-candle noise.
+        two_bull_candles = last_close > prev_close and prev_close > prev2_close
+        two_bear_candles = last_close < prev_close and prev_close < prev2_close
+
+        # RSI divergence: compare last 2 swing extremes
+        # Bullish div: price makes lower low but RSI makes higher low
+        # Bearish div: price makes higher high but RSI makes lower high
+        rsi_prev = calculate_rsi(closes[:-1], self.rsi_period)
+        rsi_prev2 = calculate_rsi(closes[:-2], self.rsi_period) if len(closes) > self.rsi_period + 2 else rsi_prev
+        bullish_rsi_div = (last_close < closes[-3] and rsi > rsi_prev2) if len(closes) >= 3 else False
+        bearish_rsi_div = (last_close > closes[-3] and rsi < rsi_prev2) if len(closes) >= 3 else False
+
+        confirmed_bull_bounce = two_bull_candles or bullish_rsi_div
+        confirmed_bear_bounce = two_bear_candles or bearish_rsi_div
+
         # ── DIAGNOSTIC: log why trend_rider returns None ─────────
         logger.info(
             f"[TREND-RIDER] {snapshot.symbol}: htf_dir={htf_dir} str={htf_strength:.2f} "
             f"ema_bull={ema_aligned_bull} ema_bear={ema_aligned_bear} "
             f"close={last_close:.5f} ema21={ema_slow:.5f} "
             f"dist={ema_dist:.5f} thresh={proximity_threshold:.5f} "
-            f"rsi={rsi:.1f} bounced_up={last_close > prev_close} bounced_dn={last_close < prev_close}"
+            f"rsi={rsi:.1f} bounce_bull={confirmed_bull_bounce} bounce_bear={confirmed_bear_bounce} "
+            f"(2candle_up={two_bull_candles} 2candle_dn={two_bear_candles} "
+            f"rsi_div_bull={bullish_rsi_div} rsi_div_bear={bearish_rsi_div})"
         )
 
         # ── BULLISH PULLBACK ─────────────────────────────────────
         if htf_dir == "long" and ema_aligned_bull:
             # Price pulled back to EMA(21) and bouncing
             touched_ema = ema_dist < proximity_threshold or last_close <= ema_slow
-            bounced = last_close > prev_close  # Closing higher = bounce
 
-            if touched_ema and bounced and last_close > ema_slow:
+            if touched_ema and confirmed_bull_bounce and last_close > ema_slow:
                 # Find swing low for stop
                 recent_lows = [c.low for c in snapshot.candles[-10:]]
                 swing_low = min(recent_lows)
@@ -215,9 +236,8 @@ class TrendRiderStrategy(BaseStrategy):
         # ── BEARISH PULLBACK ─────────────────────────────────────
         if htf_dir == "short" and ema_aligned_bear:
             touched_ema = ema_dist < proximity_threshold or last_close >= ema_slow
-            bounced = last_close < prev_close  # Closing lower = bearish bounce
 
-            if touched_ema and bounced and last_close < ema_slow:
+            if touched_ema and confirmed_bear_bounce and last_close < ema_slow:
                 recent_highs = [c.high for c in snapshot.candles[-10:]]
                 swing_high = max(recent_highs)
                 stop_dist = max(swing_high - last_close, atr * 1.5)
