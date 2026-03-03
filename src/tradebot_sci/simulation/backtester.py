@@ -77,12 +77,34 @@ from tradebot_sci.ai.client import TradeSciAIClient
 logger = logging.getLogger(__name__)
 
 
+def _jpy_adjust_risk(risk_per_share: float, symbol: str, price: float) -> float:
+    """Convert JPY-denominated stop distance to USD per-unit.
+    For JPY-quoted pairs (USDJPY, EURJPY), stop_dist is in JPY but risk is in USD.
+    Divide by price to get USD per-unit risk."""
+    sym = symbol.upper().replace("_", "")
+    if "JPY" in sym and price > 0:
+        return risk_per_share / price
+    return risk_per_share
+
+
+def _notional_per_unit(symbol: str, price: float) -> float:
+    """Get USD notional value per unit for leverage cap calculations.
+    For USD-base pairs (USDJPY, USDCHF), 1 unit = $1.
+    For other pairs (EURUSD, GBPUSD), 1 unit = price in USD."""
+    sym = symbol.upper().replace("_", "")
+    if sym.startswith("USD"):
+        return 1.0
+    return price if price > 0 else 1.0
+
+
 def _calculate_pnl(entry_price: float, exit_price: float, size: float, direction: str,
                    symbol: str = "") -> float:
     """Calculate PnL correctly for both long and short positions, MINUS fees.
 
     Long: profit when price goes UP   -> (exit - entry) * size - fees
     Short: profit when price goes DOWN -> (entry - exit) * size - fees
+    
+    For JPY-quoted pairs, the raw PnL is in JPY and must be converted to USD.
     
     Fees are deducted as round-trip spread/commission costs based on the
     symbol's asset class. This ensures backtests reflect real trading costs.
@@ -92,11 +114,22 @@ def _calculate_pnl(entry_price: float, exit_price: float, size: float, direction
     else:  # long
         raw_pnl = (exit_price - entry_price) * size
     
+    # JPY conversion: raw_pnl is in JPY for JPY-quoted pairs
+    sym = symbol.upper().replace("_", "")
+    if "JPY" in sym and exit_price > 0:
+        raw_pnl = raw_pnl / exit_price
+    
     # Deduct round-trip fees (spread + commission)
     if symbol:
         from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
         fee_pct = get_fee_for_symbol(symbol)
         notional = entry_price * abs(size)
+        # For JPY pairs, notional per unit is $1 if USD-base, else price-converted
+        if "JPY" in sym:
+            if sym.startswith("USD"):
+                notional = abs(size)  # 1 unit = $1
+            else:
+                notional = abs(size) * entry_price / entry_price  # cross-rate; approximate
         fee_cost = notional * fee_pct
         return raw_pnl - fee_cost
     return raw_pnl
@@ -898,7 +931,7 @@ class Backtester:
                             # SAR reversal risk: 1% (standard risk)
                             rev_risk_pct = float(getattr(profile, 'risk_per_trade_pct', 0.01))
                             rev_max_risk = capital * rev_risk_pct
-                            rev_size = rev_max_risk / risk_dist if risk_dist > 0 else 0
+                            rev_size = rev_max_risk / _jpy_adjust_risk(risk_dist, symbol, rev_entry) if risk_dist > 0 else 0
                             if rev_size > 0:
                                 positions[pos_key] = type(pos)(
                                     symbol=symbol,
@@ -1705,7 +1738,7 @@ class Backtester:
                             compounding_capital = min(capital, py_cap)
                             max_risk = min(compounding_capital * risk_pct, max_loss_cap)
 
-                            raw_add_size = max_risk / risk_per_share if risk_per_share > 0 else 0.0
+                            raw_add_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, add_price) if risk_per_share > 0 else 0.0
                             add_size = raw_add_size
                             cap_reason = None
 
@@ -1918,7 +1951,7 @@ class Backtester:
 
                                 compounding_capital = min(capital, 10000.0)
                                 max_risk = compounding_capital * risk_pct
-                                add_size = max_risk / risk_per_share if risk_per_share > 0 else 0
+                                add_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, add_price) if risk_per_share > 0 else 0
 
                                 if add_size > 0:
                                     existing.size += add_size
@@ -2114,7 +2147,7 @@ class Backtester:
                             # ICC methodology: size = risk_amount / stop_distance
                             # With tight stops (0.5%), this creates leverage which is intentional
                             # Example: $100 risk / $3 stop = 33 shares = $20k notional (20× leverage)
-                            size = max_risk / risk_per_share if risk_per_share > 0 else 0
+                            size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, entry_price) if risk_per_share > 0 else 0
 
                             # Safety 2: Cap total notional to REALISTIC broker leverage
                             # OANDA forex = 30:1, Crypto spot (Gemini/Kraken) = no margin = 1:1,
@@ -2134,11 +2167,13 @@ class Backtester:
                             if os.getenv('RR_LEV_CAP'):
                                 lev_cap = float(os.environ['RR_LEV_CAP'])
                             max_position_value = compounding_capital * lev_cap
-                            max_shares = max_position_value / entry_price
+                            npu = _notional_per_unit(symbol, entry_price)
+                            max_shares = max_position_value / npu
                             if size > max_shares:
                                 logger.warning(
                                     f"[BACKTEST] {symbol}: Position size capped from {size:.2f} to {max_shares:.2f} shares "
-                                    f"(max {lev_cap:.0f}× leverage = ${max_position_value:.2f} notional on ${compounding_capital:.2f} capital)"
+                                    f"(max {lev_cap:.0f}× leverage = ${max_position_value:.2f} notional on ${compounding_capital:.2f} capital, "
+                                    f"notional/unit={'$1' if npu == 1.0 else f'${npu:.4f}'})"
                                 )
                                 size = max_shares
 
