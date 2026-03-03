@@ -3470,6 +3470,45 @@ function renderStrategyToolbox(container) {
             tooltip: 'The Reward-to-Risk target. 1.6 ensures a high win rate while maintaining positive expectancy.'
         }));
 
+    } else if (toolboxTab === 'forex_conductor') {
+        const stratInfo = STRATEGIES.forex_conductor;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'orchestration',
+            "<strong>Forex Conductor</strong><br><br>The Conductor orchestrates sub-strategies (Trend Rider, Mean Reversion) and manages entries, exits, and risk. SAR (Stop And Reverse) automatically flips direction after a losing trade when conditions support a reversal — preventing consecutive losses in the same direction."
+        ));
+
+        section.appendChild(createCard('Stop & Reverse (SAR)', 'Auto-flip direction after a stopped trade', 'STOP_AND_REVERSE_ENABLED', 'toggle', {
+            default: 'true',
+            tooltip: '<strong>Stop And Reverse.</strong><br><br>When enabled, after a trade is stopped out, the Conductor checks if conditions support a trade in the opposite direction. If yes, it immediately enters the reversal — bypassing cooldowns. This prevents 3 consecutive shorts on GBPUSD when the pair is actually going long.<br><br><strong>Recommended: ON.</strong> This is the Conductor\'s cornerstone defense against trending losses.'
+        }));
+
+        section.appendChild(createCard('Scale-Out Fraction', 'Partial close % on de-risk signal', 'SCALE_OUT_FRACTION', 'input', {
+            number: true,
+            default: '0.95',
+            tooltip: 'When the Conductor fires a de-risk signal, this is the fraction to close. 0.95 = close 95%, keep 5% as a runner.'
+        }));
+
+        section.appendChild(createCard('R:R Ratio', 'Reward-to-Risk target', 'RISK_REWARD_RATIO', 'input', {
+            number: true,
+            default: '2.0',
+            tooltip: 'The target Reward-to-Risk ratio for the Conductor\'s entries.'
+        }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Reversal (SAR) Settings', 'swap_horiz',
+            "<strong>SAR Reversal Config</strong><br><br>Fine-tune how the Stop-And-Reverse mechanism behaves when it flips direction."
+        ));
+
+        section.appendChild(createCard('Reversal TP (R)', 'Take-profit R-multiple for SAR entries', 'REVERSAL_TP_R', 'input', {
+            number: true,
+            default: '1.0',
+            tooltip: 'The R-multiple for SAR reversal take-profit. 1.0 = target equals risk amount (conservative recovery).'
+        }));
+
+        section.appendChild(createCard('Cost-Aware TP', 'Adjust TP to cover previous loss + spread', 'REVERSAL_COST_AWARE_TP', 'toggle', {
+            default: 'true',
+            tooltip: 'Automatically adjusts the reversal TP to recover the previous trade\'s loss plus estimated spread costs.'
+        }));
+
     } else {
         // Generic fallback for others (London, MeanRev, HyperScalper, etc)
         const stratInfo = STRATEGIES[toolboxTab];
