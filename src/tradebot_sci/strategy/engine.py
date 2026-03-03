@@ -570,46 +570,28 @@ class StrategyEngine:
         sar_enabled = bool(getattr(self.profile, "stop_and_reverse_enabled", False))
         if sar_enabled and self._variant_key not in self._SAR_EXCLUDED:
             if self.symbol not in self._sar_pending:
-                # Scan trade_history for a recent losing exit on this symbol
+                # Scan trade_history for the most recent trade on this symbol
                 if history:
-                    from datetime import datetime as _dt
-                    _now = snapshot.candles[-1].timestamp if snapshot.candles else None
-                    if _now:
-                        for t in reversed(history):  # newest first
-                            if t.get("symbol") != self.symbol:
-                                continue
-                            # SAR fires on ANY losing trade, not just "stop" exits
-                            is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
-                            if not is_loss:
-                                break  # last trade was a win — no reversal needed
-                            # SAR window: must be wider than candle interval
-                            # so the backtester can detect on the next bar.
-                            # Live bot uses 5 min; backtester needs at least
-                            # 2× the candle interval to be safe.
-                            candle_secs = self._timeframe_to_seconds(timeframe)
-                            sar_window = max(1800, candle_secs * 2)
-                            closed_at = t.get("closed_at", "")
-                            try:
-                                _closed = _dt.fromisoformat(str(closed_at).replace("Z", "+00:00"))
-                                if hasattr(_now, 'tzinfo') and _now.tzinfo and not _closed.tzinfo:
-                                    _closed = _closed.replace(tzinfo=_now.tzinfo)
-                                age_sec = (_now - _closed).total_seconds()
-                                if age_sec > sar_window:
-                                    break  # Too old
-                            except Exception:
-                                break
-                            # Set reversal direction: opposite of losing side
-                            old_side = (t.get("side") or "").lower()
-                            if old_side == "long":
-                                self._sar_pending[self.symbol] = "short"
-                            elif old_side == "short":
-                                self._sar_pending[self.symbol] = "long"
-                            if self.symbol in self._sar_pending:
-                                logger.info(
-                                    f"[ENGINE SAR] {self.symbol}: LOSS DETECTED → "
-                                    f"reversal pending {self._sar_pending[self.symbol]}"
-                                )
-                            break
+                    for t in reversed(history):  # newest first
+                        if t.get("symbol") != self.symbol:
+                            continue
+                        # SAR fires on ANY losing trade — no time window.
+                        # If the last trade on this symbol was a loss, flip direction.
+                        is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
+                        if not is_loss:
+                            break  # last trade was a win — no reversal needed
+                        # Set reversal direction: opposite of losing side
+                        old_side = (t.get("side") or "").lower()
+                        if old_side == "long":
+                            self._sar_pending[self.symbol] = "short"
+                        elif old_side == "short":
+                            self._sar_pending[self.symbol] = "long"
+                        if self.symbol in self._sar_pending:
+                            logger.info(
+                                f"[ENGINE SAR] {self.symbol}: LOSS DETECTED → "
+                                f"reversal pending {self._sar_pending[self.symbol]}"
+                            )
+                        break
 
             # Read and consume pending reversal
             sar_dir = self._sar_pending.pop(self.symbol, None)

@@ -117,39 +117,26 @@ class ForexConductorStrategy(BaseStrategy):
         profile = gates.get("profile")
         sar_enabled = bool(getattr(profile, "stop_and_reverse_enabled", False)) if profile else False
         if sar_enabled and trade_history and snapshot.symbol not in _reversal_pending:
-            from datetime import datetime as _dt
-            _now = snapshot.candles[-1].timestamp if snapshot.candles else None
-            if _now:
-                for t in reversed(trade_history):  # newest first
-                    if t.get("symbol") != snapshot.symbol:
-                        continue
-                    # SAR fires on ANY losing trade, not just "stop" exits
-                    is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
-                    if not is_loss:
-                        break  # last trade was a win — no reversal needed
-                    # Only react to recent losses (within 30 min)
-                    closed_at = t.get("closed_at", "")
-                    try:
-                        _closed = _dt.fromisoformat(str(closed_at).replace("Z", "+00:00"))
-                        if hasattr(_now, 'tzinfo') and _now.tzinfo and not _closed.tzinfo:
-                            _closed = _closed.replace(tzinfo=_now.tzinfo)
-                        age_sec = (_now - _closed).total_seconds()
-                        if age_sec > 1800:  # older than 30 min — skip
-                            break
-                    except Exception:
-                        break
-                    # Set reversal direction: opposite of the losing side
-                    old_side = (t.get("side") or "").lower()
-                    if old_side == "long":
-                        _reversal_pending[snapshot.symbol] = "short"
-                    elif old_side == "short":
-                        _reversal_pending[snapshot.symbol] = "long"
-                    if snapshot.symbol in _reversal_pending:
-                        logger.info(
-                            f"[CONDUCTOR] {snapshot.symbol}: LOSS DETECTED → "
-                            f"reversal pending {_reversal_pending[snapshot.symbol]}"
-                        )
-                    break  # only process most recent
+            for t in reversed(trade_history):  # newest first
+                if t.get("symbol") != snapshot.symbol:
+                    continue
+                # SAR fires on ANY losing trade — no time window.
+                # If the last trade on this symbol was a loss, flip direction.
+                is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
+                if not is_loss:
+                    break  # last trade was a win — no reversal needed
+                # Set reversal direction: opposite of the losing side
+                old_side = (t.get("side") or "").lower()
+                if old_side == "long":
+                    _reversal_pending[snapshot.symbol] = "short"
+                elif old_side == "short":
+                    _reversal_pending[snapshot.symbol] = "long"
+                if snapshot.symbol in _reversal_pending:
+                    logger.info(
+                        f"[CONDUCTOR] {snapshot.symbol}: LOSS DETECTED → "
+                        f"reversal pending {_reversal_pending[snapshot.symbol]}"
+                    )
+                break  # only process most recent
 
         # ── Loss streak cooldown ─────────────────────────────────
         if _check_loss_cooldown(snapshot.symbol):
