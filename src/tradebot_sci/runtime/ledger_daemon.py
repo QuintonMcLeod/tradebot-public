@@ -423,10 +423,10 @@ class LedgerDaemon:
                     elif pnl_val < 0:
                         current["by_symbol"][symbol]["losses"] += 1
 
-                    # Per-strategy stats — priority: per-symbol PHOENIX > tournament > default > unknown
+                    # Per-strategy stats — priority: per-symbol PHOENIX > profile default > tournament > unknown
                     strat = (self._symbol_strategy.get(symbol)
-                             or self._last_strategy
                              or self._default_strategy
+                             or self._last_strategy
                              or "unknown")
                     if strat not in current["by_strategy"]:
                         current["by_strategy"][strat] = {"pnl": 0.0, "wins": 0, "losses": 0}
