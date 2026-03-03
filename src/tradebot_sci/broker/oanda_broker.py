@@ -300,6 +300,8 @@ class OandaExchangeBroker(IExchangeBroker):
 
                             pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
                             est_spread = abs(initial_units) * self.AVG_SPREAD_PIPS * pip_value * 2
+                            if "JPY" in sym.upper() and price > 0:
+                                est_spread /= price  # Convert JPY spread to USD
                             duration_str = self._format_duration(ct.get("openTime"))
 
                             pnl_sign = '+' if pnl >= 0 else '-'
@@ -362,6 +364,8 @@ class OandaExchangeBroker(IExchangeBroker):
 
                     pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
                     est_spread = abs(initial_units) * self.AVG_SPREAD_PIPS * pip_value * 2
+                    if "JPY" in sym.upper() and price > 0:
+                        est_spread /= price  # Convert JPY spread to USD
                     duration_str = self._format_duration(ct.get("openTime"))
 
                     pnl_sign = '+' if pnl >= 0 else '-'
@@ -524,6 +528,8 @@ class OandaExchangeBroker(IExchangeBroker):
                 # Estimate round-trip spread cost for transparency
                 pip_value = self.PIP_VALUE_JPY if "JPY" in symbol.upper() else self.PIP_VALUE_STANDARD
                 est_spread_cost = units * self.AVG_SPREAD_PIPS * pip_value * 2  # x2 for entry + exit
+                if "JPY" in symbol.upper() and avg_price > 0:
+                    est_spread_cost /= avg_price  # Convert JPY spread to USD
 
                 # Compute duration from tracked position entry time
                 prev_pos = self._tracked_positions.get(symbol, {})
@@ -987,6 +993,10 @@ class OandaExchangeBroker(IExchangeBroker):
                     pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
                     units = abs(prev.get("size", 0))
                     est_spread = units * self.AVG_SPREAD_PIPS * pip_value * 2
+                    if "JPY" in sym.upper():
+                        _ep = prev.get("avg_price", 0) or prev.get("entry_price", 0)
+                        if _ep > 0:
+                            est_spread /= _ep  # Convert JPY spread to USD
 
                     entry_time_str = prev.get("entry_time")
                     duration_str, duration_secs = self._compute_duration(entry_time_str)

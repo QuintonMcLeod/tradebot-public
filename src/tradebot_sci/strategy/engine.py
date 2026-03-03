@@ -570,7 +570,7 @@ class StrategyEngine:
         sar_enabled = bool(getattr(self.profile, "stop_and_reverse_enabled", False))
         if sar_enabled and self._variant_key not in self._SAR_EXCLUDED:
             if self.symbol not in self._sar_pending:
-                # Scan trade_history for a recent stop exit on this symbol
+                # Scan trade_history for a recent losing exit on this symbol
                 if history:
                     from datetime import datetime as _dt
                     _now = snapshot.candles[-1].timestamp if snapshot.candles else None
@@ -578,15 +578,16 @@ class StrategyEngine:
                         for t in reversed(history):  # newest first
                             if t.get("symbol") != self.symbol:
                                 continue
-                            reason = (t.get("exit_reason") or "").lower()
-                            if "stop" not in reason:
-                                continue
+                            # SAR fires on ANY losing trade, not just "stop" exits
+                            is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
+                            if not is_loss:
+                                break  # last trade was a win — no reversal needed
                             # SAR window: must be wider than candle interval
                             # so the backtester can detect on the next bar.
                             # Live bot uses 5 min; backtester needs at least
                             # 2× the candle interval to be safe.
                             candle_secs = self._timeframe_to_seconds(timeframe)
-                            sar_window = max(900, candle_secs * 2)
+                            sar_window = max(1800, candle_secs * 2)
                             closed_at = t.get("closed_at", "")
                             try:
                                 _closed = _dt.fromisoformat(str(closed_at).replace("Z", "+00:00"))
@@ -597,7 +598,7 @@ class StrategyEngine:
                                     break  # Too old
                             except Exception:
                                 break
-                            # Set reversal direction: opposite of stopped side
+                            # Set reversal direction: opposite of losing side
                             old_side = (t.get("side") or "").lower()
                             if old_side == "long":
                                 self._sar_pending[self.symbol] = "short"
@@ -605,7 +606,7 @@ class StrategyEngine:
                                 self._sar_pending[self.symbol] = "long"
                             if self.symbol in self._sar_pending:
                                 logger.info(
-                                    f"[ENGINE SAR] {self.symbol}: STOP DETECTED → "
+                                    f"[ENGINE SAR] {self.symbol}: LOSS DETECTED → "
                                     f"reversal pending {self._sar_pending[self.symbol]}"
                                 )
                             break
