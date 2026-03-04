@@ -468,7 +468,7 @@ class ForexConductorStrategy(BaseStrategy):
         if snapshot.candles and len(snapshot.candles) >= 5:
             pos_dir = open_position.get("direction") or open_position.get("side")
             entry_price = float(open_position.get("entry_price", 0))
-            current_stop = float(open_position.get("stop_price", 0) or 0)
+            current_stop = float(open_position.get("stop_price", 0) or open_position.get("stop_loss", 0) or 0)
             current_price = float(snapshot.candles[-1].close)
 
             if pos_dir in ("long", "short") and entry_price > 0 and current_stop > 0:
