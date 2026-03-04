@@ -352,16 +352,17 @@ class ForexConductorStrategy(BaseStrategy):
         # Limit to _SAR_MAX_CONCURRENT simultaneous SAR positions.
         rev_dir = _reversal_pending.pop(snapshot.symbol, None)
         if rev_dir:
-            # Count currently open SAR positions
-            sar_count = 0
+            # Count currently open positions (notes field isn't persisted,
+            # so we count ALL open positions to prevent margin exhaustion)
+            open_count = 0
             if trade_history:
                 for t in trade_history:
-                    if not t.get("exit_time") and "[REVERSAL]" in (t.get("notes", "") or ""):
-                        sar_count += 1
-            if sar_count >= _SAR_MAX_CONCURRENT:
+                    if not t.get("exit_time"):
+                        open_count += 1
+            if open_count >= _SAR_MAX_CONCURRENT:
                 logger.info(
                     f"[CONDUCTOR] {snapshot.symbol}: SAR DEFERRED — "
-                    f"{sar_count} SAR positions open (max {_SAR_MAX_CONCURRENT})"
+                    f"{open_count} positions open (max {_SAR_MAX_CONCURRENT})"
                 )
                 _reversal_pending[snapshot.symbol] = rev_dir  # Put it back
                 return None
