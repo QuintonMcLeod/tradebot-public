@@ -374,28 +374,23 @@ class LedgerDaemon:
                     symbol = m.group("symbol")
                     reason = m.group("reason").strip()
 
-                    # ── Deduplication: check if same (symbol, side, pnl) already in today's trade_log ──
-                    # This catches OANDA backfill re-discovering trades hours later.
-                    dedup_key = f"{symbol}_{round(pnl_val * 100)}"
+                    # ── Deduplication: check if same (symbol, timestamp) already in today's trade_log ──
+                    # Uses timestamp as the key — two different trades can have identical
+                    # PnL but can't close at the exact same second.
                     now = ts or datetime.now(self.tz)
                     m_side_dd = RE_SIDE.search(line)
                     _side = m_side_dd.group("side").lower() if m_side_dd else "unknown"
-                    _pnl_rounded = round(pnl_val, 2)
+                    _ts_str = ts.isoformat() if ts else ""
 
-                    # For tiny PnLs (< $0.50), many trades can have the same PnL.
-                    # Only dedup those if there's already an entry with the same
-                    # (symbol, side, pnl) — legitimate repeats at different times
-                    # are extremely rare at larger PnL values.
                     is_duplicate = False
                     for _existing in current.get("trade_log", []):
                         if (_existing.get("symbol") == symbol
-                                and _existing.get("side") == _side
-                                and round(_existing.get("pnl", 0), 2) == _pnl_rounded):
+                                and _existing.get("closed_at", _existing.get("time", "")) == _ts_str):
                             is_duplicate = True
                             break
                     if is_duplicate:
                         logger.debug(
-                            f"[LEDGER] Skipping duplicate EXIT: {symbol} {_side} "
+                            f"[LEDGER] Skipping duplicate EXIT: {symbol} "
                             f"{pnl_val:+.4f} ({reason}) — already in today's log"
                         )
                         continue
@@ -460,8 +455,10 @@ class LedgerDaemon:
                         current["by_strategy"][strat]["losses"] += 1
 
                     # Trade log entry (keep last 200 trades per day max)
+                    _closed_at = ts.isoformat() if ts else ""
                     trade_entry = {
-                        "time": ts.isoformat() if ts else "",
+                        "time": _closed_at,
+                        "closed_at": _closed_at,  # GUI dedup relies on this field
                         "symbol": symbol,
                         "pnl": round(pnl_val, 4),
                         "pct": round(pct, 2),

@@ -384,13 +384,18 @@ class ForexConductorStrategy(BaseStrategy):
             atr = calculate_atr(snapshot.candles[-50:], period=14)
             if atr and atr > 0 and snapshot.candles:
                 price = snapshot.candles[-1].close
+                # Floor: SL must be at least 15 pips to avoid broker min-SL block (10 pips)
+                is_jpy = "JPY" in snapshot.symbol.upper()
+                min_sl_dist = 15 * (0.01 if is_jpy else 0.0001)
+                stop_dist = max(atr * 1.5, min_sl_dist)
+                tp_dist = stop_dist * 2.0  # 2:1 R:R
                 if rev_dir == "long":
-                    sl = price - (atr * 1.5)
-                    tp = price + (atr * 3.0)  # 2:1 R:R
+                    sl = price - stop_dist
+                    tp = price + tp_dist
                     action = "enter_long"
                 else:
-                    sl = price + (atr * 1.5)
-                    tp = price - (atr * 3.0)
+                    sl = price + stop_dist
+                    tp = price - tp_dist
                     action = "enter_short"
                 logger.info(
                     f"[CONDUCTOR] {snapshot.symbol}: FORCED SAR "
