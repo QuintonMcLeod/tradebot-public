@@ -113,6 +113,19 @@ class ForexConductorStrategy(BaseStrategy):
         # Clean up _sar_active: if we're checking entry for this symbol
         # and there's no open position, any prior SAR trade has closed.
         _sar_active.discard(snapshot.symbol)
+        # Also clean other stale entries by checking trade_history
+        if _sar_active and trade_history:
+            stale = set()
+            for sym in _sar_active:
+                # Find the latest trade for this symbol
+                for t in reversed(trade_history):
+                    if t.get("symbol") == sym:
+                        if t.get("closed_at"):
+                            stale.add(sym)
+                        break
+            if stale:
+                _sar_active -= stale
+                logger.info(f"[CONDUCTOR] Cleaned stale SAR entries: {stale}")
 
         _tick_cooldowns(snapshot.symbol)
 
