@@ -907,7 +907,22 @@ class OandaExchangeBroker(IExchangeBroker):
                 max_notional = self._liquid_capital * target_leverage
                 sym_upper = decision.symbol.upper().replace("_", "")
                 is_usd_base = sym_upper.startswith("USD")
-                notional_per_unit = 1.0 if is_usd_base else (price if price > 0 else 1.0)
+                is_jpy_quote = sym_upper.endswith("JPY") and not is_usd_base
+                if is_usd_base:
+                    notional_per_unit = 1.0
+                elif is_jpy_quote:
+                    # JPY cross pairs (AUDJPY, GBPJPY, EURJPY): price is in JPY.
+                    # Convert to USD: notional_per_unit = price_in_JPY / USDJPY_rate
+                    usdjpy_rate = 157.0  # approximate; updated each calculation
+                    try:
+                        # Try to get live USDJPY rate from recent candles
+                        from tradebot_sci.market import oanda_provider
+                        usdjpy_rate = getattr(oanda_provider, '_last_usdjpy', 157.0) or 157.0
+                    except Exception:
+                        pass
+                    notional_per_unit = price / usdjpy_rate if usdjpy_rate > 0 else price
+                else:
+                    notional_per_unit = price if price > 0 else 1.0
                 max_units = max_notional / notional_per_unit
                 if abs(units) > max_units and max_units > 0:
                     logger.warning(
