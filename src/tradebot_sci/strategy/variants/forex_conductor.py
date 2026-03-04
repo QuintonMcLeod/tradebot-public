@@ -110,6 +110,10 @@ class ForexConductorStrategy(BaseStrategy):
         if open_position:
             return None
 
+        # Clean up _sar_active: if we're checking entry for this symbol
+        # and there's no open position, any prior SAR trade has closed.
+        _sar_active.discard(snapshot.symbol)
+
         _tick_cooldowns(snapshot.symbol)
 
         # ── SESSION FILTER: Block Asian dead zone ─────────────
