@@ -315,8 +315,9 @@ class ForexConductorStrategy(BaseStrategy):
 
                 # ── REVERSAL DIRECTION CHECK ──────────────────────
                 # If a reversal is pending, only allow entries in the
-                # reversal direction. Reject entries the wrong way.
-                rev_dir = _reversal_pending.pop(snapshot.symbol, None)
+                # reversal direction. Reject wrong-way signals and
+                # fall through to forced SAR entry below.
+                rev_dir = _reversal_pending.get(snapshot.symbol)
                 if rev_dir:
                     signal_dir = (
                         "long" if signal.action == "enter_long" else "short"
@@ -326,7 +327,9 @@ class ForexConductorStrategy(BaseStrategy):
                             f"[CONDUCTOR] {snapshot.symbol}: BLOCKED — "
                             f"reversal pending {rev_dir}, got {signal_dir}"
                         )
-                        return None
+                        break  # Fall through to forced SAR entry
+                    # Correct direction — consume the reversal
+                    _reversal_pending.pop(snapshot.symbol, None)
                     signal.notes = (
                         f"[REVERSAL] {signal.notes}"
                     )
