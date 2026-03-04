@@ -21,6 +21,7 @@ forex_continuous:
     futures: supply_demand
   continuous_mode: true
   sabbath_astronomical: true
+  stop_and_reverse_enabled: true
 forex_intraday:
   symbols:
   - EURUSD
