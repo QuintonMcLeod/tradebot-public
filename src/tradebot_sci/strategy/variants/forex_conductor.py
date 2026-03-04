@@ -372,6 +372,19 @@ class ForexConductorStrategy(BaseStrategy):
         # Limit to _SAR_MAX_CONCURRENT simultaneous SAR positions.
         rev_dir = _reversal_pending.pop(snapshot.symbol, None)
         if rev_dir:
+            # ── TREND VALIDATION ──────────────────────────────────
+            # When SAR fires late (deferred by margin/concurrency),
+            # validate that the reversal direction aligns with the
+            # HTF trend consensus. Counter-trend SARs hemorrhage.
+            htf_dir = getattr(snapshot.trend_htf, "direction", "neutral") if snapshot.trend_htf else "neutral"
+            if htf_dir != "neutral" and htf_dir != rev_dir:
+                logger.info(
+                    f"[CONDUCTOR] {snapshot.symbol}: SAR CANCELLED — "
+                    f"reversal {rev_dir} opposes HTF trend {htf_dir}"
+                )
+                _sar_active.discard(snapshot.symbol)
+                return None
+
             # Use _sar_active set to track concurrent SAR positions
             if len(_sar_active) >= _SAR_MAX_CONCURRENT:
                 logger.info(
