@@ -838,7 +838,7 @@ class OandaExchangeBroker(IExchangeBroker):
             # OANDA spread is 1-2 pips on majors; at 3 pips the spread alone
             # eats 100% of the SL distance.  10 pips gives ~6.7× breathing room
             # (spread ≈ 30% of SL), so the trade can actually move in our favour.
-            MIN_SL_PIPS = 10
+            MIN_SL_PIPS = 5
             is_jpy = "JPY" in decision.symbol.upper()
             min_sl_dist = MIN_SL_PIPS * (0.01 if is_jpy else 0.0001)
             if stop_dist < min_sl_dist:
