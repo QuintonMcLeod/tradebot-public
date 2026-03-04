@@ -357,7 +357,7 @@ class ForexConductorStrategy(BaseStrategy):
             open_count = 0
             if trade_history:
                 for t in trade_history:
-                    if not t.get("exit_time"):
+                    if not t.get("closed_at"):
                         open_count += 1
             if open_count >= _SAR_MAX_CONCURRENT:
                 logger.info(
