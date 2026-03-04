@@ -49,6 +49,7 @@ _ENTRY_COOLDOWN_BARS = 2  # 2 × 15min = 30 minutes
 _reversal_pending: dict[str, str] = {}  # symbol → "long" or "short" (direction to enter)
 _SAR_MAX_CONCURRENT = 2  # Max simultaneous SAR positions
 _SAR_RISK_PCT = 0.045  # Match profile risk — SAR must recover the prior loss
+_sar_active: set[str] = set()  # symbols with currently open SAR positions
 
 
 def _check_loss_cooldown(symbol: str) -> bool:
@@ -139,6 +140,7 @@ class ForexConductorStrategy(BaseStrategy):
                 # If the last trade on this symbol was a loss, flip direction.
                 is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
                 if not is_loss:
+                    _sar_active.discard(snapshot.symbol)  # Position closed
                     break  # last trade was a win — no reversal needed
                 # Set reversal direction: opposite of the losing side
                 old_side = (t.get("side") or "").lower()
@@ -147,6 +149,7 @@ class ForexConductorStrategy(BaseStrategy):
                 elif old_side == "short":
                     _reversal_pending[snapshot.symbol] = "long"
                 if snapshot.symbol in _reversal_pending:
+                    _sar_active.discard(snapshot.symbol)  # Position closed → free slot
                     logger.info(
                         f"[CONDUCTOR] {snapshot.symbol}: LOSS DETECTED → "
                         f"reversal pending {_reversal_pending[snapshot.symbol]}"
@@ -352,17 +355,11 @@ class ForexConductorStrategy(BaseStrategy):
         # Limit to _SAR_MAX_CONCURRENT simultaneous SAR positions.
         rev_dir = _reversal_pending.pop(snapshot.symbol, None)
         if rev_dir:
-            # Count currently open positions (notes field isn't persisted,
-            # so we count ALL open positions to prevent margin exhaustion)
-            open_count = 0
-            if trade_history:
-                for t in trade_history:
-                    if not t.get("closed_at"):
-                        open_count += 1
-            if open_count >= _SAR_MAX_CONCURRENT:
+            # Use _sar_active set to track concurrent SAR positions
+            if len(_sar_active) >= _SAR_MAX_CONCURRENT:
                 logger.info(
                     f"[CONDUCTOR] {snapshot.symbol}: SAR DEFERRED — "
-                    f"{open_count} positions open (max {_SAR_MAX_CONCURRENT})"
+                    f"{len(_sar_active)} SAR positions open (max {_SAR_MAX_CONCURRENT}): {_sar_active}"
                 )
                 _reversal_pending[snapshot.symbol] = rev_dir  # Put it back
                 return None
@@ -383,6 +380,7 @@ class ForexConductorStrategy(BaseStrategy):
                     f"{rev_dir.upper()} (no strategy signal — forcing)"
                 )
                 _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
+                _sar_active.add(snapshot.symbol)
                 return AITradeDecision(
                     symbol=snapshot.symbol,
                     timeframe=snapshot.timeframe,
