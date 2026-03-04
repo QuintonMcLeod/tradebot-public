@@ -355,7 +355,7 @@ class ForexConductorStrategy(BaseStrategy):
         )
         if rev_dir:
             from tradebot_sci.strategy.icc_signals import calculate_atr
-            atr = calculate_atr(snapshot.candles[-14:], period=14)
+            atr = calculate_atr(snapshot.candles[-50:], period=14)
             logger.info(
                 f"[CONDUCTOR-DEBUG] {snapshot.symbol}: ATR={atr}, "
                 f"candles_for_atr={len(snapshot.candles[-14:]) if snapshot.candles else 0}"
