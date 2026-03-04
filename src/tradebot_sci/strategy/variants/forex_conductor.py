@@ -109,6 +109,19 @@ class ForexConductorStrategy(BaseStrategy):
 
         _tick_cooldowns(snapshot.symbol)
 
+        # ── SESSION FILTER: Block Asian dead zone ─────────────
+        # 8 PM – 3 AM ET is the Asian session — low liquidity for
+        # major forex pairs, poor for directional bets, high
+        # spread cost. Block all entries (including SAR).
+        if snapshot.candles:
+            from zoneinfo import ZoneInfo
+            _ts = snapshot.candles[-1].timestamp
+            if _ts.tzinfo is None:
+                _ts = _ts.replace(tzinfo=ZoneInfo("UTC"))
+            et_hour = _ts.astimezone(ZoneInfo("America/New_York")).hour
+            if et_hour >= 20 or et_hour < 3:
+                return None  # Dead zone — no entries
+
         # ── Stop-and-Reverse: populate _reversal_pending ─────────
         # If enabled, scan trade_history for a recent stop exit on
         # this symbol.  If found, set _reversal_pending so the entry
@@ -327,6 +340,49 @@ class ForexConductorStrategy(BaseStrategy):
                 # Set entry cooldown for this symbol
                 _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
                 return signal
+
+        # ── FORCED SAR ENTRY ──────────────────────────────────
+        # If a reversal is pending but no sub-strategy fired,
+        # force an entry in the SAR direction using ATR-based stop.
+        rev_dir = _reversal_pending.pop(snapshot.symbol, None)
+        if rev_dir:
+            from tradebot_sci.strategy.icc_signals import calculate_atr
+            atr = calculate_atr(snapshot.candles[-14:], period=14)
+            if atr and atr > 0 and snapshot.candles:
+                price = snapshot.candles[-1].close
+                if rev_dir == "long":
+                    sl = price - (atr * 1.5)
+                    tp = price + (atr * 2.25)  # 1.5:1 R:R
+                    action = "enter_long"
+                else:
+                    sl = price + (atr * 1.5)
+                    tp = price - (atr * 2.25)
+                    action = "enter_short"
+                logger.info(
+                    f"[CONDUCTOR] {snapshot.symbol}: FORCED SAR "
+                    f"{rev_dir.upper()} (no strategy signal — forcing)"
+                )
+                _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
+                return AITradeDecision(
+                    symbol=snapshot.symbol,
+                    timeframe=snapshot.timeframe,
+                    bias=rev_dir,
+                    phase="correction",
+                    action=action,
+                    entry_price=price,
+                    stop_loss=sl,
+                    take_profit=tp,
+                    risk_per_trade_pct=0.01,
+                    urgency="high",
+                    structure_summary=(
+                        f"[SAR] Forced reversal {rev_dir} "
+                        f"(ATR={atr:.5f})"
+                    ),
+                    notes=(
+                        f"[REVERSAL][Conductor:SAR] Forced "
+                        f"{rev_dir} — no strategy signal"
+                    ),
+                )
 
         return None
 
