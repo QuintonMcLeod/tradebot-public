@@ -152,7 +152,7 @@ class ForexConductorStrategy(BaseStrategy):
                 break  # only process most recent
 
         # ── Loss streak cooldown ─────────────────────────────────
-        if _check_loss_cooldown(snapshot.symbol):
+        if _check_loss_cooldown(snapshot.symbol) and not has_reversal:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by loss streak cooldown")
             return None
 
@@ -167,14 +167,14 @@ class ForexConductorStrategy(BaseStrategy):
         # ── Get regime from trend detection ──────────────────────
         regime = gates.get("market_regime", "unknown")
 
-        # ── CHOPPY: Block all entries ────────────────────────────
-        if regime in ("choppy", "unknown"):
+        # ── CHOPPY: Block all entries (SAR bypasses) ─────────────
+        if regime in ("choppy", "unknown") and not has_reversal:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by regime={regime}")
             return None
 
         # ── Strength gate: don't enter weak signals ──────────────
         htf_strength = gates.get("htf_strength", 0)
-        if regime == "trending" and htf_strength < 0.3:
+        if regime == "trending" and htf_strength < 0.3 and not has_reversal:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by weak htf_strength={htf_strength:.2f} (need >=0.3)")
             return None  # Too weak to trust as trending
 
@@ -186,7 +186,7 @@ class ForexConductorStrategy(BaseStrategy):
                 htf_dir = gates.get("htf_dir", "neutral")
                 ltf_dir = gates.get("ltf_dir", "neutral")
                 # Allow if one is neutral (not conflicting, just undecided)
-                if htf_dir in ("long", "short") and ltf_dir in ("long", "short"):
+                if htf_dir in ("long", "short") and ltf_dir in ("long", "short") and not has_reversal:
                     logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by HTF/LTF misalignment (htf={htf_dir}, ltf={ltf_dir})")
                     return None  # Conflicting directions — skip
 
