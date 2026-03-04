@@ -548,6 +548,28 @@ class StrategyEngine:
             # Fallback for legacy callers that don't pass total_equity
             total_equity = current_capital_val + caps.get("total_unrealized_pnl", 0.0)
         
+        # ── Pre-populate SAR reversals from trade history ─────────
+        # Must happen BEFORE safety guard so exit cooldown can be bypassed.
+        sar_enabled_pre = bool(getattr(self.profile, "stop_and_reverse_enabled", False))
+        if sar_enabled_pre and history and self._variant_key in self._SAR_EXCLUDED:
+            try:
+                from tradebot_sci.strategy.variants.forex_conductor import _reversal_pending
+                if self.symbol not in _reversal_pending:
+                    for t in reversed(history):
+                        if t.get("symbol") != self.symbol:
+                            continue
+                        is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
+                        if not is_loss:
+                            break  # last trade was win
+                        old_side = (t.get("side") or "").lower()
+                        if old_side == "long":
+                            _reversal_pending[self.symbol] = "short"
+                        elif old_side == "short":
+                            _reversal_pending[self.symbol] = "long"
+                        break
+            except ImportError:
+                pass
+
         safety_decision = SafetyGuard.check_entry_safety(
             self.symbol, 
             timeframe, 
@@ -558,10 +580,21 @@ class StrategyEngine:
             trade_results=self.trade_results
         )
         if safety_decision:
-            from tradebot_sci.runtime.rejection_journal import rejection_journal
-            rejection_journal.log(self.symbol, timeframe, "SafetyGuard", safety_decision.notes or "Entry blocked")
-            logger.info(f"[SAFETY] Entry Blocked for {self.symbol}: {safety_decision.notes}")
-            return safety_decision
+            # SAR bypasses exit cooldown — reversals are time-critical
+            is_exit_cooldown = "Exit Cooldown" in (safety_decision.notes or "")
+            has_sar_pending = False
+            try:
+                from tradebot_sci.strategy.variants.forex_conductor import _reversal_pending
+                has_sar_pending = self.symbol in _reversal_pending
+            except ImportError:
+                pass
+            if is_exit_cooldown and has_sar_pending:
+                logger.info(f"[SAFETY] SAR bypass: skipping exit cooldown for {self.symbol}")
+            else:
+                from tradebot_sci.runtime.rejection_journal import rejection_journal
+                rejection_journal.log(self.symbol, timeframe, "SafetyGuard", safety_decision.notes or "Entry blocked")
+                logger.info(f"[SAFETY] Entry Blocked for {self.symbol}: {safety_decision.notes}")
+                return safety_decision
 
         # ── ENGINE-LEVEL SAR (Stop-and-Reverse) ──────────────────────
         # Detect recent stop exits and set reversal direction.
