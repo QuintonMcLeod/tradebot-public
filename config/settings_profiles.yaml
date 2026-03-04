@@ -10,6 +10,8 @@ forex_continuous:
   - EURJPY
   - GBPJPY
   - AUDJPY
+  - XAUUSD
+  - WTICOUSD
   strategy_forex: london_breakout
   strategy_variant: forex_conductor
   risk_per_trade_pct: 0.045
