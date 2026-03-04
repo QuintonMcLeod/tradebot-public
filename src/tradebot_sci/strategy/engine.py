@@ -664,8 +664,10 @@ class StrategyEngine:
 
             # Counter-Trend Entry Block
             # Prevents going long when HTF is bearish, or short when HTF is bullish.
+            # SAR reversals bypass this — the whole point is to trade against the prior direction.
             htf_dir = gates.get("htf_dir", "neutral")
-            if getattr(self.profile, "block_counter_trend_entries", True) and decision.action in ("enter_long", "enter_short", "scale_in"):
+            is_sar_reversal = "[REVERSAL]" in (decision.notes or "")
+            if getattr(self.profile, "block_counter_trend_entries", True) and decision.action in ("enter_long", "enter_short", "scale_in") and not is_sar_reversal:
                 # Determine effective direction for scale_in from existing position
                 effective_action = decision.action
                 if decision.action == "scale_in" and open_position:
