@@ -573,15 +573,71 @@ class ForexConductorStrategy(BaseStrategy):
                                 ),
                             )
 
+                    # ── EARLY ATR TRAILING (0.5R+) ─────────────────────
+                    # Move broker SL to lock in profit once 0.5R is reached.
+                    # This fires BEFORE the 1.0R pyramid gate below.
+                    from tradebot_sci.strategy.icc_signals import calculate_atr
+                    atr = calculate_atr(snapshot.candles[-14:], period=14)
+                    if atr and atr > 0 and r_multiple >= 0.5:
+                        if r_multiple >= 3.0:
+                            trail_mult = 0.7
+                        elif r_multiple >= 2.0:
+                            trail_mult = 1.0
+                        elif r_multiple >= 1.0:
+                            trail_mult = 1.5
+                        else:
+                            trail_mult = 2.0  # 0.5-1.0R: wide trail to lock ~breakeven
+                        trail_dist = atr * trail_mult
+
+                        if pos_dir == "long":
+                            atr_trail = current_price - trail_dist
+                            if atr_trail > current_stop:
+                                logger.info(
+                                    f"[CONDUCTOR] ATR TRAIL {sym}: "
+                                    f"{r_multiple:.1f}R, "
+                                    f"{trail_mult}× ATR → "
+                                    f"stop ${atr_trail:.5f}"
+                                )
+                                return AITradeDecision(
+                                    symbol=sym,
+                                    timeframe=snapshot.timeframe,
+                                    bias=pos_dir, phase="management",
+                                    action="hold",
+                                    stop_loss=atr_trail,
+                                    notes=(
+                                        f"[MANAGEMENT] ATR trail: "
+                                        f"{trail_mult}× ATR at "
+                                        f"{r_multiple:.1f}R"
+                                    ),
+                                )
+                        else:
+                            atr_trail = current_price + trail_dist
+                            if atr_trail < current_stop:
+                                logger.info(
+                                    f"[CONDUCTOR] ATR TRAIL {sym}: "
+                                    f"{r_multiple:.1f}R, "
+                                    f"{trail_mult}× ATR → "
+                                    f"stop ${atr_trail:.5f}"
+                                )
+                                return AITradeDecision(
+                                    symbol=sym,
+                                    timeframe=snapshot.timeframe,
+                                    bias=pos_dir, phase="management",
+                                    action="hold",
+                                    stop_loss=atr_trail,
+                                    notes=(
+                                        f"[MANAGEMENT] ATR trail: "
+                                        f"{trail_mult}× ATR at "
+                                        f"{r_multiple:.1f}R"
+                                    ),
+                                )
+
                     # ── WINNING SIDE: Unlimited Pyramiding ────────────
                     # 1R:   floor → BE  + pyramid 30% (hammer the win)
                     # 1.5R+: floor + pyramid 4% every 0.5R
-                    # Plus: momentum acceleration, bounce re-pyramids,
-                    #        dynamic ATR trailing
+                    # Plus: momentum acceleration, bounce re-pyramids
                     if r_multiple >= 1.0:
                         MAX_PYRAMIDS = 50
-                        from tradebot_sci.strategy.icc_signals import calculate_atr
-                        atr = calculate_atr(snapshot.candles[-14:], period=14)
 
                         # ── #2: MOMENTUM ACCELERATION ─────────────────
                         # If a single candle moves ≥ 0.3R in our direction,
@@ -655,64 +711,7 @@ class ForexConductorStrategy(BaseStrategy):
                                     f"reset milestone"
                                 )
 
-                        # ── #4: DYNAMIC ATR TRAILING ──────────────────
-                        # Tighten trailing stop as profit grows:
-                        #   At 1R: trail = 1.5× ATR
-                        #   At 2R: trail = 1.0× ATR
-                        #   At 3R+: trail = 0.7× ATR
-                        if atr and atr > 0 and r_multiple >= 0.5:
-                            if r_multiple >= 3.0:
-                                trail_mult = 0.7
-                            elif r_multiple >= 2.0:
-                                trail_mult = 1.0
-                            elif r_multiple >= 1.0:
-                                trail_mult = 1.5
-                            else:
-                                trail_mult = 2.0  # 0.5-1.0R: wide trail to lock breakeven
-                            trail_dist = atr * trail_mult
-
-                            if pos_dir == "long":
-                                atr_trail = current_price - trail_dist
-                                if atr_trail > current_stop:
-                                    logger.info(
-                                        f"[CONDUCTOR] ATR TRAIL {sym}: "
-                                        f"{r_multiple:.1f}R, "
-                                        f"{trail_mult}× ATR → "
-                                        f"stop ${atr_trail:.5f}"
-                                    )
-                                    return AITradeDecision(
-                                        symbol=sym,
-                                        timeframe=snapshot.timeframe,
-                                        bias=pos_dir, phase="management",
-                                        action="hold",
-                                        stop_loss=atr_trail,
-                                        notes=(
-                                            f"[MANAGEMENT] ATR trail: "
-                                            f"{trail_mult}× ATR at "
-                                            f"{r_multiple:.1f}R"
-                                        ),
-                                    )
-                            else:
-                                atr_trail = current_price + trail_dist
-                                if atr_trail < current_stop:
-                                    logger.info(
-                                        f"[CONDUCTOR] ATR TRAIL {sym}: "
-                                        f"{r_multiple:.1f}R, "
-                                        f"{trail_mult}× ATR → "
-                                        f"stop ${atr_trail:.5f}"
-                                    )
-                                    return AITradeDecision(
-                                        symbol=sym,
-                                        timeframe=snapshot.timeframe,
-                                        bias=pos_dir, phase="management",
-                                        action="hold",
-                                        stop_loss=atr_trail,
-                                        notes=(
-                                            f"[MANAGEMENT] ATR trail: "
-                                            f"{trail_mult}× ATR at "
-                                            f"{r_multiple:.1f}R"
-                                        ),
-                                    )
+                        # (ATR trailing moved to 0.5R block above)
 
                         # ── R-level milestones (floor + pyramid) ──────
                         level_idx = int((r_multiple - 1.0) / 0.5)
