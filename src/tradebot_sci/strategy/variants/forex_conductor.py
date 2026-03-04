@@ -48,7 +48,7 @@ _ENTRY_COOLDOWN_BARS = 2  # 2 × 15min = 30 minutes
 # ── Reversal signal: when set, allows immediate re-entry in opposite direction ──
 _reversal_pending: dict[str, str] = {}  # symbol → "long" or "short" (direction to enter)
 _SAR_MAX_CONCURRENT = 2  # Max simultaneous SAR positions
-_SAR_RISK_PCT = 0.02  # 2% risk for SAR entries (slightly higher than normal 1%)
+_SAR_RISK_PCT = 0.045  # Match profile risk — SAR must recover the prior loss
 
 
 def _check_loss_cooldown(symbol: str) -> bool:
@@ -371,11 +371,11 @@ class ForexConductorStrategy(BaseStrategy):
                 price = snapshot.candles[-1].close
                 if rev_dir == "long":
                     sl = price - (atr * 1.5)
-                    tp = price + (atr * 2.25)  # 1.5:1 R:R
+                    tp = price + (atr * 3.0)  # 2:1 R:R
                     action = "enter_long"
                 else:
                     sl = price + (atr * 1.5)
-                    tp = price - (atr * 2.25)
+                    tp = price - (atr * 3.0)
                     action = "enter_short"
                 logger.info(
                     f"[CONDUCTOR] {snapshot.symbol}: FORCED SAR "
