@@ -539,8 +539,9 @@ class OandaExchangeBroker(IExchangeBroker):
                 pnl_sign = '+' if pnl_val >= 0 else '-'
                 pnl_str = f"{pnl_sign}${abs(pnl_val):.2f}"
                 logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={side} | Duration={duration_str} | Est. Spread Cost: ${est_spread_cost:.4f} (OANDA {self.AVG_SPREAD_PIPS} pips)")
-                # Record exit for re-entry cooldown
-                self._exit_cooldowns[symbol] = time.time()
+                # Record exit for re-entry cooldown (losses only — wins can re-enter immediately)
+                if pnl_val <= 0:
+                    self._exit_cooldowns[symbol] = time.time()
                 # Register with SafetyGuard for Streak Breaker & Exit Cooldown
                 try:
                     from tradebot_sci.strategy.safety_guard import SafetyGuard
@@ -1123,8 +1124,9 @@ class OandaExchangeBroker(IExchangeBroker):
                         f"Duration={duration_str} | "
                         f"Est. Spread Cost: ${est_spread:.4f}"
                     )
-                    # Record exit for re-entry cooldown
-                    self._exit_cooldowns[sym] = time.time()
+                    # Record exit for re-entry cooldown (losses only — wins can re-enter immediately)
+                    if pnl <= 0:
+                        self._exit_cooldowns[sym] = time.time()
                     # Register with SafetyGuard for Streak Breaker & Exit Cooldown
                     try:
                         from tradebot_sci.strategy.safety_guard import SafetyGuard

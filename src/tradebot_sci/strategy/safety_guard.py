@@ -125,9 +125,15 @@ class SafetyGuard:
     @classmethod
     def register_trade_completion(cls, symbol: str, is_win: bool):
         """Call this when a trade closes to update streaks and set cooldown."""
-        # Per-symbol exit cooldown — prevents death spiral re-entry
-        cls._state.symbol_exit_cooldown[symbol] = datetime.now() + timedelta(minutes=5)
-        logger.info(f"[SAFETY] Exit cooldown set for {symbol}: 5 min")
+        # Per-symbol exit cooldown — prevents death spiral re-entry on LOSSES.
+        # Winning trades skip cooldown so the bot can re-enter immediately.
+        if not is_win:
+            cls._state.symbol_exit_cooldown[symbol] = datetime.now() + timedelta(minutes=5)
+            logger.info(f"[SAFETY] Exit cooldown set for {symbol}: 5 min (loss)")
+        else:
+            # Clear any existing cooldown on a win
+            cls._state.symbol_exit_cooldown.pop(symbol, None)
+            logger.info(f"[SAFETY] Exit cooldown SKIPPED for {symbol} (win)")
 
         if not is_win:
             cls._state.symbol_loss_streaks[symbol] = cls._state.symbol_loss_streaks.get(symbol, 0) + 1
