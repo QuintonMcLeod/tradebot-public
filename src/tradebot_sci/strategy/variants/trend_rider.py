@@ -285,21 +285,46 @@ class TrendRiderStrategy(BaseStrategy):
         ema_slow = calculate_ema(closes, self.slow_ema)
         direction = open_position.get("direction")
 
+        # Check if the trade is currently in profit
+        entry_price = float(open_position.get("entry_price", 0))
+        current_price = closes[-1]
+        is_winning = (
+            (direction == "long" and current_price > entry_price) or
+            (direction == "short" and current_price < entry_price)
+        )
+
         # Reverse EMA crossover = trend over
-        if direction == "long" and ema_fast < ema_slow:
-            from tradebot_sci.strategy.decisions import close_position_decision
-            return close_position_decision(
-                snapshot.symbol, snapshot.timeframe,
-                f"Trend Rider: EMA({self.fast_ema}) crossed below "
-                f"EMA({self.slow_ema}) — trend exhausted"
-            )
-        if direction == "short" and ema_fast > ema_slow:
-            from tradebot_sci.strategy.decisions import close_position_decision
-            return close_position_decision(
-                snapshot.symbol, snapshot.timeframe,
-                f"Trend Rider: EMA({self.fast_ema}) crossed above "
-                f"EMA({self.slow_ema}) — trend exhausted"
-            )
+        # When WINNING: require 2 consecutive candles with EMA crossed
+        # to avoid exiting on single-candle noise. When LOSING: exit immediately.
+        ema_cross_long_exit = direction == "long" and ema_fast < ema_slow
+        ema_cross_short_exit = direction == "short" and ema_fast > ema_slow
+
+        if ema_cross_long_exit or ema_cross_short_exit:
+            should_exit = True
+            if is_winning and len(closes) >= 3:
+                # Check previous candle's EMAs — was cross already present?
+                ema_fast_prev = calculate_ema(closes[:-1], self.fast_ema)
+                ema_slow_prev = calculate_ema(closes[:-1], self.slow_ema)
+                prev_crossed = (
+                    (direction == "long" and ema_fast_prev < ema_slow_prev) or
+                    (direction == "short" and ema_fast_prev > ema_slow_prev)
+                )
+                if not prev_crossed:
+                    should_exit = False  # First candle of cross — give it one more
+                    logger.info(
+                        f"[TREND-RIDER] {snapshot.symbol}: EMA cross detected but "
+                        f"trade is winning (+${abs(current_price - entry_price):.5f}) "
+                        f"— waiting for 2-candle confirmation"
+                    )
+
+            if should_exit:
+                from tradebot_sci.strategy.decisions import close_position_decision
+                cross_dir = "below" if direction == "long" else "above"
+                return close_position_decision(
+                    snapshot.symbol, snapshot.timeframe,
+                    f"Trend Rider: EMA({self.fast_ema}) crossed {cross_dir} "
+                    f"EMA({self.slow_ema}) — trend exhausted"
+                )
 
         # Breakeven trail management
         entry_price = float(open_position["entry_price"])

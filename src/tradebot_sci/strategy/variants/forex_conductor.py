@@ -43,7 +43,7 @@ _COOLDOWN_BARS = 6
 
 # ── Per-symbol entry cooldown (prevents rapid re-entry after stops) ──
 _entry_cooldown: dict[str, int] = {}
-_ENTRY_COOLDOWN_BARS = 2  # 2 × 15min = 30 minutes
+_ENTRY_COOLDOWN_BARS = 0  # Disabled — other guardrails handle spacing
 
 # ── Reversal signal: when set, allows immediate re-entry in opposite direction ──
 _reversal_pending: dict[str, str] = {}  # symbol → "long" or "short" (direction to enter)
