@@ -129,10 +129,12 @@ class ForexConductorStrategy(BaseStrategy):
 
         _tick_cooldowns(snapshot.symbol)
 
-        # ── SESSION FILTER: Block Asian dead zone ─────────────
-        # 8 PM – 3 AM ET is the Asian session — low liquidity for
-        # major forex pairs, poor for directional bets, high
-        # spread cost. Block all entries (including SAR).
+        # ── SESSION FILTER: Block Asian dead zone for non-Asian pairs ─
+        # 8 PM – 3 AM ET is the Asian/Tokyo session.
+        # JPY crosses and AUD/NZD have decent Tokyo liquidity,
+        # so only block EUR/GBP/CHF/CAD majors and commodities.
+        _ASIAN_FRIENDLY = {"USDJPY", "EURJPY", "GBPJPY", "AUDJPY",
+                           "AUDUSD", "NZDUSD"}
         if snapshot.candles:
             from zoneinfo import ZoneInfo
             _ts = snapshot.candles[-1].timestamp
@@ -140,7 +142,8 @@ class ForexConductorStrategy(BaseStrategy):
                 _ts = _ts.replace(tzinfo=ZoneInfo("UTC"))
             et_hour = _ts.astimezone(ZoneInfo("America/New_York")).hour
             if et_hour >= 20 or et_hour < 3:
-                return None  # Dead zone — no entries
+                if snapshot.symbol not in _ASIAN_FRIENDLY:
+                    return None  # Dead zone — skip non-Asian pairs
 
         # ── Stop-and-Reverse: populate _reversal_pending ─────────
         # If enabled, scan trade_history for a recent stop exit on
