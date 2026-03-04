@@ -597,6 +597,7 @@ class StrategyEngine:
             sar_dir = self._sar_pending.pop(self.symbol, None)
 
         # B. Check for ENTRY / SCALE_IN
+        gates["profile"] = self.profile  # Conductor SAR needs this
         decision = self._strategy.check_entry_signal(
             snapshot, 
             gates, 
