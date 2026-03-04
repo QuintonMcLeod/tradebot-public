@@ -47,7 +47,7 @@ _ENTRY_COOLDOWN_BARS = 0  # Disabled — other guardrails handle spacing
 
 # ── Reversal signal: when set, allows immediate re-entry in opposite direction ──
 _reversal_pending: dict[str, str] = {}  # symbol → "long" or "short" (direction to enter)
-_SAR_MAX_CONCURRENT = 2  # Max simultaneous SAR positions
+_SAR_MAX_CONCURRENT = 1  # Max simultaneous SAR positions
 _SAR_RISK_PCT = 0.045  # Match profile risk — SAR must recover the prior loss
 _sar_active: set[str] = set()  # symbols with currently open SAR positions
 
@@ -660,13 +660,15 @@ class ForexConductorStrategy(BaseStrategy):
                         #   At 1R: trail = 1.5× ATR
                         #   At 2R: trail = 1.0× ATR
                         #   At 3R+: trail = 0.7× ATR
-                        if atr and atr > 0 and r_multiple >= 1.0:
+                        if atr and atr > 0 and r_multiple >= 0.5:
                             if r_multiple >= 3.0:
                                 trail_mult = 0.7
                             elif r_multiple >= 2.0:
                                 trail_mult = 1.0
-                            else:
+                            elif r_multiple >= 1.0:
                                 trail_mult = 1.5
+                            else:
+                                trail_mult = 2.0  # 0.5-1.0R: wide trail to lock breakeven
                             trail_dist = atr * trail_mult
 
                             if pos_dir == "long":
