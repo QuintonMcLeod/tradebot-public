@@ -160,16 +160,20 @@ class ForexConductorStrategy(BaseStrategy):
                     _sar_active.discard(snapshot.symbol)  # Position closed
                     break  # last trade was a win — no reversal needed
                 # Set reversal direction: opposite of the losing side
+                # Store (direction, timestamp) so we can detect stale SARs
+                from datetime import datetime, timezone
                 old_side = (t.get("side") or "").lower()
+                rev = None
                 if old_side == "long":
-                    _reversal_pending[snapshot.symbol] = "short"
+                    rev = "short"
                 elif old_side == "short":
-                    _reversal_pending[snapshot.symbol] = "long"
-                if snapshot.symbol in _reversal_pending:
+                    rev = "long"
+                if rev:
+                    _reversal_pending[snapshot.symbol] = (rev, datetime.now(timezone.utc))
                     _sar_active.discard(snapshot.symbol)  # Position closed → free slot
                     logger.info(
                         f"[CONDUCTOR] {snapshot.symbol}: LOSS DETECTED → "
-                        f"reversal pending {_reversal_pending[snapshot.symbol]}"
+                        f"reversal pending {rev}"
                     )
                 break  # only process most recent
 
@@ -339,8 +343,9 @@ class ForexConductorStrategy(BaseStrategy):
                 # If a reversal is pending, only allow entries in the
                 # reversal direction. Reject wrong-way signals and
                 # fall through to forced SAR entry below.
-                rev_dir = _reversal_pending.get(snapshot.symbol)
-                if rev_dir:
+                rev_entry = _reversal_pending.get(snapshot.symbol)
+                if rev_entry:
+                    rev_dir = rev_entry[0] if isinstance(rev_entry, tuple) else rev_entry
                     signal_dir = (
                         "long" if signal.action == "enter_long" else "short"
                     )
@@ -370,20 +375,36 @@ class ForexConductorStrategy(BaseStrategy):
         # If a reversal is pending but no sub-strategy fired,
         # force an entry in the SAR direction using ATR-based stop.
         # Limit to _SAR_MAX_CONCURRENT simultaneous SAR positions.
-        rev_dir = _reversal_pending.pop(snapshot.symbol, None)
-        if rev_dir:
-            # ── TREND VALIDATION ──────────────────────────────────
-            # When SAR fires late (deferred by margin/concurrency),
-            # validate that the reversal direction aligns with the
-            # HTF trend consensus. Counter-trend SARs hemorrhage.
-            htf_dir = getattr(snapshot.trend_htf, "direction", "neutral") if snapshot.trend_htf else "neutral"
-            if htf_dir != "neutral" and htf_dir != rev_dir:
-                logger.info(
-                    f"[CONDUCTOR] {snapshot.symbol}: SAR CANCELLED — "
-                    f"reversal {rev_dir} opposes HTF trend {htf_dir}"
-                )
-                _sar_active.discard(snapshot.symbol)
-                return None
+        rev_entry = _reversal_pending.pop(snapshot.symbol, None)
+        if rev_entry:
+            # Unpack (direction, timestamp) — handle legacy plain strings
+            if isinstance(rev_entry, tuple):
+                rev_dir, rev_time = rev_entry
+            else:
+                rev_dir, rev_time = rev_entry, None
+
+            # ── STALE SAR TREND VALIDATION ────────────────────────
+            # Immediate SARs (< 10 min) fire freely — the reversal
+            # momentum is still valid. Stale SARs (> 10 min) must
+            # align with the HTF trend or they get cancelled.
+            SAR_STALE_SECONDS = 600  # 10 minutes
+            from datetime import datetime, timezone
+            age_seconds = (datetime.now(timezone.utc) - rev_time).total_seconds() if rev_time else 9999
+            if age_seconds > SAR_STALE_SECONDS:
+                htf_dir = getattr(snapshot.trend_htf, "direction", "neutral") if snapshot.trend_htf else "neutral"
+                if htf_dir != "neutral" and htf_dir != rev_dir:
+                    logger.info(
+                        f"[CONDUCTOR] {snapshot.symbol}: SAR CANCELLED — "
+                        f"reversal {rev_dir} is stale ({age_seconds:.0f}s) "
+                        f"and opposes HTF trend {htf_dir}"
+                    )
+                    _sar_active.discard(snapshot.symbol)
+                    return None
+                else:
+                    logger.info(
+                        f"[CONDUCTOR] {snapshot.symbol}: SAR STALE ({age_seconds:.0f}s) "
+                        f"but aligned with HTF trend {htf_dir} — proceeding"
+                    )
 
             # Use _sar_active set to track concurrent SAR positions
             if len(_sar_active) >= _SAR_MAX_CONCURRENT:
@@ -391,7 +412,7 @@ class ForexConductorStrategy(BaseStrategy):
                     f"[CONDUCTOR] {snapshot.symbol}: SAR DEFERRED — "
                     f"{len(_sar_active)} SAR positions open (max {_SAR_MAX_CONCURRENT}): {_sar_active}"
                 )
-                _reversal_pending[snapshot.symbol] = rev_dir  # Put it back
+                _reversal_pending[snapshot.symbol] = (rev_dir, rev_time)  # Put it back
                 return None
             from tradebot_sci.strategy.icc_signals import calculate_atr
             atr = calculate_atr(snapshot.candles[-50:], period=14)
