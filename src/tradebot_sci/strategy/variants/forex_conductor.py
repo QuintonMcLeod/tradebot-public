@@ -124,7 +124,7 @@ class ForexConductorStrategy(BaseStrategy):
                             stale.add(sym)
                         break
             if stale:
-                _sar_active -= stale
+                _sar_active.difference_update(stale)
                 logger.info(f"[CONDUCTOR] Cleaned stale SAR entries: {stale}")
 
         _tick_cooldowns(snapshot.symbol)
