@@ -348,9 +348,18 @@ class ForexConductorStrategy(BaseStrategy):
         # If a reversal is pending but no sub-strategy fired,
         # force an entry in the SAR direction using ATR-based stop.
         rev_dir = _reversal_pending.pop(snapshot.symbol, None)
+        logger.info(
+            f"[CONDUCTOR-DEBUG] {snapshot.symbol}: Forced SAR check — "
+            f"rev_dir={rev_dir}, candles={len(snapshot.candles) if snapshot.candles else 0}, "
+            f"pending={dict(_reversal_pending)}"
+        )
         if rev_dir:
             from tradebot_sci.strategy.icc_signals import calculate_atr
             atr = calculate_atr(snapshot.candles[-14:], period=14)
+            logger.info(
+                f"[CONDUCTOR-DEBUG] {snapshot.symbol}: ATR={atr}, "
+                f"candles_for_atr={len(snapshot.candles[-14:]) if snapshot.candles else 0}"
+            )
             if atr and atr > 0 and snapshot.candles:
                 price = snapshot.candles[-1].close
                 if rev_dir == "long":
