@@ -47,6 +47,8 @@ _ENTRY_COOLDOWN_BARS = 2  # 2 × 15min = 30 minutes
 
 # ── Reversal signal: when set, allows immediate re-entry in opposite direction ──
 _reversal_pending: dict[str, str] = {}  # symbol → "long" or "short" (direction to enter)
+_SAR_MAX_CONCURRENT = 2  # Max simultaneous SAR positions
+_SAR_RISK_PCT = 0.02  # 2% risk for SAR entries (slightly higher than normal 1%)
 
 
 def _check_loss_cooldown(symbol: str) -> bool:
@@ -347,19 +349,24 @@ class ForexConductorStrategy(BaseStrategy):
         # ── FORCED SAR ENTRY ──────────────────────────────────
         # If a reversal is pending but no sub-strategy fired,
         # force an entry in the SAR direction using ATR-based stop.
+        # Limit to _SAR_MAX_CONCURRENT simultaneous SAR positions.
         rev_dir = _reversal_pending.pop(snapshot.symbol, None)
-        logger.info(
-            f"[CONDUCTOR-DEBUG] {snapshot.symbol}: Forced SAR check — "
-            f"rev_dir={rev_dir}, candles={len(snapshot.candles) if snapshot.candles else 0}, "
-            f"pending={dict(_reversal_pending)}"
-        )
         if rev_dir:
+            # Count currently open SAR positions
+            sar_count = 0
+            if trade_history:
+                for t in trade_history:
+                    if not t.get("exit_time") and "[REVERSAL]" in (t.get("notes", "") or ""):
+                        sar_count += 1
+            if sar_count >= _SAR_MAX_CONCURRENT:
+                logger.info(
+                    f"[CONDUCTOR] {snapshot.symbol}: SAR DEFERRED — "
+                    f"{sar_count} SAR positions open (max {_SAR_MAX_CONCURRENT})"
+                )
+                _reversal_pending[snapshot.symbol] = rev_dir  # Put it back
+                return None
             from tradebot_sci.strategy.icc_signals import calculate_atr
             atr = calculate_atr(snapshot.candles[-50:], period=14)
-            logger.info(
-                f"[CONDUCTOR-DEBUG] {snapshot.symbol}: ATR={atr}, "
-                f"candles_for_atr={len(snapshot.candles[-14:]) if snapshot.candles else 0}"
-            )
             if atr and atr > 0 and snapshot.candles:
                 price = snapshot.candles[-1].close
                 if rev_dir == "long":
@@ -384,7 +391,7 @@ class ForexConductorStrategy(BaseStrategy):
                     entry_price=price,
                     stop_loss=sl,
                     take_profit=tp,
-                    risk_per_trade_pct=0.01,
+                    risk_per_trade_pct=_SAR_RISK_PCT,
                     urgency="high",
                     structure_summary=(
                         f"[SAR] Forced reversal {rev_dir} "
