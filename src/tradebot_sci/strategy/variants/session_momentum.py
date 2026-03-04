@@ -202,12 +202,26 @@ class SessionMomentumStrategy(BaseStrategy):
         # (proven ORB technique — stalled momentum rarely recovers)
         entry_time = open_position.get("entry_time")
         if entry_time and r_multiple < 0:
-            # Count bars since entry using candle timestamps
-            bars_since = 0
-            for c in reversed(snapshot.candles):
-                if c.timestamp <= entry_time:
-                    break
-                bars_since += 1
+            # OANDA returns entry_time as ISO string — parse it
+            if isinstance(entry_time, str):
+                try:
+                    entry_time = datetime.fromisoformat(
+                        entry_time.replace("Z", "+00:00")
+                    )
+                except (ValueError, TypeError):
+                    entry_time = None
+            if entry_time:
+                # Count bars since entry using candle timestamps
+                bars_since = 0
+                for c in reversed(snapshot.candles):
+                    c_ts = c.timestamp
+                    if c_ts.tzinfo is None:
+                        c_ts = c_ts.replace(tzinfo=ZoneInfo("UTC"))
+                    if entry_time.tzinfo is None:
+                        entry_time = entry_time.replace(tzinfo=ZoneInfo("UTC"))
+                    if c_ts <= entry_time:
+                        break
+                    bars_since += 1
             if bars_since >= 8:
                 return close_position_decision(
                     snapshot.symbol, snapshot.timeframe,

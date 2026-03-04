@@ -192,6 +192,11 @@ class LedgerDaemon:
         # Per-broker throttling so "all" heartbeat doesn't suppress broker-specific snapshots
         last_ts = self._snapshot_ts_by_broker.get(broker)
         if last_ts:
+            # Ensure both timestamps are timezone-aware before subtraction
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=self.tz)
+            if last_ts.tzinfo is None:
+                last_ts = last_ts.replace(tzinfo=self.tz)
             elapsed = (now - last_ts).total_seconds()
             if elapsed < SNAPSHOT_INTERVAL:
                 return
