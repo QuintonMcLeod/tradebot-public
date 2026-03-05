@@ -301,6 +301,12 @@ class TrendRiderStrategy(BaseStrategy):
         ema_cross_short_exit = direction == "short" and ema_fast > ema_slow
 
         if ema_cross_long_exit or ema_cross_short_exit:
+            # SAR EXEMPTION: Reversal trades oppose the trend by design —
+            # EMA cross is expected. Let SL/TP handle exit instead.
+            is_sar_trade = (open_position.get("strategy_name") or "").lower() in ("reversal", "sar")
+            if is_sar_trade:
+                logger.debug(f"[TREND-RIDER] {snapshot.symbol}: EMA cross skipped — SAR trade (SL/TP only)")
+                return None
             should_exit = True
             if len(closes) >= 3:
                 # Check previous candle's EMAs — was cross already present?

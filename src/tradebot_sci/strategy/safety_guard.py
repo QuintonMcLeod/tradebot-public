@@ -528,11 +528,12 @@ class SafetyGuard:
                 is_contradiction = (direction == "long" and htf_dir == "short") or \
                                    (direction == "short" and htf_dir == "long")
                 if is_contradiction:
-                    # PROFIT GUARD: Don't regime-flip exit a strongly profitable trade.
-                    # If trade is > 1.0R, the original entry thesis was right — let it run.
-                    # Note: Tested r < 0.0 but it HURT ICC Core and Bearish Eng — they need
-                    # regime protection to cut contradicting trades before full stop hit.
-                    if r_multiple < 1.0:
+                    # SAR EXEMPTION: Reversal trades are EXPECTED to oppose HTF —
+                    # that's their entire purpose. Skip regime flip for SAR.
+                    is_sar_trade = (open_position.get("strategy_name") or "").lower() in ("reversal", "sar")
+                    if is_sar_trade:
+                        logger.debug(f"[SAFETY] Regime-Flip SKIPPED for {snapshot.symbol}: SAR trade — let SL/TP handle exit")
+                    elif r_multiple < 1.0:
                         logger.info(f"[SAFETY] Regime-Flip TRIGGERED for {snapshot.symbol}. HTF is {htf_dir} (R={r_multiple:.2f}).")
                         # Set 10-min cooldown to prevent flip→SAR→flip churn cycle
                         cls._state.regime_flip_cooldown[snapshot.symbol] = (sim_time or datetime.now()) + timedelta(minutes=10)
