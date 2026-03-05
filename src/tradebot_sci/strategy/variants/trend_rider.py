@@ -165,7 +165,7 @@ class TrendRiderStrategy(BaseStrategy):
 
         # Distance from slow EMA
         ema_dist = abs(last_close - ema_slow)
-        proximity_threshold = atr * 1.0  # Within 1.0 ATR of slow EMA
+        proximity_threshold = atr * 2.0  # Within 2.0 ATR of slow EMA
 
         # ── BOUNCE CONFIRMATION ──────────────────────────────────
         # Require EITHER:
