@@ -613,17 +613,35 @@ class ForexConductorStrategy(BaseStrategy):
                     # ── EARLY ATR TRAILING (0.5R+) ─────────────────────
                     # Move broker SL to lock in profit once 0.5R is reached.
                     # This fires BEFORE the 1.0R pyramid gate below.
+                    # REGIME-AWARE: Ranging markets use TIGHT trails to
+                    # capture oscillation peaks. Trending uses wide trails
+                    # to let winners run.
                     from tradebot_sci.strategy.icc_signals import calculate_atr
                     atr = calculate_atr(snapshot.candles[-14:], period=14)
+                    regime = gates.get("market_regime", "unknown")
+                    is_ranging = regime in ("ranging", "choppy")
+
                     if atr and atr > 0 and r_multiple >= 0.5:
-                        if r_multiple >= 3.0:
-                            trail_mult = 0.7
-                        elif r_multiple >= 2.0:
-                            trail_mult = 1.0
-                        elif r_multiple >= 1.0:
-                            trail_mult = 1.5
+                        if is_ranging:
+                            # RANGING: tight trails — capture oscillation peaks
+                            if r_multiple >= 3.0:
+                                trail_mult = 0.3
+                            elif r_multiple >= 2.0:
+                                trail_mult = 0.5
+                            elif r_multiple >= 1.0:
+                                trail_mult = 0.7
+                            else:
+                                trail_mult = 1.0  # 0.5-1.0R: lock near BE
                         else:
-                            trail_mult = 2.0  # 0.5-1.0R: wide trail to lock ~breakeven
+                            # TRENDING: wide trails — let winners run
+                            if r_multiple >= 3.0:
+                                trail_mult = 0.7
+                            elif r_multiple >= 2.0:
+                                trail_mult = 1.0
+                            elif r_multiple >= 1.0:
+                                trail_mult = 1.5
+                            else:
+                                trail_mult = 2.0  # 0.5-1.0R: wide trail
                         trail_dist = atr * trail_mult
 
                         if pos_dir == "long":
