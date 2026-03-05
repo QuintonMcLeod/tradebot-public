@@ -556,7 +556,8 @@ class OandaExchangeBroker(IExchangeBroker):
                 if self.position_hold_store:
                     _hold_rec = self.position_hold_store.get(symbol)
                     _exit_strategy = _hold_rec.strategy if _hold_rec else None
-                    self.position_hold_store.remove(symbol)  # triggers shared cooldown
+                    self.position_hold_store.record_exit_with_result(symbol, is_win=pnl_val > 0, strategy=_exit_strategy)
+                    self.position_hold_store.remove(symbol)  # clean up record
 
                 # Add to TradeResultStore
                 if self.trade_results:
@@ -1142,7 +1143,8 @@ class OandaExchangeBroker(IExchangeBroker):
                     if self.position_hold_store:
                         _hold_rec = self.position_hold_store.get(sym)
                         _exit_strategy = _hold_rec.strategy if _hold_rec else None
-                        self.position_hold_store.remove(sym)  # triggers shared cooldown
+                        self.position_hold_store.record_exit_with_result(sym, is_win=pnl > 0, strategy=_exit_strategy)
+                        self.position_hold_store.remove(sym)  # clean up record
 
                     # Record in TradeResultStore for pnl_stats
                     if self.trade_results:

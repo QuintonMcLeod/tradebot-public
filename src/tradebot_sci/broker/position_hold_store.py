@@ -104,16 +104,39 @@ class PositionHoldStore:
             strategy = self.records[key].strategy
             self.records.pop(key, None)
             self.save()
-            # Record exit for re-entry cooldown
-            self._record_exit(key, strategy)
+            # Record exit ONLY if not already recorded via record_exit_with_result
+            if not hasattr(self, '_exit_result_recorded'):
+                self._exit_result_recorded = set()
+            if key not in self._exit_result_recorded:
+                self._record_exit(key, strategy)
+            else:
+                self._exit_result_recorded.discard(key)
 
-    def _record_exit(self, symbol: str, strategy: str | None = None) -> None:
-        """Record an exit timestamp for re-entry cooldown tracking."""
+    def _record_exit(self, symbol: str, strategy: str | None = None, is_win: bool = False) -> None:
+        """Record an exit timestamp for re-entry cooldown tracking.
+        
+        Winning exits SKIP the cooldown so the bot can immediately
+        re-enter on oscillation dips (profit at peak → re-enter at dip → repeat).
+        Losing exits get the full cooldown to prevent death spirals.
+        """
         import time
+        if is_win:
+            # Clear any existing cooldown on a win — allow immediate re-entry
+            self._exit_cooldowns.pop(symbol.upper(), None)
+            self._exit_strategies.pop(symbol.upper(), None)
+            logger.info(f"[COOLDOWN] Exit recorded for {symbol} (WIN) — cooldown SKIPPED, immediate re-entry allowed")
+            return
         self._exit_cooldowns[symbol.upper()] = time.time()
         if strategy:
             self._exit_strategies[symbol.upper()] = strategy
         logger.info(f"[COOLDOWN] Recorded exit for {symbol}, cooldown={self.REENTRY_COOLDOWN:.0f}s, strategy={strategy or 'unknown'}")
+
+    def record_exit_with_result(self, symbol: str, is_win: bool, strategy: str | None = None) -> None:
+        """External API: record exit with win/loss status for cooldown gating."""
+        if not hasattr(self, '_exit_result_recorded'):
+            self._exit_result_recorded = set()
+        self._exit_result_recorded.add(symbol.upper())
+        self._record_exit(symbol, strategy=strategy, is_win=is_win)
 
     def is_in_cooldown(self, symbol: str) -> tuple[bool, float]:
         """Check if symbol is in re-entry cooldown. Returns (is_blocked, remaining_seconds)."""
