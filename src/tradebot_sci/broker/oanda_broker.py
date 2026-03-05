@@ -746,8 +746,8 @@ class OandaExchangeBroker(IExchangeBroker):
                     ExecutionOutcome(ExecutionOutcomeType.SKIPPED, decision.symbol, "no position")
                 )
             current_size = abs(pos.get("size", 0))
-            # Default 80% close; the remaining 20% runs as a trailer
-            close_fraction = 0.80
+            # RTFM: 95% guillotine — close 95% at -0.3R
+            close_fraction = 0.95
             close_units = int(current_size * close_fraction)
             if close_units < 1:
                 # Position too small to partial — flatten entirely
@@ -756,16 +756,20 @@ class OandaExchangeBroker(IExchangeBroker):
                     ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, "flattened (too small for partial)"),
                     ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, decision.symbol, "flatten (dust)")
                 )
-            # Partial close via OANDA reduce endpoint
+            # Partial close via OANDA PositionClose endpoint
             try:
-                instrument = decision.symbol.replace("/", "_")
-                side_sign = -1 if pos.get("side") == "long" else 1
-                partial_units = str(int(close_units * side_sign))
-                resp = self.client.order.market(
-                    self.account_id,
-                    instrument=instrument,
-                    units=partial_units,
+                import oandapyV20.endpoints.positions as oanda_positions
+                oanda_sym = self._normalize_symbol(decision.symbol)
+                side = pos.get("side") or pos.get("direction") or "long"
+                if side == "long":
+                    close_data = {"longUnits": str(close_units)}
+                else:
+                    close_data = {"shortUnits": str(close_units)}
+                r_close = oanda_positions.PositionClose(
+                    self.account_id, instrument=oanda_sym, data=close_data
                 )
+                self.client.request(r_close)
+                resp = r_close.response
                 logger.info(
                     f"[OANDA] SCALE OUT {decision.symbol}: closed {close_units} of "
                     f"{int(current_size)} units ({close_fraction:.0%}) — {reason}"
