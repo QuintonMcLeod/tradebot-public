@@ -48,7 +48,7 @@ _ENTRY_COOLDOWN_BARS = 0  # Disabled — other guardrails handle spacing
 # ── Reversal signal: when set, allows immediate re-entry in opposite direction ──
 _reversal_pending: dict[str, str] = {}  # symbol → "long" or "short" (direction to enter)
 _SAR_MAX_CONCURRENT = 1  # Max simultaneous SAR positions
-_SAR_RISK_PCT = 0.045  # Match profile risk — SAR must recover the prior loss
+_SAR_RISK_PCT = 0.027  # Reduced from 0.045 — target ~$60 max SAR loss
 _sar_active: set[str] = set()  # symbols with currently open SAR positions
 
 
