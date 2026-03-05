@@ -190,6 +190,16 @@ class SafetyGuard:
             del cls._state.symbol_exit_cooldown[symbol]  # Expired
 
         # -------------------------------------------------------------
+        # 0.6 REGIME FLIP COOLDOWN (prevents flip→SAR→flip churn)
+        # -------------------------------------------------------------
+        rf_cooldown = cls._state.regime_flip_cooldown.get(symbol)
+        if rf_cooldown and now < rf_cooldown:
+            remaining = int((rf_cooldown - now).total_seconds())
+            return cls._reject(symbol, timeframe, "Regime Flip Cooldown", f"Regime Flip Cooldown: {remaining}s remaining (no re-entry within 10 min of regime flip)")
+        elif rf_cooldown:
+            del cls._state.regime_flip_cooldown[symbol]  # Expired
+
+        # -------------------------------------------------------------
         # P&L PERFORMANCE TARGETS & LIMITS
         # Only activate when capital >= $250.
         # On small accounts, percentage-based limits trip on a single
@@ -292,7 +302,7 @@ class SafetyGuard:
                 else:
                     del cls._state.symbol_pause_until[symbol] # Expired
             
-            streak_limit = getattr(safety, 'safety_streak_max_losses', 3)
+            streak_limit = getattr(safety, 'safety_streak_max_losses', 2)
             if cls._state.symbol_loss_streaks.get(symbol, 0) >= streak_limit:
                 cls._state.symbol_pause_until[symbol] = now + timedelta(hours=4)
                 cls._state.symbol_loss_streaks[symbol] = 0 # Reset count after triggering
@@ -524,6 +534,9 @@ class SafetyGuard:
                     # regime protection to cut contradicting trades before full stop hit.
                     if r_multiple < 1.0:
                         logger.info(f"[SAFETY] Regime-Flip TRIGGERED for {snapshot.symbol}. HTF is {htf_dir} (R={r_multiple:.2f}).")
+                        # Set 10-min cooldown to prevent flip→SAR→flip churn cycle
+                        cls._state.regime_flip_cooldown[snapshot.symbol] = (sim_time or datetime.now()) + timedelta(minutes=10)
+                        logger.info(f"[SAFETY] Regime Flip Cooldown set for {snapshot.symbol}: 10 min")
                         return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Regime Flip: {htf_dir.upper()}")
                     else:
                         logger.debug(f"[SAFETY] Regime-Flip SKIPPED for {snapshot.symbol}: profitable ({r_multiple:.2f}R), ignoring HTF flip.")

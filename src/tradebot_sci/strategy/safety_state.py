@@ -33,6 +33,7 @@ class SafetyState:
     symbol_loss_streaks: dict = field(default_factory=dict)    # {symbol: count}
     symbol_pause_until: dict = field(default_factory=dict)     # {symbol: datetime}
     symbol_exit_cooldown: dict = field(default_factory=dict)   # {symbol: datetime}
+    regime_flip_cooldown: dict = field(default_factory=dict)   # {symbol: datetime} — prevents re-entry after regime flip
 
     # Rate Limiting & Caching
     trade_timestamps: dict = field(default_factory=dict)       # {AssetClass: list[datetime]}
