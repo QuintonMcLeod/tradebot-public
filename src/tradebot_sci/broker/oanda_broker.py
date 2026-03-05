@@ -574,6 +574,7 @@ class OandaExchangeBroker(IExchangeBroker):
                         strategy=_exit_strategy or "unknown",
                         exit_reason=exit_reason,
                         side=side.lower(),
+                        spread_cost=est_spread_cost,
                     ))
 
                 logger.info(f"[OANDA] Flattened {symbol}. Response: {resp}")
@@ -1159,6 +1160,7 @@ class OandaExchangeBroker(IExchangeBroker):
                             strategy=_exit_strategy or "unknown",
                             exit_reason="sl_tp_hit",
                             side=side.lower() if side else None,
+                            spread_cost=est_spread,
                         ))
 
                     del self._tracked_positions[sym]

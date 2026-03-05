@@ -210,6 +210,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                                 pct: pctVal,
                                 reason: exitReason,
                                 strategy,
+                                spread: t.spread ?? t.spread_cost ?? 0,
                                 timestamp: ts,
                                 _source: 'trade_results',
                             });
