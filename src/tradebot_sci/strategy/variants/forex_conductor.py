@@ -519,11 +519,10 @@ class ForexConductorStrategy(BaseStrategy):
                         pnl_dist = entry_price - current_price
                     r_multiple = pnl_dist / initial_risk
 
-                    # SAR reversals manage their own risk via SL/TP.
-                    # Skip ALL milestone management (de-risk, pyramids,
-                    # floors) so they can ride to their 1R target.
-                    if open_position.get("strategy_name") == "reversal":
-                        return None
+                    # SAR reversals: skip pyramids + de-risk milestones,
+                    # but KEEP ATR trailing active so they benefit from
+                    # regime-aware trailing stops (especially on ranging days).
+                    is_sar = open_position.get("strategy_name") == "reversal"
 
                     # Track which milestones have already fired
                     sym = snapshot.symbol
@@ -535,7 +534,8 @@ class ForexConductorStrategy(BaseStrategy):
                     # ── LOWER-HIGH / HIGHER-LOW INVALIDATION ─────────
                     # If the trade's swing structure breaks (lower high
                     # for longs, higher low for shorts), exit 80%.
-                    if "struct_inval_lh" not in fired:
+                    # SAR trades skip this — they have their own SL/TP.
+                    if not is_sar and "struct_inval_lh" not in fired:
                         from tradebot_sci.market.swing_analysis import swing_points
                         trade_candles = snapshot.candles[-40:]
                         if len(trade_candles) >= 10:
@@ -586,7 +586,8 @@ class ForexConductorStrategy(BaseStrategy):
                                     )
 
                     # ── LOSING SIDE: Partial close at -0.6R ───────────
-                    if r_multiple <= -0.6 and "de_risk" not in fired:
+                    # SAR trades skip de-risk — they have tight SL.
+                    if not is_sar and r_multiple <= -0.6 and "de_risk" not in fired:
                         # Spread guard: only exit if loss > 2× spread cost
                         from tradebot_sci.utils.symbol_classifier import (
                             get_fee_for_symbol,
@@ -691,7 +692,8 @@ class ForexConductorStrategy(BaseStrategy):
                     # 1R:   floor → BE  + pyramid 30% (hammer the win)
                     # 1.5R+: floor + pyramid 4% every 0.5R
                     # Plus: momentum acceleration, bounce re-pyramids
-                    if r_multiple >= 1.0:
+                    # SAR trades skip pyramiding — they ride to TP.
+                    if not is_sar and r_multiple >= 1.0:
                         MAX_PYRAMIDS = 50
 
                         # ── #2: MOMENTUM ACCELERATION ─────────────────
