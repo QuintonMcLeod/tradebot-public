@@ -622,6 +622,33 @@ class ForexConductorStrategy(BaseStrategy):
                     regime = gates.get("market_regime", "unknown")
                     is_ranging = regime in ("ranging", "choppy")
 
+                    # ── RANGING DAY QUICK TP (0.7R+) ─────────────────
+                    # On consolidation days, DON'T try to let winners run.
+                    # Take profit at oscillation peaks and re-enter on dips.
+                    # This captures the up/down/up/down pattern the user wants.
+                    if is_ranging and r_multiple >= 0.7 and not is_sar:
+                        pnl_approx = r_multiple * initial_risk * (
+                            abs(open_position.get("size", 0))
+                            / (entry_price if entry_price else 1)
+                        )
+                        logger.info(
+                            f"[CONDUCTOR] RANGING TP {sym}: "
+                            f"{r_multiple:.2f}R (~${pnl_approx:.0f}) — "
+                            f"taking profit at oscillation peak "
+                            f"(regime={regime})"
+                        )
+                        return AITradeDecision(
+                            symbol=sym,
+                            timeframe=snapshot.timeframe,
+                            bias=pos_dir,
+                            phase="management",
+                            action="close_position",
+                            notes=(
+                                f"[MANAGEMENT] Ranging TP: "
+                                f"{r_multiple:.2f}R — oscillation peak"
+                            ),
+                        )
+
                     if atr and atr > 0 and r_multiple >= 0.5:
                         if is_ranging:
                             # RANGING: tight trails — capture oscillation peaks
