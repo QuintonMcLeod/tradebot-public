@@ -198,10 +198,11 @@ class SessionMomentumStrategy(BaseStrategy):
 
         r_multiple = profit / initial_risk
 
-        # TIME-BASED EXIT: If open > 8 bars and still losing, close
+        # TIME-BASED EXIT: If open > 8 bars and meaningfully losing, close
         # (proven ORB technique — stalled momentum rarely recovers)
+        # Only exit if at -0.3R or worse — trades near breakeven deserve a chance.
         entry_time = open_position.get("entry_time")
-        if entry_time and r_multiple < 0:
+        if entry_time and r_multiple < -0.3:
             # OANDA returns entry_time as ISO string — parse it
             if isinstance(entry_time, str):
                 try:

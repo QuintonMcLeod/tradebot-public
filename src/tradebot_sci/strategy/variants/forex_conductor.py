@@ -808,6 +808,21 @@ class ForexConductorStrategy(BaseStrategy):
                                 )
                             break  # Only process highest level
 
+        # ── SUB-STRATEGY EXIT LOOP ──────────────────────────────────
+        # Compute R-multiple for profit guard (may not exist from above
+        # if candles < 5 or missing stop/entry data)
+        _exit_r = None
+        if snapshot.candles:
+            _dir = open_position.get("direction") or open_position.get("side")
+            _ep = float(open_position.get("entry_price", 0))
+            _sl = float(open_position.get("stop_price", 0) or open_position.get("stop_loss", 0) or 0)
+            _cp = float(snapshot.candles[-1].close)
+            if _dir and _ep > 0 and _sl > 0:
+                _ir = abs(_ep - _sl)
+                if _ir > 0:
+                    _pd = (_cp - _ep) if _dir == "long" else (_ep - _cp)
+                    _exit_r = _pd / _ir
+
         for key, strategy in self._strategies.items():
             signal = strategy.check_exit_signal(
                 snapshot, open_position, gates,
@@ -815,6 +830,16 @@ class ForexConductorStrategy(BaseStrategy):
                 trade_history=trade_history,
             )
             if signal and signal.action in ("close_position",):
+                # PROFIT GUARD: Don't let sub-strategies kill profitable trades.
+                # If trade is above +0.3R, let SL/TP and ATR trailing handle
+                # the exit — those produce $326 avg wins vs $76 avg from EMA exits.
+                if _exit_r is not None and _exit_r >= 0.3:
+                    logger.info(
+                        f"[CONDUCTOR] {snapshot.symbol}: PROFIT GUARD — "
+                        f"suppressed {key} exit at {_exit_r:.1f}R "
+                        f"(letting SL/TP handle)"
+                    )
+                    continue  # skip this exit, check next strategy
                 signal.notes = f"[Conductor:{key}] {signal.notes or ''}"
                 logger.info(
                     f"[CONDUCTOR] {snapshot.symbol}: "

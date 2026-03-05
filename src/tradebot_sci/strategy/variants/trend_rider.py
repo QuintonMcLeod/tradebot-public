@@ -294,14 +294,15 @@ class TrendRiderStrategy(BaseStrategy):
         )
 
         # Reverse EMA crossover = trend over
-        # When WINNING: require 2 consecutive candles with EMA crossed
-        # to avoid exiting on single-candle noise. When LOSING: exit immediately.
+        # Require 2 consecutive candles with EMA crossed to avoid
+        # exiting on single-candle noise. This applies to ALL trades —
+        # small losses near breakeven often recover on the next candle.
         ema_cross_long_exit = direction == "long" and ema_fast < ema_slow
         ema_cross_short_exit = direction == "short" and ema_fast > ema_slow
 
         if ema_cross_long_exit or ema_cross_short_exit:
             should_exit = True
-            if is_winning and len(closes) >= 3:
+            if len(closes) >= 3:
                 # Check previous candle's EMAs — was cross already present?
                 ema_fast_prev = calculate_ema(closes[:-1], self.fast_ema)
                 ema_slow_prev = calculate_ema(closes[:-1], self.slow_ema)
@@ -311,10 +312,10 @@ class TrendRiderStrategy(BaseStrategy):
                 )
                 if not prev_crossed:
                     should_exit = False  # First candle of cross — give it one more
+                    pnl_str = f"+${abs(current_price - entry_price):.5f}" if is_winning else f"-${abs(current_price - entry_price):.5f}"
                     logger.info(
                         f"[TREND-RIDER] {snapshot.symbol}: EMA cross detected but "
-                        f"trade is winning (+${abs(current_price - entry_price):.5f}) "
-                        f"— waiting for 2-candle confirmation"
+                        f"waiting for 2-candle confirmation ({pnl_str})"
                     )
 
             if should_exit:
