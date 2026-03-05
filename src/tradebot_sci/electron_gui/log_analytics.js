@@ -178,11 +178,38 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                         if (!isDupe) {
                             // Normalize field names: trade_results.json uses
                             // pnl_usd/pnl_pct/exit_reason, analytics expects pnl/pct/reason
+                            const pnlVal = t.pnl ?? t.pnl_usd ?? 0;
+                            const exitReason = t.exit_reason || t.reason || '';
+
+                            // Extract strategy from exit_reason when strategy is 'unknown'
+                            // e.g. "[Conductor:trend_rider] ..." → "trend_rider"
+                            let strategy = t.strategy || 'unknown';
+                            if (strategy === 'unknown' && exitReason) {
+                                const stratMatch = exitReason.match(/\[Conductor:(\w+)\]/);
+                                if (stratMatch) {
+                                    strategy = stratMatch[1];
+                                } else if (exitReason.includes('sl_tp_hit')) {
+                                    strategy = 'forex_conductor';
+                                } else if (exitReason.includes('Regime Flip')) {
+                                    strategy = 'regime_flip';
+                                }
+                            }
+
+                            // Compute pnl_pct from capital if missing/zero
+                            let pctVal = t.pct ?? t.pnl_pct ?? 0;
+                            if (pctVal === 0 && pnlVal !== 0 && t.capital_at_close) {
+                                const capitalBefore = t.capital_at_close - pnlVal;
+                                if (capitalBefore > 0) {
+                                    pctVal = (pnlVal / capitalBefore) * 100;
+                                }
+                            }
+
                             trades.push({
                                 ...t,
-                                pnl: t.pnl ?? t.pnl_usd ?? 0,
-                                pct: t.pct ?? t.pnl_pct ?? 0,
-                                reason: t.reason || t.exit_reason || '',
+                                pnl: pnlVal,
+                                pct: pctVal,
+                                reason: exitReason,
+                                strategy,
                                 timestamp: ts,
                                 _source: 'trade_results',
                             });
