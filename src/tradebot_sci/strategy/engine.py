@@ -563,9 +563,11 @@ class StrategyEngine:
                             break  # last trade was win
                         old_side = (t.get("side") or "").lower()
                         if old_side == "long":
-                            _reversal_pending[self.symbol] = "short"
+                            from datetime import datetime, timezone
+                            _reversal_pending[self.symbol] = ("short", datetime.now(timezone.utc))
                         elif old_side == "short":
-                            _reversal_pending[self.symbol] = "long"
+                            from datetime import datetime, timezone
+                            _reversal_pending[self.symbol] = ("long", datetime.now(timezone.utc))
                         break
             except ImportError:
                 pass

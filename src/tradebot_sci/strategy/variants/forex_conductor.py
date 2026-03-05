@@ -607,9 +607,11 @@ class ForexConductorStrategy(BaseStrategy):
                                         ),
                                     )
 
-                    # ── LOSING SIDE: Partial close at -0.6R ───────────
+                    # ── LOSING SIDE: 95% GUILLOTINE at -0.3R ────────
+                    # Per RTFM: "When a trade hits -0.3R, the Conductor
+                    # closes 95% of the position immediately."
                     # SAR trades skip de-risk — they have tight SL.
-                    if not is_sar and r_multiple <= -0.6 and "de_risk" not in fired:
+                    if not is_sar and r_multiple <= -0.3 and "de_risk" not in fired:
                         # Spread guard: only exit if loss > 2× spread cost
                         from tradebot_sci.utils.symbol_classifier import (
                             get_fee_for_symbol,
