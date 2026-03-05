@@ -400,8 +400,18 @@ class ForexConductorStrategy(BaseStrategy):
         # If a reversal is pending but no sub-strategy fired,
         # force an entry in the SAR direction using ATR-based stop.
         # Limit to _SAR_MAX_CONCURRENT simultaneous SAR positions.
+        # SCORE GATE: Don't SAR into terrible market conditions.
         rev_entry = _reversal_pending.pop(snapshot.symbol, None)
         if rev_entry:
+            # Minimum score gate: require B- (60) to proceed
+            market_score = gates.get("market_score") or gates.get("score") or 0
+            if market_score < 60:
+                logger.info(
+                    f"[CONDUCTOR] {snapshot.symbol}: SAR BLOCKED — "
+                    f"market score {market_score:.0f} < 60 (B- minimum)"
+                )
+                _sar_active.discard(snapshot.symbol)
+                return None
             # Unpack (direction, timestamp) — handle legacy plain strings
             if isinstance(rev_entry, tuple):
                 rev_dir, rev_time = rev_entry
