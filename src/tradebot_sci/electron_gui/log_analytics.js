@@ -161,8 +161,9 @@ function getTradeHistory(filter = '24h', paperMode = false) {
         }
     }
 
-    // 2. Read from paper_trade_results.json (backup source)
-    const resultsPath = path.join(DATA_DIR, 'paper_trade_results.json');
+    // 2. Read from trade_results.json (live) or paper_trade_results.json (paper)
+    const resultsFile = paperMode ? 'paper_trade_results.json' : 'trade_results.json';
+    const resultsPath = path.join(DATA_DIR, resultsFile);
     if (fs.existsSync(resultsPath)) {
         try {
             const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
@@ -174,7 +175,18 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                             existing.symbol === t.symbol &&
                             (existing.closed_at || existing.timestamp) === (t.closed_at || t.timestamp)
                         );
-                        if (!isDupe) trades.push(t);
+                        if (!isDupe) {
+                            // Normalize field names: trade_results.json uses
+                            // pnl_usd/pnl_pct/exit_reason, analytics expects pnl/pct/reason
+                            trades.push({
+                                ...t,
+                                pnl: t.pnl ?? t.pnl_usd ?? 0,
+                                pct: t.pct ?? t.pnl_pct ?? 0,
+                                reason: t.reason || t.exit_reason || '',
+                                timestamp: ts,
+                                _source: 'trade_results',
+                            });
+                        }
                     }
                 }
             }
