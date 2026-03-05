@@ -285,7 +285,29 @@ class ForexConductorStrategy(BaseStrategy):
         # can catch BB bounce opportunities during transitional periods.
         if regime == "transitional" and "mean_reversion" in self._strategies:
             candidates.append("mean_reversion")
-        
+
+        # ── STALE SAR CLEANUP (before candidate loop) ─────────────
+        # Clear stale SAR reversals that oppose HTF trend BEFORE the
+        # entry loop so they don't block valid strategy entries.
+        _rev = _reversal_pending.get(snapshot.symbol)
+        if _rev:
+            if isinstance(_rev, tuple):
+                _rev_dir, _rev_time = _rev
+            else:
+                _rev_dir, _rev_time = _rev, None
+            from datetime import datetime, timezone
+            _rev_age = (datetime.now(timezone.utc) - _rev_time).total_seconds() if _rev_time else 9999
+            if _rev_age > 600:  # > 10 min = stale
+                htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+                if htf_dir != "neutral" and htf_dir != _rev_dir:
+                    logger.info(
+                        f"[CONDUCTOR] {snapshot.symbol}: STALE SAR CLEARED — "
+                        f"reversal {_rev_dir} is {_rev_age:.0f}s old, "
+                        f"opposes HTF trend {htf_dir}"
+                    )
+                    _reversal_pending.pop(snapshot.symbol, None)
+                    _sar_active.discard(snapshot.symbol)
+
         logger.info(
             f"[CONDUCTOR] {snapshot.symbol}: regime={regime}, "
             f"htf_str={htf_strength:.2f}, route={primary_key}, "
