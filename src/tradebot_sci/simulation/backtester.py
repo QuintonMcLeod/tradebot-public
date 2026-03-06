@@ -2079,74 +2079,88 @@ class Backtester:
                                 risk_pct = profile_risk
 
                             # ── Per-Symbol Risk Caps ──────────────────────────
-                            # Proven pairs get full risk; unproven get reduced
-                            symbol_risk_scale = {
-                                'EURUSD': 1.0, 'GBPUSD': 1.0,   # Proven performers
-                                'AUDUSD': 0.4, 'USDJPY': 0.4,   # Unproven — 40% risk
-                            }
-                            sym_scale = symbol_risk_scale.get(symbol, 0.5)  # Default 50% for unknown
+                            # Read from profile `symbol_risk_overrides` dict.
+                            # Cartridges and live profiles can define per-symbol
+                            # scaling; if not set, full risk applies to every pair.
+                            sym_overrides = getattr(profile, 'symbol_risk_overrides', None) or {}
+                            sym_scale = sym_overrides.get(symbol, 1.0)
                             if sym_scale < 1.0:
                                 risk_pct *= sym_scale
                                 logger.info(f"[RISK-CAP] {symbol} scaled to {sym_scale:.0%} → risk={risk_pct*100:.2f}%")
-                                
+
                             # ── Compound Flywheel ──────────────────────────────
-                            # Every $50 in cumulative profit → +0.1% risk on top
-                            # of the base risk_per_trade_pct. Capped at +2%.
-                            cumulative_pnl = capital - initial_capital
-                            if cumulative_pnl > 0:
-                                flywheel_milestone = 50.0
-                                flywheel_boost = (cumulative_pnl // flywheel_milestone) * 0.001
-                                flywheel_boost = min(flywheel_boost, 0.02)  # Cap at +2%
-                                risk_pct += flywheel_boost
-                                if flywheel_boost > 0:
-                                    logger.info(f"[FLYWHEEL] +{flywheel_boost*100:.1f}% boost (cum PnL=${cumulative_pnl:.2f}) → risk={risk_pct*100:.2f}%")
+                            # Only active when `flywheel_enabled=True` in profile/cartridge.
+                            # Every $50 cumulative profit → +0.1% risk, capped at +2%.
+                            if bool(getattr(profile, 'flywheel_enabled', False)):
+                                cumulative_pnl = capital - initial_capital
+                                if cumulative_pnl > 0:
+                                    flywheel_milestone = float(getattr(profile, 'flywheel_milestone_usd', 50.0))
+                                    flywheel_step = float(getattr(profile, 'flywheel_step_pct', 0.001))
+                                    flywheel_cap = float(getattr(profile, 'flywheel_cap_pct', 0.02))
+                                    flywheel_boost = (cumulative_pnl // flywheel_milestone) * flywheel_step
+                                    flywheel_boost = min(flywheel_boost, flywheel_cap)
+                                    risk_pct += flywheel_boost
+                                    if flywheel_boost > 0:
+                                        logger.info(f"[FLYWHEEL] +{flywheel_boost*100:.1f}% boost (cum PnL=${cumulative_pnl:.2f}) → risk={risk_pct*100:.2f}%")
 
                             # ── Performance Multipliers ───────────────────────
+                            # Each multiplier reads its own profile gate.
+                            # In live mode these are controlled by the same profile flags.
                             boost_label = []
 
                             # A. REGIME SYNC (1.5× when HTF trend strongly aligned)
-                            htf_strength = getattr(snapshot, 'trend_htf', None)
-                            if htf_strength:
-                                strength_val = getattr(htf_strength, 'strength', 0.0)
-                                htf_dir = getattr(htf_strength, 'direction', 'neutral')
-                                # Only boost if HTF is strongly aligned WITH the trade direction
-                                trade_dir = "long" if decision.action == "enter_long" else "short"
-                                if strength_val >= 0.7 and htf_dir == trade_dir:
-                                    risk_pct *= 1.5
-                                    boost_label.append(f"Regime({htf_dir} {strength_val:.2f})=1.5×")
+                            if bool(getattr(profile, 'performance_regime_sync_enabled', False)):
+                                htf_strength = getattr(snapshot, 'trend_htf', None)
+                                if htf_strength:
+                                    strength_val = getattr(htf_strength, 'strength', 0.0)
+                                    htf_dir = getattr(htf_strength, 'direction', 'neutral')
+                                    trade_dir = "long" if decision.action == "enter_long" else "short"
+                                    reg_mult = float(getattr(profile, 'performance_regime_multiplier', 1.5))
+                                    reg_threshold = float(getattr(profile, 'performance_regime_threshold', 0.7))
+                                    if strength_val >= reg_threshold and htf_dir == trade_dir:
+                                        risk_pct *= reg_mult
+                                        boost_label.append(f"Regime({htf_dir} {strength_val:.2f})={reg_mult}×")
 
                             # B. GAMMA SQUEEZE (1.2× on 4-bar price velocity > 0.1%)
-                            if len(snapshot.candles) >= 5:
-                                start_price = snapshot.candles[-5].close
-                                end_price = snapshot.candles[-1].close
-                                velocity = abs(end_price - start_price) / start_price
-                                if velocity > 0.001:  # 0.1% move in 4 bars
-                                    risk_pct *= 1.2
-                                    boost_label.append(f"Gamma({velocity*100:.2f}%)=1.2×")
+                            if bool(getattr(profile, 'performance_gamma_enabled', False)):
+                                if len(snapshot.candles) >= 5:
+                                    start_price = snapshot.candles[-5].close
+                                    end_price = snapshot.candles[-1].close
+                                    velocity = abs(end_price - start_price) / start_price
+                                    gamma_threshold = float(getattr(profile, 'performance_gamma_threshold', 0.001))
+                                    gamma_mult = float(getattr(profile, 'performance_gamma_multiplier', 1.2))
+                                    if velocity > gamma_threshold:
+                                        risk_pct *= gamma_mult
+                                        boost_label.append(f"Gamma({velocity*100:.2f}%)={gamma_mult}×")
 
                             # C. COIL BREAKOUT (2.0× on ATR compression)
-                            if len(snapshot.candles) >= 100:
-                                from tradebot_sci.strategy.safety_guard import calculate_atr
-                                recent_atr = calculate_atr(snapshot.candles[-14:], period=14)
-                                hist_atr = calculate_atr(snapshot.candles, period=100)
-                                if recent_atr and hist_atr and recent_atr < (hist_atr * 0.6):
-                                    risk_pct *= 2.0
-                                    boost_label.append(f"Coil({recent_atr/hist_atr:.2f})=2.0×")
+                            if bool(getattr(profile, 'performance_coil_enabled', False)):
+                                if len(snapshot.candles) >= 100:
+                                    from tradebot_sci.strategy.safety_guard import calculate_atr
+                                    recent_atr = calculate_atr(snapshot.candles[-14:], period=14)
+                                    hist_atr = calculate_atr(snapshot.candles, period=100)
+                                    coil_threshold = float(getattr(profile, 'performance_coil_threshold', 0.6))
+                                    coil_mult = float(getattr(profile, 'performance_coil_multiplier', 2.0))
+                                    if recent_atr and hist_atr and recent_atr < (hist_atr * coil_threshold):
+                                        risk_pct *= coil_mult
+                                        boost_label.append(f"Coil({recent_atr/hist_atr:.2f})={coil_mult}×")
 
                             if boost_label:
                                 logger.info(f"[PERF] {symbol} {' | '.join(boost_label)} → risk={risk_pct*100:.2f}%")
 
                             # ── HARD MAX RISK CAP ─────────────────────────────
-                            # After ALL performance multipliers, cap total risk
-                            # to prevent catastrophic single-trade losses.
-                            # At 30× leverage on $2k, 3% = $60 max loss per trade.
-                            MAX_RISK_PCT = 0.02  # 2% absolute ceiling
+                            # Read from profile `max_risk_pct_hard_cap`.
+                            # Defaults to the profile's own risk_per_trade_pct * 3
+                            # so the cap is proportional, not a stale hardcoded 2%.
+                            MAX_RISK_PCT = float(getattr(profile, 'max_risk_pct_hard_cap', None) or
+                                                 (float(getattr(profile, 'risk_per_trade_pct', 0.045)) * 3))
                             if risk_pct > MAX_RISK_PCT:
                                 logger.info(
                                     f"[RISK-CAP] {symbol}: risk {risk_pct*100:.2f}% → "
                                     f"capped at {MAX_RISK_PCT*100:.1f}%"
                                 )
                                 risk_pct = MAX_RISK_PCT
+
 
                             # [RISK SATURATION] Cap compounding to prevent Nuclear Blowout
                             comp_cap = 10000.0  # Conservative cap for consistency
