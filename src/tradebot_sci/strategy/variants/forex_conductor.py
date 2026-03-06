@@ -641,33 +641,64 @@ class ForexConductorStrategy(BaseStrategy):
                                         ),
                                     )
 
-                    # ── LOSING SIDE: 95% GUILLOTINE at -0.3R ────────
-                    # Per RTFM: "When a trade hits -0.3R, the Conductor
-                    # closes 95% of the position immediately."
-                    # SAR trades skip de-risk — they have tight SL.
-                    if not is_sar and r_multiple <= -0.3 and "de_risk" not in fired:
-                        # Spread guard: only exit if loss > 2× spread cost
-                        from tradebot_sci.utils.symbol_classifier import (
-                            get_fee_for_symbol,
-                        )
-                        fee_pct = get_fee_for_symbol(sym)
-                        spread_cost = entry_price * fee_pct * 2
-                        if abs(pnl_dist) > spread_cost:
-                            fired.add("de_risk")
-                            from tradebot_sci.strategy.decisions import (
-                                scale_out_decision,
-                            )
-                            logger.info(
-                                f"[CONDUCTOR] DE-RISK {sym}: "
-                                f"{r_multiple:.1f}R partial close"
-                            )
-                            return scale_out_decision(
-                                sym, snapshot.timeframe,
-                                reason=(
-                                    f"Conductor: De-risk at {r_multiple:.1f}R "
-                                    f"(partial close)"
-                                ),
-                            )
+                    # ── LOSING SIDE: TIERED GUILLOTINE ───────────────
+                    # T1 @ -0.15R → cut 80% (leaves 20%).
+                    # T2 @ -0.3R  → cut 80% of what's left (leaves 4%).
+                    # SAR trades skip — they have their own tight SL.
+                    #
+                    # Thresholds / fractions are profile-configurable:
+                    #   tier1_r_threshold  (default -0.15)
+                    #   tier1_cut_fraction (default  0.80)
+                    #   tier2_r_threshold  (default -0.30)
+                    #   tier2_cut_fraction (default  0.80)
+                    if not is_sar:
+                        t1_r  = float(getattr(self.profile, 'tier1_r_threshold',  -0.15))
+                        t1_cut = float(getattr(self.profile, 'tier1_cut_fraction',  0.80))
+                        t2_r  = float(getattr(self.profile, 'tier2_r_threshold',  -0.30))
+                        t2_cut = float(getattr(self.profile, 'tier2_cut_fraction',  0.80))
+
+                        # ── Tier 1 ────────────────────────────────────────
+                        if r_multiple <= t1_r and "guillotine_t1" not in fired:
+                            from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                            fee_pct = get_fee_for_symbol(sym)
+                            spread_cost = entry_price * fee_pct * 2
+                            if abs(pnl_dist) > spread_cost:
+                                fired.add("guillotine_t1")
+                                from tradebot_sci.strategy.decisions import scale_out_decision
+                                logger.info(
+                                    f"[GUILLOTINE-T1] {sym}: "
+                                    f"{r_multiple:.2f}R → cutting {t1_cut*100:.0f}%"
+                                )
+                                dec = scale_out_decision(
+                                    sym, snapshot.timeframe,
+                                    reason=(
+                                        f"Conductor: Guillotine T1 at {r_multiple:.2f}R "
+                                        f"(cut {t1_cut*100:.0f}%)|scale_frac={t1_cut:.2f}|"
+                                    ),
+                                )
+                                return dec
+
+                        # ── Tier 2 (original de_risk) ──────────────────────
+                        if r_multiple <= t2_r and "de_risk" not in fired:
+                            from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                            fee_pct = get_fee_for_symbol(sym)
+                            spread_cost = entry_price * fee_pct * 2
+                            if abs(pnl_dist) > spread_cost:
+                                fired.add("de_risk")
+                                from tradebot_sci.strategy.decisions import scale_out_decision
+                                logger.info(
+                                    f"[GUILLOTINE-T2] {sym}: "
+                                    f"{r_multiple:.2f}R → cutting {t2_cut*100:.0f}% of remainder"
+                                )
+                                return scale_out_decision(
+                                    sym, snapshot.timeframe,
+                                    reason=(
+                                        f"Conductor: Guillotine T2 at {r_multiple:.2f}R "
+                                        f"(cut {t2_cut*100:.0f}% of remaining)"
+                                        f"|scale_frac={t2_cut:.2f}|"
+                                    ),
+                                )
+
 
                     # ── EARLY ATR TRAILING (0.5R+) ─────────────────────
                     # Move broker SL to lock in profit once 0.5R is reached.

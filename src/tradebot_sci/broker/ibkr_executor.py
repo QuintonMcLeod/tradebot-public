@@ -2206,7 +2206,20 @@ class IbkrExecutor:
                 "no execution path",
             )
 
-        fraction = float(getattr(self.runtime, "scale_out_fraction", 0.5))
+        # Per-decision fraction override: strategy embeds `|scale_frac=0.80|` in
+        # the reason/notes to signal a non-default cut (e.g. tiered Guillotine).
+        _reason_text = (decision.notes or "") + " " + (decision.structure_summary or "")
+        import re as _re
+        _frac_match = _re.search(r'\|scale_frac=([0-9.]+)\|', _reason_text)
+        if _frac_match:
+            fraction = float(_frac_match.group(1))
+            logger.info(
+                "[SCALE_OUT] %s using per-decision fraction=%.2f (tiered guillotine)",
+                self._symbol, fraction,
+            )
+        else:
+            fraction = float(getattr(self.runtime, "scale_out_fraction", 0.5))
+
         min_scale = float(getattr(self.runtime, "min_position_size_to_scale", 1.0))
         if guard_blocks_scale and not emergency_exit:
             logger.info(
