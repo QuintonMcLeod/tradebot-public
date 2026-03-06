@@ -933,6 +933,29 @@ class RoboCopSettings(BaseModel):
 
 
 class SafetySettings(BaseModel):
+    """
+    ⚠️  DEPRECATED — DO NOT ADD NEW FIELDS HERE ⚠️
+
+    SafetySettings is a VESTIGIAL class from the old dual-config system where
+    safety parameters lived in a separate top-level config.json["safety"] block
+    and were read by code that called `settings.safety.*`.
+
+    THE NEW CANONICAL APPROACH:
+    ─────────────────────────────────────────────────────────────────────────
+    1. Pick a profile in the GUI (e.g. forex_continuous).
+    2. If "Profile Overrides" is ON, the profile's own values are the globals.
+    3. All safety-related settings now live in TradingProfileSettings (models.py)
+       and are stored in config.json["profiles"][<name>] OR in config.json["global"]
+       (which is auto-promoted into the profile by the universal promotion loop
+       in loader.py lines 223-238 when a profile key is absent).
+
+    The fields in this class are kept only for backward compatibility with legacy
+    code that still reads `settings.safety.xyz`.  They are NOT authoritative.
+    For the real value, use: `settings.get_active_profile().xyz`
+
+    DO NOT READ: settings.safety.* for any new code.
+    DO READ:     settings.get_active_profile().*
+    """
     emergency_stop_pct: float = Field(
         default_factory=lambda: float(os.getenv("EMERGENCY_STOP_PCT", "0.01")),
         ge=0.0
@@ -1076,6 +1099,37 @@ class PerformanceSettings(BaseModel):
 
 
 class RiskSettings(BaseModel):
+    """
+    ⚠️  DEPRECATED — DO NOT ADD NEW FIELDS HERE ⚠️
+
+    RiskSettings is a VESTIGIAL class from the old dual-config system where
+    risk parameters lived in a separate top-level config.json["risk"] block
+    and were read as `settings.risk.*`.
+
+    THE NEW CANONICAL APPROACH:
+    ─────────────────────────────────────────────────────────────────────────
+    ALL risk settings now live in TradingProfileSettings (models.py) and are
+    stored in config.json["profiles"][<name>] OR in config.json["global"].
+    The loader auto-promotes global keys into profiles (loader.py:223-238).
+
+    There is NO MORE distinction between "profile-level" and "global" settings
+    for risk.  The active profile IS the single source of truth:
+
+        profile = settings.get_active_profile()
+        risk_pct = profile.risk_per_trade_pct   ← CORRECT
+        risk_pct = settings.risk.risk_per_trade_pct  ← DEPRECATED (might be stale)
+
+    In particular:
+    - config.json["risk"]["risk_per_trade_pct"] is an OLD field. Ignore it.
+    - config.json["global"]["risk_per_trade_pct"] is the current default.
+    - config.json["profiles"][<name>]["risk_per_trade_pct"] overrides the default.
+
+    The GUI's "Profile Overrides" toggle controls whether the profile's saved
+    values replace the current globals when you switch profiles.
+
+    DO NOT READ: settings.risk.* for any new code.
+    DO READ:     settings.get_active_profile().*
+    """
     base_risk_pct: float = Field(
         default_factory=lambda: float(os.getenv("PROFILE_AGGRESSIVE_RISK_PER_TRADE_PCT", "0.20"))
     )
@@ -1341,27 +1395,49 @@ class UserConfig:
         s = self._settings()
         return s.profiles.get(s.app.profile_name).strategy_variant
     @property
-    def BASE_RISK_PCT(self): return self._settings().risk.base_risk_pct
+    def BASE_RISK_PCT(self):
+        # DEPRECATED: reads from settings.risk (old dual-config). Use get_active_profile().risk_per_trade_pct
+        s = self._settings(); return s.risk.base_risk_pct
     @property
-    def COMPOUND_PROFITS(self): return self._settings().risk.compound_profits
+    def COMPOUND_PROFITS(self):
+        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        return self._settings().risk.compound_profits
     @property
-    def INFINITE_PYRAMIDING(self): return self._settings().risk.infinite_pyramiding
+    def INFINITE_PYRAMIDING(self):
+        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        return self._settings().risk.infinite_pyramiding
     @property
-    def MAX_PYRAMID_ENTRIES(self): return self._settings().risk.max_pyramid_entries
+    def MAX_PYRAMID_ENTRIES(self):
+        # DEPRECATED: reads from settings.risk. Use get_active_profile().max_pyramid_entries
+        return self._settings().risk.max_pyramid_entries
     @property
-    def PYRAMID_TRIGGER_PCT(self): return self._settings().risk.pyramid_trigger_pct
+    def PYRAMID_TRIGGER_PCT(self):
+        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        return self._settings().risk.pyramid_trigger_pct
     @property
-    def PYRAMID_RISK_LOAD(self): return self._settings().risk.pyramid_risk_load
+    def PYRAMID_RISK_LOAD(self):
+        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        return self._settings().risk.pyramid_risk_load
     @property
-    def PYRAMID_RISK_SCALE(self): return self._settings().risk.pyramid_risk_scale
+    def PYRAMID_RISK_SCALE(self):
+        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        return self._settings().risk.pyramid_risk_scale
     @property
-    def STAGNATION_EXIT_ENABLED(self): return self._settings().risk.stagnation_exit_enabled
+    def STAGNATION_EXIT_ENABLED(self):
+        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        return self._settings().risk.stagnation_exit_enabled
     @property
-    def STAGNATION_EXIT_MINUTES(self): return self._settings().risk.stagnation_exit_minutes
+    def STAGNATION_EXIT_MINUTES(self):
+        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        return self._settings().risk.stagnation_exit_minutes
     @property
-    def CHOP_SCALP_TARGET_USD(self): return self._settings().risk.chop_scalp_target_usd
+    def CHOP_SCALP_TARGET_USD(self):
+        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        return self._settings().risk.chop_scalp_target_usd
     @property
-    def CHOP_STRENGTH_THRESHOLD(self): return self._settings().risk.chop_strength_threshold
+    def CHOP_STRENGTH_THRESHOLD(self):
+        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        return self._settings().risk.chop_strength_threshold
     @property
     def COMBAT_MODE_ENABLED(self): return self._settings().robocop.combat_mode_enabled
     @property

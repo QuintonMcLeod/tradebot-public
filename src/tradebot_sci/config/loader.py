@@ -233,9 +233,30 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
 
         # Risk-section keys are stored separately in config.json;
         # promote them the same way.
+        #
+        # ⚠️  DEPRECATED PATTERN — Why this section exists:
+        # Old code wrote risk settings to config.json["risk"] as a top-level
+        # block.  The GUI historically also read/wrote from that block.
+        # Profile-specific overrides lived in config.json["profiles"][name]
+        # as individual fields.  This created a "dual config" problem where:
+        #
+        #   - config.json["risk"]["risk_per_trade_pct"] = 1.0  ← OLD stale value
+        #   - config.json["global"]["risk_per_trade_pct"] = 0.045  ← current
+        #   - config.json["profiles"]["forex_continuous"]["risk_per_trade_pct"] = 0.045  ← current
+        #
+        # THE NEW SYSTEM (active since universal promotion above):
+        #   1. All settings live in config.json["global"] as the defaults.
+        #   2. Profile-level values in config.json["profiles"][name] OVERRIDE globals.
+        #   3. When "Profile Overrides" is ON in the GUI, switching profiles
+        #      WRITES those profile values back to globals so the whole system
+        #      uses the profile's settings — no more dual layer.
+        #   4. Code should ALWAYS READ from:  settings.get_active_profile().*
+        #   5. config.json["risk"] is FROZEN FOR LEGACY COMPAT ONLY.  The GUI
+        #      no longer writes to it.  Treat it as read-only archaeology.
         for key in risk_model_cfg:
             if key not in merged and key in _profile_fields:
                 merged[key] = risk_model_cfg[key]
+
 
         # ── Inject global per-asset strategies into profiles ──
         # AI Optimize writes strategy_crypto, strategy_forex, etc.

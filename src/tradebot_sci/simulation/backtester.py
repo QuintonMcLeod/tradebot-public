@@ -630,6 +630,12 @@ class Backtester:
         # Get active profile
         profile = self.settings.get_active_profile()
 
+        # Per-symbol SAR chain counter — tracks how many consecutive SAR-on-SAR
+        # stop-outs happened without a winning exit in between.  Prevents the
+        # GBPUSD ping-pong pattern where the bot just oscillates at the same
+        # price level taking identical losses.
+        _sar_consecutive: dict[str, int] = {}
+
         # Fetch all historical data upfront
         # Need to fetch extra data BEFORE start_date to have enough candles for first decision
         # Strategy needs 200 candles minimum for trend analysis
@@ -906,51 +912,74 @@ class Backtester:
                         # ── STOP-AND-REVERSE ──────────────────────────
                         # Read from profile settings (non-exclusive).
                         sar_enabled = bool(getattr(profile, 'stop_and_reverse_enabled', False))
+                        max_consecutive_sar = int(getattr(profile, 'max_consecutive_sar', 1))
                         # SAR fires on initial stops; B/E exit logic handles risk management
                         if sar_enabled and not pos.stop_was_trailed and pos_key not in positions:
-                            rev_dir = "short" if pos.direction == "long" else "long"
-                            rev_entry = exit_price
-                            risk_dist = abs(pos.entry_price - pos.stop_price)
-                            # Enforce minimum stop distance for SAR (same as normal entries)
-                            min_stop_dist = rev_entry * 0.001
-                            if risk_dist < min_stop_dist:
-                                risk_dist = min_stop_dist
-                            # Fixed 1R target
-                            rev_tp_r = float(getattr(profile, 'reversal_tp_r', 1.0))
-                            tp_dist = risk_dist * rev_tp_r
-                            if bool(getattr(profile, 'reversal_cost_aware_tp', True)):
-                                from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
-                                fee_pct = get_fee_for_symbol(symbol)
-                                tp_dist += rev_entry * fee_pct  # Add spread buffer
-                            if rev_dir == "long":
-                                rev_sl = rev_entry - risk_dist
-                                rev_tp = rev_entry + tp_dist
-                            else:
-                                rev_sl = rev_entry + risk_dist
-                                rev_tp = rev_entry - tp_dist
-                            # SAR reversal risk: 1% (standard risk)
-                            rev_risk_pct = float(getattr(profile, 'risk_per_trade_pct', 0.01))
-                            rev_max_risk = capital * rev_risk_pct
-                            rev_size = rev_max_risk / _jpy_adjust_risk(risk_dist, symbol, rev_entry) if risk_dist > 0 else 0
-                            if rev_size > 0:
-                                positions[pos_key] = type(pos)(
-                                    symbol=symbol,
-                                    direction=rev_dir,
-                                    entry_price=rev_entry,
-                                    size=rev_size,
-                                    stop_price=rev_sl,
-                                    target_price=rev_tp,
-                                    entry_time=current_time,
-                                    strategy_name="reversal",
-                                    total_cost=rev_entry * rev_size,
-                                )
+                            # ── Consecutive SAR chain guard ──────────────
+                            chain_count = _sar_consecutive.get(symbol, 0)
+                            is_sar_trade = getattr(pos, 'strategy_name', '') == 'reversal'
+                            if is_sar_trade:
+                                chain_count += 1
+                                _sar_consecutive[symbol] = chain_count
                                 logger.info(
-                                    f"[BACKTEST] {symbol} REVERSE → "
-                                    f"{rev_dir} @ {rev_entry:.5f}, "
-                                    f"SL={rev_sl:.5f}, "
-                                    f"TP={rev_tp:.5f} ({rev_tp_r}R)"
+                                    f"[BACKTEST] {symbol} SAR chain stop #{chain_count} "
+                                    f"(max={max_consecutive_sar})"
                                 )
+                            else:
+                                _sar_consecutive[symbol] = 0
+                                chain_count = 0
+
+                            if chain_count >= max_consecutive_sar:
+                                logger.info(
+                                    f"[BACKTEST] {symbol} SAR chain blocked — "
+                                    f"{chain_count} consecutive SAR losses (limit={max_consecutive_sar}). "
+                                    f"Cooling off until a winner resets the counter."
+                                )
+                            else:
+                                rev_dir = "short" if pos.direction == "long" else "long"
+                                rev_entry = exit_price
+                                risk_dist = abs(pos.entry_price - pos.stop_price)
+                                # Enforce minimum stop distance for SAR (same as normal entries)
+                                min_stop_dist = rev_entry * 0.001
+                                if risk_dist < min_stop_dist:
+                                    risk_dist = min_stop_dist
+                                # Fixed 1R target
+                                rev_tp_r = float(getattr(profile, 'reversal_tp_r', 1.0))
+                                tp_dist = risk_dist * rev_tp_r
+                                if bool(getattr(profile, 'reversal_cost_aware_tp', True)):
+                                    from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                                    fee_pct = get_fee_for_symbol(symbol)
+                                    tp_dist += rev_entry * fee_pct  # Add spread buffer
+                                if rev_dir == "long":
+                                    rev_sl = rev_entry - risk_dist
+                                    rev_tp = rev_entry + tp_dist
+                                else:
+                                    rev_sl = rev_entry + risk_dist
+                                    rev_tp = rev_entry - tp_dist
+                                # SAR reversal risk: same profile risk
+                                rev_risk_pct = float(getattr(profile, 'risk_per_trade_pct', 0.01))
+                                rev_max_risk = capital * rev_risk_pct
+                                rev_size = rev_max_risk / _jpy_adjust_risk(risk_dist, symbol, rev_entry) if risk_dist > 0 else 0
+                                if rev_size > 0:
+                                    positions[pos_key] = type(pos)(
+                                        symbol=symbol,
+                                        direction=rev_dir,
+                                        entry_price=rev_entry,
+                                        size=rev_size,
+                                        stop_price=rev_sl,
+                                        target_price=rev_tp,
+                                        entry_time=current_time,
+                                        strategy_name="reversal",
+                                        total_cost=rev_entry * rev_size,
+                                    )
+                                    logger.info(
+                                        f"[BACKTEST] {symbol} REVERSE → "
+                                        f"{rev_dir} @ {rev_entry:.5f}, "
+                                        f"SL={rev_sl:.5f}, "
+                                        f"TP={rev_tp:.5f} ({rev_tp_r}R)"
+                                    )
                         continue
+
 
                 # Check take profit
                 if pos.target_price is not None:
