@@ -662,7 +662,21 @@ class StrategyEngine:
 
             if decision is None or decision.action in ("stand_aside", "hold"):
                 # Force a reversal entry — the stop itself IS the signal
-                rev_risk = float(getattr(self.profile, "reversal_risk_per_trade", 0.015))
+                # SAR reversal risk = the REMNANT after Guillotine scale-out.
+                # Guillotine cuts `scale_out_fraction` (default 95%), leaving 5%.
+                # The reversal should be that same 5% exposure — NOT a full new entry.
+                # Use `reversal_risk_per_trade` if explicitly configured; otherwise
+                # derive it from (1 - scale_out_fraction) × risk_per_trade_pct.
+                _explicit_sar_risk = float(getattr(self.profile, "reversal_risk_per_trade", 0) or 0)
+                if _explicit_sar_risk > 0:
+                    rev_risk = _explicit_sar_risk
+                else:
+                    _scale_out = float(getattr(self.profile, "scale_out_fraction", 0.95))
+                    _base_risk = float(getattr(self.profile, "risk_per_trade_pct", 0.01))
+                    rev_risk = (1.0 - _scale_out) * _base_risk  # e.g. 0.05 × 4.5% = 0.225%
+                    if rev_risk <= 0:
+                        rev_risk = 0.01  # safety fallback only
+
                 rev_action = "enter_long" if sar_dir == "long" else "enter_short"
                 rev_bias = sar_dir
                 logger.info(

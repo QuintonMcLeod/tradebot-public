@@ -956,9 +956,27 @@ class Backtester:
                                 else:
                                     rev_sl = rev_entry + risk_dist
                                     rev_tp = rev_entry - tp_dist
-                                # SAR reversal risk: same profile risk
-                                rev_risk_pct = float(getattr(profile, 'risk_per_trade_pct', 0.01))
+                                # SAR reversal risk: use the REMNANT after Guillotine scale-out
+                                # Guillotine cuts `scale_out_fraction` (default 95%) of the
+                                # position, leaving (1 - scale_out_fraction) = 5% in the market.
+                                # The SAR reversal should match that 5% — it's a tiny counter-
+                                # attack on the residual, NOT a full new entry.
+                                #
+                                # Resolution order:
+                                #   1. `reversal_risk_per_trade` if explicitly set in profile
+                                #   2. (1 - scale_out_fraction) × risk_per_trade_pct  (the remnant)
+                                #   3. Fallback: 0.01 (1%)
+                                _explicit_sar_risk = float(getattr(profile, 'reversal_risk_per_trade', 0) or 0)
+                                if _explicit_sar_risk > 0:
+                                    rev_risk_pct = _explicit_sar_risk
+                                else:
+                                    _scale_out = float(getattr(profile, 'scale_out_fraction', 0.95))
+                                    _base_risk = float(getattr(profile, 'risk_per_trade_pct', 0.01))
+                                    rev_risk_pct = (1.0 - _scale_out) * _base_risk  # e.g. 0.05 * 4.5% = 0.225%
+                                    if rev_risk_pct <= 0:
+                                        rev_risk_pct = 0.01  # absolute fallback
                                 rev_max_risk = capital * rev_risk_pct
+
                                 rev_size = rev_max_risk / _jpy_adjust_risk(risk_dist, symbol, rev_entry) if risk_dist > 0 else 0
                                 if rev_size > 0:
                                     positions[pos_key] = type(pos)(
