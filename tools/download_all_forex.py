@@ -13,7 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from oandapyV20 import API
 from oandapyV20.endpoints.instruments import InstrumentsCandles
 
-DATA_DIR = PROJECT_ROOT / "data" / "audit"
+DATA_DIR = PROJECT_ROOT / "data" / "forex_backtest"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 FOREX_PAIRS = [

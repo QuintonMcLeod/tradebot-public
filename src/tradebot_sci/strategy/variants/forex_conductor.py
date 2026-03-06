@@ -90,7 +90,10 @@ class ForexConductorStrategy(BaseStrategy):
     """
 
     def __init__(self):
-        super().__init__("Forex Conductor")
+        # Build _strategies BEFORE super().__init__() because BaseStrategy's
+        # __init__ sets self.profile_risk_pct = None which triggers our
+        # property setter, which iterates self._strategies.
+        self._profile_risk_pct: float | None = None
         self._strategies = {
             "mean_reversion": MeanReversionStrategy(),
             "session_breakout": LondonBreakoutStrategy(),
@@ -98,6 +101,22 @@ class ForexConductorStrategy(BaseStrategy):
             "session_momentum": SessionMomentumStrategy(),
             "wind_down_truffle": WindDownTruffleStrategy(),
         }
+        super().__init__("Forex Conductor")
+
+    # ── Risk propagation ────────────────────────────────────────────────
+    # The parent BaseStrategy stores risk in profile_risk_pct.  When the
+    # engine injects the live profile's risk (e.g. 4.5%), we must cascade
+    # it to every child strategy — otherwise they all fall back to 1%.
+    @property
+    def profile_risk_pct(self):
+        return self._profile_risk_pct
+
+    @profile_risk_pct.setter
+    def profile_risk_pct(self, value):
+        self._profile_risk_pct = value
+        for strat in getattr(self, '_strategies', {}).values():
+            strat.profile_risk_pct = value
+
 
     def check_entry_signal(
         self,
@@ -203,9 +222,12 @@ class ForexConductorStrategy(BaseStrategy):
 
         # ── Strength gate: don't enter weak signals ──────────────
         htf_strength = gates.get("htf_strength", 0)
+        # Only gate strength for trending regime — ranging is counter-trend so
+        # a neutral/conflicted HTF is actually the ideal entry condition.
         if regime == "trending" and htf_strength < 0.3 and not has_reversal:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by weak htf_strength={htf_strength:.2f} (need >=0.3)")
             return None  # Too weak to trust as trending
+
 
         # ── HTF/LTF alignment for directional regimes ────────────
         # Trending and transitional entries need both timeframes

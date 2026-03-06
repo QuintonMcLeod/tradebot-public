@@ -47,6 +47,9 @@ class AITradeDecision(BaseModel):
     decision_reason_codes: Optional[list[str]] = None
     score: Optional[float] = None
     grade: Optional[str] = None
+    strategy_name: Optional[str] = None  # Sub-strategy that generated this decision (e.g. "trend_rider")
+    meta_source: Optional[str] = None    # Alias for multi-position keying
+
 
     def validate_and_fix_rr(self, min_rr: float = 0.4) -> "AITradeDecision":
         """Validates and fixes risk/reward ratio to meet minimum requirements.
