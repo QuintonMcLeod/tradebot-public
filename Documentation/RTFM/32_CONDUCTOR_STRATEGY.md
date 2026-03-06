@@ -1,7 +1,7 @@
 # 🎭 The Forex Conductor Strategy — The Strategy That Refuses to Lose Gracefully
 
-**Status:** 100% Hit Rate (6/6 windows) | +$653 Best Window | 9.3% Worst DD
-**Last Updated:** February 2026
+**Status:** 14-day backtest +$4,569 (+83%) | PF=3.25 | Avg Win $122 | Avg Loss -$15
+**Last Updated:** March 2026 (v2.8.92 — Tiered Guillotine + Counter-Reversal)
 
 ---
 
@@ -33,13 +33,13 @@
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Four rules. Non-negotiable. Break one and the whole thing falls apart like a Jenga tower at an earthquake:"</td></tr></table>
 
-1. **Losses must be humiliated.** We don't just cut losers — we close 95% of the position at -0.3R, leaving only 5% to absorb the stop. A full stop hit costs ~$4 instead of ~$45. The loss doesn't just die — it dies embarrassed.
+1. **Losses must be humiliated — in two stages.** At **-0.15R** we close 80% of the position. At **-0.3R** we close 80% of what remains. Only 4% of the original position ever reaches the stop. A full stop hit costs ~$2 instead of ~$45. The loss doesn't just die — it dies twice.
 
 2. **Winners must be tortured into submission.** No fixed TP. Dynamic ATR trail that tightens as profit grows. Pyramids at every 0.5R level. Winners run until the market forcibly rips them from our hands. We don't let go. The market has to TAKE it from us.
 
-3. **Losses must fund reversals.** Every stop triggers a 4.5% risk reversal trade in the opposite direction with a 1R target. If the market moved hard enough to stop us, it's probably still moving — so we ride it the other way. It's an Uno Reverse Card for your portfolio.
+3. **Losses must fund reversals — and if the reversal fails, the Counter-Reversal brings us back.** Every stop triggers a micro-risk SAR in the opposite direction. If SAR also stops out, CR fires back to the original direction. Three bites at the apple: original trade → SAR → CR. All at calibrated micro-risk.
 
-4. **The house always wins.** With 4 wins out of 12 trades (33% WR), we're profitable because each win averages $228 and each loss averages $28. That's an 8.2:1 R:R. The win rate is almost irrelevant when the math is this lopsided.
+4. **The house always wins.** With 29% WR, we're profitable because each win averages $122 and each loss averages $15. That's a 8:1 R:R. The win rate is almost irrelevant when the math is this lopsided.
 
 ---
 
@@ -115,30 +115,38 @@ The Conductor routes entries based on the market regime, which is determined by 
 
 ---
 
-## Loss Mitigation: The 95% Guillotine
+## Loss Mitigation: The Tiered Guillotine
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"OK but... what about losses? That's the part that keeps me up at night."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Ah, losses. My favorite topic. Most traders treat losses like a family death. We treat them like a mosquito bite. Allow me to demonstrate."</td></tr></table>
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Losses? We don't have ONE guillotine anymore. We have a <em>cascade</em>. The loss doesn't just die — it gets dismembered in two stages."</td></tr></table>
 
 ### How It Works
 
-When a trade hits **-0.3R**, the Conductor fires a `scale_out` decision that closes **95%** of the position immediately.
+The Conductor fires **two** scale-outs before the stop is ever reached:
 
 ```
-Entry: $10,000 position
-At -0.3R: Close $9,500 (95%)
-Remaining: $500 position (5% of original)
-If full stop hits: Loss on remaining = ~$4
-Total loss: partial close cost + $4 ≈ $8-22
+Tier 1 at -0.15R: Close 80% of position     → 20% remains
+Tier 2 at -0.30R: Close 80% of that 20%     →  4% remains
+Stop hit:         Close the 4% remnant       → stop absorbed by 4%
 ```
 
-<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"So instead of losing $75 on a stop, I lose $8?"</td></tr></table>
+**Example with a $10,000 position (risk = $200):**
+```
+-0.15R hit: Close $8,000 (80%)   → loss ≈ $24
+-0.30R hit: Close $1,600 (80%)   → loss ≈ $10
+Full stop:  $400 (4%) stopped    → loss ≈  $8
 
-<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Now you're getting it. The 95% guillotine turns a $75 loss into an $8 loss. That's a 90% discount on pain.<br><br>But here's the beautiful part — there's a <b>spread guard.</b> We only fire the guillotine if the loss exceeds 2× the spread cost. Otherwise the close itself would cost more than the loss. We're not going to spend $5 to save $3. That's not optimization. That's insanity."</td></tr></table>
+Total loss: ~$42   vs   $200 unprotected   → 79% reduction ✅
+```
 
-> **🔧 Bot Setting:** `SCALE_OUT_FRACTION` in Exit Logic → **0.95** (95% partial close)
-> **🔧 Bot Setting:** `de_risk_threshold` → **-0.3R** (fires at -0.3R)
+<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"So instead of losing $200 on a stop, I lose $42?"</td></tr></table>
+
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"And every cut has a <b>spread guard</b> — we only fire if the loss exceeds 2× the spread cost. We're not spending $5 to save $3."</td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Both tiers are profile-configurable: `tier1_r_threshold`, `tier1_cut_fraction`, `tier2_r_threshold`, `tier2_cut_fraction`. The fraction is embedded in the scale_out decision as `|scale_frac=0.80|` and parsed by the executor — the global `scale_out_fraction` is NOT used."</td></tr></table>
+
+> **🔧 Profile settings:** `tier1_r_threshold=-0.15`, `tier1_cut_fraction=0.80`, `tier2_r_threshold=-0.30`, `tier2_cut_fraction=0.80`
 
 ---
 
@@ -207,9 +215,36 @@ With cost-aware TP:
 > **🔧 Bot Setting:** `REVERSAL_TP_R` → **1.0** (1R quick exit)
 > **🔧 Bot Setting:** `REVERSAL_COST_AWARE_TP` → **True** (pads TP for spread)
 
+## Counter-Reversal: The Boomerang
+
+<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"What happens if the SAR itself gets stopped out?"</td></tr></table>
+
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Then we go BACK to where we started. The market whipsawed us twice? Fine. We have a boomerang."</td></tr></table>
+
+### How It Works
+
+When a SAR trade is stopped out:
+
+1. The engine detects that the last loss was a `reversal` trade
+2. **CR fires** back in the **original direction** (same as the first losing trade)
+3. Risk = same micro-sizing as SAR (~0.225% of capital)
+4. TP = 1R, cost-aware. If CR also fails → full cool-off.
+
+```
+Example:
+Original: Long GBPUSD  → stopped out  (full Guillotine protection)
+SAR:      Short GBPUSD → stopped out  (market reversed AGAIN)
+CR:       Long GBPUSD  → market resumes original direction → WIN
+```
+
+<table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"CR is micro-sized — only 0.225% risk. It's a whisper. If the market is whipsawing and truly reverting, it'll win. If it's just chop, the loss is a rounding error."</td></tr></table>
+
+> **🔧 Profile:** `counter_reversal_enabled=True`, `counter_reversal_tp_r=1.0`, `max_consecutive_cr=1`  
+> **🔧 Engine:** `_cr_pending` dict in `engine.py` — consumed after SAR check each cycle
+
 ---
 
-## R-Milestone Management: The Infinite Pyramid
+
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"OK this part is NUTS. You have INFINITE pyramids?!"</td></tr></table>
 
@@ -360,32 +395,33 @@ if et.weekday() == 4 and (
 
 ### Complete Feature → Setting Map
 
-| Feature | Config Key | UI Section | Default |
-|---------|-----------|---------|:-------:|
-| **95% Partial Close** | `SCALE_OUT_FRACTION` | Exit Logic | 0.95 |
-| **De-risk at -0.3R** | (Conductor hardcoded) | — | -0.3 |
-| **No TP Ceiling** | — | — | None |
-| **30% Initial Pyramid** | (Conductor hardcoded) | — | 0.30 |
-| **4% Subsequent Pyramids** | (Conductor hardcoded) | — | 0.04 |
-| **Max 50 Pyramids** | `MAX_PYRAMID_COUNT` | Pyramiding | 50 |
-| **Pyramid Every 0.5R** | (Conductor hardcoded) | — | 0.5 |
-| **Momentum Accel 0.3R** | (Conductor hardcoded) | — | 0.3 |
-| **Bounce Re-Pyramid** | (Conductor hardcoded) | — | True |
-| **Bounce Pullback 0.5R** | (Conductor hardcoded) | — | 0.5 |
-| **ATR Trail Tightening** | (Conductor hardcoded) | — | Dynamic |
-| **Trail at 1R** | (Conductor hardcoded) | — | 1.5× |
-| **Trail at 2R** | (Conductor hardcoded) | — | 1.0× |
-| **Trail at 3R** | (Conductor hardcoded) | — | 0.7× |
-| **Stop-and-Reverse** | `STOP_AND_REVERSE_ENABLED` | Exit Logic | True |
-| **Reversal Risk** | `REVERSAL_RISK_PER_TRADE` | Exit Logic | 0.045 |
-| **Reversal TP** | `REVERSAL_TP_R` | Exit Logic | 1.0 |
-| **Cost-Aware TP** | `REVERSAL_COST_AWARE_TP` | Exit Logic | True |
-| **Entry Risk** | `RISK_PER_TRADE_PCT` | Risk | 0.01 |
-| **Entry Cooldown** | (Conductor hardcoded) | — | 8 bars (2h) |
-| **Loss Streak Cooldown** | (Conductor hardcoded) | — | 3 losses |
-| **Wind Down Truffle** | (self-gated) | — | Fri 12-4:30 PM ET |
-| **Friday 5PM Close** | (Conductor hardcoded) | — | Fri 4:45 PM ET |
-| **Min Hold** | `MIN_HOLD_HOURS` | Entry | 0.08 (5min) |
+| Feature | Config Key | Default |
+|---------|-----------|:-------:|
+| **Guillotine T1** | `tier1_r_threshold=-0.15` / `tier1_cut_fraction=0.80` | -0.15R / 80% |
+| **Guillotine T2** | `tier2_r_threshold=-0.30` / `tier2_cut_fraction=0.80` | -0.30R / 80% |
+| **No TP Ceiling** | — | None |
+| **30% Initial Pyramid** | (hardcoded) | 0.30 |
+| **4% Subsequent Pyramids** | (hardcoded) | 0.04 |
+| **Max 50 Pyramids** | `MAX_PYRAMID_COUNT` | 50 |
+| **Pyramid Every 0.5R** | (hardcoded) | 0.5 |
+| **Momentum Accel 0.3R** | (hardcoded) | 0.3 |
+| **Bounce Re-Pyramid** | (hardcoded) | True |
+| **ATR Trail Tightening** | (hardcoded) | Dynamic |
+| **Trail at 1R** | (hardcoded) | 1.5× ATR |
+| **Trail at 2R** | (hardcoded) | 1.0× ATR |
+| **Trail at 3R** | (hardcoded) | 0.7× ATR |
+| **Stop-and-Reverse** | `stop_and_reverse_enabled=True` | True |
+| **SAR Risk** | `(1-scale_out_fraction) × risk_per_trade_pct` | 0.225% |
+| **SAR TP** | `reversal_tp_r=1.0` | 1R |
+| **Cost-Aware TP** | `reversal_cost_aware_tp=True` | True |
+| **Counter-Reversal** | `counter_reversal_enabled=True` | True |
+| **CR Risk** | Same as SAR | 0.225% |
+| **CR TP** | `counter_reversal_tp_r=1.0` | 1R |
+| **CR Chain Guard** | `max_consecutive_cr=1` | 1 |
+| **Entry Risk** | `risk_per_trade_pct` | 4.5% |
+| **Min Hold** | `min_hold_hours=0.08` | 5 min |
+| **Wind Down Truffle** | (self-gated) | Fri 12-4:30 PM ET |
+| **Friday 5PM Close** | (hardcoded) | Fri 4:45 PM ET |
 
 ### Existing Bot Infrastructure Used
 
@@ -446,13 +482,14 @@ Avg Per Window: +$462
 > [!CAUTION]
 > **These parameters were tuned through iterative backtesting. DO NOT MODIFY.**
 >
+> - **Do NOT collapse tiers back to a single Guillotine.** T1 -0.15R/80% + T2 -0.3R/80% = 4% remnant reaching the stop. The cascade is the point.
+> - **Do NOT change `scale_out_fraction` globally for guillotine tiers.** Each tier embeds its own fraction via `|scale_frac=X.XX|` in the decision notes, parsed by the executor. The global setting applies to non-guillotine scale-outs only.
 > - **Do NOT add a fixed TP.** It was removed intentionally. The ATR trail handles exits.
-> - **Do NOT reduce the 95% partial close.** 75% was tested and was $18/loss worse.
-> - **Do NOT let reversals ride.** 1R TP was tested vs uncapped. Uncapped was -$132 worse.
-> - **Do NOT reduce reversal risk below 4.5%.** 1% (+$64), 2% (+$127), 4.5% (+$292). Each step up improved results.
-> - **Do NOT cap pyramids at less than 50.** Pyramids 4-8 are where the real money is.
-> - **Do NOT disable cost-aware TP.** Without it, every reversal nets 0.92R instead of 1.0R — that's $25/trade leaked to the broker.
+> - **Do NOT let SAR or CR ride past 1R.** 1R TP was tested vs uncapped. Uncapped was -$132 worse. Reversals catch bounces, not trends.
+> - **Do NOT raise SAR/CR risk above 0.225%.** They are micro-risk by design — the position is already nearly closed by the time they fire.
+> - **Do NOT disable cost-aware TP.** Without it, every reversal nets 0.92R instead of 1.0R — $25/trade leaked to the broker.
 > - **Do NOT raise ADX thresholds back to 30/20/15.** Those are crypto/stock defaults. Forex on 1H needs 20/12/8 or the Conductor sees 100% ranging.
+> - **Do NOT cap pyramids at less than 50.** Pyramids 4-8 are where the real money is.
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"What if I just tweak ONE thi—"</td></tr></table>
 

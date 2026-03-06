@@ -12,7 +12,7 @@
 Current NAV: **$5,751** (down from $6,442 at session start due to 8 compounding bugs).
 Target: **$7,500** — ~$1,750 to recover.
 
-The bot is running v2.8.79 with all fixes applied. It was restarted at 7:51 PM ET on March 5, 2026.
+The bot is running **v2.8.92** with tiered Guillotine (T1 -0.15R/80% + T2 -0.3R/80%) and Counter-Reversal (CR) active. Restarted at ~4:05 AM ET on March 6, 2026.
 
 ### Conversation ID
 `008b5307-8281-4f9a-aa22-d19060855a8a`
