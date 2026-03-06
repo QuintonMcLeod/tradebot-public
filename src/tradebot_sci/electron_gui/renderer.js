@@ -605,7 +605,28 @@ function getScoreColor(grade) {
     return "text-red-500";
 }
 
+// Grade tooltip text — explains what each grade means and that high grades ≠ guaranteed entry.
+// Score is 0–100 weighted composite of HTF trend strength, LTF alignment, sweep, continuation, etc.
+// A high grade means conditions are FAVORABLE but the bot only enters when the ICC sequence
+// (Sweep → Continuation) also fires in real time. B+ during chop = no trade.
+function _gradeTooltip(grade) {
+    const base = {
+        'A+': 'A+ (97–100) — Exceptional confluence. HTF+LTF aligned, sweep confirmed, continuation live. Very likely to trade.',
+        'A': 'A  (93–96) — Strong setup. High HTF strength, good LTF alignment. Entry probable if price triggers.',
+        'A-': 'A- (90–92) — Favorable setup. Good structure but may lack sweep/continuation. ⚠️ Watch, not yet a trade.',
+        'B+': 'B+ (87–89) — Above-average signal. Conditions trending toward entry. Still waiting on ICC confirmation.',
+        'B': 'B  (83–86) — Moderate conditions. Trend visible but not fully aligned. May trade, may not.',
+        'B-': 'B- (80–82) — Marginal setup. Something is off — weak HTF or misaligned LTF. Likely no entry.',
+        'C+': 'C+ (77–79) — Below-average. Choppy or ranging market. Bot will usually stand aside.',
+        'C': 'C  (70–76) — Poor conditions. Mixed signals, no clear trend. No trade expected.',
+        'D': 'D  (60–69) — Bad setup. Counter-trend or high chop. Bot will not trade.',
+        'F': 'F  (<60)  — Worst conditions. No structural basis. Bot stands aside entirely.',
+    }[grade];
+    return base || `Grade ${grade} — Setup quality score. High grade = favorable, but entry requires ICC sweep + continuation to fire.`;
+}
+
 function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, strategyName = null) {
+
     const table = document.getElementById('decisions-table');
     if (!table) return;
 
@@ -670,7 +691,7 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
     row.innerHTML = `
         <td class="px-4 py-1.5 text-slate-500 text-left font-mono text-sm">${time}</td>
         <td class="px-4 py-1.5 font-bold text-slate-200 text-left text-lg">${symbol}</td>
-        <td class="px-4 py-1.5 ${scoreClass} text-left font-black text-lg">${grade}</td>
+        <td class="px-4 py-1.5 ${scoreClass} text-left font-black text-lg cursor-help" title="${_gradeTooltip(grade)}">${grade}</td>
         <td class="px-4 py-1.5 text-center">${stratBadge || '<span class="text-slate-600 text-[10px]">—</span>'}</td>
         <td class="px-4 py-1.5 text-left text-sm uppercase tracking-wider">${actionHtml}</td>
         <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${displayReason}</td>
