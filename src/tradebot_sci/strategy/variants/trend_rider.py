@@ -301,37 +301,9 @@ class TrendRiderStrategy(BaseStrategy):
         ema_cross_short_exit = direction == "short" and ema_fast > ema_slow
 
         if ema_cross_long_exit or ema_cross_short_exit:
-            # SAR EXEMPTION: Reversal trades oppose the trend by design —
-            # EMA cross is expected. Let SL/TP handle exit instead.
-            is_sar_trade = (open_position.get("strategy_name") or "").lower() in ("reversal", "sar")
-            if is_sar_trade:
-                logger.debug(f"[TREND-RIDER] {snapshot.symbol}: EMA cross skipped — SAR trade (SL/TP only)")
-                return None
-            should_exit = True
-            if len(closes) >= 3:
-                # Check previous candle's EMAs — was cross already present?
-                ema_fast_prev = calculate_ema(closes[:-1], self.fast_ema)
-                ema_slow_prev = calculate_ema(closes[:-1], self.slow_ema)
-                prev_crossed = (
-                    (direction == "long" and ema_fast_prev < ema_slow_prev) or
-                    (direction == "short" and ema_fast_prev > ema_slow_prev)
-                )
-                if not prev_crossed:
-                    should_exit = False  # First candle of cross — give it one more
-                    pnl_str = f"+${abs(current_price - entry_price):.5f}" if is_winning else f"-${abs(current_price - entry_price):.5f}"
-                    logger.info(
-                        f"[TREND-RIDER] {snapshot.symbol}: EMA cross detected but "
-                        f"waiting for 2-candle confirmation ({pnl_str})"
-                    )
-
-            if should_exit:
-                from tradebot_sci.strategy.decisions import close_position_decision
-                cross_dir = "below" if direction == "long" else "above"
-                return close_position_decision(
-                    snapshot.symbol, snapshot.timeframe,
-                    f"Trend Rider: EMA({self.fast_ema}) crossed {cross_dir} "
-                    f"EMA({self.slow_ema}) — trend exhausted"
-                )
+            # USER OVERRIDE: Disabled EMA Cross exits to let Guillotine/SAR
+            # run without interference from rapid $65 spread whipsaws.
+            pass
 
         # Breakeven trail management
         entry_price = float(open_position["entry_price"])

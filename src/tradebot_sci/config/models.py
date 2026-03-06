@@ -876,9 +876,17 @@ class TradingProfileSettings(BaseModel):
                 return res
 
         # 2. Fallback to legacy single strategy
-        return self.strategy_variant
-
-
+        res = self.strategy_variant
+        if res:
+            return res
+            
+        # 3. Last Resort Fallback Map (Strictly Enforce Conductor for Forex)
+        if asset_class == AssetClass.FOREX:
+            return "forex_conductor"
+        elif asset_class == AssetClass.CRYPTO:
+            return "meta_sci"
+        
+        return "meta_sci"
 class AppSettings(BaseModel):
     name: str = Field(default="tradebot-sci-enterprise")
     environment: str = Field(default="dev")

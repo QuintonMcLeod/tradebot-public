@@ -60,7 +60,7 @@ class BaseStrategy:
              return None
         raise NotImplementedError("BaseStrategy is abstract and should not be executed directly.")
 
-    def get_asset_class(self, symbol: str) -> str:
+    def _get_asset_class(self, symbol: str) -> str:
         """Determine asset class from symbol format."""
         s = symbol.upper()
         if "/" in s: # Likely Crypto (BTC/USD) or Forex (EUR/USD)
@@ -76,7 +76,7 @@ class BaseStrategy:
         Calculate the price at which the trade is truly break-even after fees.
         Includes round-trip fee estimates (Entry + Exit).
         """
-        asset_class = self.get_asset_class(symbol)
+        asset_class = self._get_asset_class(symbol)
         
         # Total Round-Trip Buffer %
         if asset_class == "CRYPTO":

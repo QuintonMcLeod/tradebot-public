@@ -394,6 +394,7 @@ class ForexConductorStrategy(BaseStrategy):
                 signal.risk_per_trade_pct = 0.01
                 # Set entry cooldown for this symbol
                 _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
+                signal.strategy_name = self.name
                 return signal
 
         # ── FORCED SAR ENTRY ──────────────────────────────────
@@ -491,6 +492,7 @@ class ForexConductorStrategy(BaseStrategy):
                         f"[REVERSAL][Conductor:SAR] Forced "
                         f"{rev_dir} — no strategy signal"
                     ),
+                    strategy_name=self.name,
                 )
 
         return None
@@ -886,6 +888,7 @@ class ForexConductorStrategy(BaseStrategy):
                                         f"[MANAGEMENT] {r_multiple:.1f}R: "
                                         f"{', '.join(notes_parts)}"
                                     ),
+                                    strategy_name=self.name,
                                 )
                             break  # Only process highest level
 
