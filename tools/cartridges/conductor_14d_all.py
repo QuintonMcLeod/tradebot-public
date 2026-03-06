@@ -2,7 +2,8 @@
 14-Day All-Symbol Conductor Backtest
 =====================================
 Runs all 12 symbols from the forex_continuous live profile.
-Risk = 4.5%, Guillotine at -0.3R, SAR enabled (chain guard = 1).
+Risk = 4.5%, Guillotine at -0.3R, SAR enabled (chain guard = 1),
+Counter-Reversal (CR) enabled — fires back to original direction after SAR failure.
 """
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,6 +47,10 @@ def get_config():
         reversal_tp_r=1.0,
         reversal_cost_aware_tp=True,
         max_consecutive_sar=1,
+        # Counter-Reversal: fires back to original direction after SAR failure
+        counter_reversal_enabled=True,
+        counter_reversal_tp_r=1.0,
+        max_consecutive_cr=1,
 
         # ── Timing ───────────────────────────────────────────────────
         min_hold_hours=0.08,
@@ -105,4 +110,4 @@ def get_config():
 
 
 def apply_overrides():
-    print("[Cartridge] All-symbol 14-day conductor — 12 FX pairs, 4.5% risk, Guillotine+SAR")
+    print("[Cartridge] All-symbol 14-day conductor — 12 FX pairs, 4.5% risk, Guillotine+SAR+CR")

@@ -636,6 +636,10 @@ class Backtester:
         # price level taking identical losses.
         _sar_consecutive: dict[str, int] = {}
 
+        # Per-symbol CR chain counter — tracks how many consecutive CR stop-outs
+        # happened. Resets on any winning trade for that symbol.
+        _cr_consecutive: dict[str, int] = {}
+
         # Fetch all historical data upfront
         # Need to fetch extra data BEFORE start_date to have enough candles for first decision
         # Strategy needs 200 candles minimum for trend analysis
@@ -989,14 +993,90 @@ class Backtester:
                                 )
                             else:
                                 _sar_consecutive[symbol] = 0
+                                _cr_consecutive[symbol] = 0  # CR chain also resets on normal stop
                                 chain_count = 0
 
                             if chain_count >= max_consecutive_sar:
                                 logger.info(
                                     f"[BACKTEST] {symbol} SAR chain blocked — "
                                     f"{chain_count} consecutive SAR losses (limit={max_consecutive_sar}). "
-                                    f"Cooling off until a winner resets the counter."
+                                    f"Checking CR (Counter-Reversal)..."
                                 )
+
+                                # ── COUNTER-REVERSAL (CR) ─────────────────────────
+                                # An SAR just failed (was stopped out). Rather than
+                                # cooling off entirely, CR flips BACK to the original
+                                # direction — the market may be resuming its prior trend
+                                # after the whipsaw. Sized identically to SAR (tiny remnant
+                                # risk). Gated by `counter_reversal_enabled` (default True).
+                                cr_enabled = bool(getattr(profile, 'counter_reversal_enabled', True))
+                                max_consecutive_cr = int(getattr(profile, 'max_consecutive_cr', 1))
+                                cr_chain = _cr_consecutive.get(symbol, 0)
+                                if cr_enabled and cr_chain < max_consecutive_cr and pos_key not in positions:
+                                    # pos.direction is the SAR direction; original = opposite
+                                    cr_dir = pos.direction  # SAR reversed; CR reverses back
+                                    cr_entry = exit_price
+                                    risk_dist = abs(pos.entry_price - pos.stop_price)
+                                    min_stop_dist = cr_entry * 0.001
+                                    if risk_dist < min_stop_dist:
+                                        risk_dist = min_stop_dist
+
+                                    cr_tp_r = float(getattr(profile, 'counter_reversal_tp_r',
+                                                    getattr(profile, 'reversal_tp_r', 1.0)))
+                                    tp_dist = risk_dist * cr_tp_r
+                                    if bool(getattr(profile, 'reversal_cost_aware_tp', True)):
+                                        from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                                        fee_pct = get_fee_for_symbol(symbol)
+                                        tp_dist += cr_entry * fee_pct
+
+                                    if cr_dir == "long":
+                                        cr_sl = cr_entry - risk_dist
+                                        cr_tp = cr_entry + tp_dist
+                                    else:
+                                        cr_sl = cr_entry + risk_dist
+                                        cr_tp = cr_entry - tp_dist
+
+                                    # Same micro risk as SAR
+                                    _explicit_cr_risk = float(getattr(profile, 'counter_reversal_risk_per_trade', 0) or 0)
+                                    if _explicit_cr_risk > 0:
+                                        cr_risk_pct = _explicit_cr_risk
+                                    else:
+                                        _scale_out = float(getattr(profile, 'scale_out_fraction', 0.95))
+                                        _base_risk = float(getattr(profile, 'risk_per_trade_pct', 0.01))
+                                        cr_risk_pct = (1.0 - _scale_out) * _base_risk
+                                        if cr_risk_pct <= 0:
+                                            cr_risk_pct = 0.01
+
+                                    cr_max_risk = capital * cr_risk_pct
+                                    cr_size = cr_max_risk / _jpy_adjust_risk(risk_dist, symbol, cr_entry) if risk_dist > 0 else 0
+
+                                    if cr_size > 0:
+                                        _cr_consecutive[symbol] = cr_chain + 1
+                                        positions[pos_key] = type(pos)(
+                                            symbol=symbol,
+                                            direction=cr_dir,
+                                            entry_price=cr_entry,
+                                            size=cr_size,
+                                            stop_price=cr_sl,
+                                            target_price=cr_tp,
+                                            entry_time=current_time,
+                                            strategy_name="counter_reversal",
+                                            total_cost=cr_entry * cr_size,
+                                        )
+                                        logger.info(
+                                            f"[BACKTEST] {symbol} COUNTER-REVERSAL → "
+                                            f"{cr_dir} @ {cr_entry:.5f}, "
+                                            f"SL={cr_sl:.5f}, TP={cr_tp:.5f} "
+                                            f"({cr_tp_r}R, risk={cr_risk_pct*100:.3f}%)"
+                                        )
+                                else:
+                                    if not cr_enabled:
+                                        logger.info(f"[BACKTEST] {symbol} CR disabled by profile")
+                                    else:
+                                        logger.info(
+                                            f"[BACKTEST] {symbol} CR chain blocked — "
+                                            f"{cr_chain} consecutive CR losses. Full cool-off."
+                                        )
                             else:
                                 rev_dir = "short" if pos.direction == "long" else "long"
                                 rev_entry = exit_price
@@ -1110,160 +1190,12 @@ class Backtester:
                 # Update unrealized P&L
                 pos.unrealized_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction, symbol=symbol)
 
-                # ── COUNTER-REVERSAL (CR) MANAGEMENT ──────────────────────
-                cr_enabled = bool(getattr(profile, 'counter_reversal_enabled', False))
-                sar_keep_open = bool(getattr(profile, 'sar_keep_open', False))
-                if cr_enabled:
-                    if pos.strategy_name == "reversal":
-                        cr_key = f"{symbol}:counter_reversal"
-                        sar_risk_dist = abs(pos.entry_price - pos.stop_price) if pos.stop_price else 0
-                        if sar_risk_dist > 0 and cr_key not in positions:
-                            if pos.direction == "long":
-                                sar_r = (current_bar.close - pos.entry_price) / sar_risk_dist
-                            else:
-                                sar_r = (pos.entry_price - current_bar.close) / sar_risk_dist
+                # NOTE: Counter-Reversal (CR) is handled in the stop-hit block above.
+                # CR fires after an SAR stop-out (chain guard triggers), going back
+                # to the original direction at the same micro risk (~0.225%).
+                # There is no mid-trade CR management needed here.
 
-                            # MODE A: sar_keep_open=True → CR fires at -0.5R, SAR stays open
-                            # MODE B: sar_keep_open=False → SAR closes at B/E (R≤0), CR fires
-                            cr_trigger = (sar_r <= -0.5) if sar_keep_open else (sar_r <= 0)
 
-                            if cr_trigger:
-                                # In Mode B, close SAR first
-                                if not sar_keep_open:
-                                    sar_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction, symbol=symbol)
-                                    capital += sar_pnl
-                                    completed_trades.append(SimulatedTrade(
-                                        symbol=symbol,
-                                        direction=pos.direction,
-                                        entry_price=pos.entry_price,
-                                        exit_price=current_bar.close,
-                                        size=pos.size,
-                                        entry_time=pos.entry_time,
-                                        exit_time=current_time,
-                                        pnl=sar_pnl,
-                                        exit_reason="sar_be_exit",
-                                        strategy_name="reversal",
-                                    ))
-                                    trade_results_store.add_result(TradeResult(
-                                        symbol=symbol,
-                                        closed_at=current_time.isoformat(),
-                                        pnl_pct=(sar_pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
-                                        pnl_usd=sar_pnl,
-                                        is_win=sar_pnl > 0,
-                                        tier="backtest",
-                                        capital_at_close=capital,
-                                        strategy="reversal",
-                                        exit_reason="sar_be_exit",
-                                        side=pos.direction,
-                                    ))
-                                    del positions[pos_key]
-                                    logger.info(
-                                        f"[BACKTEST] {symbol} SAR B/E exit: PnL=${sar_pnl:.2f} ({sar_r:.2f}R)"
-                                    )
-
-                                # Fire CR
-                                cr_dir = "short" if pos.direction == "long" else "long"
-                                cr_entry = current_bar.close
-                                cr_stop_dist = sar_risk_dist * 0.5  # Tight 0.5R stop
-                                # CR sizing: capital-based if cr_risk_pct set, else 2× SAR
-                                cr_risk_pct = float(getattr(profile, 'cr_risk_pct', 0.0))
-                                if cr_risk_pct > 0 and cr_stop_dist > 0:
-                                    cr_risk_dollars = capital * cr_risk_pct
-                                    cr_size = cr_risk_dollars / cr_stop_dist
-                                else:
-                                    cr_size = pos.size * 2.0  # Default: 2× SAR
-                                if cr_dir == "long":
-                                    cr_sl = cr_entry - cr_stop_dist
-                                    cr_tp = cr_entry + sar_risk_dist  # 1R target
-                                else:
-                                    cr_sl = cr_entry + cr_stop_dist
-                                    cr_tp = cr_entry - sar_risk_dist
-                                positions[cr_key] = SimulatedPosition(
-                                    symbol=symbol,
-                                    direction=cr_dir,
-                                    entry_price=cr_entry,
-                                    size=cr_size,
-                                    stop_price=cr_sl,
-                                    target_price=cr_tp,
-                                    entry_time=current_time,
-                                    strategy_name="counter_reversal",
-                                    total_cost=cr_entry * cr_size,
-                                )
-                                logger.info(
-                                    f"[BACKTEST] {symbol} COUNTER-REVERSAL → "
-                                    f"{cr_dir} @ {cr_entry:.5f}, "
-                                    f"SL={cr_sl:.5f}, TP={cr_tp:.5f} (2× risk)"
-                                )
-                                if not sar_keep_open:
-                                    continue  # SAR is gone, skip to next
-
-                    # CR EXIT IF SAR RECOVERS TO B/E (only in keep-open mode)
-                    if sar_keep_open and pos.strategy_name == "counter_reversal":
-                        sar_candidates = [
-                            (k, v) for k, v in positions.items()
-                            if v.strategy_name == "reversal" and _symbol_from_key(k) == symbol
-                        ]
-                        for sar_key, sar_pos in sar_candidates:
-                            sar_risk_dist = abs(sar_pos.entry_price - sar_pos.stop_price) if sar_pos.stop_price else 0
-                            if sar_risk_dist > 0:
-                                if sar_pos.direction == "long":
-                                    sar_r = (current_bar.close - sar_pos.entry_price) / sar_risk_dist
-                                else:
-                                    sar_r = (sar_pos.entry_price - current_bar.close) / sar_risk_dist
-                                if sar_r >= 0:
-                                    cr_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction, symbol=symbol)
-                                    capital += cr_pnl
-                                    completed_trades.append(SimulatedTrade(
-                                        symbol=symbol,
-                                        direction=pos.direction,
-                                        entry_price=pos.entry_price,
-                                        exit_price=current_bar.close,
-                                        size=pos.size,
-                                        entry_time=pos.entry_time,
-                                        exit_time=current_time,
-                                        pnl=cr_pnl,
-                                        exit_reason="cr_sar_recovered",
-                                        strategy_name="counter_reversal",
-                                    ))
-                                    trade_results_store.add_result(TradeResult(
-                                        symbol=symbol,
-                                        closed_at=current_time.isoformat(),
-                                        pnl_pct=(cr_pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
-                                        pnl_usd=cr_pnl,
-                                        is_win=cr_pnl > 0,
-                                        tier="backtest",
-                                        capital_at_close=capital,
-                                        strategy="counter_reversal",
-                                        exit_reason="cr_sar_recovered",
-                                        side=pos.direction,
-                                    ))
-                                    del positions[pos_key]
-                                    logger.info(
-                                        f"[BACKTEST] {symbol} CR closed (SAR recovered to B/E): PnL=${cr_pnl:.2f}"
-                                    )
-                                    break
-
-                    # CR TRAIL: At 0.5R, start trailing 0.3R behind (floor = initial stop)
-                    if pos.strategy_name == "counter_reversal" and pos_key in positions:
-                        cr_risk_dist = abs(pos.entry_price - pos.stop_price) if pos.stop_price else 0
-                        if cr_risk_dist > 0:
-                            if pos.direction == "long":
-                                cr_r = (current_bar.close - pos.entry_price) / cr_risk_dist
-                            else:
-                                cr_r = (pos.entry_price - current_bar.close) / cr_risk_dist
-                            if cr_r >= 0.5:
-                                trail_dist = cr_risk_dist * 0.3
-                                if pos.direction == "long":
-                                    new_stop = current_bar.close - trail_dist
-                                    if new_stop > pos.stop_price:
-                                        pos.stop_price = new_stop
-                                        pos.stop_was_trailed = True
-                                else:
-                                    new_stop = current_bar.close + trail_dist
-                                    if new_stop < pos.stop_price:
-                                        pos.stop_price = new_stop
-                                        pos.stop_was_trailed = True
-                
                 # [SOLUTION 2] Hard Max Loss Cap - Exit if loss exceeds configured maximum
                 max_loss_dollars = getattr(profile, 'max_loss_per_trade_dollars', None)
                 if max_loss_dollars and pos.unrealized_pnl < -abs(max_loss_dollars):
