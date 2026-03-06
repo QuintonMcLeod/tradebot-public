@@ -870,14 +870,74 @@ class Backtester:
                     if min_hold_seconds > 0 and held_seconds < min_hold_seconds:
                         continue
                     # Stop can ONLY trigger if the candle actually traded at the stop price.
-                    # This prevents fantasy exits where stop is on the wrong side of entry
-                    # (e.g., long stop at 2.358 when entry was 1.178 — candle never reached it).
                     stop_in_range = current_bar.low <= pos.stop_price <= current_bar.high
                     stop_hit = stop_in_range and (
                         (pos.direction == "long" and current_bar.low <= pos.stop_price) or
                         (pos.direction == "short" and current_bar.high >= pos.stop_price)
                     )
                     if stop_hit:
+                        # ── TIERED GUILLOTINE ─────────────────────────────────
+                        # Before the stop fires, cascade partial closes through
+                        # -0.15R and -0.3R price levels IF those levels fell inside
+                        # the candle's range (price passed through them on the way
+                        # to the stop). This simulates intra-candle scale-outs that
+                        # the single-candle backtester would otherwise miss.
+                        #
+                        # Tier 1  @ -0.15R → close 80%  (20% remaining)
+                        # Tier 2  @ -0.3R  → close 80%  ( 4% remaining)
+                        # Stop    @ full   → close  4%  (final remnant)
+                        #
+                        # Profile flags (all default ON to match Guillotine intent):
+                        #   tiered_guillotine_enabled    (default True)
+                        #   tier1_r_threshold            (default -0.15)
+                        #   tier1_cut_fraction           (default  0.80)
+                        #   tier2_r_threshold            (default -0.30)
+                        #   tier2_cut_fraction           (default  0.80)
+                        tiered_enabled = bool(getattr(profile, 'tiered_guillotine_enabled', True))
+                        if tiered_enabled and pos.size > 0:
+                            t1_r  = float(getattr(profile, 'tier1_r_threshold',  -0.15))
+                            t1_cut = float(getattr(profile, 'tier1_cut_fraction',  0.80))
+                            t2_r  = float(getattr(profile, 'tier2_r_threshold',  -0.30))
+                            t2_cut = float(getattr(profile, 'tier2_cut_fraction',  0.80))
+
+                            risk_dist = abs(pos.entry_price - pos.stop_price)
+
+                            # Price levels that correspond to each R threshold
+                            if pos.direction == "long":
+                                t1_price = pos.entry_price + risk_dist * t1_r   # e.g. entry - 0.15R
+                                t2_price = pos.entry_price + risk_dist * t2_r
+                                t1_breached = current_bar.low <= t1_price
+                                t2_breached = current_bar.low <= t2_price
+                            else:
+                                t1_price = pos.entry_price - risk_dist * t1_r
+                                t2_price = pos.entry_price - risk_dist * t2_r
+                                t1_breached = current_bar.high >= t1_price
+                                t2_breached = current_bar.high >= t2_price
+
+                            # Fire each tier that hasn't been fired yet
+                            for tier_label, tier_price, tier_cut, tier_attr in [
+                                ("T1", t1_price, t1_cut, "_guillotine_tier1_fired"),
+                                ("T2", t2_price, t2_cut, "_guillotine_tier2_fired"),
+                            ]:
+                                already_fired = getattr(pos, tier_attr, False)
+                                in_range = (t1_breached if tier_label == "T1" else t2_breached)
+                                if not already_fired and in_range and pos.size > 0:
+                                    cut_size = pos.size * tier_cut
+                                    tier_pnl = _calculate_pnl(
+                                        pos.entry_price, tier_price,
+                                        cut_size, pos.direction, symbol=symbol,
+                                    )
+                                    capital += tier_pnl
+                                    pos.cumulative_partial_pnl = getattr(pos, 'cumulative_partial_pnl', 0.0) + tier_pnl
+                                    pos.size -= cut_size
+                                    setattr(pos, tier_attr, True)
+                                    logger.info(
+                                        f"[GUILLOTINE-{tier_label}] {symbol}: "
+                                        f"cut {tier_cut*100:.0f}% at {tier_price:.5f} "
+                                        f"(PnL=${tier_pnl:.2f}, remaining={pos.size:.0f} units)"
+                                    )
+
+                        # Final stop on whatever remnant remains
                         exit_price = pos.stop_price
                         pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                         capital += pnl
@@ -898,8 +958,8 @@ class Backtester:
                             symbol=symbol,
                             closed_at=current_time.isoformat(),
                             pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
-                            pnl_usd=pnl,
-                            is_win=pnl > 0,
+                            pnl_usd=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
+                            is_win=(pnl + getattr(pos, "cumulative_partial_pnl", 0.0)) > 0,
                             tier="backtest",
                             capital_at_close=capital,
                             strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
@@ -907,7 +967,9 @@ class Backtester:
                             side=pos.direction,
                         ))
                         del positions[pos_key]
-                        logger.info(f"[BACKTEST] {symbol} stop hit: PnL=${pnl:.2f}")
+                        logger.info(f"[BACKTEST] {symbol} stop hit: PnL=${pnl:.2f} (remnant only)")
+
+
 
                         # ── STOP-AND-REVERSE ──────────────────────────
                         # Read from profile settings (non-exclusive).
