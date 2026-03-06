@@ -65,6 +65,7 @@ class StrategyEngine:
     # SAR internally or shouldn't have it.  All others get engine SAR.
     _SAR_EXCLUDED = {"forex_conductor", "aggregator"}
     _sar_pending: dict[str, str] = {}  # symbol → reversal direction
+    _cr_pending:  dict[str, str] = {}  # symbol → CR direction (back to original)
 
     def _resolve_variant_key(self) -> str:
         """Get the registry key for the loaded strategy variant."""
@@ -598,38 +599,64 @@ class StrategyEngine:
                 logger.info(f"[SAFETY] Entry Blocked for {self.symbol}: {safety_decision.notes}")
                 return safety_decision
 
-        # ── ENGINE-LEVEL SAR (Stop-and-Reverse) ──────────────────────
+        # ── ENGINE-LEVEL SAR + CR (Stop-and-Reverse / Counter-Reversal) ──
         # Detect recent stop exits and set reversal direction.
         # Excluded for tournament strategies that handle SAR internally.
         sar_dir = None  # Will be "long" or "short" if SAR should fire
         sar_enabled = bool(getattr(self.profile, "stop_and_reverse_enabled", False))
+        cr_enabled  = bool(getattr(self.profile, "counter_reversal_enabled", False))
+        max_consec  = int(getattr(self.profile, "max_consecutive_sar", 1))
         if sar_enabled and self._variant_key not in self._SAR_EXCLUDED:
-            if self.symbol not in self._sar_pending:
+            _nothing_pending = (
+                self.symbol not in self._sar_pending and
+                self.symbol not in self._cr_pending
+            )
+            if _nothing_pending:
                 # Scan trade_history for the most recent trade on this symbol
                 if history:
                     for t in reversed(history):  # newest first
                         if t.get("symbol") != self.symbol:
                             continue
-                        # SAR fires on ANY losing trade — no time window.
-                        # If the last trade on this symbol was a loss, flip direction.
+                        # SAR/CR fires on ANY losing trade — no time window.
                         is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
                         if not is_loss:
                             break  # last trade was a win — no reversal needed
-                        # Set reversal direction: opposite of losing side
-                        old_side = (t.get("side") or "").lower()
-                        if old_side == "long":
-                            self._sar_pending[self.symbol] = "short"
-                        elif old_side == "short":
-                            self._sar_pending[self.symbol] = "long"
-                        if self.symbol in self._sar_pending:
-                            logger.info(
-                                f"[ENGINE SAR] {self.symbol}: LOSS DETECTED → "
-                                f"reversal pending {self._sar_pending[self.symbol]}"
-                            )
+                        old_side  = (t.get("side") or "").lower()
+                        trade_stg = (t.get("strategy") or t.get("strategy_name") or "").lower()
+                        is_sar_loss = "reversal" in trade_stg and "counter" not in trade_stg
+
+                        if is_sar_loss and cr_enabled:
+                            # ── COUNTER-REVERSAL: SAR itself failed ───────────
+                            # The SAR reversed us; now CR flips back to original.
+                            # SAR direction = opposite of original. CR = SAR dir.
+                            if old_side == "long":
+                                self._cr_pending[self.symbol] = "long"   # CR goes back long
+                            elif old_side == "short":
+                                self._cr_pending[self.symbol] = "short"
+                            if self.symbol in self._cr_pending:
+                                logger.info(
+                                    f"[ENGINE CR] {self.symbol}: SAR FAILED → "
+                                    f"counter-reversal pending {self._cr_pending[self.symbol]}"
+                                )
+                        else:
+                            # ── Standard SAR ──────────────────────────────────
+                            if old_side == "long":
+                                self._sar_pending[self.symbol] = "short"
+                            elif old_side == "short":
+                                self._sar_pending[self.symbol] = "long"
+                            if self.symbol in self._sar_pending:
+                                logger.info(
+                                    f"[ENGINE SAR] {self.symbol}: LOSS DETECTED → "
+                                    f"reversal pending {self._sar_pending[self.symbol]}"
+                                )
                         break
 
-            # Read and consume pending reversal
+            # Read and consume pending reversal (SAR takes priority; CR is secondary)
             sar_dir = self._sar_pending.pop(self.symbol, None)
+            if sar_dir is None and cr_enabled:
+                sar_dir = self._cr_pending.pop(self.symbol, None)
+                if sar_dir:
+                    logger.info(f"[ENGINE CR] {self.symbol}: firing counter-reversal {sar_dir}")
 
         # B. Check for ENTRY / SCALE_IN
         gates["profile"] = self.profile  # Conductor SAR needs this

@@ -24,6 +24,7 @@ forex_continuous:
   continuous_mode: true
   sabbath_astronomical: true
   stop_and_reverse_enabled: true
+  counter_reversal_enabled: true
 forex_intraday:
   symbols:
   - EURUSD
