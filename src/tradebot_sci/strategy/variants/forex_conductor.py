@@ -567,383 +567,412 @@ class ForexConductorStrategy(BaseStrategy):
             if pos_dir in ("long", "short") and entry_price > 0 and current_stop > 0:
                 initial_risk = abs(entry_price - current_stop)
 
-                if initial_risk > 0:
-                    # R-multiple: positive = winning, negative = losing
-                    if pos_dir == "long":
-                        pnl_dist = current_price - entry_price
+            elif pos_dir in ("long", "short") and entry_price > 0 and current_stop == 0:
+                # ── FALLBACK: No SL in snapshot ─────────────────────────────
+                # Oanda sometimes returns no stopLossOrder (e.g., when SL was
+                # placed via a separate order that isn't linked to the trade,
+                # or when the trade details API call failed).
+                # Estimate initial_risk from unrealized_pnl + position size.
+                unrealized = float(open_position.get("unrealized_pnl", 0) or 0)
+                pos_size = abs(float(open_position.get("size", 0) or 0))
+                if unrealized != 0 and pos_size > 0 and entry_price > 0:
+                    # pip_value ≈ unrealized / (size * pnl_dist_in_price)
+                    pnl_dist_now = abs(current_price - entry_price)
+                    if pnl_dist_now > 0:
+                        pip_value = abs(unrealized) / (pos_size * pnl_dist_now)
+                        # Assume default 1.5× ATR risk; ATR ≈ 0.0010 for major pairs
+                        atr_guess = float(snapshot.candles[-1].close) * 0.0007 if snapshot.candles else 0.001
+                        initial_risk = atr_guess
+                        logger.warning(
+                            f"[CONDUCTOR] {snapshot.symbol}: stop_loss missing — "
+                            f"using estimated initial_risk={initial_risk:.5f} (ATR fallback). "
+                            f"CHECK: hold_store SL backfill may have failed."
+                        )
                     else:
-                        pnl_dist = entry_price - current_price
-                    r_multiple = pnl_dist / initial_risk
+                        initial_risk = 0.0
+                else:
+                    initial_risk = 0.0
+            else:
+                initial_risk = 0.0
 
-                    # SAR reversals: skip pyramids + de-risk milestones,
-                    # but KEEP ATR trailing active so they benefit from
-                    # regime-aware trailing stops (especially on ranging days).
-                    is_sar = open_position.get("strategy_name") == "reversal"
+            if initial_risk > 0:
+                # R-multiple: positive = winning, negative = losing
+                if pos_dir == "long":
+                    pnl_dist = current_price - entry_price
+                else:
+                    pnl_dist = entry_price - current_price
+                r_multiple = pnl_dist / initial_risk
 
-                    # Track which milestones have already fired
-                    sym = snapshot.symbol
-                    milestones_key = f"{sym}_{pos_dir}_{entry_price:.5f}"
-                    if not hasattr(self, '_milestones_fired'):
-                        self._milestones_fired = {}
-                    fired = self._milestones_fired.setdefault(milestones_key, set())
 
-                    # ── LOWER-HIGH / HIGHER-LOW INVALIDATION ─────────
-                    # If the trade's swing structure breaks (lower high
-                    # for longs, higher low for shorts), exit 80%.
-                    # SAR trades skip this — they have their own SL/TP.
-                    if not is_sar and "struct_inval_lh" not in fired:
-                        from tradebot_sci.market.swing_analysis import swing_points
-                        trade_candles = snapshot.candles[-40:]
-                        if len(trade_candles) >= 10:
-                            sh_idx, sl_idx = swing_points(trade_candles, lookback=2)
+                # SAR reversals: skip pyramids + de-risk milestones,
+                # but KEEP ATR trailing active so they benefit from
+                # regime-aware trailing stops (especially on ranging days).
+                is_sar = open_position.get("strategy_name") == "reversal"
 
-                            if pos_dir == "long" and len(sh_idx) >= 2:
-                                last_sh = float(trade_candles[sh_idx[-1]].high)
-                                prev_sh = float(trade_candles[sh_idx[-2]].high)
-                                if last_sh < prev_sh and current_price < last_sh:
-                                    fired.add("struct_inval_lh")
-                                    from tradebot_sci.strategy.decisions import (
-                                        scale_out_decision,
-                                    )
-                                    logger.info(
-                                        f"[CONDUCTOR] STRUCT INVAL {sym}: "
-                                        f"Lower High ({prev_sh:.5f} → "
-                                        f"{last_sh:.5f}), closing 80%%"
-                                    )
-                                    return scale_out_decision(
-                                        sym, snapshot.timeframe,
-                                        reason=(
-                                            f"Conductor: Lower-High "
-                                            f"Invalidation ({prev_sh:.5f}"
-                                            f" → {last_sh:.5f})"
-                                        ),
-                                    )
+                # Track which milestones have already fired
+                sym = snapshot.symbol
+                milestones_key = f"{sym}_{pos_dir}_{entry_price:.5f}"
+                if not hasattr(self, '_milestones_fired'):
+                    self._milestones_fired = {}
+                fired = self._milestones_fired.setdefault(milestones_key, set())
 
-                            elif pos_dir == "short" and len(sl_idx) >= 2:
-                                last_sl = float(trade_candles[sl_idx[-1]].low)
-                                prev_sl = float(trade_candles[sl_idx[-2]].low)
-                                if last_sl > prev_sl and current_price > last_sl:
-                                    fired.add("struct_inval_lh")
-                                    from tradebot_sci.strategy.decisions import (
-                                        scale_out_decision,
-                                    )
-                                    logger.info(
-                                        f"[CONDUCTOR] STRUCT INVAL {sym}: "
-                                        f"Higher Low ({prev_sl:.5f} → "
-                                        f"{last_sl:.5f}), closing 80%%"
-                                    )
-                                    return scale_out_decision(
-                                        sym, snapshot.timeframe,
-                                        reason=(
-                                            f"Conductor: Higher-Low "
-                                            f"Invalidation ({prev_sl:.5f}"
-                                            f" → {last_sl:.5f})"
-                                        ),
-                                    )
+                # ── LOWER-HIGH / HIGHER-LOW INVALIDATION ─────────
+                # If the trade's swing structure breaks (lower high
+                # for longs, higher low for shorts), exit 80%.
+                # SAR trades skip this — they have their own SL/TP.
+                if not is_sar and "struct_inval_lh" not in fired:
+                    from tradebot_sci.market.swing_analysis import swing_points
+                    trade_candles = snapshot.candles[-40:]
+                    if len(trade_candles) >= 10:
+                        sh_idx, sl_idx = swing_points(trade_candles, lookback=2)
 
-                    # ── LOSING SIDE: TIERED GUILLOTINE ───────────────
-                    # T1 @ -0.15R → cut 80% (leaves 20%).
-                    # T2 @ -0.3R  → cut 80% of what's left (leaves 4%).
-                    # SAR trades skip — they have their own tight SL.
-                    #
-                    # Thresholds / fractions are profile-configurable:
-                    #   tier1_r_threshold  (default -0.15)
-                    #   tier1_cut_fraction (default  0.80)
-                    #   tier2_r_threshold  (default -0.30)
-                    #   tier2_cut_fraction (default  0.80)
-                    if not is_sar:
-                        t1_r  = float(getattr(self.profile, 'tier1_r_threshold',  -0.15))
-                        t1_cut = float(getattr(self.profile, 'tier1_cut_fraction',  0.80))
-                        t2_r  = float(getattr(self.profile, 'tier2_r_threshold',  -0.30))
-                        t2_cut = float(getattr(self.profile, 'tier2_cut_fraction',  0.80))
-
-                        # ── Tier 1 ────────────────────────────────────────
-                        if r_multiple <= t1_r and "guillotine_t1" not in fired:
-                            from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
-                            fee_pct = get_fee_for_symbol(sym)
-                            spread_cost = entry_price * fee_pct * 2
-                            if abs(pnl_dist) > spread_cost:
-                                fired.add("guillotine_t1")
-                                from tradebot_sci.strategy.decisions import scale_out_decision
-                                logger.info(
-                                    f"[GUILLOTINE-T1] {sym}: "
-                                    f"{r_multiple:.2f}R → cutting {t1_cut*100:.0f}%"
+                        if pos_dir == "long" and len(sh_idx) >= 2:
+                            last_sh = float(trade_candles[sh_idx[-1]].high)
+                            prev_sh = float(trade_candles[sh_idx[-2]].high)
+                            if last_sh < prev_sh and current_price < last_sh:
+                                fired.add("struct_inval_lh")
+                                from tradebot_sci.strategy.decisions import (
+                                    scale_out_decision,
                                 )
-                                dec = scale_out_decision(
-                                    sym, snapshot.timeframe,
-                                    reason=(
-                                        f"Conductor: Guillotine T1 at {r_multiple:.2f}R "
-                                        f"(cut {t1_cut*100:.0f}%)|scale_frac={t1_cut:.2f}|"
-                                    ),
-                                )
-                                return dec
-
-                        # ── Tier 2 (original de_risk) ──────────────────────
-                        if r_multiple <= t2_r and "de_risk" not in fired:
-                            from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
-                            fee_pct = get_fee_for_symbol(sym)
-                            spread_cost = entry_price * fee_pct * 2
-                            if abs(pnl_dist) > spread_cost:
-                                fired.add("de_risk")
-                                from tradebot_sci.strategy.decisions import scale_out_decision
                                 logger.info(
-                                    f"[GUILLOTINE-T2] {sym}: "
-                                    f"{r_multiple:.2f}R → cutting {t2_cut*100:.0f}% of remainder"
+                                    f"[CONDUCTOR] STRUCT INVAL {sym}: "
+                                    f"Lower High ({prev_sh:.5f} → "
+                                    f"{last_sh:.5f}), closing 80%%"
                                 )
                                 return scale_out_decision(
                                     sym, snapshot.timeframe,
                                     reason=(
-                                        f"Conductor: Guillotine T2 at {r_multiple:.2f}R "
-                                        f"(cut {t2_cut*100:.0f}% of remaining)"
-                                        f"|scale_frac={t2_cut:.2f}|"
+                                        f"Conductor: Lower-High "
+                                        f"Invalidation ({prev_sh:.5f}"
+                                        f" → {last_sh:.5f})"
                                     ),
                                 )
 
-
-                    # ── EARLY ATR TRAILING (0.5R+) ─────────────────────
-                    # Move broker SL to lock in profit once 0.5R is reached.
-                    # This fires BEFORE the 1.0R pyramid gate below.
-                    # REGIME-AWARE: Ranging markets use TIGHT trails to
-                    # capture oscillation peaks. Trending uses wide trails
-                    # to let winners run.
-                    from tradebot_sci.strategy.icc_signals import calculate_atr
-                    atr = calculate_atr(snapshot.candles[-14:], period=14)
-                    regime = gates.get("market_regime", "unknown")
-                    is_ranging = regime in ("ranging", "choppy")
-
-                    # ── RANGING DAY QUICK TP (0.7R+) ─────────────────
-                    # On consolidation days, DON'T try to let winners run.
-                    # Take profit at oscillation peaks and re-enter on dips.
-                    # This captures the up/down/up/down pattern the user wants.
-                    if is_ranging and r_multiple >= 0.7 and not is_sar:
-                        pnl_approx = r_multiple * initial_risk * (
-                            abs(open_position.get("size", 0))
-                            / (entry_price if entry_price else 1)
-                        )
-                        logger.info(
-                            f"[CONDUCTOR] RANGING TP {sym}: "
-                            f"{r_multiple:.2f}R (~${pnl_approx:.0f}) — "
-                            f"taking profit at oscillation peak "
-                            f"(regime={regime})"
-                        )
-                        return AITradeDecision(
-                            symbol=sym,
-                            timeframe=snapshot.timeframe,
-                            bias=pos_dir,
-                            phase="management",
-                            action="close_position",
-                            notes=(
-                                f"[MANAGEMENT] Ranging TP: "
-                                f"{r_multiple:.2f}R — oscillation peak"
-                            ),
-                        )
-
-                    if atr and atr > 0 and r_multiple >= 0.5:
-                        if is_ranging:
-                            # RANGING: tight trails — capture oscillation peaks
-                            if r_multiple >= 3.0:
-                                trail_mult = 0.3
-                            elif r_multiple >= 2.0:
-                                trail_mult = 0.5
-                            elif r_multiple >= 1.0:
-                                trail_mult = 0.7
-                            else:
-                                trail_mult = 1.0  # 0.5-1.0R: lock near BE
-                        else:
-                            # TRENDING: wide trails — let winners run
-                            if r_multiple >= 3.0:
-                                trail_mult = 0.7
-                            elif r_multiple >= 2.0:
-                                trail_mult = 1.0
-                            elif r_multiple >= 1.0:
-                                trail_mult = 1.5
-                            else:
-                                trail_mult = 2.0  # 0.5-1.0R: wide trail
-                        trail_dist = atr * trail_mult
-
-                        if pos_dir == "long":
-                            atr_trail = current_price - trail_dist
-                            if atr_trail > current_stop:
+                        elif pos_dir == "short" and len(sl_idx) >= 2:
+                            last_sl = float(trade_candles[sl_idx[-1]].low)
+                            prev_sl = float(trade_candles[sl_idx[-2]].low)
+                            if last_sl > prev_sl and current_price > last_sl:
+                                fired.add("struct_inval_lh")
+                                from tradebot_sci.strategy.decisions import (
+                                    scale_out_decision,
+                                )
                                 logger.info(
-                                    f"[CONDUCTOR] ATR TRAIL {sym}: "
-                                    f"{r_multiple:.1f}R, "
-                                    f"{trail_mult}× ATR → "
-                                    f"stop ${atr_trail:.5f}"
+                                    f"[CONDUCTOR] STRUCT INVAL {sym}: "
+                                    f"Higher Low ({prev_sl:.5f} → "
+                                    f"{last_sl:.5f}), closing 80%%"
                                 )
-                                return AITradeDecision(
-                                    symbol=sym,
-                                    timeframe=snapshot.timeframe,
-                                    bias=pos_dir, phase="management",
-                                    action="hold",
-                                    stop_loss=atr_trail,
-                                    notes=(
-                                        f"[MANAGEMENT] ATR trail: "
-                                        f"{trail_mult}× ATR at "
-                                        f"{r_multiple:.1f}R"
-                                    ),
-                                )
-                        else:
-                            atr_trail = current_price + trail_dist
-                            if atr_trail < current_stop:
-                                logger.info(
-                                    f"[CONDUCTOR] ATR TRAIL {sym}: "
-                                    f"{r_multiple:.1f}R, "
-                                    f"{trail_mult}× ATR → "
-                                    f"stop ${atr_trail:.5f}"
-                                )
-                                return AITradeDecision(
-                                    symbol=sym,
-                                    timeframe=snapshot.timeframe,
-                                    bias=pos_dir, phase="management",
-                                    action="hold",
-                                    stop_loss=atr_trail,
-                                    notes=(
-                                        f"[MANAGEMENT] ATR trail: "
-                                        f"{trail_mult}× ATR at "
-                                        f"{r_multiple:.1f}R"
+                                return scale_out_decision(
+                                    sym, snapshot.timeframe,
+                                    reason=(
+                                        f"Conductor: Higher-Low "
+                                        f"Invalidation ({prev_sl:.5f}"
+                                        f" → {last_sl:.5f})"
                                     ),
                                 )
 
-                    # ── WINNING SIDE: Unlimited Pyramiding ────────────
-                    # 1R:   floor → BE  + pyramid 30% (hammer the win)
-                    # 1.5R+: floor + pyramid 4% every 0.5R
-                    # Plus: momentum acceleration, bounce re-pyramids
-                    # SAR trades skip pyramiding — they ride to TP.
-                    if not is_sar and r_multiple >= 1.0:
-                        MAX_PYRAMIDS = 50
+                # ── LOSING SIDE: TIERED GUILLOTINE ───────────────
+                # T1 @ -0.15R → cut 80% (leaves 20%).
+                # T2 @ -0.3R  → cut 80% of what's left (leaves 4%).
+                # SAR trades skip — they have their own tight SL.
+                #
+                # Thresholds / fractions are profile-configurable:
+                #   tier1_r_threshold  (default -0.15)
+                #   tier1_cut_fraction (default  0.80)
+                #   tier2_r_threshold  (default -0.30)
+                #   tier2_cut_fraction (default  0.80)
+                if not is_sar:
+                    t1_r  = float(getattr(self.profile, 'tier1_r_threshold',  -0.15))
+                    t1_cut = float(getattr(self.profile, 'tier1_cut_fraction',  0.80))
+                    t2_r  = float(getattr(self.profile, 'tier2_r_threshold',  -0.30))
+                    t2_cut = float(getattr(self.profile, 'tier2_cut_fraction',  0.80))
 
-                        # ── #2: MOMENTUM ACCELERATION ─────────────────
-                        # If a single candle moves ≥ 0.3R in our direction,
-                        # that's a displacement — pyramid immediately.
-                        if (
-                            atr and atr > 0
-                            and len(snapshot.candles) >= 2
-                            and "momentum_accel" not in fired
-                        ):
-                            candle = snapshot.candles[-1]
-                            candle_move = (
-                                (candle.close - candle.open)
-                                if pos_dir == "long"
-                                else (candle.open - candle.close)
+                    # ── Tier 1 ────────────────────────────────────────
+                    if r_multiple <= t1_r and "guillotine_t1" not in fired:
+                        from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                        fee_pct = get_fee_for_symbol(sym)
+                        spread_cost = entry_price * fee_pct * 2
+                        if abs(pnl_dist) > spread_cost:
+                            fired.add("guillotine_t1")
+                            from tradebot_sci.strategy.decisions import scale_out_decision
+                            logger.info(
+                                f"[GUILLOTINE-T1] {sym}: "
+                                f"{r_multiple:.2f}R → cutting {t1_cut*100:.0f}%"
                             )
-                            if candle_move >= initial_risk * 0.3:
-                                pyr_count = sum(
-                                    1 for k in fired if k.startswith("pyr_")
-                                )
-                                if pyr_count < MAX_PYRAMIDS:
-                                    fired.add("momentum_accel")
-                                    logger.info(
-                                        f"[CONDUCTOR] MOMENTUM {sym}: "
-                                        f"candle move {candle_move/initial_risk:.1f}R "
-                                        f"→ immediate pyramid 4%"
-                                    )
-                                    return AITradeDecision(
-                                        symbol=sym,
-                                        timeframe=snapshot.timeframe,
-                                        bias=pos_dir, phase="management",
-                                        action="scale_in",
-                                        risk_per_trade_pct=0.04,
-                                        notes=(
-                                            f"[MANAGEMENT] Momentum accel: "
-                                            f"candle={candle_move/initial_risk:.1f}R"
-                                        ),
-                                    )
+                            dec = scale_out_decision(
+                                sym, snapshot.timeframe,
+                                reason=(
+                                    f"Conductor: Guillotine T1 at {r_multiple:.2f}R "
+                                    f"(cut {t1_cut*100:.0f}%)|scale_frac={t1_cut:.2f}|"
+                                ),
+                            )
+                            return dec
 
-                        # ── #3: RE-PYRAMID ON PULLBACK BOUNCES ────────
-                        # Track peak R-level. If we pulled back ≥ 0.5R
-                        # and then re-broke the level, reset that milestone
-                        # so a new pyramid can fire.
-                        peak_key = f"peak_{milestones_key}"
-                        if not hasattr(self, '_peak_r'):
-                            self._peak_r = {}
-                        prev_peak = self._peak_r.get(peak_key, 0.0)
-                        if r_multiple > prev_peak:
-                            self._peak_r[peak_key] = r_multiple
-                        elif prev_peak - r_multiple >= 0.5:
-                            # Pulled back ≥ 0.5R — mark trough
-                            trough_key = f"trough_{milestones_key}"
-                            if not hasattr(self, '_trough_r'):
-                                self._trough_r = {}
-                            self._trough_r[trough_key] = r_multiple
+                    # ── Tier 2 (original de_risk) ──────────────────────
+                    if r_multiple <= t2_r and "de_risk" not in fired:
+                        from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                        fee_pct = get_fee_for_symbol(sym)
+                        spread_cost = entry_price * fee_pct * 2
+                        if abs(pnl_dist) > spread_cost:
+                            fired.add("de_risk")
+                            from tradebot_sci.strategy.decisions import scale_out_decision
+                            logger.info(
+                                f"[GUILLOTINE-T2] {sym}: "
+                                f"{r_multiple:.2f}R → cutting {t2_cut*100:.0f}% of remainder"
+                            )
+                            return scale_out_decision(
+                                sym, snapshot.timeframe,
+                                reason=(
+                                    f"Conductor: Guillotine T2 at {r_multiple:.2f}R "
+                                    f"(cut {t2_cut*100:.0f}% of remaining)"
+                                    f"|scale_frac={t2_cut:.2f}|"
+                                ),
+                            )
 
-                        trough_key = f"trough_{milestones_key}"
-                        trough_r = getattr(self, '_trough_r', {}).get(trough_key)
-                        if trough_r is not None and r_multiple > trough_r + 0.5:
-                            # Bounced back up past trough + 0.5R — refresh
-                            # the milestone at this level
-                            bounce_level = 1.0 + (int((r_multiple - 1.0) / 0.5) * 0.5)
-                            bounce_key = f"pyr_{bounce_level:.1f}r"
-                            if bounce_key in fired:
-                                fired.discard(bounce_key)
-                                # Clear trough so we don't re-fire
-                                self._trough_r.pop(trough_key, None)
-                                logger.info(
-                                    f"[CONDUCTOR] BOUNCE RE-PYRAMID {sym}: "
-                                    f"pullback to {trough_r:.1f}R → "
-                                    f"re-broke {bounce_level:.1f}R, "
-                                    f"reset milestone"
-                                )
 
-                        # (ATR trailing moved to 0.5R block above)
+                # ── EARLY ATR TRAILING (0.5R+) ─────────────────────
+                # Move broker SL to lock in profit once 0.5R is reached.
+                # This fires BEFORE the 1.0R pyramid gate below.
+                # REGIME-AWARE: Ranging markets use TIGHT trails to
+                # capture oscillation peaks. Trending uses wide trails
+                # to let winners run.
+                from tradebot_sci.strategy.icc_signals import calculate_atr
+                atr = calculate_atr(snapshot.candles[-14:], period=14)
+                regime = gates.get("market_regime", "unknown")
+                is_ranging = regime in ("ranging", "choppy")
 
-                        # ── R-level milestones (floor + pyramid) ──────
-                        level_idx = int((r_multiple - 1.0) / 0.5)
-                        for i in range(level_idx, -1, -1):
-                            threshold = 1.0 + (i * 0.5)
-                            floor_r = max(0.0, threshold - 1.0)
-                            m_key = f"pyr_{threshold:.1f}r"
-                            pyr_risk = 0.30 if i == 0 else 0.04
+                # ── RANGING DAY QUICK TP (0.7R+) ─────────────────
+                # On consolidation days, DON'T try to let winners run.
+                # Take profit at oscillation peaks and re-enter on dips.
+                # This captures the up/down/up/down pattern the user wants.
+                if is_ranging and r_multiple >= 0.7 and not is_sar:
+                    pnl_approx = r_multiple * initial_risk * (
+                        abs(open_position.get("size", 0))
+                        / (entry_price if entry_price else 1)
+                    )
+                    logger.info(
+                        f"[CONDUCTOR] RANGING TP {sym}: "
+                        f"{r_multiple:.2f}R (~${pnl_approx:.0f}) — "
+                        f"taking profit at oscillation peak "
+                        f"(regime={regime})"
+                    )
+                    return AITradeDecision(
+                        symbol=sym,
+                        timeframe=snapshot.timeframe,
+                        bias=pos_dir,
+                        phase="management",
+                        action="close_position",
+                        notes=(
+                            f"[MANAGEMENT] Ranging TP: "
+                            f"{r_multiple:.2f}R — oscillation peak"
+                        ),
+                    )
 
-                            # Floor move
-                            if pos_dir == "long":
-                                floor_price = entry_price + (initial_risk * floor_r)
-                                need_floor = current_stop < floor_price
-                            else:
-                                floor_price = entry_price - (initial_risk * floor_r)
-                                need_floor = current_stop > floor_price
+                if atr and atr > 0 and r_multiple >= 0.5:
+                    if is_ranging:
+                        # RANGING: tight trails — capture oscillation peaks
+                        if r_multiple >= 3.0:
+                            trail_mult = 0.3
+                        elif r_multiple >= 2.0:
+                            trail_mult = 0.5
+                        elif r_multiple >= 1.0:
+                            trail_mult = 0.7
+                        else:
+                            trail_mult = 1.0  # 0.5-1.0R: lock near BE
+                    else:
+                        # TRENDING: wide trails — let winners run
+                        if r_multiple >= 3.0:
+                            trail_mult = 0.7
+                        elif r_multiple >= 2.0:
+                            trail_mult = 1.0
+                        elif r_multiple >= 1.0:
+                            trail_mult = 1.5
+                        else:
+                            trail_mult = 2.0  # 0.5-1.0R: wide trail
+                    trail_dist = atr * trail_mult
 
-                            # Pyramid (if not already fired and under cap)
+                    if pos_dir == "long":
+                        atr_trail = current_price - trail_dist
+                        if atr_trail > current_stop:
+                            logger.info(
+                                f"[CONDUCTOR] ATR TRAIL {sym}: "
+                                f"{r_multiple:.1f}R, "
+                                f"{trail_mult}× ATR → "
+                                f"stop ${atr_trail:.5f}"
+                            )
+                            return AITradeDecision(
+                                symbol=sym,
+                                timeframe=snapshot.timeframe,
+                                bias=pos_dir, phase="management",
+                                action="hold",
+                                stop_loss=atr_trail,
+                                notes=(
+                                    f"[MANAGEMENT] ATR trail: "
+                                    f"{trail_mult}× ATR at "
+                                    f"{r_multiple:.1f}R"
+                                ),
+                            )
+                    else:
+                        atr_trail = current_price + trail_dist
+                        if atr_trail < current_stop:
+                            logger.info(
+                                f"[CONDUCTOR] ATR TRAIL {sym}: "
+                                f"{r_multiple:.1f}R, "
+                                f"{trail_mult}× ATR → "
+                                f"stop ${atr_trail:.5f}"
+                            )
+                            return AITradeDecision(
+                                symbol=sym,
+                                timeframe=snapshot.timeframe,
+                                bias=pos_dir, phase="management",
+                                action="hold",
+                                stop_loss=atr_trail,
+                                notes=(
+                                    f"[MANAGEMENT] ATR trail: "
+                                    f"{trail_mult}× ATR at "
+                                    f"{r_multiple:.1f}R"
+                                ),
+                            )
+
+                # ── WINNING SIDE: Unlimited Pyramiding ────────────
+                # 1R:   floor → BE  + pyramid 30% (hammer the win)
+                # 1.5R+: floor + pyramid 4% every 0.5R
+                # Plus: momentum acceleration, bounce re-pyramids
+                # SAR trades skip pyramiding — they ride to TP.
+                if not is_sar and r_multiple >= 1.0:
+                    MAX_PYRAMIDS = 50
+
+                    # ── #2: MOMENTUM ACCELERATION ─────────────────
+                    # If a single candle moves ≥ 0.3R in our direction,
+                    # that's a displacement — pyramid immediately.
+                    if (
+                        atr and atr > 0
+                        and len(snapshot.candles) >= 2
+                        and "momentum_accel" not in fired
+                    ):
+                        candle = snapshot.candles[-1]
+                        candle_move = (
+                            (candle.close - candle.open)
+                            if pos_dir == "long"
+                            else (candle.open - candle.close)
+                        )
+                        if candle_move >= initial_risk * 0.3:
                             pyr_count = sum(
                                 1 for k in fired if k.startswith("pyr_")
                             )
-                            need_pyramid = (
-                                m_key not in fired
-                                and pyr_count < MAX_PYRAMIDS
-                            )
-
-                            if need_floor or need_pyramid:
-                                if need_pyramid:
-                                    fired.add(m_key)
-
-                                action = "scale_in" if need_pyramid else "hold"
-                                notes_parts = []
-                                if need_floor:
-                                    notes_parts.append(f"floor→{floor_r:.1f}R")
-                                if need_pyramid:
-                                    notes_parts.append(
-                                        f"pyramid {int(pyr_risk*100)}%"
-                                    )
-
+                            if pyr_count < MAX_PYRAMIDS:
+                                fired.add("momentum_accel")
                                 logger.info(
-                                    f"[CONDUCTOR] MILESTONE {sym}: "
-                                    f"{r_multiple:.1f}R → "
-                                    f"{', '.join(notes_parts)}"
+                                    f"[CONDUCTOR] MOMENTUM {sym}: "
+                                    f"candle move {candle_move/initial_risk:.1f}R "
+                                    f"→ immediate pyramid 4%"
                                 )
                                 return AITradeDecision(
                                     symbol=sym,
                                     timeframe=snapshot.timeframe,
-                                    bias=pos_dir,
-                                    phase="management",
-                                    action=action,
-                                    stop_loss=floor_price if need_floor else None,
-                                    risk_per_trade_pct=pyr_risk,
+                                    bias=pos_dir, phase="management",
+                                    action="scale_in",
+                                    risk_per_trade_pct=0.04,
                                     notes=(
-                                        f"[MANAGEMENT] {r_multiple:.1f}R: "
-                                        f"{', '.join(notes_parts)}"
+                                        f"[MANAGEMENT] Momentum accel: "
+                                        f"candle={candle_move/initial_risk:.1f}R"
                                     ),
-                                    strategy_name=self.name,
                                 )
-                            break  # Only process highest level
+
+                    # ── #3: RE-PYRAMID ON PULLBACK BOUNCES ────────
+                    # Track peak R-level. If we pulled back ≥ 0.5R
+                    # and then re-broke the level, reset that milestone
+                    # so a new pyramid can fire.
+                    peak_key = f"peak_{milestones_key}"
+                    if not hasattr(self, '_peak_r'):
+                        self._peak_r = {}
+                    prev_peak = self._peak_r.get(peak_key, 0.0)
+                    if r_multiple > prev_peak:
+                        self._peak_r[peak_key] = r_multiple
+                    elif prev_peak - r_multiple >= 0.5:
+                        # Pulled back ≥ 0.5R — mark trough
+                        trough_key = f"trough_{milestones_key}"
+                        if not hasattr(self, '_trough_r'):
+                            self._trough_r = {}
+                        self._trough_r[trough_key] = r_multiple
+
+                    trough_key = f"trough_{milestones_key}"
+                    trough_r = getattr(self, '_trough_r', {}).get(trough_key)
+                    if trough_r is not None and r_multiple > trough_r + 0.5:
+                        # Bounced back up past trough + 0.5R — refresh
+                        # the milestone at this level
+                        bounce_level = 1.0 + (int((r_multiple - 1.0) / 0.5) * 0.5)
+                        bounce_key = f"pyr_{bounce_level:.1f}r"
+                        if bounce_key in fired:
+                            fired.discard(bounce_key)
+                            # Clear trough so we don't re-fire
+                            self._trough_r.pop(trough_key, None)
+                            logger.info(
+                                f"[CONDUCTOR] BOUNCE RE-PYRAMID {sym}: "
+                                f"pullback to {trough_r:.1f}R → "
+                                f"re-broke {bounce_level:.1f}R, "
+                                f"reset milestone"
+                            )
+
+                    # (ATR trailing moved to 0.5R block above)
+
+                    # ── R-level milestones (floor + pyramid) ──────
+                    level_idx = int((r_multiple - 1.0) / 0.5)
+                    for i in range(level_idx, -1, -1):
+                        threshold = 1.0 + (i * 0.5)
+                        floor_r = max(0.0, threshold - 1.0)
+                        m_key = f"pyr_{threshold:.1f}r"
+                        pyr_risk = 0.30 if i == 0 else 0.04
+
+                        # Floor move
+                        if pos_dir == "long":
+                            floor_price = entry_price + (initial_risk * floor_r)
+                            need_floor = current_stop < floor_price
+                        else:
+                            floor_price = entry_price - (initial_risk * floor_r)
+                            need_floor = current_stop > floor_price
+
+                        # Pyramid (if not already fired and under cap)
+                        pyr_count = sum(
+                            1 for k in fired if k.startswith("pyr_")
+                        )
+                        need_pyramid = (
+                            m_key not in fired
+                            and pyr_count < MAX_PYRAMIDS
+                        )
+
+                        if need_floor or need_pyramid:
+                            if need_pyramid:
+                                fired.add(m_key)
+
+                            action = "scale_in" if need_pyramid else "hold"
+                            notes_parts = []
+                            if need_floor:
+                                notes_parts.append(f"floor→{floor_r:.1f}R")
+                            if need_pyramid:
+                                notes_parts.append(
+                                    f"pyramid {int(pyr_risk*100)}%"
+                                )
+
+                            logger.info(
+                                f"[CONDUCTOR] MILESTONE {sym}: "
+                                f"{r_multiple:.1f}R → "
+                                f"{', '.join(notes_parts)}"
+                            )
+                            return AITradeDecision(
+                                symbol=sym,
+                                timeframe=snapshot.timeframe,
+                                bias=pos_dir,
+                                phase="management",
+                                action=action,
+                                stop_loss=floor_price if need_floor else None,
+                                risk_per_trade_pct=pyr_risk,
+                                notes=(
+                                    f"[MANAGEMENT] {r_multiple:.1f}R: "
+                                    f"{', '.join(notes_parts)}"
+                                ),
+                                strategy_name=self.name,
+                            )
+                        break  # Only process highest level
 
         # ── SUB-STRATEGY EXIT LOOP ──────────────────────────────────
         # Compute R-multiple for profit guard (may not exist from above

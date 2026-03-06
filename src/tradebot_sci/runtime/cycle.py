@@ -255,6 +255,27 @@ def process_candidate_cycle(
 
         attempts += 1
         pos = executor.get_open_position_snapshot(symbol) if executor else None
+        # ── SL/TP Backfill ────────────────────────────────────────────────
+        # If Oanda didn't return a stopLossOrder (e.g. no SL bracket was set,
+        # or the API call for trade details failed), the snapshot has
+        # stop_loss=None.  The Conductor's R-milestone block (Guillotine, ATR
+        # trail, SAR) is gated on current_stop > 0, so a missing SL silently
+        # disables ALL exit management.  Backfill from hold_store here so the
+        # decision path always has the best known SL price.
+        if pos is not None:
+            hold_store = getattr(executor, "position_hold_store", None)
+            if hold_store:
+                record = hold_store.get(symbol)
+                if record:
+                    if not pos.get("stop_loss") and record.stop_loss:
+                        pos["stop_loss"] = record.stop_loss
+                        logger.debug(
+                            "[CYCLE] %s: backfilled stop_loss=%.5f from hold_store",
+                            symbol, float(record.stop_loss),
+                        )
+                    if not pos.get("entry_price") and record.entry_price:
+                        pos["entry_price"] = record.entry_price
+
         
         try:
             liq_cap = executor.get_liquid_capital(symbol) if executor else None
