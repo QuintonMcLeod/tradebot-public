@@ -755,6 +755,17 @@ class StrategyEngine:
                 settings=self.settings or self.profile
             )
             
+            # ── 1% RISK CAP ENFORCEMENT ──────────────────────────────
+            # Ensure standard trades do not get oversized by performance boosts.
+            # SAR trades are exempt (they have explicit overrides like 4.5%).
+            is_sar_reversal = False
+            if decision.notes:
+                is_sar_reversal = "[SAR]" in decision.notes or "[REVERSAL]" in decision.notes
+            max_risk = float(getattr(self.profile, 'risk_per_trade_pct', 0.01))
+            if not is_sar_reversal and decision.risk_per_trade_pct and decision.risk_per_trade_pct > max_risk:
+                logger.info(f"[ENGINE] Enforcing {max_risk*100:.1f}% risk cap (oversized was {decision.risk_per_trade_pct*100:.1f}%)")
+                decision.risk_per_trade_pct = max_risk
+            
             # [SMART POSITIONS] Financed Risk Check
             # Only allow new entries if we have enough open profit to cover the risk.
             if decision.action in ("enter_long", "enter_short", "scale_in"):
