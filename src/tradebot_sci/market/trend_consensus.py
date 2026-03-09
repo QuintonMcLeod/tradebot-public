@@ -389,24 +389,35 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
     bb_squeeze = bb.get("squeeze", False) if bb else False
     ema_aligned = ema.get("aligned", False) if ema else False
 
-    # ── Early ranging detection: HTF vs LTF disagreement ────────
-    # If HTF says long and LTF says short (or vice versa), the market
-    # is directionless — route to mean reversion rather than blocking.
+    # ── Early exit: HTF vs LTF directional conflict ─────────────────────
+    # If HTF and LTF point in OPPOSITE directions the market is whipsawing.
+    # Previously this returned "ranging" which routed to MeanReversionStrategy
+    # (a COUNTER-TREND strategy) — that caused systematic losses: entering
+    # LONG right into LTF downward momentum, or SHORT into LTF upward momentum.
+    # The correct response is "choppy" → block all entries. There is no edge
+    # when the two timeframes flatly contradict each other.
     htf_dir = htf.direction
     ltf_dir = ltf.direction
     if (htf_dir == "long" and ltf_dir == "short") or \
        (htf_dir == "short" and ltf_dir == "long"):
         logger.debug(
-            f"[REGIME] RANGING — HTF/LTF disagree ({htf_dir} vs {ltf_dir}), "
-            f"routing to mean reversion"
+            f"[REGIME] CHOPPY — HTF/LTF disagree ({htf_dir} vs {ltf_dir}), "
+            f"blocking entries (was incorrectly returning 'ranging' → MeanReversion)"
         )
-        return "ranging"
+        return "choppy"
+
 
     # ── TRENDING: Strong, confirmed directional move ───────────────
     # Requires ALL of: ADX>30, EMA ribbon aligned, AND at least
     # one confirmation (BB expanding or strong consensus).
     # This is deliberately strict — false trending calls are expensive.
-    if adx > 20 and ema_aligned:  # Lowered from 30 for forex (ADX rarely >30 on 1H)
+    # FALLBACK: If EMA data is unavailable (ema8==0, e.g. during replay warmup
+    # or sparse HTF data), allow trending on ADX>20 when consensus is strong
+    # (≥75%) or ADX>30 with any strength. This prevents false choppy blocks.
+    ema_unavailable = (ema.get("ema8", 0) == 0) if ema else True
+    high_consensus = strength >= 0.75
+    _ema_adx_threshold = 20 if (ema_unavailable and high_consensus) else 30
+    if adx > 20 and (ema_aligned or (ema_unavailable and adx > _ema_adx_threshold)):
         confirmations = 0
         if bb_bandwidth > 0.01:  # Bands expanding
             confirmations += 1
@@ -418,7 +429,8 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
         if confirmations >= 1:
             logger.debug(
                 f"[REGIME] TRENDING (adx={adx:.0f}, bw={bb_bandwidth:.4f}, "
-                f"ema_aligned={ema_aligned}, str={strength:.2f}, conf={confirmations})"
+                f"ema_aligned={ema_aligned}, ema_unavailable={ema_unavailable}, "
+                f"str={strength:.2f}, conf={confirmations})"
             )
             return "trending"
 

@@ -60,6 +60,10 @@ contextBridge.exposeInMainWorld('api', {
     // Help Documentation
     listHelpDocs: () => ipcRenderer.invoke('list-help-docs'),
     readHelpDoc: (filename) => ipcRenderer.invoke('read-help-doc', filename),
+
+    // Replay Backtest — live streaming
+    onBacktestProgress: (callback) => ipcRenderer.on('backtest-progress', (_event, line) => callback(line)),
+    offBacktestProgress: () => ipcRenderer.removeAllListeners('backtest-progress'),
 });
 
 // We can also expose specific APIs for the backend connection if needed

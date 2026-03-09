@@ -164,26 +164,39 @@ class MeanReversionStrategy(BaseStrategy):
         # When used standalone (not via Conductor), ADX<25 ensures
         # we only enter in ranging markets. When Conductor routes us,
         # market_regime already handles this (this acts as fallback).
-        adx = gates.get("adx", 20)
-        if gates.get("market_regime") is None:
-            # Standalone mode — apply our own regime filter
-            if adx is not None and adx > 25:
-                return None  # Market is trending — skip
+        # NOTE: engine gates publish "htf_adx" and "adx" (same value).
+        adx = gates.get("htf_adx") or gates.get("adx")
 
-        # [TREND GUIDANCE] Follow the trend direction from HTF analysis
+        if gates.get("market_regime") is None:
+            # ── STANDALONE WARMUP + REGIME GUARD ─────────────────
+            # Only needed standalone — conductor already verified regime.
+            if adx is None:
+                return None  # HTF truly hasn't initialized — wait for warm-up
+            if adx > 25:
+                return None  # Market is trending — skip mean reversion
+
+        # [TREND GUIDANCE] Follow the trend direction from HTF analysis.
+        # When HTF is neutral (ranging/flat market), use LTF price action
+        # alone to determine direction — BB bounce defines trade direction.
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        htf_strength = float(gates.get("htf_strength", 0.0))
 
         # ── BOUNCE CONFIRMATION ──────────────────────────────────
         # Require that the previous candle touched/pierced the BB
         # but the current candle is closing back inside = bounce started
 
         # ── LONG: Price bouncing off lower BB ────────────────────
-        if htf_dir in ("long", "neutral"):
+        # Allow when HTF is bullish, OR neutral AND genuinely flat (htf_strength<0.25).
+        # Neutral+strong = developing trend — avoid counter-trend entries.
+        is_long_allowed  = (htf_dir == "long") or (htf_dir == "neutral" and htf_strength < 0.25)
+        is_short_allowed = (htf_dir == "short") or (htf_dir == "neutral" and htf_strength < 0.25)
+
+        if is_long_allowed:
             prev_touched_lower = prev_close <= lower or min(
                 c.low for c in snapshot.candles[-3:]
             ) <= lower
             bouncing_back = last_close > lower  # Closing back inside bands
-            rsi_oversold = rsi < self.rsi_oversold
+            rsi_oversold = rsi < 35  # Restored from 25 — 5m bars rarely hit RSI<25
 
             if prev_touched_lower and bouncing_back and rsi_oversold:
                 stop_loss = last_close - (atr * 1.2)  # Moderately wide stop
@@ -209,12 +222,13 @@ class MeanReversionStrategy(BaseStrategy):
                 )
 
         # ── SHORT: Price bouncing off upper BB ───────────────────
-        if htf_dir in ("short", "neutral"):
+        # Allow when HTF is bearish, OR neutral AND genuinely flat (htf_strength<0.25).
+        if is_short_allowed:
             prev_touched_upper = prev_close >= upper or max(
                 c.high for c in snapshot.candles[-3:]
             ) >= upper
             bouncing_back = last_close < upper  # Closing back inside bands
-            rsi_overbought = rsi > self.rsi_overbought
+            rsi_overbought = rsi > 65  # Restored from 75 — 5m bars rarely hit RSI>75
 
             if prev_touched_upper and bouncing_back and rsi_overbought:
                 stop_loss = last_close + (atr * 1.2)  # Equalized with long side

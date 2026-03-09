@@ -202,6 +202,12 @@ async function connectWebSocket() {
                         }
                     }
                 }
+            } else if (msg.type === 'holdings') {
+                // Dedicated holdings message — updates the Holdings panel directly
+                // without needing to parse log lines (more reliable, faster)
+                if (msg.data) {
+                    updateHoldingsTable(msg.data);
+                }
             } else if (msg.type === 'log') {
                 parseLogLine(msg.data);
                 appendLog(msg.level || "INFO", msg.data);
@@ -251,17 +257,18 @@ async function connectWebSocket() {
                         if (data.is_sabbath) sabbathEl.classList.remove('hidden');
                         else sabbathEl.classList.add('hidden');
                     }
-                    // Show/hide the Reset Paper button based on Paper Trading mode
-                    if (data.is_paper !== undefined) {
-                        const resetBtn = document.getElementById('btn-reset-paper');
-                        if (resetBtn) {
-                            if (data.is_paper) {
-                                resetBtn.classList.remove('hidden');
-                                resetBtn.classList.add('flex');
-                            } else {
-                                resetBtn.classList.add('hidden');
-                                resetBtn.classList.remove('flex');
-                            }
+                }
+                // Track paper mode globally so analytics uses the right data source
+                if (data.is_paper !== undefined) {
+                    window.isPaper = !!data.is_paper;
+                    const resetBtn = document.getElementById('btn-reset-paper');
+                    if (resetBtn) {
+                        if (data.is_paper) {
+                            resetBtn.classList.remove('hidden');
+                            resetBtn.classList.add('flex');
+                        } else {
+                            resetBtn.classList.add('hidden');
+                            resetBtn.classList.remove('flex');
                         }
                     }
                 }

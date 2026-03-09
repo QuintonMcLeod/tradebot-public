@@ -101,7 +101,10 @@ function getLogFiles() {
  * @returns {{ trades: Array, capital: Array, capitalByBroker: Object }}
  */
 function getTradeHistory(filter = '24h', paperMode = false) {
-    const cutoff = _getCutoffTime(filter);
+    // In paper mode, replay trades use candle timestamps (e.g., 2026-02-18)
+    // which don't match wall-clock time. Use 'all' to include them.
+    const effectiveFilter = paperMode ? 'all' : filter;
+    const cutoff = _getCutoffTime(effectiveFilter);
     const trades = [];
     const capital = [];
     const capitalByBroker = {};
@@ -171,10 +174,12 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                 for (const t of results) {
                     const ts = t.closed_at || t.timestamp;
                     if (ts && new Date(ts) >= cutoff) {
-                        const isDupe = trades.some(existing =>
-                            existing.symbol === t.symbol &&
-                            (existing.closed_at || existing.timestamp) === (t.closed_at || t.timestamp)
-                        );
+                        const tsTime = new Date(ts).getTime();
+                        const isDupe = trades.some(existing => {
+                            if (existing.symbol !== t.symbol) return false;
+                            const existingTs = existing.closed_at || existing.timestamp || existing.time || 0;
+                            return Math.abs(new Date(existingTs).getTime() - tsTime) < 5000;
+                        });
                         if (!isDupe) {
                             // Normalize field names: trade_results.json uses
                             // pnl_usd/pnl_pct/exit_reason, analytics expects pnl/pct/reason

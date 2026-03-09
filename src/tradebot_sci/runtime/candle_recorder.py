@@ -19,8 +19,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# How many trailing candles to store per snapshot (keeps file size sane)
-_TAIL_CANDLES = 10
+# How many trailing candles to store per snapshot (needs 200 for indicator warmup)
+_TAIL_CANDLES = 200
 _PRUNE_DAYS = 180  # 6 months
 
 

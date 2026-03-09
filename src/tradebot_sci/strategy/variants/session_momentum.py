@@ -198,37 +198,7 @@ class SessionMomentumStrategy(BaseStrategy):
 
         r_multiple = profit / initial_risk
 
-        # TIME-BASED EXIT: If open > 8 bars and meaningfully losing, close
-        # (proven ORB technique — stalled momentum rarely recovers)
-        # Only exit if at -0.3R or worse — trades near breakeven deserve a chance.
-        entry_time = open_position.get("entry_time")
-        if entry_time and r_multiple < -0.3:
-            # OANDA returns entry_time as ISO string — parse it
-            if isinstance(entry_time, str):
-                try:
-                    entry_time = datetime.fromisoformat(
-                        entry_time.replace("Z", "+00:00")
-                    )
-                except (ValueError, TypeError):
-                    entry_time = None
-            if entry_time:
-                # Count bars since entry using candle timestamps
-                bars_since = 0
-                for c in reversed(snapshot.candles):
-                    c_ts = c.timestamp
-                    if c_ts.tzinfo is None:
-                        c_ts = c_ts.replace(tzinfo=ZoneInfo("UTC"))
-                    if entry_time.tzinfo is None:
-                        entry_time = entry_time.replace(tzinfo=ZoneInfo("UTC"))
-                    if c_ts <= entry_time:
-                        break
-                    bars_since += 1
-            if bars_since >= 8:
-                return close_position_decision(
-                    snapshot.symbol, snapshot.timeframe,
-                    reason=f"Session Momentum: Time exit ({bars_since} bars, {r_multiple:.1f}R)",
-                    emergency_exit=True,
-                )
+
 
         # At 1R: move to breakeven (proven ORB technique)
         if r_multiple >= 1.0:
@@ -237,11 +207,13 @@ class SessionMomentumStrategy(BaseStrategy):
 
             if not already_at_be:
                 from tradebot_sci.strategy.decisions import hold_decision
-                return hold_decision(
+                dec = hold_decision(
                     snapshot.symbol, snapshot.timeframe,
                     reason=f"Session Momentum: Move to BE at {r_multiple:.1f}R",
                     stop_loss=entry_price,
                 )
+                dec.strategy_name = self.name
+                return dec
 
             # After BE: trail 0.5× ATR behind price (tight for momentum)
             trail_distance = atr * 0.5
@@ -249,18 +221,22 @@ class SessionMomentumStrategy(BaseStrategy):
             if direction == "long":
                 new_stop = current_price - trail_distance
                 if new_stop > stop_price:
-                    return hold_decision(
+                    dec = hold_decision(
                         snapshot.symbol, snapshot.timeframe,
                         reason=f"Session Momentum: Trail {new_stop:.5f} ({r_multiple:.1f}R)",
                         stop_loss=new_stop,
                     )
+                    dec.strategy_name = self.name
+                    return dec
             else:
                 new_stop = current_price + trail_distance
                 if new_stop < stop_price:
-                    return hold_decision(
+                    dec = hold_decision(
                         snapshot.symbol, snapshot.timeframe,
                         reason=f"Session Momentum: Trail {new_stop:.5f} ({r_multiple:.1f}R)",
                         stop_loss=new_stop,
                     )
+                    dec.strategy_name = self.name
+                    return dec
 
         return None

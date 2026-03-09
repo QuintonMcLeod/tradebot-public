@@ -66,9 +66,9 @@ RE_TOURNAMENT = re.compile(
     r"Tournament Won by\s+(?P<strategy>\w+)"
 )
 
-# [PHOENIX] === ENGINE LOADED === Symbol: EURUSD | Variant: META_SCI
-RE_PHOENIX = re.compile(
-    r"\[PHOENIX\].*Symbol:\s*(?P<symbol>[A-Z_]{3,10}).*Variant:\s*(?P<variant>\w+)"
+# [MINOVSKY] === ENGINE LOADED === Symbol: EURUSD | Variant: META_SCI
+RE_MINOVSKY = re.compile(
+    r"\[MINOVSKY\].*Symbol:\s*(?P<symbol>[A-Z_]{3,10}).*Variant:\s*(?P<variant>\w+)"
 )
 
 # position=SHORT or position=LONG embedded in EXIT lines
@@ -168,7 +168,7 @@ class LedgerDaemon:
         # Track the next sundown boundary
         self._next_sundown: Optional[datetime] = None
         self._last_strategy: str = ""  # last META tournament winner seen
-        self._symbol_strategy: dict = {}  # per-symbol strategy from PHOENIX
+        self._symbol_strategy: dict = {}  # per-symbol strategy from MINOVSKY
         self._default_strategy: str = default_strategy  # fallback from profile
         self._paper_mode: bool = False  # When True, only process [PAPER] lines
         self._snapshot_ts_by_broker: dict = {}  # Per-broker throttle for capital snapshots
@@ -347,10 +347,10 @@ class LedgerDaemon:
             if m_tour:
                 self._last_strategy = m_tour.group("strategy")
 
-            # ── Track per-symbol strategy from PHOENIX engine load ──
-            m_phoenix = RE_PHOENIX.search(line)
-            if m_phoenix:
-                self._symbol_strategy[m_phoenix.group("symbol")] = m_phoenix.group("variant")
+            # ── Track per-symbol strategy from MINOVSKY engine load ──
+            m_minovsky = RE_MINOVSKY.search(line)
+            if m_minovsky:
+                self._symbol_strategy[m_minovsky.group("symbol")] = m_minovsky.group("variant")
 
             # ── Route lines by mode: live skips [PAPER], paper only reads [PAPER] ──
             is_paper_line = "[PAPER]" in line
@@ -404,7 +404,6 @@ class LedgerDaemon:
                         continue
                     self._exit_dedup[sym_dedup_key] = now
 
-                    self._exit_dedup[dedup_key] = now
                     # Prune old entries (> 10 min)
                     self._exit_dedup = {k: v for k, v in self._exit_dedup.items()
                                         if (now - v).total_seconds() < 600}
@@ -441,7 +440,7 @@ class LedgerDaemon:
                     elif pnl_val < 0:
                         current["by_symbol"][symbol]["losses"] += 1
 
-                    # Per-strategy stats — priority: per-symbol PHOENIX > profile default > tournament > unknown
+                    # Per-strategy stats — priority: per-symbol MINOVSKY > profile default > tournament > unknown
                     strat = (self._symbol_strategy.get(symbol)
                              or self._default_strategy
                              or self._last_strategy

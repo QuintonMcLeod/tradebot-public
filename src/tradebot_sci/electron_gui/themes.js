@@ -321,6 +321,7 @@ const THEMES = {
             '--purple': '#7c3aed',
             '--purple-dim': 'rgba(124, 58, 237, 0.1)',
             '--text-main': '#0f172a',
+            '--text-primary': '#0f172a',
             '--text-secondary': '#334155',
             '--text-muted': '#64748b',
             '--text-dim': '#94a3b8',
@@ -1070,6 +1071,13 @@ function applyTheme(themeId, _skipPersist = false) {
     const root = document.documentElement;
     for (const [prop, value] of Object.entries(theme.vars)) {
         root.style.setProperty(prop, value);
+    }
+
+    // 1.5. Toggle data-theme for light mode CSS overrides
+    if (themeId === 'light') {
+        root.setAttribute('data-theme', 'light');
+    } else {
+        root.removeAttribute('data-theme');
     }
 
     // 2. Update sidebar gradient

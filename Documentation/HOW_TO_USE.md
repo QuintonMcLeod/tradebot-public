@@ -272,14 +272,14 @@ Each symbol gets a decision card showing:
 
 ```
 ✅ Healthy operation:
-[INFO] [PHOENIX] === ENGINE LOADED === Symbol: EURUSD | Variant: META_SCI
+[INFO] [MINOVSKY] === ENGINE LOADED === Symbol: EURUSD | Variant: META_SCI
 [INFO] [META-SCI] ⚔️ Starting BULLISH_TRENDING Tournament for EURUSD (5 strategies eligible)
 [INFO] [META-SCI] 🏆 Winner: rubberband_reaper (score: 78.5, action: ENTER_LONG)
 [INFO] [DECISION] symbol=EURUSD action=ENTER_LONG score=82.3 grade=A-
 [INFO] [OANDA] Filled: BUY 1000 EURUSD @ 1.08692
 
 ⚠️ Normal – bot is being selective (this is GOOD):
-[INFO] [PHOENIX] EURUSD Strategy STAND_ASIDE triggered
+[INFO] [MINOVSKY] EURUSD Strategy STAND_ASIDE triggered
 [INFO] [DECISION] symbol=EURUSD action=HOLD reason=Meta-SCI Tournament: No signals found
 [INFO] [ICC] GBPUSD Score 42.1 below threshold 55.0 — rejected
 
@@ -482,6 +482,8 @@ Sharpe Ratio:     2.14
 | `RTFM/06_PANIC_BUTTON.md` | Emergency procedures — how to flatten all positions |
 | `RTFM/07_COCKPIT_CONTROLS.md` | Complete GUI controls reference |
 | `Rubberband_Reaper_Strategy.md` | How the flagship Rubberband Reaper strategy works |
+| `RTFM/35_MINOVSKY_ENGINE.md` | The Minovsky Engine — history, architecture, and why Phoenix was replaced |
+| `RTFM/36_ENGINE_AUDIT.md` | The 14-day engine stress test with SAR/CR/Guillotine breakdowns |
 | `BACKTESTER_RULES.md` | How to write and run backtests |
 
 ---

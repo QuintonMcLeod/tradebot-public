@@ -27,11 +27,9 @@ class PaperBroker:
     SLIPPAGE_PCT = float(os.getenv("PAPER_SLIPPAGE_PCT", "0.0002"))        # 0.02%
 
     def _get_taker_fee(self, symbol: str) -> float:
-        """Return asset-appropriate per-leg taker fee rate."""
-        ac = classify_symbol(symbol)
-        if ac == AssetClass.FOREX:
-            return self.TAKER_FEE_PCT_FOREX
-        return self.TAKER_FEE_PCT_CRYPTO
+        """Return half of the round-trip fee for parity with backtester."""
+        from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+        return get_fee_for_symbol(symbol) / 2.0
 
     # Hard leverage cap for paper trading.
     # Profile target_leverage (e.g. 50x) is for OANDA forex — way too high for
@@ -97,6 +95,30 @@ class PaperBroker:
             except Exception as e:
                 logger.warning(f"[PAPER] Could not fetch price for {symbol}: {e}")
         return 100.0 # Fallback
+
+    def _now(self) -> datetime:
+        """Return the current time for internal strategy calculations.
+
+        In replay mode, returns sim_time (candle timestamp) so that
+        entry_time is in the same time domain as the engine's Hold Guard
+        age calculation (which uses snapshot.candles[-1].timestamp).
+        In live mode, returns wall-clock UTC time.
+        """
+        # Check if market_provider has sim_time (replay mode)
+        if hasattr(self, 'market_provider') and self.market_provider is not None:
+            sim_time = getattr(self.market_provider, 'sim_time', None)
+            if sim_time is not None:
+                return sim_time
+        return datetime.now(timezone.utc)
+
+    def _wall_clock(self) -> datetime:
+        """Return real wall-clock UTC time for display timestamps.
+
+        Used for opened_at/closed_at in trade results so the Trade History
+        shows when trades actually happened, not the replay candle time
+        (which races ahead of real time in turbo mode).
+        """
+        return datetime.now(timezone.utc)
 
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         return self.balance
@@ -198,13 +220,32 @@ class PaperBroker:
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, "Paper size zero")
                 )
 
-            # Kraken-level fill simulation: adverse price + taker fee
-            friction = self.HALF_SPREAD_PCT + self.SLIPPAGE_PCT
-            if side == "buy":
-                fill_price = price * (1 + friction)   # Buy higher
+            # Check Paper config for UI overrides
+            import json
+            try:
+                with open(_paths.CONFIG_FILE, "r") as f:
+                    _p_conf = json.load(f).get("paper", {})
+            except Exception:
+                _p_conf = {}
+            
+            fee_bps = float(_p_conf.get("fee_bps", 0.0))
+            spread_bps = float(_p_conf.get("spread_bps", 0.0))
+            slip_bps = float(_p_conf.get("slippage_bps", 0.0))
+
+            if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
+                # Parity Mode: use backtester equivalent fees and NO artificial spread
+                friction = 0.0
+                fill_price = price
+                fee_usd = abs(qty * fill_price) * self._get_taker_fee(symbol)
             else:
-                fill_price = price * (1 - friction)   # Sell lower
-            fee_usd = abs(qty * fill_price) * self._get_taker_fee(symbol)
+                # Custom UI Override Mode
+                fee_pct = fee_bps / 10000.0
+                spread_pct = spread_bps / 10000.0
+                slip_pct = slip_bps / 10000.0
+                friction = (spread_pct / 2.0) + slip_pct
+                fill_price = price * (1 + friction) if side == "buy" else price * (1 - friction)
+                fee_usd = abs(qty * fill_price) * (fee_pct / 2.0)  # Half on entry
+
             self.balance -= fee_usd  # Deduct taker fee immediately
 
             self.positions[symbol] = {
@@ -217,10 +258,12 @@ class PaperBroker:
                 "current_price": price,
                 "unrealized_pnl": 0.0,
                 "pnl_pct": 0.0,
-                "opened_at": datetime.now(timezone.utc).isoformat(),
+                "opened_at": self._wall_clock().isoformat(),
+                "entry_time": self._now().isoformat(),
                 "stop_loss": getattr(decision, "stop_loss", None),
                 "take_profit": getattr(decision, "take_profit", None),
-                "entry_fee": fee_usd
+                "entry_fee": fee_usd,
+                "strategy": getattr(decision, "strategy_name", None) or "unknown",
             }
             logger.info(
                 f"[PAPER] [FILL] {symbol} {qty:.4f} @ {fill_price:.5f} "
@@ -239,28 +282,174 @@ class PaperBroker:
             if symbol in self.positions:
                 pos = self.positions.pop(symbol)
                 entry_p = pos["entry_price"]
-                # Adverse exit fill + taker fee
-                friction = self.HALF_SPREAD_PCT + self.SLIPPAGE_PCT
+                opened_at_str = pos.get("opened_at", "")
                 pos_side = pos.get("side", "long")
-                if pos_side == "long":
-                    exit_p = price * (1 - friction)   # Sell lower on exit
+
+                # Check Paper config for UI overrides
+                import json
+                try:
+                    with open(_paths.CONFIG_FILE, "r") as f:
+                        _p_conf = json.load(f).get("paper", {})
+                except Exception:
+                    _p_conf = {}
+                
+                fee_bps = float(_p_conf.get("fee_bps", 0.0))
+                spread_bps = float(_p_conf.get("spread_bps", 0.0))
+                slip_bps = float(_p_conf.get("slippage_bps", 0.0))
+                
+                if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
+                    exit_p = price
+                    fee_usd = abs(pos["qty"] * exit_p) * self._get_taker_fee(symbol)
                 else:
-                    exit_p = price * (1 + friction)   # Buy higher to cover short
+                    fee_pct = fee_bps / 10000.0
+                    spread_pct = spread_bps / 10000.0
+                    slip_pct = slip_bps / 10000.0
+                    friction = (spread_pct / 2.0) + slip_pct
+                    exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
+                    fee_usd = abs(pos["qty"] * exit_p) * (fee_pct / 2.0)
+
                 pnl_usd = (exit_p - entry_p) * pos["size"]
-                fee_usd = abs(pos["qty"] * exit_p) * self._get_taker_fee(symbol)
                 pnl_usd -= fee_usd
                 self.balance += pnl_usd
+
+                # Duration — use entry_time (sim_time domain) not opened_at (wall-clock)
+                # In turbo replay, wall-clock trades open/close seconds apart = 0m.
+                duration_secs = 0.0
+                entry_time_str = pos.get("entry_time", "")
+                try:
+                    if entry_time_str:
+                        entry_dt = datetime.fromisoformat(entry_time_str)
+                        duration_secs = (self._now() - entry_dt).total_seconds()
+                except Exception:
+                    pass
+
                 logger.info(
                     f"[PAPER] [EXIT] {symbol} @ {exit_p:.5f} | PNL: ${pnl_usd:.2f} "
                     f"(fee=${fee_usd:.4f}) (Paper Mode)",
                     extra={"broker": "paper", "symbol": symbol, "event": "order_closed",
                            "exit_price": exit_p, "pnl_usd": pnl_usd, "fee_usd": fee_usd}
                 )
+
+                # Record in trade results store
+                if self.trade_results:
+                    self.trade_results.add_result(TradeResult(
+                        symbol=symbol,
+                        closed_at=self._wall_clock().isoformat(),
+                        pnl_pct=(pnl_usd / (entry_p * abs(pos["size"]))) * 100 if pos["size"] else 0,
+                        pnl_usd=pnl_usd,
+                        is_win=pnl_usd > 0,
+                        tier="100%",
+                        capital_at_close=self.balance,
+                        opened_at=opened_at_str,
+                        duration_seconds=duration_secs,
+                        strategy=pos.get("strategy", "unknown"),
+                        exit_reason=decision.notes or "paper_close",
+                        side=pos_side,
+                    ))
+
+                self._exit_cooldowns[symbol] = time.time()
                 self._save_state()
-                self.refresh_account_summary() # Immediate update
+                self.refresh_account_summary()
                 return (
                     ExecutionResult(ExecutionStatus.EXECUTED, symbol, "Paper flatten executed"),
                     ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, symbol, "Paper flatten")
+                )
+
+        if action == "scale_out":
+            if symbol in self.positions:
+                pos = self.positions[symbol]
+                entry_p = pos["entry_price"]
+                opened_at_str = pos.get("opened_at", "")
+                pos_side = pos.get("side", "long")
+
+                # Determine fraction to close
+                scale_frac = getattr(decision, "scale_out_fraction", None)
+                if scale_frac is None:
+                    # Parse from notes: "...|scale_frac=0.80|..."
+                    notes = decision.notes or ""
+                    import re
+                    m = re.search(r"scale_frac=([\d.]+)", notes)
+                    scale_frac = float(m.group(1)) if m else 0.80
+
+                close_qty = abs(pos["qty"]) * scale_frac
+                remain_qty = abs(pos["qty"]) - close_qty
+
+                # Check Paper config for UI overrides
+                import json
+                try:
+                    with open(_paths.CONFIG_FILE, "r") as f:
+                        _p_conf = json.load(f).get("paper", {})
+                except Exception:
+                    _p_conf = {}
+                
+                fee_bps = float(_p_conf.get("fee_bps", 0.0))
+                spread_bps = float(_p_conf.get("spread_bps", 0.0))
+                slip_bps = float(_p_conf.get("slippage_bps", 0.0))
+                
+                if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
+                    exit_p = price
+                    fee_usd = close_qty * exit_p * self._get_taker_fee(symbol)
+                else:
+                    fee_pct = fee_bps / 10000.0
+                    spread_pct = spread_bps / 10000.0
+                    slip_pct = slip_bps / 10000.0
+                    friction = (spread_pct / 2.0) + slip_pct
+                    exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
+                    fee_usd = close_qty * exit_p * (fee_pct / 2.0)
+
+                pnl_usd = (exit_p - entry_p) * (close_qty if pos_side == "long" else -close_qty)
+                pnl_usd -= fee_usd
+                self.balance += pnl_usd
+
+                # Duration — use entry_time (sim_time domain)
+                duration_secs = 0.0
+                entry_time_str = pos.get("entry_time", "")
+                try:
+                    if entry_time_str:
+                        entry_dt = datetime.fromisoformat(entry_time_str)
+                        duration_secs = (self._now() - entry_dt).total_seconds()
+                except Exception:
+                    pass
+
+                logger.info(
+                    f"[PAPER] [EXIT] {symbol} @ {exit_p:.5f} | PNL: ${pnl_usd:.2f} "
+                    f"(fee=${fee_usd:.4f}) (scale_out {scale_frac:.0%}, remain={remain_qty:.4f}) (Paper Mode)",
+                    extra={"broker": "paper", "symbol": symbol, "event": "scale_out",
+                           "exit_price": exit_p, "pnl_usd": pnl_usd, "fee_usd": fee_usd,
+                           "scale_frac": scale_frac, "remain_qty": remain_qty}
+                )
+
+                # Record partial close as trade result
+                if self.trade_results:
+                    pnl_pct = (pnl_usd / (entry_p * close_qty)) * 100 if close_qty else 0
+                    self.trade_results.add_result(TradeResult(
+                        symbol=symbol,
+                        closed_at=self._wall_clock().isoformat(),
+                        pnl_pct=pnl_pct,
+                        pnl_usd=pnl_usd,
+                        is_win=pnl_usd > 0,
+                        tier=f"{scale_frac:.0%}",
+                        capital_at_close=self.balance,
+                        opened_at=opened_at_str,
+                        duration_seconds=duration_secs,
+                        strategy=pos.get("strategy", "unknown"),
+                        exit_reason=decision.notes or "paper_scale_out",
+                        side=pos_side,
+                    ))
+
+                # Update or remove position
+                if remain_qty < 1e-6:
+                    del self.positions[symbol]
+                    self._exit_cooldowns[symbol] = time.time()
+                else:
+                    pos["qty"] = remain_qty
+                    pos["size"] = remain_qty if pos_side == "long" else -remain_qty
+
+                self._save_state()
+                self.refresh_account_summary()
+                return (
+                    ExecutionResult(ExecutionStatus.EXECUTED, symbol, f"Paper scale_out {scale_frac:.0%}"),
+                    ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, symbol, f"Paper scale_out {scale_frac:.0%}")
                 )
         
         return (
@@ -329,12 +518,8 @@ class PaperBroker:
                     logger.warning(f"[PAPER] [GHOST GUARD] {symbol}: TP {tp} >= entry {entry_p} for SHORT — ignoring TP")
 
             if hit:
-                # Adverse exit fill + taker fee for synthetic stops
-                friction = self.HALF_SPREAD_PCT + self.SLIPPAGE_PCT
-                if side == "long":
-                    exit_price = price * (1 - friction)   # Sell lower
-                else:
-                    exit_price = price * (1 + friction)   # Buy higher to cover
+                # Parity with backtester: exact exit price
+                exit_price = price
                 pnl_usd = (exit_price - entry_p) * pos["size"]
                 fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * self._get_taker_fee(symbol)
                 pnl_usd -= fee_usd
@@ -355,9 +540,11 @@ class PaperBroker:
                 duration_str = "N/A"
                 if opened_at_str:
                     try:
-                        opened_dt = datetime.fromisoformat(opened_at_str)
-                        closed_dt = datetime.now(timezone.utc)
-                        duration_secs = (closed_dt - opened_dt).total_seconds()
+                        # Use entry_time (sim_time domain) for duration, not opened_at (wall-clock)
+                        entry_time_str = pos.get("entry_time", opened_at_str)
+                        entry_dt = datetime.fromisoformat(entry_time_str)
+                        closed_sim = self._now()
+                        duration_secs = (closed_sim - entry_dt).total_seconds()
                         # Human-readable duration
                         mins = int(duration_secs // 60)
                         secs = int(duration_secs % 60)
@@ -384,7 +571,7 @@ class PaperBroker:
                 if self.trade_results:
                     self.trade_results.add_result(TradeResult(
                         symbol=symbol,
-                        closed_at=datetime.now(timezone.utc).isoformat(),
+                        closed_at=self._wall_clock().isoformat(),
                         pnl_pct=pnl_pct,
                         pnl_usd=pnl_usd,
                         is_win=pnl_usd > 0,

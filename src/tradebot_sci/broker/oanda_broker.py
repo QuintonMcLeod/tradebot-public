@@ -331,70 +331,9 @@ class OandaExchangeBroker(IExchangeBroker):
                 except Exception:
                     pass
 
-            # ── Catch-all: backfill ALL recent closed trades not yet logged ──
-            # This covers trades that were never tracked (before persistence existed)
-            bf_path = Path("data/oanda_backfilled_trades.json")
-            backfilled_ids: set = set()
-            if bf_path.exists():
-                try:
-                    backfilled_ids = set(json.loads(bf_path.read_text()))
-                except Exception:
-                    pass
-
-            try:
-                r_all = trades.TradesList(
-                    self.account_id,
-                    params={"state": "CLOSED", "count": 50}
-                )
-                all_resp = self.client.request(r_all)
-                new_backfills = 0
-                for ct in all_resp.get("trades", []):
-                    trade_id = ct.get("id", "")
-                    if trade_id in backfilled_ids:
-                        continue
-
-                    sym = ct.get("instrument", "").replace("_", "")
-                    pnl = float(ct.get("realizedPL", 0))
-                    initial_units = float(ct.get("initialUnits", 0))
-                    price = float(ct.get("price", 0))
-                    pnl_pct = 0.0
-                    if initial_units != 0 and price > 0:
-                        pnl_pct = (pnl / (abs(initial_units) * price)) * 100
-                    side = "SHORT" if initial_units < 0 else "LONG"
-
-                    pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
-                    est_spread = abs(initial_units) * self.AVG_SPREAD_PIPS * pip_value * 2
-                    if "JPY" in sym.upper() and price > 0:
-                        est_spread /= price  # Convert JPY spread to USD
-                    duration_str = self._format_duration(ct.get("openTime"))
-
-                    pnl_sign = '+' if pnl >= 0 else '-'
-                    pnl_str = f"{pnl_sign}${abs(pnl):.2f}"
-                    logger.info(
-                        f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
-                        f"(Pct={pnl_pct:.2f}%) position={side} | "
-                        f"Duration={duration_str} | "
-                        f"Est. Spread Cost: ${est_spread:.4f}"
-                    )
-                    backfilled_ids.add(trade_id)
-                    new_backfills += 1
-
-                if new_backfills:
-                    logger.info(f"[OANDA] Backfilled {new_backfills} missed trade(s) from OANDA history")
-
-                # Persist updated backfill IDs
-                try:
-                    bf_path.parent.mkdir(parents=True, exist_ok=True)
-                    bf_path.write_text(json.dumps(list(backfilled_ids)))
-                except Exception:
-                    pass
-
-            except Exception as e:
-                err_msg = str(e).lower()
-                if "authorization" in err_msg or "403" in err_msg or "insufficient" in err_msg:
-                    logger.debug(f"[OANDA] Trade history backfill skipped (API key lacks trade history permission — this is OK)")
-                else:
-                    logger.warning(f"[OANDA] Catch-all backfill failed: {e}")
+            # ── Catch-all legacy backfill removed ──
+            # (Previously it duplicated normally-closed live trades on restart 
+            # because it blindly queried the last 50 closed trades).
             self._save_tracked_positions()
         except Exception as e:
             err_msg = str(e).lower()
@@ -581,6 +520,7 @@ class OandaExchangeBroker(IExchangeBroker):
                 logger.info(f"[OANDA] Flattened {symbol}. Response: {resp}")
                 # Remove from tracked so synthetic stop scanner doesn't double-fire
                 self._tracked_positions.pop(symbol, None)
+                self._save_tracked_positions()
         except Exception as e:
             logger.error(f"[OANDA] Failed to flatten {symbol}: {e}")
 
@@ -900,9 +840,40 @@ class OandaExchangeBroker(IExchangeBroker):
             risk_amount = self.profile.risk_per_trade_dollars
             if risk_amount <= 0:
                 risk_amount = self._liquid_capital * self.profile.risk_per_trade_pct
-                
-            # units = risk / effective_stop_dist (spread-adjusted, JPY-converted)
-            units = risk_amount / effective_stop_dist
+
+            # ── CURRENCY CONVERSION: Target Risk to Quote Currency ──
+            # The stop_dist is represented in the Quote currency (e.g., JPY, CAD, USD)
+            # We must convert the standard USD risk amount into Quote currency first!
+            sym_upper = decision.symbol.upper().replace("_", "")
+            is_usd_base = sym_upper.startswith("USD")
+            is_jpy_quote = sym_upper.endswith("JPY")
+            is_cad_quote = sym_upper.endswith("CAD")
+            is_chf_quote = sym_upper.endswith("CHF")
+            is_usd_quote = sym_upper.endswith("USD")
+            
+            usd_to_quote_rate = 1.0
+            if is_usd_quote:
+                usd_to_quote_rate = 1.0
+            elif is_usd_base:
+                # e.g., USDJPY, USDCAD: The exchange rate is simply the current price of this pair
+                usd_to_quote_rate = price
+            else:
+                # Cross pairs (e.g., EURJPY, AUDCAD) require an external USD exchange rate
+                try:
+                    from tradebot_sci.market import oanda_provider
+                    if is_jpy_quote:
+                        usd_to_quote_rate = getattr(oanda_provider, '_last_usdjpy', 150.0) or 150.0
+                    elif is_cad_quote:
+                        usd_to_quote_rate = getattr(oanda_provider, '_last_usdcad', 1.35) or 1.35
+                    elif is_chf_quote:
+                        usd_to_quote_rate = getattr(oanda_provider, '_last_usdchf', 0.90) or 0.90
+                except Exception:
+                    usd_to_quote_rate = 150.0 if is_jpy_quote else (1.35 if is_cad_quote else 1.0)
+            
+            risk_amount_in_quote = risk_amount * usd_to_quote_rate
+            
+            # units = risk_in_quote / effective_stop_dist (spread-adjusted)
+            units = risk_amount_in_quote / effective_stop_dist
             
             # Leverage-based sizing Cap
             # Prevent units from exceeding account_equity * target_leverage

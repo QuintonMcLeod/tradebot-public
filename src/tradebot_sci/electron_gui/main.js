@@ -310,6 +310,8 @@ function setupIpcHandlers() {
         { filename: 'adr/003-broker-abstraction.md', title: 'ADR-003: Broker Abstraction Layer', category: 'adr', icon: 'hub', description: '"Why We Don\'t Have \'if broker == OANDA\' Everywhere." The Protocol-based interface that lets OANDA, Gemini, IBKR, and PaperBroker all look the same to the runtime loop.' },
         { filename: 'adr/004-position-hold-lock.md', title: 'ADR-004: Position Hold Lock', category: 'adr', icon: 'lock', description: '"Stop Flipping Like a Pancake." Once a position is open, conflicting signals are blocked. Because 3 round-trips in 10 minutes is not a strategy.', size: 'md' },
         { filename: 'RTFM/32_CONDUCTOR_STRATEGY.md', title: 'The Forex Conductor: The Strategy That Refuses to Lose Gracefully', category: 'rtfm', icon: 'music_note', description: '"Take profit? At 2.5R? My dear boy, we don\'t DO fixed take profits here." The Conductor enters trend pullbacks, cuts 95% of losers at -0.3R ($8 instead of $75), pyramids up to 50 times on winners, and flips direction when stopped out. With cost-aware TP, dynamic ATR trail, and a 100% hit rate across 6 backtesting windows. Includes the complete settings map, the math behind every number, and a very stern warning not to change any of them.', featured: true },
+        { filename: 'RTFM/35_MINOVSKY_ENGINE.md', title: 'The Minovsky Engine: Death of the Phoenix, Birth of the Reactor', category: 'rtfm', icon: 'precision_manufacturing', description: '"Why are you making your own bread when there\'s a perfectly good bakery next door?" The Minovsky Engine replaced the Phoenix Engine — a 1,423-line disaster that reimplemented the backtester and lost $5,370 in 14 days. 240 lines of wrapper around the proven backtester. Named after the Gundam Minovsky Reactor: the core power source ALL systems connect to.' },
+        { filename: 'RTFM/36_ENGINE_AUDIT.md', title: 'Engine Audit: The Minovsky Engine\'s 14-Day Stress Test', category: 'rtfm', icon: 'verified', description: '"Show me what you can do in two weeks." 2,278 trades. +$3,974 PnL. Profit Factor 2.10. SAR, Counter-Reversal, and Guillotine in full action. The complete 14-day audit with per-symbol breakdown, big winners, worst losses, and system activity counts.' },
     ];
 
     try {
@@ -533,33 +535,41 @@ function setupIpcHandlers() {
     });
 
     ipcMain.handle('run-backtest', async (_event, config) => {
-        console.log('[MAIN] run-backtest called:', JSON.stringify(config));
+        console.log('[MAIN] run-replay called (Replayer):', JSON.stringify(config));
         try {
             const { spawn } = require('child_process');
 
-            // Resolve the mega_backtester.py path
-            const backtesterPath = path.join(__dirname, '../../../tools/mega_backtester.py');
-            if (!fs.existsSync(backtesterPath)) {
-                return { error: 'Backtester script not found' };
+            // ── Resolve engine_replay.py path (Minovsky Engine) ───────────────
+            const minovskyPath = path.join(__dirname, '../../../tools/engine/engine_replay.py');
+            const replayPath = path.join(__dirname, '../../../tools/paper_replay.py');
+            const enginePath = fs.existsSync(minovskyPath) ? minovskyPath : replayPath;
+            if (!fs.existsSync(enginePath)) {
+                return { error: 'Minovsky Engine (engine_replay.py) not found.' };
             }
 
-            // Build command arguments
-            const args = [backtesterPath];
-            if (config.replay) {
-                args.push('--replay');
+            // ── Build CLI args ────────────────────────────────────────────────
+            let args;
+            if (enginePath === minovskyPath) {
+                // Minovsky Engine mode — uses --days and --symbols
+                const days = 14; // default 14-day backtest
+                args = [enginePath, '--days', String(days)];
+                if (config.symbols && config.symbols.length > 0) {
+                    args.push('--symbols', config.symbols.join(','));
+                }
+                if (config.balance) args.push('--balance', String(config.balance));
+            } else {
+                // Fallback: paper_replay.py
+                args = [enginePath, '--json-output', '--speed', '0'];
+                if (config.start_date) args.push('--start-date', config.start_date);
+                if (config.end_date) args.push('--end-date', config.end_date);
+                if (config.symbols && config.symbols.length > 0) {
+                    args.push('--symbols', config.symbols.join(','));
+                }
+                if (config.balance) args.push('--balance', String(config.balance));
             }
-            args.push('--json-output');
-            if (config.start_date) args.push('--start', config.start_date);
-            if (config.end_date) args.push('--end', config.end_date);
-            if (config.profile) args.push('--profile', config.profile);
-            if (config.symbols && config.symbols.length > 0) {
-                args.push('--symbols', config.symbols.join(','));
-            }
-
-            // Find Python executable
-            const pythonCandidates = ['python3', 'python'];
+            // ── Find Python ───────────────────────────────────────────────────
             let pythonExe = 'python3';
-            for (const candidate of pythonCandidates) {
+            for (const candidate of ['python3', 'python']) {
                 try {
                     require('child_process').execSync(`${candidate} --version`, { stdio: 'pipe' });
                     pythonExe = candidate;
@@ -567,55 +577,73 @@ function setupIpcHandlers() {
                 } catch (_) { continue; }
             }
 
+            // ── Get the sender window for live streaming ──────────────────────
+            const senderWindow = BrowserWindow.getAllWindows()[0];
+
             return new Promise((resolve) => {
-                let stdout = '';
-                let stderr = '';
+                let stdoutBuf = '';
+                let stderrBuf = '';
 
                 const proc = spawn(pythonExe, args, {
                     cwd: path.join(__dirname, '../../..'),
-                    env: { ...process.env, PYTHONPATH: path.join(__dirname, '../../..') },
-                    timeout: 300000, // 5 minute timeout
+                    env: { ...process.env },
+                    timeout: 1800000, // 30 min max for long replays
                 });
 
-                proc.stdout.on('data', (data) => { stdout += data.toString(); });
-                proc.stderr.on('data', (data) => { stderr += data.toString(); });
+                // ── Stream logs to GUI in real time ───────────────────────────
+                proc.stderr.on('data', (data) => {
+                    stderrBuf += data.toString();
+                    const lines = stderrBuf.split('\n');
+                    stderrBuf = lines.pop(); // keep incomplete line buffered
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        if (senderWindow && !senderWindow.isDestroyed()) {
+                            senderWindow.webContents.send('backtest-progress', line);
+                        }
+                        console.log('[REPLAY]', line);
+                    }
+                });
+
+                proc.stdout.on('data', (data) => {
+                    stdoutBuf += data.toString();
+                });
 
                 proc.on('close', (code) => {
-                    console.log(`[MAIN] Backtester exited with code ${code}`);
+                    console.log(`[MAIN] Replayer exited with code ${code}`);
+
+                    // Flush remaining stderr
+                    if (stderrBuf.trim() && senderWindow && !senderWindow.isDestroyed()) {
+                        senderWindow.webContents.send('backtest-progress', stderrBuf.trim());
+                    }
+
                     if (code !== 0) {
-                        console.error('[MAIN] Backtester stderr:', stderr.slice(-500));
-                        resolve({ error: `Backtester failed (exit ${code}): ${stderr.slice(-200)}` });
+                        resolve({ error: `Replayer failed (exit ${code}). Check the log stream for details.` });
                         return;
                     }
 
-                    // Try to parse JSON from stdout
+                    // ── Parse JSON summary from stdout ────────────────────────
                     try {
-                        // Find the last JSON object in stdout (skip any log lines)
-                        const lines = stdout.trim().split('\n');
-                        let jsonStr = null;
+                        const lines = stdoutBuf.trim().split('\n');
+                        let jsonResult = null;
                         for (let i = lines.length - 1; i >= 0; i--) {
                             const line = lines[i].trim();
-                            if (line.startsWith('{')) {
-                                jsonStr = line;
+                            if (line.startsWith('{') && line.endsWith('}')) {
+                                jsonResult = JSON.parse(line);
                                 break;
                             }
                         }
-                        if (jsonStr) {
-                            resolve(JSON.parse(jsonStr));
-                        } else {
-                            resolve({ error: 'No JSON output from backtester', raw: stdout.slice(-500) });
-                        }
+                        resolve(jsonResult || { error: 'Replay complete but no JSON summary found', raw: stdoutBuf.slice(-300) });
                     } catch (parseErr) {
-                        resolve({ error: `Failed to parse results: ${parseErr.message}`, raw: stdout.slice(-500) });
+                        resolve({ error: `Failed to parse replay results: ${parseErr.message}` });
                     }
                 });
 
                 proc.on('error', (err) => {
-                    resolve({ error: `Failed to start backtester: ${err.message}` });
+                    resolve({ error: `Failed to start Replayer: ${err.message}` });
                 });
             });
         } catch (e) {
-            console.error('[MAIN] run-backtest error:', e);
+            console.error('[MAIN] run-backtest (replayer) error:', e);
             return { error: e.message };
         }
     });

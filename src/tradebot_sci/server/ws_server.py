@@ -196,6 +196,15 @@ class WebSocketServer:
         }
         self.broadcast_sync(msg)
 
+    def broadcast_holdings_sync(self, holdings_data: dict[str, Any]) -> None:
+        """Thread-safe holdings broadcast — dedicated message so the GUI
+        doesn't need to rely on log-line parsing to populate the Holdings panel."""
+        msg: dict[str, Any] = {
+            "type": "holdings",
+            "data": holdings_data
+        }
+        self.broadcast_sync(msg)
+
     def set_on_subscribe_callback(self, cb: Callable[[str, str], Any]) -> None:
         """Register a callback for when a client subscribes to a symbol."""
         self._on_subscribe_cb = cb

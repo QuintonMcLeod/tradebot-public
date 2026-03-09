@@ -597,6 +597,7 @@ class Backtester:
         wind_down_days: int = 0,
         data_paths: Optional[Dict[str, str]] = None,
         htf_data_paths: Optional[Dict[str, str]] = None,
+        warmup_days: int = 0,
     ) -> BacktestResult:
         """Run a complete backtest over the specified date range.
 
@@ -610,6 +611,9 @@ class Backtester:
             htf_data_paths: Optional map of symbol to local JSON HTF data file path
                 (e.g., native 4h candles from Oanda). If provided, these are used
                 instead of resampling LTF candles, matching live bot behavior.
+            warmup_days: Days to run the engine BEFORE start_date for indicator
+                stabilization. During warmup, the engine processes candles and
+                computes indicators but blocks ALL new trade entries.
 
         Returns:
             BacktestResult containing P&L, trades, and performance metrics
@@ -620,8 +624,12 @@ class Backtester:
 
         # Wind-Down Calculation
         simulation_end_date = end_date + timedelta(days=wind_down_days)
+        # Warmup: run engine N days before start_date to stabilize indicators
+        warmup_start = start_date - timedelta(days=warmup_days) if warmup_days > 0 else start_date
+
         logger.info(
             f"[BACKTEST] Starting backtest: {initial_capital:.2f} capital, "
+            f"Warmup: {warmup_days} days (from {warmup_start.date()}), "
             f"Entry Phase: {start_date.date()} to {end_date.date()}, "
             f"Wind-Down: {wind_down_days} days (until {simulation_end_date.date()}), "
             f"symbols={symbols}"
@@ -651,7 +659,8 @@ class Backtester:
         ltf_window = profile.ltf_trend_window or htf_window
         required_seconds = max(htf_window * htf_seconds, ltf_window * ltf_seconds)
         lookback_candles = max(250, math.ceil(required_seconds / tf_seconds) + 10)
-        data_start_date = start_date - timedelta(seconds=tf_seconds * lookback_candles)
+        # Use warmup_start (not start_date) so indicators have data from first warmup bar
+        data_start_date = warmup_start - timedelta(seconds=tf_seconds * lookback_candles)
 
         all_candles: Dict[str, List[Candle]] = {}
         for symbol in symbols:
@@ -724,8 +733,8 @@ class Backtester:
 
         logger.info(f"[BACKTEST] Timeframe: {timeframe} = {tf_seconds} seconds")
 
-        # Simulate bar-by-bar
-        current_time = start_date
+        # Simulate bar-by-bar (start from warmup_start if warmup enabled)
+        current_time = warmup_start
         processed_bar_index = 0
         total_decision_checks = 0
         total_ai_calls = 0
@@ -1384,6 +1393,10 @@ class Backtester:
                     # Check if we have enough capital for NEW entries
                     # Skip capital check if we already have a position (for exit/management signals)
                     if current_position is None and not symbol_positions:
+                        # Warmup Block: No new entries before start_date (indicators stabilizing)
+                        if current_time < start_date:
+                            continue
+
                         # Wind-Down Block: No new entries after end_date
                         if current_time > end_date:
                             if total_decision_checks % 100 == 0: # Reduce log spam

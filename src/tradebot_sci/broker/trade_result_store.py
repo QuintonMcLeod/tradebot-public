@@ -27,7 +27,18 @@ class TradeResult:
     spread_cost: float | None = None     # Estimated round-trip spread cost in USD
 
     def to_dict(self) -> dict:
-        return {k: v for k, v in self.__dict__.items()}
+        d = {k: v for k, v in self.__dict__.items()}
+        # ── Compatibility aliases ─────────────────────────────────────────
+        # Conductor reads t.get("exit_time") to identify closed trades.
+        # Engine SAR reads t.get("pnl") / t.get("pnl_usd") and t.get("side").
+        # TradeResult uses "closed_at"/"opened_at" — add aliases here so
+        # the engine/conductor loss-detection logic works without code churn.
+        d.setdefault("exit_time",  d.get("closed_at"))
+        d.setdefault("entry_time", d.get("opened_at"))
+        d.setdefault("pnl",        d.get("pnl_usd", 0.0))
+        d.setdefault("strategy_name", d.get("strategy"))
+        return d
+
 
     @classmethod
     def from_dict(cls, data: dict) -> TradeResult:

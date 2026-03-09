@@ -106,6 +106,7 @@ def get_config():
         "data_dir_name": "forex_backtest",
         "force_market_open": True,
         "htf_data_paths": htf_data_paths,
+        "warmup_days": 7,
     }
 
 

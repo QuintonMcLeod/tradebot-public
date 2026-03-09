@@ -40,6 +40,7 @@ from tradebot_sci.runtime.trackers import StrikeTracker
 from tradebot_sci.runtime.sabbath import SabbathContext
 from tradebot_sci.runtime.ledger_daemon import LedgerDaemon
 from tradebot_sci.broker.paper_broker import PaperBroker
+from tradebot_sci.market.replay_provider import ReplayMarketProvider
 from tradebot_sci.runtime.scheduling import (
     is_market_open,
     get_current_session,
@@ -684,8 +685,9 @@ def _resolve_active_symbols(
                 and abs(pos.get("size", 0)) > 0
             ]
 
-    # Market hours filter (skip for paper Sabbath)
-    if not (sabbath_active and executor == executor_paper):
+    # Market hours filter (skip for paper Sabbath and replay mode)
+    _is_replay = hasattr(provider, 'replay_date') and provider.replay_date is not None
+    if not ((sabbath_active and executor == executor_paper) or _is_replay):
         symbols_with_positions = set()
         if executor:
             for sym in active_symbols:
@@ -816,15 +818,15 @@ def run_bot(
                 content = f.read()
                 print(content.encode('ascii', 'ignore').decode('ascii'))
         except Exception as e:
-            logger.debug(f"[PHOENIX] MOTD load failed: {e}")
+            logger.debug(f"[MINOVSKY] MOTD load failed: {e}")
     else:
         print("Welcome to Tradebot SCI! (Documentation/motd.txt not found)")
     print("="*60 + "\n")
 
-    logger.info("[PHOENIX] === ACTIVE STRATEGIES SUMMARY ===")
+    logger.info("[MINOVSKY] === ACTIVE STRATEGIES SUMMARY ===")
     for sym, engine in engines.items():
-        logger.info(f"[PHOENIX]   {sym.ljust(10)} -> Strategy: {engine._strategy.name.upper()}")
-    logger.info("[PHOENIX] ==================================" + "\n")
+        logger.info(f"[MINOVSKY]   {sym.ljust(10)} -> Strategy: {engine._strategy.name.upper()}")
+    logger.info("[MINOVSKY] ==================================" + "\n")
 
     executor_real = (
         build_exchange_broker(
@@ -876,6 +878,11 @@ def run_bot(
     now_init = datetime.now(ZoneInfo("UTC"))
     sabbath_active_init, _, _ = sabbath_context.evaluate(now_init)
     
+    # ── Replay provider for weekend paper trading ──
+    provider_real = provider  # keep a reference to the real provider
+    replay_provider = None    # lazily created on first Sabbath activation
+    _replay_data_dir = _paths.APP_DIR / "data" / "forex_backtest"
+
     # Priority: if live trading is off, ALWAYS use paper broker
     if not execute_trades and executor_paper:
         executor = executor_paper
@@ -946,9 +953,9 @@ def run_bot(
     )
 
     controller = RuntimeController(settings, profile_settings)
-    # Wire paper ledger to controller for Sabbath PnL display
-    # This ensures sidebar PnL reads from the same source as analytics.
-    if sabbath_context.enabled and paper_ledger:
+    # Wire paper ledger to controller for PnL display
+    # Paper mode activates via Sabbath OR when live trading is disabled.
+    if (sabbath_context.enabled or not execute_trades) and paper_ledger:
         controller.paper_ledger = paper_ledger
 
     # Bridge logs to WS
@@ -1089,9 +1096,34 @@ def run_bot(
     # Hot-Reload State
     config_path = _paths.CONFIG_FILE
     last_config_mtime = config_path.stat().st_mtime if config_path.exists() else 0
-    
+
+    # UI Settings for Paper Trading
+    paper_sim_enabled = True
+    paper_replay_mode = False
+    paper_synthetic_mode = False
+    sabbath_replay_mode = True
+
+    def _update_paper_settings():
+        nonlocal paper_sim_enabled, paper_replay_mode, paper_synthetic_mode, sabbath_replay_mode
+        import json
+        try:
+            if config_path.exists():
+                with open(config_path, "r") as f:
+                    _raw = json.load(f)
+                    _p = _raw.get("paper", {})
+                    _s = _raw.get("safety", {})
+                    paper_sim_enabled = _p.get("enabled", True)
+                    paper_replay_mode = _p.get("replay_mode", False)
+                    paper_synthetic_mode = _p.get("synthetic_mode", False)
+                    sabbath_replay_mode = _s.get("sabbath_replay_mode", True)
+        except Exception as e:
+            logger.warning(f"Failed to read raw config for paper settings: {e}")
+
+    _update_paper_settings()
+
     try:
         for _ in loop_iter:
+
             # Hot-Reload Check
             try:
                 if config_path.exists():
@@ -1103,6 +1135,9 @@ def run_bot(
                         # 1. Reload Settings
                         settings = reload_settings()
                         
+                        # Fetch pure UI variables that aren't in Pydantic models
+                        _update_paper_settings()
+
                         # 2. Update Profile & Context
                         # We assume the profile name doesn't change mid-stream, just its content
                         profile_settings = settings.get_active_profile()
@@ -1142,6 +1177,34 @@ def run_bot(
                             os.environ[key] = val
                         
                         logger.info(f"[HOT-RELOAD] Environment Synced: {synced_count} safety/performance keys + {len(profile_env_keys)} profile keys")
+
+                        # 2b. Re-read Execute Trades toggle (master ON/OFF)
+                        old_execute = execute_trades
+                        execute_trades = settings.runtime.execute_trades
+                        if execute_trades != old_execute:
+                            logger.info(
+                                "[HOT-RELOAD] 🔄 EXECUTE_TRADES changed: %s → %s",
+                                old_execute, execute_trades,
+                            )
+                            if not execute_trades:
+                                # Switched OFF → force Paper Broker immediately
+                                if executor_paper:
+                                    executor = executor_paper
+                                    logger.info("[HOT-RELOAD] Switched to Paper Broker (Live Trading disabled).")
+                            else:
+                                # Switched ON → restore real broker (unless Sabbath)
+                                if not executor_real:
+                                    logger.info("[HOT-RELOAD] Building Real Exchange Broker dynamically...")
+                                    executor_real = build_exchange_broker(
+                                        settings,
+                                        profile_settings,
+                                        shared_ib=shared_ib,
+                                        allowed_symbols=set(symbols) if symbols else None,
+                                        trade_results=trade_results,
+                                    )
+                                if executor_real and not sabbath_active:
+                                    executor = executor_real
+                                    logger.info("[HOT-RELOAD] Restored real Exchange Broker (Live Trading enabled).")
 
                         # 3. Resolve New Symbols
                         new_symbols = _resolve_symbol_universe(settings, profile_settings, profile_name)
@@ -1194,17 +1257,64 @@ def run_bot(
             if sabbath_active and executor_paper and executor != executor_paper:
                 logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading for total silence.")
                 executor = executor_paper
+
+            # Activate replay mode for paper trading based on UI configuration.
+            _want_replay = False
+            if not execute_trades and paper_sim_enabled:
+                if paper_replay_mode:
+                    _want_replay = True
+                elif sabbath_active and sabbath_replay_mode:
+                    _want_replay = True
+            if _want_replay and executor == executor_paper and replay_provider is None:
+                if paper_synthetic_mode or _replay_data_dir.is_dir():
+                    try:
+                        if paper_synthetic_mode:
+                            from tradebot_sci.market.synthetic_provider import SyntheticMarketProvider
+                            replay_provider = SyntheticMarketProvider(symbols=symbols)
+                            logger.info("[REPLAY] 💥 Synthetic Fire Mode Activated!")
+                        else:
+                            replay_provider = ReplayMarketProvider(
+                                data_dir=_replay_data_dir,
+                                symbols=symbols,
+                            )
+                        provider = replay_provider
+                        # Give paper broker the replay provider for pricing
+                        executor_paper.market_provider = provider
+                        controller.replay_provider = replay_provider
+                        # Swap engine trade_results → paper store so SAR sees paper losses
+                        for eng in engines.values():
+                            eng.trade_results = paper_trade_results
+                            eng.market_provider = provider
+                        logger.info("[REPLAY] Replay provider activated (engines swapped to paper store)")
+                        # Turbo: speed up loop for replay — 1 candle per second
+                        poll_interval = 1
+                        decision_interval = 1
+                        logger.info("[REPLAY] ⚡ Turbo mode: poll=%ds decision=%ds", poll_interval, decision_interval)
+                    except Exception as e:
+                        logger.warning("[REPLAY] Failed to create replay provider: %s", e)
                 # Flag for GUI: switch to paper ledger
                 try:
                     Path("data/.sabbath_active").touch()
                 except Exception:
                     pass
-            elif not sabbath_active and executor_paper and executor == executor_paper:
+            elif not _want_replay and executor_paper and executor == executor_paper:
                 if execute_trades and executor_real:
                     logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker connection.")
                     executor = executor_real
                 elif not execute_trades:
                     logger.debug("[SABBATH] Sabbath ended, but Live Trading is off — staying on Paper Broker.")
+                # Restore real data provider only when returning to live trading
+                if replay_provider is not None and execute_trades:
+                    provider = provider_real
+                    if executor_paper:
+                        executor_paper.market_provider = provider_real
+                    controller.replay_provider = None
+                    replay_provider = None
+                    # Swap engines back to live trade_results + provider
+                    for eng in engines.values():
+                        eng.trade_results = trade_results
+                        eng.market_provider = provider_real
+                    logger.info("[REPLAY] Replay provider deactivated, engines restored to live store")
                 # Flag for GUI: switch back to live ledger
                 try:
                     Path("data/.sabbath_active").unlink(missing_ok=True)
@@ -1225,12 +1335,47 @@ def run_bot(
                 last_holdings_log_ts=last_holdings_log_ts,
                 last_capital_check_ts=last_capital_check_ts,
             )
+            # Push holdings + state to GUI via dedicated WS messages (not log parsing)
+            controller.broadcast_holdings(executor)
+            controller.broadcast_state(executor)
             
             # Sabbath Paper Trading: Allow scanning and trading 
             # if we have successfully swapped to the local PaperBroker.
             allow_entries = not sabbath_active or executor == executor_paper
+            # Replay mode: block entries during warmup, throttle after warmup
+            if replay_provider is not None:
+                if replay_provider.in_warmup:
+                    allow_entries = False
+                elif not replay_provider.can_enter():
+                    allow_entries = False
 
             if next_decision_in <= 0:
+                # Advance the replay cursor if in replay mode
+                if replay_provider is not None:
+                    # Auto-chain: when this day finishes, load the next day
+                    if replay_provider.is_replay_complete:
+                        _prev_day = replay_provider.original_replay_date or replay_provider.replay_date
+                        _next = _prev_day + timedelta(days=1)
+                        # Skip weekends (Sat=5, Sun=6) and Fridays (4)
+                        while _next.weekday() >= 4:
+                            _next += timedelta(days=1)
+                        logger.info("[REPLAY] Day complete! Chaining to next day: %s (%s)",
+                                    _next.strftime('%Y-%m-%d'), _next.strftime('%A'))
+                        try:
+                            replay_provider = ReplayMarketProvider(
+                                data_dir=_replay_data_dir,
+                                symbols=symbols,
+                                replay_date=_next,
+                            )
+                            provider = replay_provider
+                            executor_paper.market_provider = provider
+                            controller.replay_provider = replay_provider
+                            for eng in engines.values():
+                                eng.market_provider = provider
+                        except Exception as e:
+                            logger.warning("[REPLAY] Failed to chain next day: %s", e)
+                    replay_provider.advance()
+
                 active_symbols, auto_mode, last_auto_mode = _resolve_active_symbols(
                     symbols=symbols,
                     engines=engines,
@@ -1295,6 +1440,16 @@ def run_bot(
                     continue
 
 
+                # Replay mode: limit to 1 new-entry candidate per cycle
+                # to prevent position avalanche (all symbols entering at once)
+                if replay_provider is not None and candidates:
+                    manage_cands = [(s, snap, sc, r) for s, snap, sc, r in candidates if r == "existing position"]
+                    entry_cands = [(s, snap, sc, r) for s, snap, sc, r in candidates if r != "existing position"]
+                    # Keep only the top-scoring new-entry candidate
+                    if entry_cands:
+                        entry_cands.sort(key=lambda x: x[2], reverse=True)
+                        candidates = manage_cands + entry_cands[:1]
+
                 managing_positions = any(reason == "existing position" for _, _, _, reason in candidates)
                 success_symbol, attempts, blocked, skipped = process_candidate_cycle(
                     executor,
@@ -1304,7 +1459,8 @@ def run_bot(
                     settings,
                     strike_tracker,
                     candidates,
-                    stop_after_submit=not managing_positions,
+                    # During replay, always stop after first entry to prevent avalanche
+                    stop_after_submit=True if replay_provider is not None else (not managing_positions),
                 )
                 if success_symbol:
                     logger.info(
@@ -1314,6 +1470,9 @@ def run_bot(
                         blocked,
                         skipped,
                     )
+                    # Record entry in replay throttle
+                    if replay_provider is not None:
+                        replay_provider.record_entry()
                 
                 # AI Commentary: Update the UI with market insights
                 try:
@@ -1712,12 +1871,33 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                 if sabbath_active and executor_paper and executor != executor_paper:
                     logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading Mode.")
                     executor = executor_paper
+                    # Activate weekend replay mode
+                    if _replay_data_dir.is_dir() and replay_provider is None:
+                        try:
+                            replay_provider = ReplayMarketProvider(
+                                data_dir=_replay_data_dir,
+                                symbols=symbols,
+                            )
+                            provider = replay_provider
+                            executor_paper.market_provider = provider
+                            controller.replay_provider = replay_provider
+                            logger.info("[REPLAY] Weekend replay provider activated")
+                        except Exception as e:
+                            logger.warning("[REPLAY] Failed to create replay provider: %s", e)
                 elif not sabbath_active and executor_paper and executor == executor_paper:
                     if execute_trades and executor_real:
                         logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker.")
                         executor = executor_real
                     elif not execute_trades:
                         logger.debug("[SABBATH] Sabbath ended, but Live Trading is off — staying on Paper Broker.")
+                    # Restore real provider
+                    if replay_provider is not None:
+                        provider = provider_real
+                        if executor_paper:
+                            executor_paper.market_provider = provider_real
+                        controller.replay_provider = None
+                        replay_provider = None
+                        logger.info("[REPLAY] Replay provider deactivated, real provider restored")
 
                 if executor:
                     executor.refresh_account_summary()
@@ -1743,7 +1923,17 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
 
                 # During Sabbath, we allow entries because they will be paper-traded.
                 allow_entries = execute_trades
+                # Replay mode: block entries during warmup, throttle after warmup
+                if replay_provider is not None:
+                    if replay_provider.in_warmup:
+                        allow_entries = False
+                    elif not replay_provider.can_enter():
+                        allow_entries = False
                 if next_decision_in <= 0:
+                    # Advance the replay cursor if in weekend replay mode
+                    if replay_provider is not None:
+                        replay_provider.advance()
+
                     active_symbols = symbols
                     auto_mode: str | None = None
                     if auto_schedule_enabled:
@@ -1812,6 +2002,14 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         continue
                     # Reset error counter when we successfully fetch at least one symbol
                     consecutive_error_iterations = 0
+                    # Replay mode: limit to 1 new-entry candidate per cycle
+                    if replay_provider is not None and candidates:
+                        manage_cands = [(s, snap, sc, r) for s, snap, sc, r in candidates if r == "existing position"]
+                        entry_cands = [(s, snap, sc, r) for s, snap, sc, r in candidates if r != "existing position"]
+                        if entry_cands:
+                            entry_cands.sort(key=lambda x: x[2], reverse=True)
+                            candidates = manage_cands + entry_cands[:1]
+
                     managing_positions = any(reason == "existing position" for _, _, _, reason in candidates)
                     process_candidate_cycle(
                         executor,
@@ -1821,7 +2019,8 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         settings,
                         scheduled_strike_tracker,
                         candidates,
-                        stop_after_submit=not managing_positions,
+                        # During replay, always stop after first entry to prevent avalanche
+                        stop_after_submit=True if replay_provider is not None else (not managing_positions),
                     )
                     next_decision_in = decision_interval
                 else:
@@ -2047,7 +2246,7 @@ class WSLoggingHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            if self.controller.ws_server and any(marker in msg for marker in ["[STATE]", "[CYCLE]", "[RESULT]", "[AUTO-ENTRY]", "[ROBOCOP]", "[EXIT]", "[PROFILE]", "[HEARTBEAT]", "[DECISION]", "[STRUCTURE]", "[SAFETY]", "[PHOENIX]", "[ENTRY]", "[FILL]", "[HOLD]", "[SIGNAL]", "[TRADE]", "[SCAN]", "[HOLDINGS]", "[TREND-DATA]", "[TREND-GATE]"]):
+            if self.controller.ws_server and any(marker in msg for marker in ["[STATE]", "[CYCLE]", "[RESULT]", "[AUTO-ENTRY]", "[ROBOCOP]", "[EXIT]", "[PROFILE]", "[HEARTBEAT]", "[DECISION]", "[STRUCTURE]", "[SAFETY]", "[MINOVSKY]", "[ENTRY]", "[FILL]", "[HOLD]", "[SIGNAL]", "[TRADE]", "[SCAN]", "[HOLDINGS]", "[TREND-DATA]", "[TREND-GATE]"]):
                 self.controller.ws_server.broadcast_log_sync(record.levelname, msg)
         except Exception:
             self.handleError(record)

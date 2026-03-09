@@ -849,6 +849,18 @@ function updateHoldingsTable(payload) {
     const tbody = document.getElementById('holdings-table-body');
     if (!tbody || !payload.positions) return;
 
+    // Helper: format seconds into human-readable age
+    function formatAge(secs) {
+        if (secs == null || isNaN(secs) || secs < 0) return '—';
+        const s = Math.round(secs);
+        if (s < 60) return s + 's';
+        const m = Math.floor(s / 60);
+        if (m < 60) return m + 'm';
+        const h = Math.floor(m / 60);
+        const rm = m % 60;
+        return rm > 0 ? h + 'h ' + rm + 'm' : h + 'h';
+    }
+
     // Clear existing
     tbody.innerHTML = '';
 
@@ -866,11 +878,18 @@ function updateHoldingsTable(payload) {
         const displayPnl = isNaN(rawPnl) ? "0.00" : rawPnl.toFixed(2);
         const displaySize = Math.abs(parseFloat(pos.size)).toFixed(4);
         const displayStrategy = pos.strategy ? pos.strategy.toUpperCase().replace(/_/g, ' ') : '—';
+        const displayAge = formatAge(pos.age_seconds);
+
+        // Color age: green < 15m, yellow < 1h, red > 1h
+        let ageClass = 'text-green-400';
+        if (pos.age_seconds > 3600) ageClass = 'text-red-400';
+        else if (pos.age_seconds > 900) ageClass = 'text-yellow-400';
 
         row.innerHTML = `
             <td class="p-2 font-mono font-bold text-slate-200">${pos.symbol}</td>
             <td class="p-2 text-center ${sideClass} font-bold text-xs">${pos.side ? pos.side.toUpperCase() : 'LONG'}</td>
             <td class="p-2 text-center text-[10px] font-semibold"><span class="px-2 py-0.5 rounded bg-teal-900/40 text-teal-300 tracking-wider">${displayStrategy}</span></td>
+            <td class="p-2 text-center font-mono text-xs font-bold ${ageClass}">${displayAge}</td>
             <td class="p-2 text-right font-mono text-slate-400">${displaySize}</td>
             <td class="p-2 text-right font-mono font-bold ${pnlClass}">${pnlSign}$${displayPnl}</td>
         `;
@@ -879,7 +898,7 @@ function updateHoldingsTable(payload) {
 
     // Handle empty state
     if (payload.positions.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-500 italic text-xs">No active positions</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500 italic text-xs">No active positions</td></tr>`;
     }
 
     // Update sidebar PNL

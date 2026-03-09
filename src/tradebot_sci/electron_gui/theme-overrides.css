@@ -116,3 +116,495 @@
 .focus\:border-teal-500\/50:focus {
     border-color: var(--accent-glow) !important;
 }
+
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT MODE OVERRIDES
+   When data-theme="light" is set on <html>, flip all
+   light-on-dark Tailwind text/bg colours to dark-on-light.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── BASE TEXT — body inherits text-slate-300 (#cbd5e1) which is invisible on white ── */
+[data-theme="light"] {
+    color: #1e293b !important;
+    /* slate-800 */
+}
+
+/* ── TEXT UTILITY OVERRIDES — light greys → dark equivalents ── */
+[data-theme="light"] .text-slate-300 {
+    color: #334155 !important;
+    /* slate-700 */
+}
+
+[data-theme="light"] .text-slate-400 {
+    color: #475569 !important;
+    /* slate-600 */
+}
+
+[data-theme="light"] .text-slate-400\/80 {
+    color: rgba(71, 85, 105, 0.8) !important;
+}
+
+[data-theme="light"] .text-slate-500 {
+    color: #64748b !important;
+    /* slate-500 — keep as-is, readable on white */
+}
+
+[data-theme="light"] .text-gray-300 {
+    color: #374151 !important;
+    /* gray-700 */
+}
+
+[data-theme="light"] .text-gray-400 {
+    color: #4b5563 !important;
+    /* gray-600 */
+}
+
+[data-theme="light"] .text-gray-500 {
+    color: #6b7280 !important;
+    /* gray-500 */
+}
+
+[data-theme="light"] .text-zinc-400 {
+    color: #52525b !important;
+    /* zinc-600 */
+}
+
+/* ── WHITE TEXT — too bright for light bg, make dark ── */
+[data-theme="light"] .text-white {
+    color: #0f172a !important;
+    /* slate-900 */
+}
+
+[data-theme="light"] .hover\:text-white:hover {
+    color: #0369a1 !important;
+    /* accent blue on hover */
+}
+
+/* ── HIGHLIGHTED / ACTIVE NAV TEXT ── */
+[data-theme="light"] .text-teal-300 {
+    color: #0369a1 !important;
+    /* use light theme accent */
+}
+
+/* ── BACKGROUND OVERRIDES — white/5 and white/10 are invisible on light ── */
+[data-theme="light"] .bg-white\/5,
+[data-theme="light"] .hover\:bg-white\/5:hover {
+    background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] .bg-white\/10,
+[data-theme="light"] .hover\:bg-white\/10:hover {
+    background-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ── CARD / PANEL BACKGROUNDS — make them opaque white ── */
+[data-theme="light"] .bg-\[\#020617\] {
+    background-color: #f1f5f9 !important;
+    /* match light bg */
+}
+
+[data-theme="light"] .bg-slate-900,
+[data-theme="light"] .bg-slate-800 {
+    background-color: #f8fafc !important;
+    /* slate-50 */
+}
+
+/* ── BORDER OVERRIDES — white borders invisible on light ── */
+[data-theme="light"] .border-white\/5,
+[data-theme="light"] .border-white\/10 {
+    border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] .divide-teal-900\/10>*+* {
+    border-color: rgba(3, 105, 161, 0.1) !important;
+}
+
+/* ── INPUT / SELECT FIELDS ── */
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+    color: #1e293b !important;
+    background-color: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+[data-theme="light"] input::placeholder {
+    color: #94a3b8 !important;
+}
+
+[data-theme="light"] option {
+    background-color: #ffffff !important;
+    color: #1e293b !important;
+}
+
+/* ── SCROLLBAR — dark thumb on light track ── */
+[data-theme="light"] ::-webkit-scrollbar-track {
+    background: #e2e8f0 !important;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+    background: #94a3b8 !important;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+    background: #64748b !important;
+}
+
+/* ── CHART TOOLBAR / DROPDOWNS with hardcoded dark bg ── */
+[data-theme="light"] .bg-\[\#0f172a\] {
+    background-color: #e2e8f0 !important;
+}
+
+/* ── TOOLTIP ── */
+[data-theme="light"] #tooltip-content {
+    color: #334155 !important;
+}
+
+/* ── LOG PANEL text ── */
+[data-theme="light"] #log-container {
+    color: #334155 !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT MODE — SETTINGS VIEW
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Settings sidebar — dark bg → light ── */
+[data-theme="light"] #view-settings {
+    background-color: rgba(241, 245, 249, 0.4) !important;
+}
+
+[data-theme="light"] #view-settings>.w-72 {
+    background: rgba(226, 232, 240, 0.6) !important;
+    border-right-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] .bg-black\/40 {
+    background-color: rgba(226, 232, 240, 0.6) !important;
+}
+
+[data-theme="light"] .bg-black\/60 {
+    background-color: rgba(226, 232, 240, 0.8) !important;
+}
+
+/* ── Settings footer bar ── */
+[data-theme="light"] #view-settings .h-14 {
+    background: rgba(226, 232, 240, 0.8) !important;
+    border-top-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ── Control cards — sky blue tint for contrast on white bg ── */
+[data-theme="light"] .control-card {
+    background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%) !important;
+    border: 1px solid #bae6fd !important;
+}
+
+[data-theme="light"] .control-card:hover {
+    background: linear-gradient(135deg, #bae6fd 0%, #e0f2fe 100%) !important;
+    border-color: var(--accent) !important;
+}
+
+/* ── Slider cards — sky blue tint for contrast ── */
+[data-theme="light"] .slider-card {
+    background: linear-gradient(145deg, #e0f2fe 0%, #f0f9ff 100%) !important;
+    border: 1px solid #bae6fd !important;
+}
+
+[data-theme="light"] .slider-card:hover {
+    border-color: var(--accent) !important;
+}
+
+/* ── Slider track ── */
+[data-theme="light"] .slider-input {
+    background: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ── Input fields — dark bg → light ── */
+[data-theme="light"] .input-field {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(0, 0, 0, 0.12) !important;
+    color: #1e293b !important;
+}
+
+[data-theme="light"] .input-field:hover {
+    border-color: rgba(0, 0, 0, 0.2) !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+}
+
+[data-theme="light"] .input-field:focus {
+    background: rgba(255, 255, 255, 1) !important;
+    border-color: var(--accent) !important;
+}
+
+/* ── Settings-input (backtest, etc.) ── */
+[data-theme="light"] .settings-input {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(0, 0, 0, 0.12) !important;
+    color: #1e293b !important;
+    color-scheme: light !important;
+}
+
+/* ── Toggle switches — dark gradient → light ── */
+[data-theme="light"] .toggle {
+    background: linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%) !important;
+    border-color: rgba(0, 0, 0, 0.12) !important;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="light"] .toggle::after {
+    background: linear-gradient(180deg, #fff 0%, #f1f5f9 100%) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* ── Sub-navigation tabs (Strategy Workshop) ── */
+[data-theme="light"] .sub-nav {
+    background: rgba(0, 0, 0, 0.04) !important;
+    border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] .sub-nav-btn {
+    color: #475569 !important;
+}
+
+[data-theme="light"] .sub-nav-btn:hover {
+    color: #1e293b !important;
+    background: rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="light"] .sub-nav-btn.active {
+    color: #ffffff !important;
+}
+
+/* ── Advanced tab rows ── */
+[data-theme="light"] .advanced-row {
+    background: rgba(0, 0, 0, 0.03) !important;
+    border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="light"] .advanced-row:hover {
+    background: rgba(0, 0, 0, 0.05) !important;
+    border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* ── Tooltip — dark bg → light ── */
+[data-theme="light"] #tooltip-popup {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 245, 249, 0.95) 100%) !important;
+    border-color: var(--accent) !important;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 0 20px rgba(3, 105, 161, 0.1) !important;
+}
+
+/* ── Warning/info boxes ── */
+[data-theme="light"] .warning-box {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(245, 158, 11, 0.04) 100%) !important;
+}
+
+/* ── Strategy cards — sky blue tint ── */
+[data-theme="light"] .asset-strategy-card {
+    background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%) !important;
+    border: 1px solid #bae6fd !important;
+}
+
+[data-theme="light"] .asset-strategy-card:hover {
+    border-color: var(--accent) !important;
+}
+
+/* ── Strategy description box — was rgba(0,0,0,0.3) = too dark ── */
+[data-theme="light"] .strategy-description {
+    background: #f0f9ff !important;
+    border-left-color: var(--accent) !important;
+    color: #334155 !important;
+}
+
+[data-theme="light"] .strategy-description strong {
+    color: #0369a1 !important;
+}
+
+[data-theme="light"] .strategy-stats {
+    border-top-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ── Strategy Toolbox grid container & buttons ── */
+[data-theme="light"] .strategy-selector-grid {
+    background: #f0f9ff !important;
+    border-color: #bae6fd !important;
+}
+
+[data-theme="light"] .strategy-selector-grid button {
+    background: #ffffff !important;
+    border-color: #bae6fd !important;
+    color: #334155 !important;
+}
+
+[data-theme="light"] .strategy-selector-grid button:hover {
+    background: #e0f2fe !important;
+    border-color: #7dd3fc !important;
+    color: #0f172a !important;
+}
+
+/* ── JSON editor (profiles) ── */
+[data-theme="light"] #profiles-editor {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(0, 0, 0, 0.12) !important;
+    color: #1e293b !important;
+}
+
+/* ── Search bar in settings — dark bg → light ── */
+[data-theme="light"] #setting-search {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(0, 0, 0, 0.12) !important;
+    color: #1e293b !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT MODE — HELP VIEW
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Help header bar ── */
+[data-theme="light"] #help-content-header {
+    background: rgba(241, 245, 249, 0.8) !important;
+    border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ── Help text using --text-primary fallback (#e2e8f0) — override to dark ── */
+[data-theme="light"] [style*="--text-primary"] {
+    color: #1e293b !important;
+}
+
+/* ── Help card titles, descriptions and all content ── */
+[data-theme="light"] .help-card-title,
+[data-theme="light"] .help-p,
+[data-theme="light"] .help-h1,
+[data-theme="light"] .help-h2,
+[data-theme="light"] .help-h3 {
+    color: #1e293b !important;
+}
+
+[data-theme="light"] .help-card-desc {
+    color: #475569 !important;
+}
+
+/* ── Help search input ── */
+[data-theme="light"] #help-search-input {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(0, 0, 0, 0.12) !important;
+    color: #1e293b !important;
+}
+
+/* ── Help back button ── */
+[data-theme="light"] .help-back-btn {
+    color: #475569 !important;
+}
+
+[data-theme="light"] .help-back-btn:hover {
+    color: var(--accent) !important;
+}
+
+/* ── Help welcome cards (magazine layout) — generated in JS with inline styles ── */
+[data-theme="light"] #help-welcome [style*="background"] {
+    border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ── Help markdown article text ── */
+[data-theme="light"] #help-markdown {
+    color: #1e293b !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT MODE — PROFILES VIEW
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Profile sidebar and editor glass cards ── */
+[data-theme="light"] #view-profiles .w-72,
+[data-theme="light"] #view-profiles .flex-1.max-w-5xl {
+    background: rgba(255, 255, 255, 0.7) !important;
+    border-color: rgba(0, 0, 0, 0.08) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ── Profile header text ── */
+[data-theme="light"] #profile-name-display {
+    color: #1e293b !important;
+}
+
+[data-theme="light"] #view-profiles [style*="color:#cbd5e1"] {
+    color: #334155 !important;
+}
+
+/* ── Profile footer bar ── */
+[data-theme="light"] #view-profiles [style*="background:rgba(0,0,0,0.15)"] {
+    background: rgba(226, 232, 240, 0.5) !important;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT MODE — ANALYTICS / BACKTEST CARDS
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Analytics cards — sky blue tint ── */
+[data-theme="light"] .analytics-card {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%) !important;
+    border: 1px solid #bae6fd !important;
+}
+
+/* ── Mini stat cards — sky blue ── */
+[data-theme="light"] .mini-stat {
+    background: #f0f9ff !important;
+    border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="light"] .mini-label {
+    color: #64748b !important;
+}
+
+/* ── Data tables ── */
+[data-theme="light"] .data-table th {
+    color: #475569 !important;
+    border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] .data-table td {
+    border-bottom-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+/* ── Table header bar ── */
+[data-theme="light"] .table-header-bar {
+    background: rgba(241, 245, 249, 0.8) !important;
+    border-bottom-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ── Settings modal dialog (hardcoded dark bg) ── */
+[data-theme="light"] [style*="background: linear-gradient(145deg, #1a1e2e"] {
+    background: linear-gradient(145deg, #ffffff 0%, #f1f5f9 100%) !important;
+    border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+[data-theme="light"] [style*="color:#fff"] {
+    color: #1e293b !important;
+}
+
+/* ── Glassmorphism panels (rgba white/0.025 variants) ── */
+[data-theme="light"] [style*="background: rgba(255,255,255,0.025)"],
+[data-theme="light"] [style*="background: rgba(255,255,255,0.018)"] {
+    background: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* ── Sidebar status text (white-on-light fix) ── */
+[data-theme="light"] #status-text {
+    color: #334155 !important;
+}
+
+[data-theme="light"] .text-white\/60 {
+    color: #475569 !important;
+}
+
+[data-theme="light"] .text-white\/80 {
+    color: #334155 !important;
+}
+
+[data-theme="light"] .text-white {
+    color: #0f172a !important;
+}

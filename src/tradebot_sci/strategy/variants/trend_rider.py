@@ -20,7 +20,7 @@ class TrendRiderStrategy(BaseStrategy):
 
     Filters:
     - ADX > 20 (from trend detection gates) — confirms trending market
-    - HTF trend strength >= 0.5 — confirms institutional flow
+    - HTF trend strength >= 0.25 — confirms institutional flow
     - RSI 40-60 — confirms pullback (not reversal)
 
     Entry: Price pulls back to EMA(21) and bounces in trend direction
@@ -63,11 +63,11 @@ class TrendRiderStrategy(BaseStrategy):
 
         # 2. HTF strength
         htf_strength = float(gates.get("htf_strength", 0))
-        if htf_strength >= 0.5:
+        if htf_strength >= 0.25:
             score += 15
             details.append(f"str={htf_strength:.2f}")
         else:
-            details.append(f"str={htf_strength:.2f}<0.5")
+            details.append(f"str={htf_strength:.2f}<0.25")
 
         # 3. EMA alignment
         ema_fast = calculate_ema(closes, self.fast_ema)
@@ -150,7 +150,7 @@ class TrendRiderStrategy(BaseStrategy):
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
         htf_strength = float(gates.get("htf_strength", 0))
 
-        if htf_dir == "neutral" or htf_strength < 0.5:
+        if htf_dir == "neutral" or htf_strength < 0.25:
             return None
 
         # ── EMA CROSSOVER CONFIRMATION ───────────────────────────
@@ -206,7 +206,9 @@ class TrendRiderStrategy(BaseStrategy):
                 # Find swing low for stop
                 recent_lows = [c.low for c in snapshot.candles[-10:]]
                 swing_low = min(recent_lows)
-                stop_dist = max(last_close - swing_low, atr * 1.5)
+                is_jpy = "JPY" in snapshot.symbol.upper()
+                min_sl_dist = 15 * (0.01 if is_jpy else 0.0001)  # 15 pip floor
+                stop_dist = max(last_close - swing_low, atr * 1.5, min_sl_dist)
                 stop_loss = last_close - stop_dist
                 take_profit = last_close + (stop_dist * 2.5)  # 2.5R target (Conductor trail may exit earlier)
 
@@ -240,7 +242,9 @@ class TrendRiderStrategy(BaseStrategy):
             if touched_ema and confirmed_bear_bounce and last_close < ema_slow:
                 recent_highs = [c.high for c in snapshot.candles[-10:]]
                 swing_high = max(recent_highs)
-                stop_dist = max(swing_high - last_close, atr * 1.5)
+                is_jpy = "JPY" in snapshot.symbol.upper()
+                min_sl_dist = 15 * (0.01 if is_jpy else 0.0001)  # 15 pip floor
+                stop_dist = max(swing_high - last_close, atr * 1.5, min_sl_dist)
                 stop_loss = last_close + stop_dist
                 take_profit = last_close - (stop_dist * 2.5)  # 2.5R target (Conductor trail may exit earlier)
 

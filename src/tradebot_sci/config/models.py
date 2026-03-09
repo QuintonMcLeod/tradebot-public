@@ -316,7 +316,7 @@ class TradingProfileSettings(BaseModel):
         description="Fixed risk per trade in account currency. Overrides risk_per_trade_pct when > 0.",
     )
     risk_per_trade_pct: float = Field(
-        default=0.045,
+        default=0.01,
         ge=0.0,
         le=1.0,
         description="Standard risk per trade as a fraction of equity.",
@@ -436,6 +436,55 @@ class TradingProfileSettings(BaseModel):
         ge=1.0,
         description="Reward multiplier used for target projection relative to Effective Risk.",
     )
+    # ── Guillotine / tiered loss-cap thresholds ─────────────────────────────
+    guillotine_r_threshold: float = Field(
+        default=-0.3,
+        description="Legacy single-threshold Guillotine R-multiple (backtester compat).",
+    )
+    tier1_r_threshold: float = Field(
+        default=-0.30,
+        description="R-multiple that triggers Tier-1 Guillotine cut (default -0.30 — was -0.15 which was too tight).",
+    )
+    tier1_cut_fraction: float = Field(
+        default=0.80,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of position to close at Tier-1 Guillotine (0.80 = 80%).",
+    )
+    tier2_r_threshold: float = Field(
+        default=-0.60,
+        description="R-multiple that triggers Tier-2 Guillotine cut on residual position.",
+    )
+    tier2_cut_fraction: float = Field(
+        default=0.80,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of remaining position to close at Tier-2 Guillotine (0.80 = 80%).",
+    )
+    # ── Safety guards (profile-level overrides) ─────────────────────────────
+    safety_regime_flip_enabled: bool = Field(
+        default=True,
+        description="Exit position when HTF regime flips against the trade direction.",
+    )
+    safety_drawdown_breaker_enabled: bool = Field(
+        default=True,
+        description="Halt new entries when daily drawdown exceeds safety_drawdown_max_pct.",
+    )
+    safety_drawdown_max_pct: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Daily drawdown threshold (10%) before drawdown breaker halts entries.",
+    )
+    safety_streak_breaker_enabled: bool = Field(
+        default=True,
+        description="Pause a symbol after N consecutive losses.",
+    )
+    safety_atr_shield_enabled: bool = Field(
+        default=True,
+        description="Scale down stops / block entries when ATR is extreme.",
+    )
+
     moon_trailer_enabled: bool = Field(
         default=False,
         description="Enable aggressive profit trailing (Moon Trailer).",
@@ -1154,15 +1203,15 @@ class RiskSettings(BaseModel):
 
     # ── Promoted from profiles (global source of truth) ─────────
     risk_per_trade_pct: float = Field(
-        default=0.045, ge=0.0, le=1.0,
-        description="Standard risk per trade as a fraction of equity (e.g. 0.045 = 4.5%).",
+        default=0.01, ge=0.0, le=1.0,
+        description="Standard risk per trade as a fraction of equity (e.g. 0.01 = 1.0%).",
     )
     risk_per_trade_dollars: float = Field(
         default=0.0, ge=0.0,
         description="Fixed risk per trade in account currency. Overrides pct when > 0.",
     )
     short_risk_pct: float = Field(
-        default=0.045, ge=0.0, le=1.0,
+        default=0.01, ge=0.0, le=1.0,
         description="Risk percentage for short positions.",
     )
     aggressive_risk_per_trade_pct: float = Field(

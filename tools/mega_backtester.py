@@ -216,6 +216,7 @@ def run_simulation(cartridge_name, strategy_override=None, symbol_override=None)
             symbols=symbols,
             wind_down_days=config.get("wind_down_days", 0),
             htf_data_paths=htf_data_paths,
+            warmup_days=config.get("warmup_days", 0),
         )
         
         print("\n=== MEGA BACKTEST RESULTS ===")

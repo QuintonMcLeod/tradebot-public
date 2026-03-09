@@ -45,11 +45,11 @@ _COOLDOWN_BARS = 6
 _entry_cooldown: dict[str, int] = {}
 _ENTRY_COOLDOWN_BARS = 0  # Disabled — other guardrails handle spacing
 
-# ── Reversal signal: when set, allows immediate re-entry in opposite direction ──
-_reversal_pending: dict[str, str] = {}  # symbol → "long" or "short" (direction to enter)
-_SAR_MAX_CONCURRENT = 1  # Max simultaneous SAR positions
-_SAR_RISK_PCT = 0.027  # Reduced from 0.045 — target ~$60 max SAR loss
-_sar_active: set[str] = set()  # symbols with currently open SAR positions
+# ── SAR: conductor delegates to engine for detection/cooldowns. ──────
+# Engine populates gates["sar_dir"] ("long"/"short"/None) before
+# calling check_entry_signal. Conductor reads it here to either
+# constrain sub-strategy direction or compute an ATR forced entry.
+_SAR_RISK_PCT = 0.027  # ~$60 max SAR loss per trade at 5.7k balance
 
 
 def _check_loss_cooldown(symbol: str) -> bool:
@@ -129,22 +129,7 @@ class ForexConductorStrategy(BaseStrategy):
         if open_position:
             return None
 
-        # Clean up _sar_active: if we're checking entry for this symbol
-        # and there's no open position, any prior SAR trade has closed.
-        _sar_active.discard(snapshot.symbol)
-        # Also clean other stale entries by checking trade_history
-        if _sar_active and trade_history:
-            stale = set()
-            for sym in _sar_active:
-                # Find the latest trade for this symbol
-                for t in reversed(trade_history):
-                    if t.get("symbol") == sym:
-                        if t.get("closed_at"):
-                            stale.add(sym)
-                        break
-            if stale:
-                _sar_active.difference_update(stale)
-                logger.info(f"[CONDUCTOR] Cleaned stale SAR entries: {stale}")
+
 
         _tick_cooldowns(snapshot.symbol)
 
@@ -155,59 +140,25 @@ class ForexConductorStrategy(BaseStrategy):
         _ASIAN_FRIENDLY = {"USDJPY", "EURJPY", "GBPJPY", "AUDJPY",
                            "AUDUSD", "NZDUSD"}
         if snapshot.candles:
-            from zoneinfo import ZoneInfo
-            _ts = snapshot.candles[-1].timestamp
-            if _ts.tzinfo is None:
-                _ts = _ts.replace(tzinfo=ZoneInfo("UTC"))
-            et_hour = _ts.astimezone(ZoneInfo("America/New_York")).hour
-            if et_hour >= 20 or et_hour < 3:
-                if snapshot.symbol not in _ASIAN_FRIENDLY:
-                    return None  # Dead zone — skip non-Asian pairs
-
-        # ── Stop-and-Reverse: populate _reversal_pending ─────────
-        # If enabled, scan trade_history for a recent stop exit on
-        # this symbol.  If found, set _reversal_pending so the entry
-        # logic immediately fires in the opposite direction (bypasses
-        # cooldowns and blocks wrong-way signals).
-        profile = gates.get("profile")
-        sar_enabled = bool(getattr(profile, "stop_and_reverse_enabled", False)) if profile else False
-        if sar_enabled and trade_history and snapshot.symbol not in _reversal_pending:
-            for t in reversed(trade_history):  # newest first
-                if t.get("symbol") != snapshot.symbol:
-                    continue
-                # SAR fires on ANY losing trade — no time window.
-                # If the last trade on this symbol was a loss, flip direction.
-                is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
-                if not is_loss:
-                    _sar_active.discard(snapshot.symbol)  # Position closed
-                    break  # last trade was a win — no reversal needed
-                # Set reversal direction: opposite of the losing side
-                # Store (direction, timestamp) so we can detect stale SARs
-                from datetime import datetime, timezone
-                old_side = (t.get("side") or "").lower()
-                rev = None
-                if old_side == "long":
-                    rev = "short"
-                elif old_side == "short":
-                    rev = "long"
-                if rev:
-                    _reversal_pending[snapshot.symbol] = (rev, datetime.now(timezone.utc))
-                    _sar_active.discard(snapshot.symbol)  # Position closed → free slot
-                    logger.info(
-                        f"[CONDUCTOR] {snapshot.symbol}: LOSS DETECTED → "
-                        f"reversal pending {rev}"
-                    )
-                break  # only process most recent
+            if not gates.get("is_synthetic_override", False):
+                from zoneinfo import ZoneInfo
+                _ts = snapshot.candles[-1].timestamp
+                if _ts.tzinfo is None:
+                    _ts = _ts.replace(tzinfo=ZoneInfo("UTC"))
+                et_hour = _ts.astimezone(ZoneInfo("America/New_York")).hour
+                if et_hour >= 20 or et_hour < 3:
+                    if snapshot.symbol not in _ASIAN_FRIENDLY:
+                        return None  # Dead zone — skip non-Asian pairs
 
         # ── Loss streak cooldown ─────────────────────────────────
-        if _check_loss_cooldown(snapshot.symbol) and not has_reversal:
+        sar_dir = gates.get("sar_dir")  # Set by engine SAR
+        if _check_loss_cooldown(snapshot.symbol) and not sar_dir:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by loss streak cooldown")
             return None
 
         # ── Entry cooldown (2h between entries per symbol) ───────
-        # Bypass if a reversal is pending (we just got stopped,
-        # market is moving the other way — ride it)
-        has_reversal = snapshot.symbol in _reversal_pending
+        # Bypass if engine SAR is pending (time-critical reversal)
+        has_reversal = bool(sar_dir)
         if _entry_cooldown.get(snapshot.symbol, 0) > 0 and not has_reversal:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by entry cooldown ({_entry_cooldown.get(snapshot.symbol, 0)} bars remaining)")
             return None
@@ -224,8 +175,8 @@ class ForexConductorStrategy(BaseStrategy):
         htf_strength = gates.get("htf_strength", 0)
         # Only gate strength for trending regime — ranging is counter-trend so
         # a neutral/conflicted HTF is actually the ideal entry condition.
-        if regime == "trending" and htf_strength < 0.3 and not has_reversal:
-            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by weak htf_strength={htf_strength:.2f} (need >=0.3)")
+        if regime == "trending" and htf_strength < 0.10 and not has_reversal:
+            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by weak htf_strength={htf_strength:.2f} (need >=0.10)")
             return None  # Too weak to trust as trending
 
 
@@ -236,10 +187,12 @@ class ForexConductorStrategy(BaseStrategy):
             if not gates.get("htf_align", False):
                 htf_dir = gates.get("htf_dir", "neutral")
                 ltf_dir = gates.get("ltf_dir", "neutral")
-                # Allow if one is neutral (not conflicting, just undecided)
-                if htf_dir in ("long", "short") and ltf_dir in ("long", "short") and not has_reversal:
-                    logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by HTF/LTF misalignment (htf={htf_dir}, ltf={ltf_dir})")
-                    return None  # Conflicting directions — skip
+                # Soft conflict: set flag for sub-strategies to penalize, but don't hard-block.
+                # A conflicted multi-TF picture is often ideal for mean-reversion entries.
+                if htf_dir in ("long", "short") and ltf_dir in ("long", "short") and htf_dir != ltf_dir:
+                    if not has_reversal:
+                        logger.info(f"[CONDUCTOR] {snapshot.symbol}: HTF/LTF conflict (htf={htf_dir}, ltf={ltf_dir}) — soft flag")
+                    gates["htf_ltf_conflict"] = True
 
         # ── NOTE: Macro trend filters tested and reverted ─────────
         # EMA slope, price-vs-EMA, persistence, EMA-50/100 alignment
@@ -285,7 +238,7 @@ class ForexConductorStrategy(BaseStrategy):
             self._cooldown_until[sym] = self._bar_index + 4
             cooldown_bar = self._cooldown_until[sym]
 
-        is_sar_pending = sym in _reversal_pending
+        is_sar_pending = bool(sar_dir)
         if cooldown_bar > self._bar_index and not is_sar_pending:
             bars_left = cooldown_bar - self._bar_index
             logger.info(
@@ -308,32 +261,11 @@ class ForexConductorStrategy(BaseStrategy):
         if regime == "transitional" and "mean_reversion" in self._strategies:
             candidates.append("mean_reversion")
 
-        # ── STALE SAR CLEANUP (before candidate loop) ─────────────
-        # Clear stale SAR reversals that oppose HTF trend BEFORE the
-        # entry loop so they don't block valid strategy entries.
-        _rev = _reversal_pending.get(snapshot.symbol)
-        if _rev:
-            if isinstance(_rev, tuple):
-                _rev_dir, _rev_time = _rev
-            else:
-                _rev_dir, _rev_time = _rev, None
-            from datetime import datetime, timezone
-            _rev_age = (datetime.now(timezone.utc) - _rev_time).total_seconds() if _rev_time else 9999
-            if _rev_age > 600:  # > 10 min = stale
-                htf_dir = str(gates.get("htf_dir", "neutral")).lower()
-                if htf_dir != "neutral" and htf_dir != _rev_dir:
-                    logger.info(
-                        f"[CONDUCTOR] {snapshot.symbol}: STALE SAR CLEARED — "
-                        f"reversal {_rev_dir} is {_rev_age:.0f}s old, "
-                        f"opposes HTF trend {htf_dir}"
-                    )
-                    _reversal_pending.pop(snapshot.symbol, None)
-                    _sar_active.discard(snapshot.symbol)
-
         logger.info(
             f"[CONDUCTOR] {snapshot.symbol}: regime={regime}, "
             f"htf_str={htf_strength:.2f}, route={primary_key}, "
             f"candidates={candidates + ['session_momentum']}"
+            + (f" [SAR:{sar_dir}]" if sar_dir else "")
         )
 
         # Session Momentum is always a candidate (self-gates by time)
@@ -353,13 +285,9 @@ class ForexConductorStrategy(BaseStrategy):
             )
             if signal and signal.action not in ("stand_aside", "hold"):
                 # ── CORRELATION GUARD ─────────────────────────────
-                # Prevent simultaneous entries on correlated pairs
-                # (e.g., EURUSD + GBPUSD both short at the same time)
-                # EXCEPTION: SAR reversal entries bypass this guard —
-                # they are time-critical and blocking them negates the
-                # entire stop-and-reverse recovery mechanism.
-                is_sar_entry = snapshot.symbol in _reversal_pending
-                if trade_history and not is_sar_entry:
+                # Prevent simultaneous entries on correlated pairs.
+                # SAR entries bypass — they are time-critical.
+                if trade_history and not has_reversal:
                     from datetime import timedelta
                     now = snapshot.candles[-1].timestamp if snapshot.candles else None
                     if now:
@@ -386,27 +314,21 @@ class ForexConductorStrategy(BaseStrategy):
                     f"[{key}|{regime}] {signal.structure_summary or ''}"
                 )
 
-                # ── REVERSAL DIRECTION CHECK ──────────────────────
-                # If a reversal is pending, only allow entries in the
-                # reversal direction. Reject wrong-way signals and
-                # fall through to forced SAR entry below.
-                rev_entry = _reversal_pending.get(snapshot.symbol)
-                if rev_entry:
-                    rev_dir = rev_entry[0] if isinstance(rev_entry, tuple) else rev_entry
+                # ── SAR DIRECTION CHECK ──────────────────────────
+                # If engine SAR is pending, only allow entries in that
+                # direction. Reject wrong-way signals and fall through
+                # to the ATR forced-entry below.
+                if sar_dir:
                     signal_dir = (
                         "long" if signal.action == "enter_long" else "short"
                     )
-                    if signal_dir != rev_dir:
+                    if signal_dir != sar_dir:
                         logger.info(
                             f"[CONDUCTOR] {snapshot.symbol}: BLOCKED — "
-                            f"reversal pending {rev_dir}, got {signal_dir}"
+                            f"SAR requires {sar_dir}, got {signal_dir}"
                         )
-                        break  # Fall through to forced SAR entry
-                    # Correct direction — consume the reversal
-                    _reversal_pending.pop(snapshot.symbol, None)
-                    signal.notes = (
-                        f"[REVERSAL] {signal.notes}"
-                    )
+                        break  # Fall through to ATR forced SAR entry
+                    signal.notes = f"[REVERSAL] {signal.notes}"
 
                 logger.info(
                     f"[CONDUCTOR] {snapshot.symbol}: "
@@ -419,69 +341,48 @@ class ForexConductorStrategy(BaseStrategy):
                 signal.strategy_name = self.name
                 return signal
 
-        # ── FORCED SAR ENTRY ──────────────────────────────────
-        # If a reversal is pending but no sub-strategy fired,
-        # force an entry in the SAR direction using ATR-based stop.
-        # Limit to _SAR_MAX_CONCURRENT simultaneous SAR positions.
-        # SCORE GATE: Don't SAR into terrible market conditions.
-        rev_entry = _reversal_pending.pop(snapshot.symbol, None)
-        if rev_entry:
-            # Minimum score gate: require B- (60) to proceed
-            market_score = gates.get("market_score") or gates.get("score") or 0
-            if market_score < 60:
-                logger.info(
-                    f"[CONDUCTOR] {snapshot.symbol}: SAR BLOCKED — "
-                    f"market score {market_score:.0f} < 60 (B- minimum)"
-                )
-                _sar_active.discard(snapshot.symbol)
-                return None
-            # Unpack (direction, timestamp) — handle legacy plain strings
-            if isinstance(rev_entry, tuple):
-                rev_dir, rev_time = rev_entry
-            else:
-                rev_dir, rev_time = rev_entry, None
-
-            # ── STALE SAR TREND VALIDATION ────────────────────────
-            # Immediate SARs (< 10 min) fire freely — the reversal
-            # momentum is still valid. Stale SARs (> 10 min) must
-            # align with the HTF trend or they get cancelled.
-            SAR_STALE_SECONDS = 600  # 10 minutes
-            from datetime import datetime, timezone
-            age_seconds = (datetime.now(timezone.utc) - rev_time).total_seconds() if rev_time else 9999
-            if age_seconds > SAR_STALE_SECONDS:
-                htf_dir = getattr(snapshot.trend_htf, "direction", "neutral") if snapshot.trend_htf else "neutral"
-                if htf_dir != "neutral" and htf_dir != rev_dir:
-                    logger.info(
-                        f"[CONDUCTOR] {snapshot.symbol}: SAR CANCELLED — "
-                        f"reversal {rev_dir} is stale ({age_seconds:.0f}s) "
-                        f"and opposes HTF trend {htf_dir}"
-                    )
-                    _sar_active.discard(snapshot.symbol)
-                    return None
-                else:
-                    logger.info(
-                        f"[CONDUCTOR] {snapshot.symbol}: SAR STALE ({age_seconds:.0f}s) "
-                        f"but aligned with HTF trend {htf_dir} — proceeding"
-                    )
-
-            # Use _sar_active set to track concurrent SAR positions
-            if len(_sar_active) >= _SAR_MAX_CONCURRENT:
+        # ── ATR-BASED FORCED SAR ENTRY ────────────────────────────────
+        # Engine detected a SAR condition and passed sar_dir via gates.
+        # No sub-strategy fired in that direction — compute ATR SL/TP
+        # and return a forced reversal entry so we get proper risk sizing
+        # (engine fallback has no SL/TP and defaults to zero-risk sizing).
+        if sar_dir and snapshot.candles:
+            # Guard: need at least 30 candles for indicators
+            htf_adx = gates.get("htf_adx") or 0
+            htf_dir_sar = gates.get("htf_dir", "neutral")
+            ltf_dir_sar = gates.get("ltf_dir", "neutral")
+            candles_ok  = len(snapshot.candles) >= 30
+            has_direction = (htf_dir_sar != "neutral") or (ltf_dir_sar != "neutral")
+            if not candles_ok or not has_direction:
                 logger.info(
                     f"[CONDUCTOR] {snapshot.symbol}: SAR DEFERRED — "
-                    f"{len(_sar_active)} SAR positions open (max {_SAR_MAX_CONCURRENT}): {_sar_active}"
+                    f"cold-start or no directional data "
+                    f"(htf={htf_dir_sar}/{htf_adx:.0f} ltf={ltf_dir_sar}, "
+                    f"cands={len(snapshot.candles)})"
                 )
-                _reversal_pending[snapshot.symbol] = (rev_dir, rev_time)  # Put it back
-                return None
+                return None  # Engine will retry next tick (sar_dir stays in _sar_pending)
+
             from tradebot_sci.strategy.icc_signals import calculate_atr
             atr = calculate_atr(snapshot.candles[-50:], period=14)
-            if atr and atr > 0 and snapshot.candles:
+            if atr and atr > 0:
                 price = snapshot.candles[-1].close
-                # Floor: SL must be at least 15 pips to avoid broker min-SL block (10 pips)
                 is_jpy = "JPY" in snapshot.symbol.upper()
                 min_sl_dist = 15 * (0.01 if is_jpy else 0.0001)
                 stop_dist = max(atr * 1.5, min_sl_dist)
-                tp_dist = stop_dist * 2.0  # 2:1 R:R
-                if rev_dir == "long":
+
+                # TP = reversal_tp_r × risk (RTFM: 1R, NOT 2R)
+                _profile = gates.get("profile")
+                tp_r = float(getattr(_profile, "reversal_tp_r", 1.0)) if _profile else 1.0
+                tp_dist = stop_dist * tp_r
+
+                # Cost-aware TP: add spread buffer so net PnL ≈ true 1R after fees
+                cost_aware = bool(getattr(_profile, "reversal_cost_aware_tp", True)) if _profile else True
+                if cost_aware:
+                    from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                    fee_pct = get_fee_for_symbol(snapshot.symbol)
+                    tp_dist += price * fee_pct * 2  # round-trip spread
+
+                if sar_dir == "long":
                     sl = price - stop_dist
                     tp = price + tp_dist
                     action = "enter_long"
@@ -490,15 +391,14 @@ class ForexConductorStrategy(BaseStrategy):
                     tp = price - tp_dist
                     action = "enter_short"
                 logger.info(
-                    f"[CONDUCTOR] {snapshot.symbol}: FORCED SAR "
-                    f"{rev_dir.upper()} (no strategy signal — forcing)"
+                    f"[CONDUCTOR] {snapshot.symbol}: FORCED SAR {sar_dir.upper()} "
+                    f"via engine (ATR={atr:.5f}, sl={sl:.5f}, tp_r={tp_r})"
                 )
                 _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
-                _sar_active.add(snapshot.symbol)
                 return AITradeDecision(
                     symbol=snapshot.symbol,
                     timeframe=snapshot.timeframe,
-                    bias=rev_dir,
+                    bias=sar_dir,
                     phase="correction",
                     action=action,
                     entry_price=price,
@@ -507,14 +407,12 @@ class ForexConductorStrategy(BaseStrategy):
                     risk_per_trade_pct=_SAR_RISK_PCT,
                     urgency="high",
                     structure_summary=(
-                        f"[SAR] Forced reversal {rev_dir} "
-                        f"(ATR={atr:.5f})"
+                        f"[SAR] Forced reversal {sar_dir} (ATR={atr:.5f})"
                     ),
                     notes=(
-                        f"[REVERSAL][Conductor:SAR] Forced "
-                        f"{rev_dir} — no strategy signal"
+                        f"[REVERSAL][Conductor:SAR] Forced {sar_dir} — no strategy signal"
                     ),
-                    strategy_name=self.name,
+                    strategy_name="reversal",
                 )
 
         return None
@@ -671,20 +569,31 @@ class ForexConductorStrategy(BaseStrategy):
                                 )
 
                 # ── LOSING SIDE: TIERED GUILLOTINE ───────────────
-                # T1 @ -0.15R → cut 80% (leaves 20%).
-                # T2 @ -0.3R  → cut 80% of what's left (leaves 4%).
-                # SAR trades skip — they have their own tight SL.
+                # DISABLED FOR PARITY (2026-03-08):
+                # In the backtester (backtester.py L892-951), the Guillotine
+                # fires ONLY on the candle where the stop is actually hit,
+                # cascading T1→T2→final as intra-candle simulation. It does
+                # NOT fire mid-trade on every decision cycle.
                 #
-                # Thresholds / fractions are profile-configurable:
-                #   tier1_r_threshold  (default -0.15)
-                #   tier1_cut_fraction (default  0.80)
-                #   tier2_r_threshold  (default -0.30)
-                #   tier2_cut_fraction (default  0.80)
+                # This standalone version was cutting 80% of the position at
+                # just -0.15R (a tiny 15-minute pullback), killing trades
+                # before they had any chance to recover. This caused a 100%
+                # loss rate in paper trading while the backtester showed wins
+                # because it let trades breathe until the actual stop was hit.
+                #
+                # The Guillotine cascade still happens via paper_broker's
+                # stop_loss/take_profit checking once price hits the stop.
+                # Re-enabled (2026-03-09): OANDA does not do tiered stops. We must do it mid-trade.
                 if not is_sar:
-                    t1_r  = float(getattr(self.profile, 'tier1_r_threshold',  -0.15))
-                    t1_cut = float(getattr(self.profile, 'tier1_cut_fraction',  0.80))
-                    t2_r  = float(getattr(self.profile, 'tier2_r_threshold',  -0.30))
-                    t2_cut = float(getattr(self.profile, 'tier2_cut_fraction',  0.80))
+                    # Use self.profile if set by engine; otherwise fall back to the
+                    # profile injected via gates, or a safe object with defaults.
+                    _profile = getattr(self, 'profile', None) \
+                        or gates.get('profile') \
+                        or type('_P', (), {})()
+                    t1_r  = float(getattr(_profile, 'tier1_r_threshold',  -0.30))
+                    t1_cut = float(getattr(_profile, 'tier1_cut_fraction',  0.80))
+                    t2_r  = float(getattr(_profile, 'tier2_r_threshold',  -0.80))
+                    t2_cut = float(getattr(_profile, 'tier2_cut_fraction',  0.80))
 
                     # ── Tier 1 ────────────────────────────────────────
                     if r_multiple <= t1_r and "guillotine_t1" not in fired:
@@ -761,6 +670,7 @@ class ForexConductorStrategy(BaseStrategy):
                         bias=pos_dir,
                         phase="management",
                         action="close_position",
+                        strategy_name=self.name,
                         notes=(
                             f"[MANAGEMENT] Ranging TP: "
                             f"{r_multiple:.2f}R — oscillation peak"
@@ -872,6 +782,7 @@ class ForexConductorStrategy(BaseStrategy):
                                     bias=pos_dir, phase="management",
                                     action="scale_in",
                                     risk_per_trade_pct=0.04,
+                                    strategy_name=self.name,
                                     notes=(
                                         f"[MANAGEMENT] Momentum accel: "
                                         f"candle={candle_move/initial_risk:.1f}R"

@@ -23,6 +23,7 @@ class RuntimeController:
         self.profile_name = settings.app.profile_name
         self.ws_server: Optional[WebSocketServer] = None
         self.last_capital_sync_ts = 0.0
+        self.replay_provider = None  # Set by loop.py during Sabbath replay
         
     def start_ws_server(self, port: int = 8080):
         # Use port from settings if it's not the default or if we want to override
@@ -44,15 +45,21 @@ class RuntimeController:
             return
             
         now = time.time()
-        if not force and (now - self.last_capital_sync_ts < 30.0):
+        is_paper = not getattr(self.settings.runtime, "execute_trades", True)
+        # Paper/replay mode: 5s throttle for fast turbo updates; Live: 30s
+        throttle = 5.0 if is_paper else 30.0
+        if not force and (now - self.last_capital_sync_ts < throttle):
             return
             
         try:
-            # Distinguish between Liquid Cash and Total Equity
+            sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
+
+            # In paper mode, read from the executor that was passed (which IS the paper executor)
+            # The loop.py already passes the active executor (paper when in paper mode)
             cash = executor.get_liquid_capital() if executor else 0.0
             total_equity = executor.get_total_balance_value() if executor else 0.0
             
-            # Get active holdings count
+            # Get active holdings count from the active executor
             holdings_count = 0
             if executor and hasattr(executor, "list_open_position_symbols"):
                 open_symbols = list(executor.list_open_position_symbols() or [])
@@ -62,8 +69,6 @@ class RuntimeController:
                 ]
                 holdings_count = len(active_holds)
 
-            sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
-
             # Refresh profile_name from settings each time to catch hot-reloads
             current_profile = getattr(self.settings.app, 'profile_name', self.profile_name)
             if current_profile != self.profile_name:
@@ -71,15 +76,10 @@ class RuntimeController:
                 self.profile_name = current_profile
 
             # Multi-interval PnL Tracking
-            # During Sabbath, show paper trade PnL from the ledger (same source as analytics page);
-            # otherwise show live PnL from the trade results store.
+            # The executor is already switched to paper in paper mode (loop.py L887),
+            # so executor.trade_results always points to the correct store.
             pnl_stats = {}
-            if sabbath_active and hasattr(self, 'paper_ledger') and self.paper_ledger:
-                day = self.paper_ledger.get_current_day()
-                paper_pnl = day.get('pnl_realized', 0.0)
-                for tf_code in ['24h', 'week', 'month', 'year', 'all']:
-                    pnl_stats[tf_code] = paper_pnl
-            elif executor and hasattr(executor, 'trade_results'):
+            if executor and hasattr(executor, 'trade_results') and executor.trade_results:
                 store = executor.trade_results
                 for tf_code in ['24h', 'week', 'month', 'year', 'all']:
                     pnl_stats[tf_code] = store.get_stats_for_timeframe(tf_code).get('pnl_usd', 0.0)
@@ -92,16 +92,63 @@ class RuntimeController:
                 "profile": self.profile_name,
                 "symbols": getattr(self.profile_settings, "symbols", []),
                 "is_sabbath": sabbath_active,
-                "is_paper": not getattr(self.settings.runtime, "execute_trades", True) or sabbath_active,
+                "is_paper": is_paper or sabbath_active,
                 "halted": self.ws_server.is_halted(),
                 "pnl_stats": pnl_stats,
-                "time_format": getattr(self.settings.runtime, "time_format", "24h")
+                "time_format": getattr(self.settings.runtime, "time_format", "24h"),
             }
-            logger.info(f"[PRODB-STATE] Broadcasting state: profile={self.profile_name} equity=${total_equity:.2f} cash=${cash:.2f}")
+            # Include replay info if weekend replay is active
+            if self.replay_provider and hasattr(self.replay_provider, 'get_replay_info'):
+                state_data.update(self.replay_provider.get_replay_info())
+            logger.info(f"[PRODB-STATE] Broadcasting state: profile={self.profile_name} equity=${total_equity:.2f} cash=${cash:.2f} paper={is_paper}")
             self.ws_server.broadcast_state_sync(state_data)
             self.last_capital_sync_ts = now
         except Exception as e:
             logger.error(f"[CONTROLLER] State broadcast failed: {e}")
+
+    def broadcast_holdings(self, executor: Any):
+        """Send current paper/live holdings to GUI as a dedicated WS message.
+        This is more reliable than relying on log-line parsing."""
+        if not self.ws_server or not executor:
+            return
+        try:
+            positions = []
+            # Get current candle time from replay provider (or fall back to wall clock)
+            sim_time = None
+            mp = getattr(executor, 'market_provider', None)
+            if mp and hasattr(mp, 'sim_time'):
+                sim_time = mp.sim_time
+            if sim_time is None:
+                sim_time = datetime.now(timezone.utc)
+
+            if hasattr(executor, 'list_open_position_symbols'):
+                for sym in (executor.list_open_position_symbols() or []):
+                    snap = executor.get_open_position_snapshot(sym)
+                    if snap and not snap.get('is_dust', False):
+                        # Compute candle-time-based age so GUI shows "15m" not "2 days"
+                        entry_str = snap.get('entry_time', '')
+                        if entry_str:
+                            try:
+                                from datetime import datetime as dt
+                                entry_dt = dt.fromisoformat(entry_str.replace("Z", "+00:00"))
+                                if entry_dt.tzinfo is None:
+                                    entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                                st = sim_time if sim_time.tzinfo else sim_time.replace(tzinfo=timezone.utc)
+                                snap['age_seconds'] = max(0, (st - entry_dt).total_seconds())
+                            except Exception:
+                                snap['age_seconds'] = 0
+                        positions.append(snap)
+            total_pnl = sum(p.get('unrealized_pnl', 0) for p in positions)
+            holdings_data = {
+                "count": len(positions),
+                "positions": positions,
+                "reason": "heartbeat",
+                "total_unrealized_pnl": total_pnl,
+                "sim_time": sim_time.isoformat() if sim_time else None,
+            }
+            self.ws_server.broadcast_holdings_sync(holdings_data)
+        except Exception as e:
+            logger.error(f"[CONTROLLER] Holdings broadcast failed: {e}")
 
     def broadcast_candle(self, symbol: str, timeframe: str, candle: Candle):
         """Pushes a new candle to the UI."""

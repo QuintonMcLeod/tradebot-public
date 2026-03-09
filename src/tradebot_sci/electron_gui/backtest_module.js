@@ -134,14 +134,12 @@
         }
     }
 
-    // ── Run backtest ─────────────────────────────────────────
+    // ── Run backtest (Replayer) ───────────────────────────────────────────
     async function _runBacktest() {
         if (_running) return;
 
         const startDate = $('bt-start-date')?.value;
         const endDate = $('bt-end-date')?.value;
-        const profile = $('bt-profile-select')?.value;
-        const replayMode = $('bt-mode-toggle')?.checked ?? true;
 
         // Get selected symbols
         const pills = document.querySelectorAll('#bt-symbol-pills input:checked');
@@ -157,23 +155,28 @@
         }
 
         _running = true;
-        _showStatus('Running backtest...', 'running');
+        _showStatus('Replay running...', 'running');
         _setRunButtonState(true);
         _hideResults();
+        _showLogStream();
+
+        // Register live progress listener
+        if (window.api?.onBacktestProgress) {
+            window.api.onBacktestProgress((line) => _appendLogLine(line));
+        }
 
         try {
             const result = await api.invoke('run-backtest', {
                 start_date: startDate,
                 end_date: endDate,
-                profile: profile,
                 symbols: symbols,
-                replay: replayMode,
+                balance: 5700,
             });
 
             if (result?.error) {
                 _showStatus(result.error, 'error');
             } else {
-                _showStatus('Backtest complete', 'success');
+                _showStatus('Replay complete \u2713', 'success');
                 _renderResults(result);
             }
         } catch (e) {
@@ -181,8 +184,39 @@
         } finally {
             _running = false;
             _setRunButtonState(false);
+            if (window.api?.offBacktestProgress) window.api.offBacktestProgress();
         }
     }
+
+    // ── Live log stream panel ─────────────────────────────────────────────
+    function _showLogStream() {
+        let panel = $('bt-log-stream');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'bt-log-stream';
+            panel.style.cssText = 'background:var(--surface-2,#0d1117);border:1px solid var(--border,#30363d);border-radius:8px;padding:12px;margin:12px 0;max-height:220px;overflow-y:auto;font-family:monospace;font-size:11px;color:var(--text-secondary,#8b949e);line-height:1.5;';
+            const anchor = $('bt-results') || document.body;
+            anchor.parentElement ? anchor.parentElement.insertBefore(panel, anchor) : document.body.appendChild(panel);
+        }
+        panel.innerHTML = '<span style="color:var(--accent,#58a6ff)">\u25cf Replay starting\u2026</span><br>';
+        panel.style.display = 'block';
+    }
+
+    function _appendLogLine(line) {
+        const panel = $('bt-log-stream');
+        if (!panel) return;
+        let c = line
+            .replace(/\[GUILLOTINE/g, '<span style="color:#f97316">[GUILLOTINE')
+            .replace(/\[SAR/g, '<span style="color:#a78bfa">[SAR')
+            .replace(/\[PHOENIX/g, '<span style="color:#34d399">[PHOENIX')
+            .replace(/\[ERROR\]/g, '<span style="color:#f87171">[ERROR]</span>')
+            .replace(/\[REPLAY\]/g, '<span style="color:#60a5fa">[REPLAY]</span>');
+        const diff = (c.match(/<span/g) || []).length - (c.match(/<\/span>/g) || []).length;
+        for (let i = 0; i < diff; i++) c += '</span>';
+        panel.innerHTML += c + '<br>';
+        panel.scrollTop = panel.scrollHeight;
+    }
+
 
     // ── Status badge ─────────────────────────────────────────
     function _showStatus(msg, type) {

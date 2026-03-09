@@ -46,6 +46,13 @@ const CONFIG_MAP = {
     'BROKER_FOREX': ['market', 'broker_forex'],
     'BROKER_EQUITIES': ['market', 'broker_equities'],
     'MARKET_DATA_MODE': ['market', 'market_data_mode'],
+    'PAPER_SIM_ENABLED': ['paper', 'enabled'],
+    'PAPER_REPLAY_MODE': ['paper', 'replay_mode'],
+    'PAPER_SYNTHETIC_MODE': ['paper', 'synthetic_mode'],
+    'SABBATH_REPLAY_MODE': ['safety', 'sabbath_replay_mode'],
+    'PAPER_FEE_BPS': ['paper', 'fee_bps'],
+    'PAPER_SLIPPAGE_BPS': ['paper', 'slippage_bps'],
+    'PAPER_SPREAD_BPS': ['paper', 'spread_bps'],
     'LOG_LEVEL': ['logging', 'level'],
     'TRADEBOT_LOG': ['logging', 'file'],
     'WS_SERVER_PORT': ['runtime', 'ws_server_port'],
@@ -180,6 +187,15 @@ const SECRETS_MAP = {
 // ═══════════════════════════════════════════════════════════
 
 const TOOLTIPS = {
+    // Engine Settings
+    PAPER_SIM_ENABLED: "Enable Paper Trading Simulator. Bypasses real broker execution and tracks simulated PnL.",
+    PAPER_REPLAY_MODE: "Run the Paper Simulator using historical Replay data instead of the live WebSocket feed.",
+    PAPER_SYNTHETIC_MODE: "Run the Paper Simulator in Synthetic Fire Mode using algorithmically generated endless massive volatility for stress testing.",
+    SABBATH_REPLAY_MODE: "During Sabbath hours (Friday sunset to Saturday sunset), switch the Paper Simulator to read from Replay data so you can continue testing.",
+    PAPER_FEE_BPS: "The simulated round-trip broker fee in basis points (e.g. 5.0 = 0.05%).",
+    PAPER_SLIPPAGE_BPS: "The simulated slippage per leg in basis points. Applied instantly on entry.",
+    PAPER_SPREAD_BPS: "The simulated bid/ask spread in basis points. Defines the distance between fill price and mid price.",
+
     // System Settings
     APP_PROFILE: "Trading profiles define which markets you trade (stocks, forex, crypto), how often the bot checks for opportunities, and when it's allowed to trade. Think of it like choosing between 'day trader mode' vs '24/7 crypto mode'.",
     STRATEGY_VARIANT: "The trading strategy determines HOW the bot decides to enter and exit trades. Each strategy has different rules - some are aggressive scalpers, others wait for perfect setups. Choose based on your risk tolerance and market conditions.",
@@ -808,7 +824,7 @@ const STRATEGIES = {
     },
     forex_conductor: {
         name: 'Forex Conductor',
-        icon: 'orchestration',
+        icon: 'route',
         shortDesc: 'Regime-Based Strategy Router',
         assetClass: "forex",
         description: "Reads the market regime in real-time and routes to the right strategy: Trending → Trend Rider (EMA pullback entries), Ranging → Mean Reversion (Bollinger bounces), Transitional → Session Breakout (London open). Blocks ALL entries in choppy markets (HTF/LTF disagreement). Gates include 19% HTF strength minimum, 2h entry cooldown, loss streak cooldown, and HTF/LTF alignment checks. Trades in bursts when conditions align, sits out when they don't.",
@@ -1134,6 +1150,7 @@ function formatStatKey(key) {
 const TABS = {
     system: { icon: 'dashboard', label: 'System', render: renderSystemTab },
     strategy: { icon: 'precision_manufacturing', label: 'Strategy', render: renderStrategyTab },
+    paper: { icon: 'history', label: 'Paper & Replay', render: renderPaperTab },
     safety: { icon: 'shield', label: 'Safety', render: renderSafetyTab },
     performance: { icon: 'trending_up', label: 'Performance', render: renderPerformanceTab },
     brokers: { icon: 'lan', label: 'Brokers', render: renderBrokersTab },
@@ -1786,6 +1803,95 @@ function renderSystemTab(container) {
     container.appendChild(section);
 }
 
+
+function renderPaperTab(container) {
+    const section = document.createElement('div');
+    section.className = 'settings-section';
+
+    section.appendChild(createSectionHeader('Simulation Engine', 'history',
+        "<strong>Paper & Replay Engine</strong><br><br>Control how the bot simulates trades when real execution is disabled. Replay mode allows you to fast-forward through historical data to validate strategy changes instantly."
+    ));
+
+    section.appendChild(createCard('Paper Simulator Enabled', 'Simulate PnL without placing real orders (must disable Live Trading)', 'PAPER_SIM_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Replay Mode', 'Use historical data feed instead of live WebSocket', 'PAPER_REPLAY_MODE', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('Synthetic 💥 Fire Mode', 'Replay infinite algorithmic volatility instead of historical data', 'PAPER_SYNTHETIC_MODE', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('Sabbath Replay', 'Auto-switch to Replay data during Sabbath hours', 'SABBATH_REPLAY_MODE', 'toggle', { default: 'true' }));
+
+    section.appendChild(createDivider());
+
+    section.appendChild(createSectionHeader('Execution Friction', 'money_off',
+        "<strong>Friction Simulation</strong><br><br>Set the artificial spread, slippage, and round-trip fees the Paper Broker will experience. Use Broker Presets to autofill realistic values."
+    ));
+
+    const presetsHtml = `
+        <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px;">
+            <div style="font-size: 11px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;">Broker Presets</div>
+            <select id="paper-broker-preset" class="settings-input" style="width: 100%; color-scheme: dark; padding: 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(20,184,166,0.2); border-radius: 8px; color: #14b8a6; font-weight: 600; cursor: pointer;">
+                <option value="custom">Preset Values...</option>
+                <option value="oanda">OANDA (Forex)</option>
+                <option value="gemini">Gemini API (Crypto)</option>
+                <option value="kraken">Kraken Pro (Crypto)</option>
+                <option value="coinbase">Coinbase Adv (Crypto)</option>
+                <option value="ibkr_pro">IBKR Pro (Equities)</option>
+            </select>
+        </div>
+    `;
+    const presetDiv = document.createElement('div');
+    presetDiv.innerHTML = presetsHtml;
+    section.appendChild(presetDiv);
+
+    section.appendChild(createCard('Round-Trip Fee (bps)', 'Broker transaction fee basis points', 'PAPER_FEE_BPS', 'input', { number: true, step: '0.1', default: '0.0' }));
+    section.appendChild(createCard('Slippage per Leg (bps)', 'Expected execution slippage', 'PAPER_SLIPPAGE_BPS', 'input', { number: true, step: '0.1', default: '0.0' }));
+    section.appendChild(createCard('Simulated Spread (bps)', 'Distance between bid and ask', 'PAPER_SPREAD_BPS', 'input', { number: true, step: '0.1', default: '0.0' }));
+
+    // Wire up presets logic
+    setTimeout(() => {
+        const select = document.getElementById('paper-broker-preset');
+        if (!select) return;
+        select.addEventListener('change', (e) => {
+            const presets = {
+                oanda: { fee: '0.5', spread: '1.2', slip: '0.5' },
+                gemini: { fee: '20.0', spread: '2.0', slip: '1.0' },
+                kraken: { fee: '16.0', spread: '1.5', slip: '1.0' },
+                coinbase: { fee: '30.0', spread: '2.0', slip: '1.5' },
+                ibkr_pro: { fee: '5.0', spread: '1.0', slip: '0.5' }
+            };
+            const p = presets[e.target.value];
+            if (p) {
+                updateValue('PAPER_FEE_BPS', p.fee);
+                updateValue('PAPER_SPREAD_BPS', p.spread);
+                updateValue('PAPER_SLIPPAGE_BPS', p.slip);
+                renderTab(); // Refresh UI
+                showNotice('Applied Preset', 'teal');
+            }
+        });
+
+        // ── Disable inputs if Live Trading is ON ──
+        const isLive = String(getValue('EXECUTE_TRADES')) === 'true';
+        if (isLive) {
+            const paperKeys = [
+                'PAPER_SIM_ENABLED', 'PAPER_REPLAY_MODE', 'PAPER_SYNTHETIC_MODE',
+                'SABBATH_REPLAY_MODE', 'PAPER_FEE_BPS', 'PAPER_SLIPPAGE_BPS', 'PAPER_SPREAD_BPS'
+            ];
+            paperKeys.forEach(k => {
+                const el = document.getElementById(`input-${k}`);
+                if (el) {
+                    el.disabled = true;
+                    // Dim the parent card visually
+                    const card = el.closest('.settings-card') || el.closest('.settings-item') || el.parentElement.parentElement;
+                    if (card) card.style.opacity = '0.4';
+                }
+            });
+            if (select) select.disabled = true;
+
+            // Show a warning box at the top
+            const warn = createWarningBox('Paper Simulator is <strong>DISABLED</strong> because <strong>Live Trading is ON</strong>.<br>Go to the Core Runtime chapter in the System tab to disable Live Execution first.');
+            section.insertBefore(warn, section.childNodes[1]);
+        }
+    }, 50);
+
+    container.appendChild(section);
+}
 
 function renderStrategyTab(container) {
     // Sync envData with active profile settings so UI reflects actual config
@@ -3123,15 +3229,16 @@ function renderStrategyToolbox(container) {
     // Strategy selector using a responsive grid layout
     const nav = document.createElement('div');
     nav.className = 'strategy-selector-grid';
+    const isLightGrid = document.documentElement.getAttribute('data-theme') === 'light';
     nav.style.cssText = `
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
         gap: 10px;
         margin-bottom: 32px;
         padding: 16px;
-        background: rgba(0, 0, 0, 0.3);
+        background: ${isLightGrid ? '#f0f9ff' : 'rgba(0, 0, 0, 0.3)'};
         border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
+        border: 1px solid ${isLightGrid ? '#bae6fd' : 'rgba(255, 255, 255, 0.05)'};
     `;
 
     const strategies = [
@@ -3148,7 +3255,7 @@ function renderStrategyToolbox(container) {
         { id: 'supply_demand', label: 'Supply & Demand', icon: 'layers', color: '#eab308' },
         { id: 'orb_breakout', label: 'ORB (Break & Retest)', icon: 'rule', color: '#6366f1' },
         { id: 'meta_sci', label: 'Meta-SCI Alpha', icon: 'hub', color: '#14b8a6' },
-        { id: 'forex_conductor', label: 'Forex Conductor', icon: 'orchestration', color: '#f59e0b' },
+        { id: 'forex_conductor', label: 'Forex Conductor', icon: 'route', color: '#f59e0b' },
         { id: 'trend_rider', label: 'Trend Rider', icon: 'trending_up', color: '#10b981' },
         { id: 'session_momentum', label: 'Session Momentum', icon: 'schedule_send', color: '#f43f5e' },
         { id: 'bearish_engulfing', label: 'Engulfing Reversal', icon: 'candlestick_chart', color: '#d946ef' },
@@ -3159,9 +3266,20 @@ function renderStrategyToolbox(container) {
         { id: 'crypto_grid', label: 'Virtual Grid', icon: 'grid_on', color: '#a78bfa' }
     ];
 
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+
     strategies.forEach(s => {
         const btn = document.createElement('button');
         const isActive = toolboxTab === s.id;
+
+        // Theme-aware colors
+        const inactiveBg = isLight ? '#ffffff' : 'rgba(255,255,255,0.03)';
+        const inactiveBorder = isLight ? '#bae6fd' : 'rgba(255,255,255,0.08)';
+        const inactiveColor = isLight ? '#334155' : '#94a3b8';
+        const hoverBg = isLight ? '#e0f2fe' : 'rgba(255,255,255,0.08)';
+        const hoverBorder = isLight ? '#7dd3fc' : 'rgba(255,255,255,0.15)';
+        const hoverColor = isLight ? '#0f172a' : '#e2e8f0';
+
         btn.style.cssText = `
             display: flex;
             flex-direction: column;
@@ -3170,9 +3288,9 @@ function renderStrategyToolbox(container) {
             gap: 8px;
             padding: 16px 12px;
             border-radius: 12px;
-            border: 1px solid ${isActive ? s.color + '60' : 'rgba(255,255,255,0.08)'};
-            background: ${isActive ? s.color + '20' : 'rgba(255,255,255,0.03)'};
-            color: ${isActive ? s.color : '#94a3b8'};
+            border: 1px solid ${isActive ? s.color + '60' : inactiveBorder};
+            background: ${isActive ? s.color + '20' : inactiveBg};
+            color: ${isActive ? s.color : inactiveColor};
             cursor: pointer;
             transition: all 0.2s ease;
             font-size: 11px;
@@ -3186,16 +3304,16 @@ function renderStrategyToolbox(container) {
         `;
         btn.onmouseenter = () => {
             if (!isActive) {
-                btn.style.background = 'rgba(255,255,255,0.08)';
-                btn.style.borderColor = 'rgba(255,255,255,0.15)';
-                btn.style.color = '#e2e8f0';
+                btn.style.background = hoverBg;
+                btn.style.borderColor = hoverBorder;
+                btn.style.color = hoverColor;
             }
         };
         btn.onmouseleave = () => {
             if (!isActive) {
-                btn.style.background = 'rgba(255,255,255,0.03)';
-                btn.style.borderColor = 'rgba(255,255,255,0.08)';
-                btn.style.color = '#94a3b8';
+                btn.style.background = inactiveBg;
+                btn.style.borderColor = inactiveBorder;
+                btn.style.color = inactiveColor;
             }
         };
         btn.onclick = () => {

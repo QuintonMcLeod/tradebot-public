@@ -61,11 +61,15 @@ class StrategyEngine:
         logger.info(f" [PHOENIX] === ENGINE LOADED === Symbol: {symbol} | Variant: {self._strategy.name.upper()} ")
 
     # ── SAR (Stop-and-Reverse) — Engine-Level ────────────────────────
-    # These strategies manage their own sub-strategy routing and handle
-    # SAR internally or shouldn't have it.  All others get engine SAR.
-    _SAR_EXCLUDED = {"forex_conductor", "aggregator"}
+    # Aggregator is excluded (it has no own-position semantic).
+    # ForexConductor previously had a duplicate SAR path; it now receives
+    # sar_dir via gates["sar_dir"] and computes ATR-based SL/TP itself.
+    _SAR_EXCLUDED = {"aggregator"}
     _sar_pending: dict[str, str] = {}  # symbol → reversal direction
     _cr_pending:  dict[str, str] = {}  # symbol → CR direction (back to original)
+    _sar_cooldown_until: dict[str, object] = {}  # symbol → datetime; blocks spirals
+    _sar_consec_losses:  dict[str, int] = {}     # symbol → consecutive SAR loss count
+    _sar_last_processed: dict[str, str] = {}     # symbol → exit_time of last scanned trade (dedup)
 
     def _resolve_variant_key(self) -> str:
         """Get the registry key for the loaded strategy variant."""
@@ -274,30 +278,63 @@ class StrategyEngine:
         score, grade = self.score_icc_grade(snapshot)
         
         # ── Trend Detection (sole authority on direction) ─────────────────
-        from tradebot_sci.market.trend_consensus import detect_trend_direction
+        # In Synthetic Mode, the provider forces trend states directly on the snapshot.
+        # If the snapshot arrives with a synthetic override (e.g. strength > 0 and direction),
+        # we bypass the lagging indicators in trend_consensus which would zero it out.
+        is_synthetic_override = snapshot.trend_htf and snapshot.trend_htf.direction != "neutral" and snapshot.trend_htf.strength > 0.0
+
         candles = snapshot.candles or []
-        consensus = detect_trend_direction(
-            candles, self.profile,
-            htf_candles=getattr(snapshot, 'htf_candles', None),
-            ltf_candles=getattr(snapshot, 'ltf_candles', None),
-        )
+        if is_synthetic_override:
+            # Use the forced synthetic trend directly, skipping lagging indicators
+            htf_dir = snapshot.trend_htf.direction
+            ltf_dir = snapshot.trend_ltf.direction
+            htf_strength = snapshot.trend_htf.strength
+            ltf_strength = snapshot.trend_ltf.strength
+            htf_align = True # Synthetic overrides are strictly aligned
+            htf_adx = 50.0 # Force high ADX for regime checks
+            indicator_dir = snapshot.trend_htf.direction
+            indicator_strength = snapshot.trend_htf.strength
+            market_regime = "trending" if htf_strength > 0.5 else "transitional"
+            
+            consensus_rsi = 60.0 if htf_dir == "long" else 40.0
+            consensus_macd = {"histogram": 0.001 if htf_dir == "long" else -0.001}
+            consensus_supertrend = {"direction": htf_dir}
+            consensus_ema_ribbon = {"aligned": True, "direction": htf_dir}
+            consensus_bollinger = {"bandwidth": 0.02, "squeeze": False}
+        else:
+            from tradebot_sci.market.trend_consensus import detect_trend_direction
+            consensus = detect_trend_direction(
+                candles, self.profile,
+                htf_candles=getattr(snapshot, 'htf_candles', None),
+                ltf_candles=getattr(snapshot, 'ltf_candles', None),
+            )
 
-        htf_dir = consensus.htf_dir
-        ltf_dir = consensus.ltf_dir
-        htf_strength = consensus.htf_strength
-        ltf_strength = consensus.ltf_strength
-        htf_adx = consensus.htf_adx
-        htf_align = consensus.htf_align
+            htf_dir = consensus.htf_dir
+            ltf_dir = consensus.ltf_dir
+            htf_strength = consensus.htf_strength
+            ltf_strength = consensus.ltf_strength
+            htf_adx = consensus.htf_adx
+            htf_align = consensus.htf_align
+            indicator_dir = consensus.indicator_dir
+            indicator_strength = consensus.indicator_strength
+            market_regime = consensus.market_regime
+            
+            consensus_rsi = consensus.rsi
+            consensus_macd = consensus.macd
+            consensus_supertrend = consensus.supertrend
+            consensus_ema_ribbon = consensus.ema_ribbon
+            consensus_bollinger = consensus.bollinger
+            vote_sources = consensus.vote_sources
 
-        # Update snapshot in-place so strategies reading snapshot.trend_htf directly
-        # also receive the indicator-derived direction.
-        from dataclasses import replace as dc_replace
-        snapshot.trend_htf = dc_replace(
-            snapshot.trend_htf, direction=htf_dir, strength=htf_strength
-        )
-        snapshot.trend_ltf = dc_replace(
-            snapshot.trend_ltf, direction=ltf_dir, strength=ltf_strength
-        )
+            # Update snapshot in-place so strategies reading snapshot.trend_htf directly
+            # also receive the indicator-derived direction.
+            from dataclasses import replace as dc_replace
+            snapshot.trend_htf = dc_replace(
+                snapshot.trend_htf, direction=htf_dir, strength=htf_strength
+            )
+            snapshot.trend_ltf = dc_replace(
+                snapshot.trend_ltf, direction=ltf_dir, strength=ltf_strength
+            )
 
         trend_dir = ltf_dir if ltf_dir in ("long", "short") else htf_dir
 
@@ -306,22 +343,22 @@ class StrategyEngine:
             trend_payload = {
                 "symbol": self.symbol,
                 "adx": htf_adx,
-                "rsi": consensus.rsi,
-                "macd": consensus.macd,
-                "bollinger": consensus.bollinger,
-                "supertrend": consensus.supertrend,
-                "ema_ribbon": consensus.ema_ribbon,
+                "rsi": consensus_rsi,
+                "macd": consensus_macd,
+                "bollinger": consensus_bollinger,
+                "supertrend": consensus_supertrend,
+                "ema_ribbon": consensus_ema_ribbon,
             }
             logger.info(f"[TREND-DATA] {json.dumps(trend_payload)}")
         except Exception:
             pass
 
         # Log consensus result
-        if consensus.vote_sources:
+        if not is_synthetic_override and vote_sources:
             logger.info(
                 f"[TREND-DETECT] {self.symbol} dir={htf_dir} "
-                f"(consensus={consensus.indicator_dir}, strength={consensus.indicator_strength:.0%}) "
-                f"| Votes: {', '.join(consensus.vote_sources)}"
+                f"(consensus={indicator_dir}, strength={indicator_strength:.0%}) "
+                f"| Votes: {', '.join(vote_sources)}"
             )
 
         # ── ICC Signal Detection ─────────────────────────────────────────
@@ -380,13 +417,13 @@ class StrategyEngine:
             "ltf_strength": ltf_strength,
             "htf_adx": htf_adx,
             # Indicator raw data (strategies can use if they want granular access)
-            "indicator_dir": consensus.indicator_dir,
-            "indicator_strength": consensus.indicator_strength,
-            "rsi": consensus.rsi,
-            "macd": consensus.macd,
-            "supertrend": consensus.supertrend,
-            "ema_ribbon": consensus.ema_ribbon,
-            "bollinger": consensus.bollinger,
+            "indicator_dir": indicator_dir,
+            "indicator_strength": indicator_strength,
+            "rsi": consensus_rsi,
+            "macd": consensus_macd,
+            "supertrend": consensus_supertrend,
+            "ema_ribbon": consensus_ema_ribbon,
+            "bollinger": consensus_bollinger,
             "score": score,
             "grade": grade,
             "htf_align": htf_align,
@@ -398,7 +435,8 @@ class StrategyEngine:
             "continuation": bool(continuation_signal),
             "continuation_dir": continuation_signal.direction if continuation_signal else None,
             "adx": htf_adx,
-            "market_regime": consensus.market_regime,
+            "market_regime": market_regime,
+            "is_synthetic_override": is_synthetic_override,
         }
 
         # Per-strategy scoring (gives each strategy its own grade)
@@ -422,6 +460,9 @@ class StrategyEngine:
                 trade_history=history
             )
             # ── Calculate position age (shared by hold guard + safety guard) ──
+            # Use candle timestamps (market time) NOT wall-clock time.
+            # This matches the backtester: position_age = current_candle_time - entry_time.
+            # Wall-clock fails in replay (~8s per 5m candle) and gives wrong results.
             entry_time = open_position.get("entry_time")
             position_age = None
             if entry_time:
@@ -432,20 +473,26 @@ class StrategyEngine:
                     except (ValueError, TypeError, AttributeError):
                         logger.debug(f"[ENGINE] Hold Guard: failed to parse entry_time '{entry_time}'")
                 if isinstance(entry_time, datetime):
-                    _now = current_bar_time or (datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.now(tz=ZoneInfo("UTC")))
+                    # Use last candle timestamp as "now" — same as backtester.
+                    # Falls back to current_bar_time, then wall-clock as last resort.
+                    candle_now = None
+                    if snapshot.candles:
+                        candle_now = snapshot.candles[-1].timestamp
+                        if candle_now and candle_now.tzinfo is None:
+                            candle_now = candle_now.replace(tzinfo=ZoneInfo("UTC"))
+                    _now = candle_now or current_bar_time or (datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.now(tz=ZoneInfo("UTC")))
                     if _now.tzinfo is None:
                         _now = _now.replace(tzinfo=ZoneInfo("UTC"))
                     if entry_time.tzinfo is None:
                         entry_time = entry_time.replace(tzinfo=ZoneInfo("UTC"))
                     position_age = (_now - entry_time).total_seconds()
 
-            # ── 1-HOUR HOLD GUARD ────────────────────────────────────────────
-            # Only SL/TP (emergency_exit) exits are allowed before 1 hour.
-            # Structure invalidation, HTF flip, regime-flip veto, and all
-            # other "smart" exits are blocked until the trade has had time
-            # to work.  This prevents the bot from panic-closing positions
-            # within minutes of entry — the #1 cause of the 3.8% win rate.
-            HOLD_GUARD_SECONDS = 300  # 5 minutes — cut losers fast
+            # ── HOLD GUARD ───────────────────────────────────────────────
+            # Data-driven: 695 backtester trades show median=15m, avg=32m.
+            # Hold for 15 minutes (3 candles on 5m) before allowing non-emergency exits.
+            # This matches the backtester's natural bar-by-bar timing where trades
+            # can't exit faster than one candle (5m).
+            HOLD_GUARD_SECONDS = 900  # 15 minutes = median backtester trade duration
             position_is_young = (position_age is not None and position_age < HOLD_GUARD_SECONDS)
 
             if exit_decision:
@@ -470,8 +517,11 @@ class StrategyEngine:
                     return exit_decision
             
             # [SAFETY GUARD] Augment with Safety Exits (ATR Armor, Trailing) if Strategy is silent
+            # Use candle_now (same time reference as Hold Guard) so Day Enforcer
+            # and other time-based checks use candle time, not wall-clock.
+            _safety_sim_time = candle_now or current_bar_time
             safety_exit = SafetyGuard.augment_exit_decision(
-                None, open_position, snapshot, sim_time=current_bar_time
+                None, open_position, snapshot, sim_time=_safety_sim_time
             )
             
             # [WEALTH MODE] Check for "The Runner" partial exit
@@ -549,29 +599,8 @@ class StrategyEngine:
             # Fallback for legacy callers that don't pass total_equity
             total_equity = current_capital_val + caps.get("total_unrealized_pnl", 0.0)
         
-        # ── Pre-populate SAR reversals from trade history ─────────
-        # Must happen BEFORE safety guard so exit cooldown can be bypassed.
-        sar_enabled_pre = bool(getattr(self.profile, "stop_and_reverse_enabled", False))
-        if sar_enabled_pre and history and self._variant_key in self._SAR_EXCLUDED:
-            try:
-                from tradebot_sci.strategy.variants.forex_conductor import _reversal_pending
-                if self.symbol not in _reversal_pending:
-                    for t in reversed(history):
-                        if t.get("symbol") != self.symbol:
-                            continue
-                        is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
-                        if not is_loss:
-                            break  # last trade was win
-                        old_side = (t.get("side") or "").lower()
-                        if old_side == "long":
-                            import datetime as _dt
-                            _reversal_pending[self.symbol] = ("short", _dt.datetime.now(_dt.timezone.utc))
-                        elif old_side == "short":
-                            import datetime as _dt
-                            _reversal_pending[self.symbol] = ("long", _dt.datetime.now(_dt.timezone.utc))
-                        break
-            except ImportError:
-                pass
+        # (Conductor _reversal_pending pre-population removed — conductor now
+        # reads gates["sar_dir"] set by engine SAR below.)
 
         safety_decision = SafetyGuard.check_entry_safety(
             self.symbol, 
@@ -583,14 +612,11 @@ class StrategyEngine:
             trade_results=self.trade_results
         )
         if safety_decision:
-            # SAR bypasses exit cooldown — reversals are time-critical
+            # SAR bypasses exit cooldown — reversals are time-critical.
+            # Check whether engine SAR is pending for this symbol.
             is_exit_cooldown = "Exit Cooldown" in (safety_decision.notes or "")
-            has_sar_pending = False
-            try:
-                from tradebot_sci.strategy.variants.forex_conductor import _reversal_pending
-                has_sar_pending = self.symbol in _reversal_pending
-            except ImportError:
-                pass
+            sar_pre = bool(getattr(self.profile, "stop_and_reverse_enabled", False))
+            has_sar_pending = sar_pre and (self.symbol in self._sar_pending or self.symbol in self._cr_pending)
             if is_exit_cooldown and has_sar_pending:
                 logger.info(f"[SAFETY] SAR bypass: skipping exit cooldown for {self.symbol}")
             else:
@@ -617,6 +643,10 @@ class StrategyEngine:
                     for t in reversed(history):  # newest first
                         if t.get("symbol") != self.symbol:
                             continue
+                        # Dedup: skip if we already processed this exact trade
+                        _exit_key = str(t.get("exit_time", ""))
+                        if _exit_key and _exit_key == self._sar_last_processed.get(self.symbol):
+                            break  # Same trade as last scan — nothing new
                         # SAR/CR fires on ANY losing trade — no time window.
                         is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
                         if not is_loss:
@@ -627,10 +657,8 @@ class StrategyEngine:
 
                         if is_sar_loss and cr_enabled:
                             # ── COUNTER-REVERSAL: SAR itself failed ───────────
-                            # The SAR reversed us; now CR flips back to original.
-                            # SAR direction = opposite of original. CR = SAR dir.
                             if old_side == "long":
-                                self._cr_pending[self.symbol] = "long"   # CR goes back long
+                                self._cr_pending[self.symbol] = "long"
                             elif old_side == "short":
                                 self._cr_pending[self.symbol] = "short"
                             if self.symbol in self._cr_pending:
@@ -638,8 +666,36 @@ class StrategyEngine:
                                     f"[ENGINE CR] {self.symbol}: SAR FAILED → "
                                     f"counter-reversal pending {self._cr_pending[self.symbol]}"
                                 )
+                        elif is_sar_loss:
+                            # ── CONSECUTIVE SAR LOSS GUARD ───────────────────
+                            # Increment incremental counter (no re-scan needed)
+                            import datetime as _dt
+                            consec = self._sar_consec_losses.get(self.symbol, 0) + 1
+                            self._sar_consec_losses[self.symbol] = consec
+                            if consec >= max_consec:
+                                cooldown_h = float(getattr(self.profile, "sar_cooldown_hours", 4.0))
+                                self._sar_cooldown_until[self.symbol] = (
+                                    _dt.datetime.now(_dt.timezone.utc)
+                                    + _dt.timedelta(hours=cooldown_h)
+                                )
+                                logger.warning(
+                                    f"[ENGINE SAR] {self.symbol}: {consec} consecutive SAR losses — "
+                                    f"cooldown {cooldown_h}h (max_consecutive_sar={max_consec})"
+                                )
+                            else:
+                                if old_side == "long":
+                                    self._sar_pending[self.symbol] = "short"
+                                elif old_side == "short":
+                                    self._sar_pending[self.symbol] = "long"
+                                if self.symbol in self._sar_pending:
+                                    logger.info(
+                                        f"[ENGINE SAR] {self.symbol}: LOSS DETECTED → "
+                                        f"reversal pending {self._sar_pending[self.symbol]}"
+                                    )
                         else:
-                            # ── Standard SAR ──────────────────────────────────
+                            # ── Standard SAR (non-SAR loss = first loss in streak) ──
+                            # Reset consecutive counter since this isn't a SAR loss
+                            self._sar_consec_losses[self.symbol] = 0
                             if old_side == "long":
                                 self._sar_pending[self.symbol] = "short"
                             elif old_side == "short":
@@ -649,7 +705,24 @@ class StrategyEngine:
                                     f"[ENGINE SAR] {self.symbol}: LOSS DETECTED → "
                                     f"reversal pending {self._sar_pending[self.symbol]}"
                                 )
+                        # Mark this trade as processed so it won't be re-scanned.
+                        self._sar_last_processed[self.symbol] = _exit_key
                         break
+                    else:
+                        # Last trade was a win — reset consecutive SAR loss counter
+                        self._sar_consec_losses[self.symbol] = 0
+
+            # ── SAR COOLDOWN CHECK ──────────────────────────────────
+            import datetime as _dt
+            block_until = self._sar_cooldown_until.get(self.symbol)
+            if block_until and _dt.datetime.now(_dt.timezone.utc) < block_until:
+                rem = (block_until - _dt.datetime.now(_dt.timezone.utc)).total_seconds() / 60
+                logger.info(
+                    f"[ENGINE SAR] {self.symbol}: BLOCKED — spiral cooldown, "
+                    f"{rem:.0f}m remaining"
+                )
+                self._sar_pending.pop(self.symbol, None)  # discard any stale pending
+                sar_dir = None
 
             # Read and consume pending reversal (SAR takes priority; CR is secondary)
             sar_dir = self._sar_pending.pop(self.symbol, None)
@@ -659,12 +732,15 @@ class StrategyEngine:
                     logger.info(f"[ENGINE CR] {self.symbol}: firing counter-reversal {sar_dir}")
 
         # B. Check for ENTRY / SCALE_IN
-        gates["profile"] = self.profile  # Conductor SAR needs this
+        # Pass sar_dir via gates so conductor can compute ATR-based SL/TP
+        # for the forced reversal entry rather than relying on None SL/TP.
+        gates["profile"] = self.profile
+        gates["sar_dir"] = sar_dir  # None if no SAR pending
         decision = self._strategy.check_entry_signal(
-            snapshot, 
-            gates, 
-            open_position=open_position, 
-            current_capital=current_capital, 
+            snapshot,
+            gates,
+            open_position=open_position,
+            current_capital=current_capital,
             trade_history=history
         )
 
@@ -688,36 +764,32 @@ class StrategyEngine:
                     )
 
             if decision is None or decision.action in ("stand_aside", "hold"):
-                # Force a reversal entry — the stop itself IS the signal
-                # SAR reversal risk = the REMNANT after Guillotine scale-out.
-                # Guillotine cuts `scale_out_fraction` (default 95%), leaving 5%.
-                # The reversal should be that same 5% exposure — NOT a full new entry.
-                # Use `reversal_risk_per_trade` if explicitly configured; otherwise
-                # derive it from (1 - scale_out_fraction) × risk_per_trade_pct.
+                # Strategy (e.g. conductor) didn't produce a valid entry.
+                # Fall back to engine-level forced SAR with no SL/TP;
+                # executor/broker will set these from ATR at fill time.
                 _explicit_sar_risk = float(getattr(self.profile, "reversal_risk_per_trade", 0) or 0)
                 if _explicit_sar_risk > 0:
                     rev_risk = _explicit_sar_risk
                 else:
                     _scale_out = float(getattr(self.profile, "scale_out_fraction", 0.95))
                     _base_risk = float(getattr(self.profile, "risk_per_trade_pct", 0.01))
-                    rev_risk = (1.0 - _scale_out) * _base_risk  # e.g. 0.05 × 4.5% = 0.225%
+                    rev_risk = (1.0 - _scale_out) * _base_risk
                     if rev_risk <= 0:
-                        rev_risk = 0.01  # safety fallback only
+                        rev_risk = 0.01
 
                 rev_action = "enter_long" if sar_dir == "long" else "enter_short"
-                rev_bias = sar_dir
                 logger.info(
                     f"[ENGINE SAR] {self.symbol}: Forcing {rev_action} "
-                    f"(risk={rev_risk*100:.1f}%)"
+                    f"(risk={rev_risk*100:.1f}%) — strategy produced no SAR entry"
                 )
                 decision = AITradeDecision(
                     symbol=self.symbol,
                     timeframe=timeframe,
-                    bias=rev_bias,
+                    bias=sar_dir,
                     phase="correction",
                     action=rev_action,
-                    entry_price=None,  # Backtester/executor fills market price
-                    stop_loss=None,  # Strategy/executor will set from ATR
+                    entry_price=None,
+                    stop_loss=None,
                     take_profit=None,
                     risk_per_trade_pct=rev_risk,
                     urgency="high",
@@ -726,6 +798,13 @@ class StrategyEngine:
                 )
                 decision.score = score
                 decision.grade = grade
+            elif decision.stop_loss is not None:
+                # Strategy produced its own ATR-based SL/TP (e.g. Conductor).
+                # Keep it — just tag it as a SAR entry.
+                logger.info(
+                    f"[ENGINE SAR] {self.symbol}: Using strategy ATR SL/TP for SAR "
+                    f"({sar_dir}, sl={decision.stop_loss:.5f})"
+                )
 
         if decision:
             decision.score = score

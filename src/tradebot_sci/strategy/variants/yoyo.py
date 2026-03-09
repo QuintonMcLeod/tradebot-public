@@ -208,10 +208,12 @@ class YoYoStrategy(BaseStrategy):
                         (direction == "short" and stop_price <= entry_price)
 
         if r_multiple >= 1.0 and not already_at_be:
-            return hold_decision(
+            dec = hold_decision(
                 snapshot.symbol, snapshot.timeframe,
                 reason=f"Yo-Yo: Move to BE at {r_multiple:.2f}R",
                 stop_loss=entry_price,
             )
+            dec.strategy_name = self.name
+            return dec
 
         return None

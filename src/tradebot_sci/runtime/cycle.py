@@ -16,6 +16,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# ── First-run warmup ──
+# Tracks which symbols have had their initial warmup fetch.
+# On first fetch, we request extra candles to stabilize indicators
+# (equivalent to the backtester's warmup_days feature).
+_warmed_up_symbols: set[str] = set()
+
+# 2016 five-minute candles = 7 calendar days of 5m data
+_WARMUP_LTF_CANDLES = 2016
+_WARMUP_HTF_CANDLES = 200  # 200 four-hour candles ≈ 33 days
+
 def fetch_snapshot(
     provider: Any, 
     cache: Dict[tuple, MarketSnapshot], 
@@ -36,10 +46,24 @@ def fetch_snapshot(
     ltf_timeframe = getattr(profile_settings, "ltf_timeframe", None) or timeframe
     max_candles = int(getattr(market_settings, "max_candles", 200) or 200)
 
+    # First-time warmup: fetch extra candles to stabilize indicators
+    if symbol not in _warmed_up_symbols:
+        ltf_limit = max(max_candles, _WARMUP_LTF_CANDLES)
+        htf_limit = max(max_candles, _WARMUP_HTF_CANDLES)
+        logger.info(
+            f"[WARMUP] {symbol}: First-time candle preload — "
+            f"fetching {ltf_limit} LTF ({ltf_timeframe}) + "
+            f"{htf_limit} HTF ({htf_timeframe}) candles"
+        )
+        _warmed_up_symbols.add(symbol)
+    else:
+        ltf_limit = max_candles
+        htf_limit = max_candles
+
     key = (symbol, ltf_timeframe, htf_timeframe, max_candles)
     if key not in cache:
-        ltf_candles = provider.get_latest_candles(symbol, ltf_timeframe, limit=max_candles)
-        htf_candles = provider.get_latest_candles(symbol, htf_timeframe, limit=max_candles)
+        ltf_candles = provider.get_latest_candles(symbol, ltf_timeframe, limit=ltf_limit)
+        htf_candles = provider.get_latest_candles(symbol, htf_timeframe, limit=htf_limit)
         
         # Update chart candle cache so on_tick always has fresh data
         if ws_controller and ltf_candles and hasattr(ws_controller, 'update_candle_cache'):
@@ -48,13 +72,23 @@ def fetch_snapshot(
         # Neutral defaults — engine.py's Trend Detection sets direction
         _neutral = TrendState(direction="neutral", strength=0.0)
 
+        # Providers (like Synthetic) may explicitly force certain trends
+        try:
+            native_snap = provider.get_latest_snapshot(symbol, ltf_timeframe)
+            trend_htf = native_snap.trend_htf or _neutral
+            trend_ltf = native_snap.trend_ltf or _neutral
+        except Exception as e:
+            trend_htf = _neutral
+            trend_ltf = _neutral
+
         cache[key] = MarketSnapshot(
             symbol=symbol,
             timeframe=timeframe,
             candles=ltf_candles,
-            trend_htf=_neutral,
-            trend_ltf=_neutral,
+            trend_htf=trend_htf,
+            trend_ltf=trend_ltf,
             htf_candles=htf_candles,
+
             ltf_candles=ltf_candles,
             htf_timeframe=htf_timeframe,
             ltf_timeframe=ltf_timeframe,
@@ -67,6 +101,9 @@ def fetch_snapshot(
         except Exception as e:
             import logging as _log
             _log.getLogger(__name__).debug(f"[RECORDER] Recording failed: {e}")
+
+    # DEBUG
+    logger.info(f"[CYCLE-DEBUG] Returning snapshot for {symbol} with trend_htf={cache[key].trend_htf}")
 
     return cache[key]
 
@@ -173,6 +210,10 @@ def build_candidate_list(
         return position_candidates, True
 
     # 3. Scan for new setups
+    # NOTE: No ICC pre-filter here. engine.decide() handles scoring,
+    # trend detection, and filtering internally — same as the backtester.
+    # The previous ICC gate ran score_icc_grade() on NEUTRAL-trend
+    # snapshots (before trend detection), blocking most entries.
     candidates = position_candidates.copy()
     for symbol in symbols:
         if symbol in [c[0] for c in candidates]: continue
@@ -180,13 +221,7 @@ def build_candidate_list(
         
         try:
             snap = fetch_snapshot(provider, snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller)
-            score, grade = engines[symbol].score_icc_grade(snap)
-            if score >= profile_settings.structure_score_threshold:
-                candidates.append((symbol, snap, score, grade))
-            else:
-                strat_name = engines[symbol]._strategy.name
-                strat_score, strat_grade, _ = engines[symbol]._strategy.score_signal(snap, {"score": score, "grade": grade, "htf_dir": snap.trend_htf.direction, "ltf_dir": snap.trend_ltf.direction, "htf_strength": float(snap.trend_htf.strength or 0), "ltf_strength": float(snap.trend_ltf.strength or 0)})
-                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={score*100:.1f} grade={grade} strategy={strat_name} strat_score={strat_score:.1f} strat_grade={strat_grade} reason=Score {score*100:.1f} ({grade}) below threshold {profile_settings.structure_score_threshold*100:.1f}")
+            candidates.append((symbol, snap, 0.0, "scan"))
         except Exception as e:
             logger.error(f"[CYCLE] Error fetching snapshot for {symbol}: {e}")
             continue

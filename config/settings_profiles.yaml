@@ -25,6 +25,8 @@ forex_continuous:
   sabbath_astronomical: true
   stop_and_reverse_enabled: true
   counter_reversal_enabled: true
+  max_consecutive_sar: 2       # Block SAR after 2 consecutive SAR losses per symbol
+  sar_cooldown_hours: 4.0      # Hours to block SAR after spiral detected
 forex_intraday:
   symbols:
   - EURUSD
