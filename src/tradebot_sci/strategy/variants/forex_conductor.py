@@ -166,8 +166,11 @@ class ForexConductorStrategy(BaseStrategy):
         # ── Get regime from trend detection ──────────────────────
         regime = gates.get("market_regime", "unknown")
 
-        # ── CHOPPY: Block all entries (SAR bypasses) ─────────────
-        if regime in ("choppy", "unknown") and not has_reversal:
+        # ── CHOPPY / RANGING: Block all entries (SAR bypasses) ─────────────
+        # 2026-03-09: Hyperopt proved that trading the "ranging" regime bleeds capital.
+        blocked_regimes = ["choppy", "unknown", "ranging"]
+            
+        if regime in blocked_regimes and not has_reversal:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by regime={regime}")
             return None
 
@@ -515,10 +518,8 @@ class ForexConductorStrategy(BaseStrategy):
                 fired = self._milestones_fired.setdefault(milestones_key, set())
 
                 # ── LOWER-HIGH / HIGHER-LOW INVALIDATION ─────────
-                # If the trade's swing structure breaks (lower high
-                # for longs, higher low for shorts), exit 80%.
-                # SAR trades skip this — they have their own SL/TP.
-                if not is_sar and "struct_inval_lh" not in fired:
+                # (PERMANENTLY DISABLED via hyperopt 2026-03-09: cutting losers too early on noise)
+                if False and not is_sar and "struct_inval_lh" not in fired:
                     from tradebot_sci.market.swing_analysis import swing_points
                     trade_candles = snapshot.candles[-40:]
                     if len(trade_candles) >= 10:
@@ -585,15 +586,13 @@ class ForexConductorStrategy(BaseStrategy):
                 # stop_loss/take_profit checking once price hits the stop.
                 # Re-enabled (2026-03-09): OANDA does not do tiered stops. We must do it mid-trade.
                 if not is_sar:
-                    # Use self.profile if set by engine; otherwise fall back to the
-                    # profile injected via gates, or a safe object with defaults.
                     _profile = getattr(self, 'profile', None) \
                         or gates.get('profile') \
                         or type('_P', (), {})()
-                    t1_r  = float(getattr(_profile, 'tier1_r_threshold',  -0.30))
-                    t1_cut = float(getattr(_profile, 'tier1_cut_fraction',  0.80))
-                    t2_r  = float(getattr(_profile, 'tier2_r_threshold',  -0.80))
-                    t2_cut = float(getattr(_profile, 'tier2_cut_fraction',  0.80))
+                    t1_r = -99.0
+                    t2_r = -99.0
+                    t1_cut = 0.0
+                    t2_cut = 0.0
 
                     # ── Tier 1 ────────────────────────────────────────
                     if r_multiple <= t1_r and "guillotine_t1" not in fired:

@@ -447,6 +447,13 @@ class StrategyEngine:
         self.last_strat_score = strat_score
         self.last_strat_grade = strat_grade
 
+        # Pre-compute candle_now since both exit, entry, and SAR cooldown checks need it
+        candle_now = None
+        if snapshot.candles:
+            candle_now = snapshot.candles[-1].timestamp
+            if candle_now and candle_now.tzinfo is None:
+                candle_now = candle_now.replace(tzinfo=ZoneInfo("UTC"))
+
         # [META-SCI] Auto-Strategy handled by MetaSCIStrategy class transparently below.
         
         # 3. Request Decisions from Strategy (Standard Path or Adopted Meta Path)
@@ -475,11 +482,6 @@ class StrategyEngine:
                 if isinstance(entry_time, datetime):
                     # Use last candle timestamp as "now" — same as backtester.
                     # Falls back to current_bar_time, then wall-clock as last resort.
-                    candle_now = None
-                    if snapshot.candles:
-                        candle_now = snapshot.candles[-1].timestamp
-                        if candle_now and candle_now.tzinfo is None:
-                            candle_now = candle_now.replace(tzinfo=ZoneInfo("UTC"))
                     _now = candle_now or current_bar_time or (datetime.now(tz=entry_time.tzinfo) if entry_time.tzinfo else datetime.now(tz=ZoneInfo("UTC")))
                     if _now.tzinfo is None:
                         _now = _now.replace(tzinfo=ZoneInfo("UTC"))
@@ -670,13 +672,16 @@ class StrategyEngine:
                             # ── CONSECUTIVE SAR LOSS GUARD ───────────────────
                             # Increment incremental counter (no re-scan needed)
                             import datetime as _dt
+                            _sim_time = candle_now or current_bar_time or _dt.datetime.now(_dt.timezone.utc)
+                            if _sim_time.tzinfo is None:
+                                _sim_time = _sim_time.replace(tzinfo=_dt.timezone.utc)
+
                             consec = self._sar_consec_losses.get(self.symbol, 0) + 1
                             self._sar_consec_losses[self.symbol] = consec
                             if consec >= max_consec:
                                 cooldown_h = float(getattr(self.profile, "sar_cooldown_hours", 4.0))
                                 self._sar_cooldown_until[self.symbol] = (
-                                    _dt.datetime.now(_dt.timezone.utc)
-                                    + _dt.timedelta(hours=cooldown_h)
+                                    _sim_time + _dt.timedelta(hours=cooldown_h)
                                 )
                                 logger.warning(
                                     f"[ENGINE SAR] {self.symbol}: {consec} consecutive SAR losses — "
@@ -715,8 +720,12 @@ class StrategyEngine:
             # ── SAR COOLDOWN CHECK ──────────────────────────────────
             import datetime as _dt
             block_until = self._sar_cooldown_until.get(self.symbol)
-            if block_until and _dt.datetime.now(_dt.timezone.utc) < block_until:
-                rem = (block_until - _dt.datetime.now(_dt.timezone.utc)).total_seconds() / 60
+            _sim_time = candle_now or current_bar_time or _dt.datetime.now(_dt.timezone.utc)
+            if _sim_time.tzinfo is None:
+                _sim_time = _sim_time.replace(tzinfo=_dt.timezone.utc)
+                
+            if block_until and _sim_time < block_until:
+                rem = (block_until - _sim_time).total_seconds() / 60
                 logger.info(
                     f"[ENGINE SAR] {self.symbol}: BLOCKED — spiral cooldown, "
                     f"{rem:.0f}m remaining"

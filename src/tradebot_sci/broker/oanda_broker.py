@@ -487,8 +487,8 @@ class OandaExchangeBroker(IExchangeBroker):
                     is_win = pnl_val > 0
                     SafetyGuard.register_trade_completion(symbol, is_win)
                     logger.info(f"[STREAK] Registered {'WIN' if is_win else 'LOSS'} for {symbol} (streak count: {SafetyGuard._state.symbol_loss_streaks.get(symbol, 0)})")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"[STREAK] Failed to register trade completion for {symbol}: {e}")
                 
                 # Read strategy from hold store before removing
                 _exit_strategy = None
@@ -1110,8 +1110,8 @@ class OandaExchangeBroker(IExchangeBroker):
                         is_win = pnl > 0
                         SafetyGuard.register_trade_completion(sym, is_win)
                         logger.info(f"[STREAK] Registered {'WIN' if is_win else 'LOSS'} for {sym} (streak count: {SafetyGuard._state.symbol_loss_streaks.get(sym, 0)})")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.error(f"[STREAK] Failed to register trade completion for {sym}: {e}")
 
                     # Read strategy from hold store before removing
                     _exit_strategy = None

@@ -652,9 +652,9 @@ def _worker_replay_symbol(
         sys.path.insert(0, src_path)
 
     # Worker processes are silent — all output goes through main process
-    logging.basicConfig(level=logging.CRITICAL, format="%(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="%(message)s")
     for _ln in list(logging.Logger.manager.loggerDict.keys()):
-        logging.getLogger(_ln).setLevel(logging.CRITICAL)
+        logging.getLogger(_ln).setLevel(logging.INFO) # Keep libs quiet, script loud
 
     from tradebot_sci.market.models import MarketSnapshot, Candle, TrendState
     from tradebot_sci.broker.trade_result_store import TradeResultStore
@@ -690,14 +690,14 @@ def _worker_replay_symbol(
     # Solution: disable SAR+CR in replay so we measure the BASE strategy performance.
     try:
         replay_profile = profile.model_copy(update={
-            "stop_and_reverse_enabled": False,
-            "counter_reversal_enabled": False,
+            "stop_and_reverse_enabled": True,
+            "counter_reversal_enabled": True,
         })
     except AttributeError:
         # Pydantic v1 fallback
         replay_profile = profile.copy(update={
-            "stop_and_reverse_enabled": False,
-            "counter_reversal_enabled": False,
+            "stop_and_reverse_enabled": True,
+            "counter_reversal_enabled": True,
         })
 
     broker = ReplayPaperBroker(
@@ -810,7 +810,8 @@ def _worker_replay_symbol(
 
 def run_replay(days: int, speed: float, initial_balance: float,
                symbols_filter: Optional[list] = None,
-               cutoff_dt: Optional[datetime] = None) -> dict:
+               cutoff_dt: Optional[datetime] = None,
+               max_workers: Optional[int] = None) -> dict:
     # ── Bootstrap ────────────────────────────────────────────────────────────
     settings = get_settings()
     profile_name = getattr(settings, "profile", "forex_continuous")
@@ -844,10 +845,21 @@ def run_replay(days: int, speed: float, initial_balance: float,
         ltf_all: dict = {}
         htf_all: dict = {}
         for obs in obs_list:
-            for c in obs.get("ltf", []):
-                ltf_all[c["t"]] = c
-            for c in obs.get("htf", []):
-                htf_all[c["t"]] = c
+            if "ltf" in obs:
+                for c in obs.get("ltf", []):
+                    ltf_all[c["t"]] = c
+                for c in obs.get("htf", []):
+                    htf_all[c["t"]] = c
+                
+                # BIG MEMORY & IPC SAVER: drop massive arrays before pickling to workers
+                obs.pop("ltf", None)
+                obs.pop("htf", None)
+            else:
+                # Direct CCXT candle format
+                c = {"t": obs["time"], "o": obs["open"], "h": obs["high"], "l": obs["low"], "c": obs["close"], "v": obs["volume"]}
+                ltf_all[obs["time"]] = c
+                obs["ts"] = obs["time"]
+                obs["tf"] = "5m"
         ltf_raw_by_sym[sym] = list(ltf_all.values())
         # Resample LTF → HTF so workers get rich HTF indicator history
         ltf_tmp = sorted([_dict_to_candle(c) for c in ltf_all.values()], key=lambda c: c.timestamp)
@@ -865,6 +877,11 @@ def run_replay(days: int, speed: float, initial_balance: float,
         total_ticks += len(obs_list)
 
     n_workers = min(len(all_obs), multiprocessing.cpu_count())
+    if max_workers:
+        n_workers = min(n_workers, max_workers)
+    else:
+        n_workers = min(n_workers, 4)  # Default cap to prevent resource exhaustion
+        
     logger.info(f"[REPLAY] Total ticks: {total_ticks}  | Workers: {n_workers} CPUs")
     logger.info("─" * 70)
 
@@ -1008,6 +1025,8 @@ def main():
                         help="Comma-separated symbols to replay (default: all recorded)")
     parser.add_argument("--json-output", action="store_true",
                         help="Emit a JSON summary line at end (for UI consumption)")
+    parser.add_argument("--max-workers", type=int, default=None,
+                        help="Limit the number of CPU cores used. Defaults to 4 to prevent resource exhaustion.")
     args = parser.parse_args()
 
     # Resolve date range → days
@@ -1027,7 +1046,7 @@ def main():
     syms = [s.strip().upper() for s in args.symbols.split(",")] if args.symbols else None
     result = run_replay(days=days, speed=args.speed,
                         initial_balance=args.balance, symbols_filter=syms,
-                        cutoff_dt=cutoff_dt)
+                        cutoff_dt=cutoff_dt, max_workers=args.max_workers)
 
     # ── Emit JSON summary for UI consumption ─────────────────────────────
     if args.json_output and result:

@@ -501,7 +501,8 @@ class SafetyGuard:
 
         # 2. DEFENSIVE SHIELDS
         # A. Stale-Position Sniper (Time Decay)
-        if settings.safety.safety_stale_sniper_enabled:
+        # (PERMANENTLY DISABLED via hyperopt 2026-03-09: choking good trades)
+        if False and settings.safety.safety_stale_sniper_enabled:
             bars_limit = settings.safety.safety_stale_sniper_bars
             if bars_since >= bars_limit:
                 # PROFIT GUARD: NEVER stale-exit a profitable trade.
@@ -527,6 +528,7 @@ class SafetyGuard:
                     return close_position_decision(snapshot.symbol, snapshot.timeframe, reason="Volatility Blow-off Exit")
 
         # C. Regime-Flip Veto (HTF Alignment)
+        # (KEPT ON via hyperopt 2026-03-09: successfully caps heavy losses)
         if settings.safety.safety_regime_flip_enabled:
             htf_dir = snapshot.trend_htf.direction
             if htf_dir and htf_dir != "neutral":
