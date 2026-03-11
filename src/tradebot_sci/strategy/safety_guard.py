@@ -1,16 +1,16 @@
-
 from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from typing import Optional, Any
+from typing import Dict, Optional, Tuple, Any # Modified: Added Dict, Tuple, kept Any
 
-
-from tradebot_sci.market.models import MarketSnapshot
+from tradebot_sci.ai.client import TradeSciAIClient # Added
+from tradebot_sci.ai.rss_feed import get_latest_news # Added
+from tradebot_sci.market.models import MarketSnapshot # Kept, assuming MarketContextSnapshotn was a typo or partial snippet
 from tradebot_sci.strategy.decisions import (
-    AITradeDecision, 
-    stand_aside_decision, 
+    AITradeDecision,
+    stand_aside_decision,
     close_position_decision,
     hold_decision,
     scale_out_decision,
@@ -362,7 +362,14 @@ class SafetyGuard:
                          sentiment = sentiment_val
                  
                  if not cache_valid:
-                     sentiment_prompt = f"Analyze market structure for {symbol} based on H1 trend: {snapshot.trend_htf} and recent 5 candles. Is the structure DANGEROUS or SAFE? One word."
+                     # Fetch real-time news headlines
+                     news_context = get_latest_news(limit=5)
+                     sentiment_prompt = (
+                         f"Analyze market structure for {symbol} based on H1 trend: {snapshot.trend_htf} "
+                         f"and recent 5 candles. Here are the latest global financial headlines:\n"
+                         f"{news_context}\n"
+                         f"Based on technical structure and news, is the market DANGEROUS or SAFE? One word."
+                     )
                      # Simple prompt to avoid complex analysis cost
                      sentiment = ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]).upper()
                      # Update Cache
@@ -1113,7 +1120,14 @@ class SafetyGuard:
         # G. AI SENTIMENT CONFIRMATION (Hype)
         if "sentiment" in modes and ai_client:
             try:
-                sentiment_prompt = f"Analyze price action for {snapshot.symbol}. Short-term sentiment: BULLISH or BEARISH? One word."
+                # Fetch real-time news headlines
+                news_context = get_latest_news(limit=5)
+                sentiment_prompt = (
+                    f"Analyze price action for {snapshot.symbol}. "
+                    f"Here are the latest global financial headlines:\n"
+                    f"{news_context}\n"
+                    f"Based on price action and news, what is the short-term sentiment: BULLISH or BEARISH? One word."
+                )
                 sentiment = ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]).upper()
                 is_bull = "long" in decision.action
                 if (sentiment == "BULLISH" and is_bull) or (sentiment == "BEARISH" and not is_bull):
