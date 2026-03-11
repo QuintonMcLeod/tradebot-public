@@ -423,6 +423,35 @@
     color: var(--accent);
 }
 
+/* ───── TAKE PROFIT CARD STATES ───── */
+.tp-state-cashout {
+    --tp-accent: #38bdf8;
+    --tp-amount-color: #e0f2fe;
+    --tp-desc-color: #7dd3fc;
+    --tp-mentor-color: #bae6fd;
+    border-color: rgba(56, 189, 248, 0.3);
+    background: linear-gradient(135deg, rgba(2, 132, 199, 0.15) 0%, rgba(15, 23, 42, 0.4) 100%);
+    box-shadow: 0 0 40px rgba(56, 189, 248, 0.05);
+}
+
+.tp-state-waiting {
+    --tp-accent: #fbbf24;
+    --tp-amount-color: #fef3c7;
+    --tp-desc-color: #fcd34d;
+    --tp-mentor-color: #fde68a;
+    border-color: rgba(251, 191, 36, 0.3);
+    background: linear-gradient(135deg, rgba(180, 83, 9, 0.15) 0%, rgba(15, 23, 42, 0.4) 100%);
+}
+
+.tp-state-drawdown {
+    --tp-accent: #94a3b8;
+    --tp-amount-color: #e2e8f0;
+    --tp-desc-color: #94a3b8;
+    --tp-mentor-color: #cbd5e1;
+    border-color: rgba(148, 163, 184, 0.15);
+    background: linear-gradient(135deg, rgba(71, 85, 105, 0.1) 0%, rgba(15, 23, 42, 0.4) 100%);
+}
+
 /* ───── REFRESH COUNTDOWN BADGE ───── */
 .refresh-countdown-badge {
     display: flex;

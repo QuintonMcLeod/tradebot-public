@@ -3084,6 +3084,14 @@ function updateValue(key, value, strategyNamespace = null) {
         if (key === 'GUI_PNL_TIMEFRAME' && typeof window.syncPnLTimeframe === 'function') {
             window.syncPnLTimeframe(value);
         }
+
+        // [BUGFIX] If the active profile currently overrides this global setting, update the override too
+        const active = configData.active_profile;
+        if (active && configData.profiles && configData.profiles[active]) {
+            if (configData.profiles[active][key.toLowerCase()] !== undefined) {
+                configData.profiles[active][key.toLowerCase()] = val;
+            }
+        }
     }
     // 3. Update Active Profile
     else {

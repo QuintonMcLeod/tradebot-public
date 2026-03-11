@@ -179,6 +179,107 @@ function updateMetrics(data) {
     // Trade count badge
     const tcEl = document.getElementById('trade-count');
     if (tcEl) tcEl.textContent = `${data.totalTrades ?? 0} trades`;
+
+    // ── Take Profit Mentor Logic ──
+    const tpCard = document.getElementById('take-profit-card');
+    const tpAmount = document.getElementById('tp-amount');
+    const tpRationale = document.getElementById('tp-rationale');
+    const tpIcon = document.getElementById('tp-icon');
+
+    if (tpCard && tpAmount && tpRationale) {
+        // Reset state classes
+        tpCard.classList.remove('tp-state-cashout', 'tp-state-waiting', 'tp-state-drawdown');
+
+        let hasActive = false;
+        if (data.trades) {
+            hasActive = data.trades.some(t => t._active);
+        }
+
+        if (hasActive) {
+            // State: Waiting Room
+            tpCard.classList.add('tp-state-waiting');
+            tpIcon.textContent = 'lock_clock';
+            tpAmount.textContent = 'LOCKED';
+            tpAmount.style.fontSize = '36px';
+            tpRationale.textContent = 'Awaiting Trade Resolution';
+            requestTakeProfitMentor(0, 'waiting', 'Active trades floating');
+
+        } else if (pnl <= 0) {
+            // State: Drawdown
+            tpCard.classList.add('tp-state-drawdown');
+            tpIcon.textContent = 'security';
+            tpAmount.textContent = 'SHIELDED';
+            tpAmount.style.fontSize = '28px';
+            tpRationale.textContent = 'Account Rebuilding Phase';
+            requestTakeProfitMentor(pnl, 'drawdown', 'Drawdown recovery');
+
+        } else {
+            // State: Cash Out (Calculate Velocity)
+            tpCard.classList.add('tp-state-cashout');
+            tpIcon.textContent = 'account_balance';
+
+            // Velocity calculation (pnl / starting capital)
+            const velocityPct = data.capitalStart > 0 ? (pnl / data.capitalStart) * 100 : 0;
+            let recommendedPct = 0.50; // Default: 50% steady grind
+            let mathRationale = '50% of Secured Profit';
+            let mentorContext = 'Steady grind paycheck';
+
+            // If they made > 2.5% in the selected timeframe, it's an anomaly spike
+            if (velocityPct >= 2.5) {
+                recommendedPct = 0.75;
+                mathRationale = '75% of Volatility Spike';
+                mentorContext = 'Massive anomaly spike';
+            }
+
+            const takeProfitValue = pnl * recommendedPct;
+            tpAmount.innerHTML = `<span style="font-size:18px; opacity:0.6; font-weight:700; vertical-align:top; margin-right:2px; margin-top:6px; display:inline-block;">$</span>${takeProfitValue.toFixed(2)}`;
+            tpAmount.style.fontSize = '36px';
+            tpRationale.textContent = `${mathRationale} ($${pnl.toFixed(2)} Total)`;
+
+            requestTakeProfitMentor(pnl, 'cashout', mentorContext);
+        }
+    }
+}
+
+// Global throttle to prevent spamming the AI API when switching timeframes rapidly
+let tpMentorTimeout = null;
+
+function requestTakeProfitMentor(pnl, state, context) {
+    const aiBox = document.getElementById('tp-ai-mentor');
+    if (!aiBox) return;
+
+    // Set loading state
+    aiBox.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px; vertical-align:-3px; margin-right:4px; animation:spin 2s linear infinite;">autorenew</span> Generating institutional logic...';
+
+    if (tpMentorTimeout) clearTimeout(tpMentorTimeout);
+
+    tpMentorTimeout = setTimeout(async () => {
+        try {
+            if (window.api && window.api.generateTakeProfitAdvice) {
+                const result = await window.api.generateTakeProfitAdvice({ pnl, state, context });
+                if (result.success && result.advice) {
+                    aiBox.innerHTML = result.advice;
+                } else {
+                    applyFallbackMentorText(aiBox, state);
+                }
+            } else {
+                applyFallbackMentorText(aiBox, state);
+            }
+        } catch (e) {
+            console.warn('[ANALYTICS] Mentor API error:', e);
+            applyFallbackMentorText(aiBox, state);
+        }
+    }, 800);
+}
+
+function applyFallbackMentorText(aiBox, state) {
+    if (state === 'waiting') {
+        aiBox.textContent = 'Active risk is currently floating. Withdrawing capital right now artificially spikes margin utilization. Sit on your hands until resolution.';
+    } else if (state === 'drawdown') {
+        aiBox.textContent = 'We are currently under water. Shield algorithms are active. Do not withdraw capital, allow the bot to recover the high water mark.';
+    } else {
+        aiBox.textContent = 'Consistency is key. Secure the bag by transferring this amount to a real bank account, and allow the remaining profit to compound your base.';
+    }
 }
 
 function set(id, value) {

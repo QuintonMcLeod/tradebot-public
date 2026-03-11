@@ -315,6 +315,7 @@ function setupIpcHandlers() {
         { filename: 'RTFM/37_CONTEXT_MASKING.md', title: 'Context Masking for Dummies', category: 'rtfm', icon: 'theater_comedy', description: '"Wait... so if I tell the bot to risk 1% globally, how the hell do I tell RoboCop to risk 3% without screwing up my entire profile?" Patrice O\'Neal style breakdown of the Context Masking feature.' },
         { filename: 'RTFM/38_NOT_A_MONEY_PRINTER.md', title: 'This Is Not a Money Printer', category: 'rtfm', icon: 'hourglass_top', description: '"I installed the bot forty-five minutes ago. When do I get rich?" A brutally honest conversation about why trading is an investment — not a slot machine — and why the compound effect takes months, not minutes. With real math, real timelines, and a gym analogy that will haunt you.', featured: true },
         { filename: 'RTFM/39_LIVE_SPREAD.md', title: 'Live Spread Integration: Why Your Bot Was Trading Blindfolded', category: 'rtfm', icon: 'visibility', description: '"The bot thought the highway toll was $1.50 but sometimes it was $15." How OANDA\'s dynamic spreads were silently eating your profits, and how the bot now fetches real-time bid/ask data every 30 seconds instead of guessing.' },
+        { filename: 'RTFM/40_TAKE_PROFIT.md', title: 'The Take Profit Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Take Profit card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing. Three states: LOCKED, SHIELDED, and CASHOUT.' },
     ];
 
     try {
@@ -1325,6 +1326,131 @@ Respond in plain English a smart friend would understand. No jargon. Use analogi
 
         } catch (err) {
             console.error('[MAIN] AI Recommend error:', err.message);
+            return { success: false, error: err.message };
+        }
+    });
+
+    // =============================================
+    // Take Profit AI Mentor
+    // =============================================
+    ipcMain.handle('generate-take-profit-advice', async (event, data) => {
+        try {
+            const { pnl, state, context } = data;
+
+            // Re-read config for API keys
+            let apiKey = null;
+            let provider = 'gemini';
+            if (fs.existsSync(CONFIG_PATH)) {
+                try {
+                    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+                    if (cfg.ai && cfg.ai.api_key) {
+                        apiKey = cfg.ai.api_key;
+                        provider = cfg.ai.provider || 'gemini';
+                    }
+                } catch (e) {
+                    console.log('[MAIN] Could not read config for AI keys during TP Mentor call');
+                }
+            }
+
+            const systemPrompt = `You are a cold, disciplined institutional risk manager for Tradebot SCI. Your job is to provide exactly 2-3 sentences of psychological guidance regarding taking profits. 
+The user is looking at their current analytics dashboard.
+Current State: ${state.toUpperCase()}
+Recent Profit/Loss: $${pnl.toFixed(2)}
+Context: ${context}
+
+RULES:
+1. Speak plainly, directly, and professionally. No emojis, no fluff, no greetings or sign-offs.
+2. If State is WAITING: Command them to sit on their hands. Withdrawing while risk is active spikes margin utilized.
+3. If State is DRAWDOW: Command them to allow the bot to rebuild the high water mark. Do not withdraw during recovery.
+4. If State is CASHOUT: Command them to secure the bag by transferring the recommended % to a real-world bank account, while leaving the rest to compound. Note whether this is a volatility spike or steady grind based on the context.`;
+
+            let aiResponse = '';
+
+            if (apiKey) {
+                // OpenAI Path
+                if (provider === 'openai') {
+                    const openaiRes = await new Promise((resolve, reject) => {
+                        const req = https.request({
+                            hostname: 'api.openai.com',
+                            path: '/v1/chat/completions',
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`
+                            }
+                        }, (res) => {
+                            let data = '';
+                            res.on('data', chunk => { data += chunk; });
+                            res.on('end', () => resolve(JSON.parse(data)));
+                        });
+                        req.on('error', reject);
+                        req.write(JSON.stringify({
+                            model: 'gpt-4o',
+                            messages: [
+                                { role: 'system', content: systemPrompt },
+                                { role: 'user', content: 'Generate the Take Profit Mentor Advice.' }
+                            ],
+                            temperature: 0.3
+                        }));
+                        req.end();
+                    });
+                    if (openaiRes.choices && openaiRes.choices[0]) {
+                        aiResponse = openaiRes.choices[0].message.content;
+                    }
+                }
+                // Gemini Keys Path
+                else if (provider === 'gemini') {
+                    const aiUrl = new URL(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`);
+                    const geminiRes = await new Promise((resolve, reject) => {
+                        const req = https.request({
+                            hostname: aiUrl.hostname,
+                            path: aiUrl.pathname + aiUrl.search,
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        }, (res) => {
+                            let data = '';
+                            res.on('data', chunk => { data += chunk; });
+                            res.on('end', () => resolve(JSON.parse(data)));
+                        });
+                        req.on('error', reject);
+                        req.write(JSON.stringify({
+                            contents: [{
+                                role: 'user',
+                                parts: [{ text: systemPrompt + '\n\nGenerate the Take Profit Mentor Advice.' }]
+                            }],
+                            generationConfig: { temperature: 0.3 }
+                        }));
+                        req.end();
+                    });
+                    if (geminiRes.candidates && geminiRes.candidates[0].content.parts[0]) {
+                        aiResponse = geminiRes.candidates[0].content.parts[0].text;
+                    }
+                }
+            } else {
+                // Fallback: Pre-written responses to avoid GhostSpotter 1hr cooldown
+                if (state === 'waiting') {
+                    aiResponse = "Active risk is currently floating in the market. Withdrawing capital right now artificially spikes margin utilization. Sit on your hands until the current cycle resolves.";
+                } else if (state === 'drawdown') {
+                    aiResponse = "We are currently under water. Shield algorithms are active. Do not withdraw capital; allow the math to play out and recover the high water mark.";
+                } else {
+                    if (context && context.toLowerCase().includes('anomaly')) {
+                        aiResponse = "Massive anomaly spike detected. Protect this windfall by transferring the recommended percentage to a real bank account before the market reverts to the mean.";
+                    } else {
+                        aiResponse = "Consistency is the engine of wealth. Secure the bag by transferring this steady profit to a real bank account, and allow the base to compound.";
+                    }
+                }
+            }
+
+            if (aiResponse) {
+                // Clean up any markdown blocks if the AI messed up
+                let cleanResponse = aiResponse.replace(/```/g, '').trim();
+                return { success: true, advice: cleanResponse };
+            } else {
+                return { success: false, error: 'Empty response' };
+            }
+
+        } catch (err) {
+            console.error('[MAIN] TP Mentor error:', err.message);
             return { success: false, error: err.message };
         }
     });

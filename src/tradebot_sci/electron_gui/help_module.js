@@ -1017,7 +1017,17 @@ window.helpModule = (() => {
         let readDocs = [];
         try { readDocs = JSON.parse(localStorage.getItem(readKey) || '[]'); } catch (e) { readDocs = []; }
 
-        docCatalog.forEach((doc, i) => {
+        // Sort: unread articles first, then featured, then the rest
+        const sortedCatalog = [...docCatalog].sort((a, b) => {
+            const aUnread = !readDocs.includes(a.filename) ? 1 : 0;
+            const bUnread = !readDocs.includes(b.filename) ? 1 : 0;
+            if (aUnread !== bUnread) return bUnread - aUnread; // Unread first
+            if (a.featured && !b.featured) return -1;
+            if (!a.featured && b.featured) return 1;
+            return 0;
+        });
+
+        sortedCatalog.forEach((doc, i) => {
             // Assign size: featured = large, certain important ones = medium, rest = small
             let sizeClass = 'mag-sm';
             if (doc.featured) {
@@ -1279,6 +1289,7 @@ window.helpModule = (() => {
                 { filename: 'RTFM/37_CONTEXT_MASKING.md', title: 'Context Masking for Dummies', category: 'rtfm', icon: 'theater_comedy', description: '"Wait... so if I tell the bot to risk 1% globally, how the hell do I tell RoboCop to risk 3% without screwing up my entire profile?" Patrice O\'Neal style breakdown of the Context Masking feature.' },
                 { filename: 'RTFM/38_NOT_A_MONEY_PRINTER.md', title: 'This Is Not a Money Printer', category: 'rtfm', icon: 'hourglass_top', description: '"I installed the bot forty-five minutes ago. When do I get rich?" A brutally honest conversation about why the compound effect takes months, not minutes.' },
                 { filename: 'RTFM/39_LIVE_SPREAD.md', title: 'Live Spread Integration: Why Your Bot Was Trading Blindfolded', category: 'rtfm', icon: 'visibility', description: '"The bot thought the highway toll was $1.50 but sometimes it was $15." How the bot now fetches real-time bid/ask spread data from OANDA every 30 seconds.' },
+                { filename: 'RTFM/40_TAKE_PROFIT.md', title: 'The Take Profit Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Take Profit card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing.' },
             ];
         }
 

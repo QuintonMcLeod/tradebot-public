@@ -208,7 +208,7 @@
                     <button id="nav-graph"
                         class="flex items-center justify-start text-left gap-3 px-4 py-3.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-white transition-all text-sm font-medium">
                         <span class="material-symbols-outlined text-xl">show_chart</span>
-                        <span>Graph</span>
+                        <span>Analytics</span>
                     </button>
                     <button id="nav-settings"
                         class="flex items-center justify-start text-left gap-3 px-4 py-3.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-white transition-all text-sm font-medium">
@@ -717,8 +717,8 @@
                 </div>
             </div>
 
-            <!-- ═══ ROW 4: Charts (3fr / 2fr unequal split) ═══ -->
-            <div class="analytics-animate" style="display:grid; grid-template-columns: 3fr 2fr; gap:20px;">
+            <!-- ═══ ROW 4: Charts (3fr / 2fr / 2fr unequal split) ═══ -->
+            <div class="analytics-animate" style="display:grid; grid-template-columns: 3fr 2fr 2fr; gap:20px;">
 
                 <!-- Equity Curve -->
                 <div class="analytics-card accent-teal chart-container" style="padding:20px;">
@@ -737,6 +737,31 @@
                     </div>
                     <div style="height:220px; display:flex; align-items:center; justify-content:center;">
                         <canvas id="chart-winloss-pie"></canvas>
+                    </div>
+                </div>
+
+                <!-- Take Profit Recommendation -->
+                <div id="take-profit-card" class="analytics-card tp-state-waiting"
+                    style="padding:20px; display:flex; flex-direction:column;">
+                    <div class="chart-title" style="color:var(--tp-accent, #64748b);">
+                        <span id="tp-icon" class="material-symbols-outlined">lock_clock</span>
+                        Take Profit Mentor
+                    </div>
+
+                    <div
+                        style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;">
+                        <div id="tp-amount"
+                            style="font-size:36px; font-weight:900; color:var(--tp-amount-color, #f8fafc); line-height:1; margin-bottom:4px; font-variant-numeric:tabular-nums; letter-spacing:-0.02em;">
+                            LOCKED</div>
+                        <div id="tp-rationale"
+                            style="font-size:11px; font-weight:700; color:var(--tp-desc-color, #64748b); text-transform:uppercase; letter-spacing:0.05em;">
+                            Awaiting Trade Resolution</div>
+                    </div>
+
+                    <div id="tp-ai-mentor"
+                        style="margin-top:12px; font-size:11px; font-style:italic; line-height:1.4; color:var(--tp-mentor-color, #94a3b8); background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:12px; text-align:left;">
+                        Active trades are floating. Sit on your hands until the current cycle resolves to protect your
+                        margin.
                     </div>
                 </div>
             </div>
