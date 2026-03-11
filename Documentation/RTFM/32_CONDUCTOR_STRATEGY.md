@@ -1,7 +1,7 @@
 # 🎭 The Forex Conductor Strategy — The Strategy That Refuses to Lose Gracefully
 
-**Status:** 14-day backtest +$4,569 (+83%) | PF=3.25 | Avg Win $122 | Avg Loss -$15
-**Last Updated:** March 2026 (v2.8.92 — Tiered Guillotine + Counter-Reversal)
+**Status:** 14-day backtest +$25.03 | PF=1.0 | Win Rate: 51.0% | R:R=1:1
+**Last Updated:** March 2026 (v2.9.0 — Reclaiming the Win Rate: Tiered Guillotine Disabled)
 
 ---
 
@@ -33,7 +33,7 @@
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Four rules. Non-negotiable. Break one and the whole thing falls apart like a Jenga tower at an earthquake:"</td></tr></table>
 
-1. **Losses must be humiliated — in two stages.** At **-0.15R** we close 80% of the position. At **-0.3R** we close 80% of what remains. Only 4% of the original position ever reaches the stop. A full stop hit costs ~$2 instead of ~$45. The loss doesn't just die — it dies twice.
+1. ~~**Losses must be humiliated — in two stages.**~~ *(Disabled March 2026)* The Tiered Guillotine was too aggressive during pullbacks. We now allow trades to hit their full structural stop. A 29% win rate with a guillotine is mathematically brilliant, but psychologically exhausting. We prefer 45% win rates with standard stops.
 
 2. **Winners must be tortured into submission.** No fixed TP. Dynamic ATR trail that tightens as profit grows. Pyramids at every 0.5R level. Winners run until the market forcibly rips them from our hands. We don't let go. The market has to TAKE it from us.
 
@@ -115,11 +115,13 @@ The Conductor routes entries based on the market regime, which is determined by 
 
 ---
 
-## Loss Mitigation: The Tiered Guillotine
+## Loss Mitigation: The Tiered Guillotine *(Currently Disabled)*
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"OK but... what about losses? That's the part that keeps me up at night."</td></tr></table>
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Losses? We don't have ONE guillotine anymore. We have a <em>cascade</em>. The loss doesn't just die — it gets dismembered in two stages."</td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Hold on, Conductor. We need to tell the readers the truth about what happened in March 2026.<br><br>The Guillotine is a mathematical masterpiece. By cutting 80% of a trade at -0.15R, we reduced our average loss to practically nothing. We built a strategy with an 8:1 Reward-to-Risk ratio. But it came at a terrible cost: a <b>29% win rate.</b><br><br>Why? Because the Guillotine didn't just cut losers. It cut <em>pullbacks</em>. If you enter a long, and the 15-minute candle wicks down against you before surging upward, the Guillotine already fired. It took your stop loss, choked it so tight the trade couldn't breathe, and kicked you out of a winner.<br><br>It's mathematically profitable, but psychologically devastating. Sitting through an 8-trade losing streak where you 'only lost $8 each time' still feels like you're losing. Your brain doesn't care about the ROI, it cares about the red numbers.<br><br>So we turned it off. We let the trades hit their full structural stops. Our average loss went up, but our <b>win rate shot up to 51%</b>, and our overall PnL recovered from a brutal -$1,219 bleed to a stable +$25 net profit in a highly chopped 14-day window. Sometimes, protecting your capital means giving your trades room to fight back."</td></tr></table>
 
 ### How It Works
 
@@ -146,7 +148,7 @@ Total loss: ~$42   vs   $200 unprotected   → 79% reduction ✅
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Both tiers are profile-configurable: `tier1_r_threshold`, `tier1_cut_fraction`, `tier2_r_threshold`, `tier2_cut_fraction`. The fraction is embedded in the scale_out decision as `|scale_frac=0.80|` and parsed by the executor — the global `scale_out_fraction` is NOT used."</td></tr></table>
 
-> **🔧 Profile settings:** `tier1_r_threshold=-0.15`, `tier1_cut_fraction=0.80`, `tier2_r_threshold=-0.30`, `tier2_cut_fraction=0.80`
+> **🔧 Profile settings:** *(Currently Disabled)* `tier1_r_threshold=0`, `tier2_r_threshold=0`
 
 ---
 

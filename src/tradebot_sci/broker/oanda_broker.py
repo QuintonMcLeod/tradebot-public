@@ -15,6 +15,7 @@ try:
     import oandapyV20.endpoints.orders as orders
     import oandapyV20.endpoints.positions as oanda_positions
     import oandapyV20.endpoints.trades as trades
+    import oandapyV20.endpoints.pricing as pricing
     HAS_OANDA = True
 except ImportError:
     HAS_OANDA = False
@@ -35,8 +36,10 @@ class OandaExchangeBroker(IExchangeBroker):
     """Broker implementation for OANDA v20 API."""
 
     # Spread cost awareness — OANDA uses spread-only pricing (no commissions).
-    # Average spread in pips; configurable via env var. Default 1.5 pips covers most major pairs.
+    # Fallback average spread in pips; used when live pricing API is unavailable.
     AVG_SPREAD_PIPS = float(os.getenv("OANDA_AVG_SPREAD_PIPS", "1.5"))
+    # How long a cached live spread reading remains valid (seconds)
+    _SPREAD_TTL = 30.0
     # Pip value multiplier: 0.0001 for most pairs, 0.01 for JPY pairs
     PIP_VALUE_STANDARD = 0.0001
     PIP_VALUE_JPY = 0.01
@@ -78,6 +81,7 @@ class OandaExchangeBroker(IExchangeBroker):
         self._prev_balance: float | None = None  # for PnL calc on vanished positions
         self._exit_cooldowns: dict[str, float] = {}  # symbol -> timestamp of last exit
         self.REENTRY_COOLDOWN = float(os.getenv("OANDA_REENTRY_COOLDOWN", "300"))  # 5 min default
+        self._spread_cache: dict[str, tuple[float, float]] = {}  # symbol -> (spread_pips, timestamp)
         self._tracked_path = _paths.DATA_DIR / "oanda_tracked_positions.json"
         self._load_tracked_positions()
 
@@ -299,7 +303,7 @@ class OandaExchangeBroker(IExchangeBroker):
                             side = "SHORT" if initial_units < 0 else "LONG"
 
                             pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
-                            est_spread = abs(initial_units) * self.AVG_SPREAD_PIPS * pip_value * 2
+                            est_spread = abs(initial_units) * self.get_live_spread(sym) * pip_value * 2
                             if "JPY" in sym.upper() and price > 0:
                                 est_spread /= price  # Convert JPY spread to USD
                             duration_str = self._format_duration(ct.get("openTime"))
@@ -357,6 +361,85 @@ class OandaExchangeBroker(IExchangeBroker):
             return f"{sym[:-4]}_{sym[-4:]}"
             
         return sym
+
+    # ── Live Spread Fetcher ──────────────────────────────────────
+    def get_live_spread(self, symbol: str) -> float:
+        """Return the current spread for *symbol* in pips.
+
+        Uses OANDA's Pricing API (``GET /v3/accounts/{id}/pricing``) to fetch
+        the real-time bid/ask spread.  Results are cached for ``_SPREAD_TTL``
+        seconds to avoid hammering the API.
+
+        Falls back to ``AVG_SPREAD_PIPS`` if the API call fails.
+        """
+        now = time.time()
+        cached = self._spread_cache.get(symbol)
+        if cached:
+            spread_pips, ts = cached
+            if now - ts < self._SPREAD_TTL:
+                return spread_pips
+
+        # Fetch live pricing
+        try:
+            oanda_sym = self._normalize_symbol(symbol)
+            params = {"instruments": oanda_sym}
+            r = pricing.PricingInfo(self.account_id, params=params)
+            resp = self.client.request(r)
+            prices = resp.get("prices", [])
+            if prices:
+                p = prices[0]
+                # Use top-of-book bid/ask (first bucket)
+                bids = p.get("bids", [])
+                asks = p.get("asks", [])
+                if bids and asks:
+                    bid = float(bids[0].get("price", 0))
+                    ask = float(asks[0].get("price", 0))
+                    if bid > 0 and ask > 0:
+                        pip_val = self.PIP_VALUE_JPY if "JPY" in symbol.upper() else self.PIP_VALUE_STANDARD
+                        spread_pips = (ask - bid) / pip_val
+                        self._spread_cache[symbol] = (spread_pips, now)
+                        logger.debug(
+                            f"[SPREAD] Live: {symbol} bid={bid:.5f} ask={ask:.5f} "
+                            f"spread={spread_pips:.2f} pips"
+                        )
+                        return spread_pips
+
+            # Response was empty or malformed — fall through to fallback
+            logger.warning(f"[SPREAD] Empty pricing response for {symbol}, using fallback {self.AVG_SPREAD_PIPS} pips")
+        except Exception as e:
+            logger.warning(f"[SPREAD] API error for {symbol}: {e}, using fallback {self.AVG_SPREAD_PIPS} pips")
+
+        # Fallback to static default
+        return self.AVG_SPREAD_PIPS
+
+    def get_live_spread_as_pct(self, symbol: str) -> float | None:
+        """Return the current round-trip spread cost as a decimal fraction.
+
+        This is the callback registered into ``symbol_classifier`` so that
+        ``get_fee_for_symbol()`` can use real-time data instead of static
+        estimates.  Returns ``None`` if the live lookup fails, signalling
+        the classifier to use its static fallback.
+        """
+        try:
+            oanda_sym = self._normalize_symbol(symbol)
+            params = {"instruments": oanda_sym}
+            r = pricing.PricingInfo(self.account_id, params=params)
+            resp = self.client.request(r)
+            prices = resp.get("prices", [])
+            if prices:
+                p = prices[0]
+                bids = p.get("bids", [])
+                asks = p.get("asks", [])
+                if bids and asks:
+                    bid = float(bids[0].get("price", 0))
+                    ask = float(asks[0].get("price", 0))
+                    mid = (bid + ask) / 2
+                    if mid > 0:
+                        # Round-trip spread cost as fraction of price (x2 for entry+exit)
+                        return ((ask - bid) / mid) * 2
+        except Exception:
+            pass
+        return None  # Signal: use static fallback
 
     def refresh_account_summary(self) -> None:
         """Fetches latest balance and NAV."""
@@ -466,7 +549,7 @@ class OandaExchangeBroker(IExchangeBroker):
 
                 # Estimate round-trip spread cost for transparency
                 pip_value = self.PIP_VALUE_JPY if "JPY" in symbol.upper() else self.PIP_VALUE_STANDARD
-                est_spread_cost = units * self.AVG_SPREAD_PIPS * pip_value * 2  # x2 for entry + exit
+                est_spread_cost = units * self.get_live_spread(symbol) * pip_value * 2  # x2 for entry + exit
                 if "JPY" in symbol.upper() and avg_price > 0:
                     est_spread_cost /= avg_price  # Convert JPY spread to USD
 
@@ -477,7 +560,7 @@ class OandaExchangeBroker(IExchangeBroker):
 
                 pnl_sign = '+' if pnl_val >= 0 else '-'
                 pnl_str = f"{pnl_sign}${abs(pnl_val):.2f}"
-                logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={side} | Duration={duration_str} | Est. Spread Cost: ${est_spread_cost:.4f} (OANDA {self.AVG_SPREAD_PIPS} pips)")
+                logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={side} | Duration={duration_str} | Live Spread Cost: ${est_spread_cost:.4f} ({self.get_live_spread(symbol):.1f} pips)")
                 # Record exit for re-entry cooldown (losses only — wins can re-enter immediately)
                 if pnl_val <= 0:
                     self._exit_cooldowns[symbol] = time.time()
@@ -801,7 +884,8 @@ class OandaExchangeBroker(IExchangeBroker):
             # This prevents the bot from sizing too aggressively by accounting for the
             # spread that will be eaten on entry (and again on exit via SL/TP).
             pip_value = self.PIP_VALUE_JPY if "JPY" in decision.symbol.upper() else self.PIP_VALUE_STANDARD
-            spread_cost = self.AVG_SPREAD_PIPS * pip_value
+            live_spread = self.get_live_spread(decision.symbol)
+            spread_cost = live_spread * pip_value
             effective_stop_dist = stop_dist + spread_cost
 
             # ── JPY QUOTE CONVERSION ─────────────────────────────────
@@ -1084,7 +1168,7 @@ class OandaExchangeBroker(IExchangeBroker):
                     # Estimate spread cost for logging
                     pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
                     units = abs(prev.get("size", 0))
-                    est_spread = units * self.AVG_SPREAD_PIPS * pip_value * 2
+                    est_spread = units * self.get_live_spread(sym) * pip_value * 2
                     if "JPY" in sym.upper():
                         _ep = prev.get("avg_price", 0) or prev.get("entry_price", 0)
                         if _ep > 0:

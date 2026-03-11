@@ -501,8 +501,8 @@ class SafetyGuard:
 
         # 2. DEFENSIVE SHIELDS
         # A. Stale-Position Sniper (Time Decay)
-        # (PERMANENTLY DISABLED via hyperopt 2026-03-09: choking good trades)
-        if False and settings.safety.safety_stale_sniper_enabled:
+        # (2026-03-10: Restored config passthrough, default to disabled in config)
+        if settings.safety.safety_stale_sniper_enabled:
             bars_limit = settings.safety.safety_stale_sniper_bars
             if bars_since >= bars_limit:
                 # PROFIT GUARD: NEVER stale-exit a profitable trade.

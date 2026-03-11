@@ -37,10 +37,10 @@ class SupplyDemandStrategy(BaseStrategy):
     4. Take an Entry (Candle Break)
     """
     
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__("SupplyDemand")
-        self.RR_TARGET = 2.0  # 2R Target - OPTIMAL
-        self.ZONE_WINDOW = 100
+        self.RR_TARGET = float(kwargs.get('target_r', 2.0))
+        self.ZONE_WINDOW = int(kwargs.get('zone_window', 100))
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, current_capital: Optional[float] = None, **kwargs) -> Optional[AITradeDecision]:
         # [SAFEGUARD] Over-Trading Protection
@@ -114,7 +114,7 @@ class SupplyDemandStrategy(BaseStrategy):
                 stop_loss = zone.bottom - (atr * 0.1)  # Proven: tight to zone (5-10 pips)
                 risk_dist = last_candle.close - stop_loss
                 if risk_dist <= 0: risk_dist = atr * 0.5
-                take_profit = last_candle.close + (risk_dist * 3.0)  # 3:1 R:R (proven S&D)
+                take_profit = last_candle.close + (risk_dist * self.RR_TARGET)
 
                 action = "enter_long"
                 if open_position:
@@ -167,7 +167,7 @@ class SupplyDemandStrategy(BaseStrategy):
                 stop_loss = zone.top + (atr * 0.1)  # Proven: tight to zone (5-10 pips)
                 risk_dist = stop_loss - last_candle.close
                 if risk_dist <= 0: risk_dist = atr * 0.5
-                take_profit = last_candle.close - (risk_dist * 3.0)  # 3:1 R:R (proven S&D)
+                take_profit = last_candle.close - (risk_dist * self.RR_TARGET)
 
                 action = "enter_short"
                 if open_position:

@@ -365,7 +365,7 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
         if not settings.oanda:
             from tradebot_sci.config.broker import load_oanda_broker_options
             settings.oanda = load_oanda_broker_options()
-        return OandaExchangeBroker(
+        broker = OandaExchangeBroker(
             account_id=settings.oanda.account_id,
             api_key=settings.oanda.api_key,
             profile_settings=profile_settings,
@@ -374,6 +374,14 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
             trade_results=trade_results,
             position_hold_store_path=settings.runtime.position_hold_store_path
         )
+        # Wire live spread data into the global fee system
+        try:
+            from tradebot_sci.utils.symbol_classifier import set_live_spread_provider
+            set_live_spread_provider(broker.get_live_spread_as_pct)
+            logger.info("[SPREAD] Live spread provider registered (OANDA Pricing API)")
+        except Exception as e:
+            logger.warning(f"[SPREAD] Failed to register live spread provider: {e}")
+        return broker
     elif name == "paxos" or name == "itbit":
         if not settings.paxos:
             from tradebot_sci.config.broker import load_paxos_broker_options

@@ -89,7 +89,7 @@ class ForexConductorStrategy(BaseStrategy):
     Forex Conductor — routes to strategies based on market regime.
     """
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         # Build _strategies BEFORE super().__init__() because BaseStrategy's
         # __init__ sets self.profile_risk_pct = None which triggers our
         # property setter, which iterates self._strategies.
@@ -101,6 +101,7 @@ class ForexConductorStrategy(BaseStrategy):
             "session_momentum": SessionMomentumStrategy(),
             "wind_down_truffle": WindDownTruffleStrategy(),
         }
+        self.quick_ranging_tp_enabled = kwargs.get('quick_ranging_tp_enabled', False)
         super().__init__("Forex Conductor")
 
     # ── Risk propagation ────────────────────────────────────────────────
@@ -167,8 +168,13 @@ class ForexConductorStrategy(BaseStrategy):
         regime = gates.get("market_regime", "unknown")
 
         # ── CHOPPY / RANGING: Block all entries (SAR bypasses) ─────────────
-        # 2026-03-09: Hyperopt proved that trading the "ranging" regime bleeds capital.
-        blocked_regimes = ["choppy", "unknown", "ranging"]
+        # 2026-03-10: Restored profile override so ranging can be traded if desired.
+        _profile = getattr(self, 'profile', None) or gates.get('profile') or type('_P', (), {})()
+        block_ranging = bool(getattr(_profile, 'block_ranging_regime', True))
+        
+        blocked_regimes = ["choppy", "unknown"]
+        if block_ranging:
+            blocked_regimes.append("ranging")
             
         if regime in blocked_regimes and not has_reversal:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by regime={regime}")
@@ -518,8 +524,11 @@ class ForexConductorStrategy(BaseStrategy):
                 fired = self._milestones_fired.setdefault(milestones_key, set())
 
                 # ── LOWER-HIGH / HIGHER-LOW INVALIDATION ─────────
-                # (PERMANENTLY DISABLED via hyperopt 2026-03-09: cutting losers too early on noise)
-                if False and not is_sar and "struct_inval_lh" not in fired:
+                # 2026-03-10: Restored profile override so users can enable if desired.
+                _profile = getattr(self, 'profile', None) or gates.get('profile') or type('_P', (), {})()
+                use_struct_inval = bool(getattr(_profile, 'structure_invalidation_enabled', False))
+                
+                if use_struct_inval and not is_sar and "struct_inval_lh" not in fired:
                     from tradebot_sci.market.swing_analysis import swing_points
                     trade_candles = snapshot.candles[-40:]
                     if len(trade_candles) >= 10:
@@ -585,17 +594,20 @@ class ForexConductorStrategy(BaseStrategy):
                 # The Guillotine cascade still happens via paper_broker's
                 # stop_loss/take_profit checking once price hits the stop.
                 # Re-enabled (2026-03-09): OANDA does not do tiered stops. We must do it mid-trade.
+                # 2026-03-10: Exposed to profile settings so users can re-enable the Guillotine if desired.
                 if not is_sar:
                     _profile = getattr(self, 'profile', None) \
                         or gates.get('profile') \
                         or type('_P', (), {})()
-                    t1_r = -99.0
-                    t2_r = -99.0
-                    t1_cut = 0.0
-                    t2_cut = 0.0
+                    
+                    # Read from profile, default to 0.0 (disabled)
+                    t1_r = float(getattr(_profile, 'tier1_r_threshold', 0.0))
+                    t2_r = float(getattr(_profile, 'tier2_r_threshold', 0.0))
+                    t1_cut = float(getattr(_profile, 'tier1_cut_fraction', 0.8))
+                    t2_cut = float(getattr(_profile, 'tier2_cut_fraction', 0.8))
 
                     # ── Tier 1 ────────────────────────────────────────
-                    if r_multiple <= t1_r and "guillotine_t1" not in fired:
+                    if t1_r < 0 and r_multiple <= t1_r and "guillotine_t1" not in fired:
                         from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
                         fee_pct = get_fee_for_symbol(sym)
                         spread_cost = entry_price * fee_pct * 2
@@ -616,7 +628,7 @@ class ForexConductorStrategy(BaseStrategy):
                             return dec
 
                     # ── Tier 2 (original de_risk) ──────────────────────
-                    if r_multiple <= t2_r and "de_risk" not in fired:
+                    if t2_r < 0 and r_multiple <= t2_r and "de_risk" not in fired:
                         from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
                         fee_pct = get_fee_for_symbol(sym)
                         spread_cost = entry_price * fee_pct * 2
@@ -652,7 +664,7 @@ class ForexConductorStrategy(BaseStrategy):
                 # On consolidation days, DON'T try to let winners run.
                 # Take profit at oscillation peaks and re-enter on dips.
                 # This captures the up/down/up/down pattern the user wants.
-                if is_ranging and r_multiple >= 0.7 and not is_sar:
+                if is_ranging and r_multiple >= 0.7 and not is_sar and self.quick_ranging_tp_enabled:
                     pnl_approx = r_multiple * initial_risk * (
                         abs(open_position.get("size", 0))
                         / (entry_price if entry_price else 1)

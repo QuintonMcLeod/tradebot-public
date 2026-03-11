@@ -93,15 +93,35 @@ BROKER_FEE_DEFAULTS: dict[AssetClass, float] = {
     AssetClass.UNKNOWN: 0.002,    # Conservative fallback
 }
 
+# ── Live spread provider callback ──
+# When set, get_fee_for_symbol() will call this function first to get
+# real-time spread data from the broker.  If it returns None, we fall
+# back to the static BROKER_FEE_DEFAULTS.
+_live_spread_provider: "Callable[[str], float | None] | None" = None
+
+
+def set_live_spread_provider(provider: "Callable[[str], float | None]") -> None:
+    """Register a callback that returns live round-trip spread cost as a decimal
+    fraction for a given symbol, or None to signal a fallback to static defaults."""
+    global _live_spread_provider
+    _live_spread_provider = provider
+
 
 def get_fee_for_symbol(symbol: str, override: float | None = None) -> float:
     """Return the estimated round-trip fee for *symbol*.
 
-    If *override* is given and non-zero it takes precedence (allows the
-    ``SAFETY_FEE_RT_PCT`` env-var to act as a global override).
+    Priority:
+      1. *override* (if given and non-zero) — ``SAFETY_FEE_RT_PCT`` env-var
+      2. Live spread provider (if registered and returns a value)
+      3. Static ``BROKER_FEE_DEFAULTS``
     """
     if override:
         return override
+    # Try live spread from the broker
+    if _live_spread_provider is not None:
+        live = _live_spread_provider(symbol)
+        if live is not None:
+            return live
     asset_class = classify_symbol(symbol)
     return BROKER_FEE_DEFAULTS.get(asset_class, 0.004)
 

@@ -15,8 +15,11 @@ class RobotEvolutionStrategy(BaseStrategy):
     Designed for account growth in ranging or choppy markets.
     """
     
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__("Robot Evolution")
+        self.stop_atr_mult = float(kwargs.get('stop_atr_mult', 1.0))
+        self.target_r = float(kwargs.get('target_r', 2.0))
+        self.chandelier_mult = float(kwargs.get('chandelier_mult', 2.0))
 
     def score_signal(self, snapshot, gates=None):
         """Evolution-specific scoring: NTZ(30) + Sweep(25) + Indication(25) + Candle(10) + ATR(10)."""
@@ -126,7 +129,7 @@ class RobotEvolutionStrategy(BaseStrategy):
         # ATR×1.0 stop works better for NTZ — swing stops were too tight (48% WR)
         atr_floor = current_price * 0.002
         effective_atr = max(atr, atr_floor)
-        stop_dist = effective_atr * 1.0
+        stop_dist = effective_atr * self.stop_atr_mult
         
         rejection_reasons = []
 
@@ -142,9 +145,9 @@ class RobotEvolutionStrategy(BaseStrategy):
             if lowest_recent < ntz.low and current_price > ntz.low:
                 if last_bar.close > last_bar.open:
                     stop_loss = lowest_recent - stop_dist
-                    target = current_price + (stop_dist * 2.0)  # 2R target
+                    target = current_price + (stop_dist * self.target_r)
                     
-                    notes = f"Robot Evolution Long: 1.0ATR Stop / 2R Target (ATR: {effective_atr:.4f})"
+                    notes = f"Robot Evolution Long: {self.stop_atr_mult}ATR Stop / {self.target_r}R Target (ATR: {effective_atr:.4f})"
                     return AITradeDecision(
                         symbol=snapshot.symbol,
                         timeframe=snapshot.timeframe,
@@ -166,9 +169,9 @@ class RobotEvolutionStrategy(BaseStrategy):
             if highest_recent > ntz.high and current_price < ntz.high:
                 if last_bar.close < last_bar.open:
                     stop_loss = highest_recent + stop_dist
-                    target = current_price - (stop_dist * 2.0)  # 2R target
+                    target = current_price - (stop_dist * self.target_r)
                     
-                    notes = f"Robot Evolution Short: 1.0ATR Stop / 2R Target (ATR: {effective_atr:.4f})"
+                    notes = f"Robot Evolution Short: {self.stop_atr_mult}ATR Stop / {self.target_r}R Target (ATR: {effective_atr:.4f})"
                     return AITradeDecision(
                         symbol=snapshot.symbol,
                         timeframe=snapshot.timeframe,
@@ -224,7 +227,7 @@ class RobotEvolutionStrategy(BaseStrategy):
         # Chandelier Exit: trail from highest high / lowest low (last 10 bars)
         lookback = min(10, len(snapshot.candles))
         recent = snapshot.candles[-lookback:]
-        chandelier_mult = 2.0  # Standard forex Chandelier multiplier
+        chandelier_mult = self.chandelier_mult
 
         from tradebot_sci.strategy.decisions import hold_decision
 

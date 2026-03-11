@@ -24,13 +24,13 @@ class CryptoVWAPReversionStrategy(BaseStrategy):
 
     def __init__(self, ema_period=20, rsi_period=14,
                  rsi_long_threshold=40, rsi_short_threshold=60,
-                 vwap_deviation_pct=0.003):
+                 vwap_deviation_pct=0.003, **kwargs):
         super().__init__("crypto_vwap_reversion")
-        self.ema_period = ema_period
-        self.rsi_period = rsi_period
-        self.rsi_long_threshold = rsi_long_threshold
-        self.rsi_short_threshold = rsi_short_threshold
-        self.vwap_deviation_pct = vwap_deviation_pct
+        self.ema_period = int(kwargs.get('ema_period', ema_period))
+        self.rsi_period = int(kwargs.get('rsi_period', rsi_period))
+        self.rsi_long_threshold = float(kwargs.get('rsi_long_threshold', rsi_long_threshold))
+        self.rsi_short_threshold = float(kwargs.get('rsi_short_threshold', rsi_short_threshold))
+        self.vwap_deviation_pct = float(kwargs.get('vwap_deviation_pct', vwap_deviation_pct))
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict,
                            open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:

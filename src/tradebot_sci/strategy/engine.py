@@ -49,9 +49,23 @@ class StrategyEngine:
         self.last_strat_score: float = 0.0
         self.last_strat_grade: str = "N/A"
         
-        # Load the Strategy Variant
+        # Determine which strategy this engine instance will run
+        self._variant_key = self._resolve_variant_key()  # For SAR exclusion and masking
+        
+        # [CONTEXT MASKING] Apply isolated overrides for this specific strategy variant
+        if hasattr(self.profile, "strategy_overrides"):
+            overrides = self.profile.strategy_overrides.get(self._variant_key)
+            if overrides:
+                logger.info(f" [ENGINE] Applying {len(overrides)} Context Mask overrides for {self._variant_key.upper()} on {self.symbol}")
+                if hasattr(self.profile, "model_copy"):
+                    # Pydantic v2
+                    self.profile = self.profile.model_copy(update=overrides)
+                elif hasattr(self.profile, "copy"):
+                    # Pydantic v1
+                    self.profile = self.profile.copy(update=overrides)
+        
+        # Load the Strategy Variant using the purely isolated & masked profile
         self._strategy = self._load_strategy_variant()
-        self._variant_key = self._resolve_variant_key()  # For SAR exclusion
         
         # Propagate profile risk to the strategy
         risk_pct = getattr(self.profile, 'risk_per_trade_pct', None)
@@ -132,10 +146,20 @@ class StrategyEngine:
         module_path, class_name = entry
         mod = importlib.import_module(module_path)
         cls = getattr(mod, class_name)
+        
+        # [CONTEXT MASKING] Pass strategy overrides down as kwargs
+        kwargs = {}
+        if hasattr(self.profile, "strategy_overrides"):
+            overrides = self.profile.strategy_overrides.get(variant, {})
+            # Transform keys to lowercase so they match Python variable names
+            kwargs = {k.lower(): v for k, v in overrides.items()}
+
         # MetaSCIStrategy requires profile_settings kwarg
         if variant == "meta_sci":
-            return cls(profile_settings=self.profile)
-        return cls()
+            kwargs["profile_settings"] = self.profile
+            return cls(**kwargs)
+            
+        return cls(**kwargs)
 
     def _load_strategy_variant(self):
         """Factory method for loading strategy variants.

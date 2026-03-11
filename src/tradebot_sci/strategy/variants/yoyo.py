@@ -43,15 +43,19 @@ class YoYoStrategy(BaseStrategy):
     MAX_RISK_PCT = 0.05      # Cap at 5%
     MAX_DAILY_TRADES = 3     # Cap per symbol per day
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__("Yo-Yo")
+        self.sma_period = int(kwargs.get('sma_period', 50))
+        self.risk_escalation = float(kwargs.get('risk_escalation', self.RISK_ESCALATION))
+        self.max_risk_pct = float(kwargs.get('max_risk_pct', self.MAX_RISK_PCT))
+        self.target_r = float(kwargs.get('target_r', 2.0))
 
     def _get_risk_pct_for_symbol(self, symbol: str) -> float:
-        return min(_yoyo_risk_level.get(symbol, self.BASE_RISK_PCT), self.MAX_RISK_PCT)
+        return min(_yoyo_risk_level.get(symbol, self.BASE_RISK_PCT), self.max_risk_pct)
 
     def _escalate_risk(self, symbol: str):
         current = _yoyo_risk_level.get(symbol, self.BASE_RISK_PCT)
-        _yoyo_risk_level[symbol] = min(current + self.RISK_ESCALATION, self.MAX_RISK_PCT)
+        _yoyo_risk_level[symbol] = min(current + self.risk_escalation, self.max_risk_pct)
         logger.info(f"[YO-YO] {symbol} risk escalated: {current:.1%} → {_yoyo_risk_level[symbol]:.1%}")
 
     def check_entry_signal(
@@ -85,7 +89,7 @@ class YoYoStrategy(BaseStrategy):
 
         # ── PROVEN FILTER 1: SMA trend filter ──
         # Research: only enter long when price > SMA, short when price < SMA
-        sma = _calculate_sma(candles, SMA_PERIOD)
+        sma = _calculate_sma(candles, self.sma_period)
         if sma is None:
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Yo-Yo: SMA data insufficient")
 
@@ -130,12 +134,12 @@ class YoYoStrategy(BaseStrategy):
             swing_stop = min(recent_lows)
             stop_loss = swing_stop - stop_buffer
             risk_dist = last_close - stop_loss
-            take_profit = last_close + (risk_dist * 2.0)  # 2:1 R:R (proven)
+            take_profit = last_close + (risk_dist * self.target_r)  # Target R
         else:
             swing_stop = max(recent_highs)
             stop_loss = swing_stop + stop_buffer
             risk_dist = stop_loss - last_close
-            take_profit = last_close - (risk_dist * 2.0)  # 2:1 R:R (proven)
+            take_profit = last_close - (risk_dist * self.target_r)  # Target R
 
         # Sanity: risk_dist must be > 0
         if risk_dist <= 0:
@@ -147,7 +151,7 @@ class YoYoStrategy(BaseStrategy):
 
         notes = (
             f"Yo-Yo {direction.upper()}: "
-            f"SMA{SMA_PERIOD} filter, swing stop, 2:1 R:R, "
+            f"SMA{self.sma_period} filter, swing stop, {self.target_r}:1 R:R, "
             f"risk={risk_pct:.1%}"
         )
 

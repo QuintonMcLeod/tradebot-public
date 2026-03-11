@@ -28,8 +28,12 @@ class RoboCopStrategy(BaseStrategy):
     - Strong trend gate: htf_strength >= 0.3
     """
     
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__("RoboCop")
+        self.target_r = float(kwargs.get('target_r', 3.0))
+        self.stop_atr_buffer = float(kwargs.get('stop_atr_buffer', 0.2))
+        self.guillotine_cut_pct = float(kwargs.get('guillotine_cut_pct', 0.80))
+        self.chandelier_mult = float(kwargs.get('chandelier_mult', 2.0))
 
     def _compute_score(self, snapshot, gates=None):
         """Internal scoring used by both score_signal() and check_entry_signal()."""
@@ -140,7 +144,7 @@ class RoboCopStrategy(BaseStrategy):
         # Proven ICT/SMC approach: stop beyond the sweep level (structural invalidation)
         # Research: ICT backtesters use sweep extreme as stop, 2-3:1 R:R = profitable at 36% WR
         atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
-        stop_buffer = atr * 0.2  # Tiny buffer beyond sweep level
+        stop_buffer = atr * self.stop_atr_buffer  # Tiny buffer beyond sweep level
         
         if target_dir == "long":
             # Sweep low = structural stop (where liquidity was taken)
@@ -148,13 +152,13 @@ class RoboCopStrategy(BaseStrategy):
             swing_stop = min(recent_lows)
             stop_loss = swing_stop - stop_buffer
             risk_dist = last_close - stop_loss
-            take_profit = last_close + (risk_dist * 3.0)  # 3:1 R:R (proven ICT)
+            take_profit = last_close + (risk_dist * self.target_r)  # Target R
         else:
             recent_highs = [c.high for c in snapshot.candles[-5:]]
             swing_stop = max(recent_highs)
             stop_loss = swing_stop + stop_buffer
             risk_dist = stop_loss - last_close
-            take_profit = last_close - (risk_dist * 3.0)  # 3:1 R:R (proven ICT)
+            take_profit = last_close - (risk_dist * self.target_r)  # Target R
         
         return AITradeDecision(
             symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -204,7 +208,7 @@ class RoboCopStrategy(BaseStrategy):
         if r_multiple >= 1.0:
             lookback = min(10, len(snapshot.candles))
             recent = snapshot.candles[-lookback:]
-            chandelier_mult = 2.0
+            chandelier_mult = self.chandelier_mult
 
             if direction == "long":
                 highest_high = max(c.high for c in recent)
@@ -235,7 +239,7 @@ class RoboCopStrategy(BaseStrategy):
 
         if distance_to_stop > 0 and current_loss > 0:
             loss_pct = current_loss / distance_to_stop
-            if loss_pct >= 0.80:
+            if loss_pct >= self.guillotine_cut_pct:
                 return AITradeDecision(
                     symbol=snapshot.symbol,
                     timeframe=snapshot.timeframe,

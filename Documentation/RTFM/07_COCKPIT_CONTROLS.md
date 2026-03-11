@@ -156,9 +156,9 @@ See Chapter 9 (**20 Weapons of War**) for detailed explanations of each.
 - **`true`:** Live trading — real money at risk
 - 📺 **In the UI:** Settings → **System** → toggle **Live Trading**
 
-### `max_concurrent_positions` (Default: `5`)
-- **Safe:** 3-4 positions
-- **Advanced:** 5-8 positions (requires more capital)
+### `max_concurrent_positions` (Default: `3`)
+- **Safe:** 2-3 positions
+- **Advanced:** 4-5 positions (requires more capital)
 - 📺 **In the UI:** Settings → **Safety & Shields** → **Max Concurrent Positions**
 
 ---

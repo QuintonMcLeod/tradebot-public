@@ -120,7 +120,7 @@ A rookie risks the same amount on every trade like they're playing a slot machin
 7. **Leverage Sentry** — Hard cap on total exposure. No heroics. Heroes go broke.
 8. **Fee Shield** — If the reward doesn't cover the fees, the trade doesn't trigger. Simple math.
 9. **Volatility Veto** — ATR too low? No edge. ATR too high? Too dangerous. Goldilocks zone only.
-10. **Stale Sniper** — Position not making progress after 20 bars? Cut it. It's going nowhere.
+10. ~~**Stale Sniper**~~ — *(Disabled March 2026)* Position not making progress? Let it breathe. The market needs time. Don't choke a good setup just because it's slow.
 11. **Flash Trap Shield** — Extreme ATR spike? Get out. Right now. This is not a drill.
 12. **Regime Flip Veto** — HTF trend reversed against your position? Exit. The macro wind changed.
 
@@ -138,7 +138,7 @@ A rookie risks the same amount on every trade like they're playing a slot machin
 |--------|-----------------|----------------------|
 | **COVID Crash (March 2020)** | Panic sold at the bottom. Then bought at the dead cat bounce. Then panic sold again. | ATR stops widen. Drawdown Breaker activates. Waits for structure. |
 | **GME Squeeze (Jan 2021)** | FOMO'd into a $400 stock because Reddit said so | Not in the symbol list. Doesn't chase. Doesn't even know what Reddit is. |
-| **Crypto Winter (2022)** | Held alts to zero hoping for "the recovery" | Synthetic stops + Stale Sniper close dead positions. No hope. Just math. |
+| **Crypto Winter (2022)** | Held alts to zero hoping for "the recovery" | Synthetic stops close dead positions. No hope. Just math. |
 | **SVB Banking Crisis** | Moved cash to a mattress. Literally. | Continued trading EUR/USD because banking panic ≠ forex structure change. |
 | **Flash Crash** | Froze. Stared at screen. Called mom. | Flash Trap Shield exits in real time. Streak Breaker pauses. Resumes when structure reforms. |
 

@@ -18,15 +18,15 @@ class RubberbandReaperStrategy(BaseStrategy):
     - 20% Profit Scaling (The Hammer).
     """
     
-    def __init__(self, bb_period=20, bb_std=2.5, rsi_period=7, rsi_overbought=75, rsi_oversold=25):
+    def __init__(self, bb_period=20, bb_std=2.5, rsi_period=7, rsi_overbought=75, rsi_oversold=25, **kwargs):
         logger.debug(f"Loaded RubberbandReaper from {__file__}")
         super().__init__("Rubberband Reaper")
         
-        self.bb_period = bb_period
-        self.bb_std = bb_std
-        self.rsi_period = rsi_period
-        self.rsi_overbought = rsi_overbought
-        self.rsi_oversold = rsi_oversold
+        self.bb_period = int(kwargs.get('bb_period', bb_period))
+        self.bb_std = float(kwargs.get('bb_std', bb_std))
+        self.rsi_period = int(kwargs.get('rsi_period', rsi_period))
+        self.rsi_overbought = float(kwargs.get('rsi_overbought', rsi_overbought))
+        self.rsi_oversold = float(kwargs.get('rsi_oversold', rsi_oversold))
         
         logger.debug(f"Reaper Config 20 (Staircase Ratchet) Loaded. BB={self.bb_std}, RSI={self.rsi_oversold}/{self.rsi_overbought}")
 

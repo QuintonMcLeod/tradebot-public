@@ -158,8 +158,8 @@ class PositionHoldStore:
 
     def get(self, symbol: str) -> PositionHoldRecord | None:
         record = self.records.get(symbol.upper())
-        # Filter out phantom positions (size=0.0)
-        if record and (record.size is None or record.size <= 0):
+        # Filter out phantom positions (abs(size) == 0.0), but allow None for metadata-only records
+        if record and record.size is not None and abs(record.size) < 1e-8:
             return None
         return record
 

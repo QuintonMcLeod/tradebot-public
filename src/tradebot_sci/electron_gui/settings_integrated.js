@@ -425,11 +425,22 @@ const TOOLTIPS = {
     SCALE_OUT_FRACTION: "<strong>Partial Close %.</strong><br><br>When the Conductor fires a 'scale out' (de-risk) signal, this is the fraction of the position to close. 0.95 = close 95% of the position, leaving only 5% to absorb the stop. Higher = smaller losses but less room for recovery.",
 };
 
-function getValue(key) {
+function getValue(key, strategyNamespace = null) {
     // Authority: Use the current session's timeframe from renderer.js
     if (key === 'GUI_PNL_TIMEFRAME' && typeof window.pnlTimeframe !== 'undefined') {
         return window.pnlTimeframe;
     }
+
+    if (strategyNamespace && configData && configData.active_profile) {
+        const active = configData.active_profile;
+        if (configData.profiles[active] && configData.profiles[active].strategy_overrides) {
+            const stratOverrides = configData.profiles[active].strategy_overrides[strategyNamespace];
+            if (stratOverrides && stratOverrides[key.toLowerCase()] !== undefined) {
+                return String(stratOverrides[key.toLowerCase()]); // contextual masked value
+            }
+        }
+    }
+
     if (envData[key] !== undefined) return envData[key];
     // Fallback search in configData if not in flattened envData
     const mapping = CONFIG_MAP[key];
@@ -1469,7 +1480,10 @@ function createSectionHeader(title, icon = null, tooltip = null) {
     return header;
 }
 
+let currentStrategyContext = null;
+
 function createCard(title, desc, key, controlType, options = {}) {
+    const stratNamespace = options.strategy || currentStrategyContext;
     const card = document.createElement('div');
     const locked = options.locked || isOverridden(key);
 
@@ -1497,7 +1511,7 @@ function createCard(title, desc, key, controlType, options = {}) {
     `;
 
     const controlContainer = card.querySelector('.card-control');
-    const rawValue = getValue(key);
+    const rawValue = getValue(key, stratNamespace);
     const value = (rawValue !== null && rawValue !== undefined && rawValue !== '') ? rawValue : (options.default || '');
 
     const tooltipContent = options.tooltip || TOOLTIPS[key];
@@ -1518,7 +1532,7 @@ function createCard(title, desc, key, controlType, options = {}) {
             if (checkConflicts(key, strVal)) return;
 
             toggle.classList.toggle('toggle-active', isNowActive);
-            updateValue(key, strVal);
+            updateValue(key, strVal, stratNamespace);
             renderTab(); // Refresh to apply UI overrides (ghosting)
         });
         controlContainer.appendChild(toggle);
@@ -1532,13 +1546,13 @@ function createCard(title, desc, key, controlType, options = {}) {
         if (options.min !== undefined) input.min = options.min;
         if (options.max !== undefined) input.max = options.max;
         if (options.step !== undefined) input.step = options.step;
-        input.addEventListener('change', (e) => updateValue(key, e.target.value));
+        input.addEventListener('change', (e) => updateValue(key, e.target.value, stratNamespace));
         // Auto-save on typing (debounced) — critical for password/API key fields
         // where users type and switch tabs without clicking away (blur), so 'change' never fires
         let _inputDebounce;
         input.addEventListener('input', (e) => {
             clearTimeout(_inputDebounce);
-            _inputDebounce = setTimeout(() => updateValue(key, e.target.value), 800);
+            _inputDebounce = setTimeout(() => updateValue(key, e.target.value, stratNamespace), 800);
         });
 
         if (options.password) {
@@ -1605,10 +1619,11 @@ function createCard(title, desc, key, controlType, options = {}) {
     return card;
 }
 
-function createSliderCard(title, desc, key, min, max, step, unit = '%') {
+function createSliderCard(title, desc, key, min, max, step, unit = '%', options = {}) {
+    const stratNamespace = options.strategy || currentStrategyContext;
     const card = document.createElement('div');
     card.className = 'slider-card';
-    const _raw = getValue(key);
+    const _raw = getValue(key, stratNamespace);
     let rawValue = (_raw !== null && _raw !== undefined && _raw !== '') ? _raw : min;
 
     // The model stores fractions (0.045 = 4.5%).
@@ -1641,7 +1656,7 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%') {
         valueDisplay.innerHTML = `${e.target.value}<span class="slider-value-small">${unit}</span>`;
         // Save as fraction if unit is '%' (e.g. slider 4.5 → save 0.045)
         const saveValue = isPct ? (parseFloat(e.target.value) / 100).toString() : e.target.value;
-        updateValue(key, saveValue);
+        updateValue(key, saveValue, stratNamespace);
     });
 
     return card;
@@ -3028,8 +3043,8 @@ function createPerformanceToggle(title, desc, modeValue, type = 'foundation', to
 }
 
 
-function updateValue(key, value) {
-    const oldValue = getValue(key);
+function updateValue(key, value, strategyNamespace = null) {
+    const oldValue = getValue(key, strategyNamespace);
     if (oldValue === value) return;
 
     // 1. Update Secrets
@@ -3078,12 +3093,21 @@ function updateValue(key, value) {
             if (value === 'true') val = true;
             else if (value === 'false') val = false;
             else if (!isNaN(value) && value.trim() !== "") val = Number(value);
-            configData.profiles[active][key.toLowerCase()] = val;
+
+            if (strategyNamespace) {
+                if (!configData.profiles[active].strategy_overrides) configData.profiles[active].strategy_overrides = {};
+                if (!configData.profiles[active].strategy_overrides[strategyNamespace]) configData.profiles[active].strategy_overrides[strategyNamespace] = {};
+                configData.profiles[active].strategy_overrides[strategyNamespace][key.toLowerCase()] = val;
+            } else {
+                configData.profiles[active][key.toLowerCase()] = val;
+            }
         }
     }
 
     localChanges[key] = true;
-    envData[key] = String(value); // Keep flat map in sync
+    if (!strategyNamespace) {
+        envData[key] = String(value); // Keep flat map in sync for global values
+    }
 
     // [STABILITY] Intercept toggle from Safety tab to sync with Performance foundation
     if (key === 'SAFETY_STABILITY_MODE_ENABLED') {
@@ -3226,6 +3250,7 @@ function hideTooltip() {
 let toolboxTab = 'icc'; // Default
 
 function renderStrategyToolbox(container) {
+    currentStrategyContext = toolboxTab;
     // Strategy selector using a responsive grid layout
     const nav = document.createElement('div');
     nav.className = 'strategy-selector-grid';
@@ -3536,36 +3561,51 @@ function renderStrategyToolbox(container) {
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Aggressive Targets', 'gps_fixed'));
 
-        section.appendChild(createCard('Confirmation Bars', 'Bars to wait', 'ROBOCOP_CONFIRMATION_BARS', 'input', {
+        section.appendChild(createCard('Confirmation Bars', 'Bars to wait', 'CONFIRMATION_BARS', 'input', {
             number: true,
             default: '1',
             min: 1, limit: 3,
             tooltip: 'How many candles to wait after a signal before entering. RoboCop defaults to 1 for speed. Increasing this adds safety but may miss fast moves.'
         }));
-        section.appendChild(createCard('Target Multiplier', 'R-multiple', 'ROBOCOP_TARGET_ATR_MULT', 'input', {
+        section.appendChild(createCard('Target Multiplier', 'R-multiple', 'TARGET_R', 'input', {
             number: true,
             default: '3.0',
             tooltip: 'Multiplies the ATR (volatility) to set the Take Profit level. 3.0 means targeting a move 3x the average volatility size.'
         }));
-        section.appendChild(createCard('Stop Multiplier', 'Protection width', 'ROBOCOP_STOP_ATR_MULT', 'input', {
+        section.appendChild(createCard('Stop ATR Buffer', 'Protection width buffer', 'STOP_ATR_BUFFER', 'input', {
             number: true,
-            default: '1.5',
-            tooltip: 'Multiplies the ATR to set the Stop Loss. 1.5 offers a tight but breathable stop for scalping.'
+            default: '0.2',
+            tooltip: 'A tiny buffer added beyond the structural swing stop level using the ATR (Average True Range).'
+        }));
+        section.appendChild(createCard('Guillotine Cut %', 'Scale-out fraction when losing', 'GUILLOTINE_CUT_PCT', 'input', {
+            number: true,
+            default: '0.80',
+            tooltip: 'The percentage of the stop loss distance reached before the Guillotine cuts 95% of the position to preserve capital.'
+        }));
+        section.appendChild(createCard('Chandelier Multiplier', 'Trailing stop volatility multiplier', 'CHANDELIER_MULT', 'input', {
+            number: true,
+            default: '2.0',
+            tooltip: 'Multiplies the ATR to set the trailing stop distance once the trade enters profit.'
         }));
 
     } else if (toolboxTab === 'evolution') {
         const stratInfo = STRATEGIES.evolution;
         section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'smart_toy'));
 
-        section.appendChild(createCard('Target Risk:Reward', 'R-Multiple', 'EVOLUTION_TARGET_R', 'input', {
+        section.appendChild(createCard('Target Risk:Reward', 'R-Multiple', 'TARGET_R', 'input', {
             number: true,
             default: '2.0',
             tooltip: 'The fixed Reward-to-Risk ratio. A value of 2.0 means the bot calculates position size such that the Profit Target is 2x the distance of the Stop Loss.'
         }));
-        section.appendChild(createCard('Stop ATR Mult', 'Volatility based stop', 'EVOLUTION_STOP_ATR_MULT', 'input', {
+        section.appendChild(createCard('Stop ATR Mult', 'Volatility based stop', 'STOP_ATR_MULT', 'input', {
             number: true,
-            default: '1.5',
-            tooltip: 'Sets the stop loss distance based on market volatility (ATR). 1.5 is standard for this strategy to survive random noise while chopping.'
+            default: '1.0',
+            tooltip: 'Sets the stop loss distance based on market volatility (ATR). 1.0 is standard for this strategy to survive random noise while chopping.'
+        }));
+        section.appendChild(createCard('Chandelier Trail Multiplier', 'Trailing stop volatility multiplier', 'CHANDELIER_MULT', 'input', {
+            number: true,
+            default: '2.0',
+            tooltip: 'Multiplies the ATR to set the trailing stop distance once the trade enters profit.'
         }));
 
     } else if (toolboxTab === 'quantum') {
@@ -3594,6 +3634,12 @@ function renderStrategyToolbox(container) {
             "<strong>Forex Conductor</strong><br><br>The Conductor orchestrates sub-strategies (Trend Rider, Mean Reversion) and manages entries, exits, and risk. SAR (Stop And Reverse) automatically flips direction after a losing trade when conditions support a reversal — preventing consecutive losses in the same direction."
         ));
 
+        section.appendChild(createCard('Base Risk %', `Specific risk for ${stratInfo.name}`, 'RISK_PER_TRADE_PCT', 'input', {
+            number: true,
+            placeholder: 'Default',
+            tooltip: `Define the specific risk percentage for ${stratInfo.name}. This overrides the global "Default Risk %" setting.`
+        }));
+
         section.appendChild(createCard('Stop & Reverse (SAR)', 'Auto-flip direction after a stopped trade', 'STOP_AND_REVERSE_ENABLED', 'toggle', {
             default: 'true',
             tooltip: '<strong>Stop And Reverse.</strong><br><br>When enabled, after a trade is stopped out, the Conductor checks if conditions support a trade in the opposite direction. If yes, it immediately enters the reversal — bypassing cooldowns. This prevents 3 consecutive shorts on GBPUSD when the pair is actually going long.<br><br><strong>Recommended: ON.</strong> This is the Conductor\'s cornerstone defense against trending losses.'
@@ -3609,6 +3655,11 @@ function renderStrategyToolbox(container) {
             number: true,
             default: '2.0',
             tooltip: 'The target Reward-to-Risk ratio for the Conductor\'s entries.'
+        }));
+
+        section.appendChild(createCard('Quick Ranging TP', 'Cap profits at 0.7R during choppy/ranging sessions', 'QUICK_RANGING_TP_ENABLED', 'toggle', {
+            default: 'false',
+            tooltip: 'When the market is consolidating (ranging), Conductor tries to capture ping-pong oscillation peaks by forcing a 0.7R profit target. Disable this to let profitable trades run beyond 1R and capture sudden breakouts.'
         }));
 
         section.appendChild(createDivider());
@@ -3627,8 +3678,92 @@ function renderStrategyToolbox(container) {
             tooltip: 'Automatically adjusts the reversal TP to recover the previous trade\'s loss plus estimated spread costs.'
         }));
 
+    } else if (toolboxTab === 'hyper_scalper') {
+        const stratInfo = STRATEGIES.hyper_scalper;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'speed'));
+
+        section.appendChild(createCard('Fast EMA Period', 'Fast EMA line', 'FAST_EMA', 'input', { number: true, default: '9' }));
+        section.appendChild(createCard('Slow EMA Period', 'Slow EMA line', 'SLOW_EMA', 'input', { number: true, default: '21' }));
+        section.appendChild(createCard('Trend EMA Period', 'Trend baseline', 'TREND_EMA', 'input', { number: true, default: '200' }));
+        section.appendChild(createCard('Stop ATR Mult', 'Stop distance', 'STOP_ATR_MULT', 'input', { number: true, default: '2.0' }));
+        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '3.0' }));
+
+    } else if (toolboxTab === 'rubberband_reaper') {
+        const stratInfo = STRATEGIES.rubberband_reaper;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'architecture'));
+
+        section.appendChild(createCard('BB Period', 'Bollinger Period', 'BB_PERIOD', 'input', { number: true, default: '20' }));
+        section.appendChild(createCard('BB StdDev', 'Bollinger Std', 'BB_STD', 'input', { number: true, default: '2.5' }));
+        section.appendChild(createCard('RSI Period', 'RSI Lookback', 'RSI_PERIOD', 'input', { number: true, default: '7' }));
+        section.appendChild(createCard('RSI Overbought', 'OB threshold', 'RSI_OVERBOUGHT', 'input', { number: true, default: '75' }));
+        section.appendChild(createCard('RSI Oversold', 'OS threshold', 'RSI_OVERSOLD', 'input', { number: true, default: '25' }));
+
+    } else if (toolboxTab === 'supply_demand') {
+        const stratInfo = STRATEGIES.supply_demand;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'account_balance'));
+
+        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0' }));
+        section.appendChild(createCard('Zone Lookback', 'Candles to check for BOS', 'ZONE_WINDOW', 'input', { number: true, default: '100' }));
+
+    } else if (toolboxTab === 'london_breakout') {
+        const stratInfo = STRATEGIES.london_breakout;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'timer'));
+
+        section.appendChild(createCard('Asian Start (UTC)', 'Asian session start', 'ASIAN_START', 'time', { default: '00:00' }));
+        section.appendChild(createCard('Asian End (UTC)', 'Asian session end', 'ASIAN_END', 'time', { default: '06:00' }));
+        section.appendChild(createCard('London Start (UTC)', 'London session start', 'LONDON_START', 'time', { default: '07:00' }));
+        section.appendChild(createCard('Stop Box Mult', 'Stop multiplier against box', 'STOP_BOX_MULT', 'input', { number: true, default: '0.5' }));
+        section.appendChild(createCard('Target Box Mult', 'Target multiplier against box', 'TARGET_BOX_MULT', 'input', { number: true, default: '1.5' }));
+
+    } else if (toolboxTab === 'mean_reversion') {
+        const stratInfo = STRATEGIES.mean_reversion;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'compare_arrows'));
+
+        section.appendChild(createCard('BB Period', 'Bollinger Period', 'BB_PERIOD', 'input', { number: true, default: '20' }));
+        section.appendChild(createCard('BB StdDev', 'Bollinger Std', 'BB_STD', 'input', { number: true, default: '2.0' }));
+        section.appendChild(createCard('RSI Period', 'RSI Lookback', 'RSI_PERIOD', 'input', { number: true, default: '14' }));
+        section.appendChild(createCard('RSI Overbought', 'OB threshold', 'RSI_OVERBOUGHT', 'input', { number: true, default: '70' }));
+        section.appendChild(createCard('RSI Oversold', 'OS threshold', 'RSI_OVERSOLD', 'input', { number: true, default: '30' }));
+
+    } else if (toolboxTab === 'crypto_vwap_reversion') {
+        const stratInfo = STRATEGIES.crypto_vwap_reversion;
+        if (stratInfo) {
+            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'timeline'));
+            section.appendChild(createCard('EMA Period', 'Trend EMA', 'EMA_PERIOD', 'input', { number: true, default: '20' }));
+            section.appendChild(createCard('RSI Period', 'RSI Check', 'RSI_PERIOD', 'input', { number: true, default: '14' }));
+            section.appendChild(createCard('RSI Long Threshold', 'Max RSI for Long', 'RSI_LONG_THRESHOLD', 'input', { number: true, default: '40' }));
+            section.appendChild(createCard('VWAP Dev %', 'VWAP deviation', 'VWAP_DEVIATION_PCT', 'input', { number: true, default: '0.003' }));
+        }
+
+    } else if (toolboxTab === 'icc_core_standalone') {
+        const stratInfo = STRATEGIES.icc_core_standalone;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'precision_manufacturing'));
+
+        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0' }));
+        section.appendChild(createCard('Stop ATR Mult', 'Stop buffer', 'STOP_ATR_MULT', 'input', { number: true, default: '1.5' }));
+        section.appendChild(createCard('Entry Cooldown', 'Bars to wait between entries', 'ENTRY_COOLDOWN_BARS', 'input', { number: true, default: '8' }));
+
+    } else if (toolboxTab === 'crypto_grid') {
+        const stratInfo = STRATEGIES.crypto_grid;
+        if (stratInfo) {
+            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'grid_on'));
+            section.appendChild(createCard('Grid ATR Mult', 'Grid spacing mult', 'GRID_ATR_MULT', 'input', { number: true, default: '1.5' }));
+            section.appendChild(createCard('Grid Levels', 'Levels to deploy', 'GRID_LEVELS', 'input', { number: true, default: '5' }));
+            section.appendChild(createCard('Trend Guard', 'Max HTF trend strength', 'TREND_GUARD_THRESHOLD', 'input', { number: true, default: '0.5' }));
+        }
+
+    } else if (toolboxTab === 'yoyo') {
+        const stratInfo = STRATEGIES.yoyo;
+        if (stratInfo) {
+            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'wifi_tethering'));
+            section.appendChild(createCard('SMA Period', 'Trend Filter', 'SMA_PERIOD', 'input', { number: true, default: '50' }));
+            section.appendChild(createCard('Risk Escalation', 'Risk to add per win', 'RISK_ESCALATION', 'input', { number: true, default: '0.01' }));
+            section.appendChild(createCard('Max Risk', 'Hard cap risk %', 'MAX_RISK_PCT', 'input', { number: true, default: '0.05' }));
+            section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0' }));
+        }
+
     } else {
-        // Generic fallback for others (London, MeanRev, HyperScalper, etc)
+        // Generic fallback for others (Bearish Engulfing, Volatility Breakout, etc)
         const stratInfo = STRATEGIES[toolboxTab];
         if (stratInfo) {
             section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'tune'));
@@ -3638,7 +3773,7 @@ function renderStrategyToolbox(container) {
                 Settings configured here for <em>${stratInfo.name}</em> will take precedence over global Global Risk limits.
             `));
 
-            section.appendChild(createCard('Base Risk %', `Specific risk for ${stratInfo.name}`, `${toolboxTab.toUpperCase()}_RISK_PCT`, 'input', {
+            section.appendChild(createCard('Base Risk %', `Specific risk for ${stratInfo.name}`, 'RISK_PER_TRADE_PCT', 'input', {
                 number: true,
                 placeholder: 'Default',
                 tooltip: `Define the specific risk percentage for ${stratInfo.name}. This overrides the global "Default Risk %" setting.`
@@ -3659,6 +3794,7 @@ function renderStrategyToolbox(container) {
     }
 
     container.appendChild(section);
+    currentStrategyContext = null;
 }
 
 // ═══════════════════════════════════════════════════════════

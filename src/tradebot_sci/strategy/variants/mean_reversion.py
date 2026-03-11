@@ -24,13 +24,13 @@ class MeanReversionStrategy(BaseStrategy):
     """
 
     def __init__(self, bb_period=20, bb_std=2.0, rsi_period=14,
-                 rsi_overbought=70, rsi_oversold=30):
+                 rsi_overbought=70, rsi_oversold=30, **kwargs):
         super().__init__("Mean Reversion")
-        self.bb_period = bb_period
-        self.bb_std = bb_std
-        self.rsi_period = rsi_period
-        self.rsi_overbought = rsi_overbought
-        self.rsi_oversold = rsi_oversold
+        self.bb_period = int(kwargs.get('bb_period', bb_period))
+        self.bb_std = float(kwargs.get('bb_std', bb_std))
+        self.rsi_period = int(kwargs.get('rsi_period', rsi_period))
+        self.rsi_overbought = float(kwargs.get('rsi_overbought', rsi_overbought))
+        self.rsi_oversold = float(kwargs.get('rsi_oversold', rsi_oversold))
 
     def score_signal(self, snapshot: MarketSnapshot, gates: dict):
         """Score how close current conditions are to a Mean Reversion entry.

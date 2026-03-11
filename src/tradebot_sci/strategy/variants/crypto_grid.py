@@ -23,11 +23,11 @@ class CryptoGridStrategy(BaseStrategy):
     ASSET_TAG = "crypto"
 
     def __init__(self, grid_atr_multiplier=1.5, num_levels=5, 
-                 trend_guard_threshold=0.5):
+                 trend_guard_threshold=0.5, **kwargs):
         super().__init__("crypto_grid")
-        self.grid_atr_multiplier = grid_atr_multiplier
-        self.num_levels = num_levels
-        self.trend_guard_threshold = trend_guard_threshold
+        self.grid_atr_multiplier = float(kwargs.get('grid_atr_mult', grid_atr_multiplier))
+        self.num_levels = int(kwargs.get('grid_levels', num_levels))
+        self.trend_guard_threshold = float(kwargs.get('trend_guard_threshold', trend_guard_threshold))
         # Track grid state per symbol
         self._grids: Dict[str, dict] = {}
 

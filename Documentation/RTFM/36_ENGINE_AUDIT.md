@@ -90,9 +90,9 @@ Trade #2:  LONG @ 0.70492 → stopped at 0.70422 = -$85.42
 
 ---
 
-### 🗡️ Guillotine — 896 Events (826 T1 + 70 T2)
+### 🗡️ Guillotine *(Disabled March 2026)* — 896 Events (826 T1 + 70 T2)
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Guillotine is the most important weapon in the arsenal. Most traders wait for the full stop before they exit. That's like waiting for the fire to burn down the whole house before calling 911.<br><br>The Guillotine doesn't wait. It starts cutting BEFORE the stop hits."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Actually, I need to issue a correction. The Guillotine <em>was</em> the most important weapon. During this 14-day stress test, it fired 896 times. It saved capital relentlessly.<br><br>But there's a dark side to all that cutting: it also choked out <b>winners</b>. By slashing positions at -0.15R, it punished trades that just needed a little room to breathe during a normal pullback. The math worked — we had an incredible Profit Factor — but the win rate suffered because the Guillotine was too eager to execute.<br><br>So, as of March 2026, <b>we turned it off.</b> We let full stops hit. Our average loss went up, but our win rate skyrocketed to 51%. Our PnL recovered from an abysmal -$1,219 drawdown to a positive +$25 net gain in the exact same 14-day chop window. Turns out, sometimes you just need to put the blade away and let the market do its thing."</td></tr></table>
 
 | Tier | Trigger | Action | Events |
 |------|---------|--------|--------|

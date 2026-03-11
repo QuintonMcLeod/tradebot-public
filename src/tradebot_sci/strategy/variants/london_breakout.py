@@ -29,17 +29,24 @@ class LondonBreakoutStrategy(BaseStrategy):
     Limit: 1 trade per day per symbol (no re-entry after stop)
     """
 
-    # Asian session range hours (UTC)
-    ASIAN_START = time(0, 0)
-    ASIAN_END = time(6, 0)
-    # London trading window (UTC) — only trade breakouts here
-    LONDON_START = time(7, 0)
-    LONDON_END = time(10, 0)
-    # Session close cutoff — exit by this time
-    SESSION_CLOSE = time(16, 0)
-
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__("London Breakout")
+        
+        def _parse_time(t_str, default_hr):
+            try:
+                h, m = map(int, str(t_str).split(':'))
+                return time(h, m)
+            except Exception:
+                return time(default_hr, 0)
+                
+        self.ASIAN_START = _parse_time(kwargs.get('asian_start', '00:00'), 0)
+        self.ASIAN_END = _parse_time(kwargs.get('asian_end', '06:00'), 6)
+        self.LONDON_START = _parse_time(kwargs.get('london_start', '07:00'), 7)
+        self.LONDON_END = time(10, 0)
+        self.SESSION_CLOSE = time(16, 0)
+        
+        self.stop_box_mult = float(kwargs.get('stop_box_mult', 0.5))
+        self.target_box_mult = float(kwargs.get('target_box_mult', 1.5))
 
     def score_signal(self, snapshot: MarketSnapshot, gates: dict):
         """Score how close current conditions are to a London Breakout entry.
@@ -222,9 +229,9 @@ class LondonBreakoutStrategy(BaseStrategy):
                     return None  # Weak breakout — likely fake
 
                 # Tighter stop: half-box or 1.5× ATR, whichever is larger
-                stop_dist = max(box_range * 0.5, atr * 1.5)
+                stop_dist = max(box_range * self.stop_box_mult, atr * 1.5)
                 stop_loss = last_close - stop_dist
-                take_profit = last_close + (stop_dist * 2.0)  # 2:1 R:R
+                take_profit = last_close + (stop_dist * self.target_box_mult)  # target mult
 
                 self._mark_traded(snapshot.symbol, snapshot)
 
@@ -258,9 +265,9 @@ class LondonBreakoutStrategy(BaseStrategy):
                     return None  # Weak breakout — likely fake
 
                 # Tighter stop: half-box or 1.5× ATR, whichever is larger
-                stop_dist = max(box_range * 0.5, atr * 1.5)
+                stop_dist = max(box_range * self.stop_box_mult, atr * 1.5)
                 stop_loss = last_close + stop_dist
-                take_profit = last_close - (stop_dist * 2.0)  # 2:1 R:R
+                take_profit = last_close - (stop_dist * self.target_box_mult)  # target mult
 
                 self._mark_traded(snapshot.symbol, snapshot)
 

@@ -239,21 +239,21 @@ class ICCCoreStandaloneStrategy(BaseStrategy):
             f"atr={atr:.5f} close={last_close:.5f}"
         )
         
-        # 7. Stop/Target logic (ICT style) — STANDALONE: Tighter 1.5× ATR
+        # 7. Stop/Target logic (ICT style) — STANDALONE
         # Ensemble version uses 2.0× because SAR depends on wider stops.
-        min_stop_dist = max(atr * 1.5, last_close * 0.002)
+        min_stop_dist = max(atr * getattr(self, 'stop_atr_mult', 1.5), last_close * 0.002)
         stop_dist = min_stop_dist
         
         if action == "enter_long":
             # Stop below recent swing low
             structure_stop = swing_low - (atr * 0.5)
             stop_loss = min(last_close - stop_dist, structure_stop)
-            take_profit = last_close + (abs(last_close - stop_loss) * 2.0)  # 2.0R
+            take_profit = last_close + (abs(last_close - stop_loss) * getattr(self, 'target_r', 2.0))  # Target R
         else:
             # Stop above recent swing high
             structure_stop = swing_high + (atr * 0.5)
             stop_loss = max(last_close + stop_dist, structure_stop)
-            take_profit = last_close - (abs(stop_loss - last_close) * 2.0)  # 2.0R
+            take_profit = last_close - (abs(stop_loss - last_close) * getattr(self, 'target_r', 2.0))  # Target R
 
         # Record entry to enforce cooldown
         _last_entry_bar[snapshot.symbol] = _icc_bar_counter

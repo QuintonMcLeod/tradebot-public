@@ -142,6 +142,10 @@ class TradingProfileSettings(BaseModel):
         default=None,
         description="Per-asset-class strategy overrides.",
     )
+    strategy_overrides: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Nested dictionary of strategy-specific setting overrides (Context Masking).",
+    )
     candle_timeframe: str = Field(
         default="5m",
         description="Candle timeframe for the profile (e.g. 1m, 5m, 15m, 1h).",
@@ -440,6 +444,14 @@ class TradingProfileSettings(BaseModel):
     guillotine_r_threshold: float = Field(
         default=-0.3,
         description="Legacy single-threshold Guillotine R-multiple (backtester compat).",
+    )
+    block_ranging_regime: bool = Field(
+        default=True,
+        description="If True, blocks engine entries during unknown, choppy, or ranging regimes.",
+    )
+    structure_invalidation_enabled: bool = Field(
+        default=False,
+        description="If True, cuts positions 80% if a micro lower-high or higher-low forms against the trade.",
     )
     tier1_r_threshold: float = Field(
         default=-0.30,
