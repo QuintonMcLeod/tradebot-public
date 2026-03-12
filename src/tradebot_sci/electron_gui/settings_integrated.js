@@ -3063,6 +3063,60 @@ function createPerformanceToggle(title, desc, modeValue, type = 'foundation', to
     return card;
 }
 
+function getValue(key, strategyNamespace = null) {
+    // ── INTERCEPT PROFILE-LEVEL SETTINGS ──
+    const profileKeys = ['conductor_pyramid_enabled', 'swap_avoidance_enabled', 'conductor_pyramid_start_r', 'conductor_pyramid_first_pct', 'spread_gate_max_pct'];
+    if (profileKeys.includes(key)) {
+        const activeName = configData.active_profile;
+        const profile = window.profilesModule?.allProfiles?.[activeName];
+        if (profile && profile[key] !== undefined) {
+            return profile[key] === true ? 'true' : profile[key] === false ? 'false' : String(profile[key]);
+        }
+        // Defaults if missing from profile
+        if (key === 'conductor_pyramid_enabled') return 'true';
+        if (key === 'swap_avoidance_enabled') return 'true';
+        if (key === 'conductor_pyramid_start_r') return '1.0';
+        if (key === 'conductor_pyramid_first_pct') return '0.30';
+        if (key === 'spread_gate_max_pct') return '0.30';
+    }
+
+    // 1. Check Secrets
+    if (SECRETS_MAP[key]) {
+        return secretsData[SECRETS_MAP[key]] || '';
+    }
+    // 2. Check Global Config
+    else if (CONFIG_MAP[key]) {
+        const path = CONFIG_MAP[key];
+        let current = configData;
+        for (let i = 0; i < path.length - 1; i++) {
+            if (!current[path[i]]) return undefined; // Path does not exist
+            current = current[path[i]];
+        }
+        const value = current[path[path.length - 1]];
+        if (value === undefined) return undefined;
+        return value === true ? 'true' : value === false ? 'false' : String(value);
+    }
+    // 3. Check Active Profile
+    else {
+        const active = configData.active_profile;
+        if (active && configData.profiles && configData.profiles[active]) {
+            let value;
+            if (strategyNamespace) {
+                value = configData.profiles[active].strategy_overrides?.[strategyNamespace]?.[key.toLowerCase()];
+            } else {
+                value = configData.profiles[active][key.toLowerCase()];
+            }
+            if (value === undefined) return undefined;
+            return value === true ? 'true' : value === false ? 'false' : String(value);
+        }
+    }
+
+    // 4. Fallback to envData (for values not in config/secrets, e.g., dynamically set ones)
+    const value = envData[key];
+    if (value === undefined) return undefined;
+    return value === true ? 'true' : value === false ? 'false' : String(value);
+}
+
 
 function updateValue(key, value, strategyNamespace = null) {
     const oldValue = getValue(key, strategyNamespace);
