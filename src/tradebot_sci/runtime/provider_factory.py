@@ -175,6 +175,13 @@ class RoutedExchangeBroker(IExchangeBroker):
             return broker.should_block_for_hold(symbol, decision, open_position)
         return False, None, None
 
+    def modify_stop_loss(self, symbol: str, new_stop: float) -> bool:
+        broker = self._get_broker(symbol)
+        if hasattr(broker, "modify_stop_loss"):
+            return broker.modify_stop_loss(symbol, new_stop)
+        logger.warning(f"[ROUTED] modify_stop_loss not supported for {symbol} ({type(broker).__name__})")
+        return False
+
     def execute_decision(self, decision: Any) -> Any:
         return self._get_broker(decision.symbol).execute_decision(decision)
 
