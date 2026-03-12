@@ -2080,17 +2080,10 @@ function renderStrategyTab(container) {
 
     } else if (subTabs.strategy === 'pyramid') {
         section.appendChild(createSectionHeader('Pyramid Configuration', 'stacked_line_chart',
-            "<strong>Pyramid Configuration</strong><br><br>Pyramiding means adding to a winning position. Instead of entering all at once, the bot can gradually add more as the trade moves in your favor. These settings control how many additional entries are allowed and what profit buffer is required before adding more."
+            "<strong>Pyramid Configuration</strong><br><br>Pyramiding means adding to a winning position. This setting controls the global maximum number of allowed pyramided entries for simple mean-reversion strategies."
         ));
 
         section.appendChild(createCard('Max Pyramid Entries', 'Total entries per position', 'MAX_PYRAMID_ENTRIES', 'input', { number: true, default: '6', min: 1, max: 20 }));
-        section.appendChild(createSliderCard('Profit Buffer %', 'Min profit before first add', 'PYRAMID_PROFIT_BUFFER_PCT', 0, 5, 0.1, '%'));
-
-        const pyramidGrid = document.createElement('div');
-        pyramidGrid.className = 'card-grid';
-        pyramidGrid.appendChild(createSliderCard('Load Risk', 'First add risk %', 'PYRAMID_RISK_LOAD', 5, 100, 5, '%'));
-        pyramidGrid.appendChild(createSliderCard('Scale Risk', 'Subsequent adds risk %', 'PYRAMID_RISK_SCALE', 5, 50, 5, '%'));
-        section.appendChild(pyramidGrid);
 
         // ── Conductor Pyramid & Cost Savings ──
         section.appendChild(createDivider());
