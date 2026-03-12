@@ -2149,23 +2149,25 @@ function renderStrategyTab(container) {
             ctr.innerHTML =
                 makeToggle('cnd-pyr-toggle', 'Pyramid on Winners', pyrEnabled, 'When enabled, the bot adds to winning trades at profit milestones. Pyramiding amplifies winners. Disable to take flat single-entry trades only.') +
                 makeSlider('cnd-start-r', 'Pyramid Trigger Level', startR, 0.3, 2.0, 0.1, 'R', 1) +
-                makeSlider('cnd-first-pct', 'First Pyramid Size', firstPct, 0.05, 0.50, 0.05, '%', 100) +
-                makeSlider('cnd-spread', 'Max Spread (% of SL)', spreadGate, 0.10, 0.50, 0.05, '%', 100) +
-                makeToggle('cnd-swap-toggle', 'Wed Swap Avoidance', swapEnabled, 'OANDA charges 3× overnight swap on Wednesdays at 5PM ET. When enabled, closes marginal trades before the cutoff to save money.');
+                makeSlider('cnd-first-pct', 'First Pyramid Size', firstPct, 0.05, 0.50, 0.05, '%', 100);
 
             // Helper to update profile + trigger auto-save
+            let _profileSaveTimer = null;
             function updateProfile(key, val) {
                 if (profiles && profiles[activeName]) {
                     profiles[activeName][key] = val;
-                    // Trigger profiles auto-save
-                    if (window.profilesModule?._saveProfile) {
-                        window.profilesModule._saveProfile();
-                    }
+                    // Debounced save (500ms) so sliders don't spam writes
+                    clearTimeout(_profileSaveTimer);
+                    _profileSaveTimer = setTimeout(() => {
+                        if (window.profilesModule?._saveProfile) {
+                            window.profilesModule._saveProfile();
+                        }
+                    }, 500);
                 }
             }
 
             // Wire toggles
-            ['cnd-pyr-toggle', 'cnd-swap-toggle'].forEach(id => {
+            ['cnd-pyr-toggle'].forEach(id => {
                 const el = document.getElementById(id);
                 if (!el) return;
                 el.addEventListener('click', () => {
@@ -2187,8 +2189,7 @@ function renderStrategyTab(container) {
                         knob.style.transform = 'translateX(0)';
                         knob.style.background = '#94a3b8';
                     }
-                    const profileKey = id === 'cnd-pyr-toggle' ? 'conductor_pyramid_enabled' : 'swap_avoidance_enabled';
-                    updateProfile(profileKey, next);
+                    updateProfile('conductor_pyramid_enabled', next);
                     showNotice(next ? 'Enabled' : 'Disabled', next ? 'teal' : 'red');
                 });
             });
@@ -2196,8 +2197,7 @@ function renderStrategyTab(container) {
             // Wire sliders
             const sliderMap = {
                 'slider-cnd-start-r': { key: 'conductor_pyramid_start_r', mult: 1, suffix: 'R' },
-                'slider-cnd-first-pct': { key: 'conductor_pyramid_first_pct', mult: 100, suffix: '%' },
-                'slider-cnd-spread': { key: 'spread_gate_max_pct', mult: 100, suffix: '%' }
+                'slider-cnd-first-pct': { key: 'conductor_pyramid_first_pct', mult: 100, suffix: '%' }
             };
             Object.entries(sliderMap).forEach(([sliderId, cfg]) => {
                 const slider = document.getElementById(sliderId);
@@ -2325,6 +2325,108 @@ function renderBrokersTab(container) {
             default: 'practice'
         }));
         section.appendChild(createCard('Read Only', 'Monitor only (no trading)', 'OANDA_READ_ONLY', 'toggle', { default: 'true' }));
+
+        // ── OANDA Cost Savings ──
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Cost Savings', 'savings',
+            "<strong>Cost Savings</strong><br><br>OANDA-specific settings to reduce trading costs. The spread gate blocks entries when spreads are too wide, and swap avoidance closes marginal trades before OANDA's Wednesday 3× swap charge."
+        ));
+
+        const oandaCostSection = document.createElement('div');
+        oandaCostSection.id = 'oanda-cost-controls';
+        section.appendChild(oandaCostSection);
+
+        setTimeout(() => {
+            const octr = document.getElementById('oanda-cost-controls');
+            if (!octr) return;
+
+            const profiles = window.profilesModule?.allProfiles;
+            const activeName = configData.active_profile;
+            const profile = profiles?.[activeName] || {};
+
+            const swapEnabled = profile.swap_avoidance_enabled === true;
+            const spreadGate = profile.spread_gate_max_pct || 0.30;
+
+            function oMakeToggle(id, label, checked, tooltip) {
+                const bg = checked ? 'linear-gradient(135deg, #14b8a6, #06b6d4)' : 'rgba(0,0,0,0.4)';
+                const border = checked ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)';
+                const knobPos = checked ? 'translateX(18px)' : 'translateX(0)';
+                const knobBg = checked ? '#ffffff' : '#94a3b8';
+                const shadow = checked ? '0 0 12px rgba(20,184,166,0.6)' : 'inset 0 2px 4px rgba(0,0,0,0.2)';
+                return `<div class="settings-card" id="${id}" data-state="${checked}" style="display:flex; align-items:center; justify-content:space-between; padding:14px 18px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:12px; cursor:pointer; margin-bottom:8px;" ${tooltip ? `data-tooltip="${tooltip}"` : ''}>
+                    <span style="font-size:13px; font-weight:700; color:#cbd5e1;">${label}</span>
+                    <div class="oanda-track" style="width:42px; height:24px; border-radius:999px; background:${bg}; border:1px solid ${border}; position:relative; transition:all 0.3s ease; box-shadow:${shadow};">
+                        <div class="oanda-knob" style="position:absolute; left:3px; top:2px; width:18px; height:18px; border-radius:50%; background:${knobBg}; box-shadow:0 2px 4px rgba(0,0,0,0.3); transform:${knobPos}; transition:all 0.2s ease;"></div>
+                    </div>
+                </div>`;
+            }
+
+            function oMakeSlider(id, label, value, min, max, step, suffix, mult) {
+                const display = (value * mult).toFixed(mult > 1 ? 0 : 1);
+                return `<div class="settings-card" style="padding:16px 20px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:12px; margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                        <span style="font-size:13px; font-weight:700; color:#cbd5e1;">${label}</span>
+                        <div style="background:rgba(20,184,166,0.1); border:1px solid rgba(20,184,166,0.2); padding:4px 12px; border-radius:8px;">
+                            <span style="font-size:14px; font-weight:900; color:#5eead4;" id="val-${id}">${display}${suffix}</span>
+                        </div>
+                    </div>
+                    <input type="range" class="premium-slider" id="slider-${id}" min="${min}" max="${max}" step="${step}" value="${value}" style="width:100%;">
+                </div>`;
+            }
+
+            octr.innerHTML =
+                oMakeSlider('oanda-spread', 'Max Spread (% of SL)', spreadGate, 0.10, 0.50, 0.05, '%', 100) +
+                oMakeToggle('oanda-swap-toggle', 'Wed Swap Avoidance', swapEnabled, 'OANDA charges 3× overnight swap on Wednesdays at 5PM ET. When enabled, closes marginal trades (under 0.5R profit) before the cutoff to save money.');
+
+            let _oandaSaveTimer = null;
+            function updateOandaProfile(key, val) {
+                if (profiles && profiles[activeName]) {
+                    profiles[activeName][key] = val;
+                    clearTimeout(_oandaSaveTimer);
+                    _oandaSaveTimer = setTimeout(() => {
+                        if (window.profilesModule?._saveProfile) window.profilesModule._saveProfile();
+                    }, 500);
+                }
+            }
+
+            // Wire swap toggle
+            const swapEl = document.getElementById('oanda-swap-toggle');
+            if (swapEl) {
+                swapEl.addEventListener('click', () => {
+                    const cur = swapEl.dataset.state === 'true';
+                    const next = !cur;
+                    swapEl.dataset.state = String(next);
+                    const track = swapEl.querySelector('.oanda-track');
+                    const knob = swapEl.querySelector('.oanda-knob');
+                    if (next) {
+                        track.style.background = 'linear-gradient(135deg, #14b8a6, #06b6d4)';
+                        track.style.borderColor = 'rgba(255,255,255,0.2)';
+                        track.style.boxShadow = '0 0 12px rgba(20,184,166,0.6)';
+                        knob.style.transform = 'translateX(18px)';
+                        knob.style.background = '#ffffff';
+                    } else {
+                        track.style.background = 'rgba(0,0,0,0.4)';
+                        track.style.borderColor = 'rgba(255,255,255,0.05)';
+                        track.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.2)';
+                        knob.style.transform = 'translateX(0)';
+                        knob.style.background = '#94a3b8';
+                    }
+                    updateOandaProfile('swap_avoidance_enabled', next);
+                    showNotice(next ? 'Swap Avoidance On' : 'Swap Avoidance Off', next ? 'teal' : 'red');
+                });
+            }
+
+            // Wire spread slider
+            const spreadSlider = document.getElementById('slider-oanda-spread');
+            if (spreadSlider) {
+                spreadSlider.addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    const valEl = document.getElementById('val-oanda-spread');
+                    if (valEl) valEl.textContent = (val * 100).toFixed(0) + '%';
+                    updateOandaProfile('spread_gate_max_pct', val);
+                });
+            }
+        }, 80);
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('OANDA Info', 'info',
