@@ -341,15 +341,22 @@ def process_candidate_cycle(
                 # ── Propagate stop modifications from hold decisions ──
                 # The Conductor returns hold+stop_loss to trail stops.
                 # Forward to broker so OANDA actually moves the stop.
+                _d_sl = getattr(decision, "stop_loss", None) if decision else None
+                _has_mod = hasattr(executor, "modify_stop_loss") if executor else False
+                logger.info(
+                    f"[TRAIL-DEBUG] {symbol}: action={decision.action if decision else 'None'} "
+                    f"stop_loss={_d_sl} executor={bool(executor)} has_modify={_has_mod}"
+                )
                 if (
                     decision
                     and decision.action == "hold"
-                    and getattr(decision, "stop_loss", None) is not None
+                    and _d_sl is not None
                     and executor
-                    and hasattr(executor, "modify_stop_loss")
+                    and _has_mod
                 ):
                     try:
-                        executor.modify_stop_loss(symbol, float(decision.stop_loss))
+                        logger.info(f"[TRAIL] Calling modify_stop_loss({symbol}, {float(_d_sl)})")
+                        executor.modify_stop_loss(symbol, float(_d_sl))
                     except Exception as e:
                         logger.warning(f"[TRAIL] Stop modification failed for {symbol}: {e}")
 

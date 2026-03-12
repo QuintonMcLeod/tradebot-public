@@ -605,6 +605,15 @@ class StrategyEngine:
             # tournament from flip-flopping between strategies (rubberband says long,
             # volatility says short, etc.) and bleeding capital via constant reversals.
             # The position lives or dies by its own SL/TP/exit logic.
+            #
+            # IMPORTANT: If the safety guard returned a hold decision with a trailing
+            # stop_loss (Greedy Exit / Armor), preserve it so cycle.py can forward
+            # the new stop to the broker via modify_stop_loss().
+            if safety_exit and safety_exit.action == "hold" and safety_exit.stop_loss is not None:
+                safety_exit.score = score
+                safety_exit.grade = grade
+                return safety_exit
+
             from tradebot_sci.strategy.decisions import stand_aside_decision
             hold = stand_aside_decision(self.symbol, timeframe, "[POSITION LOCK] Holding — position managed by SL/TP")
             hold.action = "hold"
