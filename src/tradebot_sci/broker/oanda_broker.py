@@ -678,7 +678,7 @@ class OandaExchangeBroker(IExchangeBroker):
             logger.warning("[OANDA] Cannot modify SL: not authorized")
             return False
         try:
-            instrument = symbol.replace("/", "_").upper()
+            instrument = self._normalize_symbol(symbol)
             r_pos = oanda_positions.PositionDetails(self.account_id, instrument)
             self.client.request(r_pos)
             pos = r_pos.response.get("position", {})
