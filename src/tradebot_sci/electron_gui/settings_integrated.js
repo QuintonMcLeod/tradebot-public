@@ -2100,7 +2100,7 @@ function renderStrategyTab(container) {
         // Conductor controls (saves to global config, promoted to active profile)
         section.appendChild(createCard('Pyramid on Winners', 'Add to winning trades at profit milestones', 'CONDUCTOR_PYRAMID_ENABLED', 'toggle'));
         section.appendChild(createSliderCard('Pyramid Trigger Level', 'R-multiple distance before first add', 'CONDUCTOR_PYRAMID_START_R', 0.3, 2.0, 0.1, 'R', { default: '1.0' }));
-        section.appendChild(createSliderCard('First Pyramid Size', 'Risk % of initial position size', 'CONDUCTOR_PYRAMID_FIRST_PCT', 0.05, 1.00, 0.05, '%', { default: '30' }));
+        section.appendChild(createSliderCard('First Pyramid Size', 'Risk % of initial position size', 'CONDUCTOR_PYRAMID_FIRST_PCT', 5, 100, 5, '%', { default: '30' }));
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Breakeven Trail', 'shield',
@@ -2146,7 +2146,7 @@ function renderStrategyTab(container) {
         section.appendChild(createCard('Enable Counter-Reversal', 'Fire 2× trade when SAR is losing', 'COUNTER_REVERSAL_ENABLED', 'toggle'));
         section.appendChild(createCard('Keep SAR Open', 'SAR stays open alongside CR (per-strategy)', 'SAR_KEEP_OPEN', 'toggle'));
         section.appendChild(createSliderCard('Reversal TP (R-Multiple)', 'Take profit target for reversals', 'REVERSAL_TP_R', 0.5, 5.0, 0.5, 'R'));
-        section.appendChild(createSliderCard('Reversal Risk %', 'Risk per reversal trade', 'REVERSAL_RISK_PER_TRADE', 0.01, 0.10, 0.005, '', { pctFormat: true }));
+        section.appendChild(createSliderCard('Reversal Risk %', 'Risk per reversal trade', 'REVERSAL_RISK_PER_TRADE', 1.0, 10.0, 0.5, '', { pctFormat: true }));
         section.appendChild(createCard('Cost-Aware TP', 'Add spread buffer to TP target', 'REVERSAL_COST_AWARE_TP', 'toggle'));
         section.appendChild(createSliderCard('Partial Close Fraction', 'De-risk close percentage', 'SCALE_OUT_FRACTION', 0.25, 1.0, 0.05, ''));
 
@@ -2223,7 +2223,7 @@ function renderBrokersTab(container) {
         ));
 
         // OANDA controls that seamlessly read/write from active profile via our updateValue interceptor
-        section.appendChild(createSliderCard('Max Spread (% of SL)', 'Blocks entries if spread is too wide', 'SPREAD_GATE_MAX_PCT', 0.10, 0.50, 0.05, '%', { default: '30' }));
+        section.appendChild(createSliderCard('Max Spread (% of SL)', 'Blocks entries if spread is too wide', 'SPREAD_GATE_MAX_PCT', 10, 50, 5, '%', { default: '30' }));
         section.appendChild(createCard('Wed Swap Avoidance', 'Closes marginal trades before 5PM Wed swap charge', 'SWAP_AVOIDANCE_ENABLED', 'toggle'));
 
         section.appendChild(createDivider());
