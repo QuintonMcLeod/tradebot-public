@@ -90,10 +90,12 @@ const CONFIG_MAP = {
     'STRATEGY_FUTURES': ['global', 'strategy_futures'],
     // Pyramiding (under global in config.json)
     'MAX_PYRAMID_ENTRIES': ['global', 'max_pyramid_entries'],
-    'PYRAMID_PROFIT_BUFFER_PCT': ['global', 'pyramid_profit_buffer_pct'],
-    'PYRAMID_RISK_LOAD': ['global', 'pyramid_risk_load'],
-    'PYRAMID_RISK_SCALE': ['global', 'pyramid_risk_scale'],
     'BREAKEVEN_TRAIL_AFTER_PYRAMIDS': ['global', 'breakeven_trail_after_pyramids'],
+    'CONDUCTOR_PYRAMID_ENABLED': ['global', 'conductor_pyramid_enabled'],
+    'CONDUCTOR_PYRAMID_START_R': ['global', 'conductor_pyramid_start_r'],
+    'CONDUCTOR_PYRAMID_FIRST_PCT': ['global', 'conductor_pyramid_first_pct'],
+    'SWAP_AVOIDANCE_ENABLED': ['safety', 'swap_avoidance_enabled'],
+    'SPREAD_GATE_MAX_PCT': ['safety', 'spread_gate_max_pct'],
     // Exit Logic & Position Management (under global in config.json)
     'MIN_HOLD_HOURS': ['global', 'min_hold_hours'],
     'MAX_HOLD_HOURS': ['global', 'max_hold_hours'],
@@ -2095,10 +2097,10 @@ function renderStrategyTab(container) {
             "<strong>Conductor Pyramid Tuning</strong><br><br>These controls configure the Forex Conductor's R-milestone pyramid system. The Conductor adds to winning trades at profit milestones — the first pyramid fires at the configured R-level, with follow-up adds every 0.5R after. Adjust the trigger level and sizes to match your trading style."
         ));
 
-        // Conductor controls that seamlessly read/write from active profile via our updateValue interceptor
-        section.appendChild(createCard('Pyramid on Winners', 'Add to winning trades at profit milestones', 'conductor_pyramid_enabled', 'toggle'));
-        section.appendChild(createSliderCard('Pyramid Trigger Level', 'R-multiple distance before first add', 'conductor_pyramid_start_r', 0.3, 2.0, 0.1, 'R', { default: '1.0' }));
-        section.appendChild(createSliderCard('First Pyramid Size', 'Risk % of initial position size', 'conductor_pyramid_first_pct', 0.05, 0.50, 0.05, '%', { default: '30' }));
+        // Conductor controls (saves to global config, promoted to active profile)
+        section.appendChild(createCard('Pyramid on Winners', 'Add to winning trades at profit milestones', 'CONDUCTOR_PYRAMID_ENABLED', 'toggle'));
+        section.appendChild(createSliderCard('Pyramid Trigger Level', 'R-multiple distance before first add', 'CONDUCTOR_PYRAMID_START_R', 0.3, 2.0, 0.1, 'R', { default: '1.0' }));
+        section.appendChild(createSliderCard('First Pyramid Size', 'Risk % of initial position size', 'CONDUCTOR_PYRAMID_FIRST_PCT', 0.05, 0.50, 0.05, '%', { default: '30' }));
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Breakeven Trail', 'shield',
@@ -2221,8 +2223,8 @@ function renderBrokersTab(container) {
         ));
 
         // OANDA controls that seamlessly read/write from active profile via our updateValue interceptor
-        section.appendChild(createSliderCard('Max Spread (% of SL)', 'Blocks entries if spread is too wide', 'spread_gate_max_pct', 0.10, 0.50, 0.05, '%', { default: '30' }));
-        section.appendChild(createCard('Wed Swap Avoidance', 'Closes marginal trades before 5PM Wed swap charge', 'swap_avoidance_enabled', 'toggle'));
+        section.appendChild(createSliderCard('Max Spread (% of SL)', 'Blocks entries if spread is too wide', 'SPREAD_GATE_MAX_PCT', 0.10, 0.50, 0.05, '%', { default: '30' }));
+        section.appendChild(createCard('Wed Swap Avoidance', 'Closes marginal trades before 5PM Wed swap charge', 'SWAP_AVOIDANCE_ENABLED', 'toggle'));
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('OANDA Info', 'info',
@@ -3061,22 +3063,6 @@ function createPerformanceToggle(title, desc, modeValue, type = 'foundation', to
 }
 
 function getValue(key, strategyNamespace = null) {
-    // ── INTERCEPT PROFILE-LEVEL SETTINGS ──
-    const profileKeys = ['conductor_pyramid_enabled', 'swap_avoidance_enabled', 'conductor_pyramid_start_r', 'conductor_pyramid_first_pct', 'spread_gate_max_pct'];
-    if (profileKeys.includes(key)) {
-        const activeName = configData.active_profile;
-        const profile = window.profilesModule?.allProfiles?.[activeName];
-        if (profile && profile[key] !== undefined) {
-            return profile[key] === true ? 'true' : profile[key] === false ? 'false' : String(profile[key]);
-        }
-        // Defaults if missing from profile
-        if (key === 'conductor_pyramid_enabled') return 'true';
-        if (key === 'swap_avoidance_enabled') return 'true';
-        if (key === 'conductor_pyramid_start_r') return '1.0';
-        if (key === 'conductor_pyramid_first_pct') return '0.30';
-        if (key === 'spread_gate_max_pct') return '0.30';
-    }
-
     // 1. Check Secrets
     if (SECRETS_MAP[key]) {
         return secretsData[SECRETS_MAP[key]] || '';
@@ -3118,17 +3104,6 @@ function getValue(key, strategyNamespace = null) {
 function updateValue(key, value, strategyNamespace = null) {
     const oldValue = getValue(key, strategyNamespace);
     if (oldValue === value) return;
-
-    // ── INTERCEPT PROFILE-LEVEL SETTINGS ──
-    const profileKeys = ['conductor_pyramid_enabled', 'swap_avoidance_enabled', 'conductor_pyramid_start_r', 'conductor_pyramid_first_pct', 'spread_gate_max_pct'];
-    if (profileKeys.includes(key)) {
-        const activeName = configData.active_profile;
-        if (window.profilesModule?.allProfiles && activeName) {
-            window.profilesModule.allProfiles[activeName][key] = (value === 'true' || value === true) ? true : (value === 'false' || value === false) ? false : parseFloat(value);
-            if (window.profilesModule._saveProfile) window.profilesModule._saveProfile();
-        }
-        return; // Skip global config.json save
-    }
 
     // 1. Update Secrets
     if (SECRETS_MAP[key]) {
