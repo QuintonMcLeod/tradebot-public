@@ -536,12 +536,24 @@ class TradingProfileSettings(BaseModel):
         default=0.04,
         ge=0.0,
         le=1.0,
-        description="Position fraction for subsequent pyramids at 1.5R+ (0.04 = 4%).",
+        description="Position fraction for subsequent pyramids at start_r+0.5R+ (0.04 = 4%).",
     )
     conductor_pyramid_max_count: int = Field(
         default=50,
         ge=1,
         description="Maximum number of pyramid entries allowed per trade.",
+    )
+    conductor_pyramid_enabled: bool = Field(
+        default=True,
+        description="Enable R-milestone pyramiding in the Forex Conductor.",
+    )
+    conductor_pyramid_start_r: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=5.0,
+        description="R-multiple at which the first pyramid fires. "
+                    "Default 1.0 (pyramid at 1R). Set to 0.5 to pyramid "
+                    "earlier on trades that show momentum at ~$50+.",
     )
 
     moon_trailer_enabled: bool = Field(

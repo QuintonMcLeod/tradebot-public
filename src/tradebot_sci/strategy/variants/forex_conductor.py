@@ -725,13 +725,15 @@ class ForexConductorStrategy(BaseStrategy):
                         ),
                     )
 
-                # ── WINNING SIDE: R-MILESTONE PYRAMIDS (1R+) ──────
+                # ── WINNING SIDE: R-MILESTONE PYRAMIDS ──────────
                 # Check milestones BEFORE ATR trail so pyramids fire.
-                # 1R:   floor → BE  + pyramid 30% (hammer the win)
-                # 1.5R+: floor + pyramid 4% every 0.5R
+                # start_r:   floor → BE  + pyramid (hammer the win)
+                # start_r+0.5R+: floor + pyramid every 0.5R
                 # Plus: momentum acceleration, bounce re-pyramids
                 # SAR trades skip pyramiding — they ride to TP.
-                if not is_sar and r_multiple >= 1.0:
+                _pyr_enabled = getattr(self._profile, 'conductor_pyramid_enabled', True) if self._profile else True
+                _start_r = getattr(self._profile, 'conductor_pyramid_start_r', 1.0) if self._profile else 1.0
+                if not is_sar and _pyr_enabled and r_multiple >= _start_r:
                     MAX_PYRAMIDS = getattr(self._profile, 'conductor_pyramid_max_count', 50) if self._profile else 50
 
                     # ── #2: MOMENTUM ACCELERATION ─────────────────
@@ -808,10 +810,10 @@ class ForexConductorStrategy(BaseStrategy):
                             )
 
                     # ── R-level milestones (floor + pyramid) ──────
-                    level_idx = int((r_multiple - 1.0) / 0.5)
+                    level_idx = int((r_multiple - _start_r) / 0.5)
                     for i in range(level_idx, -1, -1):
-                        threshold = 1.0 + (i * 0.5)
-                        floor_r = max(0.0, threshold - 1.0)
+                        threshold = _start_r + (i * 0.5)
+                        floor_r = max(0.0, threshold - _start_r)
                         m_key = f"pyr_{threshold:.1f}r"
                         _pyr_first = getattr(self._profile, 'conductor_pyramid_first_pct', 0.30) if self._profile else 0.30
                         _pyr_sub = getattr(self._profile, 'conductor_pyramid_subsequent_pct', 0.04) if self._profile else 0.04
