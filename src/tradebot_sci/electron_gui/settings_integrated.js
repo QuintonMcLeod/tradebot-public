@@ -3067,8 +3067,23 @@ function getValue(key, strategyNamespace = null) {
     if (SECRETS_MAP[key]) {
         return secretsData[SECRETS_MAP[key]] || '';
     }
-    // 2. Check Global Config
-    else if (CONFIG_MAP[key]) {
+
+    // 2. Check Active Profile (Overrides ALWAYS win)
+    const active = configData.active_profile;
+    if (active && configData.profiles && configData.profiles[active]) {
+        let profileValue;
+        if (strategyNamespace) {
+            profileValue = configData.profiles[active].strategy_overrides?.[strategyNamespace]?.[key.toLowerCase()];
+        } else {
+            profileValue = configData.profiles[active][key.toLowerCase()];
+        }
+        if (profileValue !== undefined) {
+            return profileValue === true ? 'true' : profileValue === false ? 'false' : String(profileValue);
+        }
+    }
+
+    // 3. Fallback to Global Config
+    if (CONFIG_MAP[key]) {
         const path = CONFIG_MAP[key];
         let current = configData;
         for (let i = 0; i < path.length - 1; i++) {
@@ -3079,22 +3094,20 @@ function getValue(key, strategyNamespace = null) {
         if (value === undefined) return undefined;
         return value === true ? 'true' : value === false ? 'false' : String(value);
     }
-    // 3. Check Active Profile
-    else {
-        const active = configData.active_profile;
-        if (active && configData.profiles && configData.profiles[active]) {
-            let value;
-            if (strategyNamespace) {
-                value = configData.profiles[active].strategy_overrides?.[strategyNamespace]?.[key.toLowerCase()];
-            } else {
-                value = configData.profiles[active][key.toLowerCase()];
-            }
-            if (value === undefined) return undefined;
-            return value === true ? 'true' : value === false ? 'false' : String(value);
+
+    // 4. Fallback to Active Profile (Historical Catch-all)
+    else if (active && configData.profiles && configData.profiles[active]) {
+        let value;
+        if (strategyNamespace) {
+            value = configData.profiles[active].strategy_overrides?.[strategyNamespace]?.[key.toLowerCase()];
+        } else {
+            value = configData.profiles[active][key.toLowerCase()];
         }
+        if (value === undefined) return undefined;
+        return value === true ? 'true' : value === false ? 'false' : String(value);
     }
 
-    // 4. Fallback to envData (for values not in config/secrets, e.g., dynamically set ones)
+    // 5. Fallback to envData (for values not in config/secrets, e.g., dynamically set ones)
     const value = envData[key];
     if (value === undefined) return undefined;
     return value === true ? 'true' : value === false ? 'false' : String(value);
