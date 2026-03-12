@@ -481,6 +481,16 @@ window.profilesModule = (function () {
             @keyframes shimmer { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
         </style>`;
 
+        // ── Cost Savings & Pyramid section ──
+        html += `<div style="margin-top:28px;">${_sectionHeader('Cost Savings & Pyramids', 'savings', 'Fine-tune how the bot handles spreads, swap charges, and winning-trade pyramids. These settings directly impact profitability by reducing costs and amplifying winners.')}</div>`;
+        html += `<div style="display:flex; flex-direction:column; gap:10px;">`;
+        html += renderToggle('conductor_pyramid_enabled', 'Pyramid on Winners', profile.conductor_pyramid_enabled !== false);
+        html += renderToggle('swap_avoidance_enabled', 'Wed Swap Avoidance', profile.swap_avoidance_enabled === true);
+        html += renderSlider('conductor_pyramid_start_r', 'Pyramid Trigger (R)', profile.conductor_pyramid_start_r || 1.0, 0.3, 2.0, 0.1, 'R', 1);
+        html += renderSlider('spread_gate_max_pct', 'Max Spread (% of SL)', profile.spread_gate_max_pct || 0.30, 0.10, 0.50, 0.05, '', 100);
+        html += renderSlider('conductor_pyramid_first_pct', 'First Pyramid Size', profile.conductor_pyramid_first_pct || 0.30, 0.05, 0.50, 0.05, '%', 100);
+        html += `</div>`;
+
         html += renderSymbolsTab(profile);
         html += '</div>';
         container.innerHTML = html;
@@ -777,6 +787,11 @@ window.profilesModule = (function () {
         'session_gate_enabled': 'Only trade during active market hours. Prevents trades during low-volume off-hours when spreads are wider.',
         'continuous_mode': 'Run this profile around the clock without stopping. Best for 24/7 crypto markets.',
         'crypto_only': 'Restrict this profile to only trade cryptocurrency symbols, ignoring any forex or stock symbols.',
+        'conductor_pyramid_enabled': 'When enabled, the bot adds to winning trades at profit milestones. Pyramiding amplifies winners — $50 wins can become $80+. Disable to take flat single-entry trades only.',
+        'swap_avoidance_enabled': 'OANDA charges 3× overnight swap on Wednesdays at 5PM ET. When enabled, the bot closes marginal trades (under 0.5R profit) before the cutoff to save money.',
+        'conductor_pyramid_start_r': 'The profit level (in R-multiples) at which the first pyramid fires. Lower = more aggressive (0.5R ≈ $50 on typical risk). Higher = waits for bigger winners.',
+        'spread_gate_max_pct': 'Maximum spread allowed as a percentage of stop-loss distance. Blocks entries where spread eats too much of the risk. Lower = stricter (fewer bad-spread trades).',
+        'conductor_pyramid_first_pct': 'Size of the first pyramid entry as a fraction of the original position. 30% is moderate, 50% is aggressive, 10% is conservative.',
     };
 
     function renderGeneralTab(profile) {
