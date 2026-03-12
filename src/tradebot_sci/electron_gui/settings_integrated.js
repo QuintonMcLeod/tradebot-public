@@ -1652,11 +1652,15 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%', options 
         card.addEventListener('mouseleave', hideTooltip);
     }
 
+    let saveTimeout;
     slider.addEventListener('input', (e) => {
         valueDisplay.innerHTML = `${e.target.value}<span class="slider-value-small">${unit}</span>`;
-        // Save as fraction if unit is '%' (e.g. slider 4.5 → save 0.045)
-        const saveValue = isPct ? (parseFloat(e.target.value) / 100).toString() : e.target.value;
-        updateValue(key, saveValue, stratNamespace);
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => {
+            // Save as fraction if unit is '%' (e.g. slider 4.5 → save 0.045)
+            const saveValue = isPct ? (parseFloat(e.target.value) / 100).toString() : e.target.value;
+            updateValue(key, saveValue, stratNamespace);
+        }, 500);
     });
 
     return card;
