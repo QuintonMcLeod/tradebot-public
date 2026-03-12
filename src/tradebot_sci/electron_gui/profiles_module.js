@@ -481,16 +481,6 @@ window.profilesModule = (function () {
             @keyframes shimmer { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
         </style>`;
 
-        // ── Cost Savings & Pyramid section ──
-        html += `<div style="margin-top:28px;">${_sectionHeader('Cost Savings & Pyramids', 'savings', 'Fine-tune how the bot handles spreads, swap charges, and winning-trade pyramids. These settings directly impact profitability by reducing costs and amplifying winners.')}</div>`;
-        html += `<div style="display:flex; flex-direction:column; gap:10px;">`;
-        html += renderToggle('conductor_pyramid_enabled', 'Pyramid on Winners', profile.conductor_pyramid_enabled !== false);
-        html += renderToggle('swap_avoidance_enabled', 'Wed Swap Avoidance', profile.swap_avoidance_enabled === true);
-        html += renderSlider('conductor_pyramid_start_r', 'Pyramid Trigger (R)', profile.conductor_pyramid_start_r || 1.0, 0.3, 2.0, 0.1, 'R', 1);
-        html += renderSlider('spread_gate_max_pct', 'Max Spread (% of SL)', profile.spread_gate_max_pct || 0.30, 0.10, 0.50, 0.05, '', 100);
-        html += renderSlider('conductor_pyramid_first_pct', 'First Pyramid Size', profile.conductor_pyramid_first_pct || 0.30, 0.05, 0.50, 0.05, '%', 100);
-        html += `</div>`;
-
         html += renderSymbolsTab(profile);
         html += '</div>';
         container.innerHTML = html;
@@ -1156,5 +1146,5 @@ window.profilesModule = (function () {
         }
     }
 
-    return { init, activateProfile };
+    return { init, activateProfile, get allProfiles() { return allProfiles; }, _saveProfile: saveProfile };
 })();
