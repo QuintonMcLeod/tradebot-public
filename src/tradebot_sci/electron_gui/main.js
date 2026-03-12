@@ -315,7 +315,7 @@ function setupIpcHandlers() {
         { filename: 'RTFM/37_CONTEXT_MASKING.md', title: 'Context Masking for Dummies', category: 'rtfm', icon: 'theater_comedy', description: '"Wait... so if I tell the bot to risk 1% globally, how the hell do I tell RoboCop to risk 3% without screwing up my entire profile?" Patrice O\'Neal style breakdown of the Context Masking feature.' },
         { filename: 'RTFM/38_NOT_A_MONEY_PRINTER.md', title: 'This Is Not a Money Printer', category: 'rtfm', icon: 'hourglass_top', description: '"I installed the bot forty-five minutes ago. When do I get rich?" A brutally honest conversation about why trading is an investment — not a slot machine — and why the compound effect takes months, not minutes. With real math, real timelines, and a gym analogy that will haunt you.', featured: true },
         { filename: 'RTFM/39_LIVE_SPREAD.md', title: 'Live Spread Integration: Why Your Bot Was Trading Blindfolded', category: 'rtfm', icon: 'visibility', description: '"The bot thought the highway toll was $1.50 but sometimes it was $15." How OANDA\'s dynamic spreads were silently eating your profits, and how the bot now fetches real-time bid/ask data every 30 seconds instead of guessing.' },
-        { filename: 'RTFM/40_TAKE_PROFIT.md', title: 'The Take Profit Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Take Profit card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing. Three states: LOCKED, SHIELDED, and CASHOUT.' },
+        { filename: 'RTFM/40_TAKE_PROFIT.md', title: 'The Payout Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Payout card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing. Three states: LOCKED, SHIELDED, and CASHOUT.' },
     ];
 
     try {
@@ -1331,7 +1331,7 @@ Respond in plain English a smart friend would understand. No jargon. Use analogi
     });
 
     // =============================================
-    // Take Profit AI Mentor
+    // Payout AI Mentor
     // =============================================
     ipcMain.handle('generate-take-profit-advice', async (event, data) => {
         try {
@@ -1352,7 +1352,7 @@ Respond in plain English a smart friend would understand. No jargon. Use analogi
                 }
             }
 
-            const systemPrompt = `You are a cold, disciplined institutional risk manager for Tradebot SCI. Your job is to provide exactly 2-3 sentences of psychological guidance regarding taking profits. 
+            const systemPrompt = `You are a cold, disciplined institutional risk manager for Tradebot SCI. Your job is to provide exactly 2-3 sentences of psychological guidance regarding payouts (withdrawals of profit). 
 The user is looking at their current analytics dashboard.
 Current State: ${state.toUpperCase()}
 Recent Profit/Loss: $${pnl.toFixed(2)}
@@ -1361,8 +1361,8 @@ Context: ${context}
 RULES:
 1. Speak plainly, directly, and professionally. No emojis, no fluff, no greetings or sign-offs.
 2. If State is WAITING: Command them to sit on their hands. Withdrawing while risk is active spikes margin utilized.
-3. If State is DRAWDOW: Command them to allow the bot to rebuild the high water mark. Do not withdraw during recovery.
-4. If State is CASHOUT: Command them to secure the bag by transferring the recommended % to a real-world bank account, while leaving the rest to compound. Note whether this is a volatility spike or steady grind based on the context.`;
+3. If State is DRAWDOWN: Command them to allow the bot to rebuild the high water mark. Do not withdraw during recovery.
+4. If State is CASHOUT: Command them to secure the bag by transferring the recommended payout to a real-world bank account, while leaving the rest to compound. Note whether this is a volatility spike or steady grind based on the context.`;
 
             let aiResponse = '';
 
@@ -1388,7 +1388,7 @@ RULES:
                             model: 'gpt-4o',
                             messages: [
                                 { role: 'system', content: systemPrompt },
-                                { role: 'user', content: 'Generate the Take Profit Mentor Advice.' }
+                                { role: 'user', content: 'Generate the Payout Mentor Advice.' }
                             ],
                             temperature: 0.3
                         }));
@@ -1416,7 +1416,7 @@ RULES:
                         req.write(JSON.stringify({
                             contents: [{
                                 role: 'user',
-                                parts: [{ text: systemPrompt + '\n\nGenerate the Take Profit Mentor Advice.' }]
+                                parts: [{ text: systemPrompt + '\n\nGenerate the Payout Mentor Advice.' }]
                             }],
                             generationConfig: { temperature: 0.3 }
                         }));
