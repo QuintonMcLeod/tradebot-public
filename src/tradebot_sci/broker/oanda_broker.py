@@ -888,21 +888,21 @@ class OandaExchangeBroker(IExchangeBroker):
             spread_cost = live_spread * pip_value
 
             # ── SPREAD GATE: Block when spread eats too much of the risk ──
-            # If round-trip spread > 30% of stop distance, the trade starts
+            # If round-trip spread > X% of stop distance, the trade starts
             # so far underwater it's almost guaranteed to lose.
             # Example: AUDJPY spread $24 on $58 stop = 42% → BLOCKED.
-            MAX_SPREAD_PCT = 0.30
+            max_spread_pct = getattr(self.profile, "spread_gate_max_pct", 0.30)
             if stop_dist > 0:
                 spread_pct = spread_cost / stop_dist
-                if spread_pct > MAX_SPREAD_PCT:
+                if spread_pct > max_spread_pct:
                     logger.warning(
                         f"[OANDA] [BLOCKED] Spread too wide for {decision.symbol}: "
                         f"spread={live_spread:.1f} pips ({spread_cost:.5f}) = "
                         f"{spread_pct:.0%} of SL distance {stop_dist:.5f} "
-                        f"(max {MAX_SPREAD_PCT:.0%})"
+                        f"(max {max_spread_pct:.0%})"
                     )
                     return (
-                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, f"spread {spread_pct:.0%} > {MAX_SPREAD_PCT:.0%} of SL"),
+                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, f"spread {spread_pct:.0%} > {max_spread_pct:.0%} of SL"),
                         ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"spread {spread_pct:.0%} of SL ({live_spread:.1f} pips)")
                     )
 

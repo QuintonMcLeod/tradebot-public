@@ -154,8 +154,8 @@ class StrategyEngine:
             # Transform keys to lowercase so they match Python variable names
             kwargs = {k.lower(): v for k, v in overrides.items()}
 
-        # MetaSCIStrategy requires profile_settings kwarg
-        if variant == "meta_sci":
+        # MetaSCIStrategy and ForexConductor require profile_settings kwarg
+        if variant in ("meta_sci", "forex_conductor"):
             kwargs["profile_settings"] = self.profile
             return cls(**kwargs)
             

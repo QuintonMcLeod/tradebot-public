@@ -102,6 +102,7 @@ class ForexConductorStrategy(BaseStrategy):
             "wind_down_truffle": WindDownTruffleStrategy(),
         }
         self.quick_ranging_tp_enabled = kwargs.get('quick_ranging_tp_enabled', False)
+        self._profile = kwargs.get('profile_settings', None)
         super().__init__("Forex Conductor")
 
     # ── Risk propagation ────────────────────────────────────────────────
@@ -649,6 +650,43 @@ class ForexConductorStrategy(BaseStrategy):
                             )
 
 
+                # ── SWAP AVOIDANCE (Wednesday 3× charge) ──────────────
+                # OANDA charges 3× overnight swap on Wednesday 5PM ET.
+                # Close marginal trades before the cutoff to save money.
+                if (
+                    self._profile
+                    and getattr(self._profile, 'swap_avoidance_enabled', False)
+                    and 0 <= r_multiple < 0.5
+                    and not is_sar
+                ):
+                    import pytz
+                    from datetime import datetime
+                    tz_name = getattr(self._profile, 'swap_avoidance_timezone', 'America/New_York')
+                    try:
+                        tz = pytz.timezone(tz_name)
+                    except Exception:
+                        tz = pytz.timezone('America/New_York')
+                    now_local = datetime.now(tz)
+                    # Wednesday = 2, check if within 30 min of 5PM cutoff
+                    if now_local.weekday() == 2 and now_local.hour >= 16 and now_local.hour < 17:
+                        logger.info(
+                            f"[CONDUCTOR] SWAP AVOIDANCE {sym}: "
+                            f"{r_multiple:.2f}R (marginal) — closing before "
+                            f"Wednesday 5PM ET to dodge 3× swap charge"
+                        )
+                        return AITradeDecision(
+                            symbol=sym,
+                            timeframe=snapshot.timeframe,
+                            bias=pos_dir,
+                            phase="management",
+                            action="close_position",
+                            strategy_name=self.name,
+                            notes=(
+                                f"[MANAGEMENT] Swap avoidance: "
+                                f"{r_multiple:.2f}R — Wed 3× swap dodge"
+                            ),
+                        )
+
                 # ── EARLY ATR TRAILING (0.5R+) ─────────────────────
                 # Move broker SL to lock in profit once 0.5R is reached.
                 # REGIME-AWARE: Ranging markets use TIGHT trails to
@@ -694,7 +732,7 @@ class ForexConductorStrategy(BaseStrategy):
                 # Plus: momentum acceleration, bounce re-pyramids
                 # SAR trades skip pyramiding — they ride to TP.
                 if not is_sar and r_multiple >= 1.0:
-                    MAX_PYRAMIDS = 50
+                    MAX_PYRAMIDS = getattr(self._profile, 'conductor_pyramid_max_count', 50) if self._profile else 50
 
                     # ── #2: MOMENTUM ACCELERATION ─────────────────
                     # If a single candle moves ≥ 0.3R in our direction,
@@ -775,7 +813,9 @@ class ForexConductorStrategy(BaseStrategy):
                         threshold = 1.0 + (i * 0.5)
                         floor_r = max(0.0, threshold - 1.0)
                         m_key = f"pyr_{threshold:.1f}r"
-                        pyr_risk = 0.30 if i == 0 else 0.04
+                        _pyr_first = getattr(self._profile, 'conductor_pyramid_first_pct', 0.30) if self._profile else 0.30
+                        _pyr_sub = getattr(self._profile, 'conductor_pyramid_subsequent_pct', 0.04) if self._profile else 0.04
+                        pyr_risk = _pyr_first if i == 0 else _pyr_sub
 
                         # Floor move
                         if pos_dir == "long":

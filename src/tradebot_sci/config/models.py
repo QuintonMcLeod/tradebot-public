@@ -497,6 +497,53 @@ class TradingProfileSettings(BaseModel):
         description="Scale down stops / block entries when ATR is extreme.",
     )
 
+    # ── Cost Savings (Spread / Swap / Correlation) ──────────────────────
+    spread_gate_max_pct: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Max spread as fraction of stop distance before entry is blocked. "
+                    "E.g. 0.30 = block if spread > 30% of SL distance.",
+    )
+    swap_avoidance_enabled: bool = Field(
+        default=False,
+        description="Close marginal trades (< 0.5R) before Wednesday 5PM ET "
+                    "to avoid the 3× overnight swap charge.",
+    )
+    swap_avoidance_timezone: str = Field(
+        default="America/New_York",
+        description="Timezone for swap avoidance cutoff (OANDA charges at 5PM ET).",
+    )
+    correlation_cap_enabled: bool = Field(
+        default=False,
+        description="Cap exposure to correlated pairs in the same direction "
+                    "(e.g., long EUR/USD + long GBP/USD = double USD short).",
+    )
+    correlation_max_same_direction: int = Field(
+        default=2,
+        ge=1,
+        description="Max correlated positions allowed in the same direction before blocking entry.",
+    )
+
+    # ── Conductor Pyramid Sizing ────────────────────────────────────────
+    conductor_pyramid_first_pct: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Position fraction for first pyramid at 1R (0.30 = 30% of original size).",
+    )
+    conductor_pyramid_subsequent_pct: float = Field(
+        default=0.04,
+        ge=0.0,
+        le=1.0,
+        description="Position fraction for subsequent pyramids at 1.5R+ (0.04 = 4%).",
+    )
+    conductor_pyramid_max_count: int = Field(
+        default=50,
+        ge=1,
+        description="Maximum number of pyramid entries allowed per trade.",
+    )
+
     moon_trailer_enabled: bool = Field(
         default=False,
         description="Enable aggressive profit trailing (Moon Trailer).",
