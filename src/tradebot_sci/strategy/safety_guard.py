@@ -833,7 +833,7 @@ class SafetyGuard:
                  relevant_candles = [c for c in snapshot.candles if entry_time and isinstance(entry_time, datetime) and c.timestamp >= entry_time]
                  peak_price = max(c.high for c in relevant_candles) if relevant_candles else entry_price
                  peak_r = (peak_price - entry_price) / initial_risk if initial_risk > 0 else 0
-                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.5 and current_price <= entry_price:
+                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.2 and current_price <= entry_price:
                      logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} <= {entry_price:.5f}, peak was {peak_r:.1f}R). Closing at breakeven.")
                      return close_position_decision(snapshot.symbol, snapshot.timeframe,
                                                     reason=f"Greedy Exit: Back to entry (breakeven)")
@@ -858,7 +858,7 @@ class SafetyGuard:
                  relevant_candles = [c for c in snapshot.candles if entry_time and isinstance(entry_time, datetime) and c.timestamp >= entry_time]
                  trough_price = min(c.low for c in relevant_candles) if relevant_candles else entry_price
                  peak_r = (entry_price - trough_price) / initial_risk if initial_risk > 0 else 0
-                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.5 and current_price >= entry_price:
+                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.2 and current_price >= entry_price:
                      logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} >= {entry_price:.5f}, peak was {peak_r:.1f}R). Closing at breakeven.")
                      return close_position_decision(snapshot.symbol, snapshot.timeframe,
                                                     reason=f"Greedy Exit: Back to entry (breakeven)")
