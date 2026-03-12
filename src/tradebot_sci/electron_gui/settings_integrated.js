@@ -2100,7 +2100,7 @@ function renderStrategyTab(container) {
         // Conductor controls (saves to global config, promoted to active profile)
         section.appendChild(createCard('Pyramid on Winners', 'Add to winning trades at profit milestones', 'CONDUCTOR_PYRAMID_ENABLED', 'toggle'));
         section.appendChild(createSliderCard('Pyramid Trigger Level', 'R-multiple distance before first add', 'CONDUCTOR_PYRAMID_START_R', 0.3, 2.0, 0.1, 'R', { default: '1.0' }));
-        section.appendChild(createSliderCard('First Pyramid Size', 'Risk % of initial position size', 'CONDUCTOR_PYRAMID_FIRST_PCT', 0.05, 0.50, 0.05, '%', { default: '30' }));
+        section.appendChild(createSliderCard('First Pyramid Size', 'Risk % of initial position size', 'CONDUCTOR_PYRAMID_FIRST_PCT', 0.05, 1.00, 0.05, '%', { default: '30' }));
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Breakeven Trail', 'shield',
