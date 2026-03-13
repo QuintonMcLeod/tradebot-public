@@ -311,7 +311,8 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                             const isDupe = trades.some(existing =>
                                 existing._source !== 'log' &&
                                 existing.symbol === symbol &&
-                                Math.abs(new Date(existing.closed_at || existing.timestamp || existing.time || 0) - ts) < 5000
+                                // Dupe if within 5 mins (300000ms) or exact same PnL and direction
+                                (Math.abs(new Date(existing.closed_at || existing.timestamp || existing.time || 0) - ts) < 300000)
                             );
                             if (!isDupe) {
                                 trades.push({
@@ -415,22 +416,42 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                     const jsonPart = lastLine.split(/\[HOLDINGS\]/i)[1].trim();
                     const holdingsData = JSON.parse(jsonPart);
                     if (holdingsData.positions) {
+                        // Create a set of authoritative live symbols
+                        const liveSymbols = new Set(holdingsData.positions.map(p => p.symbol));
+
+                        // Prune any trades previously marked as active from static files 
+                        // that do not appear in the live authoritative payload
+                        trades = trades.filter(t => !t._active || liveSymbols.has(t.symbol));
+
                         for (const pos of holdingsData.positions) {
                             if (!pos.symbol) continue;
-                            if (trades.some(t => t._active && t.symbol === pos.symbol)) continue;
-                            trades.unshift({
+
+                            const _upnl = pos.unrealized_pnl || 0;
+                            const _entry = pos.entry_price || pos.avg_price || 0;
+                            const _size = Math.abs(pos.size || 0);
+                            const _pctCalc = (_entry && _size) ? (_upnl / (_entry * _size)) * 100 : 0;
+
+                            const freshPos = {
                                 symbol: pos.symbol,
                                 side: pos.side || pos.direction || 'long',
-                                pnl: pos.unrealized_pnl || 0,
-                                pct: pos.pnl_pct || 0,
+                                pnl: _upnl,
+                                pct: pos.pnl_pct || _pctCalc,
                                 timestamp: pos.opened_at || pos.entry_time || '',
                                 strategy: pos.strategy || '--',
                                 stop_loss: pos.stop_loss,
                                 take_profit: pos.take_profit,
-                                entry_price: pos.entry_price || pos.avg_price || 0,
+                                entry_price: _entry,
                                 size: pos.size,
                                 _active: true
-                            });
+                            };
+
+                            const existingIdx = trades.findIndex(t => t._active && t.symbol === pos.symbol);
+                            if (existingIdx !== -1) {
+                                // Overlay fresh data on top of static data (updates real-time PnL and pyramided sizes)
+                                trades[existingIdx] = { ...trades[existingIdx], ...freshPos };
+                            } else {
+                                trades.unshift(freshPos);
+                            }
                         }
                     }
                 }

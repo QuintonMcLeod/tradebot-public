@@ -241,6 +241,10 @@ class TradingProfileSettings(BaseModel):
         le=1.0,
         description="Minimum structure strength required to treat a trend as non-neutral.",
     )
+    trend_correlation_stacking_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_CORRELATION_STACKING_ENABLED", "true").lower() == "true",
+        description="When enabled, allows the bot to open multiple highly correlated pairs (e.g. multiple USD pairs) simultaneously.",
+    )
     session_gate_enabled: bool = Field(
         default=True,
         description="When true, enforces volume/range expansion for session-aware entries.",
@@ -1151,6 +1155,9 @@ class SafetySettings(BaseModel):
     )
     safety_session_lockout_enabled: bool = Field(
         default_factory=lambda: os.getenv("SAFETY_SESSION_LOCKOUT_ENABLED", "True").lower() == "true"
+    )
+    safety_rollover_deadzone_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_ROLLOVER_DEADZONE_ENABLED", "True").lower() == "true"
     )
     safety_session_lockout_hour: int = Field(
         default_factory=lambda: int(os.getenv("SAFETY_SESSION_LOCKOUT_HOUR", "16"))

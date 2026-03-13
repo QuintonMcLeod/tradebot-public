@@ -294,7 +294,11 @@ class OandaExchangeBroker(IExchangeBroker):
                             if trade_id in backfilled_ids:
                                 continue  # Already logged
 
-                            pnl = float(ct.get("realizedPL", 0))
+                            gross_pnl = float(ct.get("realizedPL", 0))
+                            financing = float(ct.get("financing", 0))
+                            dividend = float(ct.get("dividendAdjustment", 0))
+                            pnl = gross_pnl + financing + dividend
+
                             initial_units = float(ct.get("initialUnits", 0))
                             price = float(ct.get("price", 0))
                             pnl_pct = 0.0
@@ -535,10 +539,12 @@ class OandaExchangeBroker(IExchangeBroker):
                 # Calculate PnL and Log for GUI
                 pnl_val = float(pos.get("unrealizedPL", 0.0)) # Since we are closing at current market price
                 # For Oanda, we can try to find the actual realized PnL in the response
-                if "longOrderFillTransaction" in resp:
-                    pnl_val = float(resp["longOrderFillTransaction"].get("pl", 0.0))
-                elif "shortOrderFillTransaction" in resp:
-                    pnl_val = float(resp["shortOrderFillTransaction"].get("pl", 0.0))
+                fill_event = resp.get("longOrderFillTransaction") or resp.get("shortOrderFillTransaction")
+                if fill_event:
+                    gross_pl = float(fill_event.get("pl", 0.0))
+                    financing = float(fill_event.get("financing", 0.0))
+                    dividend = float(fill_event.get("dividendAdjustment", 0.0))
+                    pnl_val = gross_pl + financing + dividend
                 
                 # Calculate Pct
                 units = abs(float(pos.get("long", {}).get("units", 0)) + float(pos.get("short", {}).get("units", 0)))
@@ -941,9 +947,18 @@ class OandaExchangeBroker(IExchangeBroker):
                         ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, f"capital too low: ${self._liquid_capital:.2f}")
                     )
 
-            risk_amount = self.profile.risk_per_trade_dollars
+            # 1. Prioritize explicit dollar risk from the strategy (if provided)
+            risk_amount = decision.risk_per_trade_dollars or 0.0
+
+            # 2. Prioritize explicit percentage from the strategy (e.g. Pyramiding)
+            if risk_amount <= 0 and decision.risk_per_trade_pct:
+                risk_amount = self._liquid_capital * float(decision.risk_per_trade_pct)
+
+            # 3. Fallback to global profile settings
             if risk_amount <= 0:
-                risk_amount = self._liquid_capital * self.profile.risk_per_trade_pct
+                risk_amount = self.profile.risk_per_trade_dollars
+                if risk_amount <= 0:
+                    risk_amount = self._liquid_capital * self.profile.risk_per_trade_pct
 
             # ── CURRENCY CONVERSION: Target Risk to Quote Currency ──
             # The stop_dist is represented in the Quote currency (e.g., JPY, CAD, USD)
@@ -1157,9 +1172,11 @@ class OandaExchangeBroker(IExchangeBroker):
                         closed_resp = self.client.request(r_closed)
                         closed_trades = closed_resp.get("trades", [])
                         if closed_trades:
-                            # Use the most recent closed trade for this instrument
                             latest = closed_trades[0]
-                            pnl = float(latest.get("realizedPL", 0))
+                            gross_pl = float(latest.get("realizedPL", 0))
+                            financing = float(latest.get("financing", 0))
+                            dividend = float(latest.get("dividendAdjustment", 0))
+                            pnl = gross_pl + financing + dividend
                             initial_units = float(latest.get("initialUnits", 0))
                             price = float(latest.get("price", 0))
                             if initial_units != 0 and price > 0:

@@ -636,7 +636,7 @@ class StrategyEngine:
         
         # (Conductor _reversal_pending pre-population removed — conductor now
         # reads gates["sar_dir"] set by engine SAR below.)
-
+        open_symbols = caps.get("open_symbols", [])
         safety_decision = SafetyGuard.check_entry_safety(
             self.symbol, 
             timeframe, 
@@ -644,7 +644,8 @@ class StrategyEngine:
             latest_snapshot,
             ai_client=self.ai_client,
             settings=self.settings or self.profile,
-            trade_results=self.trade_results
+            trade_results=self.trade_results,
+            open_symbols=open_symbols
         )
         if safety_decision:
             # SAR bypasses exit cooldown — reversals are time-critical.
@@ -772,6 +773,19 @@ class StrategyEngine:
                 sar_dir = self._cr_pending.pop(self.symbol, None)
                 if sar_dir:
                     logger.info(f"[ENGINE CR] {self.symbol}: firing counter-reversal {sar_dir}")
+
+            # ── TREND-AWARE SAR GUARD ─────────────────────────────────────
+            # Block SAR if it forces a trade against a strong HTF trend.
+            if sar_dir:
+                htf_dir = gates.get("htf_dir", "neutral")
+                htf_strength = gates.get("htf_strength", 0.0)
+                if htf_dir in ("long", "short") and htf_strength >= 0.5:
+                    if sar_dir != htf_dir:
+                        logger.warning(
+                            f"[ENGINE SAR] {self.symbol}: CANCELED — SAR direction {sar_dir.upper()} "
+                            f"opposes strong HTF trend ({htf_dir.upper()}, strength={htf_strength:.0%})"
+                        )
+                        sar_dir = None
 
         # B. Check for ENTRY / SCALE_IN
         # Pass sar_dir via gates so conductor can compute ATR-based SL/TP

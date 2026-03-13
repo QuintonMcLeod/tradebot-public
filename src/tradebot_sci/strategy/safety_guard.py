@@ -150,7 +150,7 @@ class SafetyGuard:
         return stand_aside_decision(symbol, timeframe, reason)
 
     @classmethod
-    def check_entry_safety(cls, symbol: str, timeframe: str, current_capital: float, snapshot: MarketSnapshot, ai_client: Optional[Any] = None, settings: Optional[Any] = None, trade_results: Optional[Any] = None) -> Optional[AITradeDecision]:
+    def check_entry_safety(cls, symbol: str, timeframe: str, current_capital: float, snapshot: MarketSnapshot, ai_client: Optional[Any] = None, settings: Optional[Any] = None, trade_results: Optional[Any] = None, open_symbols: Optional[list[str]] = None) -> Optional[AITradeDecision]:
         """
         Runs ALL pre-entry checks.
         Returns a stand_aside_decision if unsafe. Returns None if safe to proceed.
@@ -277,6 +277,43 @@ class SafetyGuard:
              lockout_hour = safety.safety_session_lockout_hour
              if est_now.hour >= lockout_hour:
                  return cls._reject(symbol, timeframe, "Session Lockout", f"Session Lockout (After {lockout_hour}:00 EST)")
+
+        # -------------------------------------------------------------
+        # 2.4 MACRO CORRELATION GUARD (Anti-Stacking Basket Trading)
+        # -------------------------------------------------------------
+        if asset_class == AssetClass.FOREX and open_symbols:
+            trend_settings = getattr(settings, 'global_settings', settings) if hasattr(settings, 'global_settings') else settings
+            stacking_enabled = getattr(trend_settings, 'trend_correlation_stacking_enabled', True)
+            
+            # If stacking is FALSE (disabled), block the bot from buying multiple pairs with shared currencies
+            if not stacking_enabled:
+                if len(symbol) >= 6:
+                    base = symbol[:3].upper()
+                    quote = symbol[3:6].upper()
+                    
+                    held_correlated = []
+                    for s in open_symbols:
+                        s_upper = s.upper()
+                        if s_upper != symbol.upper() and len(s) >= 6:
+                            s_base = s_upper[:3]
+                            s_quote = s_upper[3:6]
+                            if base in (s_base, s_quote) or quote in (s_base, s_quote):
+                                held_correlated.append(s)
+                                
+                    if held_correlated:
+                        return cls._reject(
+                            symbol, timeframe, "Correlation Guard",
+                            f"Correlation Guard: Already holding correlated {', '.join(held_correlated)}. Enable 'Correlation Stacking' in Trend settings to allow macro baskets."
+                        )
+
+        # -------------------------------------------------------------
+        # 2.5 ROLLOVER DEADZONE (Oanda Spread Spike Protection)
+        # -------------------------------------------------------------
+        # Forex rollover occurs at 5:00 PM EST daily. Spreads widen astronomically.
+        # Blocking trades from 16:55 to 18:05 EST preserves capital by avoiding spread traps.
+        if safety and safety.safety_rollover_deadzone_enabled and asset_class == AssetClass.FOREX:
+            if (est_now.hour == 16 and est_now.minute >= 55) or est_now.hour == 17 or (est_now.hour == 18 and est_now.minute <= 5):
+                 return cls._reject(symbol, timeframe, "Rollover Deadzone", "Rollover Deadzone (16:55-18:05 EST) - Extreme Spread Protection")
 
         # -------------------------------------------------------------
         # 3. [NEW] OPENING RANGE SENTRY (No-Trade Zone)

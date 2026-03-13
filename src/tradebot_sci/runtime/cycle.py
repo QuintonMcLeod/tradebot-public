@@ -326,6 +326,7 @@ def process_candidate_cycle(
                     "total_position_notional": global_position_notional,
                     "open_position_count": global_open_count,
                     "total_equity": total_equity,
+                    "open_symbols": open_syms if 'open_syms' in locals() else []
                 }
             )
             # Include 'hold' in decision logging to ensure the Decisions Panel is populated for existing positions

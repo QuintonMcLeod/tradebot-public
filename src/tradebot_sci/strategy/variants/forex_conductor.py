@@ -103,6 +103,12 @@ class ForexConductorStrategy(BaseStrategy):
         }
         self.quick_ranging_tp_enabled = kwargs.get('quick_ranging_tp_enabled', False)
         self._profile = kwargs.get('profile_settings', None)
+        
+        if self._profile:
+            pyramid_r = getattr(self._profile, 'conductor_pyramid_start_r', 1.0)
+            pyramid_pct = getattr(self._profile, 'conductor_pyramid_first_pct', 0.3)
+            logger.info(f"[CONDUCTOR] Initializing with Pyramiding -> Trigger: {pyramid_r}R, First %: {pyramid_pct}")
+            
         super().__init__("Forex Conductor")
 
     # ── Risk propagation ────────────────────────────────────────────────
@@ -422,7 +428,7 @@ class ForexConductorStrategy(BaseStrategy):
                     notes=(
                         f"[REVERSAL][Conductor:SAR] Forced {sar_dir} — no strategy signal"
                     ),
-                    strategy_name="reversal",
+                    strategy_name="[SAR] Reversal",
                 )
 
         return None
@@ -472,8 +478,23 @@ class ForexConductorStrategy(BaseStrategy):
             current_stop = float(open_position.get("stop_price", 0) or open_position.get("stop_loss", 0) or 0)
             current_price = float(snapshot.candles[-1].close)
 
+            from tradebot_sci.strategy.icc_signals import calculate_atr
+            atr = calculate_atr(snapshot.candles[-14:], period=14)
+
             if pos_dir in ("long", "short") and entry_price > 0 and current_stop > 0:
                 initial_risk = abs(entry_price - current_stop)
+                
+                # ── FALLBACK: Stop moved to Breakeven ───────────────────────
+                # If current_stop is very close to entry, reconstruct initial_risk
+                # 2 pips/ticks tolerance for slippage in BE moves
+                if initial_risk < 0.0002:
+                    _mult = getattr(self._profile, 'stop_atr_multiplier', 1.5) if self._profile else 1.5
+                    _atr_val = atr if (atr and atr > 0) else (current_price * 0.0007)
+                    initial_risk = _atr_val * _mult
+                    logger.debug(
+                        f"[CONDUCTOR] {snapshot.symbol}: stop is at breakeven "
+                        f"({current_stop:.5f}). Reconstructed initial_risk to {_mult}x ATR = {initial_risk:.5f}"
+                    )
 
             elif pos_dir in ("long", "short") and entry_price > 0 and current_stop == 0:
                 # ── FALLBACK: No SL in snapshot ─────────────────────────────
@@ -691,9 +712,8 @@ class ForexConductorStrategy(BaseStrategy):
                 # Move broker SL to lock in profit once 0.5R is reached.
                 # REGIME-AWARE: Ranging markets use TIGHT trails to
                 # capture oscillation peaks. Trending uses wide trails
-                # to let winners run.
-                from tradebot_sci.strategy.icc_signals import calculate_atr
-                atr = calculate_atr(snapshot.candles[-14:], period=14)
+                #       We KEEP ATR trailing active so they benefit from regime-aware trailing stops
+                #       to let winners run.
                 regime = gates.get("market_regime", "unknown")
                 is_ranging = regime in ("ranging", "choppy")
 

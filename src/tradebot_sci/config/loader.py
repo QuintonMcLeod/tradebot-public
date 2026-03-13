@@ -214,7 +214,12 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         "sabbath_end_local", "sabbath_astronomical", "sabbath_lat", "sabbath_lon",
     ]
 
-    _profile_fields = set(TradingProfileSettings.model_fields.keys())
+    _profile_fields = set(
+        list(TradingProfileSettings.model_fields.keys()) +
+        list(SafetySettings.model_fields.keys()) +
+        list(PerformanceSettings.model_fields.keys()) +
+        list(RiskSettings.model_fields.keys())
+    )
 
     profiles = {}
     for name, p_data in config.get("profiles", {}).items():

@@ -963,7 +963,6 @@ F = Avoid. Lost significant capital in backtesting.
 
 ── Pyramid Configuration ──
 • MAX_PYRAMID_ENTRIES (number, 1-20): Max times the bot adds to a winning position. 1=no pyramiding.
-• PYRAMID_PROFIT_BUFFER_PCT (number, 0-5): Minimum profit % required before first pyramid add.
 • PYRAMID_RISK_LOAD (number, 5-100): Risk % for the first pyramid add.
 • PYRAMID_RISK_SCALE (number, 5-50): Risk % for subsequent pyramid adds (usually lower than load).
 
@@ -1006,6 +1005,7 @@ CATEGORY 2: SAFETY & SHIELDS (no nuclear overrides)
 • SAFETY_DRAWDOWN_BREAKER_ENABLED (boolean): Emergency circuit breaker — stops trading if account drawdown from HWM exceeds threshold. Uses adaptive scaling by default.
 • SAFETY_DRAWDOWN_MAX_PCT (number, 0.05-0.25): Maximum drawdown % before Drawdown Breaker triggers (0.05=5%, 0.25=25%). The bot auto-scales this based on account size (25% for <$100, 15% for $500, 10% for $1K, 5% for $10K+). Set this to override the auto-scaled value — but the bot will always use whichever is MORE generous (higher) between your setting and the adaptive calculation.
 • SAFETY_SESSION_LOCKOUT_ENABLED (boolean): Block new entries after a cutoff time.
+• SAFETY_ROLLOVER_DEADZONE_ENABLED (boolean): Block entries during the 5 PM EST Oanda spread spike.
 • SAFETY_SESSION_LOCKOUT_HOUR (number): EST hour for session lockout (e.g., 16 = 4PM).
 • SAFETY_GREED_GUARD_ENABLED (boolean): Stops trading after hitting daily profit target.
 • SAFETY_GREED_GUARD_TARGET (number, 5-500): Dollar profit amount that triggers greed guard lockout. REQUIRED when GREED_GUARD is enabled. Scale to account size (e.g., $50 acct → $5-10, $500 acct → $25-50, $5000 acct → $100-250).

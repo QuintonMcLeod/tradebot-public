@@ -159,10 +159,12 @@ class ICCCoreStrategy(BaseStrategy):
 
             # Use profile setting for max pyramids
             max_pyramid = 3
+            pyramid_ratio = 1.0
             if "profile" in gates and gates["profile"]:
                 max_pyramid = getattr(gates["profile"], "max_pyramid_entries", 3)
+                pyramid_ratio = getattr(gates["profile"], "conductor_pyramid_first_pct", 1.0)
 
-            # Minimum R-multiple gate: only pyramid when >= 0.5R in profit
+            # Minimum R-multiple gate: only pyramid when >= 0.3R in profit
             stop_price = float(open_position.get("stop_price") or open_position.get("stop_loss") or 0)
             initial_risk = abs(entry_price - stop_price) * float(open_position.get("size", 1)) if stop_price else 0
             r_multiple = pos_pnl / initial_risk if initial_risk > 0 else 0
@@ -175,8 +177,8 @@ class ICCCoreStrategy(BaseStrategy):
                 (bias == "short" and candle_body < 0)
             )
 
-            # Same direction + 0.5R profit + momentum + under cap
-            if pos_dir == bias and r_multiple >= 0.5 and momentum_ok and pyramid_count < max_pyramid:
+            # Same direction + 0.3R profit + momentum + under cap
+            if pos_dir == bias and r_multiple >= 0.3 and momentum_ok and pyramid_count < max_pyramid:
                 # Move stop to breakeven on pyramid to protect original risk
                 if bias == "long":
                     stop_loss_pyramid = max(entry_price, last_close - (atr * 1.5))
@@ -189,6 +191,10 @@ class ICCCoreStrategy(BaseStrategy):
                     f"[ICC-CORE] PYRAMID #{pyramid_count+1}: {snapshot.symbol} scale_in "
                     f"R={r_multiple:.2f} pnl=${pos_pnl:.2f} momentum={'✅' if momentum_ok else '❌'}"
                 )
+                
+                # Apply Config-Driven Pyramid Sizing
+                base_risk_pct = self.get_risk_pct()
+                pyramid_risk_pct = base_risk_pct * pyramid_ratio
 
                 return AITradeDecision(
                     symbol=snapshot.symbol,
@@ -198,13 +204,13 @@ class ICCCoreStrategy(BaseStrategy):
                     entry_price=last_close,
                     stop_loss=stop_loss_pyramid,
                     take_profit=take_profit,
-                    risk_per_trade_pct=self.get_risk_pct(),
+                    risk_per_trade_pct=pyramid_risk_pct,
                     phase=phase,
                     structure_summary=f"ICC Core PYRAMID #{pyramid_count+1} (continuation, ATR={atr:.5f})",
                     invalidation_conditions=f"Close beyond SL at {stop_loss_pyramid:.5f}",
                     management_instructions=f"Pyramid {pyramid_count+1}/{max_pyramid}. Stop at breakeven.",
                     urgency="medium",
-                    notes=f"ICT Pyramid: continuation (pnl=${pos_pnl:.2f})"
+                    notes=f"ICT Pyramid: continuation (pnl=${pos_pnl:.2f}, scale={pyramid_ratio}x)"
                 )
             elif open_position:
                 # Position exists but wrong direction, losing, or maxed out

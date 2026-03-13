@@ -76,6 +76,7 @@ const CONFIG_MAP = {
     'BLOCK_COUNTER_TREND_ENTRIES': ['safety', 'block_counter_trend_entries'],
     'SAFETY_SESSION_LOCKOUT_ENABLED': ['safety', 'safety_session_lockout_enabled'],
     'SAFETY_SESSION_LOCKOUT_HOUR': ['safety', 'safety_session_lockout_hour'],
+    'SAFETY_ROLLOVER_DEADZONE_ENABLED': ['safety', 'safety_rollover_deadzone_enabled'],
     // Performance
     'PERFORMANCE_MODE': ['performance', 'performance_mode'],
     'TRAILING_STOP_ENABLED': ['performance', 'trailing_stop_enabled'],
@@ -116,6 +117,7 @@ const CONFIG_MAP = {
     'SCALE_OUT_FRACTION': ['runtime', 'scale_out_fraction'],
     // Trend Detection (under global in config.json)
     'TREND_ADX_ENABLED': ['global', 'trend_adx_enabled'],
+    'TREND_CORRELATION_STACKING_ENABLED': ['global', 'trend_correlation_stacking_enabled'],
     'TREND_RSI_ENABLED': ['global', 'trend_rsi_enabled'],
     'TREND_MACD_ENABLED': ['global', 'trend_macd_enabled'],
     'TREND_BOLLINGER_ENABLED': ['global', 'trend_bollinger_enabled'],
@@ -243,7 +245,6 @@ const TOOLTIPS = {
 
     // Pyramiding
     MAX_PYRAMID_ENTRIES: "Maximum times the bot can add to a winning position. 'Pyramiding' means buying more as a trade goes in your favor. 1 = no adding, just the initial entry.",
-    PYRAMID_PROFIT_BUFFER_PCT: "Minimum profit percentage required before the bot will add to a position. Prevents adding too early before the trade proves itself.",
     PYRAMID_RISK_LOAD: "Risk percentage for the FIRST add to a winning position. Often set higher since the trade has already proven profitable.",
     PYRAMID_RISK_SCALE: "Risk percentage for subsequent adds after the first. Usually lower than Load since you're adding to an already-large position.",
     BREAKEVEN_TRAIL_AFTER_PYRAMIDS: "After this many pyramid adds, move your stop-loss to breakeven (entry price). Protects profits on scaled-up positions. 0 = disabled.",
@@ -356,6 +357,7 @@ const TOOLTIPS = {
 
     // Trend Detection Indicator Tooltips
     TREND_ADX_ENABLED: "<strong>Average Directional Index (ADX)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Strength</span><br><br>Think of ADX like a speedometer for trends. It doesn't tell you <em>which way</em> the market is going — just <em>how strongly</em> it's moving on a scale of 0 to 100.<br><br>When ADX is below 20, the market is going sideways with no real direction — like a car idling. Above 20, there's a real trend the bot can work with.<br><br><span style='color:#22c55e'>✓ Good for:</span> Keeping the bot from trading in sloppy, sideways markets where there's no clear direction.<br><span style='color:#ef4444'>✗ Heads up:</span> ADX tells you <em>how strong</em> but not <em>which way</em>. It also reacts slowly to sudden reversals.",
+    TREND_CORRELATION_STACKING_ENABLED: "<strong>Macro Correlation Stacking</strong><br><span style='color:#f59e0b;font-size:10px'>Type: Basket Allowance</span><br><br>When enabled, the bot is allowed to open multiple highly-correlated pairs in the same direction simultaneously (e.g., buying EURUSD and GBPUSD at the exact same time when the USD Index drops).<br><br><span style='color:#ef4444'>⚠ Aggressive Flipping:</span> Keeping this ON acts as a massive correlation multiplier. You are effectively stacking your account risk on a single macroeconomic move. If you are risk-averse, turn this OFF.",
     TREND_RSI_ENABLED: "<strong>Relative Strength Index (RSI)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Momentum</span><br><br>RSI measures how much buying vs selling pressure there is, on a scale from 0 to 100. Below 30 means everyone's been selling (oversold — could bounce). Above 70 means everyone's been buying (overbought — could dip).<br><br>The bot uses RSI as a direction hint: above 55 leans bullish, below 45 leans bearish.<br><br><span style='color:#22c55e'>✓ Good for:</span> Spotting when a market has been pushed too far in one direction and might reverse.<br><span style='color:#ef4444'>✗ Heads up:</span> In a strong uptrend, RSI can stay 'overbought' for a long time — it doesn't mean the trend is over.",
     TREND_MACD_ENABLED: "<strong>MACD (Moving Average Convergence Divergence)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Momentum</span><br><br>MACD tracks the gap between a fast and slow moving average. When the fast one crosses above the slow one, momentum is shifting upward. When it crosses below, momentum is shifting down.<br><br>The histogram bar shows how fast momentum is changing — taller bars mean stronger moves.<br><br><span style='color:#22c55e'>✓ Good for:</span> Catching the moment a trend starts picking up steam in one direction.<br><span style='color:#ef4444'>✗ Heads up:</span> In flat, directionless markets, MACD bounces back and forth near zero giving false signals.",
     TREND_BOLLINGER_ENABLED: "<strong>Bollinger Bands</strong><br><span style='color:#818cf8;font-size:10px'>Type: Volatility</span><br><br>Bollinger Bands are like an elastic band around the price. When the bands squeeze tight, the market is quiet — but a big move is usually coming. When they spread wide, the market is already moving fast.<br><br>The bot watches for squeezes and uses them to lower confidence — because during a squeeze, nobody knows <em>which way</em> the breakout will go.<br><br><span style='color:#22c55e'>✓ Good for:</span> Warning when the market is 'coiling up' before a big move, and measuring how wild price swings are.<br><span style='color:#ef4444'>✗ Heads up:</span> In strong trends, price 'rides' the outer band — touching it is NOT a reversal signal.",
@@ -369,6 +371,7 @@ const TOOLTIPS = {
     SAFETY_ATR_SHIELD_ENABLED: "Advanced ATR-based protection. Moves stops to breakeven after 1x ATR move and uses dynamic trailing stops.",
     SAFETY_DRAWDOWN_BREAKER_ENABLED: "Account Circuit Breaker. If the account drawdown exceeds the adaptive limit (25% for small accounts down to 5% for large accounts), all entries pause for 24h.",
     SAFETY_SESSION_LOCKOUT_ENABLED: "Prevents over-trading in choppy late-session markets. Automatically stops taking signals after 12:00 PM EST.",
+    SAFETY_ROLLOVER_DEADZONE_ENABLED: "Oanda Spread Spike Protection. Blocks entries during the 5 PM EST Bank Rollover (16:55 to 18:05 EST) to prevent capital bleed from astronomically wide spreads.",
 
     // Safety Suite 2.0 (New Additions)
     SAFETY_GREED_GUARD_ENABLED: "Profit Lock. Stops trading for the day once a specified daily profit target is hit (Quit while ahead).",
@@ -1187,6 +1190,7 @@ async function init() {
         const mockProfile = {
             bot_mode: 'continuous',
             TREND_ADX_ENABLED: 'true',
+            TREND_CORRELATION_STACKING_ENABLED: 'true',
             TREND_ADX_THRESHOLD: '20',
             TREND_RSI_ENABLED: 'false',
             TREND_MACD_ENABLED: 'false',
@@ -1200,6 +1204,7 @@ async function init() {
             SAFETY_ATR_SHIELD_ENABLED: 'true',
             SAFETY_DRAWDOWN_BREAKER_ENABLED: 'true',
             SAFETY_SESSION_LOCKOUT_ENABLED: 'false',
+            SAFETY_ROLLOVER_DEADZONE_ENABLED: 'true',
             PERFORMANCE_MODE: 'balanced',
         };
         window.api = {
@@ -2684,6 +2689,7 @@ function renderTrendsTab(container) {
     section.appendChild(createSectionHeader('Trend Strength', 'signal_cellular_alt',
         "<strong>What is Trend Strength?</strong><br><br>These indicators measure <em>how strong</em> the current trend is — like a speedometer. They don't tell you which way the market is heading, just whether it's moving with conviction or sitting still.<br><br>When trend strength is low, the bot avoids trading because there's no clear direction to follow."
     ));
+    section.appendChild(createCard('Macro Correlation Stacking', 'Allow simultaneous entries on correlated pairs (e.g., EURUSD + GBPUSD)', 'TREND_CORRELATION_STACKING_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('ADX — Trend Strength Gate', 'Blocks entries when market has no clear trend (ADX < threshold)', 'TREND_ADX_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createSliderCard('ADX Threshold', 'Entries blocked below this ADX value (0 = disabled)', 'TREND_ADX_THRESHOLD', 0, 60, 1, ''));
 
@@ -2789,6 +2795,7 @@ function renderSafetyTab(container) {
     section.appendChild(createSliderCard('The "Lock-In"', 'Lock Risk-Free at this profit level', 'BREAKEVEN_TRAIL_PCT', 0, 5, 0.1, '%'));
     section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker — Adaptive (25% small → 5% large accounts)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Session Lockout', 'Stops new entries after cutoff time', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Rollover Deadzone', 'Block entries during 5 PM EST spread spike', 'SAFETY_ROLLOVER_DEADZONE_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Lockout Time (EST)', 'No new entries after this time', 'SAFETY_SESSION_LOCKOUT_HOUR', 'time', { default: '16' }));
     section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock - Quit while ahead', 'SAFETY_GREED_GUARD_ENABLED', 'toggle', { default: 'true' }));
 
