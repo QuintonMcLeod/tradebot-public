@@ -202,6 +202,10 @@
         panel.style.display = 'block';
     }
 
+    let _logScrollTimer = null;
+    let _logBuffer = '';
+    let _logRAF = null;
+
     function _appendLogLine(line) {
         const panel = $('bt-log-stream');
         if (!panel) return;
@@ -209,12 +213,28 @@
             .replace(/\[GUILLOTINE/g, '<span style="color:#f97316">[GUILLOTINE')
             .replace(/\[SAR/g, '<span style="color:#a78bfa">[SAR')
             .replace(/\[ENGINE/g, '<span style="color:#34d399">[ENGINE')
+            .replace(/\[PARALLEL/g, '<span style="color:#38bdf8">[PARALLEL')
             .replace(/\[ERROR\]/g, '<span style="color:#f87171">[ERROR]</span>')
             .replace(/\[REPLAY\]/g, '<span style="color:#60a5fa">[REPLAY]</span>');
         const diff = (c.match(/<span/g) || []).length - (c.match(/<\/span>/g) || []).length;
         for (let i = 0; i < diff; i++) c += '</span>';
-        panel.innerHTML += c + '<br>';
-        panel.scrollTop = panel.scrollHeight;
+
+        // Buffer lines and flush via rAF to avoid per-line DOM thrashing
+        _logBuffer += c + '<br>';
+        if (!_logRAF) {
+            _logRAF = requestAnimationFrame(() => {
+                panel.insertAdjacentHTML('beforeend', _logBuffer);
+                _logBuffer = '';
+                _logRAF = null;
+                // Throttled scroll: max once per 100ms
+                if (!_logScrollTimer) {
+                    _logScrollTimer = setTimeout(() => {
+                        panel.scrollTop = panel.scrollHeight;
+                        _logScrollTimer = null;
+                    }, 100);
+                }
+            });
+        }
     }
 
 

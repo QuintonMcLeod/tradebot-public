@@ -133,6 +133,42 @@ def print_results(result, initial_balance: float, elapsed: float):
                 f"${t.pnl:>+8.2f} {win_mark} {t.exit_reason[:40]}"
             )
 
+    # ── JSON summary to stdout (consumed by GUI main.js) ──────────────
+    import json
+    json_trades = []
+    for t in trades:
+        dur = ""
+        if t.entry_time and t.exit_time:
+            delta = t.exit_time - t.entry_time
+            mins = int(delta.total_seconds() / 60)
+            if mins >= 60:
+                dur = f"{mins // 60}h {mins % 60}m"
+            else:
+                dur = f"{mins}m"
+        json_trades.append({
+            "symbol": t.symbol,
+            "side": t.direction,
+            "pnl": round(t.pnl, 2),
+            "time": t.entry_time.isoformat() if t.entry_time else None,
+            "duration": dur,
+            "reason": t.exit_reason or "",
+        })
+
+    summary = {
+        "total_pnl": round(pnl, 2),
+        "win_rate": round(wr, 1),
+        "total_trades": len(trades),
+        "max_drawdown": round(result.max_drawdown_pct, 2),
+        "profit_factor": profit_factor,
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
+        "risk_reward": rr,
+        "initial_capital": initial_balance,
+        "final_capital": round(final, 2),
+        "trades": json_trades,
+    }
+    print(json.dumps(summary), flush=True)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CANDLE DATA LOADING HELPERS
