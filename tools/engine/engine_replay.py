@@ -135,7 +135,249 @@ def print_results(result, initial_balance: float, elapsed: float):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# NON-CARTRIDGE MODE — load data from candle_history (legacy path)
+# CANDLE DATA LOADING HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _get_candle_dir() -> Path:
+    """Return the candle_history directory path."""
+    _CONFIG_DIR = Path(
+        os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
+    ) / "tradebot-sci"
+    return _CONFIG_DIR / "data" / "candle_history"
+
+
+def _discover_symbols(candle_dir: Path, symbols_filter=None) -> list[str]:
+    """Discover available symbols from candle_history subdirectories."""
+    available: set[str] = set()
+    if candle_dir.exists():
+        for d in candle_dir.iterdir():
+            if d.is_dir() and any(d.glob("*.jsonl")):
+                available.add(d.name)
+    symbols = sorted(available)
+    if symbols_filter:
+        symbols = [s for s in symbols_filter if s in available]
+    return symbols
+
+
+def _load_candles_for_range(
+    candle_dir: Path,
+    symbols: list[str],
+    date_start: str,
+    date_end: str,
+):
+    """Load LTF and HTF candles from .jsonl files for the given date range.
+
+    Uses threading to load multiple symbols concurrently (disk I/O releases
+    the GIL, so threads provide real parallelism for file reading).
+
+    Returns (all_ltf, all_htf) dicts mapping symbol -> list of Candle.
+    """
+    import json as _json
+    from concurrent.futures import ThreadPoolExecutor
+    from tradebot_sci.simulation.backtester import Candle
+
+    def _load_symbol(sym: str):
+        """Load candles for a single symbol (runs in a thread)."""
+        sym_dir = candle_dir / sym
+        if not sym_dir.exists():
+            return sym, [], []
+        ltf_candles = []
+        htf_candles = []
+        seen_ltf: set[str] = set()
+        seen_htf: set[str] = set()
+
+        for f in sorted(sym_dir.glob("*.jsonl")):
+            parts = f.stem.split("_", 1)
+            if len(parts) >= 2:
+                file_date = parts[1]
+                if file_date < date_start:
+                    continue
+                if file_date > date_end:
+                    continue
+            try:
+                for line in f.read_text().splitlines():
+                    if not line.strip():
+                        continue
+                    obs = _json.loads(line)
+                    for c in obs.get("ltf", []):
+                        ts_str = c["t"]
+                        if ts_str not in seen_ltf:
+                            seen_ltf.add(ts_str)
+                            ltf_candles.append(Candle(
+                                timestamp=datetime.fromisoformat(ts_str.replace("Z", "+00:00")),
+                                open=float(c["o"]), high=float(c["h"]),
+                                low=float(c["l"]), close=float(c["c"]),
+                                volume=float(c.get("v", 0)),
+                            ))
+                    for c in obs.get("htf", []):
+                        ts_str = c["t"]
+                        if ts_str not in seen_htf:
+                            seen_htf.add(ts_str)
+                            htf_candles.append(Candle(
+                                timestamp=datetime.fromisoformat(ts_str.replace("Z", "+00:00")),
+                                open=float(c["o"]), high=float(c["h"]),
+                                low=float(c["l"]), close=float(c["c"]),
+                                volume=float(c.get("v", 0)),
+                            ))
+            except Exception as e:
+                logging.getLogger("engine_replay").warning(f"[ENGINE] Error reading {f}: {e}")
+
+        if ltf_candles:
+            ltf_candles.sort(key=lambda c: c.timestamp)
+            htf_candles.sort(key=lambda c: c.timestamp)
+        return sym, ltf_candles, htf_candles
+
+    # Thread pool: load all symbols concurrently
+    all_ltf: dict[str, list] = {}
+    all_htf: dict[str, list] = {}
+
+    with ThreadPoolExecutor(max_workers=min(len(symbols), 8)) as executor:
+        results = list(executor.map(_load_symbol, symbols))
+
+    for sym, ltf, htf in results:
+        if ltf:
+            all_ltf[sym] = ltf
+            all_htf[sym] = htf
+
+    return all_ltf, all_htf
+
+
+def _write_temp_json(candles_dict: dict) -> tuple[dict[str, str], list[str]]:
+    """Write candle dicts to temp JSON files for the Backtester.
+
+    Returns (paths_dict, temp_file_list).
+    """
+    import json as _json
+    import tempfile
+
+    paths: dict[str, str] = {}
+    temp_files: list[str] = []
+
+    for sym, candles in candles_dict.items():
+        if not candles:
+            continue
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=f"_{sym}.json", delete=False
+        )
+        _json.dump(
+            [{"timestamp": c.timestamp.isoformat(),
+              "open": c.open, "high": c.high,
+              "low": c.low, "close": c.close,
+              "volume": c.volume} for c in candles],
+            tmp,
+        )
+        tmp.close()
+        paths[sym] = tmp.name
+        temp_files.append(tmp.name)
+
+    return paths, temp_files
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SINGLE-DAY WORKER (top-level function for multiprocessing pickle)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _run_single_day_worker(args: tuple) -> dict:
+    """Run one day of backtesting in an isolated process.
+
+    Args is a tuple: (day_str, balance, symbols_filter)
+    Returns a dict: {day, trades, pnl, return_pct, initial, final, stats}
+    """
+    day_str, balance, symbols_filter = args
+
+    # Suppress noisy loggers in worker processes
+    logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    for _noisy in ("tradebot_sci.market", "tradebot_sci.confluence",
+                   "tradebot_sci.strategy.safety_guard", "tradebot_sci.strategy",
+                   "httpcore", "httpx"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
+    logging.getLogger("engine_replay").setLevel(logging.WARNING)
+    logging.getLogger("tradebot_sci.simulation.backtester").setLevel(logging.WARNING)
+
+    try:
+        from tradebot_sci.config.loader import get_settings
+        from tradebot_sci.simulation.backtester import Backtester
+
+        settings = get_settings()
+        candle_dir = _get_candle_dir()
+        symbols = _discover_symbols(candle_dir, symbols_filter)
+        if not symbols:
+            return {"day": day_str, "trades": [], "pnl": 0.0, "return_pct": 0.0,
+                    "initial": balance, "final": balance, "stats": {}}
+
+        day_start = datetime.strptime(day_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        day_end = day_start.replace(hour=23, minute=59, second=59)
+
+        # Load candles: include 5 days before for indicator warmup
+        warmup_start = (day_start - timedelta(days=5)).strftime("%Y-%m-%d")
+        all_ltf, all_htf = _load_candles_for_range(
+            candle_dir, symbols, warmup_start, day_str
+        )
+
+        if not all_ltf:
+            return {"day": day_str, "trades": [], "pnl": 0.0, "return_pct": 0.0,
+                    "initial": balance, "final": balance, "stats": {}}
+
+        # Write temp files
+        data_paths, temp_ltf = _write_temp_json(all_ltf)
+        htf_paths, temp_htf = _write_temp_json(all_htf)
+        temp_files = temp_ltf + temp_htf
+
+        backtester = Backtester(ib=None, settings=settings, ai_client=None)
+        backtester._is_market_hours_utc = lambda ts: True
+
+        try:
+            result = backtester.run_backtest(
+                initial_capital=balance,
+                start_date=day_start,
+                end_date=day_end,
+                symbols=list(all_ltf.keys()),
+                data_paths=data_paths,
+                htf_data_paths=htf_paths,
+            )
+        finally:
+            for f in temp_files:
+                try:
+                    os.unlink(f)
+                except OSError:
+                    pass
+
+        # Serialize trades for cross-process transfer
+        trades_serialized = []
+        for t in result.trades:
+            trades_serialized.append({
+                "symbol": t.symbol,
+                "direction": t.direction,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "size": t.size,
+                "entry_time": t.entry_time.isoformat() if t.entry_time else None,
+                "exit_time": t.exit_time.isoformat() if t.exit_time else None,
+                "pnl": t.pnl,
+                "exit_reason": t.exit_reason,
+                "strategy_name": getattr(t, "strategy_name", "unknown"),
+            })
+
+        return {
+            "day": day_str,
+            "trades": trades_serialized,
+            "pnl": result.total_pnl,
+            "return_pct": result.total_return_pct,
+            "initial": result.initial_capital,
+            "final": result.final_capital,
+            "stats": {
+                "trades_blocked": result.potential_trades_blocked,
+            },
+        }
+
+    except Exception as e:
+        logging.getLogger("engine_replay").error(f"[PARALLEL] Day {day_str} failed: {e}")
+        return {"day": day_str, "trades": [], "pnl": 0.0, "return_pct": 0.0,
+                "initial": balance, "final": balance, "stats": {}, "error": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NON-CARTRIDGE MODES
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_candle_history_mode(
@@ -147,20 +389,10 @@ def run_candle_history_mode(
 ):
     """Run engine using recorded candle_history data (non-cartridge mode).
 
-    Loads observations from the local candle history cache (per-symbol
-    subdirectories with daily .jsonl files) and feeds them into the
-    Backtester.
+    For multi-day ranges (>1 day), automatically parallelizes across CPU cores
+    with one day per core. Results are merged with compounding applied.
     """
-    from tradebot_sci.config.loader import get_settings
-    from tradebot_sci.simulation.backtester import Backtester, Candle
-
-    settings = get_settings()
-    profile = settings.get_active_profile()
-
-    _CONFIG_DIR = Path(
-        os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
-    ) / "tradebot-sci"
-    _CANDLE_DIR = _CONFIG_DIR / "data" / "candle_history"
+    candle_dir = _get_candle_dir()
 
     # Date range: prefer explicit start/end, fall back to --days offset
     if end_date_str:
@@ -177,162 +409,91 @@ def run_candle_history_mode(
     else:
         start_date = end_date - timedelta(days=days)
 
-    # ── Discover available symbols from candle_history subdirectories ──
-    available_symbols: set[str] = set()
-    if _CANDLE_DIR.exists():
-        for d in _CANDLE_DIR.iterdir():
-            if d.is_dir() and any(d.glob("*.jsonl")):
-                available_symbols.add(d.name)
-
-    symbols = sorted(available_symbols)
-    if symbols_filter:
-        symbols = [s for s in symbols_filter if s in available_symbols]
-
+    symbols = _discover_symbols(candle_dir, symbols_filter)
     if not symbols:
         logger.error("No symbols found in candle_history. Use --cartridge instead.")
         return
 
-    # ── Load candles from .jsonl observation snapshots ─────────────────
-    # Each .jsonl line is a full observation: {"ts": ..., "sym": ..., "ltf": [...], "htf": [...]}
-    # We extract the LAST ltf candle from each observation to build the
-    # candle timeline for the backtester.
-    import json as _json
+    # Calculate day list
+    day_list: list[str] = []
+    d = start_date
+    while d.date() <= end_date.date():
+        day_list.append(d.strftime("%Y-%m-%d"))
+        d += timedelta(days=1)
 
-    all_ltf: dict[str, list[Candle]] = {}
-    all_htf: dict[str, list[Candle]] = {}
+    num_days = len(day_list)
 
-    for sym in symbols:
-        sym_dir = _CANDLE_DIR / sym
-        ltf_candles: list[Candle] = []
-        htf_candles: list[Candle] = []
-        seen_ltf_ts: set[str] = set()
-        seen_htf_ts: set[str] = set()
+    # ── Single day: run directly (no multiprocessing overhead) ──
+    if num_days <= 1:
+        _run_single_day_sequential(
+            candle_dir, symbols, start_date, end_date, balance
+        )
+        return
 
-        # Sort files by date to process in order
-        files = sorted(sym_dir.glob("*.jsonl"))
-        for f in files:
-            # Filter by date: filename like EURUSD_2026-03-01.jsonl
-            match = f.stem.split("_", 1)
-            if len(match) >= 2:
-                file_date = match[1]
-                if file_date < start_date.strftime("%Y-%m-%d"):
-                    continue
-                if file_date > end_date.strftime("%Y-%m-%d"):
-                    continue
+    # ── Multi-day: parallel across CPU cores ──────────────────────
+    import multiprocessing
 
-            try:
-                for line in f.read_text().splitlines():
-                    if not line.strip():
-                        continue
-                    obs = _json.loads(line)
+    num_cores = min(multiprocessing.cpu_count(), num_days)
+    logger.info(
+        f"[PARALLEL] ⚡ Multi-core mode: {num_days} days across {num_cores} cores "
+        f"({', '.join(day_list[:3])}{'...' if num_days > 3 else ''})"
+    )
+    logger.info(
+        f"[PARALLEL] Symbols: {', '.join(symbols)} | "
+        f"Starting capital: ${balance:.2f}"
+    )
 
-                    # Extract LTF candles (deduplicate by timestamp)
-                    for c in obs.get("ltf", []):
-                        ts_str = c["t"]
-                        if ts_str in seen_ltf_ts:
-                            continue
-                        seen_ltf_ts.add(ts_str)
-                        ltf_candles.append(Candle(
-                            timestamp=datetime.fromisoformat(
-                                ts_str.replace("Z", "+00:00")
-                            ),
-                            open=float(c["o"]),
-                            high=float(c["h"]),
-                            low=float(c["l"]),
-                            close=float(c["c"]),
-                            volume=float(c.get("v", 0)),
-                        ))
+    t0 = time.perf_counter()
 
-                    # Extract HTF candles (deduplicate by timestamp)
-                    for c in obs.get("htf", []):
-                        ts_str = c["t"]
-                        if ts_str in seen_htf_ts:
-                            continue
-                        seen_htf_ts.add(ts_str)
-                        htf_candles.append(Candle(
-                            timestamp=datetime.fromisoformat(
-                                ts_str.replace("Z", "+00:00")
-                            ),
-                            open=float(c["o"]),
-                            high=float(c["h"]),
-                            low=float(c["l"]),
-                            close=float(c["c"]),
-                            volume=float(c.get("v", 0)),
-                        ))
-            except Exception as e:
-                logger.warning(f"[ENGINE] Error reading {f}: {e}")
+    worker_args = [(day_str, balance, symbols_filter) for day_str in day_list]
 
-        if ltf_candles:
-            # Sort by timestamp
-            ltf_candles.sort(key=lambda c: c.timestamp)
-            htf_candles.sort(key=lambda c: c.timestamp)
-            all_ltf[sym] = ltf_candles
-            all_htf[sym] = htf_candles
-            logger.info(
-                f"[ENGINE] {sym}: {len(ltf_candles)} LTF candles, "
-                f"{len(htf_candles)} HTF candles "
-                f"({ltf_candles[0].timestamp.date()} → {ltf_candles[-1].timestamp.date()})"
-            )
+    with multiprocessing.Pool(processes=num_cores) as pool:
+        day_results = pool.map(_run_single_day_worker, worker_args)
+
+    elapsed = time.perf_counter() - t0
+
+    # ── Merge results with compounding ────────────────────────────
+    _merge_and_print_parallel_results(
+        day_results, balance, start_date, end_date, elapsed
+    )
+
+
+def _run_single_day_sequential(
+    candle_dir: Path,
+    symbols: list[str],
+    start_date: datetime,
+    end_date: datetime,
+    balance: float,
+):
+    """Run a single-day backtest sequentially (no multiprocessing overhead)."""
+    from tradebot_sci.config.loader import get_settings
+    from tradebot_sci.simulation.backtester import Backtester
+
+    settings = get_settings()
+
+    # Load candles with warmup
+    warmup_start = (start_date - timedelta(days=5)).strftime("%Y-%m-%d")
+    all_ltf, all_htf = _load_candles_for_range(
+        candle_dir, symbols, warmup_start, end_date.strftime("%Y-%m-%d")
+    )
 
     if not all_ltf:
         logger.error("No candle data loaded from candle_history.")
         return
 
-    # ── Write temporary JSON files for the backtester ─────────────────
-    import tempfile
-    data_paths: dict[str, str] = {}
-    htf_data_paths: dict[str, str] = {}
-    temp_files: list[str] = []
+    for sym in all_ltf:
+        ltf = all_ltf[sym]
+        htf = all_htf.get(sym, [])
+        logger.info(
+            f"[ENGINE] {sym}: {len(ltf)} LTF candles, {len(htf)} HTF candles "
+            f"({ltf[0].timestamp.date()} → {ltf[-1].timestamp.date()})"
+        )
 
-    for sym, candles in all_ltf.items():
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=f"_{sym}_ltf.json", delete=False
-        )
-        _json.dump(
-            [
-                {
-                    "timestamp": c.timestamp.isoformat(),
-                    "open": c.open,
-                    "high": c.high,
-                    "low": c.low,
-                    "close": c.close,
-                    "volume": c.volume,
-                }
-                for c in candles
-            ],
-            tmp,
-        )
-        tmp.close()
-        data_paths[sym] = tmp.name
-        temp_files.append(tmp.name)
+    data_paths, temp_ltf = _write_temp_json(all_ltf)
+    htf_paths, temp_htf = _write_temp_json(all_htf)
+    temp_files = temp_ltf + temp_htf
 
-    for sym, candles in all_htf.items():
-        if not candles:
-            continue
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=f"_{sym}_htf.json", delete=False
-        )
-        _json.dump(
-            [
-                {
-                    "timestamp": c.timestamp.isoformat(),
-                    "open": c.open,
-                    "high": c.high,
-                    "low": c.low,
-                    "close": c.close,
-                    "volume": c.volume,
-                }
-                for c in candles
-            ],
-            tmp,
-        )
-        tmp.close()
-        htf_data_paths[sym] = tmp.name
-        temp_files.append(tmp.name)
-
-    # Create backtester with local data
     backtester = Backtester(ib=None, settings=settings, ai_client=None)
-    # Force market open for replay
     backtester._is_market_hours_utc = lambda ts: True
 
     logger.info(
@@ -348,18 +509,122 @@ def run_candle_history_mode(
             end_date=end_date,
             symbols=list(all_ltf.keys()),
             data_paths=data_paths,
-            htf_data_paths=htf_data_paths,
+            htf_data_paths=htf_paths,
         )
     finally:
-        # Clean up temp files
-        for tf in temp_files:
+        for f in temp_files:
             try:
-                os.unlink(tf)
+                os.unlink(f)
             except OSError:
                 pass
 
     elapsed = time.perf_counter() - t0
     print_results(result, balance, elapsed)
+
+
+def _merge_and_print_parallel_results(
+    day_results: list[dict],
+    initial_balance: float,
+    start_date: datetime,
+    end_date: datetime,
+    elapsed: float,
+):
+    """Merge per-day results with compounding and print final report."""
+    from tradebot_sci.simulation.backtester import SimulatedTrade, BacktestResult
+
+    # Sort by date
+    day_results.sort(key=lambda r: r["day"])
+
+    # ── Compounding: chain daily returns ──────────────────────────
+    compounded_capital = initial_balance
+    all_trades: list[SimulatedTrade] = []
+    total_blocked = 0
+    daily_log_lines: list[str] = []
+
+    for dr in day_results:
+        day = dr["day"]
+        daily_return = dr["return_pct"] / 100.0  # Convert percentage to decimal
+        day_pnl = compounded_capital * daily_return  # Compounded PnL for this day
+        compounded_capital += day_pnl
+        n_trades = len(dr["trades"])
+        total_blocked += dr.get("stats", {}).get("trades_blocked", 0)
+
+        # Log errors if any
+        if dr.get("error"):
+            daily_log_lines.append(
+                f"  {day}  ❌  ERROR: {dr['error']}"
+            )
+            continue
+
+        emoji = "✅" if day_pnl >= 0 else "❌"
+        daily_log_lines.append(
+            f"  {day}  {emoji}  {n_trades} trades  "
+            f"Day PnL: ${day_pnl:+.2f}  "
+            f"Running: ${compounded_capital:.2f}"
+        )
+
+        # Reconstruct SimulatedTrade objects
+        for t in dr["trades"]:
+            all_trades.append(SimulatedTrade(
+                symbol=t["symbol"],
+                direction=t["direction"],
+                entry_price=t["entry_price"],
+                exit_price=t["exit_price"],
+                size=t["size"],
+                entry_time=datetime.fromisoformat(t["entry_time"]) if t["entry_time"] else None,
+                exit_time=datetime.fromisoformat(t["exit_time"]) if t["exit_time"] else None,
+                pnl=t["pnl"],
+                exit_reason=t["exit_reason"],
+                strategy_name=t.get("strategy_name", "unknown"),
+            ))
+
+    # Sort trades by entry time
+    all_trades.sort(key=lambda t: t.entry_time or datetime.min.replace(tzinfo=timezone.utc))
+
+    total_pnl = compounded_capital - initial_balance
+
+    # Build merged result
+    result = BacktestResult(
+        start_date=start_date,
+        end_date=end_date,
+        initial_capital=initial_balance,
+        final_capital=compounded_capital,
+        total_pnl=total_pnl,
+        total_return_pct=(total_pnl / initial_balance) * 100,
+        trades=all_trades,
+        potential_trades_blocked=total_blocked,
+    )
+
+    # Recalculate aggregate stats
+    wins = [t for t in all_trades if t.pnl > 0]
+    losses = [t for t in all_trades if t.pnl <= 0]
+    result.win_rate = (len(wins) / len(all_trades) * 100) if all_trades else 0
+    result.avg_win = (sum(t.pnl for t in wins) / len(wins)) if wins else 0
+    result.avg_loss = (sum(t.pnl for t in losses) / len(losses)) if losses else 0
+
+    # Max drawdown from daily equity
+    peak = initial_balance
+    max_dd = 0.0
+    equity = initial_balance
+    for dr in day_results:
+        daily_return = dr["return_pct"] / 100.0
+        equity += equity * daily_return
+        if equity > peak:
+            peak = equity
+        dd = ((peak - equity) / peak) * 100 if peak > 0 else 0
+        if dd > max_dd:
+            max_dd = dd
+    result.max_drawdown_pct = max_dd
+
+    # ── Print daily breakdown ─────────────────────────────────────
+    logger.info("═" * 70)
+    logger.info("[PARALLEL] Daily Breakdown (compounded):")
+    for line in daily_log_lines:
+        logger.info(f"[PARALLEL] {line}")
+    logger.info("═" * 70)
+
+    # ── Print final results using standard format ─────────────────
+    print_results(result, initial_balance, elapsed)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -399,6 +664,10 @@ def main():
         "--strategy", type=str, default=None,
         help="Strategy override (e.g. forex_conductor)"
     )
+    parser.add_argument(
+        "--no-parallel", action="store_true",
+        help="Disable multi-core parallelism (force single-threaded)"
+    )
     args = parser.parse_args()
 
     syms = (
@@ -422,7 +691,7 @@ def main():
 
         print_results(result, engine.initial_capital, elapsed)
     else:
-        # ── Candle-history mode (legacy) ──────────────────────────────
+        # ── Candle-history mode ───────────────────────────────────────
         run_candle_history_mode(
             days=args.days,
             balance=args.balance,
@@ -434,4 +703,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
