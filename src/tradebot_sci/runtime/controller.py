@@ -55,8 +55,9 @@ class RuntimeController:
             sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
 
             # For GUI display, use actual tracked balance (not sizing-capped value).
-            # Paper broker's get_liquid_capital() returns initial_balance to prevent
-            # compounding snowball in sizing, but the GUI should show real cash.
+            # Paper broker's get_liquid_capital() returns a fixed initial_balance
+            # ($10k) to prevent compounding snowball in sizing, but the GUI should
+            # show the real running balance from get_display_cash().
             if executor and hasattr(executor, 'get_display_cash'):
                 cash = executor.get_display_cash()
             else:
