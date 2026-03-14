@@ -584,9 +584,10 @@ function setupIpcHandlers() {
             // ── Build CLI args ────────────────────────────────────────────────
             let args;
             if (enginePath === minovskyPath) {
-                // Minovsky Engine mode — uses --days and --symbols
-                const days = 14; // default 14-day backtest
-                args = [enginePath, '--days', String(days)];
+                // Minovsky Engine mode — uses date range and symbols
+                args = [enginePath];
+                if (config.start_date) args.push('--start-date', config.start_date);
+                if (config.end_date) args.push('--end-date', config.end_date);
                 if (config.symbols && config.symbols.length > 0) {
                     args.push('--symbols', config.symbols.join(','));
                 }

@@ -138,19 +138,21 @@ def print_results(result, initial_balance: float, elapsed: float):
 # NON-CARTRIDGE MODE — load data from candle_history (legacy path)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_candle_history_mode(days: int, balance: float, symbols_filter=None):
+def run_candle_history_mode(
+    days: int,
+    balance: float,
+    symbols_filter=None,
+    start_date_str: str | None = None,
+    end_date_str: str | None = None,
+):
     """Run engine using recorded candle_history data (non-cartridge mode).
 
-    This mode loads observations from the local candle history cache and
-    feeds them into the Backtester. For proper simulation, use --cartridge instead.
+    Loads observations from the local candle history cache (per-symbol
+    subdirectories with daily .jsonl files) and feeds them into the
+    Backtester.
     """
     from tradebot_sci.config.loader import get_settings
-    from tradebot_sci.config.models import (
-        AISettings, AppSettings, LoggingSettings,
-        MarketSettings, Settings,
-    )
-    from tradebot_sci.simulation.backtester import Backtester
-    from tools.utils.local_provider import LocalJSONProvider
+    from tradebot_sci.simulation.backtester import Backtester, Candle
 
     settings = get_settings()
     profile = settings.get_active_profile()
@@ -160,18 +162,29 @@ def run_candle_history_mode(days: int, balance: float, symbols_filter=None):
     ) / "tradebot-sci"
     _CANDLE_DIR = _CONFIG_DIR / "data" / "candle_history"
 
-    end_date = datetime.now(tz=timezone.utc)
-    start_date = end_date - timedelta(days=days)
+    # Date range: prefer explicit start/end, fall back to --days offset
+    if end_date_str:
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59, tzinfo=timezone.utc
+        )
+    else:
+        end_date = datetime.now(tz=timezone.utc)
 
-    # Discover available symbols from candle_history
-    available_symbols = set()
+    if start_date_str:
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc
+        )
+    else:
+        start_date = end_date - timedelta(days=days)
+
+    # ── Discover available symbols from candle_history subdirectories ──
+    available_symbols: set[str] = set()
     if _CANDLE_DIR.exists():
-        for f in _CANDLE_DIR.glob("*.json"):
-            parts = f.stem.split("_")
-            if parts:
-                available_symbols.add(parts[0])
+        for d in _CANDLE_DIR.iterdir():
+            if d.is_dir() and any(d.glob("*.jsonl")):
+                available_symbols.add(d.name)
 
-    symbols = list(available_symbols)
+    symbols = sorted(available_symbols)
     if symbols_filter:
         symbols = [s for s in symbols_filter if s in available_symbols]
 
@@ -179,12 +192,143 @@ def run_candle_history_mode(days: int, balance: float, symbols_filter=None):
         logger.error("No symbols found in candle_history. Use --cartridge instead.")
         return
 
-    # Build data_paths dict for the backtester
-    data_paths = {}
+    # ── Load candles from .jsonl observation snapshots ─────────────────
+    # Each .jsonl line is a full observation: {"ts": ..., "sym": ..., "ltf": [...], "htf": [...]}
+    # We extract the LAST ltf candle from each observation to build the
+    # candle timeline for the backtester.
+    import json as _json
+
+    all_ltf: dict[str, list[Candle]] = {}
+    all_htf: dict[str, list[Candle]] = {}
+
     for sym in symbols:
-        ltf_file = _CANDLE_DIR / f"{sym}_5m.json"
-        if ltf_file.exists():
-            data_paths[sym] = str(ltf_file)
+        sym_dir = _CANDLE_DIR / sym
+        ltf_candles: list[Candle] = []
+        htf_candles: list[Candle] = []
+        seen_ltf_ts: set[str] = set()
+        seen_htf_ts: set[str] = set()
+
+        # Sort files by date to process in order
+        files = sorted(sym_dir.glob("*.jsonl"))
+        for f in files:
+            # Filter by date: filename like EURUSD_2026-03-01.jsonl
+            match = f.stem.split("_", 1)
+            if len(match) >= 2:
+                file_date = match[1]
+                if file_date < start_date.strftime("%Y-%m-%d"):
+                    continue
+                if file_date > end_date.strftime("%Y-%m-%d"):
+                    continue
+
+            try:
+                for line in f.read_text().splitlines():
+                    if not line.strip():
+                        continue
+                    obs = _json.loads(line)
+
+                    # Extract LTF candles (deduplicate by timestamp)
+                    for c in obs.get("ltf", []):
+                        ts_str = c["t"]
+                        if ts_str in seen_ltf_ts:
+                            continue
+                        seen_ltf_ts.add(ts_str)
+                        ltf_candles.append(Candle(
+                            timestamp=datetime.fromisoformat(
+                                ts_str.replace("Z", "+00:00")
+                            ),
+                            open=float(c["o"]),
+                            high=float(c["h"]),
+                            low=float(c["l"]),
+                            close=float(c["c"]),
+                            volume=float(c.get("v", 0)),
+                        ))
+
+                    # Extract HTF candles (deduplicate by timestamp)
+                    for c in obs.get("htf", []):
+                        ts_str = c["t"]
+                        if ts_str in seen_htf_ts:
+                            continue
+                        seen_htf_ts.add(ts_str)
+                        htf_candles.append(Candle(
+                            timestamp=datetime.fromisoformat(
+                                ts_str.replace("Z", "+00:00")
+                            ),
+                            open=float(c["o"]),
+                            high=float(c["h"]),
+                            low=float(c["l"]),
+                            close=float(c["c"]),
+                            volume=float(c.get("v", 0)),
+                        ))
+            except Exception as e:
+                logger.warning(f"[ENGINE] Error reading {f}: {e}")
+
+        if ltf_candles:
+            # Sort by timestamp
+            ltf_candles.sort(key=lambda c: c.timestamp)
+            htf_candles.sort(key=lambda c: c.timestamp)
+            all_ltf[sym] = ltf_candles
+            all_htf[sym] = htf_candles
+            logger.info(
+                f"[ENGINE] {sym}: {len(ltf_candles)} LTF candles, "
+                f"{len(htf_candles)} HTF candles "
+                f"({ltf_candles[0].timestamp.date()} → {ltf_candles[-1].timestamp.date()})"
+            )
+
+    if not all_ltf:
+        logger.error("No candle data loaded from candle_history.")
+        return
+
+    # ── Write temporary JSON files for the backtester ─────────────────
+    import tempfile
+    data_paths: dict[str, str] = {}
+    htf_data_paths: dict[str, str] = {}
+    temp_files: list[str] = []
+
+    for sym, candles in all_ltf.items():
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=f"_{sym}_ltf.json", delete=False
+        )
+        _json.dump(
+            [
+                {
+                    "timestamp": c.timestamp.isoformat(),
+                    "open": c.open,
+                    "high": c.high,
+                    "low": c.low,
+                    "close": c.close,
+                    "volume": c.volume,
+                }
+                for c in candles
+            ],
+            tmp,
+        )
+        tmp.close()
+        data_paths[sym] = tmp.name
+        temp_files.append(tmp.name)
+
+    for sym, candles in all_htf.items():
+        if not candles:
+            continue
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=f"_{sym}_htf.json", delete=False
+        )
+        _json.dump(
+            [
+                {
+                    "timestamp": c.timestamp.isoformat(),
+                    "open": c.open,
+                    "high": c.high,
+                    "low": c.low,
+                    "close": c.close,
+                    "volume": c.volume,
+                }
+                for c in candles
+            ],
+            tmp,
+        )
+        tmp.close()
+        htf_data_paths[sym] = tmp.name
+        temp_files.append(tmp.name)
 
     # Create backtester with local data
     backtester = Backtester(ib=None, settings=settings, ai_client=None)
@@ -193,18 +337,28 @@ def run_candle_history_mode(days: int, balance: float, symbols_filter=None):
 
     logger.info(
         f"[ENGINE] Candle-history mode: {len(symbols)} symbols, "
-        f"{days} days, ${balance:.2f} capital"
+        f"{start_date.date()} → {end_date.date()}, ${balance:.2f} capital"
     )
 
     t0 = time.perf_counter()
-    result = backtester.run_backtest(
-        initial_capital=balance,
-        start_date=start_date,
-        end_date=end_date,
-        symbols=symbols,
-    )
-    elapsed = time.perf_counter() - t0
+    try:
+        result = backtester.run_backtest(
+            initial_capital=balance,
+            start_date=start_date,
+            end_date=end_date,
+            symbols=list(all_ltf.keys()),
+            data_paths=data_paths,
+            htf_data_paths=htf_data_paths,
+        )
+    finally:
+        # Clean up temp files
+        for tf in temp_files:
+            try:
+                os.unlink(tf)
+            except OSError:
+                pass
 
+    elapsed = time.perf_counter() - t0
     print_results(result, balance, elapsed)
 
 
@@ -224,6 +378,14 @@ def main():
     parser.add_argument(
         "--days", type=int, default=14,
         help="Days of history (non-cartridge mode only, default: 14)"
+    )
+    parser.add_argument(
+        "--start-date", type=str, default=None,
+        help="Start date YYYY-MM-DD (non-cartridge mode, overrides --days)"
+    )
+    parser.add_argument(
+        "--end-date", type=str, default=None,
+        help="End date YYYY-MM-DD (non-cartridge mode, defaults to today)"
     )
     parser.add_argument(
         "--balance", type=float, default=5500.0,
@@ -265,8 +427,11 @@ def main():
             days=args.days,
             balance=args.balance,
             symbols_filter=syms,
+            start_date_str=args.start_date,
+            end_date_str=args.end_date,
         )
 
 
 if __name__ == "__main__":
     main()
+
