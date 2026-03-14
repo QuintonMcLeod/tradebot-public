@@ -13,14 +13,16 @@
 On the computer that will run the engine, launch the bot the same way you always do — just make sure the WebSocket port isn't blocked by your firewall:
 
 ```bash
-./scripts/tradebot.sh -p forex_continuous --gui
+./scripts/tradebot.sh --gui
 ```
 
 Or headless (no GUI on the server side):
 
 ```bash
-./scripts/tradebot.sh --daemon -p forex_continuous
+./scripts/tradebot.sh --daemon
 ```
+
+The `-p` flag lets you pick which trading profile to use (e.g. `-p forex_continuous`, `-p crypto_247`). **You don't need it** — the bot reads the active profile from `config.json`, and you can switch profiles anytime through the GUI's **Profiles** tab. The `-p` flag just overrides it from the command line if you want to.
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's it for the server. The bot automatically starts a WebSocket server on port 8080 and broadcasts everything — candles, trades, state, holdings — to anyone who connects. It's already doing this. You don't need to configure anything extra."</td></tr></table>
 
@@ -76,7 +78,7 @@ ws://192.168.1.100:8080/ws
 
 | Action | Command / Location |
 |--------|-------------------|
-| Start bot (server) | `./scripts/tradebot.sh --daemon -p forex_continuous` |
+| Start bot (server) | `./scripts/tradebot.sh --daemon` |
 | Find server IP | `hostname -I \| awk '{print $1}'` |
 | Open firewall | `sudo ufw allow 8080/tcp` |
 | Set GUI connection | Settings → System → **WebConnect URL** |
