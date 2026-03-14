@@ -750,6 +750,20 @@ class Backtester:
         potential_trades_blocked = 0
         potential_trade_block_reasons: Dict[str, int] = defaultdict(int)
 
+        # ── Pre-build StrategyEngine cache per symbol ──────────────────
+        # Avoids re-creating the engine (module imports, strategy init,
+        # context mask application) on every single bar.
+        _engine_cache: Dict[str, Any] = {}
+        for _sym in symbols:
+            if _sym in all_candles:
+                _engine_cache[_sym] = StrategyEngine(
+                    ai_client=self.ai_client,
+                    market_provider=self.market_provider,
+                    profile=profile,
+                    symbol=_sym,
+                    trade_results=trade_results_store
+                )
+
         logger.info(f"[BACKTEST] Starting simulation loop: {start_date} to {simulation_end_date}")
 
         while current_time <= simulation_end_date:
@@ -1427,14 +1441,17 @@ class Backtester:
                         #     continue
 
                     try:
-                        # Get strategy decision
-                        engine = StrategyEngine(
-                            ai_client=self.ai_client,
-                            market_provider=self.market_provider,
-                            profile=profile,
-                            symbol=symbol,
-                            trade_results=trade_results_store
-                        )
+                        # Get strategy decision (cached per symbol)
+                        engine = _engine_cache.get(symbol)
+                        if not engine:
+                            engine = StrategyEngine(
+                                ai_client=self.ai_client,
+                                market_provider=self.market_provider,
+                                profile=profile,
+                                symbol=symbol,
+                                trade_results=trade_results_store
+                            )
+                            _engine_cache[symbol] = engine
 
                         snapshot = self.market_provider.get_latest_snapshot(symbol, timeframe)
 
@@ -1467,7 +1484,7 @@ class Backtester:
                                     'meta_source': sp_meta,
                                 }
                                 # Engine call for exit check on this sub-position
-                                sp_engine = StrategyEngine(
+                                sp_engine = _engine_cache.get(symbol) or StrategyEngine(
                                     ai_client=self.ai_client,
                                     market_provider=self.market_provider,
                                     profile=profile,
