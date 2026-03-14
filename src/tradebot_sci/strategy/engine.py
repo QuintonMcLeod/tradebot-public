@@ -72,7 +72,7 @@ class StrategyEngine:
         if risk_pct and hasattr(self._strategy, 'profile_risk_pct'):
             self._strategy.profile_risk_pct = float(risk_pct)
         
-        logger.info(f" [PHOENIX] === ENGINE LOADED === Symbol: {symbol} | Variant: {self._strategy.name.upper()} ")
+        logger.info(f" [ENGINE] === ENGINE LOADED === Symbol: {symbol} | Variant: {self._strategy.name.upper()} ")
 
     # ── SAR (Stop-and-Reverse) — Engine-Level ────────────────────────
     # Aggregator is excluded (it has no own-position semantic).
@@ -539,7 +539,7 @@ class StrategyEngine:
                     exit_decision.score = score
                     exit_decision.grade = grade
 
-                    logger.info(f"[PHOENIX] {self.symbol} Strategy EXIT triggered: {exit_decision.summary()}")
+                    logger.info(f"[ENGINE] {self.symbol} Strategy EXIT triggered: {exit_decision.summary()}")
                     return exit_decision
             
             # [SAFETY GUARD] Augment with Safety Exits (ATR Armor, Trailing) if Strategy is silent
@@ -597,7 +597,7 @@ class StrategyEngine:
                 pyramid_decision.score = score
                 pyramid_decision.grade = grade
 
-                logger.info(f"[PHOENIX] {self.symbol} PYRAMID signal: {pyramid_decision.summary()}")
+                logger.info(f"[ENGINE] {self.symbol} PYRAMID signal: {pyramid_decision.summary()}")
                 return pyramid_decision
 
             # [POSITION LOCK] If we have an open position and NO exit or pyramid was triggered,
@@ -1002,7 +1002,7 @@ class StrategyEngine:
                         blocked.grade = grade
                         return blocked
 
-            logger.info(f"[PHOENIX] {self.symbol} Strategy {decision.action.upper()} triggered: {decision.summary()}")
+            logger.info(f"[ENGINE] {self.symbol} Strategy {decision.action.upper()} triggered: {decision.summary()}")
             # 4. Final Safety Patch (Margin/Venue Only)
             return validate_decision(decision, execution_capabilities=caps)
 

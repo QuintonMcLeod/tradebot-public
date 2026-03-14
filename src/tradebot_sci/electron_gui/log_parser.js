@@ -153,14 +153,14 @@
         }
 
         // 1. Neural Decision Matrix
-        if (line.includes('[STRUCTURE]') || line.includes('Decision: Decision:') || line.includes('[DECISION]') || line.includes('[SAFETY]') || line.includes('[PHOENIX]')) {
+        if (line.includes('[STRUCTURE]') || line.includes('Decision: Decision:') || line.includes('[DECISION]') || line.includes('[SAFETY]') || line.includes('[ENGINE]')) {
             try {
                 let content = "";
                 if (line.includes('[STRUCTURE]')) content = line.split('[STRUCTURE]')[1].trim();
                 else if (line.includes('Decision: Decision:')) content = line.split('Decision: Decision:')[1].trim();
                 else if (line.includes('[DECISION]')) content = line.split('[DECISION]')[1].trim();
                 else if (line.includes('[SAFETY]')) content = line.split('[SAFETY]')[1].trim();
-                else if (line.includes('[PHOENIX]')) content = line.split('[PHOENIX]')[1].trim();
+                else if (line.includes('[ENGINE]')) content = line.split('[ENGINE]')[1].trim();
 
                 const parts = content.split('|');
                 let head = parts[0].trim();

@@ -208,7 +208,7 @@
         let c = line
             .replace(/\[GUILLOTINE/g, '<span style="color:#f97316">[GUILLOTINE')
             .replace(/\[SAR/g, '<span style="color:#a78bfa">[SAR')
-            .replace(/\[PHOENIX/g, '<span style="color:#34d399">[PHOENIX')
+            .replace(/\[ENGINE/g, '<span style="color:#34d399">[ENGINE')
             .replace(/\[ERROR\]/g, '<span style="color:#f87171">[ERROR]</span>')
             .replace(/\[REPLAY\]/g, '<span style="color:#60a5fa">[REPLAY]</span>');
         const diff = (c.match(/<span/g) || []).length - (c.match(/<\/span>/g) || []).length;
