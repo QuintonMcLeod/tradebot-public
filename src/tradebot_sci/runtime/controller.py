@@ -54,9 +54,13 @@ class RuntimeController:
         try:
             sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
 
-            # In paper mode, read from the executor that was passed (which IS the paper executor)
-            # The loop.py already passes the active executor (paper when in paper mode)
-            cash = executor.get_liquid_capital() if executor else 0.0
+            # For GUI display, use actual tracked balance (not sizing-capped value).
+            # Paper broker's get_liquid_capital() returns initial_balance to prevent
+            # compounding snowball in sizing, but the GUI should show real cash.
+            if executor and hasattr(executor, 'get_display_cash'):
+                cash = executor.get_display_cash()
+            else:
+                cash = executor.get_liquid_capital() if executor else 0.0
             total_equity = executor.get_total_balance_value() if executor else 0.0
             
             # Get active holdings count from the active executor

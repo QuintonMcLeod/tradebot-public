@@ -135,6 +135,15 @@ class PaperBroker:
         """
         return self._initial_balance
 
+    def get_display_cash(self) -> float:
+        """Return actual tracked cash balance for GUI display purposes.
+
+        Unlike get_liquid_capital() which returns a fixed sizing base,
+        this returns the real running balance so the GUI shows accurate
+        liquid cash to the user.
+        """
+        return self.balance
+
     def get_total_balance_value(self) -> float:
         """Sum of cash + unrealized pnl of all paper positions."""
         total = self.balance

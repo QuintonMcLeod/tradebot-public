@@ -226,6 +226,22 @@ class RoutedExchangeBroker(IExchangeBroker):
         logger.debug("[ROUTED] Total Cash Breakdown completed: %.2f", total)
         return total
 
+    def get_display_cash(self) -> float:
+        """Return actual tracked cash balance for GUI display.
+
+        Aggregates get_display_cash() from each sub-broker (falls back to
+        get_liquid_capital for brokers without it). This ensures the GUI
+        shows the real running balance, not the sizing-capped initial value.
+        """
+        total = 0.0
+        unique_brokers = set(b for b in self.brokers.values() if not isinstance(b, NoOpExchangeBroker))
+        for b in unique_brokers:
+            if hasattr(b, "get_display_cash"):
+                total += b.get_display_cash()
+            elif hasattr(b, "get_liquid_capital"):
+                total += b.get_liquid_capital()
+        return total
+
     def get_total_balance_value(self) -> float:
         """Return aggregated Net Worth (Cash + Assets) across all brokers."""
         total = 0.0
