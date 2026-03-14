@@ -55,6 +55,11 @@ class PaperBroker:
         else:
             self.balance = default_balance
             logger.info(f"Initialized Paper Broker with ${self.balance:.2f} balance (no saved state).")
+
+        # Anchor for position sizing — prevents runaway compounding.
+        # self.balance tracks total P&L (display), but sizing always uses
+        # the ORIGINAL starting capital so positions don't snowball.
+        self._initial_balance = default_balance
         
         # Immediate reporting on startup for UI visibility
         self.summarize_pnl()
@@ -121,7 +126,14 @@ class PaperBroker:
         return datetime.now(timezone.utc)
 
     def get_liquid_capital(self, symbol: str | None = None) -> float:
-        return self.balance
+        """Return sizing capital (initial balance) to prevent compounding snowball.
+
+        External callers (strategy engine, safety guards) use this for position
+        sizing.  We return the *initial* balance so that a $10K account doesn't
+        suddenly size like a $113M account after a few lucky wins.
+        The full running balance is still available via get_total_balance_value().
+        """
+        return self._initial_balance
 
     def get_total_balance_value(self) -> float:
         """Sum of cash + unrealized pnl of all paper positions."""
@@ -172,9 +184,12 @@ class PaperBroker:
             side = "buy" if action == "enter_long" else "sell"
             
             # Dynamic Paper Sizing
-            # Calculate quantity based on balance and risk_per_trade_pct
+            # Use the INITIAL balance for sizing — NOT self.balance (running total).
+            # This prevents runaway compounding where a few lucky wins turn
+            # $10K into $113M because each trade sizes off the inflated balance.
+            sizing_capital = self._initial_balance
             risk_pct = getattr(decision, "risk_per_trade_pct", None) or getattr(self.profile, "risk_per_trade_pct", 0.01)
-            risk_usd = self.balance * risk_pct
+            risk_usd = sizing_capital * risk_pct
             
             # Use SL to determine lot size if available, else use risk_usd directly as notional
             if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
@@ -192,7 +207,7 @@ class PaperBroker:
                     f"[PAPER] [LEVERAGE] {symbol}: profile leverage {profile_leverage}x "
                     f"capped to paper max {self.PAPER_MAX_LEVERAGE}x"
                 )
-            max_notional = self.balance * target_leverage
+            max_notional = sizing_capital * target_leverage
             max_qty = max_notional / price if price > 0 else 0
             if qty > max_qty and max_qty > 0:
                 logger.warning(
@@ -202,9 +217,9 @@ class PaperBroker:
                 )
                 qty = max_qty
 
-            # Affordability guard: reject if notional exceeds leveraged balance
+            # Affordability guard: reject if notional exceeds leveraged sizing capital
             notional = qty * price
-            if notional > self.balance * max(target_leverage, 1.0) * 1.01:
+            if notional > sizing_capital * max(target_leverage, 1.0) * 1.01:
                 logger.warning(
                     f"[PAPER] [BLOCKED] {symbol}: notional ${notional:,.0f} exceeds balance ${self.balance:.2f}",
                     extra={"broker": "paper", "symbol": symbol, "event": "blocked", "notional": notional, "balance": self.balance}
@@ -457,9 +472,9 @@ class PaperBroker:
                 pos = self.positions[symbol]
                 side = "buy" if pos["side"] == "long" else "sell"
                 
-                # Dynamic Paper Sizing
+                # Dynamic Paper Sizing (use initial balance to prevent compounding snowball)
                 risk_pct = getattr(decision, "risk_per_trade_pct", None) or getattr(self.profile, "conductor_pyramid_subsequent_pct", 0.04)
-                risk_usd = self.balance * risk_pct
+                risk_usd = self._initial_balance * risk_pct
                 
                 if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
                     risk_per_unit = abs(price - decision.stop_loss)
