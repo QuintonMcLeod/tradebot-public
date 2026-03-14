@@ -261,6 +261,34 @@ def _load_candles_for_range(
         if ltf_candles:
             ltf_candles.sort(key=lambda c: c.timestamp)
             htf_candles.sort(key=lambda c: c.timestamp)
+
+            # ── Price continuity guard ────────────────────────────
+            # Drop candles where close jumps >30% from previous close.
+            # This catches corrupted data (e.g., wrong-symbol prices
+            # mixed into a file: EURUSD data in EURJPY's .jsonl).
+            MAX_JUMP_PCT = 0.30
+            _log = logging.getLogger("engine_replay")
+
+            def _filter_corrupt(candles, label):
+                if not candles:
+                    return candles
+                clean = [candles[0]]
+                dropped = 0
+                for i in range(1, len(candles)):
+                    prev_close = clean[-1].close
+                    curr_close = candles[i].close
+                    if prev_close > 0 and abs(curr_close - prev_close) / prev_close > MAX_JUMP_PCT:
+                        dropped += 1
+                        continue
+                    clean.append(candles[i])
+                if dropped:
+                    _log.warning(
+                        f"[DATA-GUARD] {sym} {label}: dropped {dropped} candles with >{MAX_JUMP_PCT*100:.0f}% price jumps (corrupt data)"
+                    )
+                return clean
+
+            ltf_candles = _filter_corrupt(ltf_candles, "LTF")
+            htf_candles = _filter_corrupt(htf_candles, "HTF")
         return sym, ltf_candles, htf_candles
 
     # Thread pool: load all symbols concurrently

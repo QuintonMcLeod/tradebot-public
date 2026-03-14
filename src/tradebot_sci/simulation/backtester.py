@@ -2192,8 +2192,17 @@ class Backtester:
                                 comp_cap = getattr(profile, 'compounding_cap_override', 10000.0)
 
                             compounding_capital = min(capital, comp_cap)
-                            max_risk = compounding_capital * risk_pct
-                            logger.info(f"[BACKTEST] Entry: {symbol} using {risk_pct*100:.2f}% risk on ${compounding_capital:.2f} base (${max_risk:.2f}) [Cap: ${comp_cap}]")
+
+                            # [PORTFOLIO RISK DIVISION] Divide risk capital by number of
+                            # symbols to prevent aggregate over-exposure. Without this,
+                            # each symbol independently sizes against the full capital
+                            # with 30× leverage, giving N×30× effective portfolio leverage
+                            # (e.g., 12 symbols = 360× → absurd PnL).
+                            num_symbols = max(len(symbols), 1)
+                            per_symbol_capital = compounding_capital / num_symbols
+
+                            max_risk = per_symbol_capital * risk_pct
+                            logger.info(f"[BACKTEST] Entry: {symbol} using {risk_pct*100:.2f}% risk on ${per_symbol_capital:.2f} base (${max_risk:.2f}) [Cap: ${comp_cap}, Syms: {num_symbols}]")
 
                             entry_price = snapshot.candles[-1].close
 
@@ -2251,7 +2260,7 @@ class Backtester:
                             # Allow env override for testing only
                             if os.getenv('RR_LEV_CAP'):
                                 lev_cap = float(os.environ['RR_LEV_CAP'])
-                            max_position_value = compounding_capital * lev_cap
+                            max_position_value = per_symbol_capital * lev_cap
                             npu = _notional_per_unit(symbol, entry_price)
                             max_shares = max_position_value / npu
                             if size > max_shares:
