@@ -94,13 +94,20 @@ def fetch_snapshot(
             ltf_timeframe=ltf_timeframe,
         )
 
-        # Record snapshot for replay backtesting
-        try:
-            from tradebot_sci.runtime.candle_recorder import get_recorder
-            get_recorder().record(cache[key])
-        except Exception as e:
-            import logging as _log
-            _log.getLogger(__name__).debug(f"[RECORDER] Recording failed: {e}")
+        # Record snapshot for replay backtesting — but ONLY from live data.
+        # Synthetic/Replay providers generate fake prices (e.g., EURJPY at 1.55
+        # instead of 183) that corrupt the candle_history files.
+        _is_live_data = not (
+            hasattr(provider, 'replay_date')          # ReplayMarketProvider
+            or type(provider).__name__ == 'SyntheticMarketProvider'
+        )
+        if _is_live_data:
+            try:
+                from tradebot_sci.runtime.candle_recorder import get_recorder
+                get_recorder().record(cache[key])
+            except Exception as e:
+                import logging as _log
+                _log.getLogger(__name__).debug(f"[RECORDER] Recording failed: {e}")
 
     # DEBUG
     logger.info(f"[CYCLE-DEBUG] Returning snapshot for {symbol} with trend_htf={cache[key].trend_htf}")
