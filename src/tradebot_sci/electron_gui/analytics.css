@@ -864,9 +864,17 @@
 .bt-results-wrap {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 18px;
+    margin-top: 12px;
+    padding-top: 24px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .bt-results-wrap.hidden {
     display: none !important;
+}
+
+/* ── Log stream panel (injected by JS) ── */
+#bt-log-stream {
+    margin-bottom: 4px;
 }
