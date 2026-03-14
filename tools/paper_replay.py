@@ -39,7 +39,8 @@ from tradebot_sci.broker.paper_broker import PaperBroker
 from tradebot_sci.broker.trade_result_store import TradeResultStore
 from tradebot_sci.strategy.engine import StrategyEngine
 from tradebot_sci.runtime.cycle import process_candidate_cycle
-from tradebot_sci.config.loader import get_settings
+from tradebot_sci.config.loader import get_settings, load_config_json
+from tradebot_sci.runtime.sabbath import SabbathContext
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -233,6 +234,16 @@ class ReplayPaperBroker(PaperBroker):
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         """Return fixed initial balance for sizing — prevents compounding snowball."""
         return self._initial_balance
+
+    def _save_state(self) -> None:
+        """OVERRIDE: Prevent ReplayPaperBroker from writing to the live paper_state.json.
+        This isolates the replay simulator from the live daemon, preventing cross-talk."""
+        pass
+
+    def _load_state(self) -> None:
+        """OVERRIDE: Prevent ReplayPaperBroker from loading the live paper_state.json.
+        Start fresh on every replay run."""
+        pass
 
     def get_total_equity(self) -> float:
         """Return fixed initial balance for sizing — prevents SafetyGuard using inflated equity."""
@@ -638,6 +649,7 @@ def _worker_replay_symbol(
     ltf_raw: list,
     htf_raw: list,
     initial_balance: float,
+    speed: float,
     src_path: str,
 ) -> dict:
     """Runs the full replay for ONE symbol in an isolated subprocess.
@@ -736,6 +748,11 @@ def _worker_replay_symbol(
     ltf_timestamps = [c.timestamp.isoformat()[:19] for c in ltf_timeline]
     htf_timestamps = [c.timestamp.isoformat()[:19] for c in htf_timeline]
 
+    # Speed governor: only sleep when the candle bar CHANGES, not every raw tick.
+    # With ~13,000 raw obs/day but only ~288 unique 5m bars, this reduces sleeps
+    # from 13,000 to ~288, making speed=2 take ~2.4 min/day instead of ~110 min.
+    _last_bar_ts = None
+
     for obs in obs_list:
         try:
             tick_ts = obs.get("ts", "")[:19]  # "YYYY-MM-DDTHH:MM:SS"
@@ -779,6 +796,13 @@ def _worker_replay_symbol(
             )
         except Exception:
             pass
+
+        # Speed governor: sleep only when we cross into a new candle bar
+        if speed > 0 and ltf:
+            current_bar_ts = ltf[-1].timestamp
+            if current_bar_ts != _last_bar_ts:
+                _last_bar_ts = current_bar_ts
+                time.sleep(1.0 / speed)
 
     elapsed = time.perf_counter() - start_real
 
@@ -900,6 +924,7 @@ def run_replay(days: int, speed: float, initial_balance: float,
                 ltf_raw_by_sym[sym],
                 htf_raw_by_sym[sym],
                 initial_balance,
+                speed,
                 src_path,
             ): sym
             for sym in all_obs
@@ -1044,14 +1069,59 @@ def main():
             sys.exit(1)
 
     syms = [s.strip().upper() for s in args.symbols.split(",")] if args.symbols else None
-    result = run_replay(days=days, speed=args.speed,
-                        initial_balance=args.balance, symbols_filter=syms,
-                        cutoff_dt=cutoff_dt, max_workers=args.max_workers)
+    
+    # Run the replay in an infinite loop so it continues as new days pass
+    while True:
+        # ── 1. Reload Configuration on each pass to check for break conditions ──
+        try:
+            raw_cfg = load_config_json()
+            settings = get_settings() # ensure we have a model mapping for sabbath context
+            
+            # Identify core modes
+            execute_trades = raw_cfg.get("global", {}).get("execute_trades", False)
+            paper_replay_mode = raw_cfg.get("global", {}).get("replay_mode", False)
+            
+            # For back-compat with older config setups that pushed replay modes directly into profiles
+            active_profile_str = raw_cfg.get("active_profile", "default")
+            prof_dict = raw_cfg.get("profiles", {}).get(active_profile_str, {})
+            if "replay_mode" in prof_dict:
+                paper_replay_mode = prof_dict["replay_mode"]
 
-    # ── Emit JSON summary for UI consumption ─────────────────────────────
-    if args.json_output and result:
-        import json as _json
-        print(_json.dumps(result), flush=True)
+            sabbath_replay_mode = prof_dict.get("sabbath_replay_mode", True)
+            
+            # Evaluate current Sabbath status
+            profile_model = settings.profiles.get(active_profile_str) or list(settings.profiles.values())[0]
+            sabbath_context = SabbathContext(profile_model)
+            sabbath_active, _, _ = sabbath_context.evaluate(datetime.now(timezone.utc))
+            
+            # ── Evaluate Break Conditions ──
+            if execute_trades and not sabbath_active:
+                logger.info("[REPLAY] BREAK: Live Trading is enabled and Sabbath is inactive. Exiting Continuous Replay.")
+                break
+                
+            if not paper_replay_mode and not sabbath_active:
+                logger.info("[REPLAY] BREAK: Paper Replay Mode is disabled and Sabbath is inactive. Exiting Continuous Replay.")
+                break
+                
+            if not sabbath_active and sabbath_replay_mode and not paper_replay_mode:
+                logger.info("[REPLAY] BREAK: Sabbath has ended. Returning to standard Live/Paper ops. Exiting Continuous Replay.")
+                break
+
+        except Exception as e:
+            logger.error(f"[REPLAY] Failed to reload configuration for break check: {e}")
+
+        logger.info(f"\n[REPLAY] Starting continuous replay cycle...")
+        result = run_replay(days=days, speed=args.speed,
+                            initial_balance=args.balance, symbols_filter=syms,
+                            cutoff_dt=cutoff_dt, max_workers=args.max_workers)
+
+        # ── Emit JSON summary for UI consumption ─────────────────────────────
+        if args.json_output and result:
+            import json as _json
+            print(_json.dumps(result), flush=True)
+            
+        logger.info(f"[REPLAY] Cycle complete. Waiting 10 seconds before next pass...")
+        time.sleep(10)
 
 
 if __name__ == "__main__":

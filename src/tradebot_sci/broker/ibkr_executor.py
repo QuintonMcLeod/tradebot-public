@@ -640,6 +640,12 @@ class IbkrExecutor:
         """
         if decision.action == "scale_in":
             max_adds = int(getattr(self.runtime, "max_scale_ins_per_leg", 2))
+            
+            # Conductor Override
+            conductor_pyramids = getattr(self.profile_settings, "conductor_pyramid_max_count", 0)
+            if conductor_pyramids and decision.strategy_name == "Forex Conductor":
+                max_adds = max(max_adds, conductor_pyramids)
+                
             if max_adds <= 0:
                 logger.info("[GUARD] Suppressing scale_in: disabled by max_scale_ins_per_leg=%s", max_adds)
                 return self._respond(
@@ -930,8 +936,11 @@ class IbkrExecutor:
             # Per-Slice Risk Redesign:
             # max_risk_dollars is the TOTAL symbol cap (e.g. 6% * 5 = 30%)
             max_pyramid = int(getattr(self.profile_settings, "max_pyramid_entries", 1) or 1)
+            conductor_pyramids = getattr(self.profile_settings, "conductor_pyramid_max_count", 0)
+            if conductor_pyramids and decision.strategy_name == "Forex Conductor":
+                max_pyramid = max(max_pyramid, conductor_pyramids)
             base_slice_risk = fixed_risk if fixed_risk > 0 else net_liq * risk_pct
-            max_risk_dollars = base_slice_risk * max_pyramid
+            max_risk_dollars = base_slice_risk * (1 + max_pyramid)
         elif fixed_risk > 0:
             max_risk_dollars = fixed_risk
             
@@ -2774,6 +2783,13 @@ class IbkrExecutor:
                     # Get metadata (htf_neutral_bars, pyramid_count, etc.)
                     metadata = self._position_metadata.get(symbol_key, {})
 
+                    run_max = int(getattr(self.runtime, "max_scale_ins_per_leg", 2))
+                    cond_max = int(getattr(self.profile_settings, "conductor_pyramid_max_count", 0) or 0)
+                    if cond_max and metadata.get("strategy") == "Forex Conductor" or pos.get("strategy") == "Forex Conductor":
+                        run_max = max(run_max, cond_max)
+                    # We can't access decision.strategy_name here easily, so we fallback to assuming cond_max if it's there. 
+                    if cond_max > run_max: run_max = cond_max
+
                     return {
                         "side": side,
                         "direction": side,  # Add for compatibility with strategy engine
@@ -2787,7 +2803,7 @@ class IbkrExecutor:
                         "open_bracket_risk": float(state.get("open_bracket_risk", 0.0) or 0.0),
                         "synthetic_stop_armed": state.get("synthetic_stop_armed", False),
                         "scale_ins_taken": int(self._scale_in_counts.get(symbol_key, 0)),
-                        "max_scale_ins_per_leg": int(getattr(self.runtime, "max_scale_ins_per_leg", 2)),
+                        "max_scale_ins_per_leg": run_max,
                         "hold_age_seconds": float(age),
                         "hold_remaining_seconds": float(hold_remaining) if hold_remaining is not None else None,
                         "htf_neutral_bars": int(metadata.get("htf_neutral_bars", 0)),

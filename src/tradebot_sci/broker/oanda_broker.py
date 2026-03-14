@@ -832,7 +832,7 @@ class OandaExchangeBroker(IExchangeBroker):
                 )
 
         # Re-entry cooldown — prevent churn after SL/TP exits
-        if decision.symbol in self._exit_cooldowns:
+        if action not in {"scale_in", "add_to_position"} and decision.symbol in self._exit_cooldowns:
             elapsed = time.time() - self._exit_cooldowns[decision.symbol]
             remaining = self.REENTRY_COOLDOWN - elapsed
             if remaining > 0:
@@ -876,15 +876,18 @@ class OandaExchangeBroker(IExchangeBroker):
             MIN_SL_PIPS = 5
             is_jpy = "JPY" in decision.symbol.upper()
             min_sl_dist = MIN_SL_PIPS * (0.01 if is_jpy else 0.0001)
-            if stop_dist < min_sl_dist:
-                logger.warning(
-                    f"[OANDA] [BLOCKED] SL too tight for {decision.symbol}: "
-                    f"{stop_dist:.5f} < min {min_sl_dist:.5f} ({MIN_SL_PIPS} pips)"
-                )
-                return (
-                    ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "SL too tight"),
-                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"SL distance {stop_dist:.5f} < min {min_sl_dist:.5f}")
-                )
+            
+            # Exempt Pyramiding from strict entry minimums
+            if action not in {"scale_in", "add_to_position"}:
+                if stop_dist < min_sl_dist:
+                    logger.warning(
+                        f"[OANDA] [BLOCKED] SL too tight for {decision.symbol}: "
+                        f"{stop_dist:.5f} < min {min_sl_dist:.5f} ({MIN_SL_PIPS} pips)"
+                    )
+                    return (
+                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "SL too tight"),
+                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"SL distance {stop_dist:.5f} < min {min_sl_dist:.5f}")
+                    )
 
             # Widen effective stop distance by estimated spread cost.
             # This prevents the bot from sizing too aggressively by accounting for the
@@ -897,20 +900,21 @@ class OandaExchangeBroker(IExchangeBroker):
             # If round-trip spread > X% of stop distance, the trade starts
             # so far underwater it's almost guaranteed to lose.
             # Example: AUDJPY spread $24 on $58 stop = 42% → BLOCKED.
-            max_spread_pct = getattr(self.profile, "spread_gate_max_pct", 0.30)
-            if stop_dist > 0:
-                spread_pct = spread_cost / stop_dist
-                if spread_pct > max_spread_pct:
-                    logger.warning(
-                        f"[OANDA] [BLOCKED] Spread too wide for {decision.symbol}: "
-                        f"spread={live_spread:.1f} pips ({spread_cost:.5f}) = "
-                        f"{spread_pct:.0%} of SL distance {stop_dist:.5f} "
-                        f"(max {max_spread_pct:.0%})"
-                    )
-                    return (
-                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, f"spread {spread_pct:.0%} > {max_spread_pct:.0%} of SL"),
-                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"spread {spread_pct:.0%} of SL ({live_spread:.1f} pips)")
-                    )
+            if action not in {"scale_in", "add_to_position"}:
+                max_spread_pct = getattr(self.profile, "spread_gate_max_pct", 0.30)
+                if stop_dist > 0:
+                    spread_pct = spread_cost / stop_dist
+                    if spread_pct > max_spread_pct:
+                        logger.warning(
+                            f"[OANDA] [BLOCKED] Spread too wide for {decision.symbol}: "
+                            f"spread={live_spread:.1f} pips ({spread_cost:.5f}) = "
+                            f"{spread_pct:.0%} of SL distance {stop_dist:.5f} "
+                            f"(max {max_spread_pct:.0%})"
+                        )
+                        return (
+                            ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, f"spread {spread_pct:.0%} > {max_spread_pct:.0%} of SL"),
+                            ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"spread {spread_pct:.0%} of SL ({live_spread:.1f} pips)")
+                        )
 
             effective_stop_dist = stop_dist + spread_cost
 

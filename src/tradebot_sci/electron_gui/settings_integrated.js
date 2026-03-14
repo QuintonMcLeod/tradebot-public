@@ -192,166 +192,169 @@ const SECRETS_MAP = {
 
 const TOOLTIPS = {
     // Engine Settings
-    PAPER_SIM_ENABLED: "Enable Paper Trading Simulator. Bypasses real broker execution and tracks simulated PnL.",
-    PAPER_REPLAY_MODE: "Run the Paper Simulator using historical Replay data instead of the live WebSocket feed.",
-    PAPER_SYNTHETIC_MODE: "Run the Paper Simulator in Synthetic Fire Mode using algorithmically generated endless massive volatility for stress testing.",
-    SABBATH_REPLAY_MODE: "During Sabbath hours (Friday sunset to Saturday sunset), switch the Paper Simulator to read from Replay data so you can continue testing.",
-    PAPER_FEE_BPS: "The simulated round-trip broker fee in basis points (e.g. 5.0 = 0.05%).",
-    PAPER_SLIPPAGE_BPS: "The simulated slippage per leg in basis points. Applied instantly on entry.",
-    PAPER_SPREAD_BPS: "The simulated bid/ask spread in basis points. Defines the distance between fill price and mid price.",
+    PAPER_SIM_ENABLED: "Practice Mode. Lets you test the bot with fake 'Monopoly money' so you can see how it performs without risking a real dime.",
+    PAPER_REPLAY_MODE: "Time Machine. Replays past market days so you can instantly see how your strategy would have performed yesterday.",
+    PAPER_SYNTHETIC_MODE: "Stress Test. Throws the bot into a wild, endless roller-coaster simulation to see if it can survive the absolute worst market conditions.",
+    SABBATH_REPLAY_MODE: "Weekend Practice. During the real-world weekend when markets are closed, switch to the Time Machine mode so you can keep testing.",
+    PAPER_FEE_BPS: "Fake Broker Fees. Simulates the small tax the broker charges on every trade, so your practice results match reality.",
+    PAPER_SLIPPAGE_BPS: "Fake Slippage. Simulates the slight delay in getting your real order filled. Makes practice trading highly realistic.",
+    PAPER_SPREAD_BPS: "Fake Spread. Simulates the difference between the 'buy' price and the 'sell' price in the market. Every market has a markup!",
 
     // System Settings
-    APP_PROFILE: "Trading profiles define which markets you trade (stocks, forex, crypto), how often the bot checks for opportunities, and when it's allowed to trade. Think of it like choosing between 'day trader mode' vs '24/7 crypto mode'.",
-    STRATEGY_VARIANT: "The trading strategy determines HOW the bot decides to enter and exit trades. Each strategy has different rules - some are aggressive scalpers, others wait for perfect setups. Choose based on your risk tolerance and market conditions.",
-    BOT_MODE: "Controls how the bot runs: 'Continuous' keeps trading forever until you stop it. 'Scheduled' only trades during specific hours (like market open). 'Iterations' runs a fixed number of trade cycles then stops.",
-    EXECUTE_TRADES: "The master ON/OFF switch for real trading. When OFF, the bot runs in Paper Trading mode — it still scans markets and executes simulated trades with a virtual balance, but never places actual orders. Perfect for testing strategies risk-free. A broker must still be configured for market data.",
-    GUI_AUTOSTART_BOT: "When enabled, the trading bot automatically starts running as soon as you open this application. When disabled, you'll need to manually click 'Start' to begin trading.",
-    CONTINUOUS_MODE: "Keeps the bot running indefinitely without stopping between trading sessions. Useful for 24/7 crypto markets. Disable this if you want the bot to pause after each session.",
-    GUI_WS_URL: "The WebSocket URL for the trading bot. Change this if you are connecting to a bot running on a remote server or a different port (e.g., ws://192.168.1.10:8080/ws).",
-    GLOBAL_RISK_PCT: "The global default risk percentage used when no other risk is specified. For example, 0.04 is 4%. This acts as the manual 'floor' for all trades.",
-    WS_SERVER_PORT: "The port number the trading bot should listen on for local connections. Default is 8080. If you change this, you must also update your WebConnect URL or external tools to match.",
-    FRIDAY_FADE_ENABLED: "IMPORTANT (Forex Only): Automatically reduces risk to 0.25% after 12:00 PM EST on Fridays. This accounts for the sharp drop in Forex liquidity as markets approach the weekend close, preventing 'mean reversion' strategies from getting trapped in late-session drifts.",
-    PDT_GUARD_ENABLED: "Enable the Pattern Day Trader guard. Prevents opening new positions if you have fewer than $25,000 Equity and have already made 3 day trades in a rolling 5-day window. (Only applies to US Equities via IBKR).",
+    APP_PROFILE: "Trading Profiles. Think of this like choosing a character in a video game. You can be a 'Day Trader', a 'Crypto Night Owl', or a 'Slow and Steady Investor'.",
+    STRATEGY_VARIANT: "The Gameplan. This tells the bot exactly HOW to trade. Choose whether you want it to be a fast, aggressive scalper or a patient, long-term investor.",
+    BOT_MODE: "Controls the bot's schedule. 'Continuous' means it works 24/7. 'Scheduled' means it only works during specific hours. 'Iterations' means it takes a few trades and goes to sleep.",
+    EXECUTE_TRADES: "The Master Safety Switch. Turn this ON to trade with REAL MONEY. Turn it OFF to politely use fake Practice Money.",
+    GUI_AUTOSTART_BOT: "Should the bot automatically start watching the markets the moment you open this app? Turn this ON for easy 'set and forget' convenience.",
+    CONTINUOUS_MODE: "The Energizer Bunny Mode. Keeps the bot running forever without taking any naps between trading sessions.",
+    GUI_WS_URL: "The internal address where the app talks to the bot. Just leave this alone unless you are a computer whiz running advanced server setups.",
+    GLOBAL_RISK_PCT: "Your Safety Net. The overall percentage of your money you're willing to risk. 0.04 means 4%. This is your absolute maximum risk limit.",
+    WS_SERVER_PORT: "The secret doorway the app uses to talk to the bot. Leave this at 8080 unless you know what you are doing.",
+    FRIDAY_FADE_ENABLED: "Friday Afternoon Nap. The markets get crazy and unpredictable right before the weekend. This forces the bot to play it extremely safe after lunchtime on Fridays.",
+    PDT_GUARD_ENABLED: "The Bureaucracy Blocker. Prevents you from breaking confusing government rules about 'Day Trading' if your account is small.",
 
     // Timeframes
-    CANDLE_TIMEFRAME: "The main chart timeframe the bot watches. '15m' means each candle represents 15 minutes of price action. Shorter timeframes (1m, 5m) = more trades but more noise. Longer (1h, 4h) = fewer but higher-quality signals.",
-    HTF_TIMEFRAME: "Higher TimeFrame - the 'big picture' view. The bot checks this larger timeframe to understand the overall market direction (trending up, down, or sideways) before taking trades on the smaller timeframe.",
-    LTF_TIMEFRAME: "Lower TimeFrame - used for precise entry timing. Once the higher timeframe confirms the trend, the bot watches this smaller timeframe to find the perfect moment to enter a trade.",
+    CANDLE_TIMEFRAME: "The Magnifying Glass. '15m' means the bot looks at price changes every 15 minutes. Short times = fast trades but lots of false alarms. Long times = slow trades but very reliable.",
+    HTF_TIMEFRAME: "The Telescope. The bot uses this wide view to see the 'big picture' trend before it zooms in to take a trade.",
+    LTF_TIMEFRAME: "The Microscope. Once the bot knows the big picture, it uses this zoomed-in view to find the absolute perfect second to jump in.",
 
     // Trend Detection
-    TREND_WINDOW: "How many candles back the bot looks to determine the trend direction. More candles = smoother, more reliable trend detection but slower to react to changes.",
-    LTF_TREND_WINDOW: "Same as Trend Window but for the lower timeframe. Fewer candles here means faster reaction to short-term price moves.",
-    TREND_SWING_LOOKBACK: "How many candles on each side must be lower/higher to identify a swing point (local high or low). Higher = fewer but more significant swing points identified.",
-    TREND_MIN_SWINGS: "Minimum number of swing highs/lows needed to confirm a trend. More swings required = more confidence the trend is real, but slower to identify new trends.",
-    TREND_STRENGTH_FLOOR: "Minimum trend strength (0-1) before the bot considers it tradeable. 0.25 means the trend must be at least 25% strong - prevents trading in weak, uncertain markets.",
+    TREND_WINDOW: "How far into the past the bot should look to decide if we are in a 'good, healthy trend' right now.",
+    LTF_TREND_WINDOW: "Same as above, but for the zoomed-in Microscope view. Helps the bot react faster to sudden changes.",
+    TREND_SWING_LOOKBACK: "How many past peaks and valleys the bot needs to check to figure out where the market is safely bouncing.",
+    TREND_MIN_SWINGS: "The 'Show Me Proof' setting. How many bounces the market needs to make before the bot truly believes the trend is really happening.",
+    TREND_STRENGTH_FLOOR: "The 'Boring Market' Filter. The bot won't take trades unless the market is moving fast enough to actually be interesting.",
 
     // Risk Management
-    RISK_PER_TRADE_PCT: "How much of your account you're willing to lose on a single trade. 1% means if you have $10,000, you risk losing $100 max per trade. Higher = bigger profits AND losses. Most professionals use 1-2%.",
-    MAX_EXPOSURE_PCT: "Maximum total risk across ALL open positions combined. If set to 10% with a $10,000 account, total risk across all trades can't exceed $1,000.",
-    MAX_DAILY_LOSS_PCT: "Safety circuit breaker - if you lose this percentage of your account in one day, the bot stops trading to prevent catastrophic losses. Like a daily loss limit at a casino.",
-    RISK_PER_TRADE_DOLLARS: "Fixed dollar amount to risk per trade instead of percentage. Useful if you want consistent $50 or $100 risk regardless of account size.",
-    MAX_LOSS_PER_TRADE_DOLLARS: "Absolute maximum dollars you can lose on any single trade, even if percentage calculation says otherwise. A hard safety cap.",
-    LIMIT_LOSS_DAILY_PCT: "Maximum loss allowed for the daily interval (e.g. 0.06 = 6%). The bot will stop trading for the day if reached. Only activates when account capital is above $250 — on smaller accounts, this is like a fire alarm that goes off when you make toast. 🍞",
-    LIMIT_LOSS_WEEKLY_PCT: "Maximum loss allowed for the weekly interval (e.g. 0.15 = 15%). The bot will stop trading for the week if reached.",
-    LIMIT_LOSS_MONTHLY_PCT: "Maximum loss allowed for the monthly interval (e.g. 0.25 = 25%). The bot will stop trading for the month if reached.",
-    TARGET_PROFIT_DAILY_PCT: "Profit target for the daily interval (e.g. 0.02 = 2%). Once hit, the bot stops for the day to lock in profits and prevent 'giving it back'. 0 disables.",
-    TARGET_PROFIT_WEEKLY_PCT: "Profit target for the weekly interval (e.g. 0.05 = 5%). Once hit, the bot stops for the week to protect gains. 0 disables.",
-    TARGET_PROFIT_MONTHLY_PCT: "Profit target for the monthly interval (e.g. 0.10 = 10%). Once hit, the bot stops for the month for wealth retention. 0 disables.",
+    RISK_PER_TRADE_PCT: "How much of your entire piggy bank you are willing to risk on a single bet. 1% means if you have $10,000, the absolute worst you can do is lose $100. Never risk more than you can stomach!",
+    MAX_EXPOSURE_PCT: "The Absolute Casino Limit. The maximum total risk allowed if the bot happens to be in multiple different trades at the same time.",
+    MAX_DAILY_LOSS_PCT: "The Daily Fire Alarm. If you lose this percentage of your account in one single day, the bot pulls the plug and locks you out to protect your hard-earned money.",
+    RISK_PER_TRADE_DOLLARS: "A fixed dollar amount to risk. Tell the bot 'I only want to risk exactly $50 on every trade', no matter what.",
+    MAX_LOSS_PER_TRADE_DOLLARS: "The absolute highest dollar amount you can ever lose on one trade, even if the math gets confused. A hard, unbreakable cap.",
+    LIMIT_LOSS_DAILY_PCT: "Maximum loss allowed for the day. If things go bad, the bot stops trading and goes to bed. Works like a fire alarm.",
+    LIMIT_LOSS_WEEKLY_PCT: "Maximum loss allowed for the week. If you hit an unlucky streak, the bot takes the rest of the week off to clear its head.",
+    LIMIT_LOSS_MONTHLY_PCT: "Maximum loss allowed for the month. Protects your wealth from multi-week disasters.",
+    TARGET_PROFIT_DAILY_PCT: "Quit While You're Ahead (Daily). If you make this much profit today, the bot turns off so you don't accidentally give it back to the market.",
+    TARGET_PROFIT_WEEKLY_PCT: "Quit While You're Ahead (Weekly). Locks in your gains for the week so you can enjoy your weekend stress-free.",
+    TARGET_PROFIT_MONTHLY_PCT: "Quit While You're Ahead (Monthly). Protects your long-term monthly wealth accumulation.",
 
     // Safety & Shields
-    MULTI_POSITION_ENABLED: "Allow the bot to have multiple trades open at the same time across different symbols. When disabled, it finishes one trade before starting another.",
-    MAX_CONCURRENT_POSITIONS: "Maximum number of trades that can be open simultaneously. More positions = more diversification but also more complexity and capital required.",
-    SMART_POSITIONS_ENABLED: "The core safety filter: only opens a new trade if your current open profits are high enough to 'pay for' the risk of the next trade. This ensures you only scale up using profit, protecting your principal capital.",
+    MULTI_POSITION_ENABLED: "The Juggler. Allows the bot to keep multiple different trades open at the exact same time. If turned off, it focuses on just one trade until it finishes.",
+    MAX_CONCURRENT_POSITIONS: "How many balls the Juggler can keep in the air. More trades = more chances to win, but also more tied-up money.",
+    SMART_POSITIONS_ENABLED: "House Money Safety. Only allows the bot to open a new trade if you already have enough open profit to 'pay for' the risk. This protects your original cash.",
 
     // Pyramiding
-    MAX_PYRAMID_ENTRIES: "Maximum times the bot can add to a winning position. 'Pyramiding' means buying more as a trade goes in your favor. 1 = no adding, just the initial entry.",
-    PYRAMID_RISK_LOAD: "Risk percentage for the FIRST add to a winning position. Often set higher since the trade has already proven profitable.",
-    PYRAMID_RISK_SCALE: "Risk percentage for subsequent adds after the first. Usually lower than Load since you're adding to an already-large position.",
-    BREAKEVEN_TRAIL_AFTER_PYRAMIDS: "After this many pyramid adds, move your stop-loss to breakeven (entry price). Protects profits on scaled-up positions. 0 = disabled.",
-    BREAKEVEN_TRAIL_PCT: "How far above breakeven to trail your stop. 0.003 = 0.3%, so if you bought at $100, stop moves to $100.30 instead of exactly $100.",
+    CONDUCTOR_PYRAMID_ENABLED: "Master Pyramid Switch. Allows the bot to automatically add more money to a trade that is already winning. Think of it like deciding to press your bet in poker because you're holding a great hand.",
+    CONDUCTOR_PYRAMID_START_R: "When to Press the Bet. How deep into profit the trade needs to be before adding more money. For example, 1.0 means 'add more when my profit matches what I originally risked.' 0.5 means 'add more when I am halfway to my goal.'",
+    CONDUCTOR_PYRAMID_FIRST_PCT: "How Much to Add. The size of the extra bet, compared to your original one. 100% means double down (match the original bet). 50% means add half as much as the first time.",
+    MAX_PYRAMID_ENTRIES: "Maximum extra bets allowed. 'Pyramiding' means adding more as a trade goes in your favor. 1 = no extra bets, just the original trade.",
+    PYRAMID_RISK_LOAD: "The size of the VERY FIRST extra bet you place on a winning trade.",
+    PYRAMID_RISK_SCALE: "The size of all the OTHER extra bets after the first one. Usually smaller, because your trade is getting pretty huge by now!",
+    BREAKEVEN_TRAIL_AFTER_PYRAMIDS: "Free Ride Mode. After making this many extra bets, the bot moves your safety net up to your exact entry price, ensuring you absolutely cannot lose money on the trade. 0 turns this off.",
+    BREAKEVEN_TRAIL_PCT: "Extra Cushion. How far 'above' the free ride line to place your safety net, just to guarantee a tiny sliver of profit even if the trade crashes.",
 
     // ICC Settings
-    ICC_AUTO_ENTRY_ENABLED: "Enable automatic trade entries based on ICC (Indication, Correction, Continuation) signals. The core pattern recognition system.",
-    ICC_AGGRESSIVE_MODE: "When enabled, the bot uses larger position sizes on high-confidence setups. More aggressive but higher risk/reward.",
-    ICC_AUTO_ENTRY_REQUIRE_SWEEP: "Require a 'liquidity sweep' (price briefly breaks a level then reverses) before entering. These setups have higher win rates but occur less frequently.",
-    ICC_AUTO_ENTRY_MIN_HTF_STRENGTH: "Minimum trend strength on higher timeframe before ICC entries are allowed. Filters out trades against weak or uncertain trends.",
-    ICC_CONFIRMATION_BARS: "Number of candles to wait after a signal before confirming the entry. More bars = more confirmation but potentially worse entry price.",
-    ICC_ENTRY_SCORE_THRESHOLD: "Minimum score (0-100) a setup must achieve before the bot will trade it. Higher = pickier about setups, fewer but better trades.",
+    ICC_AUTO_ENTRY_ENABLED: "The Heartbeat Tracker. Turns on the bot's ability to watch the market's natural rhythm (push, pause, push) to find safe places to enter.",
+    ICC_AGGRESSIVE_MODE: "Swing for the Fences. When the bot sees an absolutely perfect setup, it will bet a little more money than usual.",
+    ICC_AUTO_ENTRY_REQUIRE_SWEEP: "Trap Detector. Forces the bot to only trade when it sees other traders getting tricked and 'swept' out of the market. Very safe, but doesn't happen often.",
+    ICC_AUTO_ENTRY_MIN_HTF_STRENGTH: "The 'No Weak Trends' Filter. Forces the bot to avoid trading unless the big-picture trend is roaring.",
+    ICC_CONFIRMATION_BARS: "Patience. How many minutes the bot waits to make sure the signal wasn't a fake-out before jumping in.",
+    ICC_ENTRY_SCORE_THRESHOLD: "The Perfectionist. The bot grades every trade from 0 to 100. This sets the minimum passing grade. 75 = only takes good trades. 90 = only takes perfect trades.",
 
     // ICC Scoring
-    ICC_SCORE_CONTINUATION_POINTS: "Points awarded when price shows clear continuation in the trend direction after a correction. Key component of the ICC pattern.",
-    ICC_SCORE_SWEEP_POINTS: "Points awarded for liquidity sweeps - when price briefly breaks support/resistance to trigger stop-losses before reversing. High-probability signal.",
-    ICC_SCORE_HTF_LTF_ALIGN_POINTS: "Points when both higher and lower timeframes agree on direction. Alignment = higher probability trades.",
-    ICC_SCORE_STRONG_HTF_POINTS: "Bonus points when the higher timeframe trend is particularly strong, not just present.",
-    ICC_SCORE_PHASE_POINTS: "Points for favorable market phase - trending markets score higher than choppy/ranging markets.",
-    ICC_SCORE_INDICATION_POINTS: "Points for the initial trend indication signal (break of structure). The first sign a trade setup may be forming.",
+    ICC_SCORE_CONTINUATION_POINTS: "Bonus points given when the market proves it still wants to keep moving in the right direction.",
+    ICC_SCORE_SWEEP_POINTS: "Huge bonus points given when the market successfully fakes out other traders, which usually means a big explosion is coming.",
+    ICC_SCORE_HTF_LTF_ALIGN_POINTS: "Bonus points when both the 'Big Picture' view and the 'Microscope' view agree entirely.",
+    ICC_SCORE_STRONG_HTF_POINTS: "Bonus points when the 'Big Picture' trend is practically a runaway freight train.",
+    ICC_SCORE_PHASE_POINTS: "Bonus points for jumping into a market that is wide awake and moving cleanly, rather than a sleepy, choppy mess.",
+    ICC_SCORE_INDICATION_POINTS: "Points just for seeing the very first sign of life that a new trend might be starting.",
 
     // Exit Settings
-    EXIT_ON_HTF_FLIP_ONLY_IF_LOSING: "Exit when higher timeframe trend flips, but ONLY if the trade is currently losing. Lets winners run if trend temporarily weakens.",
-    AUTO_FLATTEN_ON_CLOSE: "Automatically close all positions at the end of the trading session. Prevents overnight/weekend risk.",
-    TRAILING_STOP_ENABLED: "Enable trailing stops that follow price up (for longs) or down (for shorts), locking in profits as the trade moves in your favor.",
-    TRAILING_STOP_MIN_PROFIT_PCT: "Minimum profit percentage before the trailing stop activates. Prevents premature stop-outs on normal price fluctuations.",
-    STOP_ATR_MULTIPLIER: "<strong>The 'Safe Distance' Calculator.</strong> Average True Range (ATR) measures how much a market normally 'breathes' or wiggles. A 1.5 multiplier means your stop-loss will be placed 1.5x that normal wiggle distance away from your entry. Tighter (1.0-1.2) = smaller losses but higher chance of getting 'shaken out'. Wider (2.0-3.0) = more breathing room but larger losses when it fails.",
-    SAFETY_STABILITY_MODE_ENABLED: "<strong>Master Survival Protocol.</strong> When your account is 'bleeding' or market conditions are uncertain, this is your primary shield. It enforces three strict rules: (1) It caps your risk at 1% per trade, (2) It ignores all low-quality signals, only taking setups that score 75/100 or higher, and (3) It resets aggressive performance modes back to Standard. Use this to protect your capital during rough patches.",
-    MIN_HOLD_HOURS: "Minimum hours to hold a position before allowing exits. Prevents panic-selling or premature exits. 0 = no minimum.",
-    MAX_HOLD_HOURS: "Maximum hours to hold a position - force exit after this time regardless of profit/loss. 0 = hold forever if needed.",
-    HTF_NEUTRAL_EXIT_BARS: "Exit if higher timeframe stays neutral (no clear trend) for this many bars. Prevents capital from being tied up in directionless markets.",
+    EXIT_ON_HTF_FLIP_ONLY_IF_LOSING: "Mercy Rule. If the big-picture trend suddenly reverses while your trade is losing, the bot kills the trade instantly. But if you are winning, it lets the trade ride a bit longer to see if it recovers.",
+    AUTO_FLATTEN_ON_CLOSE: "The End-of-Day Wash. Automatically closes ALL your trades when the daily trading session ends, so you never hold risk while you sleep.",
+    TRAILING_STOP_ENABLED: "The Profit Chaser. A safety net that automatically follows the price upward. As you make more profit, the safety net moves up to lock it in!",
+    TRAILING_STOP_MIN_PROFIT_PCT: "Breathing Room. Wait until the trade is AT LEAST this much in profit before starting the Profit Chaser.",
+    STOP_ATR_MULTIPLIER: "<strong>The 'Safe Distance' Calculator.</strong> Markets naturally wiggle up and down a little bit. A 1.5 multiplier places your safety net 1.5x outside that normal wiggle room. Tight (1.0) = you might get shaken out by a random wiggle. Looser (2.5) = you survive the wiggles, but lose more if you are totally wrong.",
+    SAFETY_STABILITY_MODE_ENABLED: "<strong>Master Survival Protocol.</strong> When your account is 'bleeding' or market conditions are totally uncertain, this is your primary shield. It forces strict rules: maximum 1% risk, only perfect 75+ graded trades, and turns off all aggressive accelerator modes. Use this to protect your capital during rough patches.",
+    MIN_HOLD_HOURS: "Diamond Hands. The absolute minimum time the bot MUST hold a trade, to prevent it from panic-selling too early.",
+    MAX_HOLD_HOURS: "Paper Hands. The absolute maximum time the bot is allowed to sit in a trade before kicking it out, win or lose.",
+    HTF_NEUTRAL_EXIT_BARS: "The 'Boredom' Exit. If the market goes totally flat and stops moving for this long, the bot just takes your money out and leaves.",
 
     // Broker Settings - IBKR
-    IBKR_HOST: "IP address of your Interactive Brokers TWS or Gateway. Usually 127.0.0.1 if running on the same computer.",
-    IBKR_PORT: "Connection port for IBKR. Use 7497 for Paper Trading in TWS, 7496 for Live TWS, 4002 for Paper Gateway, 4001 for Live Gateway.",
-    IBKR_CLIENT_ID: "Unique identifier for this connection. If running multiple bots, each needs a different Client ID.",
-    IBKR_ACCOUNT_ID: "Your IBKR account number. Found in Account Management. Format like DU1234567 (paper) or U1234567 (live).",
-    GUI_PNL_TIMEFRAME: "Select the timeframe for calculating Profit and Loss (PnL) on the dashboard and in analytics. '24h' is standard, but you can view performance over a week, month, or year for a broader perspective.",
-    IBKR_PAPER: "Enable paper trading mode - uses IBKR's simulated trading environment. Always test here before going live!",
-    IBKR_READ_ONLY: "Read-only mode - bot can view positions and data but cannot place orders. Safe for monitoring.",
-    IBKR_DEFAULT_CCY: "Default currency for the account. Usually USD but could be EUR, GBP, etc. for international accounts.",
+    IBKR_HOST: "The House Address. Tells the bot exactly where to find the Interactive Brokers app on your computer (usually 127.0.0.1).",
+    IBKR_PORT: "The Door Number. Tells the bot which specific door to knock on to get into your broker. (7497 = Paper Box, 7496 = Real Money).",
+    IBKR_CLIENT_ID: "The Bot's Nametag. If you run multiple bots, they each need a different ID number so the broker doesn't get confused.",
+    IBKR_ACCOUNT_ID: "Your Bank Account Number. Exactly as it appears in your broker dashboard (e.g. DU1234567 for paper, U1234567 for live).",
+    GUI_PNL_TIMEFRAME: "The Scoreboard. Choose whether the big numbers on your dashboard show how much you made today, this week, or this year.",
+    IBKR_PAPER: "The 'Monopoly Money' switch for Interactive Brokers. Always flip this ON for testing before you ever risk real cash!",
+    IBKR_READ_ONLY: "Look But Don't Touch. The bot can see your balances and watch the market, but its hands are tied—it cannot buy or sell anything.",
+    IBKR_DEFAULT_CCY: "Your Home Currency. Normally USD, but you can set this to EUR or GBP if you live in Europe.",
 
     // Broker Settings - OANDA
-    OANDA_ACCOUNT_ID: "Your OANDA account ID - found in your OANDA account settings or dashboard. Format like 101-001-1234567-001.",
-    OANDA_API_KEY: "Your OANDA API access token. Generate one in OANDA's hub under 'Manage API Access'. Keep this secret!",
-    OANDA_ENVIRONMENT: "Choose 'practice' for demo trading with fake money, or 'live' for real money trading. Always test in practice first!",
-    OANDA_READ_ONLY: "Read-only mode - bot can fetch prices and positions but cannot place orders. Good for monitoring without trading.",
+    OANDA_ACCOUNT_ID: "Your OANDA Account Number. Found right on your OANDA dashboard (looks like 101-001-1234567-001).",
+    OANDA_API_KEY: "Your Secret Trading Password. Gives the bot permission to trade your OANDA account. Never share this with anyone!",
+    OANDA_ENVIRONMENT: "Choose 'practice' to play with fake money, or 'live' to trade for real. Always practice first!",
+    OANDA_READ_ONLY: "Look But Don't Touch. The bot can watch the market but is strictly forbidden from placing any trades.",
 
     // Broker Settings - CCXT/Coinbase
-    CCXT_EXCHANGE: "The cryptocurrency exchange to connect to. Currently supports Coinbase and other CCXT-compatible exchanges.",
-    CCXT_DEFAULT_TYPE: "Market type: 'spot' for regular buying/selling, 'swap' for perpetual futures, 'future' for dated futures contracts.",
-    CCXT_API_KEY: "Your exchange API key - created in your exchange's API settings. Enables the bot to trade on your behalf.",
-    CCXT_SECRET: "Your API secret key - paired with the API key. Never share this! Required to authenticate trades.",
-    CCXT_SANDBOX: "Enable sandbox/testnet mode for the exchange. Trade with fake money to test your setup safely.",
-    CCXT_ENABLE_RATE_LIMIT: "Automatically respect exchange rate limits to avoid getting temporarily banned for too many requests.",
+    CCXT_EXCHANGE: "Which Crypto Exchange you want to use (like Coinbase, Binance, or Kraken).",
+    CCXT_DEFAULT_TYPE: "The Type of Trading. 'Spot' means actually buying the coin. 'Swap' means betting on the future price using leverage.",
+    CCXT_API_KEY: "Your Crypto Username. Lets the bot log into your exchange.",
+    CCXT_SECRET: "Your Crypto Password. Pairs with the Key above. Guard this with your life!",
+    CCXT_SANDBOX: "The Crypto Playpen. Connects to a fake exchange where you can practice trading Bitcoin without spending a dime.",
+    CCXT_ENABLE_RATE_LIMIT: "The Polite Knocker. Automatically stops the bot from spamming the exchange so you don't get accidentally banned.",
 
     // Broker Settings - Gemini
-    GEMINI_API_KEY: "Your Gemini API key - found in Gemini Settings -> API. Enables the bot to trade crypto on Gemini.com.",
-    GEMINI_API_SECRET: "Your Gemini API secret - provided when you created the API key. Never share this! Required to sign orders.",
-    GEMINI_SANDBOX: "Connect to the Gemini Sandbox (Exchange Testnet) for risk-free testing with simulated funds.",
+    GEMINI_API_KEY: "Your Gemini Username. Lets the bot log into your Gemini account.",
+    GEMINI_API_SECRET: "Your Gemini Password. The ultra-secret code that lets the bot actually place trades.",
+    GEMINI_SANDBOX: "The Gemini Playpen. Connects you to Gemini's practice server so you can test safely.",
 
     // Broker Settings - Kraken
-    KRAKEN_API_KEY: "Your Kraken API key. Enables the bot to trade on your behalf. Keep this secret!",
-    KRAKEN_API_SECRET: "Your Kraken Private Key. Required for authentication. Never share this!",
-    KRAKEN_ENVIRONMENT: "Choose 'production' for real trading or 'sandbox' for testing (if supported).",
+    KRAKEN_API_KEY: "Your Kraken Username. Lets the bot log into your Kraken account.",
+    KRAKEN_API_SECRET: "Your Kraken Password. The ultra-secret code that lets the bot actually place trades.",
+    KRAKEN_ENVIRONMENT: "Choose 'sandbox' to safely practice, or 'production' to trade real money.",
 
     // Crypto Order Settings
-    CRYPTO_FRACTIONAL_ENABLED: "Allow buying fractional amounts (0.001 BTC instead of whole coins). Required for expensive cryptos with small accounts.",
-    CRYPTO_MIN_NOTIONAL_USD: "Minimum trade size in USD. Exchanges have minimums - trades below this will be rejected.",
-    CRYPTO_MAX_NOTIONAL_USD: "Maximum trade size in USD. Safety limit to prevent accidentally huge orders.",
-    CRYPTO_ORDER_TYPE: "Order execution type: 'LIMIT' places orders at specific prices (may not fill), 'MARKET' fills immediately at current price.",
+    CRYPTO_FRACTIONAL_ENABLED: "Pizza Slices. Allows the bot to buy tiny pieces of a crypto coin (like 0.001 Bitcoin) instead of forcing you to buy a whole expensive coin.",
+    CRYPTO_MIN_NOTIONAL_USD: "The Minimum Bet. The smallest dollar amount the exchange will accept for a trade.",
+    CRYPTO_MAX_NOTIONAL_USD: "The Absolute Ceiling. A safety net that stops the bot from ever accidentally placing a ridiculously huge, account-destroying order.",
+    CRYPTO_ORDER_TYPE: "How to buy. 'LIMIT' means 'only buy if I get this exact price'. 'MARKET' means 'I don't care about the price, buy it right now!'",
 
     // Data Routing
-    MARKET_DATA_MODE: "Where price data comes from: 'primary' (IBKR), 'alternative' (CCXT/Coinbase), 'oanda' for forex, or 'hybrid' for multiple sources.",
-    BROKER_MODE: "Where orders are sent: 'primary' (IBKR), 'alternative' (crypto exchanges), 'oanda' for forex, or 'hybrid' for smart routing.",
-    ALTERNATIVE_MARKET_DATA: "Backup data source if primary fails: 'mock' for testing, 'coinbase'/'ccxt' for crypto, 'oanda' for forex.",
-    ALTERNATIVE_BROKER: "Backup broker if primary is unavailable: 'mock' for simulation, 'ccxt' for crypto, 'oanda' for forex.",
+    MARKET_DATA_MODE: "Who is supplying the price charts? 'Primary' = IBKR, 'Alternative' = Crypto, 'Oanda' = Forex.",
+    BROKER_MODE: "Who is executing the trades? Usually matches your Data supplier above.",
+    ALTERNATIVE_MARKET_DATA: "The Backup Generator. If your main data supplier crashes, the bot automatically switches to this backup to keep you safe.",
+    ALTERNATIVE_BROKER: "The Backup Broker. A secondary account the bot can use in an emergency.",
 
     // AI Settings
-    TRADE_SCI_PROVIDER: "AI service for market analysis: 'gemini' (Google), 'openai' (GPT-4), 'claude' (Anthropic), 'deepseek', or 'openrouter' for multiple models.",
-    TRADE_SCI_MODEL_NAME: "Specific AI model to use. Different models have different capabilities and costs. Default is optimized for trading analysis.",
-    CHATGPT_KEY: "API key for your chosen AI provider. Get this from their developer portal. Required for AI-powered commentary.",
-    AI_TEMPERATURE: "AI creativity level (0-2). Lower = more consistent/predictable responses. Higher = more creative but potentially erratic. 0.2 recommended.",
-    AI_MAX_TOKENS: "Maximum response length from AI. Higher = more detailed analysis but costs more. 2048 is good for trading commentary.",
-    COMMENTARY_ENABLED: "Master toggle for AI commentary. When disabled, no AI insights will be generated.",
-    COMMENTARY_LLM_POLICY: "When to generate AI insights: 'disabled' to turn off, 'interval' for fixed timing, 'schedule' for specific times, 'on_signal' on every trade decision.",
-    COMMENTARY_INTERVAL_MINUTES: "Time between AI updates when using 'Fixed Interval' policy. Range: 1-60 minutes.",
-    COMMENTARY_LLM_DAILY_SLOTS: "Specific times to request AI commentary when using 'Scheduled Times' policy. Format: HH:MM, comma-separated.",
-    COMMENTARY_LLM_MAX_CALLS_PER_DAY: "Hard limit on AI API calls per day. Prevents runaway costs regardless of policy.",
-    GUI_CAPITAL_DISPLAY_MODE: "Choose what to show in the main 'Overall Capital' dashboard display. 'Overall Liquidity' shows your total net worth (Cash + Assets). 'Buying Power' shows only your available cash for trading.",
+    TRADE_SCI_PROVIDER: "Which Artificial Intelligence you want to use (like ChatGPT, Google Gemini, or Claude).",
+    TRADE_SCI_MODEL_NAME: "The Specific Brain. Chooses exactly which version of the AI to use. The default is usually the smartest option for trading.",
+    CHATGPT_KEY: "The Token. Your API key that pays the AI for its time. You get this from the AI provider's website.",
+    AI_TEMPERATURE: "The Creativity Knob. 0 = purely logical and robotic. 2.0 = poetic but completely crazy. We recommend 0.2 for trading.",
+    AI_MAX_TOKENS: "The Word Limit. How long the AI's answer is allowed to be. Higher limits cost slightly more pennies.",
+    COMMENTARY_ENABLED: "The Master Toggle for AI Insights. Turn this ON to let the AI give you real-time advice and commentary as it trades.",
+    COMMENTARY_LLM_POLICY: "When should the AI speak? 'Interval' = every few minutes. 'On_Signal' = only when a trade happens. 'Disabled' = quiet mode.",
+    COMMENTARY_INTERVAL_MINUTES: "The Chatty Timer. If set to 15, the AI will give you an update every 15 minutes.",
+    COMMENTARY_LLM_DAILY_SLOTS: "The Scheduled Briefing. Tell the AI 'Only talk to me exactly at 9:00 AM and 4:00 PM'.",
+    COMMENTARY_LLM_MAX_CALLS_PER_DAY: "The Penny Saver. The absolute maximum number of times the AI is allowed to speak per day, just to make sure you don't overspend on API fees.",
+    GUI_CAPITAL_DISPLAY_MODE: "Dashboard Display preference. 'Overall' shows your total net worth. 'Buying Power' shows only the cash you have left to spend.",
 
     // Sabbath Settings
-    SABBATH_ENABLED: "Block new trade entries during the Jewish Sabbath (Friday sunset to Saturday sunset). Existing positions are managed but no new trades opened.",
-    SABBATH_ASTRONOMICAL: "Calculate Sabbath times using actual sunset based on your location, rather than fixed clock times. More accurate for religious observance.",
-    SABBATH_TIMEZONE: "Your timezone for Sabbath calculations. Use IANA format like 'America/New_York' or 'Europe/London'.",
-    SABBATH_LAT: "Your latitude for astronomical sunset calculations. Positive for North, negative for South. Example: 40.7128 for New York City.",
-    SABBATH_LON: "Your longitude for astronomical calculations. Negative for West, positive for East. Example: -74.0060 for New York City.",
-    SABBATH_START_LOCAL: "Fixed start time if not using astronomical mode. Default 18:00 (6 PM) is typical Friday evening start.",
-    SABBATH_END_LOCAL: "Fixed end time if not using astronomical mode. Default 18:00 Saturday is about an hour after sunset in most locations.",
+    SABBATH_ENABLED: "The Day of Rest. The bot will automatically stop taking ALL new trades during the Jewish Sabbath (Friday night to Saturday night).",
+    SABBATH_ASTRONOMICAL: "Star Tracker. Uses actual astronomy to calculate the exact minute the sun sets in your city, rather than using a fixed clock time.",
+    SABBATH_TIMEZONE: "Where do you live? Tell the bot your timezone (like 'America/New_York') so it gets the sunset perfectly right.",
+    SABBATH_LAT: "Your city's North/South GPS coordinate to help calculate the accurate sunset.",
+    SABBATH_LON: "Your city's East/West GPS coordinate to help calculate the accurate sunset.",
+    SABBATH_START_LOCAL: "The manual backup Start Time for the Sabbath, if the Star Tracker is disabled (Usually 6:00 PM).",
+    SABBATH_END_LOCAL: "The manual backup End Time for the Sabbath (Usually 6:00 PM on Saturday).",
 
     // Session Settings
-    SESSION_GATE_ENABLED: "Only allow trading during active market sessions. Prevents trading during low-liquidity periods.",
-    SESSION_OVERLAP_START_HOUR: "Hour when active trading session starts (0-23). 12 = noon. Best to trade when major markets overlap.",
-    SESSION_OVERLAP_END_HOUR: "Hour when active trading session ends (0-23). 16 = 4 PM. Position management continues after this.",
-    SESSION_OVERLAP_TIMEZONE: "Timezone for session hours. UTC is universal, or use your local timezone.",
-    AUTO_SCHEDULE_ENABLED: "Automatically switch between equity hours (9:30-4 ET) and crypto (24/7) based on what you're trading.",
-    SUPPLY_DEMAND: "Identifies areas where large institutional orders are likely waiting. The bot looks for a 'Break of Structure' (BOS) indicating a new trend, then waits for price to return to the 'Base' (Supply or Demand zone) before entering. High-accuracy institutional method.",
+    SESSION_GATE_ENABLED: "The 9-to-5 Switch. Forces the bot to only trade during active, busy market hours. It will take a nap during the quiet, risky hours.",
+    SESSION_OVERLAP_START_HOUR: "The Opening Bell. When should the bot wake up and start looking for trades?",
+    SESSION_OVERLAP_END_HOUR: "The Closing Bell. When should the bot stop taking new trades and wrap up its work for the day?",
+    SESSION_OVERLAP_TIMEZONE: "The timezone the bot uses to understand when bells ring.",
+    AUTO_SCHEDULE_ENABLED: "The Smart Calendar. Automatically switches between Wall Street hours (9:30-4) and Crypto hours (24/7) without you having to touch it.",
+    SUPPLY_DEMAND: "The Wholesale Finder. Looks for the hidden 'wholesale price' where big banks buy and sell, and tries to sneak into their trades. Very high accuracy.",
 
     // Safety & Shields
 
@@ -367,67 +370,67 @@ const TOOLTIPS = {
     TREND_PARABOLIC_SAR_ENABLED: "<strong>Parabolic SAR (Stop & Reverse)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Trend-Following</span><br><br>Parabolic SAR places dots above or below the price. Dots below = trend is UP. Dots above = trend is DOWN. When the dots 'flip' from one side to the other, the trend has reversed.<br><br>The dots accelerate as the trend continues — they follow more closely over time, almost like a trailing stop-loss that tightens automatically.<br><br><span style='color:#22c55e'>✓ Good for:</span> Catching trend reversals quickly. The flip is a clear, unmistakable signal. Also useful as a dynamic trailing stop level.<br><span style='color:#ef4444'>✗ Heads up:</span> In sideways markets, the dots flip constantly — every flip looks like a reversal but isn't.",
     TREND_VWAP_ENABLED: "<strong>VWAP (Volume-Weighted Average Price)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Volume</span><br><br>VWAP is the average price that accounts for trading volume — it tells you what the 'fair price' is based on where the most trading happened. Big institutional traders (banks, hedge funds) use VWAP to judge whether they're getting a good deal.<br><br>Price above VWAP = buyers are in control (bullish). Price below VWAP = sellers are in control (bearish).<br><br><span style='color:#22c55e'>✓ Good for:</span> Understanding where the 'smart money' thinks the fair price is. Great for crypto and intraday trading.<br><span style='color:#ef4444'>✗ Heads up:</span> Less useful for long-term trends since VWAP resets with each session. Needs volume data to work properly.",
     TREND_HULL_MA_ENABLED: "<strong>Hull Moving Average (HMA)</strong><br><span style='color:#818cf8;font-size:10px'>Type: Smoothed Moving Average</span><br><br>A regular moving average is like looking in the rear-view mirror — you see where the price <em>was</em>, not where it <em>is</em>. Hull MA uses a special math trick to dramatically reduce this lag, giving you a smoother and more current read on the trend.<br><br>When the Hull MA is rising, the trend is UP. When it's falling, the trend is DOWN.<br><br><span style='color:#22c55e'>✓ Good for:</span> Getting a clean, responsive trend direction without the noise. Much faster than regular moving averages while still being smooth.<br><span style='color:#ef4444'>✗ Heads up:</span> Can be <em>too</em> responsive in very choppy markets, flipping direction on minor pullbacks.",
-    TREND_ADX_THRESHOLD: "The ADX value below which entries are blocked. When ADX is below this threshold, the bot considers the market 'choppy' and stands aside. Default: 20. Set to 0 to disable the gate entirely.",
-    SAFETY_ATR_SHIELD_ENABLED: "Advanced ATR-based protection. Moves stops to breakeven after 1x ATR move and uses dynamic trailing stops.",
-    SAFETY_DRAWDOWN_BREAKER_ENABLED: "Account Circuit Breaker. If the account drawdown exceeds the adaptive limit (25% for small accounts down to 5% for large accounts), all entries pause for 24h.",
-    SAFETY_SESSION_LOCKOUT_ENABLED: "Prevents over-trading in choppy late-session markets. Automatically stops taking signals after 12:00 PM EST.",
-    SAFETY_ROLLOVER_DEADZONE_ENABLED: "Oanda Spread Spike Protection. Blocks entries during the 5 PM EST Bank Rollover (16:55 to 18:05 EST) to prevent capital bleed from astronomically wide spreads.",
+    TREND_ADX_THRESHOLD: "The Snooze Button. If the market is moving too slow (below this number), the bot takes a nap instead of trading. Default is 20. 0 means it never naps.",
+    SAFETY_ATR_SHIELD_ENABLED: "The Invisible Bodyguard. Automatically moves your safety net up to break-even as soon as your trade gets safely into profit.",
+    SAFETY_DRAWDOWN_BREAKER_ENABLED: "The Big Red Panic Button. If your account drops by a certain percentage, the bot completely locks down and refuses to trade for 24 hours to protect you from a bad market.",
+    SAFETY_SESSION_LOCKOUT_ENABLED: "The Afternoon Siesta. Automatically stops taking new trades after lunch (12:00 PM EST) when the market gets messy and unpredictable.",
+    SAFETY_ROLLOVER_DEADZONE_ENABLED: "The 5 O'clock Shadow. Blocks taking trades exactly at 5 PM EST when banks close out their books for the day, which causes nasty, unpredictable price spikes.",
 
     // Safety Suite 2.0 (New Additions)
-    SAFETY_GREED_GUARD_ENABLED: "Profit Lock. Stops trading for the day once a specified daily profit target is hit (Quit while ahead).",
-    SAFETY_CHURN_BURNER_ENABLED: "Anti-Churn. Limits the maximum number of trades per hour to prevent over-trading in chop.",
-    SAFETY_LEVERAGE_SENTRY_ENABLED: "Leverage Cap. Blocks new entries once total notional exposure exceeds a leverage multiple of your account equity. Disable for small accounts where even one position exceeds the cap.",
-    SAFETY_VOLATILITY_VETO_ENABLED: "Volatility Filter. Blocks entries if the market is too dead (low ATR) or too explosive (high ATR).",
-    SAFETY_STREAK_BREAKER_ENABLED: "Tilt Prevention. Pauses a specific symbol for 4 hours after 3 consecutive losses.",
-    SAFETY_OPENING_SENTRY_ENABLED: "Morning Guard. Blocks all entries during the first 15 minutes of the market open (9:30-9:45 AM ET) to avoid volatility.",
-    SAFETY_SENTIMENT_SHIELD_ENABLED: "AI Veto Shield. Uses your configured AI Model to inspect every potential entry. If the AI detects 'DANGEROUS' market structure, the trade is blocked regardless of the strategy signal. Smart Defense.",
+    SAFETY_GREED_GUARD_ENABLED: "The 'Quit While You're Ahead' Switch. Once you make your daily profit goal, the bot stops trading so you don't instantly give the money back to the market.",
+    SAFETY_CHURN_BURNER_ENABLED: "The Anti-Spam Filter. Stops the bot from taking too many trades in a single hour if the market is just wiggling back and forth.",
+    SAFETY_LEVERAGE_SENTRY_ENABLED: "The Credit Card Limit. Stops the bot from borrowing too much money from the broker if you have a lot of trades open at once.",
+    SAFETY_VOLATILITY_VETO_ENABLED: "The Goldilocks Filter. Prevents trading if the market is too painfully slow, or too violently explosive. It waits for it to be 'just right'.",
+    SAFETY_STREAK_BREAKER_ENABLED: "The 'Walk It Off' Timer. If the bot loses 3 times in a row on the same coin, it puts that coin in timeout for 4 hours to cool off.",
+    SAFETY_OPENING_SENTRY_ENABLED: "The Morning Commute Guard. Blocks the bot from trading during the crazy, volatile first 15 minutes right after the market opens.",
+    SAFETY_SENTIMENT_SHIELD_ENABLED: "The AI Co-Pilot. Asks your selected AI (like ChatGPT) to quickly look at the chart right before taking a trade. If the AI says 'this looks dangerous,' the bot cancels the trade.",
 
     // Performance & Profits (Wealth Creation) - Detailed Layman Tooltips
-    PERFORMANCE_MODE_NONE: "<strong>Safe Mode (Standard):</strong> No account acceleration. The bot operates with its core risk management and standard position sizing. Recommended for initial testing.",
-    PERFORMANCE_MODE_HOUSE_MONEY: "<strong>House Money Accelerator:</strong> Uses 'The Casino's Money' to grow faster. Once a trade is nicely in profit (2R), the bot considers that risk 'covered' and unlocks capital to take a new setup.",
-    PERFORMANCE_MODE_SNIPER: "<strong>The Sniper (A+ Grading):</strong> Only shoots when the target is perfect. Automatically triples risk (up to 5%) only when a setup scores >90/100.",
-    PERFORMANCE_MODE_RUNNER: "<strong>The Runner (Moonshot):</strong> Locks in wins while chasing big trends. Sells half at target to secure profit, then trails the remainder for maximum gains.",
-    PERFORMANCE_MODE_REGIME_SYNC: "<strong>Regime Sync (Adaptive):</strong> Automatically senses the 'Market Vibe'. Increases risk by 1.5x in strong trends and dials back to 0.5x in choppy markets.",
-    PERFORMANCE_MODE_FLYWHEEL: "<strong>Compound Flywheel:</strong> Momentum Tool. Every time you make $200 in profit, the bot automatically bumps its future risk by 0.1%.",
-    PERFORMANCE_MODE_STACKER: "<strong>Signal Stacker (Synergy):</strong> Combined Strength. Doubles risk when multiple internal strategies (e.g. SND + ICC) agree on the same entry.",
+    PERFORMANCE_MODE_NONE: "<strong>Safe Mode (Standard):</strong> The boring, reliable way to trade. No crazy risk-taking, just standard, mathematical position sizes.",
+    PERFORMANCE_MODE_HOUSE_MONEY: "<strong>The Casino's Money:</strong> Once one of your trades is deeply in profit, the bot treats that profit as 'free money' and uses it to fund a brand new trade, multiplying your chances without risking your actual cash.",
+    PERFORMANCE_MODE_SNIPER: "<strong>The Perfect Shot:</strong> The bot normally bets its usual size. But if it spots a 'unicorn' setup that scores over 90/100, it automatically triples the bet size.",
+    PERFORMANCE_MODE_RUNNER: "<strong>The Long Haul:</strong> When the trade hits its goal, it only sells half, keeping the other half safely running forever to catch massive, lucky trends.",
+    PERFORMANCE_MODE_REGIME_SYNC: "<strong>The Weather Vane:</strong> Automatically bets more money when the market is beautifully trending, and bets less money when the market is choppy and ugly.",
+    PERFORMANCE_MODE_FLYWHEEL: "<strong>The Snowball Effect:</strong> Every time you make $200, the bot permanently raises your risk by a tiny percentage, slowly turning a small account into a huge one.",
+    PERFORMANCE_MODE_STACKER: "<strong>The Double Whammy:</strong> If two totally different betting strategies both agree exactly on the same trade at the exact same time, the bot doubles the bet size because they are probably right.",
 
     // New Performance Weapons
-    PERFORMANCE_MODE_KELLY: "<strong>Kelly Criterion Edge:</strong> Mathematical Precision. Calculates the exact optimal bet size based on your real-time win rate. It bets more when you are winning and scales down pennies when you are losing.",
-    PERFORMANCE_MODE_HYDRA: "<strong>Correlation Hydra:</strong> Basket Scaling. Trades correlated assets (e.g., EURUSD and GBPUSD) as a single unit to capture global moves without exceeding total account risk.",
-    PERFORMANCE_MODE_COIL: "<strong>Volatility Compression:</strong> The Spring. Triple risk on breakouts that happen after the market has been 'dead quiet' for several hours.",
-    PERFORMANCE_MODE_VACUUM: "<strong>Liquidity Vacuum:</strong> Trap Hunter. Bets big on 'Fake Outs.' It waits for price to trap other traders on a false break, then enters heavy when price snaps back.",
-    PERFORMANCE_MODE_ALPHA: "<strong>Time-of-Day Alpha:</strong> The Power Hour. Automatically doubles risk during high-volume sessions (Market Overlaps) and goes conservative during 'lunch hours'.",
-    PERFORMANCE_MODE_GAMMA: "<strong>Gamma Squeeze:</strong> Price Velocity. Detects when price is moving too fast for regular hedging to keep up, then hitches a ride with heavy leverage until momentum fades.",
-    PERFORMANCE_MODE_SMOOTH: "<strong>Equity Smoothing:</strong> Account Protector. Rewards new all-time highs with 0.5% risk boosts, and slashes risk in half during drawdowns until the bot 'earns' its right to trade large again.",
+    PERFORMANCE_MODE_KELLY: "<strong>The Math Genius:</strong> Automatically calculates exactly how much to bet based on your recent winning streak. It naturally bets heavier when you are hot, and scales back to pennies when you are cold.",
+    PERFORMANCE_MODE_HYDRA: "<strong>The Multi-Armed Monster:</strong> Trades multiple related pairs (like EURUSD and GBPUSD) together as one single giant trade to safely capture huge global market moves.",
+    PERFORMANCE_MODE_COIL: "<strong>The Coiled Spring:</strong> Triples the bet size if the market has been totally dead and asleep for hours, betting that the breakout will be massive and explosive.",
+    PERFORMANCE_MODE_VACUUM: "<strong>The Bear Trap:</strong> Waits for other traders to get completely tricked into a fake breakout, then happily bets large in the opposite direction while they panic.",
+    PERFORMANCE_MODE_ALPHA: "<strong>The Power Hour:</strong> Automatically doubles the bet size during the busiest, highest-volume hours of the day, and drops to minimum size during sleepy lunch hours.",
+    PERFORMANCE_MODE_GAMMA: "<strong>The Squeeze:</strong> Detects rare moments when the market price is physically moving too fast to stop, and instantly jumps in with heavy leverage.",
+    PERFORMANCE_MODE_SMOOTH: "<strong>The Protector:</strong> Every time your account hits a new all-time high, it gets a tiny boost. If your account drops, it slashes risk in half until the bot 'earns' its right to trade normally again.",
 
     // Meta-SCI (Auto Strategy)
-    META_SCI_ENABLED: "<strong>Meta-SCI Master Toggle:</strong> Enables the 'Auto Strategy' ensemble logic. When ON, the bot runs ALL registered strategies in parallel and selects the winning setup based on consensus and entry score.",
-    META_SCI_MIN_CONSENSUS: "<strong>Min Consensus:</strong> The minimum number of strategies that must agree on the same trade direction (Long or Short) before an entry is allowed. 1 = Winner takes all. 2+ = Safer, high-accuracy ensemble.",
-    META_SCI_EXCLUDE_LIST: "<strong>Strategy Blacklist:</strong> Comma-separated list of strategy IDs to exclude from the Auto Strategy ensemble (e.g. 'evolution, quantum').",
-    PERFORMANCE_MODE_SENTIMENT: "<strong>AI Sentiment Fusion:</strong> Hype Train. Only allows high-risk trades when your configured AI confirms that global news sentiment for the asset is 'Highly Bullish'.",
-    PERFORMANCE_MODE_GHOST: "<strong>Harmonic Ghost:</strong> Order Flow. Only takes trades that align with 'Hidden Institutional Liquidity' levels filtered through specialized flow analysis.",
-    PERFORMANCE_MODE_PHOENIX: "<strong>The Phoenix:</strong> Reversion Scaling. After the 'Streak Breaker' pause ends, the bot takes the next signal at Double Risk, assuming a win is mathematically overdue.",
+    META_SCI_ENABLED: "<strong>The Boardroom Switch:</strong> Turns on the AI Manager. The bot will run every single strategy at once in the background, take a vote, and only trade the one that everyone agrees is the safest bet.",
+    META_SCI_MIN_CONSENSUS: "<strong>The Voting Rules:</strong> How many strategies must vote YES before the bot takes a trade. 1 = first one wins. 2 or more = much safer, less frequent trades.",
+    META_SCI_EXCLUDE_LIST: "<strong>The Blacklist:</strong> A list of strategies you specifically DO NOT want the AI Manager to ever use (like 'evolution, quantum').",
+    PERFORMANCE_MODE_SENTIMENT: "<strong>The News Junkie:</strong> Only allows the biggest, riskiest bets when the global news on Twitter and TV is overwhelmingly positive for the coin.",
+    PERFORMANCE_MODE_GHOST: "<strong>The Ghost Hunter:</strong> Sneaks into trades perfectly aligned with 'hidden' wholesale prices that big banks are secretly watching.",
+    PERFORMANCE_MODE_PHOENIX: "<strong>The Gambler's Fallacy:</strong> If the bot hits a punishing losing streak and gets put in timeout, it comes back from timeout swinging twice as hard, assuming a win is mathematically 'overdue'.",
 
     // Advanced Exit Shields
-    SAFETY_STALE_SNIPER_ENABLED: "Kills positions that haven't hit a target within a set number of bars. Prevents 'Zombie' trades from tying up capital.",
-    SAFETY_STALE_SNIPER_BARS: "Max candle bars to hold a sideways trade before the Sniper terminates it at market price.",
-    SAFETY_FLASH_TRAP_ENABLED: "Volatility Protection. Instantly closes trades if ATR spikes by 2.5x average, protecting you from flash-crashes.",
-    SAFETY_REGIME_FLIP_ENABLED: "HTF Trend Alignment. If the 4h trend turns against your 15m trade, the bot exits immediately to avoid a mismatch.",
-    BLOCK_COUNTER_TREND_ENTRIES: "Counter-Trend Entry Guard. Prevents opening long positions when the higher timeframe is bearish, and short positions when it's bullish. Stops the bot from catching falling knives.",
+    SAFETY_STALE_SNIPER_ENABLED: "The Zombie Killer. Automatically kills any trade that has been going sideways boringly for too long, freeing up your money for better opportunities.",
+    SAFETY_STALE_SNIPER_BARS: "How many candle bars to patiently wait before the Zombie Killer steps in.",
+    SAFETY_FLASH_TRAP_ENABLED: "The Airbag. Instantly closes your trades and ejects you from the market if a sudden, violent 'flash crash' is detected.",
+    SAFETY_REGIME_FLIP_ENABLED: "The Eject Button. If the 'Big Picture' big trend suddenly reverses while you are making a tiny 'Microscope' trade, the bot ejects you immediately to keep you safe.",
+    BLOCK_COUNTER_TREND_ENTRIES: "Don't Catch Falling Knives. Prevents the bot from ever buying when the overall trend is heavily downward.",
 
     // Wealth Weapons Exits
-    WEALTH_EXIT_GAMMA_ENABLED: "Velocity Trail. Tightens trailing stops exponentially during vertical moves to capture 90% of the squeeze.",
-    WEALTH_EXIT_MOONSHOT_ENABLED: "Target Elevator. If a trade hits 1R target in under 3 bars, the TP is doubled automatically for a massive swing.",
-    WEALTH_EXIT_BLOWOFF_ENABLED: "V-Top Seller. Sells 100% at market if volatility hits a 100-bar high while price is vertically extended.",
+    WEALTH_EXIT_GAMMA_ENABLED: "The Lasso. Dramatically tightens your trailing safety net during explosive, vertical price moves to make sure you capture 90% of the giant squeeze.",
+    WEALTH_EXIT_MOONSHOT_ENABLED: "The Elevator. If a trade hits its goal in less than 3 candles (too fast!), the bot instantly doubles the profit target because a massive breakout is happening.",
+    WEALTH_EXIT_BLOWOFF_ENABLED: "The Top Caller. Instantly sells 100% of your position if the market gets too crazy and vertical, cashing you out exactly at the top.",
 
     // Stop-and-Reverse
-    STOP_AND_REVERSE_ENABLED: "<strong>The Uno Reverse Card.</strong><br><br>When ANY stop loss fires, immediately open a new position in the <em>opposite</em> direction with a quick TP target. The logic: if price moved hard enough to stop you, it's probably still moving — ride it the other way.<br><br>This turns losing trades into <em>recovery trades</em>. Each reversal uses the 'Reversal Risk %' setting for sizing and targets a quick 1R profit.",
-    COUNTER_REVERSAL_ENABLED: "<strong>Counter-Reversal (CR).</strong><br><br>When the SAR trade starts losing, fire a <em>second</em> trade in the opposite direction at 2× risk with a tight 0.5R stop. If the SAR was wrong, the CR catches the real move. Think of it as insurance: small cost if wrong, big payoff if right.<br><br>CR has its own trailing stop that activates at 0.5R profit.",
-    SAR_KEEP_OPEN: "<strong>Keep SAR Open (Strategy-Specific).</strong><br><br>Controls how SAR and CR interact:<br>• <em>ON:</em> SAR stays open when CR fires (triggers at SAR -0.5R). CR exits if SAR recovers to break-even. Best for RoboCop and Evolution.<br>• <em>OFF:</em> SAR closes at break-even and CR fires immediately. Best for Session Momentum, Quantum, and Supply Demand.<br><br>This is a per-strategy optimization.",
-    REVERSAL_TP_R: "<strong>Reversal Take Profit (R-Multiple).</strong><br><br>How much profit to target on stop-and-reverse trades, measured in R (risk units). 1.0R means the TP distance equals the risk distance. Higher values let reversals run further but risk more pullback.",
-    REVERSAL_COST_AWARE_TP: "<strong>Cost-Aware TP.</strong><br><br>Adds the estimated spread/fee cost to the reversal's TP distance. This ensures the <em>actual</em> bank balance sees a true 1:1 profit after Oanda/broker fees, instead of a slightly-below 1R fill.",
-    REVERSAL_RISK_PER_TRADE: "<strong>Reversal Risk %.</strong><br><br>Risk percentage for stop-and-reverse entries. Higher than normal entry risk because the reversal catches momentum. 4.5% means risking $337 on a $7,500 account per reversal.",
-    SCALE_OUT_FRACTION: "<strong>Partial Close %.</strong><br><br>When the Conductor fires a 'scale out' (de-risk) signal, this is the fraction of the position to close. 0.95 = close 95% of the position, leaving only 5% to absorb the stop. Higher = smaller losses but less room for recovery.",
+    STOP_AND_REVERSE_ENABLED: "<strong>The Uno Reverse Card.</strong> If the bot's safety net is hit because the market moved violently the wrong way, this tells the bot to instantly 'flip' its bet and ride the new wave.",
+    COUNTER_REVERSAL_ENABLED: "<strong>The Double Uno Reverse.</strong> If the first Uno Reverse Card was ALSO wrong, fire a second, huge bet in the original direction just in case the market is toying with you.",
+    SAR_KEEP_OPEN: "<strong>Keep Uno Card Alive.</strong> Decides if the bot should nervously hold onto the first reverse card while the second reverse card is firing.",
+    REVERSAL_TP_R: "<strong>The Uno Target.</strong> How much profit you want the Uno Reverse trade to target before cashing out.",
+    REVERSAL_COST_AWARE_TP: "<strong>The Tax Accountant.</strong> Automatically makes the profit target just a tiny bit larger to completely cover the broker's hidden 'spread' taxes.",
+    REVERSAL_RISK_PER_TRADE: "<strong>The Uno Bet Size.</strong> How much of your account to risk on the Uno Reverse swing. Usually larger than a normal trade because vengeance is expensive.",
+    SCALE_OUT_FRACTION: "<strong>The De-Risk Slice.</strong> When the bot decides it's time to 'take some chips off the table', what percentage of your bet should it cash out? (e.g., 0.95 means cash out 95% and let 5% ride on luck).",
 };
 
 function getValue(key, strategyNamespace = null) {
@@ -711,7 +714,7 @@ const STRATEGIES = {
         name: "ORB (Opening Range Breakout)",
         shortDesc: "NY Opening Range Breakout",
         assetClass: "forex",
-        description: "The Opening Range Breakout (ORB) strategy. It watches the first 15 minutes of the New York Stock Market open (9:30 AM ET) to see where the big money is moving. It waits for the price to break out of that range, come back to test the level for safety, and form a 'flag' pattern before entering. ⚠️ BACKTESTED: 0% win rate on Forex — broken for short timeframes. Needs session-specific data.",
+        description: "Watches the first 15 minutes of the stock market opening bell to see which way the morning crowd is rushing. It waits for a clear breakout before jumping in to ride the wave. ⚠️ WARNING: Does not work well for Forex.",
         style: "Breakout",
         risk: "Low-Medium",
         bestFor: "Forex: NY Open (9:30-11:00 ET), Stocks/ETFs",
@@ -721,7 +724,7 @@ const STRATEGIES = {
         name: "Rubberband Reaper",
         shortDesc: "Anti-Martingale Mean Reversion",
         assetClass: "universal",
-        description: "Uses Bollinger Bands and RSI to catch price reversals at extremes. Features intelligent tiered risk management that INCREASES position size after wins and DECREASES after losses. Targets the opposite Bollinger Band for 3:1+ reward-to-risk ratios.",
+        description: "Like stretching a rubber band until it snaps back! It waits for the price to get pushed way too far in one direction, then bets that it will naturally bounce back to the middle. It smartly adjusts its bet sizes based on whether it is winning or losing.",
         style: "Mean Reversion",
         risk: "Adaptive",
         bestFor: "Universal: ranging markets, volatile assets",
@@ -731,7 +734,7 @@ const STRATEGIES = {
         name: "RoboCop",
         shortDesc: "Aggressive High-Frequency ICC",
         assetClass: "crypto",
-        description: "Lightning-fast execution with minimal confirmation requirements. Reacts to ANY valid micro-signal without waiting for corrections. Uses 1-bar confirmation and targets 3.0 ATR for maximum profit potential. Includes fast 'chop exit' to avoid ranging traps. ✅ CRYPTO: $2.5M profit, 33% win rate. ❌ FOREX: -$2K (spread eats all profit).",
+        description: "A lightning-fast robot that takes quick, aggressive trades at the very first sign of movement. It doesn't wait around for extra proof to confirm its guess. ✅ Great for Crypto. ❌ Bad for Forex (fees eat the profits).",
         style: "Aggressive Scalping",
         risk: "High",
         bestFor: "Crypto: high-frequency scalping — DO NOT use for Forex",
@@ -741,7 +744,7 @@ const STRATEGIES = {
         name: "Robot Evolution",
         shortDesc: "NTZ Range Scalper",
         assetClass: "crypto",
-        description: "Optimized for choppy, ranging markets. Identifies the 'No-Trade-Zone' (NTZ) between swing highs and lows, then trades liquidity sweeps at the edges. Targets 2.0R with conservative 1.5 ATR stops. ✅ CRYPTO: $2.3M profit, 27% win rate. ❌ FOREX: -$1.1K (NTZ scalping can't overcome OANDA spreads).",
+        description: "Built for boring, sideways markets where nothing much is happening. It waits for the price to briefly poke its head outside the normal range, grabs a quick profit, and gets right back out. ✅ Good for Crypto.",
         style: "Range Trading",
         risk: "Low-Medium",
         bestFor: "Crypto: ranging markets, NTZ liquidity sweeps",
@@ -751,7 +754,7 @@ const STRATEGIES = {
         name: "Quantum",
         shortDesc: "Trend-Following with SMA Pullback",
         assetClass: "crypto",
-        description: "Classic trend-following strategy that waits for price to pull back to the 20-period SMA before entering in the trend direction. Requires HTF/LTF alignment and momentum confirmation. ⚠️ BACKTESTED: -$2K on Forex 15m (6% win rate). Forex spreads destroy the 2:1 R:R edge. May work on 4H+ timeframes or crypto where trends are stronger.",
+        description: "A patient trend-follower. It identifies a strong, moving train of a trend, then waits for the price to simply take a little 'breather' (pull back) before jumping in to join the ride.",
         style: "Trend Following",
         risk: "Medium",
         bestFor: "Crypto: trend pullbacks, or 4H+ Forex only",
@@ -761,7 +764,7 @@ const STRATEGIES = {
         name: "Mean Reversion",
         shortDesc: "Bollinger + RSI Extremes",
         assetClass: "universal",
-        description: "Enters when price breaks outside Bollinger Bands (15-period, 2.5 std) with RSI confirmation of oversold (<25) or overbought (>75). Supports pyramiding with 6-bar cooldown between adds. Simple but effective for ranging markets.",
+        description: "Waits for the price to stray way too far from home, then bets that it will return back to normal. Simple and effective for markets that are just bouncing back and forth in a sideways pattern.",
         style: "Mean Reversion",
         risk: "Medium",
         bestFor: "Universal: ranging Forex and Crypto markets",
@@ -771,7 +774,7 @@ const STRATEGIES = {
         name: "HyperScalper",
         shortDesc: "EMA Crossover Speed Trading",
         assetClass: "universal",
-        description: "High-frequency 5-minute scalper using 9/21 EMA crossovers filtered by 200 EMA trend and RSI. Designed for aggressive compounding with 1% default risk per trade. ❌ BACKTESTED: 0% win rate on Forex, lost 100% of capital. Spread noise triggers false crossovers constantly.",
+        description: "An extremely hyperactive trader that tries to catch tiny little moves every 5 minutes by watching speed lines cross each other. ❌ WARNING: Not recommended for most markets because the broker fees will eat all your money.",
         style: "Fast Scalping",
         risk: "Very High",
         bestFor: "Universal: ❌ NOT RECOMMENDED — 0% win rate",
@@ -781,7 +784,7 @@ const STRATEGIES = {
         name: "London Breakout",
         shortDesc: "Session Opening Range",
         assetClass: "forex",
-        description: "Trades the breakout of the first hour of London session (08:00-09:00 GMT). Waits for the range to establish, then enters on breakout of the high or low before noon. Classic institutional strategy with 1.5R targets.",
+        description: "Wakes up specifically for the London morning bell, watches the first hour to see the early morning mood, and then trades enthusiastically in the direction of the huge morning rush.",
         style: "Breakout",
         risk: "Medium",
         bestFor: "Forex: GBP pairs, European session",
@@ -791,7 +794,7 @@ const STRATEGIES = {
         name: "Volatility Breakout",
         shortDesc: "Range Expansion Momentum",
         assetClass: "universal",
-        description: "Catches explosive moves when price breaks out of a 20-period range with RSI confirmation (>60 long, <40 short). Features fast momentum exit when RSI reverses. Great for catching the start of new trends.",
+        description: "Looks for markets that have been completely asleep and quiet. As soon as the market violently wakes up and breaks out of its nap, this strategy jumps on for the explosive ride.",
         style: "Breakout",
         risk: "Medium-High",
         bestFor: "Universal: any market showing compression",
@@ -801,7 +804,7 @@ const STRATEGIES = {
         name: "Singularity Aggregator",
         shortDesc: "Multi-Strategy Parallel",
         assetClass: "universal",
-        description: "Runs Mean Reversion + HyperScalper simultaneously for maximum capital utilization. Prioritizes scale-ins on existing winners, then new entries. Keeps the bot 'always loaded' for potential 400%+ returns by never missing opportunities.",
+        description: "A multi-tasker that runs two completely different trading strategies at the same time so your money is always working. It prioritizes adding to trades that are already winning rather than opening brand new ones.",
         style: "Multi-Strategy",
         risk: "Variable",
         bestFor: "Universal: maximizing capital efficiency",
@@ -811,7 +814,7 @@ const STRATEGIES = {
         name: "ICC Core (ICT Methodology)",
         shortDesc: "Displacement + OTE Pullback",
         assetClass: "universal",
-        description: "Pure ICT (Inner Circle Trader) methodology: detects displacement (consecutive momentum candles), then enters on pullback to the Optimal Trade Entry zone (50-78.6% Fibonacci) or at a Fair Value Gap. Uses engine trend as directional bias. Tight 1.5× ATR stops for better risk control.",
+        description: "Looks for giant 'footprints' left by big banks entering the market. When the banks push the price really hard, it waits for a tiny pullback and then immediately tags along behind the smart money.",
         style: "Price Action / ICT",
         risk: "Low-Medium",
         bestFor: "Universal: ICT methodology with tight risk",
@@ -821,7 +824,7 @@ const STRATEGIES = {
         name: "Supply & Demand",
         shortDesc: "Institutional Price Action",
         assetClass: "universal",
-        description: "Uses the pure institutional methodology of Supply and Demand zones. Waits for a clear Break of Structure, tags the 'Base' candle as a high-probability zone, enters when price returns to 'tap' that zone. ✅ BACKTESTED #1 FOREX: $1.4M profit. ✅ #2 CRYPTO: $4.7M profit. Extreme R:R (avg win 250× avg loss) compensates for low 5-20% win rate.",
+        description: "Finds the hidden 'wholesale price areas' where big institutions like to buy and sell. It patiently waits for the price to return precisely to these quiet zones before taking a trade. Low win rate, but massive payouts when it gets it right.",
         style: "Price Action / Institutional",
         risk: "Low-Medium",
         bestFor: "Universal: ✅ BEST for both Forex and Crypto",
@@ -832,7 +835,7 @@ const STRATEGIES = {
         icon: 'auto_awesome',
         shortDesc: 'AI-Enhanced Ensemble Strategy',
         assetClass: "universal",
-        description: "The ultimate AI Brain. Runs multiple trading strategies simultaneously and uses an AI ensemble to pick the best signal per trade — like a manager who only listens to the most successful expert for each situation. ✅ BACKTESTED #1 CRYPTO: $8.2M profit, 30% win rate. ✅ #2 FOREX: $951K profit. Consistently profitable across all markets.",
+        description: "The ultimate AI Manager. It quietly runs a whole team of different strategies at the exact same time, and uses Artificial Intelligence to pick the very best one for each trade. It's like having a boardroom of experts voting on what to do next.",
         style: "AI Ensemble",
         risk: "Dynamic",
         bestFor: "Universal: ✅ BEST for Crypto, EXCELLENT for Forex",
@@ -843,7 +846,7 @@ const STRATEGIES = {
         icon: 'route',
         shortDesc: 'Regime-Based Strategy Router',
         assetClass: "forex",
-        description: "Reads the market regime in real-time and routes to the right strategy: Trending → Trend Rider (EMA pullback entries), Ranging → Mean Reversion (Bollinger bounces), Transitional → Session Breakout (London open). Blocks ALL entries in choppy markets (HTF/LTF disagreement). Gates include 19% HTF strength minimum, 2h entry cooldown, loss streak cooldown, and HTF/LTF alignment checks. Trades in bursts when conditions align, sits out when they don't.",
+        description: "The Smart Director. It looks at the market's 'weather' (trending, choppy, or transitioning) and automatically switches to the perfect strategy for those exact conditions. If the market is too stormy and confused, it simply refuses to trade at all to keep you safe.",
         style: "Regime Router",
         risk: "Dynamic (conservative gates)",
         bestFor: "Forex: adapts to market conditions automatically",
@@ -853,7 +856,7 @@ const STRATEGIES = {
         name: 'Trend Rider',
         shortDesc: 'EMA Pullback in Strong Trend',
         assetClass: "forex",
-        description: "Waits for price to pull back to the EMA(21) during a confirmed strong HTF trend (strength ≥ 0.5). Requires EMA(8)/EMA(21) alignment, RSI 40-60 pullback zone, price within 0.3 ATR of slow EMA, and a confirming bounce. Used by the Conductor as its trending-regime sub-strategy — the Conductor's loss-cutting gates (Structure Invalidation at 0.5× ATR) keep avg losses to ~$3-8.",
+        description: "Finds a strong, undeniable trend, then waits for the price to take a tiny step backward before happily hitching a ride in the exact direction of the main trend.",
         style: "Trend Following",
         risk: "Medium (low when inside Conductor)",
         bestFor: "Forex: trending regimes via Conductor",
@@ -863,7 +866,7 @@ const STRATEGIES = {
         name: 'Session Momentum',
         shortDesc: 'VWAP + Volume Surge at Open',
         assetClass: "forex",
-        description: "Captures the initial directional move during the highest-volume period of the trading day. Active only in the first 30 minutes of London (08:00-08:30 UTC) or New York (09:30-10:00 ET) session. Requires a VWAP break with 2× average volume surge for entry.",
+        description: "Trades only during the busiest 30 minutes of the morning when everyone is rushing into the market. It catches the big wave of trading volume right at the opening bell before things quiet down.",
         style: "Momentum / Session",
         risk: "Medium-High",
         bestFor: "Forex: London & NY session opens",
@@ -873,7 +876,7 @@ const STRATEGIES = {
         name: 'Engulfing Reversal',
         shortDesc: 'Candle Pattern at Key Structure',
         assetClass: "universal",
-        description: "Classic price action reversal pattern. Enters when a bullish or bearish engulfing candle forms at a key structural level (swing high/low) with HTF alignment. Optional RSI divergence detection for higher probability setups. Stop placed beyond the engulfing candle's wick.",
+        description: "Looks for a specific pattern where a giant, powerful price movement completely 'swallows' the previous tiny price movement, signaling that the entire market is about to dramatically reverse direction.",
         style: "Price Action / Reversal",
         risk: "Medium",
         bestFor: "Universal: reversal zones, supply/demand levels",
@@ -894,7 +897,7 @@ const STRATEGIES = {
         name: 'RSI + MACD (Crypto)',
         shortDesc: 'Classic Momentum Combo for Crypto',
         assetClass: "crypto",
-        description: "Combines RSI oversold/overbought readings with MACD crossover confirmations. Designed for 24/7 crypto markets — no session gating. Waits for RSI to exit extreme zones while MACD histogram flips direction. ATR-based stops.",
+        description: "Combines two classic speedometers. It waits for a crypto coin to cool off after a big run, and then checks if the momentum is starting to shift before jumping back in.",
         style: "Momentum / Crypto",
         risk: "Medium",
         bestFor: "Crypto: trending markets, BTC/ETH swing trades",
@@ -904,7 +907,7 @@ const STRATEGIES = {
         name: 'VWAP Reversion (Crypto)',
         shortDesc: 'Mean Reversion to VWAP',
         assetClass: "crypto",
-        description: "Enters when price deviates significantly from the volume-weighted average price and shows signs of reverting. Uses Bollinger-style bands around VWAP with volume confirmation. Optimized for high-volume crypto pairs.",
+        description: "Finds where the 'average fair price' is, based on trading volume. If a coin wanders too wildly away from this fair price, it bets that it will get pulled back like a magnet.",
         style: "Mean Reversion / Crypto",
         risk: "Medium",
         bestFor: "Crypto: ranging markets, high-volume pairs",
@@ -914,7 +917,7 @@ const STRATEGIES = {
         name: 'Double MACD Scalper (Crypto)',
         shortDesc: 'Dual-Timeframe MACD Momentum',
         assetClass: "crypto",
-        description: "Uses two MACD indicators on different timeframes for confluence. Fast MACD (5/13/4) for entry timing, slow MACD (12/26/9) for trend filter. Designed for tight crypto scalps with quick exits on momentum fade.",
+        description: "Uses two different momentum trackers at once—one fast and one slow—to perfectly time quick trades in the 24/7 crypto markets.",
         style: "Scalping / Crypto",
         risk: "High",
         bestFor: "Crypto: active pairs, scalping BTC/SOL",
@@ -924,7 +927,7 @@ const STRATEGIES = {
         name: 'Virtual Grid (Crypto)',
         shortDesc: 'Grid Trading with Dynamic Levels',
         assetClass: "crypto",
-        description: "Places a virtual grid of buy/sell zones around the current market price. Profits from price oscillation within a range. Automatically adjusts grid spacing based on ATR volatility. No physical grid orders — all managed internally.",
+        description: "Casts a virtual 'fishing net' of buy and sell lines around the current price. It profits by continuously catching the small price bounces back and forth within a sideways market.",
         style: "Grid / Crypto",
         risk: "Medium-High",
         bestFor: "Crypto: sideways/ranging markets",
@@ -934,7 +937,7 @@ const STRATEGIES = {
         name: 'Yo-Yo',
         shortDesc: 'Momentum Reversal Engine',
         assetClass: "universal",
-        description: "Proven trend-following SAR strategy. Uses 50 SMA as trend filter (only long above, short below), requires strong directional candle confirmation (close in top/bottom 30% of range), and swing-based structural stops. 2:1 R:R target. On stop hit, SAR reverses automatically. Risk escalates +1% after each profitable exit. Best with SAR enabled.",
+        description: "The ultimate bounce-back strategy. It follows the main trend, but if it gets stopped out for a loss, it acts just like a Yo-Yo—it immediately spins around and places a trade in the opposite direction!",
         style: "Trend / SAR",
         risk: "Medium",
         bestFor: "Universal: trending markets with SAR enabled",
@@ -1509,9 +1512,12 @@ function createCard(title, desc, key, controlType, options = {}) {
         }
     }
 
+    const tooltipContent = options.tooltip || TOOLTIPS[key];
+    const iconHtml = tooltipContent && !locked ? `<span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help;">info</span>` : '';
+
     card.innerHTML = `
         <div class="card-info">
-            <span class="card-title">${title}</span>
+            <span class="card-title" style="display:flex; align-items:center;">${title}${iconHtml}</span>
             <span class="card-desc">${finalDesc}</span>
         </div>
         <div class="card-control no-drag"></div>
@@ -1521,7 +1527,6 @@ function createCard(title, desc, key, controlType, options = {}) {
     const rawValue = getValue(key, stratNamespace);
     const value = (rawValue !== null && rawValue !== undefined && rawValue !== '') ? rawValue : (options.default || '');
 
-    const tooltipContent = options.tooltip || TOOLTIPS[key];
     if (tooltipContent && !locked) {
         card.addEventListener('mouseenter', (e) => showTooltip(e, key, tooltipContent));
         card.addEventListener('mouseleave', hideTooltip);
@@ -1639,16 +1644,46 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%', options 
     const isPct = (unit === '%');
     const displayValue = isPct && rawValue < 1 ? (rawValue * 100).toFixed(1) : rawValue;
 
+    let toggleHtml = '';
+    let isToggledOn = false;
+    let sliderDisabledClass = '';
+    if (options.toggleKey) {
+        const tVal = getValue(options.toggleKey, stratNamespace);
+        isToggledOn = (tVal === 'true');
+        if (isToggledOn && options.toggleDisables) {
+            sliderDisabledClass = 'opacity-50 pointer-events-none grayscale';
+        }
+        toggleHtml = `
+            <label class="flex items-center gap-1.5 cursor-pointer select-none hover:bg-white/5 transition-colors px-2 py-0.5 rounded" style="position: absolute; bottom: 12px; right: 12px;">
+                <input type="checkbox" class="accent-teal-500 w-3.5 h-3.5" ${isToggledOn ? 'checked' : ''} id="chk-${options.toggleKey}">
+                <span class="text-[10px] font-black text-teal-400/90 uppercase tracking-widest">${options.toggleLabel}</span>
+            </label>
+        `;
+        card.style.position = 'relative';
+        card.style.paddingBottom = '36px'; // Extra space at bottom to fit the toggle nicely
+    }
+
+    const tooltipContent = options.tooltip || TOOLTIPS[key];
+    const iconHtml = tooltipContent ? `<span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help;">info</span>` : '';
+
+    if (tooltipContent) {
+        card.addEventListener('mouseenter', (e) => showTooltip(e, key, tooltipContent));
+        card.addEventListener('mouseleave', hideTooltip);
+    }
+
     card.innerHTML = `
-        <div class="slider-header">
+        <div class="slider-header" style="align-items:flex-start;">
             <div>
-                <div class="slider-title">${title}</div>
+                <div class="slider-title" style="display:flex; align-items:center;">${title}${iconHtml}</div>
                 <div class="slider-desc">${desc}</div>
             </div>
-            <div class="slider-value">${displayValue}<span class="slider-value-small">${unit}</span></div>
+            <div style="display:flex; flex-direction:column; align-items:flex-end;">
+                <div class="slider-value">${displayValue}<span class="slider-value-small">${unit}</span></div>
+            </div>
         </div>
-        <input type="range" class="slider-input" min="${min}" max="${max}" step="${step}" value="${displayValue}">
+        <input type="range" class="slider-input ${sliderDisabledClass}" min="${min}" max="${max}" step="${step}" value="${displayValue}">
         <div class="slider-key">${key}</div>
+        ${toggleHtml}
     `;
 
     const slider = card.querySelector('.slider-input');
@@ -1657,6 +1692,21 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%', options 
     if (TOOLTIPS[key]) {
         card.addEventListener('mouseenter', (e) => showTooltip(e, key, TOOLTIPS[key]));
         card.addEventListener('mouseleave', hideTooltip);
+    }
+
+    if (options.toggleKey) {
+        const chk = card.querySelector(`#chk-${options.toggleKey}`);
+        chk.addEventListener('change', (e) => {
+            const isChecked = e.target.checked;
+            updateValue(options.toggleKey, isChecked ? 'true' : 'false', stratNamespace);
+            if (options.toggleDisables) {
+                if (isChecked) {
+                    slider.classList.add('opacity-50', 'pointer-events-none', 'grayscale');
+                } else {
+                    slider.classList.remove('opacity-50', 'pointer-events-none', 'grayscale');
+                }
+            }
+        });
     }
 
     let saveTimeout;
@@ -1825,6 +1875,75 @@ function renderSystemTab(container) {
         "<strong>Market Guards</strong><br><br>Safety checks that run before any trade is placed. These include things like the PDT (Pattern Day Trader) guard, automatic position flattening at market close, and cooldown timers that prevent overtrading."
     ));
     section.appendChild(createCard('PDT Safety Guard', 'Prevent US Equity 25k rule violations', 'PDT_GUARD_ENABLED', 'toggle'));
+
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Notifications & Sounds', 'notifications_active',
+        "<strong>Audio Alerts</strong><br><br>Customize the sound played when you secure a profitable exit ('Cha-Ching!')."
+    ));
+
+    const soundHtml = `
+        <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; position: relative;">
+            <div style="font-size: 11px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;">Payout Alert</div>
+            <select id="win-sound-type" class="settings-input" style="width: 100%; color-scheme: dark; padding: 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #f8fafc; font-weight: 500; cursor: pointer;">
+                <option value="default">Default ("Cha-Ching")</option>
+                <option value="disabled">Disabled (Silent)</option>
+                <option value="custom">Custom Audio File...</option>
+            </select>
+            <div id="custom-sound-path" style="display: none; margin-top: 10px; font-size: 11px; color: #14b8a6; word-break: break-all; background: rgba(20,184,166,0.1); padding: 8px; border-radius: 6px;"></div>
+            <input type="file" id="custom-sound-upload" accept="audio/*" style="display: none;">
+        </div>
+    `;
+    const soundDiv = document.createElement('div');
+    soundDiv.innerHTML = soundHtml;
+    section.appendChild(soundDiv);
+
+    // Wire up the sound logic after appending
+    setTimeout(() => {
+        const select = document.getElementById('win-sound-type');
+        const upload = document.getElementById('custom-sound-upload');
+        const pathDisplay = document.getElementById('custom-sound-path');
+
+        if (!select || !upload || !pathDisplay) return;
+
+        // Init values from localStorage
+        const savedType = localStorage.getItem('GUI_WIN_SOUND_TYPE') || 'default';
+        const savedPath = localStorage.getItem('GUI_WIN_SOUND_PATH') || '';
+        select.value = savedType;
+
+        if (savedType === 'custom' && savedPath) {
+            pathDisplay.style.display = 'block';
+            pathDisplay.textContent = 'Current: ' + savedPath.split('/').pop();
+        }
+
+        select.addEventListener('change', (e) => {
+            const val = e.target.value;
+            localStorage.setItem('GUI_WIN_SOUND_TYPE', val);
+            
+            if (val === 'custom') {
+                upload.click(); // Trigger file picker
+            } else {
+                pathDisplay.style.display = 'none';
+                localStorage.removeItem('GUI_WIN_SOUND_PATH');
+            }
+        });
+
+        upload.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                // Electron provides the absolute path on the file object
+                const absolutePath = e.target.files[0].path;
+                localStorage.setItem('GUI_WIN_SOUND_PATH', absolutePath);
+                pathDisplay.style.display = 'block';
+                pathDisplay.textContent = 'Current: ' + absolutePath.split('/').pop();
+            } else {
+                // User cancelled logic
+                if (!localStorage.getItem('GUI_WIN_SOUND_PATH')) {
+                    select.value = 'default';
+                    localStorage.setItem('GUI_WIN_SOUND_TYPE', 'default');
+                    pathDisplay.style.display = 'none';
+                }
+            }
+        });
+    }, 50);
 
     container.appendChild(section);
 }
@@ -2061,7 +2180,7 @@ function renderStrategyTab(container) {
         // Slider Grid
         const grid = document.createElement('div');
         grid.className = 'card-grid';
-        grid.appendChild(createSliderCard('Default Risk %', 'Fallback equity risk', 'RISK_PER_TRADE_PCT', 0.1, 20.0, 0.1, '%'));
+        grid.appendChild(createSliderCard('Default Risk %', 'Fallback equity risk', 'RISK_PER_TRADE_PCT', 0.1, 20.0, 0.1, '%', { toggleKey: 'RISK_DYNAMIC_AUTO', toggleLabel: 'Auto', toggleDisables: true }));
         grid.appendChild(createSliderCard('Max Exposure', 'Total open risk limit', 'MAX_EXPOSURE_PCT', 5, 100, 5, '%'));
         grid.appendChild(createSliderCard('Daily Loss Limit', 'Circuit breaker — stops trading for the day 🍞', 'LIMIT_LOSS_DAILY_PCT', 1, 20, 1, '%'));
         section.appendChild(grid);
@@ -2104,7 +2223,7 @@ function renderStrategyTab(container) {
 
         // Conductor controls (saves to global config, promoted to active profile)
         section.appendChild(createCard('Pyramid on Winners', 'Add to winning trades at profit milestones', 'CONDUCTOR_PYRAMID_ENABLED', 'toggle'));
-        section.appendChild(createSliderCard('Pyramid Trigger Level', 'R-multiple distance before first add', 'CONDUCTOR_PYRAMID_START_R', 0.3, 2.0, 0.1, 'R', { default: '1.0' }));
+        section.appendChild(createSliderCard('Pyramid Trigger Level', 'R-multiple distance before first add', 'CONDUCTOR_PYRAMID_START_R', 0.1, 2.0, 0.1, 'R', { default: '0.2' }));
         section.appendChild(createSliderCard('First Pyramid Size', 'Risk % of initial position size', 'CONDUCTOR_PYRAMID_FIRST_PCT', 5, 100, 5, '%', { default: '30' }));
 
         section.appendChild(createDivider());
@@ -3444,31 +3563,39 @@ function renderStrategyToolbox(container) {
             "<strong>ICC Core Logic</strong><br><br>The ICC (Indication, Correction, Continuation) system automatically enters trades when it detects the classic three-phase pattern: a strong move (indication), a pullback (correction), and a resumption (continuation). These settings control whether it can auto-trade and how aggressive it is."
         ));
 
-        section.appendChild(createCard('ICC Auto-Entry', 'Auto-enter on valid signals', 'ICC_AUTO_ENTRY_ENABLED', 'toggle', { default: 'true' }));
-        section.appendChild(createCard('Aggressive Mode', 'Enable aggressive sizing', 'ICC_AGGRESSIVE_MODE', 'toggle', { default: 'true' }));
-        section.appendChild(createCard('Require Sweep', 'Must have liquidity sweep', 'ICC_AUTO_ENTRY_REQUIRE_SWEEP', 'toggle'));
-        section.appendChild(createSliderCard('Min HTF Strength', 'Minimum trend strength', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 0, 100, 5, '%'));
-        section.appendChild(createSliderCard('Confirmation Bars', 'Bars to confirm signal', 'ICC_CONFIRMATION_BARS', 1, 5, 1, 'bars'));
+        section.appendChild(createCard('ICC Auto-Entry', 'Let the bot trade this automatically', 'ICC_AUTO_ENTRY_ENABLED', 'toggle', { 
+            default: 'true',
+            tooltip: "When turned on, the bot has your permission to automatically open trades whenever it sees a picture-perfect trend pullback. If you turn this off, it will only watch the market and wait for you to manually make the final call."
+        }));
+        section.appendChild(createCard('Aggressive Mode', 'Take bolder, larger trades', 'ICC_AGGRESSIVE_MODE', 'toggle', { 
+            default: 'true',
+            tooltip: "When turned on, the bot will risk a little more money on trades it feels extremely confident about. It's like pressing the gas pedal when the road is completely clear. Turn this off if you want it to drive the speed limit no matter what."
+        }));
+        section.appendChild(createCard('Require Sweep', 'Wait for the market to trap others', 'ICC_AUTO_ENTRY_REQUIRE_SWEEP', 'toggle', {
+            tooltip: "When turned on, the bot will patiently wait to see other impatient traders get trapped and lose their money first before it enters the trade. It's a very safe, sneaky way to trade, but you might miss out on fast-moving trains."
+        }));
+        section.appendChild(createSliderCard('Min HTF Strength', 'How strong the big picture trend must be', 'ICC_AUTO_ENTRY_MIN_HTF_STRENGTH', 0, 100, 5, '%', { tooltip: 'The minimum strength required from the overall market trend before the bot will consider taking a trade.' }));
+        section.appendChild(createSliderCard('Confirmation Bars', 'Candles to wait before jumping in', 'ICC_CONFIRMATION_BARS', 1, 5, 1, 'bars', { tooltip: 'How many candles the bot waits after seeing a signal to make sure it is a real move and not a fakeout.' }));
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('ICC Scoring Weights', 'leaderboard',
             "<strong>ICC Scoring Weights</strong><br><br>How many points each signal component contributes to the overall ICC score. Higher scores mean more conviction. The entry threshold determines the minimum score needed before the bot places a trade."
         ));
 
-        section.appendChild(createSliderCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 0, 100, 5, 'pts'));
+        section.appendChild(createSliderCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 0, 100, 5, 'pts', { tooltip: 'The passing grade a trade setup must achieve before the bot will pull the trigger. 80 is usually an A+ setup.' }));
 
         const scoreGrid = document.createElement('div');
         scoreGrid.className = 'card-grid';
-        scoreGrid.appendChild(createSliderCard('Continuation', 'Points for continuation', 'ICC_SCORE_CONTINUATION_POINTS', 0, 100, 5, 'pts'));
-        scoreGrid.appendChild(createSliderCard('Sweep', 'Points for liquidity sweep', 'ICC_SCORE_SWEEP_POINTS', 0, 50, 5, 'pts'));
-        scoreGrid.appendChild(createSliderCard('HTF/LTF Align', 'Points for alignment', 'ICC_SCORE_HTF_LTF_ALIGN_POINTS', 0, 50, 5, 'pts'));
-        scoreGrid.appendChild(createSliderCard('Strong HTF', 'Points for strong trend', 'ICC_SCORE_STRONG_HTF_POINTS', 0, 30, 5, 'pts'));
-        scoreGrid.appendChild(createSliderCard('Phase', 'Points for good phase', 'ICC_SCORE_PHASE_POINTS', 0, 20, 5, 'pts'));
-        scoreGrid.appendChild(createSliderCard('Indication', 'Points for indication', 'ICC_SCORE_INDICATION_POINTS', 0, 20, 5, 'pts'));
+        scoreGrid.appendChild(createSliderCard('Continuation', 'Points for continuation', 'ICC_SCORE_CONTINUATION_POINTS', 0, 100, 5, 'pts', { tooltip: 'Points awarded if the setup aligns with a successful push in the main trend direction.' }));
+        scoreGrid.appendChild(createSliderCard('Sweep', 'Points for liquidity sweep', 'ICC_SCORE_SWEEP_POINTS', 0, 50, 5, 'pts', { tooltip: 'Points awarded if the market just trapped a bunch of amateur traders trying to pick a top or bottom.' }));
+        scoreGrid.appendChild(createSliderCard('HTF/LTF Align', 'Points for alignment', 'ICC_SCORE_HTF_LTF_ALIGN_POINTS', 0, 50, 5, 'pts', { tooltip: 'Points awarded when both the big picture (HTF) and small picture (LTF) timeframes completely agree.' }));
+        scoreGrid.appendChild(createSliderCard('Strong HTF', 'Points for strong trend', 'ICC_SCORE_STRONG_HTF_POINTS', 0, 30, 5, 'pts', { tooltip: 'Bonus points if the overarching massive market trend is extremely powerful right now.' }));
+        scoreGrid.appendChild(createSliderCard('Phase', 'Points for good phase', 'ICC_SCORE_PHASE_POINTS', 0, 20, 5, 'pts', { tooltip: 'Points awarded if we are correctly catching the pullback phase rather than chasing the extended phase.' }));
+        scoreGrid.appendChild(createSliderCard('Indication', 'Points for indication', 'ICC_SCORE_INDICATION_POINTS', 0, 20, 5, 'pts', { tooltip: 'Points awarded if the initial strong move (Indication) that started the pattern was unusually aggressive or large.' }));
         section.appendChild(scoreGrid);
     } else if (toolboxTab === 'rubberband_reaper') {
         const stratInfo = STRATEGIES.rubberband_reaper;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'tune'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'tune', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
         section.appendChild(createWarningBox(`
             <strong>Strategy Override:</strong><br>
@@ -3487,12 +3614,12 @@ function renderStrategyToolbox(container) {
         section.appendChild(createCard('Period', 'Lookback bars', 'BB_PERIOD', 'input', {
             number: true,
             default: '15',
-            tooltip: 'The number of candles used to calculate the Bollinger Bands. A smaller number makes the bands more reactive to price changes, while a larger number smooths them out.'
+            tooltip: "How far back in time the bot looks to figure out what 'normal' price movement is right now. A smaller number reacts faster, while a larger number is smoother and more patient."
         }));
         section.appendChild(createCard('Std Dev', 'Width multiplier', 'BB_STD', 'input', {
             number: true,
             default: '2.5',
-            tooltip: 'Standard Deviation multiplier. Higher values (e.g. 3.0) mean price hits the bands less often (more extreme). Lower values (e.g. 2.0) generate more signals but potentially more false alarms.'
+            tooltip: "How far price has to stretch away from 'normal' before the Rubberband snaps back. A higher number like 3.0 means it waits for a massive, rare stretch. A lower number like 2.0 triggers more often but might get it wrong more."
         }));
 
         section.appendChild(createDivider());
@@ -3501,22 +3628,22 @@ function renderStrategyToolbox(container) {
         section.appendChild(createCard('Period', 'RSI Lookback', 'RSI_PERIOD', 'input', {
             number: true,
             default: '14',
-            tooltip: 'The lookback period for the Relative Strength Index. 14 is the industry standard.'
+            tooltip: "How many recent candles the bot looks at to judge if buyers or sellers are exhausted. 14 is the industry standard."
         }));
         section.appendChild(createCard('Overbought', 'Short threshold', 'RSI_OVERBOUGHT', 'input', {
             number: true,
             default: '75',
-            tooltip: 'RSI level considered "Overbought". Price above this level suggests an exhaustion of buying momentum, signaling a potential Short entry.'
+            tooltip: "When the market is buying too much, too fast, this is the number that tells the bot the buyers are probably exhausted and a drop is coming."
         }));
         section.appendChild(createCard('Oversold', 'Long threshold', 'RSI_OVERSOLD', 'input', {
             number: true,
             default: '25',
-            tooltip: 'RSI level considered "Oversold". Price below this level suggests an exhaustion of selling momentum, signaling a potential Long entry.'
+            tooltip: "When the market is selling too much, too fast, this is the number that tells the bot the sellers are probably exhausted and a bounce is coming."
         }));
 
     } else if (toolboxTab === 'supply_demand') {
         const stratInfo = STRATEGIES.supply_demand;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'account_balance_wallet'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'account_balance_wallet', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
         section.appendChild(createWarningBox(`
             <strong>Institutional Logic:</strong><br>
@@ -3526,13 +3653,13 @@ function renderStrategyToolbox(container) {
         section.appendChild(createCard('RR Target', 'Reward-to-Risk Goal', 'SND_RR_TARGET', 'input', {
             number: true,
             default: '2.0',
-            tooltip: 'The desired Reward-to-Risk ratio. 2.0 means targeting twice the amount risked. This is the optimal setting for SND institutional setups.'
+            tooltip: "When the bot finds a great zone, this is how much profit it tries to capture compared to what it risks. A 2.0 means if it risks $10, it tries to make $20."
         }));
 
         section.appendChild(createCard('Zone Window', 'Candle Lookback for Zones', 'SND_ZONE_WINDOW', 'input', {
             number: true,
             default: '100',
-            tooltip: 'How many historical candles the bot scans to find valid Supply or Demand zones. A larger window finds older, potentially stronger zones.'
+            tooltip: "How far back in history the bot will scan to find powerful, unfilled institutional orders. A bigger number finds older, stronger zones."
         }));
 
         section.appendChild(createDivider());
@@ -3541,12 +3668,12 @@ function renderStrategyToolbox(container) {
         section.appendChild(createCard('Max Daily Trades', 'Daily Trade Cap', 'MAX_DAILY_TRADES', 'input', {
             number: true,
             default: '20',
-            tooltip: 'Safety cap on how many trades this strategy can take per symbol per day. Prevents over-trading in choppy markets.'
+            tooltip: "A safety brake that tells the bot to stop trading for the day if it has taken this many trades. It prevents the bot from overworking in messy markets."
         }));
 
     } else if (toolboxTab === 'meta_sci') {
         const stratInfo = STRATEGIES.meta_sci;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'hub'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'hub', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
         section.appendChild(createWarningBox(`
             <strong>Ensemble Master:</strong><br>
@@ -3554,23 +3681,25 @@ function renderStrategyToolbox(container) {
             The configuration below determines how it selects the "Winning" signal when multiple strategies agree.
         `));
 
-        section.appendChild(createCard('Meta-SCI Active', 'Orchestrate all strategies in parallel', 'META_SCI_ENABLED', 'toggle'));
+        section.appendChild(createCard('Meta-SCI Active', 'Orchestrate all strategies in parallel', 'META_SCI_ENABLED', 'toggle', {
+            tooltip: "Turn this on to let Meta-SCI act like the boss of all the other strategies. Instead of one strategy deciding to trade, Meta-SCI asks all of them for their opinion and only trades when they agree."
+        }));
         section.appendChild(createCard('Min Consensus', 'Min strategies that must agree', 'META_SCI_MIN_CONSENSUS', 'input', {
             number: true,
             default: '1',
             min: 1,
             max: 5,
-            tooltip: 'Minimum number of strategies that must signal the same direction before an entry is permitted. 1 = Highest score wins immediately.'
+            tooltip: "How many different strategies have to agree on a trade before Meta-SCI actually pulls the trigger. Setting this to 1 means it just takes the loudest voice in the room. Setting it higher is safer but trades less often."
         }));
 
         section.appendChild(createCard('Strategy Blacklist', 'Comma-separated IDs to ignore', 'META_SCI_EXCLUDE_LIST', 'input', {
             default: '',
-            tooltip: 'Strategies to exclude from consensus.'
+            tooltip: "Type the names of any strategies you want Meta-SCI to completely ignore when it's asking for opinions around the room."
         }));
 
     } else if (toolboxTab === 'orb_breakout') {
         const stratInfo = STRATEGIES.orb_breakout;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'rule'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'rule', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
         section.appendChild(createWarningBox(`
             <strong>Break & Retest Strategy:</strong><br>
@@ -3579,17 +3708,17 @@ function renderStrategyToolbox(container) {
 
         section.appendChild(createCard('Session Start', 'Range start time (ET)', 'ORB_START_TIME', 'time', {
             default: '09:30',
-            tooltip: 'The time the Opening Range begins. Usually 09:30 AM ET (NY Open).'
+            tooltip: "The exact time in the morning when the opening bell rings and the wild trading begins. Usually 09:30 AM Eastern Time."
         }));
         section.appendChild(createCard('Duration (Min)', 'Length of the Range', 'ORB_DURATION', 'input', {
             number: true,
             default: '15',
-            tooltip: 'How long the Opening Range lasts in minutes. Standard is 15 minutes (09:30-09:45).'
+            tooltip: "How many minutes the bot should patiently watch the morning chaos to figure out the high and low boundaries before it starts hunting for breakouts."
         }));
         section.appendChild(createCard('Risk %', 'Risk per trade', 'ORB_RISK_PCT', 'input', {
             number: true,
             default: '1.0',
-            tooltip: 'Percentage of account to risk on this strategy.'
+            tooltip: "How much of your account money you're willing to lose if this morning breakout trade goes wrong. 1.0 means 1%."
         }));
 
 
@@ -3633,7 +3762,7 @@ function renderStrategyToolbox(container) {
         section.appendChild(scoreGrid);
     } else if (toolboxTab === 'robocop') {
         const stratInfo = STRATEGIES.robocop;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'local_police'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'local_police', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
         section.appendChild(createWarningBox(`
             <strong>High Frequency Trading:</strong><br>
@@ -3641,7 +3770,7 @@ function renderStrategyToolbox(container) {
         `));
 
         section.appendChild(createCard('Combat Mode', 'Bypass RoboCop HTF/Score gates only', 'COMBAT_MODE_ENABLED', 'toggle', {
-            tooltip: 'If enabled, RoboCop ignores its own "HTF Strength" and "Score Threshold" gates. It will take every valid liquidity sweep or continuation signal regardless of broader context. <strong>Note:</strong> This does NOT bypass global Safety Guards (Drawdown Breaker, Session Lockout, etc.) — only RoboCop-specific entry filters.'
+            tooltip: "When turned on, RoboCop ignores the big picture trend and its own safety checks to take every single fast signal it sees. It's extremely aggressive, like speeding with the seatbelt off. Only use this in wild and choppy markets where fast trades win."
         }));
 
         section.appendChild(createDivider());
@@ -3651,67 +3780,67 @@ function renderStrategyToolbox(container) {
             number: true,
             default: '1',
             min: 1, limit: 3,
-            tooltip: 'How many candles to wait after a signal before entering. RoboCop defaults to 1 for speed. Increasing this adds safety but may miss fast moves.'
+            tooltip: "How many candles RoboCop waits after seeing a signal before jumping in. 1 means it shoots first and asks questions later. Higher numbers mean it waits to make sure it's not a head-fake."
         }));
         section.appendChild(createCard('Target Multiplier', 'R-multiple', 'TARGET_R', 'input', {
             number: true,
             default: '3.0',
-            tooltip: 'Multiplies the ATR (volatility) to set the Take Profit level. 3.0 means targeting a move 3x the average volatility size.'
+            tooltip: "How far the profit target is compared to the normal market wiggle (volatility). 3.0 means it wants a massive, 3x sized run before it cashes out."
         }));
         section.appendChild(createCard('Stop ATR Buffer', 'Protection width buffer', 'STOP_ATR_BUFFER', 'input', {
             number: true,
             default: '0.2',
-            tooltip: 'A tiny buffer added beyond the structural swing stop level using the ATR (Average True Range).'
+            tooltip: "A tiny bit of extra breathing room added to the stop loss so market noise doesn't accidentally trigger it before the real move happens."
         }));
         section.appendChild(createCard('Guillotine Cut %', 'Scale-out fraction when losing', 'GUILLOTINE_CUT_PCT', 'input', {
             number: true,
             default: '0.80',
-            tooltip: 'The percentage of the stop loss distance reached before the Guillotine cuts 95% of the position to preserve capital.'
+            tooltip: "When a trade goes bad and hits this percentage of the way to the stop loss, the bot gets scared and chops off 95% of the trade early to save your money instead of waiting for the full loss."
         }));
         section.appendChild(createCard('Chandelier Multiplier', 'Trailing stop volatility multiplier', 'CHANDELIER_MULT', 'input', {
             number: true,
             default: '2.0',
-            tooltip: 'Multiplies the ATR to set the trailing stop distance once the trade enters profit.'
+            tooltip: "Once the trade is in deep profit, the bot sets a trailing stop to follow the price up. This number tells it how closely to hug the price. 2.0 is a wide hug, giving it room to breathe."
         }));
 
     } else if (toolboxTab === 'evolution') {
         const stratInfo = STRATEGIES.evolution;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'smart_toy'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'smart_toy', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
         section.appendChild(createCard('Target Risk:Reward', 'R-Multiple', 'TARGET_R', 'input', {
             number: true,
             default: '2.0',
-            tooltip: 'The fixed Reward-to-Risk ratio. A value of 2.0 means the bot calculates position size such that the Profit Target is 2x the distance of the Stop Loss.'
+            tooltip: "The golden rule of trading: always try to make more than you risk. 2.0 means if the bot risks losing $50, it sets the target at making $100."
         }));
         section.appendChild(createCard('Stop ATR Mult', 'Volatility based stop', 'STOP_ATR_MULT', 'input', {
             number: true,
             default: '1.0',
-            tooltip: 'Sets the stop loss distance based on market volatility (ATR). 1.0 is standard for this strategy to survive random noise while chopping.'
+            tooltip: "How much wiggle room the trade gets based on how crazy the market is acting right now. 1.0 is standard – it survives normal bumps without dying early."
         }));
         section.appendChild(createCard('Chandelier Trail Multiplier', 'Trailing stop volatility multiplier', 'CHANDELIER_MULT', 'input', {
             number: true,
             default: '2.0',
-            tooltip: 'Multiplies the ATR to set the trailing stop distance once the trade enters profit.'
+            tooltip: "Once the trade is in deep profit, the bot sets a trailing stop to follow the price up. This number tells it how closely to hug the price. 2.0 is a wide hug, giving it room to breathe."
         }));
 
     } else if (toolboxTab === 'quantum') {
         const stratInfo = STRATEGIES.quantum;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'science'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'science', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
         section.appendChild(createCard('SMA Period', 'Trend baseline', 'QUANTUM_SMA_PERIOD', 'input', {
             number: true,
             default: '20',
-            tooltip: 'The Simple Moving Average (SMA) period used to define the "mean". Quantum looks for pullbacks to this line.'
+            tooltip: "The moving average line that Quantum uses as the 'center of gravity'. It waits for price to snap back to this line before firing."
         }));
         section.appendChild(createCard('Stop ATR Mult', 'Protection width', 'QUANTUM_STOP_ATR_MULT', 'input', {
             number: true,
             default: '2.5',
-            tooltip: 'Quantum uses a wider stop (2.5 ATR) to allow for deeper pullbacks within a massive trend.'
+            tooltip: "Quantum uses a very wide safety net (2.5) because it's trying to ride massive, long-term waves and doesn't want to get shaken off by normal ripples."
         }));
         section.appendChild(createCard('Target R', 'Profit target', 'QUANTUM_TARGET_R', 'input', {
             number: true,
             default: '1.6',
-            tooltip: 'The Reward-to-Risk target. 1.6 ensures a high win rate while maintaining positive expectancy.'
+            tooltip: "Since Quantum is trading very large moves, a smaller target like 1.6 still brings in good money while keeping the win rate high."
         }));
 
     } else if (toolboxTab === 'forex_conductor') {
@@ -3723,29 +3852,29 @@ function renderStrategyToolbox(container) {
         section.appendChild(createCard('Base Risk %', `Specific risk for ${stratInfo.name}`, 'RISK_PER_TRADE_PCT', 'input', {
             number: true,
             placeholder: 'Default',
-            tooltip: `Define the specific risk percentage for ${stratInfo.name}. This overrides the global "Default Risk %" setting.`
+            tooltip: `Tell the bot exactly how much account money (%) to risk every time ${stratInfo.name} takes a trade. This will override your master settings.`
         }));
 
         section.appendChild(createCard('Stop & Reverse (SAR)', 'Auto-flip direction after a stopped trade', 'STOP_AND_REVERSE_ENABLED', 'toggle', {
             default: 'true',
-            tooltip: '<strong>Stop And Reverse.</strong><br><br>When enabled, after a trade is stopped out, the Conductor checks if conditions support a trade in the opposite direction. If yes, it immediately enters the reversal — bypassing cooldowns. This prevents 3 consecutive shorts on GBPUSD when the pair is actually going long.<br><br><strong>Recommended: ON.</strong> This is the Conductor\'s cornerstone defense against trending losses.'
+            tooltip: "If a trade hits the stop loss, this tells the bot to immediately check if the trend completely reversed. If it did, it instantly opens a new trade in the opposite direction to catch the real move. Leave this ON!"
         }));
 
         section.appendChild(createCard('Scale-Out Fraction', 'Partial close % on de-risk signal', 'SCALE_OUT_FRACTION', 'input', {
             number: true,
             default: '0.95',
-            tooltip: 'When the Conductor fires a de-risk signal, this is the fraction to close. 0.95 = close 95%, keep 5% as a runner.'
+            tooltip: "When the bot feels danger and decides to take profit early, this is the percentage of the position it closes. 0.95 means it closes 95% of the trade and leaves a tiny 5% 'runner' just in case it keeps going."
         }));
 
         section.appendChild(createCard('R:R Ratio', 'Reward-to-Risk target', 'RISK_REWARD_RATIO', 'input', {
             number: true,
             default: '2.0',
-            tooltip: 'The target Reward-to-Risk ratio for the Conductor\'s entries.'
+            tooltip: "How much profit it targets compared to the risk. 2.0 means it tries to make double what it risks."
         }));
 
         section.appendChild(createCard('Quick Ranging TP', 'Cap profits at 0.7R during choppy/ranging sessions', 'QUICK_RANGING_TP_ENABLED', 'toggle', {
             default: 'false',
-            tooltip: 'When the market is consolidating (ranging), Conductor tries to capture ping-pong oscillation peaks by forcing a 0.7R profit target. Disable this to let profitable trades run beyond 1R and capture sudden breakouts.'
+            tooltip: "When the market is boring and just bouncing up and down in a tight tunnel, the bot usually just gets stopped out waiting for a big move. Turn this ON to tell the bot to settle for small, quick profits during the boring times."
         }));
 
         section.appendChild(createDivider());
@@ -3756,103 +3885,103 @@ function renderStrategyToolbox(container) {
         section.appendChild(createCard('Reversal TP (R)', 'Take-profit R-multiple for SAR entries', 'REVERSAL_TP_R', 'input', {
             number: true,
             default: '1.0',
-            tooltip: 'The R-multiple for SAR reversal take-profit. 1.0 = target equals risk amount (conservative recovery).'
+            tooltip: "When the bot gets stopped out and flips direction, this tells it how aggressive to be on the recovery trade. 1.0 means it just tries to make back exactly what it just lost. Keep this low."
         }));
 
         section.appendChild(createCard('Cost-Aware TP', 'Adjust TP to cover previous loss + spread', 'REVERSAL_COST_AWARE_TP', 'toggle', {
             default: 'true',
-            tooltip: 'Automatically adjusts the reversal TP to recover the previous trade\'s loss plus estimated spread costs.'
+            tooltip: "When the bot flips direction after a loss, this forces it to do the math and add the broker spread fees into the recovery target, so you actually break completely even."
         }));
 
     } else if (toolboxTab === 'hyper_scalper') {
         const stratInfo = STRATEGIES.hyper_scalper;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'speed'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'speed', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
-        section.appendChild(createCard('Fast EMA Period', 'Fast EMA line', 'FAST_EMA', 'input', { number: true, default: '9' }));
-        section.appendChild(createCard('Slow EMA Period', 'Slow EMA line', 'SLOW_EMA', 'input', { number: true, default: '21' }));
-        section.appendChild(createCard('Trend EMA Period', 'Trend baseline', 'TREND_EMA', 'input', { number: true, default: '200' }));
-        section.appendChild(createCard('Stop ATR Mult', 'Stop distance', 'STOP_ATR_MULT', 'input', { number: true, default: '2.0' }));
-        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '3.0' }));
+        section.appendChild(createCard('Fast EMA Period', 'Fast EMA line', 'FAST_EMA', 'input', { number: true, default: '9', tooltip: "How many recent candles to average to find the ultra-short-term momentum. 9 is standard." }));
+        section.appendChild(createCard('Slow EMA Period', 'Slow EMA line', 'SLOW_EMA', 'input', { number: true, default: '21', tooltip: "The slightly slower moving average. When the fast line crosses the slow line, that's the trigger." }));
+        section.appendChild(createCard('Trend EMA Period', 'Trend baseline', 'TREND_EMA', 'input', { number: true, default: '200', tooltip: "The massive baseline that tells the bot whether the big picture is going up or down. Never trade against this." }));
+        section.appendChild(createCard('Stop ATR Mult', 'Stop distance', 'STOP_ATR_MULT', 'input', { number: true, default: '2.0', tooltip: "How wide the safety net should be based on market noise." }));
+        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '3.0', tooltip: "How much profit it wants compared to the risk. 3.0 means it wants triple what it risks." }));
 
     } else if (toolboxTab === 'rubberband_reaper') {
         const stratInfo = STRATEGIES.rubberband_reaper;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'architecture'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'architecture', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
-        section.appendChild(createCard('BB Period', 'Bollinger Period', 'BB_PERIOD', 'input', { number: true, default: '20' }));
-        section.appendChild(createCard('BB StdDev', 'Bollinger Std', 'BB_STD', 'input', { number: true, default: '2.5' }));
-        section.appendChild(createCard('RSI Period', 'RSI Lookback', 'RSI_PERIOD', 'input', { number: true, default: '7' }));
-        section.appendChild(createCard('RSI Overbought', 'OB threshold', 'RSI_OVERBOUGHT', 'input', { number: true, default: '75' }));
-        section.appendChild(createCard('RSI Oversold', 'OS threshold', 'RSI_OVERSOLD', 'input', { number: true, default: '25' }));
+        section.appendChild(createCard('BB Period', 'Bollinger Period', 'BB_PERIOD', 'input', { number: true, default: '20', tooltip: "How far back in time the bot looks to figure out what 'normal' price movement is right now." }));
+        section.appendChild(createCard('BB StdDev', 'Bollinger Std', 'BB_STD', 'input', { number: true, default: '2.5', tooltip: "How far price has to stretch away from 'normal' before the Rubberband snaps back. A higher number like 3.0 means it waits for a massive, rare stretch." }));
+        section.appendChild(createCard('RSI Period', 'RSI Lookback', 'RSI_PERIOD', 'input', { number: true, default: '7', tooltip: "How many recent candles the bot looks at to judge if buyers or sellers are exhausted. 7 is very fast and sensitive." }));
+        section.appendChild(createCard('RSI Overbought', 'OB threshold', 'RSI_OVERBOUGHT', 'input', { number: true, default: '75', tooltip: "When the market is buying too much, too fast, this number tells the bot the buyers are exhausted." }));
+        section.appendChild(createCard('RSI Oversold', 'OS threshold', 'RSI_OVERSOLD', 'input', { number: true, default: '25', tooltip: "When the market is selling too much, too fast, this number tells the bot the sellers are exhausted." }));
 
     } else if (toolboxTab === 'supply_demand') {
         const stratInfo = STRATEGIES.supply_demand;
         section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'account_balance'));
 
-        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0' }));
-        section.appendChild(createCard('Zone Lookback', 'Candles to check for BOS', 'ZONE_WINDOW', 'input', { number: true, default: '100' }));
+        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0', tooltip: "When the bot finds a great zone, this is how much profit it tries to capture compared to what it risks. 2.0 means double the risk." }));
+        section.appendChild(createCard('Zone Lookback', 'Candles to check for BOS', 'ZONE_WINDOW', 'input', { number: true, default: '100', tooltip: "How far back in history the bot will scan to find powerful, unfilled institutional orders." }));
 
     } else if (toolboxTab === 'london_breakout') {
         const stratInfo = STRATEGIES.london_breakout;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'timer'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'timer', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
-        section.appendChild(createCard('Asian Start (UTC)', 'Asian session start', 'ASIAN_START', 'time', { default: '00:00' }));
-        section.appendChild(createCard('Asian End (UTC)', 'Asian session end', 'ASIAN_END', 'time', { default: '06:00' }));
-        section.appendChild(createCard('London Start (UTC)', 'London session start', 'LONDON_START', 'time', { default: '07:00' }));
-        section.appendChild(createCard('Stop Box Mult', 'Stop multiplier against box', 'STOP_BOX_MULT', 'input', { number: true, default: '0.5' }));
-        section.appendChild(createCard('Target Box Mult', 'Target multiplier against box', 'TARGET_BOX_MULT', 'input', { number: true, default: '1.5' }));
+        section.appendChild(createCard('Asian Start (UTC)', 'Asian session start', 'ASIAN_START', 'time', { default: '00:00', tooltip: "The exact time the boring, slow Asian trading session begins in UTC time." }));
+        section.appendChild(createCard('Asian End (UTC)', 'Asian session end', 'ASIAN_END', 'time', { default: '06:00', tooltip: "The exact time the boring Asian session ends, drawing the 'box' that the bot will wait to break out of." }));
+        section.appendChild(createCard('London Start (UTC)', 'London session start', 'LONDON_START', 'time', { default: '07:00', tooltip: "The exact time the London market opens and traders rush in, causing massive price spikes." }));
+        section.appendChild(createCard('Stop Box Mult', 'Stop multiplier against box', 'STOP_BOX_MULT', 'input', { number: true, default: '0.5', tooltip: "How much of the Asian box width should act as the safety net (stop loss). 0.5 means half the box size." }));
+        section.appendChild(createCard('Target Box Mult', 'Target multiplier against box', 'TARGET_BOX_MULT', 'input', { number: true, default: '1.5', tooltip: "How much profit it wants based on the Asian box size. 1.5 means it wants to make 1.5 times the size of the box." }));
 
     } else if (toolboxTab === 'mean_reversion') {
         const stratInfo = STRATEGIES.mean_reversion;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'compare_arrows'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'compare_arrows', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
-        section.appendChild(createCard('BB Period', 'Bollinger Period', 'BB_PERIOD', 'input', { number: true, default: '20' }));
-        section.appendChild(createCard('BB StdDev', 'Bollinger Std', 'BB_STD', 'input', { number: true, default: '2.0' }));
-        section.appendChild(createCard('RSI Period', 'RSI Lookback', 'RSI_PERIOD', 'input', { number: true, default: '14' }));
-        section.appendChild(createCard('RSI Overbought', 'OB threshold', 'RSI_OVERBOUGHT', 'input', { number: true, default: '70' }));
-        section.appendChild(createCard('RSI Oversold', 'OS threshold', 'RSI_OVERSOLD', 'input', { number: true, default: '30' }));
+        section.appendChild(createCard('BB Period', 'Bollinger Period', 'BB_PERIOD', 'input', { number: true, default: '20', tooltip: "How far back in time the bot looks to figure out what 'normal' price movement is right now." }));
+        section.appendChild(createCard('BB StdDev', 'Bollinger Std', 'BB_STD', 'input', { number: true, default: '2.0', tooltip: "How far price has to stretch away from 'normal' before the bot expects a snap back to the middle." }));
+        section.appendChild(createCard('RSI Period', 'RSI Lookback', 'RSI_PERIOD', 'input', { number: true, default: '14', tooltip: "How many recent candles the bot looks at to judge if buyers or sellers are exhausted." }));
+        section.appendChild(createCard('RSI Overbought', 'OB threshold', 'RSI_OVERBOUGHT', 'input', { number: true, default: '70', tooltip: "When the market is buying too much, too fast, this number tells the bot the buyers are exhausted." }));
+        section.appendChild(createCard('RSI Oversold', 'OS threshold', 'RSI_OVERSOLD', 'input', { number: true, default: '30', tooltip: "When the market is selling too much, too fast, this number tells the bot the sellers are exhausted." }));
 
     } else if (toolboxTab === 'crypto_vwap_reversion') {
         const stratInfo = STRATEGIES.crypto_vwap_reversion;
         if (stratInfo) {
-            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'timeline'));
-            section.appendChild(createCard('EMA Period', 'Trend EMA', 'EMA_PERIOD', 'input', { number: true, default: '20' }));
-            section.appendChild(createCard('RSI Period', 'RSI Check', 'RSI_PERIOD', 'input', { number: true, default: '14' }));
-            section.appendChild(createCard('RSI Long Threshold', 'Max RSI for Long', 'RSI_LONG_THRESHOLD', 'input', { number: true, default: '40' }));
-            section.appendChild(createCard('VWAP Dev %', 'VWAP deviation', 'VWAP_DEVIATION_PCT', 'input', { number: true, default: '0.003' }));
+            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'timeline', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
+            section.appendChild(createCard('EMA Period', 'Trend EMA', 'EMA_PERIOD', 'input', { number: true, default: '20', tooltip: "The baseline that tells the bot the general direction of the market." }));
+            section.appendChild(createCard('RSI Period', 'RSI Check', 'RSI_PERIOD', 'input', { number: true, default: '14', tooltip: "How many recent candles the bot looks at to judge if buyers or sellers are exhausted." }));
+            section.appendChild(createCard('RSI Long Threshold', 'Max RSI for Long', 'RSI_LONG_THRESHOLD', 'input', { number: true, default: '40', tooltip: "The bot won't buy unless the RSI is below this number, proving the asset is 'on sale'." }));
+            section.appendChild(createCard('VWAP Dev %', 'VWAP deviation', 'VWAP_DEVIATION_PCT', 'input', { number: true, default: '0.003', tooltip: "How far price must stretch away from the massive daily volume average (VWAP) before the bot claims it's overstretched." }));
         }
 
     } else if (toolboxTab === 'icc_core_standalone') {
         const stratInfo = STRATEGIES.icc_core_standalone;
-        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'precision_manufacturing'));
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'precision_manufacturing', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
-        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0' }));
-        section.appendChild(createCard('Stop ATR Mult', 'Stop buffer', 'STOP_ATR_MULT', 'input', { number: true, default: '1.5' }));
-        section.appendChild(createCard('Entry Cooldown', 'Bars to wait between entries', 'ENTRY_COOLDOWN_BARS', 'input', { number: true, default: '8' }));
+        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0', tooltip: "How much profit it wants compared to the risk. 2.0 means it wants double what it risks." }));
+        section.appendChild(createCard('Stop ATR Mult', 'Stop buffer', 'STOP_ATR_MULT', 'input', { number: true, default: '1.5', tooltip: "How much extra 'wiggle room' is added to the stop loss based on normal market volatility." }));
+        section.appendChild(createCard('Entry Cooldown', 'Bars to wait between entries', 'ENTRY_COOLDOWN_BARS', 'input', { number: true, default: '8', tooltip: "After taking a trade, how many candles it has to wait before it's allowed to take another one." }));
 
     } else if (toolboxTab === 'crypto_grid') {
         const stratInfo = STRATEGIES.crypto_grid;
         if (stratInfo) {
-            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'grid_on'));
-            section.appendChild(createCard('Grid ATR Mult', 'Grid spacing mult', 'GRID_ATR_MULT', 'input', { number: true, default: '1.5' }));
-            section.appendChild(createCard('Grid Levels', 'Levels to deploy', 'GRID_LEVELS', 'input', { number: true, default: '5' }));
-            section.appendChild(createCard('Trend Guard', 'Max HTF trend strength', 'TREND_GUARD_THRESHOLD', 'input', { number: true, default: '0.5' }));
+            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'grid_on', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
+            section.appendChild(createCard('Grid ATR Mult', 'Grid spacing mult', 'GRID_ATR_MULT', 'input', { number: true, default: '1.5', tooltip: "How far apart (based on market volatility) your layered entry orders will be placed." }));
+            section.appendChild(createCard('Grid Levels', 'Levels to deploy', 'GRID_LEVELS', 'input', { number: true, default: '5', tooltip: "How many separate orders the bot will place in the grid to catch deep pullbacks." }));
+            section.appendChild(createCard('Trend Guard', 'Max HTF trend strength', 'TREND_GUARD_THRESHOLD', 'input', { number: true, default: '0.5', tooltip: "The bot won't build a grid if the massive overall trend is violently moving the wrong way. 0.5 is a standard caution level." }));
         }
 
     } else if (toolboxTab === 'yoyo') {
         const stratInfo = STRATEGIES.yoyo;
         if (stratInfo) {
-            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'wifi_tethering'));
-            section.appendChild(createCard('SMA Period', 'Trend Filter', 'SMA_PERIOD', 'input', { number: true, default: '50' }));
-            section.appendChild(createCard('Risk Escalation', 'Risk to add per win', 'RISK_ESCALATION', 'input', { number: true, default: '0.01' }));
-            section.appendChild(createCard('Max Risk', 'Hard cap risk %', 'MAX_RISK_PCT', 'input', { number: true, default: '0.05' }));
-            section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0' }));
+            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'wifi_tethering', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
+            section.appendChild(createCard('SMA Period', 'Trend Filter', 'SMA_PERIOD', 'input', { number: true, default: '50', tooltip: "The baseline that tells the bot the general direction of the market." }));
+            section.appendChild(createCard('Risk Escalation', 'Risk to add per win', 'RISK_ESCALATION', 'input', { number: true, default: '0.01', tooltip: "Every time the bot wins, it adds this much extra risk to the next trade to snowball profits." }));
+            section.appendChild(createCard('Max Risk', 'Hard cap risk %', 'MAX_RISK_PCT', 'input', { number: true, default: '0.05', tooltip: "The absolute maximum percentage of your account YoYo is allowed to risk, no matter how many times it wins." }));
+            section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0', tooltip: "How much profit it wants compared to the risk. 2.0 means it wants double what it risks." }));
         }
 
     } else {
         // Generic fallback for others (Bearish Engulfing, Volatility Breakout, etc)
         const stratInfo = STRATEGIES[toolboxTab];
         if (stratInfo) {
-            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'tune'));
+            section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'tune', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
             section.appendChild(createWarningBox(`
                 <strong>Strategy Override Enabled:</strong><br>
@@ -3862,7 +3991,7 @@ function renderStrategyToolbox(container) {
             section.appendChild(createCard('Base Risk %', `Specific risk for ${stratInfo.name}`, 'RISK_PER_TRADE_PCT', 'input', {
                 number: true,
                 placeholder: 'Default',
-                tooltip: `Define the specific risk percentage for ${stratInfo.name}. This overrides the global "Default Risk %" setting.`
+                tooltip: `Tell the bot exactly how much account money (%) to risk every time ${stratInfo.name} takes a trade. This will override your master settings.`
             }));
 
             // Add strategy description again for context

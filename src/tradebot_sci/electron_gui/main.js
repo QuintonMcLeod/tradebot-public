@@ -315,7 +315,8 @@ function setupIpcHandlers() {
         { filename: 'RTFM/37_CONTEXT_MASKING.md', title: 'Context Masking for Dummies', category: 'rtfm', icon: 'theater_comedy', description: '"Wait... so if I tell the bot to risk 1% globally, how the hell do I tell RoboCop to risk 3% without screwing up my entire profile?" Patrice O\'Neal style breakdown of the Context Masking feature.' },
         { filename: 'RTFM/38_NOT_A_MONEY_PRINTER.md', title: 'This Is Not a Money Printer', category: 'rtfm', icon: 'hourglass_top', description: '"I installed the bot forty-five minutes ago. When do I get rich?" A brutally honest conversation about why trading is an investment — not a slot machine — and why the compound effect takes months, not minutes. With real math, real timelines, and a gym analogy that will haunt you.', featured: true },
         { filename: 'RTFM/39_LIVE_SPREAD.md', title: 'Live Spread Integration: Why Your Bot Was Trading Blindfolded', category: 'rtfm', icon: 'visibility', description: '"The bot thought the highway toll was $1.50 but sometimes it was $15." How OANDA\'s dynamic spreads were silently eating your profits, and how the bot now fetches real-time bid/ask data every 30 seconds instead of guessing.' },
-        { filename: 'RTFM/40_TAKE_PROFIT.md', title: 'The Payout Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Payout card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing. Three states: LOCKED, SHIELDED, and CASHOUT.' },
+        { filename: 'RTFM/40_TARGET.md', title: 'The Payout Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Payout card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing. Three states: LOCKED, SHIELDED, and CASHOUT.' },
+        { filename: 'RTFM/41_REMOTE_SETUP.md', title: 'Remote Setup: Linux Brain + Windows Face', category: 'rtfm', icon: 'lan', description: '"The bot has two halves — a brain and a face." How to run the Python engine on a Linux server and connect the Electron GUI from a Windows machine over your local network. Kitchen-and-dining-room style.' },
     ];
 
     try {
@@ -448,7 +449,8 @@ function setupIpcHandlers() {
             const paperState = {
                 balance: 10000.0,
                 positions: {},
-                updated_at: now
+                updated_at: now,
+                last_reset_at: now
             };
             fs.writeFileSync(path.join(DATA_DIR, 'paper_state.json'), JSON.stringify(paperState, null, 2));
 
@@ -456,6 +458,7 @@ function setupIpcHandlers() {
             const paperLedger = {
                 version: 1,
                 last_updated: now,
+                last_reset_at: now,
                 sundown_timezone: "America/New_York",
                 current_day: {
                     day_start: "",
@@ -480,7 +483,13 @@ function setupIpcHandlers() {
             // paper_trade_results.json
             fs.writeFileSync(path.join(DATA_DIR, 'paper_trade_results.json'), '[]');
 
-            console.log('[MAIN] Paper trading files reset to $10,000');
+            // Truncate ghost logs so log_analytics.js doesn't pull old trades into the UI
+            const stdoutLog = path.join(USER_DATA_DIR, 'logs', 'bot_stdout.log');
+            const tradebotLog = path.join(USER_DATA_DIR, 'logs', 'tradebot.log');
+            if (fs.existsSync(stdoutLog)) fs.writeFileSync(stdoutLog, '');
+            if (fs.existsSync(tradebotLog)) fs.writeFileSync(tradebotLog, '');
+
+            console.log('[MAIN] Paper trading files reset to $10,000, ghost logs truncated');
         } catch (err) {
             console.error('[MAIN] Failed to reset paper files:', err.message);
             return { success: false, error: err.message };
@@ -500,6 +509,27 @@ function setupIpcHandlers() {
         }, 3000);
 
         return { success: true };
+    });
+
+    ipcMain.handle('take-paper-payout', async (event, amount) => {
+        try {
+            const paperStatePath = path.join(DATA_DIR, 'paper_state.json');
+            if (fs.existsSync(paperStatePath)) {
+                let state = JSON.parse(fs.readFileSync(paperStatePath, 'utf8'));
+                if (state.balance) {
+                    state.balance -= amount;
+                    state.updated_at = new Date().toISOString();
+                    fs.writeFileSync(paperStatePath, JSON.stringify(state, null, 2));
+                    console.log(`[MAIN] Payout simulated: deducted $${amount.toFixed(2)} from Paper balance.`);
+                    // Let the bot know state changed if necessary
+                    return { success: true };
+                }
+            }
+            return { success: false, error: 'No paper state found' };
+        } catch (e) {
+            console.error('[MAIN] Payout Error:', e);
+            return { success: false, error: e.message };
+        }
     });
 
     // =============================================

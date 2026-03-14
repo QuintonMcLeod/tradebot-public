@@ -776,11 +776,11 @@ window.profilesModule = (function () {
         'session_gate_enabled': 'Only trade during active market hours. Prevents trades during low-volume off-hours when spreads are wider.',
         'continuous_mode': 'Run this profile around the clock without stopping. Best for 24/7 crypto markets.',
         'crypto_only': 'Restrict this profile to only trade cryptocurrency symbols, ignoring any forex or stock symbols.',
-        'conductor_pyramid_enabled': 'When enabled, the bot adds to winning trades at profit milestones. Pyramiding amplifies winners — $50 wins can become $80+. Disable to take flat single-entry trades only.',
+        'conductor_pyramid_enabled': 'Master switch to allow the Conductor to pyramid (add size) to winning trades.',
+        'conductor_pyramid_start_r': 'The profit level (in R-multiples) at which the first pyramid fires. Lower = more aggressive (0.2R ≈ $20 on typical risk). Higher = waits for bigger winners.',
+        'conductor_pyramid_first_pct': 'The amount of risk (percentage of equity) added on the FIRST pyramid. Example: 0.3 means a 30% scale-in.',
         'swap_avoidance_enabled': 'OANDA charges 3× overnight swap on Wednesdays at 5PM ET. When enabled, the bot closes marginal trades (under 0.5R profit) before the cutoff to save money.',
-        'conductor_pyramid_start_r': 'The profit level (in R-multiples) at which the first pyramid fires. Lower = more aggressive (0.5R ≈ $50 on typical risk). Higher = waits for bigger winners.',
         'spread_gate_max_pct': 'Maximum spread allowed as a percentage of stop-loss distance. Blocks entries where spread eats too much of the risk. Lower = stricter (fewer bad-spread trades).',
-        'conductor_pyramid_first_pct': 'Size of the first pyramid entry as a fraction of the original position. 30% is moderate, 50% is aggressive, 10% is conservative.',
     };
 
     function renderGeneralTab(profile) {

@@ -119,7 +119,7 @@ function updateMetrics(data) {
     data = data || {};
 
     // Hero PnL
-    const pnl = parseFloat(data.totalPnl) || 0;
+    const pnl = parseFloat(data.activePnl !== undefined ? data.activePnl : data.totalPnl) || 0;
     const pnlEl = document.getElementById('metric-pnl');
     if (pnlEl) {
         pnlEl.textContent = formatCurrency(pnl);
@@ -127,11 +127,13 @@ function updateMetrics(data) {
         pnlEl.className = `hero-value ${pnl >= 0 ? 'positive' : 'negative'}`;
     }
 
-    const pnlPct = parseFloat(data.capitalChangePct) || 0;
+    const activeCapStart = parseFloat(data.activeCapitalStart) || parseFloat(data.capitalStart) || 0;
+    const capitalChangePct = activeCapStart > 0 ? (pnl / activeCapStart * 100) : 0;
+    
     const pnlPctEl = document.getElementById('metric-pnl-pct');
     if (pnlPctEl) {
-        pnlPctEl.textContent = `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%`;
-        pnlPctEl.style.color = pnlPct >= 0 ? 'rgba(52, 211, 153, 0.55)' : 'rgba(248, 113, 113, 0.55)';
+        pnlPctEl.textContent = `${capitalChangePct >= 0 ? '+' : ''}${capitalChangePct.toFixed(1)}%`;
+        pnlPctEl.style.color = capitalChangePct >= 0 ? 'rgba(52, 211, 153, 0.55)' : 'rgba(248, 113, 113, 0.55)';
     }
 
     // Win Rate card
@@ -185,18 +187,26 @@ function updateMetrics(data) {
     const tpAmount = document.getElementById('tp-amount');
     const tpRationale = document.getElementById('tp-rationale');
     const tpIcon = document.getElementById('tp-icon');
+    const takePayoutBtn = document.getElementById('btn-take-payout');
 
     if (tpCard && tpAmount && tpRationale) {
         // Track previous state for cha-ching trigger
         const prevState = tpCard.dataset.mentorState || 'waiting';
-
-        // Reset state classes
-        tpCard.classList.remove('tp-state-cashout', 'tp-state-waiting', 'tp-state-drawdown');
+        tpCard.dataset.payoutAmount = '0';
+        if (takePayoutBtn) {
+            takePayoutBtn.classList.add('hidden');
+            takePayoutBtn.style.display = 'none';
+        }
 
         let hasActive = false;
         if (data.trades) {
             hasActive = data.trades.some(t => t._active);
         }
+
+        const withdrawnAmount = parseFloat(data.totalWithdrawn) || 0;
+        const unwithdrawnProfit = pnl; // This is now data.activePnl
+        
+        const activeCapStart = parseFloat(data.activeCapitalStart) || data.capitalStart;
 
         if (hasActive) {
             // State: Waiting Room
@@ -208,8 +218,19 @@ function updateMetrics(data) {
             tpCard.dataset.mentorState = 'waiting';
             requestTakeProfitMentor(0, 'waiting', 'Active trades floating');
 
-        } else if (pnl <= 0) {
-            // State: Drawdown
+        } else if (Math.abs(pnl) < 0.01 || (unwithdrawnProfit <= 0 && pnl > 0)) {
+            // State: Neutral / Fresh Account
+            tpCard.classList.remove('tp-state-drawdown');
+            tpCard.classList.remove('tp-state-cashout');
+            tpIcon.textContent = 'radar';
+            tpAmount.textContent = 'SCANNING';
+            tpAmount.style.fontSize = '28px';
+            tpRationale.textContent = 'Account Fully Capitalized';
+            tpCard.dataset.mentorState = 'neutral';
+            requestTakeProfitMentor(0, 'neutral', 'Account capitalized, looking for trades');
+
+        } else if (unwithdrawnProfit <= 0 && pnl <= 0) {
+            // State: Drawdown (Negative historical PnL, no withdrawals)
             tpCard.classList.add('tp-state-drawdown');
             tpIcon.textContent = 'security';
             tpAmount.textContent = 'SHIELDED';
@@ -218,13 +239,15 @@ function updateMetrics(data) {
             tpCard.dataset.mentorState = 'drawdown';
             requestTakeProfitMentor(pnl, 'drawdown', 'Drawdown recovery');
 
-        } else {
-            // State: Cash Out (Calculate Velocity)
+        } else if (unwithdrawnProfit > 0) {
+            // State: Cash Out (They have new, unwithdrawn profit to take!)
             tpCard.classList.add('tp-state-cashout');
             tpIcon.textContent = 'account_balance';
 
-            // Velocity calculation (pnl / starting capital)
-            const velocityPct = data.capitalStart > 0 ? (pnl / data.capitalStart) * 100 : 0;
+            // Velocity calculation (unwithdrawnProfit / current capital base)
+            const currentBase = parseFloat(data.activeCapitalStart) || parseFloat(data.capitalStart) || 1;
+            const velocityPct = currentBase > 0 ? (unwithdrawnProfit / currentBase) * 100 : 0;
+            
             let recommendedPct = 0.50; // Default: 50% steady grind
             let mathRationale = '50% of Secured Profit';
             let mentorContext = 'Steady grind paycheck';
@@ -236,14 +259,34 @@ function updateMetrics(data) {
                 mentorContext = 'Massive anomaly spike';
             }
 
-            const payoutValue = pnl * recommendedPct;
+            const payoutValue = unwithdrawnProfit * recommendedPct;
             tpAmount.innerHTML = `<span style="font-size:18px; opacity:0.6; font-weight:700; vertical-align:top; margin-right:2px; margin-top:6px; display:inline-block;">$</span>${payoutValue.toFixed(2)}`;
             tpAmount.style.fontSize = '36px';
             tpRationale.textContent = `${mathRationale} ($${pnl.toFixed(2)} Total)`;
+            tpCard.dataset.payoutAmount = payoutValue.toFixed(2);
+            
+            if (takePayoutBtn && window.currentPaperMode) {
+                takePayoutBtn.classList.remove('hidden');
+                takePayoutBtn.style.display = 'flex';
+            }
 
             // 🔔 Cha-Ching! Play sound when transitioning TO cashout
+            // AND ensure the most recent closed trade was actually a winner.
             if (prevState !== 'cashout') {
-                playChaChing();
+                let recentWin = true; // Assume true if no trades array available
+                if (data.trades && data.trades.length > 0) {
+                    // Find the most recent closed trade (not active)
+                    const closedTrades = data.trades.filter(t => !t._active);
+                    if (closedTrades.length > 0) {
+                        // Trades are usually chronological, so the last one is the most recent
+                        const lastTrade = closedTrades[closedTrades.length - 1];
+                        recentWin = parseFloat(lastTrade.netPnl || lastTrade.pnl || 0) > 0;
+                    }
+                }
+                
+                if (recentWin) {
+                    playChaChing();
+                }
             }
             tpCard.dataset.mentorState = 'cashout';
             requestTakeProfitMentor(pnl, 'cashout', mentorContext);
@@ -285,6 +328,8 @@ function requestTakeProfitMentor(pnl, state, context) {
 function applyFallbackMentorText(aiBox, state) {
     if (state === 'waiting') {
         aiBox.textContent = 'Active risk is currently floating. Withdrawing capital right now artificially spikes margin utilization. Sit on your hands until resolution.';
+    } else if (state === 'neutral') {
+        aiBox.textContent = 'Account is fully capitalized and ready. Scanning markets for high-probability setups to secure the first profit.';
     } else if (state === 'drawdown') {
         aiBox.textContent = 'We are currently under water. Shield algorithms are active. Do not withdraw capital, allow the bot to recover the high water mark.';
     } else {
@@ -296,57 +341,32 @@ function applyFallbackMentorText(aiBox, state) {
 // CHA-CHING SOUND (Web Audio API — no external files)
 // ═══════════════════════════════════════════════════════════
 let _chaChingCooldown = false;
+let _startupMute = true;
+setTimeout(() => { _startupMute = false; }, 15000); // Wait 15s before allowing sounds
+
 function playChaChing() {
-    if (_chaChingCooldown) return;
+    if (_startupMute || _chaChingCooldown) return;
     _chaChingCooldown = true;
     setTimeout(() => { _chaChingCooldown = false; }, 5000); // 5s cooldown
 
     try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const now = ctx.currentTime;
-
-        // ── Coin hit (metallic ping) ──
-        const osc1 = ctx.createOscillator();
-        const gain1 = ctx.createGain();
-        osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(2200, now);
-        osc1.frequency.exponentialRampToValueAtTime(1800, now + 0.08);
-        gain1.gain.setValueAtTime(0.3, now);
-        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-        osc1.connect(gain1).connect(ctx.destination);
-        osc1.start(now);
-        osc1.stop(now + 0.15);
-
-        // ── Second coin (higher pitch, slight delay) ──
-        const osc2 = ctx.createOscillator();
-        const gain2 = ctx.createGain();
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(2800, now + 0.08);
-        osc2.frequency.exponentialRampToValueAtTime(2400, now + 0.16);
-        gain2.gain.setValueAtTime(0.01, now);
-        gain2.gain.linearRampToValueAtTime(0.25, now + 0.08);
-        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-        osc2.connect(gain2).connect(ctx.destination);
-        osc2.start(now + 0.06);
-        osc2.stop(now + 0.25);
-
-        // ── Register bell (bright shimmer) ──
-        const osc3 = ctx.createOscillator();
-        const gain3 = ctx.createGain();
-        osc3.type = 'triangle';
-        osc3.frequency.setValueAtTime(3400, now + 0.12);
-        osc3.frequency.exponentialRampToValueAtTime(3000, now + 0.35);
-        gain3.gain.setValueAtTime(0.01, now);
-        gain3.gain.linearRampToValueAtTime(0.2, now + 0.14);
-        gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-        osc3.connect(gain3).connect(ctx.destination);
-        osc3.start(now + 0.12);
-        osc3.stop(now + 0.45);
-
-        // Cleanup
-        setTimeout(() => ctx.close(), 600);
+        const soundType = localStorage.getItem('GUI_WIN_SOUND_TYPE') || 'default';
+        if (soundType === 'disabled') {
+            return;
+        }
+        
+        let audioSrc = 'sounds/cha-ching.mp3'; // Default fallback
+        if (soundType === 'custom') {
+            const customPath = localStorage.getItem('GUI_WIN_SOUND_PATH');
+            if (customPath) {
+                audioSrc = 'file://' + customPath;
+            }
+        }
+        
+        const audio = new Audio(audioSrc);
+        audio.play().catch(e => console.warn('[CHA-CHING] Audio playback blocked or failed:', e));
     } catch (e) {
-        console.warn('[CHA-CHING] Audio playback failed:', e);
+        console.warn('[CHA-CHING] Audio setup failed:', e);
     }
 }
 
@@ -1196,6 +1216,43 @@ document.addEventListener('DOMContentLoaded', () => {
         badge.style.cursor = 'pointer';
         badge.addEventListener('click', () => {
             triggerAutoRefresh();
+        });
+    }
+
+    const tpPayoutBtn = document.getElementById('btn-take-payout');
+    if (tpPayoutBtn) {
+        tpPayoutBtn.addEventListener('click', async () => {
+            const tpCard = document.getElementById('take-profit-card');
+            const amtStr = tpCard.dataset.payoutAmount;
+            if (!amtStr) return;
+            const amount = parseFloat(amtStr);
+            if (amount <= 0) return;
+
+            const textSpan = document.getElementById('take-payout-text');
+            textSpan.textContent = 'Processing...';
+            tpPayoutBtn.style.pointerEvents = 'none';
+            tpPayoutBtn.style.opacity = '0.5';
+
+            try {
+                const result = await window.ipcRenderer.invoke('take-paper-payout', amount);
+                if (result && result.success) {
+                    textSpan.textContent = 'Payout Secured!';
+                } else {
+                    console.error('[ANALYTICS] Payout failed:', result?.error);
+                    textSpan.textContent = 'Failed';
+                }
+            } catch (e) {
+                console.error('[ANALYTICS] Error in take payout:', e);
+                textSpan.textContent = 'Error';
+            }
+
+            setTimeout(() => {
+                textSpan.textContent = 'Take Payout';
+                tpPayoutBtn.style.pointerEvents = 'auto';
+                tpPayoutBtn.style.opacity = '1';
+                tpPayoutBtn.classList.add('hidden');
+                tpPayoutBtn.style.display = 'none';
+            }, 3000);
         });
     }
 

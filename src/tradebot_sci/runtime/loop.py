@@ -1188,9 +1188,31 @@ def run_bot(
                             )
                             if not execute_trades:
                                 # Switched OFF → force Paper Broker immediately
-                                if executor_paper:
-                                    executor = executor_paper
-                                    logger.info("[HOT-RELOAD] Switched to Paper Broker (Live Trading disabled).")
+                                if not executor_paper:
+                                    logger.info("[HOT-RELOAD] Building Paper Broker dynamically...")
+                                    paper_trade_results = TradeResultStore(str(_paths.DATA_DIR / "paper_trade_results.json"))
+                                    executor_paper = PaperBroker(
+                                        profile_settings,
+                                        market_provider=provider,
+                                        trade_results=paper_trade_results
+                                    )
+                                    if not paper_ledger:
+                                        paper_ledger = LedgerDaemon(
+                                            log_path=_ledger_log_path,
+                                            ledger_path=str(_paths.DATA_DIR / "paper_ledger.json"),
+                                            interval=60,
+                                            lat=getattr(profile_settings, "sabbath_lat", 33.764),
+                                            lon=getattr(profile_settings, "sabbath_lon", -84.386),
+                                            tz_name=getattr(profile_settings, "sabbath_timezone", "America/New_York"),
+                                            default_strategy=getattr(profile_settings, "strategy_variant", ""),
+                                        )
+                                        paper_ledger._paper_mode = True
+                                        paper_ledger.start()
+                                        if hasattr(controller, 'paper_ledger'):
+                                            controller.paper_ledger = paper_ledger
+                                        logger.info(f"[PAPER] Paper ledger daemon dynamically started -> {_paths.DATA_DIR / 'paper_ledger.json'}")
+                                executor = executor_paper
+                                logger.info("[HOT-RELOAD] Switched to Paper Broker (Live Trading disabled).")
                             else:
                                 # Switched ON → restore real broker (unless Sabbath)
                                 if not executor_real:
@@ -1286,10 +1308,11 @@ def run_bot(
                             eng.trade_results = paper_trade_results
                             eng.market_provider = provider
                         logger.info("[REPLAY] Replay provider activated (engines swapped to paper store)")
-                        # Turbo: speed up loop for replay — 1 candle per second
+                        # User requested a speed that doesn't feel like a broken standstill. 
+                        # 1:1 true real-time (5 mins per candle) is too slow. Setting to 1 candle per second.
                         poll_interval = 1
                         decision_interval = 1
-                        logger.info("[REPLAY] ⚡ Turbo mode: poll=%ds decision=%ds", poll_interval, decision_interval)
+                        logger.info("[REPLAY] Replay running at 1 candle per second: poll=%ds decision=%ds", poll_interval, decision_interval)
                     except Exception as e:
                         logger.warning("[REPLAY] Failed to create replay provider: %s", e)
                 # Flag for GUI: switch to paper ledger

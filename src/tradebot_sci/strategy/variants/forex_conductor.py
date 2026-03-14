@@ -303,25 +303,27 @@ class ForexConductorStrategy(BaseStrategy):
                 # ── CORRELATION GUARD ─────────────────────────────
                 # Prevent simultaneous entries on correlated pairs.
                 # SAR entries bypass — they are time-critical.
-                if trade_history and not has_reversal:
-                    from datetime import timedelta
-                    now = snapshot.candles[-1].timestamp if snapshot.candles else None
-                    if now:
-                        recent_cutoff = now - timedelta(minutes=30)
-                        recent_entries = [
-                            t for t in trade_history
-                            if t.get("symbol") != snapshot.symbol
-                            and t.get("entry_time")
-                            and str(t["entry_time"]) > str(recent_cutoff)
-                            and not t.get("exit_time")  # Still open
-                        ]
-                        if recent_entries:
-                            logger.info(
-                                f"[CONDUCTOR] {snapshot.symbol}: BLOCKED — "
-                                f"correlation guard ({len(recent_entries)} "
-                                f"other forex positions opened < 30min ago)"
-                            )
-                            return None
+                _profile = getattr(self, 'profile', None) or gates.get('profile') or type('_P', (), {})()
+                if not getattr(_profile, 'trend_correlation_stacking_enabled', True):
+                    if trade_history and not has_reversal:
+                        from datetime import timedelta
+                        now = snapshot.candles[-1].timestamp if snapshot.candles else None
+                        if now:
+                            recent_cutoff = now - timedelta(minutes=30)
+                            recent_entries = [
+                                t for t in trade_history
+                                if t.get("symbol") != snapshot.symbol
+                                and t.get("entry_time")
+                                and str(t["entry_time"]) > str(recent_cutoff)
+                                and not t.get("exit_time")  # Still open
+                            ]
+                            if recent_entries:
+                                logger.info(
+                                    f"[CONDUCTOR] {snapshot.symbol}: BLOCKED — "
+                                    f"correlation guard ({len(recent_entries)} "
+                                    f"other forex positions opened < 30min ago)"
+                                )
+                                return None
 
                 signal.notes = (
                     f"[Conductor:{key}|{regime}] {signal.notes or ''}"
@@ -770,7 +772,7 @@ class ForexConductorStrategy(BaseStrategy):
                             if pos_dir == "long"
                             else (candle.open - candle.close)
                         )
-                        if candle_move >= initial_risk * 0.3:
+                        if candle_move >= initial_risk * 0.2:
                             pyr_count = sum(
                                 1 for k in fired if k.startswith("pyr_")
                             )
@@ -786,7 +788,8 @@ class ForexConductorStrategy(BaseStrategy):
                                     timeframe=snapshot.timeframe,
                                     bias=pos_dir, phase="management",
                                     action="scale_in",
-                                    risk_per_trade_pct=0.04,
+                                    entry_price=candle.close,
+                                    risk_per_trade_pct=getattr(self._profile, 'conductor_pyramid_first_pct', 0.30) if self._profile else 0.30,
                                     strategy_name=self.name,
                                     notes=(
                                         f"[MANAGEMENT] Momentum accel: "
@@ -794,8 +797,10 @@ class ForexConductorStrategy(BaseStrategy):
                                     ),
                                 )
 
+                    _step_r = getattr(self._profile, 'conductor_pyramid_step_r', 0.2) if self._profile else 0.2
+                    
                     # ── #3: RE-PYRAMID ON PULLBACK BOUNCES ────────
-                    # Track peak R-level. If we pulled back ≥ 0.5R
+                    # Track peak R-level. If we pulled back ≥ _step_r
                     # and then re-broke the level, reset that milestone
                     # so a new pyramid can fire.
                     peak_key = f"peak_{milestones_key}"
@@ -804,19 +809,19 @@ class ForexConductorStrategy(BaseStrategy):
                     prev_peak = self._peak_r.get(peak_key, 0.0)
                     if r_multiple > prev_peak:
                         self._peak_r[peak_key] = r_multiple
-                    elif prev_peak - r_multiple >= 0.5:
-                        # Pulled back ≥ 0.5R — mark trough
+                    elif prev_peak - r_multiple >= _step_r:
+                        # Pulled back ≥ _step_r — mark trough
                         trough_key = f"trough_{milestones_key}"
                         if not hasattr(self, '_trough_r'):
                             self._trough_r = {}
                         self._trough_r[trough_key] = r_multiple
-
+    
                     trough_key = f"trough_{milestones_key}"
                     trough_r = getattr(self, '_trough_r', {}).get(trough_key)
-                    if trough_r is not None and r_multiple > trough_r + 0.5:
-                        # Bounced back up past trough + 0.5R — refresh
+                    if trough_r is not None and r_multiple > trough_r + _step_r:
+                        # Bounced back up past trough + _step_r — refresh
                         # the milestone at this level
-                        bounce_level = 1.0 + (int((r_multiple - 1.0) / 0.5) * 0.5)
+                        bounce_level = _start_r + (int((r_multiple - _start_r) / _step_r) * _step_r)
                         bounce_key = f"pyr_{bounce_level:.1f}r"
                         if bounce_key in fired:
                             fired.discard(bounce_key)
@@ -829,66 +834,67 @@ class ForexConductorStrategy(BaseStrategy):
                                 f"reset milestone"
                             )
 
-                    # ── R-level milestones (floor + pyramid) ──────
-                    level_idx = int((r_multiple - _start_r) / 0.5)
-                    for i in range(level_idx, -1, -1):
-                        threshold = _start_r + (i * 0.5)
-                        floor_r = max(0.0, threshold - _start_r)
-                        m_key = f"pyr_{threshold:.1f}r"
-                        _pyr_first = getattr(self._profile, 'conductor_pyramid_first_pct', 0.30) if self._profile else 0.30
-                        _pyr_sub = getattr(self._profile, 'conductor_pyramid_subsequent_pct', 0.04) if self._profile else 0.04
-                        pyr_risk = _pyr_first if i == 0 else _pyr_sub
-
-                        # Floor move
-                        if pos_dir == "long":
-                            floor_price = entry_price + (initial_risk * floor_r)
-                            need_floor = current_stop < floor_price
-                        else:
-                            floor_price = entry_price - (initial_risk * floor_r)
-                            need_floor = current_stop > floor_price
-
-                        # Pyramid (if not already fired and under cap)
-                        pyr_count = sum(
-                            1 for k in fired if k.startswith("pyr_")
-                        )
-                        need_pyramid = (
-                            m_key not in fired
-                            and pyr_count < MAX_PYRAMIDS
-                        )
-
-                        if need_floor or need_pyramid:
-                            if need_pyramid:
-                                fired.add(m_key)
-
-                            action = "scale_in" if need_pyramid else "hold"
-                            notes_parts = []
-                            if need_floor:
-                                notes_parts.append(f"floor→{floor_r:.1f}R")
-                            if need_pyramid:
-                                notes_parts.append(
-                                    f"pyramid {int(pyr_risk*100)}%"
-                                )
-
-                            logger.info(
-                                f"[CONDUCTOR] MILESTONE {sym}: "
-                                f"{r_multiple:.1f}R → "
-                                f"{', '.join(notes_parts)}"
+                        # ── R-level milestones (floor + pyramid) ──────
+                        level_idx = int((r_multiple - _start_r) / _step_r)
+                        for i in range(level_idx, -1, -1):
+                            threshold = _start_r + (i * _step_r)
+                            floor_r = max(0.0, threshold - _start_r)
+                            m_key = f"pyr_{threshold:.1f}r"
+                            _pyr_first = getattr(self._profile, 'conductor_pyramid_first_pct', 0.30) if self._profile else 0.30
+                            _pyr_sub = getattr(self._profile, 'conductor_pyramid_subsequent_pct', 0.04) if self._profile else 0.04
+                            pyr_risk = _pyr_first if i == 0 else _pyr_sub
+    
+                            # Floor move
+                            if pos_dir == "long":
+                                floor_price = entry_price + (initial_risk * floor_r)
+                                need_floor = current_stop < floor_price
+                            else:
+                                floor_price = entry_price - (initial_risk * floor_r)
+                                need_floor = current_stop > floor_price
+    
+                            # Pyramid (if not already fired and under cap)
+                            pyr_count = sum(
+                                1 for k in fired if k.startswith("pyr_")
                             )
-                            return AITradeDecision(
-                                symbol=sym,
-                                timeframe=snapshot.timeframe,
-                                bias=pos_dir,
-                                phase="management",
-                                action=action,
-                                stop_loss=floor_price if need_floor else None,
-                                risk_per_trade_pct=pyr_risk,
-                                notes=(
-                                    f"[MANAGEMENT] {r_multiple:.1f}R: "
+                            need_pyramid = (
+                                m_key not in fired
+                                and pyr_count < MAX_PYRAMIDS
+                            )
+    
+                            if need_floor or need_pyramid:
+                                if need_pyramid:
+                                    fired.add(m_key)
+    
+                                action = "scale_in" if need_pyramid else "hold"
+                                notes_parts = []
+                                if need_floor:
+                                    notes_parts.append(f"floor→{floor_r:.1f}R")
+                                if need_pyramid:
+                                    notes_parts.append(
+                                        f"pyramid {int(pyr_risk*100)}%"
+                                    )
+    
+                                logger.info(
+                                    f"[CONDUCTOR] MILESTONE {sym}: "
+                                    f"{r_multiple:.1f}R → "
                                     f"{', '.join(notes_parts)}"
-                                ),
-                                strategy_name=self.name,
-                            )
-                        break  # Only process highest level
+                                )
+                                return AITradeDecision(
+                                    symbol=sym,
+                                    timeframe=snapshot.timeframe,
+                                    bias=pos_dir,
+                                    phase="management",
+                                    action=action,
+                                    entry_price=snapshot.candles[-1].close,
+                                    stop_loss=floor_price if need_floor else None,
+                                    risk_per_trade_pct=pyr_risk,
+                                    notes=(
+                                        f"[MANAGEMENT] {r_multiple:.1f}R: "
+                                        f"{', '.join(notes_parts)}"
+                                    ),
+                                    strategy_name=self.name,
+                                )
+                            break  # Only process highest level
 
                 # ── ATR TRAILING FALLBACK (0.5R – 1.0R) ───────────
                 # Only fires if no pyramid milestone was triggered above.
@@ -982,9 +988,10 @@ class ForexConductorStrategy(BaseStrategy):
             )
             if signal and signal.action in ("close_position",):
                 # PROFIT GUARD: Don't let sub-strategies kill profitable trades.
-                # If trade is above +0.3R, let SL/TP and ATR trailing handle
+                # If trade is above +start_r, let SL/TP and ATR trailing handle
                 # the exit — those produce $326 avg wins vs $76 avg from EMA exits.
-                if _exit_r is not None and _exit_r >= 0.3:
+                _start_r = getattr(self._profile, 'conductor_pyramid_start_r', 0.2) if hasattr(self, '_profile') and self._profile else 0.2
+                if _exit_r is not None and _exit_r >= _start_r:
                     logger.info(
                         f"[CONDUCTOR] {snapshot.symbol}: PROFIT GUARD — "
                         f"suppressed {key} exit at {_exit_r:.1f}R "

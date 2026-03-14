@@ -763,6 +763,20 @@
                         Active trades are floating. Sit on your hands until the current cycle resolves to protect your
                         margin.
                     </div>
+                    
+                    <!-- Payout Button (Paper Mode Only) -->
+                    <button id="btn-take-payout"
+                        class="hidden items-center justify-center gap-2 mt-3 w-full px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-300 border cursor-pointer select-none"
+                        style="background: linear-gradient(135deg, rgba(52,211,153,0.15), rgba(16,185,129,0.15));
+                               border-color: rgba(52,211,153,0.35);
+                               color: #34d399;
+                               box-shadow: 0 0 15px rgba(52,211,153,0.1);"
+                        onmouseenter="this.style.background='linear-gradient(135deg, rgba(52,211,153,0.3), rgba(16,185,129,0.3))'; this.style.boxShadow='0 0 25px rgba(52,211,153,0.25)'; this.style.borderColor='rgba(52,211,153,0.6)'"
+                        onmouseleave="this.style.background='linear-gradient(135deg, rgba(52,211,153,0.15), rgba(16,185,129,0.15))'; this.style.boxShadow='0 0 15px rgba(52,211,153,0.1)'; this.style.borderColor='rgba(52,211,153,0.35)'"
+                        title="Simulate a cash withdrawal">
+                        <span class="material-symbols-outlined" style="font-size:14px;">payments</span>
+                        <span id="take-payout-text">Take Payout</span>
+                    </button>
                 </div>
             </div>
 

@@ -368,7 +368,7 @@ def process_candidate_cycle(
                 # ── Broker-agnostic re-entry cooldown ──────────────────────
                 # Block entry if this symbol recently closed (prevents churn)
                 hold_store = getattr(executor, "position_hold_store", None)
-                if hold_store:
+                if hold_store and decision.action not in ("scale_in", "add_to_position", "scale_out", "scale_out_leg", "close_position"):
                     in_cooldown, remaining = hold_store.is_in_cooldown(symbol)
                     if in_cooldown:
                         exit_strat = hold_store.get_exit_strategy(symbol) or "unknown"

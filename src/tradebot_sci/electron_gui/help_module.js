@@ -5,6 +5,7 @@ window.helpModule = (() => {
     let initialized = false;
     let docCatalog = [];
     let activeDoc = null;
+    let helpSortOption = 'newest';
 
     // ── Markdown → HTML Renderer ─────────────────────────────
     function renderMarkdown(md) {
@@ -1004,9 +1005,19 @@ window.helpModule = (() => {
         let html = `<div class="help-magazine">`;
 
         // Header
-        html += `<div class="help-mag-header">
-            <h1>Knowledge Base</h1>
-            <p>Everything you need to master TradeBot SCI Enterprise</p>
+        html += `<div class="help-mag-header" style="justify-content: space-between; align-items: flex-end;">
+            <div>
+                <h1>Knowledge Base</h1>
+                <p>Everything you need to master TradeBot SCI Enterprise</p>
+            </div>
+            <div class="help-sort-control" style="display: flex; gap: 8px; align-items: center;">
+                <label style="font-size: 0.7rem; color: var(--text-muted); font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;">Sort By:</label>
+                <select id="help-sort-select" style="background: var(--bg-primary, #0f172a); border: 1px solid var(--border-color, rgba(255,255,255,0.1)); color: var(--text-primary); padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; outline: none;">
+                    <option style="background: var(--bg-primary, #0f172a); color: var(--text-primary, #e2e8f0);" value="newest" ${helpSortOption === 'newest' ? 'selected' : ''}>Newest First</option>
+                    <option style="background: var(--bg-primary, #0f172a); color: var(--text-primary, #e2e8f0);" value="oldest" ${helpSortOption === 'oldest' ? 'selected' : ''}>Oldest First</option>
+                    <option style="background: var(--bg-primary, #0f172a); color: var(--text-primary, #e2e8f0);" value="featured" ${helpSortOption === 'featured' ? 'selected' : ''}>Featured First</option>
+                </select>
+            </div>
         </div>`;
 
         // Build masonry grid — all cards in one grid
@@ -1017,13 +1028,22 @@ window.helpModule = (() => {
         let readDocs = [];
         try { readDocs = JSON.parse(localStorage.getItem(readKey) || '[]'); } catch (e) { readDocs = []; }
 
-        // Sort: unread articles first, then featured, then the rest
+        // Sort: based on user selection
         const sortedCatalog = [...docCatalog].sort((a, b) => {
             const aUnread = !readDocs.includes(a.filename) ? 1 : 0;
             const bUnread = !readDocs.includes(b.filename) ? 1 : 0;
-            if (aUnread !== bUnread) return bUnread - aUnread; // Unread first
-            if (a.featured && !b.featured) return -1;
-            if (!a.featured && b.featured) return 1;
+
+            if (helpSortOption === 'newest') {
+                if (aUnread !== bUnread) return bUnread - aUnread; // Float unread to top
+                return b.filename.localeCompare(a.filename);
+            } else if (helpSortOption === 'oldest') {
+                return a.filename.localeCompare(b.filename);
+            } else if (helpSortOption === 'featured') {
+                if (a.featured && !b.featured) return -1;
+                if (!a.featured && b.featured) return 1;
+                if (aUnread !== bUnread) return bUnread - aUnread;
+                return b.filename.localeCompare(a.filename);
+            }
             return 0;
         });
 
@@ -1058,6 +1078,15 @@ window.helpModule = (() => {
 
         html += `</div></div>`;
         welcomeEl.innerHTML = html;
+
+        // Attach sorting handler
+        const sortSelect = document.getElementById('help-sort-select');
+        if (sortSelect) {
+            sortSelect.addEventListener('change', (e) => {
+                helpSortOption = e.target.value;
+                renderMagazine(); // Re-render to apply sort
+            });
+        }
 
         // Attach click handlers + mark as read
         welcomeEl.querySelectorAll('[data-filename]').forEach(card => {
@@ -1289,7 +1318,8 @@ window.helpModule = (() => {
                 { filename: 'RTFM/37_CONTEXT_MASKING.md', title: 'Context Masking for Dummies', category: 'rtfm', icon: 'theater_comedy', description: '"Wait... so if I tell the bot to risk 1% globally, how the hell do I tell RoboCop to risk 3% without screwing up my entire profile?" Patrice O\'Neal style breakdown of the Context Masking feature.' },
                 { filename: 'RTFM/38_NOT_A_MONEY_PRINTER.md', title: 'This Is Not a Money Printer', category: 'rtfm', icon: 'hourglass_top', description: '"I installed the bot forty-five minutes ago. When do I get rich?" A brutally honest conversation about why the compound effect takes months, not minutes.' },
                 { filename: 'RTFM/39_LIVE_SPREAD.md', title: 'Live Spread Integration: Why Your Bot Was Trading Blindfolded', category: 'rtfm', icon: 'visibility', description: '"The bot thought the highway toll was $1.50 but sometimes it was $15." How the bot now fetches real-time bid/ask spread data from OANDA every 30 seconds.' },
-                { filename: 'RTFM/40_TAKE_PROFIT.md', title: 'The Payout Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Payout card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing.' },
+                { filename: 'RTFM/40_TARGET.md', title: 'The Payout Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Payout card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing.' },
+                { filename: 'RTFM/41_REMOTE_SETUP.md', title: 'Remote Setup: Linux Brain + Windows Face', category: 'rtfm', icon: 'lan', description: '"The bot has two halves — a brain and a face." How to run the Python engine on a Linux server and connect the Electron GUI from a Windows machine over your local network. Kitchen-and-dining-room style.' },
             ];
         }
 

@@ -178,7 +178,7 @@ class ICCCoreStrategy(BaseStrategy):
             )
 
             # Same direction + 0.3R profit + momentum + under cap
-            if pos_dir == bias and r_multiple >= 0.3 and momentum_ok and pyramid_count < max_pyramid:
+            if pos_dir == bias and r_multiple >= 0.2 and momentum_ok and pyramid_count < max_pyramid:
                 # Move stop to breakeven on pyramid to protect original risk
                 if bias == "long":
                     stop_loss_pyramid = max(entry_price, last_close - (atr * 1.5))

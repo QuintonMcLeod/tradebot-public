@@ -329,6 +329,10 @@ class TradingProfileSettings(BaseModel):
         le=1.0,
         description="Standard risk per trade as a fraction of equity.",
     )
+    risk_dynamic_auto: bool = Field(
+        default=False,
+        description="When true, risk is dynamically calculated per trade (up to 5% hard cap) based on market conditions, ignoring risk_per_trade_pct.",
+    )
     balance_cap_pct: float = Field(
         default=0.95,
         ge=0.0,
@@ -552,7 +556,7 @@ class TradingProfileSettings(BaseModel):
         description="Enable R-milestone pyramiding in the Forex Conductor.",
     )
     conductor_pyramid_start_r: float = Field(
-        default=1.0,
+        default=0.2,
         ge=0.1,
         le=5.0,
         description="R-multiple at which the first pyramid fires. "

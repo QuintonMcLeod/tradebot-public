@@ -425,13 +425,17 @@
 
 /* ───── TAKE PROFIT CARD STATES ───── */
 .tp-state-cashout {
-    --tp-accent: #38bdf8;
-    --tp-amount-color: #e0f2fe;
-    --tp-desc-color: #7dd3fc;
-    --tp-mentor-color: #bae6fd;
-    border-color: rgba(56, 189, 248, 0.3);
-    background: linear-gradient(135deg, rgba(2, 132, 199, 0.15) 0%, rgba(15, 23, 42, 0.4) 100%);
-    box-shadow: 0 0 40px rgba(56, 189, 248, 0.05);
+    --tp-accent: #34d399;
+    --tp-amount-color: #10b981;
+    --tp-desc-color: #6ee7b7;
+    --tp-mentor-color: #a7f3d0;
+    border-color: rgba(16, 185, 129, 0.3);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(15, 23, 42, 0.4) 100%);
+    box-shadow: 0 0 40px rgba(16, 185, 129, 0.05);
+}
+
+.tp-state-cashout #tp-amount {
+    text-shadow: 0 0 30px rgba(16, 185, 129, 0.5);
 }
 
 .tp-state-waiting {

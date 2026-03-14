@@ -1056,7 +1056,40 @@ class SafetyGuard:
         # Read from profile settings first, then decision, then fallback.
         # This ensures the user's configured risk_per_trade_pct is actually respected.
         profile_risk = getattr(settings, 'risk_per_trade_pct', None) if settings else None
-        base_risk = decision.risk_per_trade_pct or profile_risk or 0.015 
+        auto_risk = getattr(settings, 'risk_dynamic_auto', False) if settings else False
+
+        if auto_risk:
+            # Dynamic Auto Risk Logic
+            dyn_risk = 0.01  # Default Base 1%
+            
+            # Score-based Risk Scaling
+            if score >= 90:
+                dyn_risk = 0.05  # 5% for A+ trades
+            elif score >= 80:
+                dyn_risk = 0.04  # 4% for B+ trades
+            elif score >= 70:
+                dyn_risk = 0.02  # 2% for standard C+ trades
+                
+            # Supplemental Adjustments (only if not an absolute A+/B+ setup to avoid blowing limits)
+            if score < 80:
+                # Boost based on trend alignment
+                if htf_strength >= 0.7: dyn_risk += 0.01
+                elif htf_strength <= 0.3: dyn_risk -= 0.005
+                
+                # Adjust based on market volatility (ATR)
+                if len(snapshot.candles) >= 14:
+                    curr_atr = calculate_atr(snapshot.candles[-14:], period=14)
+                    if curr_atr:
+                        atr_pct = curr_atr / snapshot.candles[-1].close
+                        # If high volatility, reduce risk
+                        if atr_pct > 0.005: dyn_risk -= 0.005
+                        # If low volatility (compression), allow slightly more risk
+                        elif atr_pct < 0.002: dyn_risk += 0.005
+                        
+            base_risk = max(0.005, min(dyn_risk, 0.05))
+            decision.notes = (decision.notes or "") + f" [AUTO RISK] {base_risk*100:.1f}%"
+        else:
+            base_risk = decision.risk_per_trade_pct or profile_risk or 0.015 
         
         # Priority Check: Detect which Foundation is active (start with "simplicity" default)
         # If multiple foundations are accidentally set, we pick priority: Kelly > Flywheel > Smooth > Simplicity

@@ -452,6 +452,82 @@ class PaperBroker:
                     ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, symbol, f"Paper scale_out {scale_frac:.0%}")
                 )
         
+        if action == "scale_in":
+            if symbol in self.positions:
+                pos = self.positions[symbol]
+                side = "buy" if pos["side"] == "long" else "sell"
+                
+                # Dynamic Paper Sizing
+                risk_pct = getattr(decision, "risk_per_trade_pct", None) or getattr(self.profile, "conductor_pyramid_subsequent_pct", 0.04)
+                risk_usd = self.balance * risk_pct
+                
+                if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
+                    risk_per_unit = abs(price - decision.stop_loss)
+                    qty = risk_usd / risk_per_unit
+                else:
+                    qty = risk_usd / price if price > 0 else 0
+                
+                # Check Paper config for UI overrides
+                import json
+                try:
+                    with open(_paths.CONFIG_FILE, "r") as f:
+                        _p_conf = json.load(f).get("paper", {})
+                except Exception:
+                    _p_conf = {}
+                
+                fee_bps = float(_p_conf.get("fee_bps", 0.0))
+                spread_bps = float(_p_conf.get("spread_bps", 0.0))
+                slip_bps = float(_p_conf.get("slippage_bps", 0.0))
+
+                if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
+                    friction = 0.0
+                    fill_price = price
+                    fee_usd = abs(qty * fill_price) * self._get_taker_fee(symbol)
+                else:
+                    fee_pct = fee_bps / 10000.0
+                    spread_pct = spread_bps / 10000.0
+                    slip_pct = slip_bps / 10000.0
+                    friction = (spread_pct / 2.0) + slip_pct
+                    fill_price = price * (1 + friction) if side == "buy" else price * (1 - friction)
+                    fee_usd = abs(qty * fill_price) * (fee_pct / 2.0)
+
+                self.balance -= fee_usd
+                
+                # Update position sizing and avg_price
+                old_qty = pos["qty"]
+                old_avg = pos["avg_price"]
+                new_qty = old_qty + qty
+                new_avg = ((old_qty * old_avg) + (qty * fill_price)) / new_qty
+                
+                pos["qty"] = new_qty
+                pos["size"] = new_qty if side == "buy" else -new_qty
+                pos["avg_price"] = new_avg
+                # Do not change entry_price (original) but update stop_loss if provided
+                if decision.stop_loss:
+                    pos["stop_loss"] = decision.stop_loss
+                if decision.take_profit:
+                    pos["take_profit"] = decision.take_profit
+                    
+                pos["entry_fee"] = pos.get("entry_fee", 0) + fee_usd
+
+                logger.info(
+                    f"[PAPER] [SCALE_IN] {symbol} {qty:.4f} @ {fill_price:.5f} "
+                    f"(mid={price:.5f}, new_avg={new_avg:.5f}, new_qty={new_qty:.4f}, Risk=${risk_usd:.2f})",
+                    extra={"broker": "paper", "symbol": symbol, "event": "scale_in",
+                           "side": side, "qty": qty, "fill_price": fill_price,
+                           "fee_usd": fee_usd, "risk_usd": risk_usd}
+                )
+                self._save_state()
+                return (
+                    ExecutionResult(ExecutionStatus.EXECUTED, symbol, f"Paper scale_in executed"),
+                    ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, symbol, f"Paper scale_in")
+                )
+            else:
+                return (
+                    ExecutionResult(ExecutionStatus.STAND_ASIDE, symbol, "Paper scale_in: no position"),
+                    ExecutionOutcome(ExecutionOutcomeType.SKIPPED, symbol, "scale_in no position")
+                )
+        
         return (
             ExecutionResult(ExecutionStatus.STAND_ASIDE, symbol, "Paper stand aside"),
             ExecutionOutcome(ExecutionOutcomeType.SKIPPED, symbol, "Paper stand aside")
@@ -545,6 +621,8 @@ class PaperBroker:
                         entry_dt = datetime.fromisoformat(entry_time_str)
                         closed_sim = self._now()
                         duration_secs = (closed_sim - entry_dt).total_seconds()
+                        if duration_secs < 0:
+                            duration_secs = abs(duration_secs)
                         # Human-readable duration
                         mins = int(duration_secs // 60)
                         secs = int(duration_secs % 60)

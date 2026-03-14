@@ -105,7 +105,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
     // which don't match wall-clock time. Use 'all' to include them.
     const effectiveFilter = paperMode ? 'all' : filter;
     const cutoff = _getCutoffTime(effectiveFilter);
-    const trades = [];
+    let trades = [];
     const capital = [];
     const capitalByBroker = {};
 
@@ -114,10 +114,33 @@ function getTradeHistory(filter = '24h', paperMode = false) {
     const paperLedgerPath = path.join(DATA_DIR, 'paper_ledger.json');
     const ledgerPath = paperMode ? paperLedgerPath : (fs.existsSync(liveLedgerPath) ? liveLedgerPath : paperLedgerPath);
     let ledger = null;
+    let fallbackGlobalCutoff = cutoff; // We enhance the cutoff timestamp if there has been a paper reset
     if (fs.existsSync(ledgerPath)) {
         try {
             ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+            if (paperMode && ledger.last_reset_at) {
+                const resetTime = new Date(ledger.last_reset_at);
+                if (resetTime > fallbackGlobalCutoff) {
+                    fallbackGlobalCutoff = resetTime;
+                }
+            }
         } catch (_) { /* corrupted ledger */ }
+    }
+    
+    // Also check paper_state.json as an additional safety
+    if (paperMode) {
+        const paperStatePath = path.join(DATA_DIR, 'paper_state.json');
+        if (fs.existsSync(paperStatePath)) {
+            try {
+                const state = JSON.parse(fs.readFileSync(paperStatePath, 'utf8'));
+                if (state.last_reset_at) {
+                    const resetTime = new Date(state.last_reset_at);
+                    if (resetTime > fallbackGlobalCutoff) {
+                        fallbackGlobalCutoff = resetTime;
+                    }
+                }
+            } catch (_) { }
+        }
     }
 
     if (ledger) {
@@ -125,7 +148,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
         if (ledger.current_day?.trade_log) {
             for (const t of ledger.current_day.trade_log) {
                 const ts = t.closed_at || t.timestamp || t.time;
-                if (ts && new Date(ts) >= cutoff) {
+                if (ts && new Date(ts) >= fallbackGlobalCutoff) {
                     trades.push(t);
                 }
             }
@@ -137,12 +160,12 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                 if (day.trade_log) {
                     for (const t of day.trade_log) {
                         const ts = t.closed_at || t.timestamp || t.time;
-                        if (ts && new Date(ts) >= cutoff) {
+                        if (ts && new Date(ts) >= fallbackGlobalCutoff) {
                             trades.push(t);
                         }
                     }
                 }
-                if (day.day_start) {
+                if (day.day_start && new Date(day.day_start) >= fallbackGlobalCutoff) {
                     capital.push({
                         timestamp: day.day_start,
                         nav: day.capital_at_start || day.capital_now,
@@ -154,13 +177,29 @@ function getTradeHistory(filter = '24h', paperMode = false) {
         }
 
         // Current day capital
-        if (ledger.current_day?.capital_now) {
-            capital.push({
-                timestamp: ledger.current_day.day_start || new Date().toISOString(),
-                nav: ledger.current_day.capital_now,
-                balance: ledger.current_day.capital_now,
-                broker: 'all'
-            });
+        if (ledger.current_day) {
+            const currentDayTimestamp = ledger.current_day.day_start || new Date().toISOString();
+            
+            // 1) Push the starting capital at the beginning of the day to baseline trades
+            if (ledger.current_day.capital_at_start) {
+                capital.push({
+                    timestamp: currentDayTimestamp,
+                    nav: ledger.current_day.capital_at_start,
+                    balance: ledger.current_day.capital_at_start,
+                    broker: 'all'
+                });
+            }
+            
+            // 2) Push the live floating capital at the current time so it doesn't get dragged into the past
+            //    and cause double-counted PnL on top of the live float
+            if (ledger.current_day.capital_now) {
+                capital.push({
+                    timestamp: new Date().toISOString(),
+                    nav: ledger.current_day.capital_now,
+                    balance: ledger.current_day.capital_now,
+                    broker: 'all'
+                });
+            }
         }
     }
 
@@ -173,7 +212,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
             if (Array.isArray(results)) {
                 for (const t of results) {
                     const ts = t.closed_at || t.timestamp;
-                    if (ts && new Date(ts) >= cutoff) {
+                    if (ts && new Date(ts) >= fallbackGlobalCutoff) {
                         const tsTime = new Date(ts).getTime();
                         const isDupe = trades.some(existing => {
                             if (existing.symbol !== t.symbol) return false;
@@ -252,7 +291,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                 if (line.includes('[HEARTBEAT] Capital available:') ||
                     line.includes('[TOTAL] Liquidity available:')) {
                     const ts = _extractTimestamp(line);
-                    if (ts && ts >= cutoff) {
+                    if (ts && ts >= fallbackGlobalCutoff) {
                         const valMatch = line.match(/(?:available|Liquidity available): \$([\d.,]+)/);
                         if (valMatch) {
                             capital.push({
@@ -266,7 +305,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
 
                 if (line.includes('[OANDA] Account Summary:')) {
                     const ts = _extractTimestamp(line);
-                    if (ts && ts >= cutoff) {
+                    if (ts && ts >= fallbackGlobalCutoff) {
                         const m = line.match(/NAV=([\d.,]+)/);
                         if (m) {
                             const entry = { timestamp: ts.toISOString(), nav: parseFloat(m[1].replace(/,/g, '')), broker: 'oanda' };
@@ -279,7 +318,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
 
                 if (line.includes('[CCXT] get_liquid_capital')) {
                     const ts = _extractTimestamp(line);
-                    if (ts && ts >= cutoff) {
+                    if (ts && ts >= fallbackGlobalCutoff) {
                         const m = line.match(/winner=\$([\d.,]+)/);
                         if (m) {
                             const entry = { timestamp: ts.toISOString(), nav: parseFloat(m[1].replace(/,/g, '')), broker: 'ccxt' };
@@ -293,10 +332,12 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                 // Parse [EXIT] lines for trade records (fallback when ledger trade_log is empty)
                 if (line.includes('[EXIT]')) {
                     const ts = _extractTimestamp(line);
-                    if (ts && ts >= cutoff) {
+                    if (ts && ts >= fallbackGlobalCutoff) {
                         const m = RE_EXIT.exec(line);
                         if (m) {
-                            const pnlVal = parseFloat(m[4]) * (m[3] === '-' ? -1 : 1);
+                            // m[3] is the sign block (+/-), m[4] is the actual sign character, m[5] is the PnL amount string (e.g. 1,947.00)
+                            const pnlStr = (m[5] || '0').replace(/,/g, '');
+                            const pnlVal = parseFloat(pnlStr) * (m[4] === '-' ? -1 : 1);
                             const symbol = m[2];
                             const closedAt = ts.toISOString();
 
@@ -396,9 +437,10 @@ function getTradeHistory(filter = '24h', paperMode = false) {
         }
     }
 
-    // Fallback: Parse last [HOLDINGS] heartbeat from bot_stdout.log for live CCXT positions
+    // Fallback: Parse last [HOLDINGS] heartbeat from bot_stdout.log for live CCXT and OANDA positions
     // This captures positions (like DOGE) that aren't in any static JSON file
-    if (!paperMode) {
+    // AND it acts as the authoritative source to prune ghost static states.
+    if (true) { // Always run this, even in paperMode, because paperMode relies on [HOLDINGS] too
         const stdoutPath = path.join(LOGS_DIR, 'bot_stdout.log');
         if (fs.existsSync(stdoutPath)) {
             try {
@@ -415,48 +457,71 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                     const lastLine = holdingsLines[holdingsLines.length - 1];
                     const jsonPart = lastLine.split(/\[HOLDINGS\]/i)[1].trim();
                     const holdingsData = JSON.parse(jsonPart);
-                    if (holdingsData.positions) {
-                        // Create a set of authoritative live symbols
-                        const liveSymbols = new Set(holdingsData.positions.map(p => p.symbol));
+                    
+                    // Create a set of authoritative live symbols (empty if no positions)
+                    const liveList = Array.isArray(holdingsData.positions) ? holdingsData.positions : [];
+                    const liveSymbols = new Set(liveList.map(p => p.symbol));
 
-                        // Prune any trades previously marked as active from static files 
-                        // that do not appear in the live authoritative payload
-                        trades = trades.filter(t => !t._active || liveSymbols.has(t.symbol));
+                    // Prune any trades previously marked as active from static files 
+                    // that do not appear in the live authoritative payload
+                    trades = trades.filter(t => !t._active || liveSymbols.has(t.symbol));
 
-                        for (const pos of holdingsData.positions) {
-                            if (!pos.symbol) continue;
+                    for (const pos of liveList) {
+                        if (!pos.symbol) continue;
 
-                            const _upnl = pos.unrealized_pnl || 0;
-                            const _entry = pos.entry_price || pos.avg_price || 0;
-                            const _size = Math.abs(pos.size || 0);
-                            const _pctCalc = (_entry && _size) ? (_upnl / (_entry * _size)) * 100 : 0;
+                        const _upnl = pos.unrealized_pnl || 0;
+                        const _entry = pos.entry_price || pos.avg_price || 0;
+                        const _size = Math.abs(pos.size || 0);
+                        const _pctCalc = (_entry && _size) ? (_upnl / (_entry * _size)) * 100 : 0;
 
-                            const freshPos = {
-                                symbol: pos.symbol,
-                                side: pos.side || pos.direction || 'long',
-                                pnl: _upnl,
-                                pct: pos.pnl_pct || _pctCalc,
-                                timestamp: pos.opened_at || pos.entry_time || '',
-                                strategy: pos.strategy || '--',
-                                stop_loss: pos.stop_loss,
-                                take_profit: pos.take_profit,
-                                entry_price: _entry,
-                                size: pos.size,
-                                _active: true
-                            };
+                        const freshPos = {
+                            symbol: pos.symbol,
+                            side: pos.side || pos.direction || 'long',
+                            pnl: _upnl,
+                            pct: pos.pnl_pct || _pctCalc,
+                            timestamp: pos.opened_at || pos.entry_time || '',
+                            strategy: pos.strategy || '--',
+                            stop_loss: pos.stop_loss,
+                            take_profit: pos.take_profit,
+                            entry_price: _entry,
+                            size: pos.size,
+                            _active: true
+                        };
 
-                            const existingIdx = trades.findIndex(t => t._active && t.symbol === pos.symbol);
-                            if (existingIdx !== -1) {
-                                // Overlay fresh data on top of static data (updates real-time PnL and pyramided sizes)
-                                trades[existingIdx] = { ...trades[existingIdx], ...freshPos };
-                            } else {
-                                trades.unshift(freshPos);
-                            }
+                        const existingIdx = trades.findIndex(t => t._active && t.symbol === pos.symbol);
+                        if (existingIdx !== -1) {
+                            // Overlay fresh data on top of static data (updates real-time PnL and pyramided sizes)
+                            trades[existingIdx] = { ...trades[existingIdx], ...freshPos };
+                        } else {
+                            trades.unshift(freshPos);
                         }
                     }
                 }
             } catch (_) { /* ignore heartbeat parse errors */ }
         }
+
+        // --- HARD PRUNE GHOST POSITIONS ---
+        // Second pass: Re-read the last [HOLDINGS] line and forcibly delete any `_active` static trade 
+        // (like AUDUSD from paper_state.json) that the live bot is no longer tracking.
+        try {
+            if (fs.existsSync(stdoutPath)) {
+                const stat = fs.statSync(stdoutPath);
+                const readSize = Math.min(stat.size, 50000);
+                const fd = fs.openSync(stdoutPath, 'r');
+                const buf = Buffer.alloc(readSize);
+                fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
+                fs.closeSync(fd);
+                const holdingsLines = buf.toString('utf8').split('\n').filter(l => l.includes('[HOLDINGS]'));
+                if (holdingsLines.length > 0) {
+                    const lastLine = holdingsLines[holdingsLines.length - 1];
+                    const jsonPart = lastLine.split(/\[HOLDINGS\]/i)[1].trim();
+                    const holdingsData = JSON.parse(jsonPart);
+                    const liveList = Array.isArray(holdingsData.positions) ? holdingsData.positions : [];
+                    const liveSymbols = new Set(liveList.map(p => p.symbol));
+                    trades = trades.filter(t => !t._active || liveSymbols.has(t.symbol));
+                }
+            }
+        } catch (e) { console.error("HARD PRUNE ERROR", e); }
     }
 
     // Collect ledger by_symbol and by_strategy aggregate data as fallback
@@ -468,7 +533,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
         for (const day of allDays) {
             const dayStart = day.day_start ? new Date(day.day_start) : null;
             // Only include days within the filter cutoff
-            if (dayStart && dayStart < cutoff) continue;
+            if (dayStart && dayStart < fallbackGlobalCutoff) continue;
             for (const [sym, stats] of Object.entries(day.by_symbol || {})) {
                 if (!ledgerBySymbol[sym]) ledgerBySymbol[sym] = { trades: 0, wins: 0, losses: 0, pnl: 0 };
                 ledgerBySymbol[sym].trades += stats.trades || 0;
@@ -554,8 +619,56 @@ function calculateAnalyticsSummary(data) {
     const capitalChange = capitalEnd - capitalStart;
     const capitalChangePct = capitalStart > 0 ? ((capitalChange / capitalStart) * 100).toFixed(1) : 0;
 
+    // ── Cashout & Active PnL Detection ──
+    // Merge trades and capital snapshots chronologically to detect cash-outs (unexplained capital drops)
+    const events = [];
+    for (const t of closed) {
+        if (t.closed_at || t.timestamp) {
+            events.push({ time: new Date(t.closed_at || t.timestamp).getTime(), type: 'trade', pnl: parseFloat(t.pnl) || 0 });
+        }
+    }
+    for (const c of sortedCapital) {
+        if (c.timestamp && (c.nav || c.balance)) {
+            events.push({ time: new Date(c.timestamp).getTime(), type: 'cap', nav: (c.nav || c.balance) });
+        }
+    }
+    events.sort((a, b) => a.time - b.time);
+
+    let activeCapitalStart = capitalStart; 
+    let activePnl = 0;
+    let lastKnownNav = capitalStart;
+    let totalWithdrawn = 0;
+
+    for (const ev of events) {
+        if (ev.type === 'trade') {
+            activePnl += ev.pnl;
+            lastKnownNav += ev.pnl;
+        } else if (ev.type === 'cap') {
+            const actualNav = ev.nav;
+            const diff = lastKnownNav - actualNav; // positive diff means capital dropped
+            
+            if (diff > 100) { 
+                // Large unexplained drop => Cashout event
+                totalWithdrawn += diff;
+                activeCapitalStart = actualNav; // Re-base capital to the remaining nav
+                activePnl = Math.max(0, activePnl - diff); // Proportionally deduct, don't wipe to 0
+                lastKnownNav = actualNav;
+            } else if (diff < -100) {
+                // Large unexplained increase => Deposit event
+                activeCapitalStart += (-diff);
+                lastKnownNav = actualNav;
+            } else {
+                // Small discrepancy (e.g. spread/commission sync), align it silently
+                lastKnownNav = actualNav;
+            }
+        }
+    }
+
     return {
         totalPnl: totalPnl.toFixed(2),
+        activePnl: activePnl.toFixed(2),
+        totalWithdrawn: totalWithdrawn.toFixed(2),
+        activeCapitalStart: activeCapitalStart.toFixed(2),
         totalTrades,
         totalWins: wins,
         totalLosses: losses,
