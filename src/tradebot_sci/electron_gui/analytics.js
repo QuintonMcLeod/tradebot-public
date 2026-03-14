@@ -270,15 +270,14 @@ function updateMetrics(data) {
                 takePayoutBtn.style.display = 'flex';
             }
 
-            // 🔔 Cha-Ching! Play sound when transitioning TO cashout
-            // AND ensure the most recent closed trade was actually a winner.
+            // 🔔 Cha-Ching! Play sound ONLY when transitioning TO cashout
+            // AND the most recent closed trade was explicitly a winner.
+            // No congratulations after a loss — that's just awkward.
             if (prevState !== 'cashout') {
-                let recentWin = true; // Assume true if no trades array available
+                let recentWin = false; // Require proof of a win
                 if (data.trades && data.trades.length > 0) {
-                    // Find the most recent closed trade (not active)
                     const closedTrades = data.trades.filter(t => !t._active);
                     if (closedTrades.length > 0) {
-                        // Trades are usually chronological, so the last one is the most recent
                         const lastTrade = closedTrades[closedTrades.length - 1];
                         recentWin = parseFloat(lastTrade.netPnl || lastTrade.pnl || 0) > 0;
                     }
