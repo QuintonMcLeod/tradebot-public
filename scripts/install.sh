@@ -153,8 +153,14 @@ install_sys_deps() {
                 ATK_PKG="libatk-bridge2.0-0"
             fi
 
+            if [ "$NEEDS_PPA" = "1" ]; then
+                PYTHON_PKG="python3.11 python3.11-venv python3.11-dev"
+            else
+                PYTHON_PKG="python3 python3-venv python3-dev"
+            fi
+
             run_with_spinner "Updating package lists" bash -c "sudo apt update || true"
-            run_with_spinner "Installing system packages" sudo apt install -y tmux git rsync curl wget build-essential python3.11 python3.11-venv python3.11-dev libnss3 $ATK_PKG libxss1 $ALSA_PKG libgbm1
+            run_with_spinner "Installing system packages" sudo apt install -y tmux git rsync curl wget build-essential $PYTHON_PKG libnss3 $ATK_PKG libxss1 $ALSA_PKG libgbm1
             ;;
         fedora)
             run_with_spinner "Installing Fedora packages" sudo dnf install -y tmux git rsync curl wget gcc python3-devel python3-pip nss at-spi2-atk libXScrnSaver alsa-lib mesa-libgbm
