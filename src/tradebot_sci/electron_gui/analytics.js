@@ -1489,8 +1489,8 @@ function renderDaysCalendar(trades, container, daysAgo) {
     daysList.forEach(item => {
         const box = document.createElement('div');
         const isPos = item.pnl >= 0;
-        const color = item.pnl === 0 ? '#475569' : (isPos ? '#34d399' : '#f87171');
-        const bg = item.pnl === 0 ? 'rgba(255,255,255,0.05)' : (isPos ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)');
+        const color = item.pnl === 0 ? '#64748b' : '#ffffff';
+        const bg = item.pnl === 0 ? 'rgba(255,255,255,0.05)' : (isPos ? '#059669' : '#dc2626');
         
         box.style.flex = '1';
         box.style.background = bg;
@@ -1507,7 +1507,7 @@ function renderDaysCalendar(trades, container, daysAgo) {
         if (isToday) box.style.cssText += emphasis;
 
         box.innerHTML = `
-            <div style="font-size:10px; font-weight:800; color:#64748b; text-transform:uppercase;">${isToday ? 'TODAY' : dayName + ' ' + dayNum}</div>
+            <div style="font-size:10px; font-weight:800; color:${item.pnl === 0 ? '#64748b' : 'rgba(255,255,255,0.8)'}; text-transform:uppercase;">${isToday ? 'TODAY' : dayName + ' ' + dayNum}</div>
             <div style="font-size:14px; font-weight:900; color:${color}; margin-top:4px;">${item.pnl === 0 ? '-' : (item.pnl > 0 ? '+' : '')}$${Math.abs(item.pnl).toFixed(2)}</div>
         `;
         wrapper.appendChild(box);
@@ -1589,8 +1589,8 @@ function renderTraditionalCalendar(trades, container) {
             const pnl = pnlByDay[key] || 0;
             
             const isPos = pnl >= 0;
-            const color = pnl === 0 ? '#475569' : (isPos ? '#34d399' : '#f87171');
-            const bg = pnl === 0 ? 'rgba(255,255,255,0.02)' : (isPos ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)');
+            const color = pnl === 0 ? '#475569' : '#ffffff';
+            const bg = pnl === 0 ? 'rgba(255,255,255,0.02)' : (isPos ? '#059669' : '#dc2626');
             
             const box = document.createElement('div');
             box.style.background = bg;
@@ -1617,7 +1617,7 @@ function renderTraditionalCalendar(trades, container) {
             }
 
             box.innerHTML = `
-                <div style="font-size:12px; color:${isToday ? '#fff' : '#cbd5e1'}; font-weight:${isToday ? 'bold' : 'normal'}; border-bottom:${isToday?'2px solid #fff':''}; margin-bottom: 4px;">${currentDate.getDate()}</div>
+                <div style="font-size:12px; color:${isToday ? '#fff' : (pnl === 0 ? '#cbd5e1' : 'rgba(255,255,255,0.8)')}; font-weight:${isToday ? 'bold' : 'normal'}; border-bottom:${isToday?'2px solid #fff':''}; margin-bottom: 4px;">${currentDate.getDate()}</div>
                 <div style="font-size:12px; font-weight:800; color:${color};">${pnlDisp}</div>
             `;
             grid.appendChild(box);
@@ -1657,8 +1657,8 @@ function renderMonthsCalendar(trades, container) {
         const pnl = pnlByMonth[key] || 0;
         
         const isPos = pnl >= 0;
-        const color = pnl === 0 ? '#475569' : (isPos ? '#34d399' : '#f87171');
-        const bg = pnl === 0 ? 'rgba(255,255,255,0.02)' : (isPos ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)');
+        const color = pnl === 0 ? '#475569' : '#ffffff';
+        const bg = pnl === 0 ? 'rgba(255,255,255,0.02)' : (isPos ? '#059669' : '#dc2626');
         
         const box = document.createElement('div');
         box.style.background = bg;
@@ -1679,7 +1679,7 @@ function renderMonthsCalendar(trades, container) {
         }
         
         box.innerHTML = `
-            <div style="font-size:10px; font-weight:800; color:#94a3b8; text-transform:uppercase;">${monthName}</div>
+            <div style="font-size:10px; font-weight:800; color:${pnl === 0 ? '#94a3b8' : 'rgba(255,255,255,0.8)'}; text-transform:uppercase;">${monthName}</div>
             <div style="font-size:13px; font-weight:900; color:${color}; margin-top:4px;">${pnlDisplay}</div>
         `;
         wrapper.appendChild(box);
@@ -1710,12 +1710,12 @@ function renderYearsCalendar(trades, container) {
     years.forEach(y => {
         const pnl = pnlByYear[y] || 0;
         const isPos = pnl >= 0;
-        const color = pnl === 0 ? '#475569' : (isPos ? '#34d399' : '#f87171');
-        const bg = pnl === 0 ? 'rgba(255,255,255,0.02)' : (isPos ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)');
+        const color = pnl === 0 ? '#64748b' : '#ffffff';
+        const bg = pnl === 0 ? 'rgba(255,255,255,0.02)' : (isPos ? '#059669' : '#dc2626');
         
         const box = document.createElement('div');
         box.style.background = bg;
-        box.style.border = `2px solid ${pnl === 0 ? 'rgba(255,255,255,0.05)' : color+'60'}`;
+        box.style.border = `2px solid ${pnl === 0 ? 'rgba(255,255,255,0.05)' : color+'30'}`;
         box.style.borderRadius = '8px';
         box.style.width = '70px';
         box.style.height = '70px';
@@ -1735,7 +1735,7 @@ function renderYearsCalendar(trades, container) {
         }
         
         box.innerHTML = `
-            <div style="font-size:14px; font-weight:900; color:#cbd5e1;">${y}</div>
+            <div style="font-size:14px; font-weight:900; color:${pnl === 0 ? '#cbd5e1' : 'rgba(255,255,255,0.8)'};">${y}</div>
             <div style="font-size:10px; font-weight:800; color:${color}; margin-top:4px;">${pnlDisplay}</div>
         `;
         wrapper.appendChild(box);
