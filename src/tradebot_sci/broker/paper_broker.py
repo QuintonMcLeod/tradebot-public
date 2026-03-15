@@ -34,7 +34,7 @@ class PaperBroker:
     # Hard leverage cap for paper trading.
     # Profile target_leverage (e.g. 50x) is for OANDA forex — way too high for
     # crypto paper trading.  Cap at 3x to prevent catastrophic position sizing.
-    PAPER_MAX_LEVERAGE = float(os.getenv("PAPER_MAX_LEVERAGE", "3.0"))
+    PAPER_MAX_LEVERAGE = float(os.getenv("PAPER_MAX_LEVERAGE", "50.0"))
     
     def __init__(self, profile_settings, market_provider=None, trade_results=None, initial_balance=10000.0):
         self.profile = profile_settings
@@ -208,6 +208,14 @@ class PaperBroker:
                 # Fallback: Treat risk_usd as the actual notional size (very conservative for paper)
                 qty = risk_usd / price if price > 0 else 0
             
+            # [DEBUG] Trace sizing pipeline
+            logger.info(
+                f"[PAPER] [SIZING DEBUG] {symbol}: sizing_capital=${sizing_capital:.2f}, "
+                f"risk_pct={risk_pct}, risk_usd=${risk_usd:.2f}, price={price:.5f}, "
+                f"SL={decision.stop_loss}, qty_before_cap={qty:.4f}, "
+                f"notional_before_cap=${qty * price:,.0f}"
+            )
+
             # [FIX] Leverage-based sizing cap — capped at PAPER_MAX_LEVERAGE
             profile_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
             target_leverage = min(profile_leverage, self.PAPER_MAX_LEVERAGE)
@@ -218,6 +226,14 @@ class PaperBroker:
                 )
             max_notional = sizing_capital * target_leverage
             max_qty = max_notional / price if price > 0 else 0
+            
+            logger.info(
+                f"[PAPER] [CAP DEBUG] {symbol}: profile_leverage={profile_leverage}, "
+                f"target_leverage={target_leverage}, max_notional=${max_notional:,.0f}, "
+                f"max_qty={max_qty:.4f}, qty={qty:.4f}, "
+                f"will_cap={qty > max_qty and max_qty > 0}"
+            )
+            
             if qty > max_qty and max_qty > 0:
                 logger.warning(
                     f"[PAPER] [LEVERAGE CAP] {symbol}: qty {qty:.4f} -> {max_qty:.4f} "
@@ -272,6 +288,9 @@ class PaperBroker:
 
             self.balance -= fee_usd  # Deduct taker fee immediately
 
+            stop_loss_val = getattr(decision, "stop_loss", None)
+            initial_risk_val = abs(fill_price - stop_loss_val) if stop_loss_val else None
+
             self.positions[symbol] = {
                 "symbol": symbol,
                 "side": "long" if side == "buy" else "short",
@@ -279,12 +298,14 @@ class PaperBroker:
                 "qty": qty, # Explicit qty for easier math
                 "entry_price": fill_price,
                 "avg_price": fill_price,
+                "original_entry_price": fill_price,
+                "initial_risk": initial_risk_val,
                 "current_price": price,
                 "unrealized_pnl": 0.0,
                 "pnl_pct": 0.0,
                 "opened_at": self._wall_clock().isoformat(),
                 "entry_time": self._now().isoformat(),
-                "stop_loss": getattr(decision, "stop_loss", None),
+                "stop_loss": stop_loss_val,
                 "take_profit": getattr(decision, "take_profit", None),
                 "entry_fee": fee_usd,
                 "strategy": getattr(decision, "strategy_name", None) or "unknown",
@@ -490,6 +511,34 @@ class PaperBroker:
                     qty = risk_usd / risk_per_unit
                 else:
                     qty = risk_usd / price if price > 0 else 0
+                
+                # [FIX] Leverage cap for scale_in — same cap as initial entry
+                # Without this, pyramids bypass the leverage limit entirely,
+                # allowing positions to balloon to millions in notional.
+                profile_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
+                target_leverage = min(profile_leverage, self.PAPER_MAX_LEVERAGE)
+                max_notional = self._initial_balance * target_leverage
+                existing_notional = pos["qty"] * price
+                remaining_notional = max(0, max_notional - existing_notional)
+                max_add_qty = remaining_notional / price if price > 0 else 0
+                
+                if qty > max_add_qty:
+                    if max_add_qty <= 0:
+                        logger.warning(
+                            f"[PAPER] [SCALE_IN BLOCKED] {symbol}: existing notional "
+                            f"${existing_notional:,.0f} already at {target_leverage}x "
+                            f"leverage cap ${max_notional:,.0f}"
+                        )
+                        return (
+                            ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: pyramid blocked by leverage cap"),
+                            ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, "Paper: pyramid leverage cap")
+                        )
+                    logger.info(
+                        f"[PAPER] [SCALE_IN CAP] {symbol}: pyramid qty {qty:.4f} -> {max_add_qty:.4f} "
+                        f"(existing notional ${existing_notional:,.0f}, "
+                        f"cap ${max_notional:,.0f} at {target_leverage}x)"
+                    )
+                    qty = max_add_qty
                 
                 # Check Paper config for UI overrides
                 import json

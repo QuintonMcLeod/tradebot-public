@@ -263,13 +263,27 @@ def _load_candles_for_range(
             htf_candles.sort(key=lambda c: c.timestamp)
 
             # ── Price continuity guard ────────────────────────────
-            # Drop candles where close jumps >30% from previous close.
-            # This catches corrupted data (e.g., wrong-symbol prices
-            # mixed into a file: EURUSD data in EURJPY's .jsonl).
-            MAX_JUMP_PCT = 0.30
+            # Drop candles where close jumps beyond asset-class-specific
+            # thresholds. Forex rarely moves >2%/day, so 5% is generous
+            # for 5-min candles. HTF (H4) gets a wider threshold since
+            # bars can gap between sessions/weekends.
+            _METALS = {"XAUUSD", "XAGUSD"}
+            _OIL = {"WTICOUSD", "BCOUSD"}
+            if sym in _METALS:
+                MAX_JUMP_LTF = 0.10   # Gold can gap 5-8% on news
+                MAX_JUMP_HTF = 0.15
+            elif sym in _OIL:
+                MAX_JUMP_LTF = 0.15   # Oil can be volatile
+                MAX_JUMP_HTF = 0.20
+            elif sym.startswith(("BTC", "ETH", "XRP")) or sym.endswith(("BTC", "ETH")):
+                MAX_JUMP_LTF = 0.15   # Crypto
+                MAX_JUMP_HTF = 0.20
+            else:
+                MAX_JUMP_LTF = 0.05   # Forex LTF: 5% is already extreme for 5-min bars
+                MAX_JUMP_HTF = 0.10   # Forex HTF: 10% allows session gaps
             _log = logging.getLogger("engine_replay")
 
-            def _filter_corrupt(candles, label):
+            def _filter_corrupt(candles, label, max_jump):
                 if not candles:
                     return candles
                 clean = [candles[0]]
@@ -277,18 +291,18 @@ def _load_candles_for_range(
                 for i in range(1, len(candles)):
                     prev_close = clean[-1].close
                     curr_close = candles[i].close
-                    if prev_close > 0 and abs(curr_close - prev_close) / prev_close > MAX_JUMP_PCT:
+                    if prev_close > 0 and abs(curr_close - prev_close) / prev_close > max_jump:
                         dropped += 1
                         continue
                     clean.append(candles[i])
                 if dropped:
                     _log.warning(
-                        f"[DATA-GUARD] {sym} {label}: dropped {dropped} candles with >{MAX_JUMP_PCT*100:.0f}% price jumps (corrupt data)"
+                        f"[DATA-GUARD] {sym} {label}: dropped {dropped} candles with >{max_jump*100:.0f}% price jumps (corrupt data)"
                     )
                 return clean
 
-            ltf_candles = _filter_corrupt(ltf_candles, "LTF")
-            htf_candles = _filter_corrupt(htf_candles, "HTF")
+            ltf_candles = _filter_corrupt(ltf_candles, "LTF", MAX_JUMP_LTF)
+            htf_candles = _filter_corrupt(htf_candles, "HTF", MAX_JUMP_HTF)
         return sym, ltf_candles, htf_candles
 
     # Thread pool: load all symbols concurrently

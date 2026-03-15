@@ -482,9 +482,16 @@ class ForexConductorStrategy(BaseStrategy):
 
             from tradebot_sci.strategy.icc_signals import calculate_atr
             atr = calculate_atr(snapshot.candles[-14:], period=14)
+            
+            # [FIX]: Use original entry price and risk provided by backtester
+            orig_entry = float(open_position.get("original_entry_price") or entry_price)
+            # The backtester directly provides the authentic initial_risk anchored to the original execution
+            orig_risk = open_position.get("initial_risk")
 
-            if pos_dir in ("long", "short") and entry_price > 0 and current_stop > 0:
-                initial_risk = abs(entry_price - current_stop)
+            if orig_risk is not None and orig_risk > 0:
+                initial_risk = orig_risk
+            elif pos_dir in ("long", "short") and orig_entry > 0 and current_stop > 0:
+                initial_risk = abs(orig_entry - current_stop)
                 
                 # ── FALLBACK: Stop moved to Breakeven ───────────────────────
                 # If current_stop is very close to entry, reconstruct initial_risk
@@ -498,26 +505,19 @@ class ForexConductorStrategy(BaseStrategy):
                         f"({current_stop:.5f}). Reconstructed initial_risk to {_mult}x ATR = {initial_risk:.5f}"
                     )
 
-            elif pos_dir in ("long", "short") and entry_price > 0 and current_stop == 0:
+            elif pos_dir in ("long", "short") and orig_entry > 0 and current_stop == 0:
                 # ── FALLBACK: No SL in snapshot ─────────────────────────────
-                # Oanda sometimes returns no stopLossOrder (e.g., when SL was
-                # placed via a separate order that isn't linked to the trade,
-                # or when the trade details API call failed).
                 # Estimate initial_risk from unrealized_pnl + position size.
                 unrealized = float(open_position.get("unrealized_pnl", 0) or 0)
                 pos_size = abs(float(open_position.get("size", 0) or 0))
-                if unrealized != 0 and pos_size > 0 and entry_price > 0:
-                    # pip_value ≈ unrealized / (size * pnl_dist_in_price)
-                    pnl_dist_now = abs(current_price - entry_price)
+                if unrealized != 0 and pos_size > 0 and orig_entry > 0:
+                    pnl_dist_now = abs(current_price - orig_entry)
                     if pnl_dist_now > 0:
-                        pip_value = abs(unrealized) / (pos_size * pnl_dist_now)
-                        # Assume default 1.5× ATR risk; ATR ≈ 0.0010 for major pairs
                         atr_guess = float(snapshot.candles[-1].close) * 0.0007 if snapshot.candles else 0.001
                         initial_risk = atr_guess
                         logger.warning(
                             f"[CONDUCTOR] {snapshot.symbol}: stop_loss missing — "
                             f"using estimated initial_risk={initial_risk:.5f} (ATR fallback). "
-                            f"CHECK: hold_store SL backfill may have failed."
                         )
                     else:
                         initial_risk = 0.0
@@ -528,10 +528,11 @@ class ForexConductorStrategy(BaseStrategy):
 
             if initial_risk > 0:
                 # R-multiple: positive = winning, negative = losing
+                # Always calculate against the true ORIGINAL entry price
                 if pos_dir == "long":
-                    pnl_dist = current_price - entry_price
+                    pnl_dist = current_price - orig_entry
                 else:
-                    pnl_dist = entry_price - current_price
+                    pnl_dist = orig_entry - current_price
                 r_multiple = pnl_dist / initial_risk
 
 
@@ -542,7 +543,7 @@ class ForexConductorStrategy(BaseStrategy):
 
                 # Track which milestones have already fired
                 sym = snapshot.symbol
-                milestones_key = f"{sym}_{pos_dir}_{entry_price:.5f}"
+                milestones_key = f"{sym}_{pos_dir}_{orig_entry:.5f}"
                 if not hasattr(self, '_milestones_fired'):
                     self._milestones_fired = {}
                 fired = self._milestones_fired.setdefault(milestones_key, set())
@@ -754,7 +755,7 @@ class ForexConductorStrategy(BaseStrategy):
                 # Plus: momentum acceleration, bounce re-pyramids
                 # SAR trades skip pyramiding — they ride to TP.
                 _pyr_enabled = getattr(self._profile, 'conductor_pyramid_enabled', True) if self._profile else True
-                _start_r = getattr(self._profile, 'conductor_pyramid_start_r', 1.0) if self._profile else 1.0
+                _start_r = getattr(self._profile, 'conductor_pyramid_start_r', 0.2) if self._profile else 0.2
                 if not is_sar and _pyr_enabled and r_multiple >= _start_r:
                     MAX_PYRAMIDS = getattr(self._profile, 'conductor_pyramid_max_count', 50) if self._profile else 50
 
@@ -797,173 +798,103 @@ class ForexConductorStrategy(BaseStrategy):
                                     ),
                                 )
 
-                    _step_r = getattr(self._profile, 'conductor_pyramid_step_r', 0.2) if self._profile else 0.2
+                    # ── #3: PRE-DEFINED R-MILESTONES ──────────────
+                    # As requested by the user:
+                    # Pyramids fire at specific milestones: 0.2R, 0.5R, 1.0R, 1.2R, 1.5R, 2.0R, 2.5R, 3.0R...
+                    # The first pyramid is 30%. Subsequent pyramids are 10%.
+                    # Trailing stop follows 1R behind the peak achieved *after* the first pyramid (0.2R).
                     
-                    # ── #3: RE-PYRAMID ON PULLBACK BOUNCES ────────
-                    # Track peak R-level. If we pulled back ≥ _step_r
-                    # and then re-broke the level, reset that milestone
-                    # so a new pyramid can fire.
+                    milestone_levels = [0.2, 0.5, 1.0, 1.2, 1.5]
+                    # Generate continuing levels up to 25.0R (50 pyramids cap)
+                    last_level = 1.5
+                    while last_level < 25.0:
+                        last_level += 0.5
+                        milestone_levels.append(round(last_level, 1))
+                        
+                    # Track peak R to trail the stop 1R behind
                     peak_key = f"peak_{milestones_key}"
                     if not hasattr(self, '_peak_r'):
                         self._peak_r = {}
+                    
                     prev_peak = self._peak_r.get(peak_key, 0.0)
                     if r_multiple > prev_peak:
                         self._peak_r[peak_key] = r_multiple
-                    elif prev_peak - r_multiple >= _step_r:
-                        # Pulled back ≥ _step_r — mark trough
-                        trough_key = f"trough_{milestones_key}"
-                        if not hasattr(self, '_trough_r'):
-                            self._trough_r = {}
-                        self._trough_r[trough_key] = r_multiple
-    
-                    trough_key = f"trough_{milestones_key}"
-                    trough_r = getattr(self, '_trough_r', {}).get(trough_key)
-                    if trough_r is not None and r_multiple > trough_r + _step_r:
-                        # Bounced back up past trough + _step_r — refresh
-                        # the milestone at this level
-                        bounce_level = _start_r + (int((r_multiple - _start_r) / _step_r) * _step_r)
-                        bounce_key = f"pyr_{bounce_level:.1f}r"
-                        if bounce_key in fired:
-                            fired.discard(bounce_key)
-                            # Clear trough so we don't re-fire
-                            self._trough_r.pop(trough_key, None)
+                        prev_peak = r_multiple
+                        
+                    # Check which milestone we are at
+                    reached_milestones = [m for m in milestone_levels if r_multiple >= m]
+                    
+                    if reached_milestones:
+                        highest_milestone = reached_milestones[-1]
+                        m_idx = milestone_levels.index(highest_milestone)
+                        m_key = f"pyr_{highest_milestone:.1f}r"
+                        
+                        _pyr_first = getattr(self._profile, 'conductor_pyramid_first_pct', 0.30) if self._profile else 0.30
+                        _pyr_sub = getattr(self._profile, 'conductor_pyramid_subsequent_pct', 0.10) if self._profile else 0.10
+                        pyr_risk = _pyr_first if m_idx == 0 else _pyr_sub
+                        
+                        # Trailing stop 1R behind the peak (only applied after first pyramid)
+                        # So if we hit 1.5R, the stop moves to 0.5R.
+                        # If we hit 0.2R (first pyr), the stop moves to -0.8R (but we don't move it backwards, only forwards)
+                        target_floor_r = max(0.0, highest_milestone - 1.0)
+                        
+                        if pos_dir == "long":
+                            floor_price = orig_entry + (initial_risk * target_floor_r)
+                            need_floor = current_stop < floor_price
+                        else:
+                            floor_price = orig_entry - (initial_risk * target_floor_r)
+                            need_floor = current_stop > floor_price
+                        
+                        # Pyramid (if not already fired)
+                        pyr_count = sum(1 for k in fired if k.startswith("pyr_"))
+                        need_pyramid = (m_key not in fired and pyr_count < MAX_PYRAMIDS)
+                        
+                        if need_floor or need_pyramid:
+                            if need_pyramid:
+                                fired.add(m_key)
+                                
+                            action = "scale_in" if need_pyramid else "hold"
+                            notes_parts = []
+                            if need_floor:
+                                notes_parts.append(f"trail_sl→{target_floor_r:.1f}R")
+                            if need_pyramid:
+                                notes_parts.append(f"pyramid {int(pyr_risk*100)}%")
+                                
                             logger.info(
-                                f"[CONDUCTOR] BOUNCE RE-PYRAMID {sym}: "
-                                f"pullback to {trough_r:.1f}R → "
-                                f"re-broke {bounce_level:.1f}R, "
-                                f"reset milestone"
+                                f"[CONDUCTOR] MILESTONE {sym}: "
+                                f"{highest_milestone:.1f}R reached → "
+                                f"{', '.join(notes_parts)}"
                             )
-
-                        # ── R-level milestones (floor + pyramid) ──────
-                        level_idx = int((r_multiple - _start_r) / _step_r)
-                        for i in range(level_idx, -1, -1):
-                            threshold = _start_r + (i * _step_r)
-                            floor_r = max(0.0, threshold - _start_r)
-                            m_key = f"pyr_{threshold:.1f}r"
-                            _pyr_first = getattr(self._profile, 'conductor_pyramid_first_pct', 0.30) if self._profile else 0.30
-                            _pyr_sub = getattr(self._profile, 'conductor_pyramid_subsequent_pct', 0.04) if self._profile else 0.04
-                            pyr_risk = _pyr_first if i == 0 else _pyr_sub
-    
-                            # Floor move
-                            if pos_dir == "long":
-                                floor_price = entry_price + (initial_risk * floor_r)
-                                need_floor = current_stop < floor_price
-                            else:
-                                floor_price = entry_price - (initial_risk * floor_r)
-                                need_floor = current_stop > floor_price
-    
-                            # Pyramid (if not already fired and under cap)
-                            pyr_count = sum(
-                                1 for k in fired if k.startswith("pyr_")
-                            )
-                            need_pyramid = (
-                                m_key not in fired
-                                and pyr_count < MAX_PYRAMIDS
-                            )
-    
-                            if need_floor or need_pyramid:
-                                if need_pyramid:
-                                    fired.add(m_key)
-    
-                                action = "scale_in" if need_pyramid else "hold"
-                                notes_parts = []
-                                if need_floor:
-                                    notes_parts.append(f"floor→{floor_r:.1f}R")
-                                if need_pyramid:
-                                    notes_parts.append(
-                                        f"pyramid {int(pyr_risk*100)}%"
-                                    )
-    
-                                logger.info(
-                                    f"[CONDUCTOR] MILESTONE {sym}: "
-                                    f"{r_multiple:.1f}R → "
+                            
+                            # Push target outward if pyramiding so we don't hit the original tight TP
+                            new_tp = None
+                            if need_pyramid:
+                                _tp_r = getattr(self._profile, 'target_r', 2.0) if self._profile else 2.0
+                                new_ep = snapshot.candles[-1].close
+                                if pos_dir == "long":
+                                    new_tp = new_ep + (initial_risk * _tp_r)
+                                else:
+                                    new_tp = new_ep - (initial_risk * _tp_r)
+                                    
+                            return AITradeDecision(
+                                symbol=sym,
+                                timeframe=snapshot.timeframe,
+                                bias=pos_dir,
+                                phase="management",
+                                action=action,
+                                entry_price=snapshot.candles[-1].close,
+                                stop_loss=floor_price if need_floor else None,
+                                take_profit=new_tp,
+                                risk_per_trade_pct=pyr_risk,
+                                notes=(
+                                    f"[MANAGEMENT] {highest_milestone:.1f}R: "
                                     f"{', '.join(notes_parts)}"
-                                )
-                                return AITradeDecision(
-                                    symbol=sym,
-                                    timeframe=snapshot.timeframe,
-                                    bias=pos_dir,
-                                    phase="management",
-                                    action=action,
-                                    entry_price=snapshot.candles[-1].close,
-                                    stop_loss=floor_price if need_floor else None,
-                                    risk_per_trade_pct=pyr_risk,
-                                    notes=(
-                                        f"[MANAGEMENT] {r_multiple:.1f}R: "
-                                        f"{', '.join(notes_parts)}"
-                                    ),
-                                    strategy_name=self.name,
-                                )
-                            break  # Only process highest level
-
-                # ── ATR TRAILING FALLBACK (0.5R – 1.0R) ───────────
-                # Only fires if no pyramid milestone was triggered above.
-                # This handles the gap between breakeven and 1R.
-                if atr and atr > 0 and r_multiple >= 0.5:
-                    if is_ranging:
-                        # RANGING: tight trails — capture oscillation peaks
-                        if r_multiple >= 3.0:
-                            trail_mult = 0.3
-                        elif r_multiple >= 2.0:
-                            trail_mult = 0.5
-                        elif r_multiple >= 1.0:
-                            trail_mult = 0.7
-                        else:
-                            trail_mult = 1.0  # 0.5-1.0R: lock near BE
-                    else:
-                        # TRENDING: wide trails — let winners run
-                        if r_multiple >= 3.0:
-                            trail_mult = 0.7
-                        elif r_multiple >= 2.0:
-                            trail_mult = 1.0
-                        elif r_multiple >= 1.0:
-                            trail_mult = 1.5
-                        else:
-                            trail_mult = 2.0  # 0.5-1.0R: wide trail
-                    trail_dist = atr * trail_mult
-
-                    if pos_dir == "long":
-                        atr_trail = current_price - trail_dist
-                        if atr_trail > current_stop:
-                            logger.info(
-                                f"[CONDUCTOR] ATR TRAIL {sym}: "
-                                f"{r_multiple:.1f}R, "
-                                f"{trail_mult}× ATR → "
-                                f"stop ${atr_trail:.5f}"
-                            )
-                            return AITradeDecision(
-                                symbol=sym,
-                                timeframe=snapshot.timeframe,
-                                bias=pos_dir, phase="management",
-                                action="hold",
-                                stop_loss=atr_trail,
-                                notes=(
-                                    f"[MANAGEMENT] ATR trail: "
-                                    f"{trail_mult}× ATR at "
-                                    f"{r_multiple:.1f}R"
                                 ),
+                                strategy_name=self.name,
                             )
-                    else:
-                        atr_trail = current_price + trail_dist
-                        if atr_trail < current_stop:
-                            logger.info(
-                                f"[CONDUCTOR] ATR TRAIL {sym}: "
-                                f"{r_multiple:.1f}R, "
-                                f"{trail_mult}× ATR → "
-                                f"stop ${atr_trail:.5f}"
-                            )
-                            return AITradeDecision(
-                                symbol=sym,
-                                timeframe=snapshot.timeframe,
-                                bias=pos_dir, phase="management",
-                                action="hold",
-                                stop_loss=atr_trail,
-                                notes=(
-                                    f"[MANAGEMENT] ATR trail: "
-                                    f"{trail_mult}× ATR at "
-                                    f"{r_multiple:.1f}R"
-                                ),
-                            )
+                            
+                # Note: The raw ATR trailing below was removed because the user specifically requested 
+                # the 1R trail offset from the peaks to govern standard trade management.
 
         # ── SUB-STRATEGY EXIT LOOP ──────────────────────────────────
         # Compute R-multiple for profit guard (may not exist from above

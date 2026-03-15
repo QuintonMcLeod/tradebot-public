@@ -190,11 +190,12 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                 });
             }
             
-            // 2) Push the live floating capital at the current time so it doesn't get dragged into the past
-            //    and cause double-counted PnL on top of the live float
+            // 2) Push the live floating capital at its true chronological time so it doesn't cause
+            //    artificial cashout anomalies when compared against recent trade PnLs
             if (ledger.current_day.capital_now) {
+                const ts = ledger.last_updated || new Date().toISOString();
                 capital.push({
-                    timestamp: new Date().toISOString(),
+                    timestamp: ts,
                     nav: ledger.current_day.capital_now,
                     balance: ledger.current_day.capital_now,
                     broker: 'all'
@@ -485,6 +486,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                             take_profit: pos.take_profit,
                             entry_price: _entry,
                             size: pos.size,
+                            duration_seconds: pos.age_seconds,
                             _active: true
                         };
 

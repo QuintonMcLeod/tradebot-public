@@ -317,6 +317,7 @@ function setupIpcHandlers() {
         { filename: 'RTFM/39_LIVE_SPREAD.md', title: 'Live Spread Integration: Why Your Bot Was Trading Blindfolded', category: 'rtfm', icon: 'visibility', description: '"The bot thought the highway toll was $1.50 but sometimes it was $15." How OANDA\'s dynamic spreads were silently eating your profits, and how the bot now fetches real-time bid/ask data every 30 seconds instead of guessing.' },
         { filename: 'RTFM/40_TARGET.md', title: 'The Payout Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Payout card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing. Three states: LOCKED, SHIELDED, and CASHOUT.' },
         { filename: 'RTFM/41_REMOTE_SETUP.md', title: 'Remote Setup: Run the Core on One PC, the GUI on Another', category: 'rtfm', icon: 'lan', description: '"The bot has two halves — a brain and a face." How to run the Python engine on one computer and connect the Electron GUI from a different one. Any OS, any two machines. Kitchen-and-dining-room style.' },
+        { filename: 'RTFM/42_TIME_WARP.md', title: 'The Time Warp: Backtesting, Replay & Paper Trading', category: 'rtfm', icon: 'fast_forward', description: '"Imagine if you could simulate that conversation before you had it." The complete guide to the bot\'s three simulation modes: Backtesting (warp-speed historical runs), Replay Mode (60x speed weekend practice), and Paper Trading (live data, fake money). Covers simulated time vs real time, why 1 hour of market time = ~1 minute on your couch, the Payout Mentor, sortable trade history, and why there\'s no Clear button in real life.' },
     ];
 
     try {
@@ -441,13 +442,48 @@ function setupIpcHandlers() {
         }
         console.log(`[MAIN] Bot stopped after ${waited}ms`);
 
+        // Load starting balance from config
+        let initialBalance = 10000.0;
+        try {
+            // Use the same config path resolution as the read-config handler
+            let configPath = CONFIG_JSON_PATH;
+            if (!fs.existsSync(configPath) && fs.existsSync(LEGACY_CONFIG_JSON_PATH)) {
+                configPath = LEGACY_CONFIG_JSON_PATH;
+            }
+            
+            if (fs.existsSync(configPath)) {
+                const configStr = fs.readFileSync(configPath, 'utf8');
+                const conf = JSON.parse(configStr);
+                const profList = conf.profiles || {};
+                
+                // Get active profile name
+                let actProfName = conf.active_profile || 'default';
+                let profRaw = profList[actProfName] || {};
+                
+                // Read from profile (settings UI saves as lowercase key via updateValue)
+                const profBalance = profRaw.paper_balance ?? profRaw.PAPER_BALANCE;
+                if (profBalance != null) {
+                    initialBalance = parseFloat(profBalance);
+                } else if (conf.global && (conf.global.paper_balance ?? conf.global.PAPER_BALANCE)) {
+                    initialBalance = parseFloat(conf.global.paper_balance ?? conf.global.PAPER_BALANCE);
+                }
+                console.log(`[MAIN] Read PAPER_BALANCE=${initialBalance} from ${configPath} (profile=${actProfName})`);
+            }
+        } catch (e) {
+            console.error('[MAIN] Failed to read PAPER_BALANCE from config, defaulting to 10000.0', e);
+        }
+
+        if (isNaN(initialBalance) || initialBalance <= 0) {
+            initialBalance = 10000.0;
+        }
+
         // Step 3: Delete paper trading data files
         try {
             const now = new Date().toISOString();
 
             // paper_state.json
             const paperState = {
-                balance: 10000.0,
+                balance: initialBalance,
                 positions: {},
                 updated_at: now,
                 last_reset_at: now
@@ -467,8 +503,8 @@ function setupIpcHandlers() {
                     trades: 0,
                     wins: 0,
                     losses: 0,
-                    capital_at_start: 10000.0,
-                    capital_now: 10000.0,
+                    capital_at_start: initialBalance,
+                    capital_now: initialBalance,
                     best_trade: 0.0,
                     worst_trade: 0.0,
                     by_symbol: {},
@@ -489,7 +525,7 @@ function setupIpcHandlers() {
             if (fs.existsSync(stdoutLog)) fs.writeFileSync(stdoutLog, '');
             if (fs.existsSync(tradebotLog)) fs.writeFileSync(tradebotLog, '');
 
-            console.log('[MAIN] Paper trading files reset to $10,000, ghost logs truncated');
+            console.log(`[MAIN] Paper trading files reset to $${initialBalance.toFixed(2)}, ghost logs truncated`);
         } catch (err) {
             console.error('[MAIN] Failed to reset paper files:', err.message);
             return { success: false, error: err.message };
@@ -503,7 +539,7 @@ function setupIpcHandlers() {
         // Step 5: Reload all GUI windows to reflect clean state
         setTimeout(() => {
             BrowserWindow.getAllWindows().forEach(win => {
-                win.webContents.send('fromMain', { type: 'gui-notice', message: 'Paper Trading Reset to $10,000', color: 'teal' });
+                win.webContents.send('fromMain', { type: 'gui-notice', message: `Paper Trading Reset to $${initialBalance.toLocaleString()}`, color: 'teal' });
                 win.reload();
             });
         }, 3000);
@@ -1383,17 +1419,17 @@ Respond in plain English a smart friend would understand. No jargon. Use analogi
                 }
             }
 
-            const systemPrompt = `You are a cold, disciplined institutional risk manager for Tradebot SCI. Your job is to provide exactly 2-3 sentences of psychological guidance regarding payouts (withdrawals of profit). 
+            const systemPrompt = `You are an enthusiastic, supportive, and human trading mentor for Tradebot SCI. Your job is to provide exactly 2-3 sentences of psychological guidance regarding payouts (withdrawals of profit). 
 The user is looking at their current analytics dashboard.
 Current State: ${state.toUpperCase()}
 Recent Profit/Loss: $${pnl.toFixed(2)}
 Context: ${context}
 
 RULES:
-1. Speak plainly, directly, and professionally. No emojis, no fluff, no greetings or sign-offs.
-2. If State is WAITING: Command them to sit on their hands. Withdrawing while risk is active spikes margin utilized.
-3. If State is DRAWDOWN: Command them to allow the bot to rebuild the high water mark. Do not withdraw during recovery.
-4. If State is CASHOUT: Command them to secure the bag by transferring the recommended payout to a real-world bank account, while leaving the rest to compound. Note whether this is a volatility spike or steady grind based on the context.`;
+1. Speak plainly, directly, and like a real human. Be excited for their wins! Use encouraging language.
+2. If State is WAITING: Remind them gently to sit on their hands. Withdrawing while risk is active spikes margin utilized.
+3. If State is DRAWDOWN: Encourage them to allow the bot to rebuild the high water mark. Tell them patience is key and not to withdraw safely during recovery.
+4. If State is CASHOUT: Be hyped! Urge them to take a cash day and pay themselves! Tell them to cash their check and secure the bag by transferring the recommended payout to a real-world bank account, while leaving the rest to compound. Note whether this is a volatility spike or steady grind based on the context.`;
 
             let aiResponse = '';
 

@@ -636,6 +636,7 @@ class OandaExchangeBroker(IExchangeBroker):
             stop_loss = None
             take_profit = None
             entry_time = None
+            original_entry_price = None
             try:
                 trade_ids = pos.get("long" if side == "long" else "short", {}).get("tradeIDs", [])
                 if trade_ids:
@@ -649,6 +650,8 @@ class OandaExchangeBroker(IExchangeBroker):
                         take_profit = float(trade["takeProfitOrder"].get("price", 0))
                     if "openTime" in trade:
                         entry_time = trade["openTime"] # ISO format OANDA string
+                    if "price" in trade:
+                        original_entry_price = float(trade["price"])
             except Exception as e:
                 logger.debug(f"[OANDA] Could not fetch SL/TP or Entry Time for {symbol}: {e}")
             
@@ -662,6 +665,9 @@ class OandaExchangeBroker(IExchangeBroker):
                 "entry_time": entry_time, # Added entry time
                 "unrealized_pnl": float(pos.get("unrealizedPL", 0))
             }
+
+            if original_entry_price is not None:
+                result["original_entry_price"] = original_entry_price
             
             if stop_loss and stop_loss > 0:
                 result["stop_loss"] = stop_loss
@@ -1121,6 +1127,25 @@ class OandaExchangeBroker(IExchangeBroker):
                 if avg_fill > 0:
                     logger.info(f"[FILL] {decision.symbol} @ {avg_fill} (ID: {fill['id']})")
                 logger.info(f"[OANDA] Order filled: {fill['id']} at {fill['price']}")
+
+                # Live Bot Pyramiding Math Fix
+                # On initial entry, persist the original entry price and initial risk
+                if action not in {"scale_in", "add_to_position"} and hasattr(self, "position_hold_store") and self.position_hold_store:
+                    from datetime import datetime, timezone
+                    stop_loss_val = getattr(decision, "stop_loss", None)
+                    initial_risk_val = abs(avg_fill - stop_loss_val) if stop_loss_val else None
+                    self.position_hold_store.upsert(
+                        symbol=decision.symbol,
+                        opened_at=datetime.now(timezone.utc),
+                        stop_loss=stop_loss_val,
+                        entry_price=avg_fill,
+                        take_profit=getattr(decision, "take_profit", None),
+                        size=units,
+                        strategy=getattr(decision, "strategy_name", None) or "unknown",
+                        original_entry_price=avg_fill,
+                        initial_risk=initial_risk_val
+                    )
+
                 return ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, f"filled {fill['id']}"), ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, decision.symbol, order_ids=[fill['id']])
             else:
                 logger.warning(f"[OANDA] Order not filled immediately: {res}")

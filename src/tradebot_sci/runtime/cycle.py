@@ -317,6 +317,10 @@ def process_candidate_cycle(
                         )
                     if not pos.get("entry_price") and record.entry_price:
                         pos["entry_price"] = record.entry_price
+                    if not pos.get("original_entry_price") and getattr(record, "original_entry_price", None) is not None:
+                        pos["original_entry_price"] = record.original_entry_price
+                    if not pos.get("initial_risk") and getattr(record, "initial_risk", None) is not None:
+                        pos["initial_risk"] = record.initial_risk
 
         
         try:

@@ -1963,6 +1963,12 @@ function renderPaperTab(container) {
     section.appendChild(createCard('Sabbath Replay', 'Auto-switch to Replay data during Sabbath hours', 'SABBATH_REPLAY_MODE', 'toggle', { default: 'true' }));
 
     section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Account Setup', 'account_balance_wallet',
+        "<strong>Initial Capital</strong><br><br>Set the starting balance for your paper trading account. If you reset paper trading from the dashboard, it will go back to this amount."
+    ));
+    section.appendChild(createCard('Initial Capital (USD)', 'Starting balance for paper trading', 'PAPER_BALANCE', 'input', { number: true, step: '100', default: '10000.0' }));
+
+    section.appendChild(createDivider());
 
     section.appendChild(createSectionHeader('Execution Friction', 'money_off',
         "<strong>Friction Simulation</strong><br><br>Set the artificial spread, slippage, and round-trip fees the Paper Broker will experience. Use Broker Presets to autofill realistic values."

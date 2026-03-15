@@ -1014,7 +1014,7 @@ def run_bot(
         
         # Sync current state
         try:
-            controller.broadcast_state(executor, force=True)
+            controller.broadcast_state(executor, force=True, executor_real=executor_real)
             # Push history using DEDICATED provider for crypto (thread-safe),
             # but use the main hybrid provider for forex (OANDA) since the
             # CCXT chart provider only has crypto data.
@@ -1259,7 +1259,7 @@ def run_bot(
                         symbols = new_symbols
                         
                         # 5. Broadcast new state to UI
-                        controller.broadcast_state(executor, force=True)
+                        controller.broadcast_state(executor, force=True, executor_real=executor_real)
                         logger.info(f"[HOT-RELOAD] Complete. Active symbols: {len(symbols)}")
             except Exception as e:
                 logger.error(f"[HOT-RELOAD] Failed to reload settings: {e}")
@@ -1360,7 +1360,7 @@ def run_bot(
             )
             # Push holdings + state to GUI via dedicated WS messages (not log parsing)
             controller.broadcast_holdings(executor)
-            controller.broadcast_state(executor)
+            controller.broadcast_state(executor, executor_real=executor_real)
             
             # Sabbath Paper Trading: Allow scanning and trading 
             # if we have successfully swapped to the local PaperBroker.
@@ -1456,7 +1456,7 @@ def run_bot(
                 # Strictly honor Sabbath: 
                 # Block BOTH entries and exits (Zero Action) if NO PaperBroker is active.
                 if sabbath_active and executor != executor_paper:
-                    controller.broadcast_state(executor, force=True)
+                    controller.broadcast_state(executor, force=True, executor_real=executor_real)
                     logger.info("[SABBATH] Strict adherence active (no PaperBroker): Skipping candidate processing.")
                     next_decision_in = decision_interval
                     time.sleep(poll_interval)

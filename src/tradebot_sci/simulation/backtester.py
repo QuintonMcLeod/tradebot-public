@@ -204,6 +204,8 @@ class SimulatedPosition:
     strategy_name: str = "unknown"  # Strategy that opened this trade
     cumulative_partial_pnl: float = 0.0  # Running total of partial close PnLs
     stop_was_trailed: bool = False  # True once stop moves from initial position (SAR gate)
+    original_entry_price: Optional[float] = None
+    initial_risk: Optional[float] = None
 
     def __post_init__(self):
         # Auto-resolve strategy_name from entry_gates if still defaulted
@@ -1647,6 +1649,8 @@ class Backtester:
                                 'htf_neutral_bars': current_position.htf_neutral_bars,
                                 'entry_time': current_position.entry_time,
                                 'strategy_name': getattr(current_position, 'strategy_name', 'unknown'),
+                                'original_entry_price': getattr(current_position, 'original_entry_price', current_position.entry_price),
+                                'initial_risk': getattr(current_position, 'initial_risk', None),
                             }
 
                         decision = engine.decide(
@@ -1751,7 +1755,7 @@ class Backtester:
                             # If existing position is dust (< 100 units), close it first.
                             # Pyramiding onto dust corrupts entry_price via weighted average
                             # (e.g. $0.037 instead of $1.18 → phantom -$264K PnL).
-                            MIN_PYRAMID_BASE = 100
+                            MIN_PYRAMID_BASE = 10
                             if current_position.size < MIN_PYRAMID_BASE:
                                 exit_price = snapshot.candles[-1].close
                                 dust_pnl = _calculate_pnl(
@@ -1801,13 +1805,14 @@ class Backtester:
                             max_loss_cap = float(getattr(profile, "max_loss_per_trade_dollars", 0.0))
                             if max_loss_cap <= 0:
                                 max_loss_cap = self.settings.broker.max_dollar_risk_per_symbol if self.settings.broker else 1000000.0
-                            # [RISK SATURATION] Cap pyramid sizing at $750 base
-                            py_cap = 750.0
+                            # [RISK SATURATION] Cap pyramid sizing to full capital
+                            # (leverage cap on the entry itself prevents over-exposure)
+                            py_cap = compounding_capital
                             if getattr(profile, 'nuclear_overrides_enabled', False):
-                                py_cap = getattr(profile, 'pyramid_cap_override', 750.0)
+                                py_cap = getattr(profile, 'pyramid_cap_override', compounding_capital)
 
-                            compounding_capital = min(capital, py_cap)
-                            max_risk = min(compounding_capital * risk_pct, max_loss_cap)
+                            compounding_capital_py = min(capital, py_cap)
+                            max_risk = min(compounding_capital_py * risk_pct, max_loss_cap)
 
                             raw_add_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, add_price) if risk_per_share > 0 else 0.0
                             add_size = raw_add_size
@@ -1849,6 +1854,10 @@ class Backtester:
                                 if decision.stop_loss is not None:
                                     current_position.stop_price = decision.stop_loss
                                     current_position.stop_was_trailed = True
+
+                                # Push target if provided
+                                if getattr(decision, "take_profit", None) is not None:
+                                    current_position.target_price = decision.take_profit
 
                                 logger.info(
                                     f"[BACKTEST] {symbol} PYRAMID #{current_position.pyramid_count}: "
@@ -2193,16 +2202,15 @@ class Backtester:
 
                             compounding_capital = min(capital, comp_cap)
 
-                            # [PORTFOLIO RISK DIVISION] Divide risk capital by number of
-                            # symbols to prevent aggregate over-exposure. Without this,
-                            # each symbol independently sizes against the full capital
-                            # with 30× leverage, giving N×30× effective portfolio leverage
-                            # (e.g., 12 symbols = 360× → absurd PnL).
+                            # [PORTFOLIO RISK] Scale risk capital using sqrt(N) to balance
+                            # pyramid growth against concentration risk.
+                            # sqrt(12) ≈ 3.46 → each symbol gets ~29% of capital
+                            # (vs 8% with 1/N or 100% with no division).
                             num_symbols = max(len(symbols), 1)
-                            per_symbol_capital = compounding_capital / num_symbols
+                            per_symbol_capital = compounding_capital / (num_symbols ** 0.5)
 
                             max_risk = per_symbol_capital * risk_pct
-                            logger.info(f"[BACKTEST] Entry: {symbol} using {risk_pct*100:.2f}% risk on ${per_symbol_capital:.2f} base (${max_risk:.2f}) [Cap: ${comp_cap}, Syms: {num_symbols}]")
+                            logger.info(f"[BACKTEST] Entry: {symbol} using {risk_pct*100:.2f}% risk on ${per_symbol_capital:.2f} base (${max_risk:.2f}) [Cap: ${comp_cap}]")
 
                             entry_price = snapshot.candles[-1].close
 
@@ -2296,6 +2304,8 @@ class Backtester:
                                         # 3. Strategy variant from profile
                                         or getattr(profile, 'strategy_variant', 'untagged')
                                     ),
+                                    original_entry_price=entry_price,
+                                    initial_risk=abs(entry_price - float(stop_price)) if stop_price else None,
                                 )
                                 sub_tag = f":{meta_src}" if meta_src else ""
                                 logger.info(

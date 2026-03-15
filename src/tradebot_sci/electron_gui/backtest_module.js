@@ -20,6 +20,11 @@
     let _profiles = [];
     let _profileData = {};   // full profile objects from config.json
     let _recordedSymbols = [];
+    
+    // Sort State
+    let _btSortKey = null;
+    let _btSortDir = null;
+    let _lastBtTrades = [];
 
     // ── DOM refs (lazy) ──────────────────────────────────────
     const $ = id => document.getElementById(id);
@@ -29,6 +34,7 @@
         _loadProfiles();
         _loadRecordedData();
         _wireEvents();
+        _setupKineticScroll();
     }
 
     // ── Load profiles into dropdown ──────────────────────────
@@ -116,6 +122,18 @@
             runBtn._wired = true;
         }
 
+        const clearBtn = $('bt-clear-btn');
+        if (clearBtn && !clearBtn._wired) {
+            clearBtn.addEventListener('click', _clearBacktest);
+            clearBtn._wired = true;
+        }
+
+        const exportBtn = $('bt-export-csv');
+        if (exportBtn && !exportBtn._wired) {
+            exportBtn.addEventListener('click', _exportCSV);
+            exportBtn._wired = true;
+        }
+
         // Mode toggle
         const modeToggle = $('bt-mode-toggle');
         if (modeToggle && !modeToggle._wired) {
@@ -132,6 +150,78 @@
             profileSel.addEventListener('change', () => _updateSymbolPills());
             profileSel._wired = true;
         }
+
+        // Sort headers
+        document.querySelectorAll('.bt-sortable-th').forEach(th => {
+            if (!th._wired) {
+                th.addEventListener('click', _handleBtSortClick);
+                th._wired = true;
+            }
+        });
+    }
+
+    // ── Sorting Logic ──────────────────────────────────────────
+    function _sortBtValue(trade, key) {
+        switch (key) {
+            case 'time': return new Date(trade.time || 0).getTime();
+            case 'symbol': return (trade.symbol || '').toLowerCase();
+            case 'side': return (trade.side || 'long').toLowerCase();
+            case 'result': {
+                const pnl = parseFloat(trade.pnl) || 0;
+                return pnl > 0 ? 2 : (pnl < 0 ? 0 : 1);
+            }
+            case 'pnl': return parseFloat(trade.pnl) || 0;
+            case 'duration': {
+                if (trade.duration_seconds) return trade.duration_seconds;
+                if (trade.duration) return trade.duration; // Fallback string sort if secs missing
+                return 0;
+            }
+            case 'reason': return (trade.reason || '').toLowerCase();
+            default: return 0;
+        }
+    }
+
+    function _sortBtTrades(trades) {
+        if (!_btSortKey || !_btSortDir) return trades;
+        const key = _btSortKey;
+        const mult = _btSortDir === 'asc' ? 1 : -1;
+        return [...trades].sort((a, b) => {
+            const va = _sortBtValue(a, key);
+            const vb = _sortBtValue(b, key);
+            if (typeof va === 'string' && typeof vb === 'string') return mult * va.localeCompare(vb);
+            if (typeof va === 'string') return mult * -1; // Numbers first
+            if (typeof vb === 'string') return mult * 1;
+            return mult * (va - vb);
+        });
+    }
+
+    function _updateBtSortHeaders() {
+        document.querySelectorAll('.bt-sortable-th').forEach(th => {
+            th.classList.remove('sort-asc', 'sort-desc');
+            if (th.dataset.sortKey === _btSortKey) {
+                if (_btSortDir === 'asc') th.classList.add('sort-asc');
+                if (_btSortDir === 'desc') th.classList.add('sort-desc');
+            }
+        });
+    }
+
+    function _handleBtSortClick(e) {
+        const th = e.currentTarget;
+        const key = th.dataset.sortKey;
+        if (!key) return;
+
+        if (_btSortKey === key) {
+            if (_btSortDir === 'asc') _btSortDir = 'desc';
+            else if (_btSortDir === 'desc') { _btSortKey = null; _btSortDir = null; }
+        } else {
+            _btSortKey = key;
+            _btSortDir = 'desc';
+        }
+
+        _updateBtSortHeaders();
+        if (_lastBtTrades.length > 0) {
+            _renderTradeHistory(_lastBtTrades, true);
+        }
     }
 
     // ── Run backtest (Replayer) ───────────────────────────────────────────
@@ -140,6 +230,7 @@
 
         const startDate = $('bt-start-date')?.value;
         const endDate = $('bt-end-date')?.value;
+        const startCapital = parseFloat($('bt-start-capital')?.value || 10000);
 
         // Get selected symbols
         const pills = document.querySelectorAll('#bt-symbol-pills input:checked');
@@ -170,7 +261,7 @@
                 start_date: startDate,
                 end_date: endDate,
                 symbols: symbols,
-                balance: 5700,
+                balance: startCapital,
             });
 
             if (result?.error) {
@@ -194,7 +285,7 @@
         if (!panel) {
             panel = document.createElement('div');
             panel.id = 'bt-log-stream';
-            panel.style.cssText = 'background:var(--surface-2,#0d1117);border:1px solid var(--border,#30363d);border-radius:8px;padding:12px;margin:12px 0;max-height:220px;overflow-y:auto;font-family:monospace;font-size:11px;color:var(--text-secondary,#8b949e);line-height:1.5;';
+            panel.style.cssText = 'background:var(--surface-2,#0d1117);border:1px solid var(--border,#30363d);border-radius:8px;padding:12px;margin:12px 0;max-height:220px;overflow-y:auto;font-family:monospace;font-size:11px;color:var(--text-secondary,#8b949e);line-height:1.5;flex-shrink:0;';
             const anchor = $('bt-results') || document.body;
             anchor.parentElement ? anchor.parentElement.insertBefore(panel, anchor) : document.body.appendChild(panel);
         }
@@ -311,18 +402,40 @@
         const rrEl = $('bt-metric-rr');
         if (rrEl) rrEl.textContent = data.risk_reward ? `${data.risk_reward.toFixed(1)}:1` : 'N/A';
 
+        // Total Capital (final balance after backtest)
+        const capEl = $('bt-metric-capital');
+        if (capEl) {
+            const initialBal = data.final_balance || data.final_capital || data.initial_balance || data.initial_capital || 0;
+            const finalBal = initialBal || (pnl);
+            capEl.textContent = `$${finalBal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            capEl.style.color = pnl >= 0 ? 'var(--success)' : 'var(--error)';
+        }
+
         // Trade history table
         _renderTradeHistory(data.trades || []);
+
+        // Show export button if we have trades
+        const exportBtn = $('bt-export-csv');
+        if (exportBtn) {
+            if ((data.trades || []).length > 0) {
+                exportBtn.style.display = 'flex';
+            } else {
+                exportBtn.style.display = 'none';
+            }
+        }
 
         // Scroll to results
         resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    function _renderTradeHistory(trades) {
+    function _renderTradeHistory(trades, isReSort = false) {
         const tbody = $('bt-trade-tbody');
         if (!tbody) return;
 
-        if (trades.length === 0) {
+        if (!isReSort) _lastBtTrades = trades || [];
+        const sorted = _sortBtTrades(_lastBtTrades);
+
+        if (sorted.length === 0) {
             tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:40px 16px; font-style:italic;">
                 <span class="material-symbols-outlined" style="font-size:28px; display:block; margin-bottom:8px; opacity:0.25;">search_off</span>
                 No trades in this backtest
@@ -330,7 +443,7 @@
             return;
         }
 
-        tbody.innerHTML = trades.map(t => {
+        tbody.innerHTML = sorted.map(t => {
             const pnl = t.pnl || 0;
             const isWin = pnl >= 0;
             return `<tr>
@@ -343,6 +456,118 @@
                 <td style="color:var(--text-muted);">${t.reason || '--'}</td>
             </tr>`;
         }).join('');
+    }
+
+    function _clearBacktest() {
+        if (_running) return;
+        
+        // Hide and clear results
+        _hideResults();
+        
+        // Clear log stream
+        const panel = $('bt-log-stream');
+        if (panel) {
+            panel.innerHTML = '';
+            panel.style.display = 'none';
+        }
+        
+        // Hide export button
+        const exportBtn = $('bt-export-csv');
+        if (exportBtn) exportBtn.style.display = 'none';
+        
+        // Reset status badge
+        _showStatus('Ready', 'ready');
+        
+        // Note: we don't clear the configuration inputs so the user can easily re-run a slightly modified test
+    }
+
+    // ── Export CSV ────────────────────────────────────────────
+    function _exportCSV() {
+        if (!_lastBtTrades || _lastBtTrades.length === 0) return;
+
+        const headers = ['Time', 'Symbol', 'Side', 'Result', 'PnL', 'Duration', 'Exit Reason'];
+        const rows = _lastBtTrades.map(t => {
+            const pnl = t.pnl || 0;
+            const timeStr = t.time ? new Date(t.time).toLocaleString() : '';
+            return [
+                timeStr,
+                t.symbol || '',
+                (t.side || '').toUpperCase(),
+                pnl >= 0 ? 'Win' : 'Loss',
+                pnl.toFixed(2),
+                t.duration || '',
+                t.reason || '',
+            ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+        });
+
+        const csv = [headers.join(','), ...rows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `backtest_trades_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    // ── Smooth Scrolling (target-based lerp) ──────────────────
+    // Each wheel tick pushes a target further; an animation loop
+    // eases the actual scroll position toward the target so
+    // multiple ticks blend into one fluid, decelerating glide.
+    function _setupKineticScroll() {
+        const el = document.getElementById('view-backtest');
+        if (!el) return;
+
+        // Force instant scrollTop so our lerp loop works
+        el.style.scrollBehavior = 'auto';
+
+        let target = el.scrollTop;
+        let running = false;
+        const speed = 400;   // pixels per wheel notch (generous throw)
+        const ease = 0.04;  // lerp factor (lower = longer rolling stop)
+
+        el.addEventListener('wheel', (e) => {
+            // Only capture vertical scrolling
+            if (e.deltaY === 0) return;
+            e.preventDefault();
+
+            // Normalize delta
+            let d = e.deltaY;
+            if (e.deltaMode === 1) d *= 20;            // line mode
+            else if (e.deltaMode === 2) d *= el.clientHeight;  // page mode
+
+            // Push the target (direction only, fixed step size for consistency)
+            target += Math.sign(d) * speed;
+
+            // Clamp to scrollable range
+            const max = el.scrollHeight - el.clientHeight;
+            target = Math.max(0, Math.min(target, max));
+
+            if (!running) { running = true; step(); }
+        }, { passive: false });
+
+        // Sync target when user drags the scrollbar manually
+        let wheelActive = false;
+        el.addEventListener('wheel', () => { wheelActive = true; }, { passive: true });
+        el.addEventListener('scroll', () => {
+            if (!wheelActive && !running) {
+                target = el.scrollTop;
+            }
+            wheelActive = false;
+        });
+
+        function step() {
+            const diff = target - el.scrollTop;
+            if (Math.abs(diff) < 1) {
+                el.scrollTop = target;
+                running = false;
+                return;
+            }
+            el.scrollTop += diff * ease;
+            requestAnimationFrame(step);
+        }
     }
 
     // ── Expose module ────────────────────────────────────────

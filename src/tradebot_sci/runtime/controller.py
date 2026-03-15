@@ -39,7 +39,7 @@ class RuntimeController:
         # Immediate state sync would happen here via the runner/orchestrator
         # We'll expose a hook or method for the runner to push data
 
-    def broadcast_state(self, executor: Any, force: bool = False):
+    def broadcast_state(self, executor: Any, force: bool = False, executor_real: Any = None):
         """Pushes account and bot state to UI via WebSocket."""
         if not self.ws_server:
             return
@@ -55,14 +55,16 @@ class RuntimeController:
             sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
 
             # For GUI display, use actual tracked balance (not sizing-capped value).
-            # Paper broker's get_liquid_capital() returns a fixed initial_balance
-            # ($10k) to prevent compounding snowball in sizing, but the GUI should
-            # show the real running balance from get_display_cash().
-            if executor and hasattr(executor, 'get_display_cash'):
-                cash = executor.get_display_cash()
+            # If we are in live mode but Sabbath swapped the executor to paper,
+            # we should source our display cash/equity from the REAL executor so the UI
+            # accurately reflects the live brokerage account's health.
+            display_source = executor_real if executor_real else executor
+
+            if display_source and hasattr(display_source, 'get_display_cash'):
+                cash = display_source.get_display_cash()
             else:
-                cash = executor.get_liquid_capital() if executor else 0.0
-            total_equity = executor.get_total_balance_value() if executor else 0.0
+                cash = display_source.get_liquid_capital() if display_source else 0.0
+            total_equity = display_source.get_total_balance_value() if display_source else 0.0
             
             # Get active holdings count from the active executor
             holdings_count = 0

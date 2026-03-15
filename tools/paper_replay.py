@@ -995,9 +995,25 @@ def run_replay(days: int, speed: float, initial_balance: float,
         logger.info(f"{'#':<4} {'Symbol':<10} {'Side':<6} {'PnL':>8}  {'Exit Reason'}")
         for i, t in enumerate(all_trades, 1):
             logger.info(
-                f"{i:<4} {t['symbol']:<10} {t['side']:<6} "
+                f"  [{t['closed_at']}] {t['symbol']:>8s} "
+                f"{t['side']:>5s} "
                 f"${t['pnl_usd']:>+7.2f}  {t['exit_reason']}"
             )
+
+        pnl_for_payout = total_pnl
+        velocity = (pnl_for_payout / initial_balance) * 100 if initial_balance > 0 else 0
+        payout_pct = 0.75 if velocity >= 2.5 else 0.50
+        payout_usd = pnl_for_payout * payout_pct if pnl_for_payout > 0 else 0
+
+        logger.info(f"┌─────────────────────────────────────────┐")
+        logger.info(f"│        RECOMMENDED PAYOUT CARD          │")
+        logger.info(f"├─────────────────────────────────────────┤")
+        logger.info(f"│ Net Profit:      ${pnl_for_payout:<10.2f}           │")
+        logger.info(f"│ Velocity:        {velocity:<5.2f}%                  │")
+        logger.info(f"│ Payout Ratio:    {payout_pct * 100:<5.0f}%                  │")
+        logger.info(f"│ Recommended:     ${payout_usd:<10.2f}           │")
+        logger.info(f"│ Compounded:      ${pnl_for_payout - payout_usd:<10.2f}           │")
+        logger.info(f"└─────────────────────────────────────────┘")
 
     return {
         "total_trades":    len(all_trades),
@@ -1011,6 +1027,8 @@ def run_replay(days: int, speed: float, initial_balance: float,
         "max_drawdown":    round(max_dd_pct, 2),
         "final_balance":   round(final_bal, 2),
         "initial_balance": initial_balance,
+        "payout_usd":      round(payout_usd, 2),
+        "payout_pct":      round(payout_pct * 100, 0),
         "risk_reward":     round(avg_win / abs(avg_loss), 2) if avg_loss != 0 else 0,
         "elapsed_seconds": round(elapsed, 1),
         "ticks_replayed":  tick_count,

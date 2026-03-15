@@ -208,7 +208,38 @@ function updateMetrics(data) {
         
         const activeCapStart = parseFloat(data.activeCapitalStart) || data.capitalStart;
 
-        if (hasActive) {
+        if (data.payout_usd !== undefined) {
+            // Replay Mode: Direct calculation from backend
+            const payoutValue = parseFloat(data.payout_usd);
+            const payoutPct = parseFloat(data.payout_pct) || 0;
+            
+            if (pnl <= 0 || payoutValue <= 0) {
+                // Drawdown or B/E in replay
+                tpCard.classList.remove('tp-state-cashout');
+                tpCard.classList.add('tp-state-drawdown');
+                tpIcon.textContent = 'security';
+                tpAmount.textContent = 'SHIELDED';
+                tpAmount.style.fontSize = '28px';
+                tpRationale.textContent = `Negative/Flat PnL (${formatCurrency(pnl)})`;
+                tpCard.dataset.mentorState = 'drawdown';
+                const aiBox = document.getElementById('tp-ai-mentor');
+                if (aiBox) aiBox.textContent = 'Replay Drawdown: No payout recommended. Allow algorithms to recover the high water mark.';
+            } else {
+                // Cash Out in replay
+                tpCard.classList.remove('tp-state-waiting', 'tp-state-neutral', 'tp-state-drawdown');
+                tpCard.classList.add('tp-state-cashout');
+                tpIcon.textContent = 'account_balance';
+                
+                tpAmount.innerHTML = `<span style="font-size:18px; opacity:0.6; font-weight:700; vertical-align:top; margin-right:2px; margin-top:6px; display:inline-block;">$</span>${payoutValue.toFixed(2)}`;
+                tpAmount.style.fontSize = '36px';
+                tpRationale.textContent = `${payoutPct}% of Simulated Profit ($${pnl.toFixed(2)} Total)`;
+                tpCard.dataset.payoutAmount = payoutValue.toFixed(2);
+                
+                const aiBox = document.getElementById('tp-ai-mentor');
+                if (aiBox) aiBox.textContent = `Replay Result: The backtester generated ${formatCurrency(pnl)} in net profit. A ${payoutPct}% payout of $${payoutValue.toFixed(2)} is standard for this velocity.`;
+                tpCard.dataset.mentorState = 'cashout';
+            }
+        } else if (hasActive) {
             // State: Waiting Room
             tpCard.classList.add('tp-state-waiting');
             tpIcon.textContent = 'lock_clock';
@@ -239,8 +270,22 @@ function updateMetrics(data) {
             tpCard.dataset.mentorState = 'drawdown';
             requestTakeProfitMentor(pnl, 'drawdown', 'Drawdown recovery');
 
+        } else if (pnl < 0) {
+            // Guard: If PnL for the selected timeframe is negative, never offer a payout.
+            // Even if unwithdrawnProfit somehow reports positive (edge case), a negative
+            // PnL means the user is losing money in this period — no cashout.
+            tpCard.classList.remove('tp-state-cashout');
+            tpCard.classList.add('tp-state-drawdown');
+            tpIcon.textContent = 'security';
+            tpAmount.textContent = 'SHIELDED';
+            tpAmount.style.fontSize = '28px';
+            tpRationale.textContent = `Negative PnL (${formatCurrency(pnl)}) — No Payout`;
+            tpCard.dataset.mentorState = 'drawdown';
+            requestTakeProfitMentor(pnl, 'drawdown', 'PnL negative for this period');
+
         } else if (unwithdrawnProfit > 0) {
             // State: Cash Out (They have new, unwithdrawn profit to take!)
+            tpCard.classList.remove('tp-state-waiting', 'tp-state-neutral', 'tp-state-drawdown');
             tpCard.classList.add('tp-state-cashout');
             tpIcon.textContent = 'account_balance';
 
@@ -278,8 +323,16 @@ function updateMetrics(data) {
                 if (data.trades && data.trades.length > 0) {
                     const closedTrades = data.trades.filter(t => !t._active);
                     if (closedTrades.length > 0) {
-                        const lastTrade = closedTrades[closedTrades.length - 1];
-                        recentWin = parseFloat(lastTrade.netPnl || lastTrade.pnl || 0) > 0;
+                        let mostRecentTrade = closedTrades[0];
+                        let maxTime = 0;
+                        for (const t of closedTrades) {
+                            const ts = new Date(t.timestamp || t.time || 0).getTime();
+                            if (ts > maxTime) {
+                                maxTime = ts;
+                                mostRecentTrade = t;
+                            }
+                        }
+                        recentWin = parseFloat(mostRecentTrade.netPnl || mostRecentTrade.pnl || 0) > 0;
                     }
                 }
                 
@@ -1064,7 +1117,12 @@ function updateTradeHistory(trades) {
             const pnlColor = pnl >= 0 ? '#34d399' : '#f87171';
             const side = (trade.side || 'long').toUpperCase();
             const sideClass = side === 'SHORT' ? 'short' : 'long';
-            const duration = formatDuration(trade.timestamp || trade.time);
+            let duration = '--';
+            if (trade.duration_seconds != null) {
+                duration = _formatSeconds(trade.duration_seconds);
+            } else {
+                duration = formatDuration(trade.timestamp || trade.time);
+            }
             const strategy = trade.strategy ? trade.strategy.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '--';
             const pnlPct = parseFloat(trade.pct || trade.pnlPct) || 0;
             const spread = parseFloat(trade.spread) || 0;

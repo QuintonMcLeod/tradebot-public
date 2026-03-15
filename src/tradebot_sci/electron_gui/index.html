@@ -1052,8 +1052,8 @@
         <!-- ═══════════════════════════════════════════ -->
         <!-- BACKTEST VIEW                               -->
         <!-- ═══════════════════════════════════════════ -->
-        <div id="view-backtest" class="hidden flex-1 flex flex-col p-6 min-w-0 overflow-y-auto scrollbar-thin"
-            style="gap:24px;">
+        <div id="view-backtest" class="hidden flex-1 flex flex-col p-6 min-w-0 overflow-y-auto"
+            style="gap:24px; scroll-behavior: auto;">
 
             <!-- ═══ Header Row ═══ -->
             <div class="flex items-center justify-between analytics-animate">
@@ -1072,10 +1072,10 @@
             </div>
 
             <!-- ═══ Configuration Card ═══ -->
-            <div class="analytics-card accent-teal analytics-animate" style="padding:28px 32px;">
+            <div class="analytics-card accent-teal analytics-animate" style="padding:28px 32px; flex-shrink: 0;">
 
-                <!-- Row 1: Date Range + Profile -->
-                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px; margin-bottom:20px;">
+                <!-- Row 1: Date Range + Profile + Capital -->
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:20px; margin-bottom:20px;">
                     <div>
                         <label class="metric-label"
                             style="color:var(--text-muted); margin-bottom:8px; display:block;">Start Date</label>
@@ -1090,6 +1090,11 @@
                         <label class="metric-label"
                             style="color:var(--text-muted); margin-bottom:8px; display:block;">Profile</label>
                         <select id="bt-profile-select" class="settings-input" style="cursor:pointer;"></select>
+                    </div>
+                    <div>
+                        <label class="metric-label"
+                            style="color:var(--text-muted); margin-bottom:8px; display:block;">Starting Capital</label>
+                        <input type="number" id="bt-start-capital" class="settings-input" style="color-scheme:dark;" value="10000" step="100">
                     </div>
                 </div>
 
@@ -1112,19 +1117,33 @@
                         <span style="font-size:10px; color:var(--text-dim);">(uses recorded live data for 1:1
                             accuracy)</span>
                     </div>
-                    <button id="bt-run-btn" style="
-                        display:flex; align-items:center; gap:8px;
-                        padding:10px 28px; border-radius:10px;
-                        font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.08em;
-                        cursor:pointer; transition:all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-                        background:linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
-                        border:none; color:var(--bg-dark);
-                        box-shadow: 0 4px 15px var(--accent-glow);
-                    " onmouseenter="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px var(--accent-glow)';"
-                        onmouseleave="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px var(--accent-glow)';">
-                        <span class="material-symbols-outlined" style="font-size:16px;">play_arrow</span>
-                        Run Backtest
-                    </button>
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <button id="bt-clear-btn" style="
+                            display:flex; align-items:center; gap:8px;
+                            padding:10px 20px; border-radius:10px;
+                            font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.08em;
+                            cursor:pointer; transition:all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+                            background:rgba(255, 255, 255, 0.05);
+                            border:1px solid rgba(255, 255, 255, 0.1); color:var(--text-secondary);
+                        " onmouseenter="this.style.background='rgba(255, 255, 255, 0.1)'; this.style.color='#fff';"
+                            onmouseleave="this.style.background='rgba(255, 255, 255, 0.05)'; this.style.color='var(--text-secondary)';">
+                            <span class="material-symbols-outlined" style="font-size:16px;">delete_sweep</span>
+                            Clear
+                        </button>
+                        <button id="bt-run-btn" style="
+                            display:flex; align-items:center; gap:8px;
+                            padding:10px 28px; border-radius:10px;
+                            font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.08em;
+                            cursor:pointer; transition:all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+                            background:linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+                            border:none; color:var(--bg-dark);
+                            box-shadow: 0 4px 15px var(--accent-glow);
+                        " onmouseenter="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px var(--accent-glow)';"
+                            onmouseleave="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px var(--accent-glow)';">
+                            <span class="material-symbols-outlined" style="font-size:16px;">play_arrow</span>
+                            Run Backtest
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -1168,7 +1187,7 @@
                 </div>
 
                 <!-- Secondary Metrics -->
-                <div class="analytics-animate" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:18px;">
+                <div class="analytics-animate" style="display:grid; grid-template-columns: repeat(5, 1fr); gap:18px;">
                     <div class="mini-stat">
                         <div class="mini-label">Profit Factor</div>
                         <div id="bt-metric-pf" class="mini-value" style="color:var(--accent);">0.00</div>
@@ -1185,28 +1204,36 @@
                         <div class="mini-label">Risk:Reward</div>
                         <div id="bt-metric-rr" class="mini-value" style="color:var(--text-secondary);">N/A</div>
                     </div>
+                    <div class="mini-stat">
+                        <div class="mini-label">Total Capital</div>
+                        <div id="bt-metric-capital" class="mini-value" style="color:var(--accent);">$0.00</div>
+                    </div>
                 </div>
 
                 <!-- Trade History Table -->
                 <div class="analytics-card accent-teal analytics-animate"
                     style="padding:0; overflow:hidden; flex:1; min-height:300px; display:flex; flex-direction:column;">
-                    <div class="table-header-bar">
+                    <div class="table-header-bar" style="display:flex; justify-content:space-between; align-items:center;">
                         <h3 style="color:var(--accent);">
                             <span class="material-symbols-outlined">receipt_long</span>
                             Backtest Trade History
                         </h3>
+                        <button id="bt-export-csv" class="btn-secondary" style="display:none; gap:4px; align-items:center; padding:6px 14px; font-size:12px; cursor:pointer;">
+                            <span class="material-symbols-outlined" style="font-size:16px;">download</span>
+                            Export CSV
+                        </button>
                     </div>
                     <div style="flex:1; overflow-y:auto;" class="scrollbar-thin">
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>Time</th>
-                                    <th>Symbol</th>
-                                    <th style="text-align:center;">Side</th>
-                                    <th style="text-align:center;">Result</th>
-                                    <th style="text-align:right;">PnL</th>
-                                    <th>Duration</th>
-                                    <th>Reason</th>
+                                    <th style="width:110px;" class="bt-sortable-th" data-sort-key="time">Time <span class="sort-arrow"></span></th>
+                                    <th style="width:90px;" class="bt-sortable-th" data-sort-key="symbol">Symbol <span class="sort-arrow"></span></th>
+                                    <th style="width:70px; text-align:center;" class="bt-sortable-th" data-sort-key="side">Side <span class="sort-arrow"></span></th>
+                                    <th style="width:70px; text-align:center;" class="bt-sortable-th" data-sort-key="result">Result <span class="sort-arrow"></span></th>
+                                    <th style="width:80px; text-align:right;" class="bt-sortable-th" data-sort-key="pnl">PnL <span class="sort-arrow"></span></th>
+                                    <th style="width:100px;" class="bt-sortable-th" data-sort-key="duration">Duration <span class="sort-arrow"></span></th>
+                                    <th class="bt-sortable-th" data-sort-key="reason">Reason <span class="sort-arrow"></span></th>
                                 </tr>
                             </thead>
                             <tbody id="bt-trade-tbody">

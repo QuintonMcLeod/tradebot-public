@@ -22,6 +22,8 @@ class PositionHoldRecord:
     take_profit: float | None = None
     size: float | None = None
     strategy: str | None = None
+    original_entry_price: float | None = None
+    initial_risk: float | None = None
     schema_version: int = SCHEMA_VERSION
 
     def to_dict(self) -> Dict[str, Any]:
@@ -37,6 +39,8 @@ class PositionHoldRecord:
             take_profit=float(data["take_profit"]) if data.get("take_profit") is not None else None,
             size=float(data["size"]) if data.get("size") is not None else None,
             strategy=data.get("strategy"),
+            original_entry_price=float(data["original_entry_price"]) if data.get("original_entry_price") is not None else None,
+            initial_risk=float(data["initial_risk"]) if data.get("initial_risk") is not None else None,
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
         )
 
@@ -84,16 +88,36 @@ class PositionHoldStore:
             os.fsync(handle.fileno())
         tmp.replace(self.path)
 
-    def upsert(self, symbol: str, opened_at: datetime, stop_loss: float | None = None, entry_price: float | None = None, take_profit: float | None = None, size: float | None = None, strategy: str | None = None) -> None:
-        record = PositionHoldRecord(
-            symbol=symbol.upper(), 
-            opened_at=opened_at.astimezone(timezone.utc).isoformat(),
-            stop_loss=stop_loss,
-            entry_price=entry_price,
-            take_profit=take_profit,
-            size=size,
-            strategy=strategy,
-        )
+    def upsert(self, symbol: str, opened_at: datetime, stop_loss: float | None = None, entry_price: float | None = None, take_profit: float | None = None, size: float | None = None, strategy: str | None = None, original_entry_price: float | None = None, initial_risk: float | None = None) -> None:
+        key = symbol.upper()
+        
+        # Merging Update: Retain existing fields if not explicitly overwritten (crucial for pyramiding stability)
+        existing = self.records.get(key)
+        
+        if existing:
+            # We don't overwrite opened_at unless we really want to, but standard behavior was to overwrite.
+            existing.opened_at = opened_at.astimezone(timezone.utc).isoformat()
+            if stop_loss is not None: existing.stop_loss = stop_loss
+            if entry_price is not None: existing.entry_price = entry_price
+            if take_profit is not None: existing.take_profit = take_profit
+            if size is not None: existing.size = size
+            if strategy is not None: existing.strategy = strategy
+            if original_entry_price is not None: existing.original_entry_price = original_entry_price
+            if initial_risk is not None: existing.initial_risk = initial_risk
+            record = existing
+        else:
+            record = PositionHoldRecord(
+                symbol=key, 
+                opened_at=opened_at.astimezone(timezone.utc).isoformat(),
+                stop_loss=stop_loss,
+                entry_price=entry_price,
+                take_profit=take_profit,
+                size=size,
+                strategy=strategy,
+                original_entry_price=original_entry_price,
+                initial_risk=initial_risk,
+            )
+            
         self.records[record.symbol] = record
         self.save()
 
