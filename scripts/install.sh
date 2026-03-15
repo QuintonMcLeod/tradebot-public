@@ -153,7 +153,7 @@ install_sys_deps() {
                 ATK_PKG="libatk-bridge2.0-0"
             fi
 
-            run_with_spinner "Updating package lists" sudo apt update
+            run_with_spinner "Updating package lists" bash -c "sudo apt update || true"
             run_with_spinner "Installing system packages" sudo apt install -y tmux git rsync curl wget build-essential python3.11 python3.11-venv python3.11-dev libnss3 $ATK_PKG libxss1 $ALSA_PKG libgbm1
             ;;
         fedora)
