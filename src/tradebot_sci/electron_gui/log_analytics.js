@@ -271,7 +271,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
     const RE_STRATEGY = /Tournament Won by\s+(\w+)/;
     let lastStrategy = '';
     const seenExitLines = new Set();  // Cross-file dedup: track normalized EXIT line content
-    const logFiles = getLogFiles();
+    const logFiles = !paperMode ? getLogFiles() : []; 
     for (const logFile of logFiles) {
         try {
             const content = fs.readFileSync(logFile.path, 'utf8');

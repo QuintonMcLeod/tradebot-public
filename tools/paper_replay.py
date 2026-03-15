@@ -1000,11 +1000,13 @@ def run_replay(days: int, speed: float, initial_balance: float,
                 f"${t['pnl_usd']:>+7.2f}  {t['exit_reason']}"
             )
 
-        pnl_for_payout = total_pnl
-        velocity = (pnl_for_payout / initial_balance) * 100 if initial_balance > 0 else 0
-        payout_pct = 0.75 if velocity >= 2.5 else 0.50
-        payout_usd = pnl_for_payout * payout_pct if pnl_for_payout > 0 else 0
+    # Calculate Recommended Payout parameters
+    pnl_for_payout = total_pnl
+    velocity = (pnl_for_payout / initial_balance) * 100 if initial_balance > 0 else 0
+    payout_pct = 0.75 if velocity >= 2.5 else 0.50
+    payout_usd = pnl_for_payout * payout_pct if pnl_for_payout > 0 else 0
 
+    if all_trades:
         logger.info(f"┌─────────────────────────────────────────┐")
         logger.info(f"│        RECOMMENDED PAYOUT CARD          │")
         logger.info(f"├─────────────────────────────────────────┤")

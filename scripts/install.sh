@@ -97,13 +97,48 @@ install_sys_deps() {
     info "Installing system dependencies for $OS..."
     case "$OS" in
         ubuntu|debian|pop|mint|linuxmint)
+            # Find the actual Ubuntu base version (e.g. 22.04 or 24.04)
+            # Mint Vera/Victoria are based on 22.04, Mint Wilma is 24.04
+            OS_VER="0.0"
+            if command -v lsb_release >/dev/null 2>&1; then
+                OS_VER=$(lsb_release -rs)
+                # If Mint, lsb_release -rs returns things like '21.3'. We need the upstream version.
+                if [ "$OS" = "linuxmint" ] || [ "$OS" = "mint" ]; then
+                     OS_CODENAME=$(lsb_release -cs)
+                     case "$OS_CODENAME" in
+                         vera|victoria|virginia) OS_VER="22.04" ;;
+                         wilma) OS_VER="24.04" ;;
+                     esac
+                fi
+            elif [ -f /etc/os-release ]; then
+                # Handle Debian/Pop by extracting VERSION_ID
+                OS_VER=$(grep -oP '(?<=VERSION_ID=")\d+\.\d+' /etc/os-release || echo "0.0")
+            fi
+
+            # Ubuntu 24.04+ (Noble Numbat) and 24.10+ (Questing Quail) include Python 3.12 natively.
+            # Adding deadsnakes on Questing breaks apt because there is no Release file.
+            # We ONLY add the PPA if the version is < 24.04. Debian sid/bullseye might not have it either.
+            # Using basic float comparison with awk
+            NEEDS_PPA=$(awk -v ver="$OS_VER" 'BEGIN { print (ver > 0.0 && ver < 24.04) ? 1 : 0 }')
+
+            # Also force add it if it's explicitly older Ubuntu e.g '20.04' or '22.04'
+            if [ "$OS" = "ubuntu" ] || [ "$OS" = "pop" ]; then
+                 if [[ "$OS_VER" == "22.04" ]] || [[ "$OS_VER" == "20.04" ]]; then NEEDS_PPA=1; fi
+                 if [[ "$OS_VER" == "24.04" ]] || [[ "$OS_VER" == "24.10" ]]; then NEEDS_PPA=0; fi
+            fi
+
             # Keep silent if possible, catch errors
             if ! command -v add-apt-repository >/dev/null 2>&1; then
                 run_with_spinner "Adding repo tools" sudo apt install -y software-properties-common
             fi
-            # Add PPA if not present
-            if ! grep -q "deadsnakes/ppa" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
-                 run_with_spinner "Adding Python PPA" sudo add-apt-repository -y ppa:deadsnakes/ppa
+
+            # Add PPA if necessary and not already present
+            if [ "$NEEDS_PPA" = "1" ] && [ "$OS" != "debian" ]; then
+                if ! grep -q "deadsnakes/ppa" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
+                     run_with_spinner "Adding Python PPA" sudo add-apt-repository -y ppa:deadsnakes/ppa
+                fi
+            else
+                info "Skipping deadsnakes PPA (OS has native Python 3.11/3.12)"
             fi
             
             # Handle Ubuntu 24.04+ t64 package rename
