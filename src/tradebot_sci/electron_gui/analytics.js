@@ -378,15 +378,32 @@ function requestTakeProfitMentor(pnl, state, context) {
 }
 
 function applyFallbackMentorText(aiBox, state) {
-    if (state === 'waiting') {
-        aiBox.textContent = 'Active risk is currently floating. Withdrawing capital right now artificially spikes margin utilization. Sit on your hands until resolution.';
-    } else if (state === 'neutral') {
-        aiBox.textContent = 'Account is fully capitalized and ready. Scanning markets for high-probability setups to secure the first profit.';
-    } else if (state === 'drawdown') {
-        aiBox.textContent = 'We are currently under water. Shield algorithms are active. Do not withdraw capital, allow the bot to recover the high water mark.';
-    } else {
-        aiBox.textContent = 'Consistency is key. Secure the bag by transferring this payout to a real bank account, and allow the remaining profit to compound your base.';
-    }
+    const advice = {
+        waiting: [
+            "Active risk is currently floating. Withdrawing capital right now artificially spikes margin utilization. Sit on your hands until resolution.",
+            "Patience pays. You have open positions exposed to the market; withdrawing liquidity now constraints your remaining margin.",
+            "Do not touch the capital base while trades are live. Protect your margin utilization and wait for the market to close out these setups."
+        ],
+        neutral: [
+            "Account is fully capitalized and ready. Scanning markets for high-probability setups to secure the first profit.",
+            "We are flat. Capital is shielded and waiting for volatility to present a mathematical edge.",
+            "Radar is active. Keep the capital base untouched until the engine finds the next profitable execution."
+        ],
+        drawdown: [
+            "We are currently under water. Shield algorithms are active. Do not withdraw capital, allow the bot to recover the high water mark.",
+            "Capital preservation is the priority. Withdrawing during a drawdown cements the loss. Give the algorithms time and margin to dig out.",
+            "Account is in a recovery phase. Do not panic and do not withdraw. Let the systems grind back to the high water mark."
+        ],
+        cashout: [
+            "Consistency is key. Secure the bag by transferring this payout to a real bank account, and allow the remaining profit to compound your base.",
+            "A disciplined trader pays themselves. Take this defined payout off the table to reduce emotional attachment to the capital.",
+            "Mathematical edge secured. Cash out your paycheck to a safe account and let the rest of the profit balloon your compounding power."
+        ]
+    };
+
+    const options = advice[state] || advice.neutral;
+    const randomIndex = Math.floor(Math.random() * options.length);
+    aiBox.textContent = options[randomIndex];
 }
 
 // ═══════════════════════════════════════════════════════════
