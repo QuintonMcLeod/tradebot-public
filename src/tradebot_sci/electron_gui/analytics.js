@@ -232,7 +232,7 @@ function updateMetrics(data) {
                 
                 tpAmount.innerHTML = `<span style="font-size:18px; opacity:0.6; font-weight:700; vertical-align:top; margin-right:2px; margin-top:6px; display:inline-block;">$</span>${payoutValue.toFixed(2)}`;
                 tpAmount.style.fontSize = '36px';
-                tpRationale.textContent = `${payoutPct}% of Simulated Profit ($${pnl.toFixed(2)} Total)`;
+                tpRationale.textContent = "Pay yourself this amount. You've earned it!";
                 tpCard.dataset.payoutAmount = payoutValue.toFixed(2);
                 
                 const aiBox = document.getElementById('tp-ai-mentor');
@@ -307,7 +307,7 @@ function updateMetrics(data) {
             const payoutValue = unwithdrawnProfit * recommendedPct;
             tpAmount.innerHTML = `<span style="font-size:18px; opacity:0.6; font-weight:700; vertical-align:top; margin-right:2px; margin-top:6px; display:inline-block;">$</span>${payoutValue.toFixed(2)}`;
             tpAmount.style.fontSize = '36px';
-            tpRationale.textContent = `${mathRationale} ($${pnl.toFixed(2)} Total)`;
+            tpRationale.textContent = "Pay yourself this amount. You've earned it!";
             tpCard.dataset.payoutAmount = payoutValue.toFixed(2);
             
             if (takePayoutBtn && window.currentPaperMode) {
