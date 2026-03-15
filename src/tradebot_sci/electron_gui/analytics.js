@@ -1568,7 +1568,7 @@ function renderTraditionalCalendar(trades, container) {
         box.style.flexDirection = 'column';
         box.style.justifyContent = 'center';
         box.style.alignItems = 'center';
-        box.style.height = '42px';
+        box.style.aspectRatio = '1 / 1';
         
         const isToday = d.toDateString() === today.toDateString();
         if (isToday) {
