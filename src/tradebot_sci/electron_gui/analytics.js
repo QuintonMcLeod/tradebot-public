@@ -1441,14 +1441,19 @@ function updateCalendar(trades, filter) {
     content.innerHTML = '';
     
     if (filter === '24h') {
+        container.style.minHeight = '180px';
         renderDaysCalendar(trades, content, 3);
     } else if (filter === 'week') {
+        container.style.minHeight = '180px';
         renderDaysCalendar(trades, content, 7);
     } else if (filter === 'month') {
+        container.style.minHeight = '550px';
         renderTraditionalCalendar(trades, content);
     } else if (filter === 'year') {
+        container.style.minHeight = '320px';
         renderMonthsCalendar(trades, content);
     } else if (filter === 'all') {
+        container.style.minHeight = '240px';
         renderYearsCalendar(trades, content);
     }
 }
