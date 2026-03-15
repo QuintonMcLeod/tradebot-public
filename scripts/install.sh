@@ -50,10 +50,19 @@ install_sys_deps() {
                  sudo add-apt-repository -y ppa:deadsnakes/ppa
             fi
             
+            # Handle Ubuntu 24.04+ t64 package rename
+            if apt-cache show libasound2t64 >/dev/null 2>&1; then
+                ALSA_PKG="libasound2t64"
+                ATK_PKG="libatk-bridge2.0-0t64"
+            else
+                ALSA_PKG="libasound2"
+                ATK_PKG="libatk-bridge2.0-0"
+            fi
+
             sudo apt update
             sudo apt install -y tmux git rsync curl wget build-essential \
                  python3.11 python3.11-venv python3.11-dev \
-                 libnss3 libatk-bridge2.0-0t64 libxss1 libasound2t64 libgbm1
+                 libnss3 $ATK_PKG libxss1 $ALSA_PKG libgbm1
             ;;
         fedora)
             sudo dnf install -y tmux git rsync curl wget gcc python3-devel python3-pip \
