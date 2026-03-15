@@ -8,19 +8,67 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+LOG_FILE="$ROOT_DIR/install.log"
+> "$LOG_FILE"
+
+echo -e "${CYAN}${BOLD}"
+cat << "EOF"
+  _______                  _      _           _      _____  _____  _____ 
+ |__   __|                | |    | |         | |    / ____|/ ____||_   _|
+    | |  _ __   __ _   ___| |__  | |__   ___ | |_  | (___ | |       | |  
+    | | | '__| / _` | / __| '_ \ | '_ \ / _ \| __|  \___ \| |       | |  
+    | | | |   | (_| || (__| | | || |_) | (_) | |_   ____) | |____  _| |_ 
+    |_| |_|    \__,_| \___|_| |_||_.__/ \___/ \__| |_____/ \_____||_____|
+EOF
+echo -e "${NC}"
+echo -e "              ${BOLD}Universal Installer v1.0${NC}"
+echo -e "              Logging output to: ${YELLOW}install.log${NC}\n"
 
 info() { echo -e "${CYAN}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT_DIR"
+spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    tput civis || true # hide cursor if possible
+    while kill -0 $pid 2>/dev/null; do
+        local temp=${spinstr#?}
+        printf " ${MAGENTA}%c${NC}  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+    tput cnorm || true # restore cursor
+    wait $pid
+    return $?
+}
 
-info "Starting Tradebot SCI Universal Installer..."
+run_with_spinner() {
+    local msg="$1"
+    shift
+    echo -ne "  ${CYAN}→${NC} $msg... "
+    "$@" >> "$LOG_FILE" 2>&1 &
+    local pid=$!
+    if spinner $pid; then
+        echo -e "\r  ${GREEN}✓${NC} $msg      "
+    else
+        echo -e "\r  ${RED}✗${NC} $msg      "
+        echo -e "    ${RED}Error: Check install.log for details.${NC}"
+        exit 1
+    fi
+}
 
-# 1. Detect Distribution
 # 1. Detect Distribution
 if [[ "$OSTYPE" == "darwin"* ]]; then
     OS="darwin"
@@ -35,19 +83,27 @@ fi
 
 info "Detected OS: $OS"
 
+# Ask for sudo upfront to prevent background processes hanging on password prompts
+if [ "$OS" != "windows" ] && [ "$OS" != "darwin" ]; then
+    info "Requesting administrator privileges for installation..."
+    sudo -v || error "Administrator privileges required to install dependencies."
+    # Keep sudo alive until script exits
+    while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
+fi
+
 # 2. Install System Dependencies
 install_sys_deps() {
+    echo ""
     info "Installing system dependencies for $OS..."
     case "$OS" in
         ubuntu|debian|pop|mint|linuxmint)
-            info "Adding deadsnakes PPA to ensure Python 3.11+ is available..."
             # Keep silent if possible, catch errors
             if ! command -v add-apt-repository >/dev/null 2>&1; then
-                sudo apt install -y software-properties-common
+                run_with_spinner "Adding repo tools" sudo apt install -y software-properties-common
             fi
-            # Add PPA if not present (heuristic check)
+            # Add PPA if not present
             if ! grep -q "deadsnakes/ppa" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
-                 sudo add-apt-repository -y ppa:deadsnakes/ppa
+                 run_with_spinner "Adding Python PPA" sudo add-apt-repository -y ppa:deadsnakes/ppa
             fi
             
             # Handle Ubuntu 24.04+ t64 package rename
@@ -59,31 +115,25 @@ install_sys_deps() {
                 ATK_PKG="libatk-bridge2.0-0"
             fi
 
-            sudo apt update
-            sudo apt install -y tmux git rsync curl wget build-essential \
-                 python3.11 python3.11-venv python3.11-dev \
-                 libnss3 $ATK_PKG libxss1 $ALSA_PKG libgbm1
+            run_with_spinner "Updating package lists" sudo apt update
+            run_with_spinner "Installing system packages" sudo apt install -y tmux git rsync curl wget build-essential python3.11 python3.11-venv python3.11-dev libnss3 $ATK_PKG libxss1 $ALSA_PKG libgbm1
             ;;
         fedora)
-            sudo dnf install -y tmux git rsync curl wget gcc python3-devel python3-pip \
-                nss at-spi2-atk libXScrnSaver alsa-lib mesa-libgbm
+            run_with_spinner "Installing Fedora packages" sudo dnf install -y tmux git rsync curl wget gcc python3-devel python3-pip nss at-spi2-atk libXScrnSaver alsa-lib mesa-libgbm
             ;;
         arch|manjaro)
-            sudo pacman -Syu --noconfirm tmux git rsync curl wget base-devel python nss \
-                at-spi2-atk libxss alsa-lib mesa
+            run_with_spinner "Installing Arch packages" sudo pacman -Syu --noconfirm tmux git rsync curl wget base-devel python nss at-spi2-atk libxss alsa-lib mesa
             ;;
         darwin)
             if ! command -v brew >/dev/null 2>&1; then
                 info "Homebrew not found. Installing Homebrew..."
-                NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+                run_with_spinner "Running Homebrew installer" /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
             fi
-            # Ensure Homebrew is on PATH (Intel: /usr/local/bin, Apple Silicon: /opt/homebrew/bin)
             if [ -x /opt/homebrew/bin/brew ]; then
                 eval "$(/opt/homebrew/bin/brew shellenv)"
             elif [ -x /usr/local/bin/brew ]; then
                 eval "$(/usr/local/bin/brew shellenv)"
             fi
-            # Persist Homebrew PATH into shell profile for future sessions
             SHELL_PROFILE="$HOME/.zprofile"
             if ! grep -q 'brew shellenv' "$SHELL_PROFILE" 2>/dev/null; then
                 echo '' >> "$SHELL_PROFILE"
@@ -92,16 +142,12 @@ install_sys_deps() {
                 else
                     echo 'eval "$(/usr/local/bin/brew shellenv)"' >> "$SHELL_PROFILE"
                 fi
-                info "Added Homebrew to $SHELL_PROFILE"
             fi
-            info "Updating Homebrew..."
-            brew update
-            info "Installing dependencies via Homebrew..."
-            brew install tmux git rsync curl wget python@3.12 node
+            run_with_spinner "Updating Homebrew" brew update
+            run_with_spinner "Installing Mac apps" brew install tmux git rsync curl wget python@3.12 node
             ;;
         msys*|cygwin*|mingw*|windows)
-            info "Windows detected. Assuming dependencies are managed manually."
-            info "Ensure Python 3.10+, Node.js 20+, and Git are installed via installer."
+            info "Windows detected. Please manually install dependencies."
             ;;
         *)
             warn "Unsupported distribution '$OS'. Please install tmux, git, and python3-dev manually."
@@ -112,31 +158,31 @@ install_sys_deps() {
 install_sys_deps
 
 # 3. Check/Install Node.js (Required for GUI)
+echo ""
 if ! command -v node >/dev/null 2>&1; then
-    info "Node.js not found. Installing Node.js 20 (LTS)..."
+    info "Installing Node.js 20 (LTS)..."
     case "$OS" in
         ubuntu|debian|pop|mint|linuxmint)
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-            sudo apt install -y nodejs
+            run_with_spinner "Downloading NodeSource" bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+            run_with_spinner "Installing Node.js pkg" sudo apt install -y nodejs
             ;;
         fedora)
-            sudo dnf install -y nodejs
+            run_with_spinner "Installing Node.js pkg" sudo dnf install -y nodejs
             ;;
         arch|manjaro)
-            sudo pacman -S --noconfirm nodejs npm
+            run_with_spinner "Installing Node.js pkg" sudo pacman -S --noconfirm nodejs npm
             ;;
         darwin)
-            # Already installed via brew in sys_deps, checking again just in case
             if ! command -v node >/dev/null 2>&1; then
-                brew install node
+                run_with_spinner "Installing Node via brew" brew install node
             fi
             ;;
         windows)
-            warn "On Windows, please install Node.js manually or via 'winget install OpenJS.NodeJS.LTS'"
+            warn "On Windows, please install Node.js manually: winget install OpenJS.NodeJS.LTS"
             ;;
     esac
 else
-    info "Node.js $(node -v) already installed."
+    success "Node.js $(node -v) verified."
 fi
 
 # 3.5 Detect Python Executable (Robust)
@@ -213,58 +259,32 @@ else
 fi
 
 if ! command -v poetry >/dev/null 2>&1; then
-    info "Poetry not found. Installing Poetry via pip (more robust)..."
+    info "Poetry not found. Installing Poetry..."
     
     # Ensure pip is available
     if ! "$PYTHON_EXEC" -m pip --version >/dev/null 2>&1; then
-         info "pip not found. Attempting to install pip..."
-         case "$OS" in
+         run_with_spinner "Installing core Python pip" bash -c 'case "$OS" in
             ubuntu|debian|pop|mint|linuxmint) sudo apt install -y python3-pip ;;
             fedora) sudo dnf install -y python3-pip ;;
             arch|manjaro) sudo pacman -S --noconfirm python-pip ;;
-            darwin)
-                info "pip should be included with Homebrew Python. Checking..."
-                "$PYTHON_EXEC" -m ensurepip --upgrade 2>/dev/null || true
-                ;;
-            windows) 
-                info "Attempting to bootstrap pip via ensurepip..."
-                "$PYTHON_EXEC" -m ensurepip --upgrade --default-pip || {
-                    error "CRITICAL: Your Python installation at $(command -v "$PYTHON_EXEC") appears corrupted (missing pip/libraries). Please reinstall Python 3.12 (Stable) from python.org and check 'Add to PATH' and 'Install pip'."
-                }
-                ;;
-         esac
+            darwin) "$PYTHON_EXEC" -m ensurepip --upgrade || true ;;
+            windows) "$PYTHON_EXEC" -m ensurepip --upgrade --default-pip ;;
+         esac'
     fi
 
-    # Install poetry — handle PEP 668 (externally-managed-environment) on modern distros
-    if [[ "$OS" == "darwin" ]]; then
-        "$PYTHON_EXEC" -m pip install --user --break-system-packages poetry || {
-            warn "Pip install with --break-system-packages failed. Trying pipx..."
-            brew install pipx 2>/dev/null && pipx install poetry || {
-                warn "pipx also failed. Trying direct pip install..."
-                "$PYTHON_EXEC" -m pip install --user poetry 2>/dev/null || true
-            }
-        }
-    else
-        # Try pipx first (recommended by Ubuntu 24.04+), then --break-system-packages, then plain pip
+    # Install poetry — handling modern distros smoothly
+    run_with_spinner "Installing Poetry package manager" bash -c '
         if command -v pipx >/dev/null 2>&1; then
-            pipx install poetry || {
-                warn "pipx install failed. Falling back to pip..."
-                "$PYTHON_EXEC" -m pip install --user --break-system-packages poetry 2>/dev/null || \
-                "$PYTHON_EXEC" -m pip install --user poetry 2>/dev/null || true
-            }
-        else
-            # Try installing pipx, then use it
-            sudo apt install -y pipx 2>/dev/null && pipx install poetry || {
-                warn "pipx not available. Using pip with --break-system-packages..."
-                "$PYTHON_EXEC" -m pip install --user --break-system-packages poetry 2>/dev/null || \
-                "$PYTHON_EXEC" -m pip install --user poetry 2>/dev/null || {
-                    warn "Pip install failed. Trying global install..."
-                    "$PYTHON_EXEC" -m pip install --break-system-packages poetry 2>/dev/null || \
-                    "$PYTHON_EXEC" -m pip install poetry
-                }
-            }
+            pipx install poetry || true
+        elif apt-cache show pipx >/dev/null 2>&1; then
+            sudo apt install -y pipx && pipx install poetry || true
         fi
-    fi
+        if ! command -v poetry >/dev/null 2>&1; then
+            "$PYTHON_EXEC" -m pip install --user --break-system-packages poetry || \
+            "$PYTHON_EXEC" -m pip install --user poetry || \
+            "$PYTHON_EXEC" -m pip install poetry || true
+        fi
+    '
     
     export PATH="$PY_USER_BIN:$HOME/.local/bin:$PATH"
     
@@ -307,61 +327,39 @@ if ! command -v poetry >/dev/null 2>&1; then
 fi
 
 # 5. Application Initialization
+echo ""
 info "Initializing application environment..."
 
 # Python venv and dependencies
-# Check for venv (bin for Linux/Mac, Scripts for Windows)
 ACTIVATE_SCRIPT=".venv/bin/activate"
 if [ -f ".venv/Scripts/activate" ]; then
     ACTIVATE_SCRIPT=".venv/Scripts/activate"
 fi
 
 if [ ! -d ".venv" ] || [ ! -f "$ACTIVATE_SCRIPT" ]; then
-    info "Creating Python virtual environment using $PYTHON_EXEC..."
-    "$PYTHON_EXEC" -m venv .venv || {
-        error "Failed to create virtual environment with $PYTHON_EXEC."
-    }
-    # Re-check activation script location after creation
+    run_with_spinner "Creating Python virtual environment" "$PYTHON_EXEC" -m venv .venv
     if [ -f ".venv/Scripts/activate" ]; then
         ACTIVATE_SCRIPT=".venv/Scripts/activate"
     fi
 fi
 
-info "Installing Python dependencies via Poetry..."
 if [ -f "$ACTIVATE_SCRIPT" ]; then
     source "$ACTIVATE_SCRIPT"
 else
     error "Virtual environment activation script not found ($ACTIVATE_SCRIPT). Setup failed."
 fi
 
-# We use the full path to poetry just in case it was just installed
 POETRY_BIN="poetry"
 if [ -f "$HOME/.local/bin/poetry" ]; then POETRY_BIN="$HOME/.local/bin/poetry"; fi
 
-$POETRY_BIN env use "$PYTHON_EXEC"
+$POETRY_BIN env use "$PYTHON_EXEC" >> "$LOG_FILE" 2>&1 || true
 
-# Auto-fix stale poetry.lock (common after git pull)
-info "Syncing poetry.lock with pyproject.toml..."
-$POETRY_BIN lock || {
-    warn "poetry lock failed. You may need to run 'poetry lock' manually."
-}
+run_with_spinner "Syncing poetry.lock dependencies" $POETRY_BIN lock
+run_with_spinner "Installing Python dependencies (GUI build)" bash -c "$POETRY_BIN install --with gui || $POETRY_BIN install"
 
-$POETRY_BIN install --with gui || {
-    warn "Some GUI dependencies may have failed (e.g., PySide6 on older macOS)."
-    warn "The bot will still work headless and with the Electron GUI."
-    # Retry without GUI group as fallback
-    $POETRY_BIN install || error "Failed to install core Python dependencies."
-}
+run_with_spinner "Installing broker integrations" pip install oandapyV20 --quiet
 
-# Install additional broker dependencies not in pyproject.toml
-info "Installing additional broker dependencies..."
-pip install oandapyV20 --quiet
-
-# GUI dependencies
-info "Installing GUI dependencies (npm)..."
-cd src/tradebot_sci/electron_gui
-npm install
-cd ../../..
+run_with_spinner "Installing Electron GUI dependencies" bash -c "cd src/tradebot_sci/electron_gui && npm install"
 
 # Configuration
 if [ ! -f ".env" ]; then
