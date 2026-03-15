@@ -1404,19 +1404,38 @@ Respond in plain English a smart friend would understand. No jargon. Use analogi
         try {
             const { pnl, state, context } = data;
 
-            // Re-read config for API keys
-            let apiKey = null;
-            let provider = 'gemini';
+            // Re-read config for API keys (unified parsing)
+            const envPath = path.join(USER_DATA_DIR, '.env');
+            let envData = {};
+            if (fs.existsSync(envPath)) {
+                envData = require('dotenv').parse(fs.readFileSync(envPath, 'utf8'));
+            }
+            let configJson = {};
             if (fs.existsSync(CONFIG_PATH)) {
-                try {
-                    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-                    if (cfg.ai && cfg.ai.api_key) {
-                        apiKey = cfg.ai.api_key;
-                        provider = cfg.ai.provider || 'gemini';
-                    }
-                } catch (e) {
-                    console.log('[MAIN] Could not read config for AI keys during TP Mentor call');
-                }
+                try { configJson = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch (e) { }
+            }
+            const aiConfig = configJson.ai || {};
+            const merged = { ...envData, ...aiConfig };
+            const get = (key) => merged[key] || merged[key.toLowerCase()] || merged[key.toUpperCase()] || '';
+            
+            const provider = get('provider') || get('TRADE_SCI_PROVIDER') || 'gemini';
+            const apiKeyRaw = get('TRADE_SCI_API_KEY') || get('api_key') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || get('ANTHROPIC_API_KEY') || get('GEMINI_API_KEY') || '';
+            const isPlaceholder = (v) => !v || /example\.com|your_.*_here|placeholder|changeme|xxx/i.test(v);
+            const apiKey = isPlaceholder(apiKeyRaw) ? '' : apiKeyRaw;
+            
+            const defaultModels = { deepseek: 'deepseek-chat', openai: 'gpt-4o', claude: 'claude-3-5-sonnet-latest', gemini: 'gemini-2.5-flash', openrouter: 'google/gemini-2.0-flash-001', local: 'llama3' };
+            const model = get('model') || get('TRADE_SCI_MODEL_NAME') || defaultModels[provider] || 'gpt-4o';
+            
+            let baseUrl = get('base_url') || get('TRADE_SCI_API_BASE_URL') || '';
+            if (isPlaceholder(baseUrl)) baseUrl = '';
+            if (!baseUrl) {
+                const providerUrls = {
+                    openai: 'https://api.openai.com/v1',
+                    openrouter: 'https://openrouter.ai/api/v1',
+                    deepseek: 'https://api.deepseek.com',
+                    local: 'http://localhost:11434/v1',
+                };
+                baseUrl = providerUrls[provider] || 'https://api.openai.com/v1';
             }
 
             const systemPrompt = `You are an enthusiastic, supportive, and human trading mentor for Tradebot SCI. Your job is to provide exactly 2-3 sentences of psychological guidance regarding payouts (withdrawals of profit). 
@@ -1433,41 +1452,9 @@ RULES:
 
             let aiResponse = '';
 
-            if (apiKey) {
-                // OpenAI Path
-                if (provider === 'openai') {
-                    const openaiRes = await new Promise((resolve, reject) => {
-                        const req = https.request({
-                            hostname: 'api.openai.com',
-                            path: '/v1/chat/completions',
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${apiKey}`
-                            }
-                        }, (res) => {
-                            let data = '';
-                            res.on('data', chunk => { data += chunk; });
-                            res.on('end', () => resolve(JSON.parse(data)));
-                        });
-                        req.on('error', reject);
-                        req.write(JSON.stringify({
-                            model: 'gpt-4o',
-                            messages: [
-                                { role: 'system', content: systemPrompt },
-                                { role: 'user', content: 'Generate the Payout Mentor Advice.' }
-                            ],
-                            temperature: 0.3
-                        }));
-                        req.end();
-                    });
-                    if (openaiRes.choices && openaiRes.choices[0]) {
-                        aiResponse = openaiRes.choices[0].message.content;
-                    }
-                }
-                // Gemini Keys Path
-                else if (provider === 'gemini') {
-                    const aiUrl = new URL(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`);
+            if (apiKey || provider === 'local') {
+                if (provider === 'gemini') {
+                    const aiUrl = new URL(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`);
                     const geminiRes = await new Promise((resolve, reject) => {
                         const req = https.request({
                             hostname: aiUrl.hostname,
@@ -1481,16 +1468,80 @@ RULES:
                         });
                         req.on('error', reject);
                         req.write(JSON.stringify({
-                            contents: [{
-                                role: 'user',
-                                parts: [{ text: systemPrompt + '\n\nGenerate the Payout Mentor Advice.' }]
-                            }],
+                            contents: [{ role: 'user', parts: [{ text: systemPrompt + '\\n\\nGenerate the Payout Mentor Advice.' }] }],
                             generationConfig: { temperature: 0.3 }
                         }));
                         req.end();
                     });
                     if (geminiRes.candidates && geminiRes.candidates[0].content.parts[0]) {
                         aiResponse = geminiRes.candidates[0].content.parts[0].text;
+                    }
+                } else if (provider === 'claude') {
+                    const claudeRes = await new Promise((resolve, reject) => {
+                        const req = https.request({
+                            hostname: 'api.anthropic.com',
+                            path: '/v1/messages',
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'x-api-key': apiKey,
+                                'anthropic-version': '2023-06-01'
+                            }
+                        }, (res) => {
+                            let data = '';
+                            res.on('data', chunk => { data += chunk; });
+                            res.on('end', () => resolve(JSON.parse(data)));
+                        });
+                        req.on('error', reject);
+                        req.write(JSON.stringify({
+                            model: model,
+                            system: systemPrompt,
+                            messages: [{ role: 'user', content: 'Generate the Payout Mentor Advice.' }],
+                            max_tokens: 300,
+                            temperature: 0.3
+                        }));
+                        req.end();
+                    });
+                    if (claudeRes.content && claudeRes.content[0]) {
+                        aiResponse = claudeRes.content[0].text;
+                    }
+                } else {
+                    // Universal OpenAI Compatible (OpenAI, DeepSeek, OpenRouter, Local, Custom)
+                    const isSecure = baseUrl.startsWith('https:');
+                    const requestModule = isSecure ? https : require('http');
+                    const url = new URL(baseUrl + '/chat/completions');
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (apiKey) Object.assign(headers, { 'Authorization': `Bearer ${apiKey}` });
+                    // OpenRouter specific headers recommended
+                    if (provider === 'openrouter') {
+                        Object.assign(headers, { 'HTTP-Referer': 'https://tradebot-sci.com', 'X-Title': 'Tradebot SCI' });
+                    }
+                    
+                    const oaiRes = await new Promise((resolve, reject) => {
+                        const req = requestModule.request({
+                            hostname: url.hostname,
+                            port: url.port || (isSecure ? 443 : 80),
+                            path: url.pathname + url.search,
+                            method: 'POST',
+                            headers: headers
+                        }, (res) => {
+                            let data = '';
+                            res.on('data', chunk => { data += chunk; });
+                            res.on('end', () => resolve(JSON.parse(data)));
+                        });
+                        req.on('error', reject);
+                        req.write(JSON.stringify({
+                            model: model,
+                            messages: [
+                                { role: 'system', content: systemPrompt },
+                                { role: 'user', content: 'Generate the Payout Mentor Advice.' }
+                            ],
+                            temperature: 0.3
+                        }));
+                        req.end();
+                    });
+                    if (oaiRes.choices && oaiRes.choices[0]) {
+                        aiResponse = oaiRes.choices[0].message.content;
                     }
                 }
             } else {
