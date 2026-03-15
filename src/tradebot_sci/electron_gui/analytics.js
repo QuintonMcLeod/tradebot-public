@@ -65,7 +65,7 @@ async function loadAnalyticsData(filter) {
             updateTradeHistory(d.trades || []);
             updateSymbolBreakdown(d.symbolStats || {});
             updateStrategyBreakdown(d.strategyStats || {});
-            updateActivityTable();
+
             updateCalendar(d.trades || [], currentFilter);
         } else {
             showErrorState(result?.error || 'Failed to load');
