@@ -132,6 +132,11 @@ install_sys_deps() {
                 run_with_spinner "Adding repo tools" sudo apt install -y software-properties-common
             fi
 
+            # Check if Python 3.11 is natively available BEFORE forcing PPA
+            if apt-cache show python3.11 >/dev/null 2>&1; then
+                NEEDS_PPA=0
+            fi
+
             # Add PPA if necessary and not already present
             if [ "$NEEDS_PPA" = "1" ] && [ "$OS" != "debian" ]; then
                 if ! grep -q "deadsnakes/ppa" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
