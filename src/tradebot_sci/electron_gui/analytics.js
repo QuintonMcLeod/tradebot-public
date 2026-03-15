@@ -65,8 +65,7 @@ async function loadAnalyticsData(filter) {
             updateTradeHistory(d.trades || []);
             updateSymbolBreakdown(d.symbolStats || {});
             updateStrategyBreakdown(d.strategyStats || {});
-            updateSundownBadge(d);
-            updateSourceBadge(d);
+            updateActivityTable();
             updateCalendar(d.trades || [], currentFilter);
         } else {
             showErrorState(result?.error || 'Failed to load');
@@ -886,41 +885,6 @@ function updateStrategyBreakdown(strategyStats) {
     }).join('');
 }
 
-// ═══════════════════════════════════════════════════════════
-// BADGES
-// ═══════════════════════════════════════════════════════════
-
-function updateSundownBadge(data) {
-    const badge = document.getElementById('analytics-sundown-badge');
-    const label = document.getElementById('analytics-sundown-label');
-    if (!badge || !label) return;
-
-    if (data.dayStart && (data._source || '').includes('ledger')) {
-        try {
-            const ds = new Date(data.dayStart);
-            const time = ds.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-            label.textContent = `Day Start: ${time}`;
-            badge.classList.remove('hidden');
-        } catch (_) { badge.classList.add('hidden'); }
-    } else {
-        badge.classList.add('hidden');
-    }
-}
-
-function updateSourceBadge(data) {
-    const badge = document.getElementById('analytics-source-badge');
-    const label = document.getElementById('analytics-source-label');
-    if (!badge || !label) return;
-    const src = data._source || '';
-    if (src.includes('ledger') && src.includes('log')) {
-        label.textContent = '📊 Ledger + Logs';
-    } else if (src.includes('ledger')) {
-        label.textContent = '📊 Ledger';
-    } else {
-        label.textContent = '📄 Log Parse';
-    }
-    badge.classList.remove('hidden');
-}
 
 /** Calculate human-readable duration from a timestamp to now */
 function formatDuration(entryTime) {
