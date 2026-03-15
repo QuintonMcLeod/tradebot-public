@@ -1447,10 +1447,10 @@ function updateCalendar(trades, filter) {
         container.style.minHeight = '180px';
         renderDaysCalendar(trades, content, 7);
     } else if (filter === 'month') {
-        container.style.minHeight = '550px';
+        container.style.minHeight = '800px';
         renderTraditionalCalendar(trades, content);
     } else if (filter === 'year') {
-        container.style.minHeight = '320px';
+        container.style.minHeight = '350px';
         renderMonthsCalendar(trades, content);
     } else if (filter === 'all') {
         container.style.minHeight = '240px';
