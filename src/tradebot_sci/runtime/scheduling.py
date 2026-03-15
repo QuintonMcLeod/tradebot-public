@@ -104,15 +104,82 @@ def _is_forex_open(now: datetime) -> bool:
     return True
 
 
+def get_schedule_status(profile_name: str, now: datetime, settings: Any) -> tuple[bool, bool]:
+    """
+    Evaluates the ScheduleSettings for a given profile_name at the current time.
+    Returns:
+        (is_scheduled, paper_trade_off_hours)
+        - is_scheduled: True if the bot should be running right now based on any matching session.
+        - paper_trade_off_hours: True if there is a session for this profile, but we are outside its
+          active window AND it allows paper trading during off-hours.
+          
+    If NO sessions exist for the profile, default to fully scheduled (True, False).
+    """
+    if not hasattr(settings, "schedule") or not settings.schedule.sessions:
+        return True, False
+        
+    profile_sessions = [s for s in settings.schedule.sessions if s.profile_name == profile_name]
+    if not profile_sessions:
+        return True, False
+        
+    tz = ZoneInfo(settings.schedule.timezone)
+    local_now = now.astimezone(tz)
+    weekday_str = local_now.strftime("%A")
+    # ISO week starts on Monday (1)
+    # Getting week of month: simple ceil(day / 7)
+    import math
+    week_of_month = math.ceil(local_now.day / 7)
+    
+    can_paper_trade = False
+    
+    for sess in profile_sessions:
+        if sess.mode == "24/7":
+            return True, False
+            
+        # Modes: business_hours, custom, one_time
+        if sess.mode == "one_time" and sess.specific_date:
+            date_str = local_now.strftime("%Y-%m-%d")
+            if sess.specific_date != date_str:
+                if sess.paper_trade_off_hours:
+                    can_paper_trade = True
+                continue
+        else:
+            # Check Days
+            if weekday_str not in sess.days_of_week:
+                if sess.paper_trade_off_hours:
+                    can_paper_trade = True
+                continue
+                
+            # Check Weeks
+            if week_of_month not in sess.weeks_of_month:
+                if sess.paper_trade_off_hours:
+                    can_paper_trade = True
+                continue
+            
+        # Check Times
+        start_h, start_m = map(int, sess.start_time.split(":"))
+        end_h, end_m = map(int, sess.end_time.split(":"))
+        start_dt = local_now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+        end_dt = local_now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+        
+        if start_dt <= local_now < end_dt:
+            return True, False
+        elif sess.paper_trade_off_hours:
+            can_paper_trade = True
+            
+    # Outside of all matching schedules
+    return False, can_paper_trade
+
+
 def get_current_session(now: datetime, sessions: List[Any], tz: ZoneInfo) -> Optional[Dict[str, Any]]:
     """Determine the active session from a list of scheduled sessions."""
     for sess in sessions:
-        start_h, start_m = map(int, sess.start.split(":"))
-        end_h, end_m = map(int, sess.end.split(":"))
+        start_h, start_m = map(int, sess.start_time.split(":"))
+        end_h, end_m = map(int, sess.end_time.split(":"))
         start_dt = now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
         end_dt = now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
         if start_dt <= now < end_dt:
-            return {"name": sess.name, "end": end_dt}
+            return {"name": sess.profile_name, "end": end_dt}
     return None
 
 
@@ -120,7 +187,7 @@ def get_next_session_start(now: datetime, sessions: List[Any], tz: ZoneInfo) -> 
     """Find the start time and object of the next scheduled session."""
     upcoming: list[tuple[datetime, Any]] = []
     for sess in sessions:
-        sh, sm = map(int, sess.start.split(":"))
+        sh, sm = map(int, sess.start_time.split(":"))
         start_dt = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
         if start_dt <= now:
             start_dt = start_dt + timedelta(days=1)

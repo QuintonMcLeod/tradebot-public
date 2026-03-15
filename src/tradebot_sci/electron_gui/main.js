@@ -160,6 +160,69 @@ function setupIpcHandlers() {
         }
     });
 
+    ipcMain.handle('export-config', async (event) => {
+        const { dialog } = require('electron');
+        try {
+            const win = BrowserWindow.getFocusedWindow();
+            const { filePath } = await dialog.showSaveDialog(win, {
+                title: 'Export Settings',
+                defaultPath: 'tradebot_config.json',
+                filters: [{ name: 'JSON Files', extensions: ['json'] }]
+            });
+            if (!filePath) return { success: false, canceled: true };
+            
+            const configPath = fs.existsSync(CONFIG_JSON_PATH) ? CONFIG_JSON_PATH : LEGACY_CONFIG_JSON_PATH;
+            if (!fs.existsSync(configPath)) {
+                return { success: false, error: 'Config file not found to export.' };
+            }
+            
+            const content = fs.readFileSync(configPath, 'utf8');
+            fs.writeFileSync(filePath, content);
+            return { success: true, path: filePath };
+        } catch (e) {
+            console.error("[MAIN] Export Config Error:", e);
+            return { success: false, error: e.message };
+        }
+    });
+
+    ipcMain.handle('import-config', async (event) => {
+        const { dialog } = require('electron');
+        try {
+            const win = BrowserWindow.getFocusedWindow();
+            const { filePaths } = await dialog.showOpenDialog(win, {
+                title: 'Import Settings',
+                filters: [{ name: 'JSON Files', extensions: ['json'] }],
+                properties: ['openFile']
+            });
+            if (!filePaths || filePaths.length === 0) return { success: false, canceled: true };
+            
+            const sourcePath = filePaths[0];
+            const content = fs.readFileSync(sourcePath, 'utf8');
+            
+            // Validate JSON
+            let parsed;
+            try {
+                parsed = JSON.parse(content);
+            } catch (je) {
+                return { success: false, error: 'Invalid JSON file selected.' };
+            }
+            
+            // Save to active config path
+            fs.writeFileSync(CONFIG_JSON_PATH, content);
+            console.log("[MAIN] Imported and saved config.json");
+            
+            // Notify all windows that config changed
+            BrowserWindow.getAllWindows().forEach(win => {
+                win.webContents.send('config-updated', parsed);
+            });
+            
+            return { success: true };
+        } catch (e) {
+            console.error("[MAIN] Import Config Error:", e);
+            return { success: false, error: e.message };
+        }
+    });
+
     ipcMain.handle('read-secrets', async () => {
         // Prefer XDG user data dir, fallback to project root
         let secretsPath = SECRETS_PATH;
@@ -306,6 +369,7 @@ function setupIpcHandlers() {
         { filename: 'RTFM/27_POSITION_ALCHEMY.md', title: 'Position Alchemy: The Art and Science of SL, TP, and Trailing Stops', category: 'rtfm', icon: 'auto_graph', description: '"The entry is science. The exit is art. The stop-loss is religion." Deep dive into every exit mechanism: ATR-based stop-losses, risk/reward take-profits, trailing stops with activation thresholds, breakeven trails, and the exit priority stack. With actual formulas, examples, and the philosophy of why exits matter more than entries.' },
         { filename: 'WHAT_S_PLUS_MEANS.md', title: 'What Does S+ Grade Mean For You?', category: 'guide', icon: 'workspace_premium', description: '"Your bot went from bleeding $52/day with every safety guard off, to an S+-rated system with typed interfaces, failure contracts, and a CI pipeline that blocks broken code at the gate." A plain-English guide for humans who trade, not humans who type-check.', featured: true, size: 'md' },
         { filename: 'adr/001-strategy-registry.md', title: 'ADR-001: The Strategy Registry', category: 'adr', icon: 'extension', description: '"Please Stop Adding Elif Branches." How we replaced a growing if/elif factory with a dictionary registry. Adding a strategy is now a 2-file change, not a prayer.' },
+        { filename: 'RTFM/43_ALLERGIC_TO_MONEY.md', title: 'Allergic to Money: Stop Playing With Me', category: 'rtfm', icon: 'money_off', description: '"You can\'t invest a HUNNIT dollars in yourself? But you\'d spend $100 on an ugly jacket you\'re gonna wear twice." A brutally honest breakdown of why people claim they can\'t afford to trade, while dropping $1,000 on vintage Jordans and $75 at Five Guys. With actual screenshots proving what $100 and $1,000 can do in 30 days.', featured: true },
         { filename: 'adr/002-safety-guard-architecture.md', title: 'ADR-002: Safety Guard Architecture', category: 'adr', icon: 'shield', description: '"The $52/Day Incident." Why all 8 safety guards are ON by default, how the guard chain works, and the horror story that made us build it.', size: 'md' },
         { filename: 'adr/003-broker-abstraction.md', title: 'ADR-003: Broker Abstraction Layer', category: 'adr', icon: 'hub', description: '"Why We Don\'t Have \'if broker == OANDA\' Everywhere." The Protocol-based interface that lets OANDA, Gemini, IBKR, and PaperBroker all look the same to the runtime loop.' },
         { filename: 'adr/004-position-hold-lock.md', title: 'ADR-004: Position Hold Lock', category: 'adr', icon: 'lock', description: '"Stop Flipping Like a Pancake." Once a position is open, conflicting signals are blocked. Because 3 round-trips in 10 minutes is not a strategy.', size: 'md' },
@@ -722,8 +786,8 @@ function setupIpcHandlers() {
     // =============================================
     // AI Recommend — Profile Optimization
     // =============================================
-    ipcMain.handle('ai-recommend', async (_event, profileName) => {
-        console.log(`[MAIN] AI Recommend requested for profile: ${profileName}`);
+    ipcMain.handle('ai-recommend', async (_event, profileName, goal = 'balanced') => {
+        console.log(`[MAIN] AI Recommend requested for profile: ${profileName} with goal: ${goal}`);
         try {
             // 1. Read profile data
             const yaml = require('js-yaml');
@@ -944,9 +1008,15 @@ KEY CONSTRAINTS:
 • If OANDA is active, forex spreads are the hidden cost — wider stops absorb spread better.
 • Greed guard targets should be proportional to actual account size, not arbitrary large numbers.
 
-Analyze these symbols and asset classes, then recommend OPTIMAL settings across these 4 categories.
-IMPORTANT: Do NOT recommend conflicting settings. For example, don't enable both Stability Mode AND aggressive multipliers.
-IMPORTANT: This is a DAY TRADING bot operating on 5-minute charts. Trades should be held for minutes to hours, NOT days. Max hold times should be 4-12 hours, never 24-48 hours. Favor quick entries, tight stops, and decisive exits. This is NOT a swing trading or position trading system.
+    Analyze these symbols and asset classes, then recommend OPTIMAL settings across these 4 categories.
+    
+    USER OPTIMIZATION GOAL: ${goal.toUpperCase().replace('_', ' ')}
+    ${goal === 'capital_preservation' ? '• Focus strictly on capital preservation. Recommend the safest strategies (e.g. ones with low drawdowns). Set risk per trade very low (0.5% or less), enable all safety shields, use tight stop losses, and take profits early.' : ''}
+    ${goal === 'capital_flipping' ? '• Focus on aggressive growth (Capital Flipping). Recommend high-frequency, high-reward strategies. Increase risk per trade (2-3%), loosen safety shields, use wider stops to avoid getting chopped out, and aim for large trend-following runners.' : ''}
+    ${goal === 'balanced' ? '• Focus on a balanced approach of steady growth and reasonable safety. Use normal risk limits (1-2%).' : ''}
+    
+    IMPORTANT: Do NOT recommend conflicting settings. For example, don't enable both Stability Mode AND aggressive multipliers.
+    IMPORTANT: This is a DAY TRADING bot operating on 5-minute charts. Trades should be held for minutes to hours, NOT days. Max hold times should be 4-12 hours, never 24-48 hours. Favor quick entries, tight stops, and decisive exits. This is NOT a swing trading or position trading system.
 
 ═══════════════════════════════════════════════════
 CATEGORY 1: STRATEGY WORKSHOP

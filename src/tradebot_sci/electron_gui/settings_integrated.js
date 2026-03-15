@@ -169,7 +169,7 @@ const CONFIG_MAP = {
     'TRADE_SCI_MODEL_NAME': ['ai', 'model'],
     'TRADE_SCI_API_BASE_URL': ['ai', 'base_url'],
     'AI_TEMPERATURE': ['ai', 'temperature'],
-    'AI_MAX_TOKENS': ['ai', 'max_tokens'],
+    'AI_MAX_TOKENS': ['ai', 'max_tokens']
 };
 
 const SECRETS_MAP = {
@@ -1769,7 +1769,7 @@ function renderSystemTab(container) {
 
     // Active Profile selection moved to Profile tab (activate button on each profile card)
 
-
+    // Add Import/Export Buttons (Relocated to bottom)
 
     section.appendChild(createCard('Execution Mode', 'How the bot cycles through iterations', 'BOT_MODE', 'dropdown', {
         items: [
@@ -1944,6 +1944,42 @@ function renderSystemTab(container) {
             }
         });
     }, 50);
+
+    section.appendChild(createDivider());
+    
+    // Data Management
+    section.appendChild(createSectionHeader('Data Management', 'save',
+        "<strong>Configuration Backups</strong><br><br>Export your entire configuration back to a JSON file for safekeeping, or import a previously saved configuration. Imported settings take effect immediately."
+    ));
+
+    const dataGrid = document.createElement('div');
+    dataGrid.className = 'card-grid card-grid-2 mb-8';
+
+    const btnImport = createControlButton('Import Settings', 'download', 'purple', async () => {
+        if (!window.api || !window.api.invoke) return;
+        const res = await window.api.invoke('import-config');
+        if (res && res.success) {
+            setTimeout(() => {
+                if (window.showToast) window.showToast('Settings imported successfully.', 'success');
+            }, 100);
+        } else if (res && !res.canceled) {
+            if (window.showToast) window.showToast(`Import failed: ${res.error}`, 'error');
+        }
+    });
+
+    const btnExport = createControlButton('Export Settings', 'upload', 'teal', async () => {
+        if (!window.api || !window.api.invoke) return;
+        const res = await window.api.invoke('export-config');
+        if (res && res.success) {
+            if (window.showToast) window.showToast(`Settings exported successfully.`, 'success');
+        } else if (res && !res.canceled) {
+            if (window.showToast) window.showToast(`Export failed: ${res.error}`, 'error');
+        }
+    });
+
+    dataGrid.appendChild(btnImport);
+    dataGrid.appendChild(btnExport);
+    section.appendChild(dataGrid);
 
     container.appendChild(section);
 }
@@ -2646,15 +2682,280 @@ function renderScheduleTab(container) {
     section.appendChild(createCard('End Time', 'Saturday sunset - HH:MM', 'SABBATH_END_LOCAL', 'time', { default: '18:00' }));
 
     section.appendChild(createDivider());
-    section.appendChild(createSectionHeader('Session Gate', 'access_time',
-        "<strong>Session Gate</strong><br><br>Restricts trading to specific market session hours. This prevents the bot from trading during low-liquidity periods (like overnight or between sessions) when spreads are wide and moves can be unpredictable."
+    section.appendChild(createSectionHeader('Global Scheduler', 'calendar_month',
+        "<strong>Global Scheduler</strong><br><br>Manage active trading hours for each profile. If a profile is outside its scheduled window, the bot will sleep. If 'Off-Hours Paper Trading' is enabled, the bot will automatically swap to simulation mode instead of sleeping."
     ));
 
-    section.appendChild(createCard('Session Gate Enabled', 'Enforce session health checks', 'SESSION_GATE_ENABLED', 'toggle', { default: 'true' }));
-    section.appendChild(createCard('Overlap Start Hour', 'Active session start', 'SESSION_OVERLAP_START_HOUR', 'time', { default: '12:00' }));
-    section.appendChild(createCard('Overlap End Hour', 'Active session end', 'SESSION_OVERLAP_END_HOUR', 'time', { default: '16:00' }));
-    section.appendChild(createCard('Session Timezone', 'For overlap hours', 'SESSION_OVERLAP_TIMEZONE', 'dropdown', { items: [{ value: 'UTC', label: 'UTC' }, { value: 'America/New_York', label: 'America/New_York' }, { value: 'America/Chicago', label: 'America/Chicago' }, { value: 'America/Denver', label: 'America/Denver' }, { value: 'America/Los_Angeles', label: 'America/Los_Angeles' }, { value: 'Europe/London', label: 'Europe/London' }, { value: 'Europe/Paris', label: 'Europe/Paris' }, { value: 'Asia/Tokyo', label: 'Asia/Tokyo' }, { value: 'Asia/Shanghai', label: 'Asia/Shanghai' }], default: 'UTC' }));
-    section.appendChild(createCard('Auto Schedule', 'Auto switch equities/crypto', 'AUTO_SCHEDULE_ENABLED', 'toggle'));
+    const sessionsContainer = document.createElement('div');
+    sessionsContainer.className = 'mb-6 px-1';
+
+    function renderSessionsList() {
+        sessionsContainer.innerHTML = '';
+        if (!configData.schedule) configData.schedule = {};
+        if (!configData.schedule.sessions) configData.schedule.sessions = [];
+        
+        const sessions = configData.schedule.sessions;
+        
+        if (sessions.length === 0) {
+            const emptyState = document.createElement('div');
+            emptyState.style.cssText = 'text-align: center; padding: 24px; color: var(--text-muted); background: rgba(0,0,0,0.2); border-radius: 12px; border: 1px dashed rgba(255,255,255,0.1); font-size: 13px;';
+            emptyState.innerHTML = 'No schedules configured.<br>Profiles will trade 24/7 unless a schedule is added.';
+            sessionsContainer.appendChild(emptyState);
+        } else {
+            sessions.forEach((sess, idx) => {
+                const card = document.createElement('div');
+                card.className = 'control-card';
+                card.style.marginBottom = '10px';
+                
+                const rightCol = sess.mode === '24/7' ? 'ALWAYS ACTIVE' : `${sess.start_time} — ${sess.end_time}`;
+                const modeLabel = sess.mode === '24/7' 
+                    ? `<span style="font-size: 9px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--warning); color: var(--warning); background: rgba(245, 158, 11, 0.1); margin-left: 10px; font-weight: 800; letter-spacing: 0.1em;">24/7</span>`
+                    : (sess.mode === 'one_time' ? `<span style="font-size: 9px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--success); color: var(--success); background: rgba(16, 185, 129, 0.1); margin-left: 10px; font-weight: 800; letter-spacing: 0.1em;">ONE-TIME</span>` : `<span style="font-size: 9px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--accent); color: var(--accent); background: var(--accent-dim); margin-left: 10px; font-weight: 800; letter-spacing: 0.1em;">RECURRING</span>`);
+                
+                const dayMap = {"Sunday": "Su", "Monday": "Mo", "Tuesday": "Tu", "Wednesday": "We", "Thursday": "Th", "Friday": "Fr", "Saturday": "Sa"};
+                let daysStr = 'None';
+                if (sess.mode === 'one_time' && sess.specific_date) {
+                    daysStr = sess.specific_date;
+                } else if (sess.days_of_week && sess.days_of_week.length > 0) {
+                    daysStr = sess.days_of_week.length === 7 ? 'Everyday' : sess.days_of_week.map(d => dayMap[d]).join(', ');
+                }
+
+                card.innerHTML = `
+                    <div class="card-info sched-edit-area" style="flex: 1; cursor: pointer; transition: opacity 0.2s;" onmouseenter="this.style.opacity='0.8'" onmouseleave="this.style.opacity='1'" title="Click to edit schedule">
+                        <span class="card-title" style="display:flex; align-items:center;">
+                            ${sess.profile_name} ${modeLabel}
+                        </span>
+                        <span class="card-desc" style="margin-top: 8px; display: flex; gap: 24px; color: var(--text-muted);">
+                            <span><strong style="color: var(--text-secondary);">Days:</strong> <span style="color: var(--text-main);">${daysStr}</span></span>
+                            <span><strong style="color: var(--text-secondary);">Window:</strong> <span style="color: var(--text-main);">${rightCol}</span></span>
+                            <span><strong style="color: var(--text-secondary);">Paper Off-Hours:</strong> <span style="color: ${sess.paper_trade_off_hours ? 'var(--accent)' : 'inherit'}">${sess.paper_trade_off_hours ? 'ENABLED' : 'DISABLED'}</span></span>
+                        </span>
+                    </div>
+                    <div class="card-control no-drag">
+                        <button class="btn-delete material-symbols-outlined" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; transition: all 0.2s; font-size: 20px;" title="Delete Schedule">delete</button>
+                    </div>
+                `;
+                
+                card.querySelector('.sched-edit-area').addEventListener('click', () => {
+                    openAddScheduleModal(sess, idx);
+                });
+                
+                const delBtn = card.querySelector('.btn-delete');
+                delBtn.addEventListener('mouseenter', () => delBtn.style.color = 'var(--error)');
+                delBtn.addEventListener('mouseleave', () => delBtn.style.color = 'var(--text-muted)');
+                
+                delBtn.addEventListener('click', () => {
+                    configData.schedule.sessions.splice(idx, 1);
+                    renderSessionsList();
+                    if (window.api && window.api.saveConfig) window.api.saveConfig(configData);
+                });
+                sessionsContainer.appendChild(card);
+            });
+        }
+    }
+    
+    function openAddScheduleModal(existingSess = null, existingIdx = -1) {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(2, 6, 23, 0.8); backdrop-filter: blur(8px);';
+        
+        const profileNames = Object.keys(configData.profiles || {});
+        if (profileNames.length === 0) profileNames.push('Default');
+        
+        const titleText = existingSess ? "Edit Schedule" : "Add Schedule";
+        const iconText = existingSess ? "edit" : "add_task";
+        
+        overlay.innerHTML = `
+            <div style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(15, 23, 42, 0.95) 100%); backdrop-filter: var(--glass-blur); border: 1px solid var(--accent-glow); padding: 32px; border-radius: 20px; width: 100%; max-width: 440px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); position: relative; animation: fadeSlideUp 0.3s cubic-bezier(0.23, 1, 0.32, 1);">
+                <h3 style="font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 24px; display: flex; align-items: center; gap: 8px;">
+                    <span class="material-symbols-outlined text-glow-teal" style="color: var(--accent);">${iconText}</span> ${titleText}
+                </h3>
+                
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <div>
+                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Target Profile <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Target Profile', 'Which profile should these rules apply to? Think of it like deciding which car gets these specific driving hours.')" onmouseleave="hideTooltip()">info</span></label>
+                        <select id="modal-profile" class="input-field" style="width: 100%;">
+                            ${profileNames.map(p => `<option value="${p}" ${existingSess && existingSess.profile_name === p ? 'selected' : ''}>${p}</option>`).join('')}
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Schedule Mode <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Schedule Mode', 'How often should this run? Recurring runs every week on your chosen days. One-Time runs exactly once and never again. 24/7 means it never stops.')" onmouseleave="hideTooltip()">info</span></label>
+                        <select id="modal-mode" class="input-field" style="width: 100%;">
+                            <option value="business_hours" ${existingSess && existingSess.mode === 'business_hours' ? 'selected' : (!existingSess ? 'selected' : '')}>Recurring (Weekly)</option>
+                            <option value="one_time" ${existingSess && existingSess.mode === 'one_time' ? 'selected' : ''}>One-Time Execution</option>
+                            <option value="24/7" ${existingSess && existingSess.mode === '24/7' ? 'selected' : ''}>24/7 Continuous Trading</option>
+                        </select>
+                    </div>
+                    
+                    <div id="modal-date-container" style="display: none;">
+                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Execution Date <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Execution Date', 'The exact day you want the bot to wake up, execute this schedule once, and then ignore it forever.')" onmouseleave="hideTooltip()">info</span></label>
+                        <input type="date" id="modal-date" value="${existingSess && existingSess.specific_date ? existingSess.specific_date : ''}" class="input-field time-picker" style="width: 100%; color-scheme: dark;">
+                    </div>
+                    
+                    <div id="modal-days-container">
+                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Active Days <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Active Days', 'Click the days you want the bot to actively trade. If a day is dark, the bot sleeps (or paper trades) that day.')" onmouseleave="hideTooltip()">info</span></label>
+                        <div style="display: flex; gap: 6px; justify-content: space-between;" id="modal-days-row">
+                            <button class="modal-day-btn" data-day="Sunday" style="flex:1; height: 32px; border-radius: 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s;">S</button>
+                            <button class="modal-day-btn active" data-day="Monday" style="flex:1; height: 32px; border-radius: 8px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 10px rgba(20,184,166,0.2);">M</button>
+                            <button class="modal-day-btn active" data-day="Tuesday" style="flex:1; height: 32px; border-radius: 8px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 10px rgba(20,184,166,0.2);">T</button>
+                            <button class="modal-day-btn active" data-day="Wednesday" style="flex:1; height: 32px; border-radius: 8px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 10px rgba(20,184,166,0.2);">W</button>
+                            <button class="modal-day-btn active" data-day="Thursday" style="flex:1; height: 32px; border-radius: 8px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 10px rgba(20,184,166,0.2);">T</button>
+                            <button class="modal-day-btn active" data-day="Friday" style="flex:1; height: 32px; border-radius: 8px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 10px rgba(20,184,166,0.2);">F</button>
+                            <button class="modal-day-btn" data-day="Saturday" style="flex:1; height: 32px; border-radius: 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s;">S</button>
+                        </div>
+                    </div>
+                    
+                    <div id="modal-time-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div>
+                            <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Start Time <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Start Time', 'When the bot wakes up and starts looking for trades.')" onmouseleave="hideTooltip()">info</span></label>
+                            <input type="time" id="modal-start" value="${existingSess ? existingSess.start_time : '09:30'}" class="input-field time-picker" style="width: 100%; color-scheme: dark;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">End Time <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'End Time', 'When the bot stops taking new trades and manages existing ones.')" onmouseleave="hideTooltip()">info</span></label>
+                            <input type="time" id="modal-end" value="${existingSess ? existingSess.end_time : '16:00'}" class="input-field time-picker" style="width: 100%; color-scheme: dark;">
+                        </div>
+                    </div>
+                    
+                    <div class="control-card" style="margin-top: 8px; margin-bottom: 0; padding: 16px; cursor: pointer;" id="modal-paper-row">
+                        <div class="card-info" style="pointer-events: none;">
+                            <span class="card-title">Off-Hours Simulation <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Off-Hours Simulation', 'If enabled, when the bot goes to sleep outside its schedule, it will secretly switch to Paper Trading to practice and gather data instead of actually doing nothing.')" onmouseleave="hideTooltip()">info</span></span>
+                            <span class="card-desc">Trade in paper mode while sleeping</span>
+                        </div>
+                        <div class="card-control no-drag">
+                            <div class="toggle" id="modal-paper"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 32px;">
+                    <button id="btn-modal-cancel" style="padding: 12px 24px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; border-radius: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); cursor: pointer; transition: all 0.2s;">Cancel</button>
+                    <button id="btn-modal-save" style="padding: 12px 24px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; border-radius: 12px; background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%); color: #000; border: none; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 20px var(--accent-glow);">Confirm</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(overlay);
+        
+        const modeSelect = overlay.querySelector('#modal-mode');
+        const timeContainer = overlay.querySelector('#modal-time-container');
+        const daysContainer = overlay.querySelector('#modal-days-container');
+        const dateContainer = overlay.querySelector('#modal-date-container');
+        
+        function updateVisibility() {
+            const val = modeSelect.value;
+            timeContainer.style.display = val === '24/7' ? 'none' : 'grid';
+            daysContainer.style.display = val === 'business_hours' ? 'block' : 'none';
+            dateContainer.style.display = val === 'one_time' ? 'block' : 'none';
+        }
+        
+        modeSelect.addEventListener('change', updateVisibility);
+        updateVisibility();
+        
+        const dayBtns = overlay.querySelectorAll('.modal-day-btn');
+        dayBtns.forEach(btn => {
+            const dayName = btn.getAttribute('data-day');
+            if (existingSess && existingSess.mode === 'business_hours') {
+                if (!existingSess.days_of_week.includes(dayName)) {
+                    btn.classList.remove('active');
+                    btn.style.background = 'rgba(0,0,0,0.3)';
+                    btn.style.border = '1px solid rgba(255,255,255,0.1)';
+                    btn.style.color = 'var(--text-muted)';
+                    btn.style.boxShadow = 'none';
+                }
+            }
+            
+            btn.addEventListener('click', (e) => {
+                const isActive = btn.classList.contains('active');
+                if (isActive) {
+                    btn.classList.remove('active');
+                    btn.style.background = 'rgba(0,0,0,0.3)';
+                    btn.style.border = '1px solid rgba(255,255,255,0.1)';
+                    btn.style.color = 'var(--text-muted)';
+                    btn.style.boxShadow = 'none';
+                } else {
+                    btn.classList.add('active');
+                    btn.style.background = 'var(--accent-dim)';
+                    btn.style.border = '1px solid var(--accent)';
+                    btn.style.color = 'var(--accent)';
+                    btn.style.boxShadow = '0 0 10px rgba(20,184,166,0.2)';
+                }
+            });
+        });
+        
+        const paperRow = overlay.querySelector('#modal-paper-row');
+        const paperCheck = overlay.querySelector('#modal-paper');
+        paperCheck.is_active = existingSess ? existingSess.paper_trade_off_hours : false;
+        if (paperCheck.is_active) {
+            paperCheck.classList.add('toggle-active');
+        }
+        
+        function togglePaper() {
+            paperCheck.is_active = !paperCheck.is_active;
+            paperCheck.classList.toggle('toggle-active', paperCheck.is_active);
+        }
+        
+        paperRow.addEventListener('click', (e) => {
+            e.stopPropagation();
+            togglePaper();
+        });
+        
+        overlay.querySelector('#btn-modal-cancel').addEventListener('click', () => {
+            document.body.removeChild(overlay);
+        });
+        
+        overlay.querySelector('#btn-modal-save').addEventListener('click', () => {
+            const profile = overlay.querySelector('#modal-profile').value;
+            const mode = overlay.querySelector('#modal-mode').value;
+            const start = overlay.querySelector('#modal-start').value || "09:30";
+            const end = overlay.querySelector('#modal-end').value || "16:00";
+            const paper = paperCheck.is_active;
+            const dateVal = overlay.querySelector('#modal-date').value;
+            
+            const activeDays = Array.from(dayBtns)
+                                    .filter(btn => btn.classList.contains('active'))
+                                    .map(btn => btn.getAttribute('data-day'));
+            
+            if (!configData.schedule) configData.schedule = {};
+            if (!configData.schedule.sessions) configData.schedule.sessions = [];
+            
+            const scheduleObj = {
+                id: existingSess ? existingSess.id : Math.random().toString(36).substr(2, 9),
+                profile_name: profile,
+                mode: mode,
+                days_of_week: mode === 'business_hours' ? activeDays : ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+                weeks_of_month: existingSess ? existingSess.weeks_of_month : [1, 2, 3, 4, 5],
+                specific_date: mode === 'one_time' ? dateVal : null,
+                start_time: start,
+                end_time: end,
+                paper_trade_off_hours: paper
+            };
+            
+            if (existingIdx >= 0) {
+                configData.schedule.sessions[existingIdx] = scheduleObj;
+            } else {
+                configData.schedule.sessions.push(scheduleObj);
+            }
+            
+            if (window.api && window.api.saveConfig) window.api.saveConfig(configData);
+            document.body.removeChild(overlay);
+            renderSessionsList();
+        });
+    }
+
+    renderSessionsList();
+
+    const addContainer = document.createElement('div');
+    addContainer.style.cssText = 'margin-top: 16px; margin-bottom: 24px;';
+    const btnAdd = document.createElement('button');
+    btnAdd.style.cssText = 'width: 100%; padding: 14px; background: rgba(255, 255, 255, 0.03); border: 1px dashed rgba(255, 255, 255, 0.2); border-radius: 12px; color: var(--text-secondary); font-weight: 700; font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; cursor: pointer; transition: all 0.2s var(--transition-smooth); display: flex; justify-content: center; align-items: center; gap: 8px;';
+    btnAdd.onmouseenter = () => { btnAdd.style.background = 'rgba(255, 255, 255, 0.06)'; btnAdd.style.borderColor = 'var(--accent-dim)'; btnAdd.style.color = 'var(--text-main)'; };
+    btnAdd.onmouseleave = () => { btnAdd.style.background = 'rgba(255, 255, 255, 0.03)'; btnAdd.style.borderColor = 'rgba(255, 255, 255, 0.2)'; btnAdd.style.color = 'var(--text-secondary)'; };
+    btnAdd.innerHTML = '<span class="material-symbols-outlined" style="font-size: 18px;">add</span> Add Profile Schedule';
+    btnAdd.addEventListener('click', openAddScheduleModal);
+    addContainer.appendChild(btnAdd);
+
+    section.appendChild(sessionsContainer);
+    section.appendChild(addContainer);
 
     container.appendChild(section);
 

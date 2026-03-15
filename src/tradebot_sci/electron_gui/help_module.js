@@ -181,6 +181,15 @@ window.helpModule = (() => {
                 continue;
             }
 
+            // Standalone image line → full-width screenshot figure
+            const soloImgMatch = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+            if (soloImgMatch) {
+                const alt = soloImgMatch[1];
+                const src = soloImgMatch[2];
+                html += `<figure class="help-screenshot-figure"><img src="${src}" alt="${alt}" class="help-screenshot"><figcaption class="help-screenshot-caption">${alt}</figcaption></figure>`;
+                continue;
+            }
+
             // Regular paragraph
             html += `<p class="help-p">${inlineFormat(trimmed)}</p>`;
         }
@@ -646,6 +655,30 @@ window.helpModule = (() => {
                 border: 3px solid rgba(20,184,166,0.3);
                 object-fit: cover;
                 vertical-align: middle;
+            }
+
+            /* ── Full-width Screenshots ── */
+            .help-screenshot-figure {
+                margin: 1.5rem 0;
+                padding: 0;
+                text-align: center;
+            }
+            .help-screenshot {
+                width: 100%;
+                max-width: 100%;
+                height: auto;
+                border-radius: 0.75rem;
+                border: 1px solid rgba(20,184,166,0.2);
+                box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04);
+                display: block;
+                margin: 0 auto;
+            }
+            .help-screenshot-caption {
+                margin-top: 0.5rem;
+                font-size: 0.8rem;
+                font-style: italic;
+                color: var(--text-muted, #64748b);
+                letter-spacing: 0.01em;
             }
 
             /* ══════════════════════════════════════════ */

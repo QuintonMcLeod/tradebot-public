@@ -1022,16 +1022,21 @@ class AppSettings(BaseModel):
 
 
 class ScheduleSession(BaseModel):
-    name: str
-    start: Any  # "HH:MM"
-    end: Any    # "HH:MM"
+    profile_name: str
+    mode: Literal["24/7", "business_hours", "custom", "one_time"] = Field(default="business_hours")
+    days_of_week: list[str] = Field(default_factory=lambda: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+    weeks_of_month: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5])
+    specific_date: Optional[str] = Field(default=None, description="YYYY-MM-DD for one-time execution")
+    start_time: str = Field(default="09:30")  # "HH:MM"
+    end_time: str = Field(default="16:00")    # "HH:MM"
+    paper_trade_off_hours: bool = Field(default=False)
 
-    @field_validator("start", "end", mode="before")
+    @field_validator("start_time", "end_time", mode="before")
     @classmethod
     def validate_time_string(cls, v: Any) -> str:
         if isinstance(v, int):
             hours = v // 60
-            minutes = v % 60
+            minutes = v // 60
             return f"{hours:02d}:{minutes:02d}"
         return str(v)
 

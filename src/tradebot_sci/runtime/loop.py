@@ -45,6 +45,7 @@ from tradebot_sci.runtime.scheduling import (
     is_market_open,
     get_current_session,
     get_next_session_start,
+    get_schedule_status,
 )
 from tradebot_sci.runtime.controller import RuntimeController
 from tradebot_sci.runtime.cycle import (
@@ -601,14 +602,13 @@ def _resolve_active_symbols(
     settings,
     controller,
     now: datetime,
-    auto_schedule_enabled: bool,
     pair_selector,
     last_auto_mode: str | None,
     sabbath_active: bool,
 ) -> tuple[list[str], str | None, str | None]:
     """Determine which symbols to trade this cycle.
 
-    Consolidates auto-schedule, pair selection, open-position inclusion,
+    Consolidates schedule evaluation, pair selection, open-position inclusion,
     WS subscription merging, and market-hours filtering.
 
     Returns (active_symbols, auto_mode, last_auto_mode).
@@ -616,32 +616,10 @@ def _resolve_active_symbols(
     active_symbols = list(symbols)
     auto_mode: str | None = None
 
-    if auto_schedule_enabled:
-        force_crypto = profile_settings.crypto_only
-        if force_crypto:
-            active_symbols = [s for s in symbols if is_crypto(s)]
-            auto_mode = "crypto"
-        else:
-            selection = select_auto_schedule_symbols(symbols, now)
-            active_symbols = selection.symbols
-            auto_mode = selection.mode
-        if auto_mode != last_auto_mode:
-            logger.info(
-                "[AUTO_SCHEDULE] mode=%s (equities during US market hours, crypto otherwise)",
-                auto_mode,
-            )
-            last_auto_mode = auto_mode
-        if executor:
-            for sym in symbols:
-                pos = executor.get_open_position_snapshot(sym)
-                if pos and abs(pos.get("size", 0)) > 0 and sym not in active_symbols:
-                    active_symbols.append(sym)
-
     if pair_selector:
-        if not auto_schedule_enabled or auto_mode == "crypto":
-            selection = pair_selector.select(provider, active_symbols, now)
-            if selection.selected:
-                active_symbols = selection.selected
+        selection = pair_selector.select(provider, active_symbols, now)
+        if selection.selected:
+            active_symbols = selection.selected
     else:
         logger.info("[LOOP_DEBUG] pair_selector is disabled or None; skipping extra selection")
 
@@ -726,7 +704,6 @@ def run_bot(
 
     profile_settings = settings.get_active_profile()
     profile_name = settings.app.profile_name
-    auto_schedule_enabled = bool(getattr(profile_settings, "auto_schedule_enabled", False))
     sabbath_context = SabbathContext(profile_settings, sabbath_override)
     _log_build_info(sabbath_context)
     sabbath_context.log_startup()
@@ -933,6 +910,11 @@ def run_bot(
         decision_interval = 5
         logger.info("[OVERRIDE] CCXT/Coinbase active: polling every 2s")
 
+    # If replay is active, ignore all other intervals and run at 1 candle / sec
+    if replay_provider is not None:
+        poll_interval = 1
+        decision_interval = 1
+
     threshold = profile_settings.structure_score_threshold
 
     logger.info(
@@ -1018,7 +1000,11 @@ def run_bot(
             # Push history using DEDICATED provider for crypto (thread-safe),
             # but use the main hybrid provider for forex (OANDA) since the
             # CCXT chart provider only has crypto data.
-            if asset_key == "forex":
+            # If we are in Replay Mode, we MUST use the replay provider to show
+            # the simulation history instead of the live market flatline.
+            if replay_provider is not None:
+                chart_prov = replay_provider
+            elif asset_key == "forex":
                 chart_prov = _forex_chart_provider or provider
             else:
                 chart_prov = _chart_provider or provider
@@ -1051,7 +1037,10 @@ def run_bot(
         from tradebot_sci.runtime.provider_factory import _get_asset_key
         key = (symbol.upper(), tf.lower())
         # Use main provider for forex (OANDA), dedicated CCXT for crypto
-        if _get_asset_key(symbol) == "forex":
+        # If we are in Replay Mode, we MUST use the replay provider.
+        if replay_provider is not None:
+            chart_prov = replay_provider
+        elif _get_asset_key(symbol) == "forex":
             chart_prov = _forex_chart_provider or provider
         else:
             chart_prov = _chart_provider or provider
@@ -1270,14 +1259,20 @@ def run_bot(
                 time.sleep(poll_interval)
                 continue
 
-            # Evaluate Sabbath Status FIRST (every loop tick)
+            # Evaluate Schedule & Sabbath Status FIRST (every loop tick)
             # This ensures we enter Sabbath mode immediately and swap executors
             # before ANY account summary or heartbeat calls reach external brokers.
             now = datetime.now(ZoneInfo("UTC"))
+            
+            is_scheduled, paper_trade_off_hours = get_schedule_status(profile_name, now, settings)
             sabbath_active, _, _ = sabbath_context.evaluate(now)
 
+            # If not scheduled but off-hours paper trading is allowed, force Sabbath mode
+            if not is_scheduled and paper_trade_off_hours:
+                sabbath_active = True
+
             if sabbath_active and executor_paper and executor != executor_paper:
-                logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading for total silence.")
+                logger.info("[SABBATH] Sabbath/Off-Hours active! Swapping to local Paper Trading for total silence.")
                 executor = executor_paper
 
             # Activate replay mode for paper trading based on UI configuration.
@@ -1400,7 +1395,7 @@ def run_bot(
                     replay_provider.advance()
 
                 active_symbols, auto_mode, last_auto_mode = _resolve_active_symbols(
-                    symbols=symbols,
+                    symbols=symbols if is_scheduled else [],
                     engines=engines,
                     executor=executor,
                     executor_paper=executor_paper,
@@ -1409,7 +1404,6 @@ def run_bot(
                     settings=settings,
                     controller=controller,
                     now=now,
-                    auto_schedule_enabled=auto_schedule_enabled,
                     pair_selector=pair_selector,
                     last_auto_mode=last_auto_mode,
                     sabbath_active=sabbath_active,

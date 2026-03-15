@@ -800,21 +800,75 @@ window.profilesModule = (function () {
         `;
     }
 
+    const SYMBOL_DIRECTORY = {
+        "Crypto": ["BTCUSD", "ETHUSD", "SOLUSD", "LTCUSD", "DOGEUSD", "XRPUSD", "ADAUSD", "LINKUSD", "AVAXUSD", "SHIBUSD", "NEARUSD", "DOTUSD", "ATOMUSD", "BTCUSDT", "ETHUSDT", "SOLUSDT", "LTCUSDT", "DOGEUSDT", "XRPUSDT", "ADAUSDT", "LINKUSDT", "POLUSD", "AVAXUSDT", "SHIBUSDT", "NEARUSDT", "DOTUSDT", "ATOMUSDT", "ETP-20DEC30-CDE", "BIP-20DEC30-CDE", "DASH/USDC:USDC", "ORDI/USDC:USDC", "INJ/USDC:USDC", "AR/USDC:USDC", "ZEN/USDC:USDC", "ETC/USDC:USDC", "HYPEUSD", "PEPEUSD", "WIFUSD", "GUSDUSD", "USDPUSD", "BCHUSD", "ZECUSD"],
+        "Forex & Metals": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "GBPJPY", "EURJPY", "AUDJPY", "XAUUSD", "XAGUSD", "XPTUSD", "XPDUSD", "UNG"],
+        "Equities & ETFs": ["SPY", "QQQ", "DIA", "IWM", "VTI", "XLK", "XLF", "XLE", "XLY", "XLP", "XLI", "XLU", "SMH", "XLB", "XOP", "XME", "ARKK", "ARKF", "SOXX", "GLD", "SLV", "GDX", "USO", "EWU", "EWG", "EWQ", "EWT", "EWJ", "EWS", "FXI"],
+        "Futures": ["MES", "MNQ", "M2K", "MGC", "CL"]
+    };
+
     function renderSymbolsTab(profile) {
         const symbols = Array.isArray(profile.symbols) ? profile.symbols : [];
-        return `
-            ${_sectionHeader('Trading Symbols', 'monitoring', 'These are the ticker symbols (like BTCUSD or EUR_USD) that the bot will actively monitor and trade within this profile. The bot only trades what you add here — it won\'t touch anything else.')}
-            <p style="font-size:10px; color:#64748b; margin-bottom:12px;">Type a ticker symbol (e.g. BTCUSD, EUR_USD) and press Enter to add it to this profile.</p>
-            <div style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.04); border-radius:14px; padding:16px; min-height:200px; display:flex; flex-wrap:wrap; gap:8px; align-content:flex-start;">
-                ${symbols.map(s => `
-                    <span class="symbol-chip" data-symbol="${s}" style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:rgba(20,184,166,0.06); border:1px solid rgba(20,184,166,0.12); border-radius:999px; font-size:11px; font-weight:700; color:#5eead4; transition:all 0.2s ease;">
-                        ${s}
-                        <span class="remove-symbol material-symbols-outlined" style="font-size:12px; cursor:pointer; opacity:0.5; transition:all 0.15s ease;" onmouseover="this.style.opacity='1'; this.style.color='#f87171';" onmouseout="this.style.opacity='0.5'; this.style.color='inherit';">close</span>
-                    </span>
-                `).join('')}
-                <input type="text" id="symbol-input" placeholder="Add symbol..." style="flex:1; min-width:100px; background:transparent; border:none; outline:none; font-size:12px; color:#e2e8f0; padding:6px 0;">
+        let html = `
+            ${_sectionHeader('Trading Symbols', 'monitoring', 'These are the ticker symbols (like BTCUSD or EUR_USD) that the bot will actively monitor and trade within this profile.')}
+            <p style="font-size:10px; color:#64748b; margin-bottom:12px;">Select symbols from the directory below, or type a custom ticker symbol and press Enter.</p>
+            
+            <div style="margin-bottom: 20px;">
+                <input type="text" id="symbol-input" placeholder="Add custom symbol (e.g. BTCUSD)..." style="width:100%; max-width: 400px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.08); border-radius:10px; font-size:12px; color:#e2e8f0; padding:10px 14px; outline:none; transition:all 0.2s ease;">
             </div>
+
+            <div style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.04); border-radius:14px; padding:16px;">
         `;
+        
+        for (const [assetClass, classSymbols] of Object.entries(SYMBOL_DIRECTORY)) {
+            html += `
+                <div style="margin-bottom: 16px;">
+                    <div style="font-size:11px; font-weight:800; color:#cbd5e1; uppercase tracking-widest mb-2 border-b border-slate-700/50 pb-1 mb-3">${assetClass}</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            `;
+            
+            for (const sym of classSymbols) {
+                const isActive = symbols.includes(sym);
+                const bg = isActive ? 'rgba(20,184,166,0.15)' : 'rgba(255,255,255,0.03)';
+                const border = isActive ? 'rgba(20,184,166,0.4)' : 'transparent';
+                const color = isActive ? '#5eead4' : '#94a3b8';
+                
+                html += `
+                    <div class="symbol-toggle" data-symbol="${sym}" data-active="${isActive}" style="display:inline-flex; align-items:center; padding:6px 12px; background:${bg}; border:1px solid ${border}; border-radius:8px; font-size:11px; font-weight:700; color:${color}; cursor:pointer; transition:all 0.15s ease; user-select:none;">
+                        ${sym}
+                    </div>
+                `;
+            }
+            
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Show active symbols that aren't in the directory
+        const customSymbols = symbols.filter(s => !Object.values(SYMBOL_DIRECTORY).flat().includes(s));
+        if (customSymbols.length > 0) {
+            html += `
+                <div style="margin-bottom: 16px;">
+                    <div style="font-size:11px; font-weight:800; color:#cbd5e1; uppercase tracking-widest mb-2 border-b border-slate-700/50 pb-1 mb-3">Custom Symbols</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            `;
+            for (const sym of customSymbols) {
+                html += `
+                    <div class="symbol-toggle" data-symbol="${sym}" data-active="true" style="display:inline-flex; align-items:center; padding:6px 12px; background:rgba(20,184,166,0.15); border:1px solid rgba(20,184,166,0.4); border-radius:8px; font-size:11px; font-weight:700; color:#5eead4; cursor:pointer; transition:all 0.15s ease; user-select:none;">
+                        ${sym}
+                    </div>
+                `;
+            }
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+
+        html += `</div>`;
+        return html;
     }
 
     function renderScheduleTab(profile) {
@@ -937,10 +991,20 @@ window.profilesModule = (function () {
                 e.target.value = '';
             }
         });
-        document.querySelectorAll('.remove-symbol').forEach(btn => {
+        document.querySelectorAll('.symbol-toggle').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const sym = e.target.closest('.symbol-chip').dataset.symbol;
-                allProfiles[selectedProfileName].symbols = (allProfiles[selectedProfileName].symbols || []).filter(s => s !== sym);
+                const target = e.currentTarget;
+                const sym = target.dataset.symbol;
+                const isActive = target.dataset.active === 'true';
+                if (!allProfiles[selectedProfileName].symbols) allProfiles[selectedProfileName].symbols = [];
+                
+                if (isActive) {
+                    allProfiles[selectedProfileName].symbols = allProfiles[selectedProfileName].symbols.filter(s => s !== sym);
+                } else {
+                    if (!allProfiles[selectedProfileName].symbols.includes(sym)) {
+                        allProfiles[selectedProfileName].symbols.push(sym);
+                    }
+                }
                 renderTabContent();
                 incrementChangeCounter();
             });
