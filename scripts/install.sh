@@ -139,6 +139,9 @@ install_sys_deps() {
                 fi
             else
                 info "Skipping deadsnakes PPA (OS has native Python 3.11/3.12)"
+                if grep -q "deadsnakes/ppa" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
+                    run_with_spinner "Removing unsupported Python PPA" sudo add-apt-repository -y --remove ppa:deadsnakes/ppa
+                fi
             fi
             
             # Handle Ubuntu 24.04+ t64 package rename

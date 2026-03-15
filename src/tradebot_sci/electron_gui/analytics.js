@@ -67,6 +67,7 @@ async function loadAnalyticsData(filter) {
             updateStrategyBreakdown(d.strategyStats || {});
             updateSundownBadge(d);
             updateSourceBadge(d);
+            updateCalendar(d.trades || [], currentFilter);
         } else {
             showErrorState(result?.error || 'Failed to load');
             updateMetrics({});
@@ -1404,3 +1405,301 @@ if (document.readyState === 'loading') {
 } else {
     setTimeout(() => { initAnalytics(); startRefreshTimer(); }, 100);
 }
+
+// ═══════════════════════════════════════════════════════════
+// CALENDAR CARD LOGIC
+// ═══════════════════════════════════════════════════════════
+
+function getTradeDateKey(isoStr, scale='day') {
+    if (!isoStr) return null;
+    let dLabel = isoStr;
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return null;
+    
+    // Convert to local layout since we display current day
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    if (scale === 'year') return `${year}`;
+    if (scale === 'month') return `${year}-${month}`;
+    return `${year}-${month}-${day}`;
+}
+
+function updateCalendar(trades, filter) {
+    const container = document.getElementById('calendar-card-container');
+    const content = document.getElementById('calendar-content');
+    
+    if (!container || !content) return;
+    
+    // 1H - Invisible
+    if (filter === '1h') {
+        container.classList.add('hidden');
+        return;
+    }
+    
+    container.classList.remove('hidden');
+    content.innerHTML = '';
+    
+    if (filter === '24h') {
+        renderDaysCalendar(trades, content, 3);
+    } else if (filter === 'week') {
+        renderDaysCalendar(trades, content, 7);
+    } else if (filter === 'month') {
+        renderTraditionalCalendar(trades, content);
+    } else if (filter === 'year') {
+        renderMonthsCalendar(trades, content);
+    } else if (filter === 'all') {
+        renderYearsCalendar(trades, content);
+    }
+}
+
+function renderDaysCalendar(trades, container, daysAgo) {
+    const pnlByDay = {};
+    trades.forEach(t => {
+        const key = getTradeDateKey(t.closed_at || t.time, 'day');
+        if (key) {
+            pnlByDay[key] = (pnlByDay[key] || 0) + (parseFloat(t.pnl_usd || t.pnl) || 0);
+        }
+    });
+
+    const today = new Date();
+    const daysList = [];
+    for (let i = daysAgo - 1; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const key = getTradeDateKey(d.toISOString(), 'day');
+        daysList.push({
+            date: d,
+            key: key,
+            pnl: pnlByDay[key] || 0
+        });
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.style.display = 'flex';
+    wrapper.style.gap = '12px';
+    wrapper.style.width = '100%';
+    wrapper.style.justifyContent = 'space-around';
+
+    daysList.forEach(item => {
+        const box = document.createElement('div');
+        const isPos = item.pnl >= 0;
+        const color = item.pnl === 0 ? '#475569' : (isPos ? '#34d399' : '#f87171');
+        const bg = item.pnl === 0 ? 'rgba(255,255,255,0.05)' : (isPos ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)');
+        
+        box.style.flex = '1';
+        box.style.background = bg;
+        box.style.border = `1px solid ${color}40`;
+        box.style.borderRadius = '8px';
+        box.style.padding = '12px 8px';
+        box.style.textAlign = 'center';
+        
+        const dayName = item.date.toLocaleDateString('en-US', { weekday: 'short' });
+        const dayNum = item.date.getDate();
+        
+        const isToday = item.date.toDateString() === today.toDateString();
+        const emphasis = isToday ? 'background:rgba(255,255,255,0.1); box-shadow:0 0 10px rgba(0,0,0,0.5);' : '';
+        if (isToday) box.style.cssText += emphasis;
+
+        box.innerHTML = `
+            <div style="font-size:10px; font-weight:800; color:#64748b; text-transform:uppercase;">${isToday ? 'TODAY' : dayName + ' ' + dayNum}</div>
+            <div style="font-size:14px; font-weight:900; color:${color}; margin-top:4px;">${item.pnl === 0 ? '-' : (item.pnl > 0 ? '+' : '')}$${Math.abs(item.pnl).toFixed(2)}</div>
+        `;
+        wrapper.appendChild(box);
+    });
+    container.appendChild(wrapper);
+}
+
+function renderTraditionalCalendar(trades, container) {
+    const pnlByDay = {};
+    trades.forEach(t => {
+        const key = getTradeDateKey(t.closed_at || t.time, 'day');
+        if (key) {
+            pnlByDay[key] = (pnlByDay[key] || 0) + (parseFloat(t.pnl_usd || t.pnl) || 0);
+        }
+    });
+
+    const wrapper = document.createElement('div');
+    wrapper.style.display = 'grid';
+    wrapper.style.gridTemplateColumns = 'repeat(7, 1fr)';
+    wrapper.style.gap = '6px';
+    wrapper.style.width = '100%';
+
+    const today = new Date();
+    const daysList = [];
+    for (let i = 29; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        daysList.push(d);
+    }
+    
+    const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    daysOfWeek.forEach(d => {
+        const dLabel = document.createElement('div');
+        dLabel.textContent = d;
+        dLabel.style.fontSize = '10px';
+        dLabel.style.fontWeight = '800';
+        dLabel.style.color = '#64748b';
+        dLabel.style.textAlign = 'center';
+        dLabel.style.paddingBottom = '4px';
+        wrapper.appendChild(dLabel);
+    });
+    
+    const startDayOfWeek = daysList[0].getDay();
+    for(let i=0; i<startDayOfWeek; i++){
+        wrapper.appendChild(document.createElement('div'));
+    }
+
+    daysList.forEach(d => {
+        const key = getTradeDateKey(d.toISOString(), 'day');
+        const pnl = pnlByDay[key] || 0;
+        
+        const isPos = pnl >= 0;
+        const color = pnl === 0 ? '#475569' : (isPos ? '#34d399' : '#f87171');
+        const bg = pnl === 0 ? 'rgba(255,255,255,0.02)' : (isPos ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)');
+        
+        const box = document.createElement('div');
+        box.style.background = bg;
+        box.style.border = `1px solid ${pnl === 0 ? 'rgba(255,255,255,0.05)' : color+'40'}`;
+        box.style.borderRadius = '4px';
+        box.style.padding = '6px';
+        box.style.textAlign = 'center';
+        box.style.display = 'flex';
+        box.style.flexDirection = 'column';
+        box.style.justifyContent = 'center';
+        box.style.alignItems = 'center';
+        box.style.height = '42px';
+        
+        const isToday = d.toDateString() === today.toDateString();
+        if (isToday) {
+            box.style.border = '2px solid rgba(255,255,255,0.5)';
+            box.style.background = 'rgba(255,255,255,0.1)';
+        }
+
+        let pnlDisp = pnl === 0 ? '-' : (pnl > 0 ? '+' : '-') + Math.abs(pnl).toFixed(0);
+        if (Math.abs(pnl) >= 1000) {
+           pnlDisp = (pnl > 0 ? '+' : '-') + (Math.abs(pnl)/1000).toFixed(1) + 'k';
+        }
+
+        box.innerHTML = `
+            <div style="font-size:9px; color:${isToday ? '#fff' : '#cbd5e1'}; font-weight:${isToday ? 'bold' : 'normal'}; border-bottom:${isToday?'1px solid #fff':''}">${d.getDate()}</div>
+            <div style="font-size:10px; font-weight:800; color:${color}; margin-top:2px;">${pnlDisp}</div>
+        `;
+        wrapper.appendChild(box);
+    });
+    container.appendChild(wrapper);
+}
+
+function renderMonthsCalendar(trades, container) {
+    const pnlByMonth = {};
+    trades.forEach(t => {
+        const key = getTradeDateKey(t.closed_at || t.time, 'month');
+        if (key) {
+            pnlByMonth[key] = (pnlByMonth[key] || 0) + (parseFloat(t.pnl_usd || t.pnl) || 0);
+        }
+    });
+
+    const wrapper = document.createElement('div');
+    wrapper.style.display = 'grid';
+    wrapper.style.gridTemplateColumns = 'repeat(6, 1fr)';
+    wrapper.style.gap = '10px';
+    wrapper.style.width = '100%';
+
+    const today = new Date();
+    const monthsList = [];
+    for (let i = 11; i >= 0; i--) {
+        const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        monthsList.push(d);
+    }
+    
+    monthsList.forEach(d => {
+        const key = getTradeDateKey(d.toISOString(), 'month');
+        const pnl = pnlByMonth[key] || 0;
+        
+        const isPos = pnl >= 0;
+        const color = pnl === 0 ? '#475569' : (isPos ? '#34d399' : '#f87171');
+        const bg = pnl === 0 ? 'rgba(255,255,255,0.02)' : (isPos ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)');
+        
+        const box = document.createElement('div');
+        box.style.background = bg;
+        box.style.border = `1px solid ${pnl === 0 ? 'rgba(255,255,255,0.05)' : color+'40'}`;
+        box.style.borderRadius = '8px';
+        box.style.padding = '10px';
+        box.style.textAlign = 'center';
+        
+        const monthName = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        
+        let pnlDisplay = '-';
+        if (pnl !== 0) {
+            if (Math.abs(pnl) >= 1000) {
+                pnlDisplay = (pnl > 0 ? '+' : '-') + (Math.abs(pnl)/1000).toFixed(1) + 'k';
+            } else {
+                pnlDisplay = (pnl > 0 ? '+' : '-') + Math.abs(pnl).toFixed(0);
+            }
+        }
+        
+        box.innerHTML = `
+            <div style="font-size:10px; font-weight:800; color:#94a3b8; text-transform:uppercase;">${monthName}</div>
+            <div style="font-size:13px; font-weight:900; color:${color}; margin-top:4px;">${pnlDisplay}</div>
+        `;
+        wrapper.appendChild(box);
+    });
+    container.appendChild(wrapper);
+}
+
+function renderYearsCalendar(trades, container) {
+    const pnlByYear = {};
+    trades.forEach(t => {
+        const key = getTradeDateKey(t.closed_at || t.time, 'year');
+        if (key) {
+            pnlByYear[key] = (pnlByYear[key] || 0) + (parseFloat(t.pnl_usd || t.pnl) || 0);
+        }
+    });
+
+    const wrapper = document.createElement('div');
+    wrapper.style.display = 'flex';
+    wrapper.style.flexWrap = 'wrap';
+    wrapper.style.gap = '16px';
+    wrapper.style.justifyContent = 'center';
+
+    const years = Object.keys(pnlByYear).sort();
+    if (years.length === 0) {
+        years.push(new Date().getFullYear().toString());
+    }
+
+    years.forEach(y => {
+        const pnl = pnlByYear[y] || 0;
+        const isPos = pnl >= 0;
+        const color = pnl === 0 ? '#475569' : (isPos ? '#34d399' : '#f87171');
+        const bg = pnl === 0 ? 'rgba(255,255,255,0.02)' : (isPos ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)');
+        
+        const box = document.createElement('div');
+        box.style.background = bg;
+        box.style.border = `2px solid ${pnl === 0 ? 'rgba(255,255,255,0.05)' : color+'60'}`;
+        box.style.borderRadius = '8px';
+        box.style.width = '70px';
+        box.style.height = '70px';
+        box.style.display = 'flex';
+        box.style.flexDirection = 'column';
+        box.style.justifyContent = 'center';
+        box.style.alignItems = 'center';
+        if (pnl !== 0) box.style.boxShadow = `0 0 15px ${bg}`;
+        
+        let pnlDisplay = '-';
+        if (pnl !== 0) {
+            if (Math.abs(pnl) >= 1000) {
+                pnlDisplay = (pnl > 0 ? '+' : '-') + (Math.abs(pnl)/1000).toFixed(1) + 'k';
+            } else {
+                pnlDisplay = (pnl > 0 ? '+' : '-') + Math.abs(pnl).toFixed(0);
+            }
+        }
+        
+        box.innerHTML = `
+            <div style="font-size:14px; font-weight:900; color:#cbd5e1;">${y}</div>
+            <div style="font-size:10px; font-weight:800; color:${color}; margin-top:4px;">${pnlDisplay}</div>
+        `;
+        wrapper.appendChild(box);
+    });
+    container.appendChild(wrapper);
+}
+
