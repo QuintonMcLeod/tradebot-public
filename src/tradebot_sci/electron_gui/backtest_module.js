@@ -25,6 +25,7 @@
     let _btSortKey = null;
     let _btSortDir = null;
     let _lastBtTrades = [];
+    let _btInitialCapital = 0;
 
     // ── DOM refs (lazy) ──────────────────────────────────────
     const $ = id => document.getElementById(id);
@@ -72,16 +73,16 @@
         const container = $('bt-symbol-pills');
         if (!container) return;
 
-        // Get symbols from selected profile, fall back to recorded, then defaults
+        // Get symbols from selected profile first, fall back to recorded, then defaults
         const sel = $('bt-profile-select');
         const selectedProfile = sel?.value;
         const profileSymbols = selectedProfile && _profileData[selectedProfile]?.symbols;
 
         let symbols;
-        if (_recordedSymbols.length > 0) {
-            symbols = _recordedSymbols;
-        } else if (Array.isArray(profileSymbols) && profileSymbols.length > 0) {
+        if (Array.isArray(profileSymbols) && profileSymbols.length > 0) {
             symbols = profileSymbols;
+        } else if (_recordedSymbols.length > 0) {
+            symbols = _recordedSymbols;
         } else {
             symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'EURJPY', 'GBPJPY', 'AUDJPY'];
         }
@@ -177,6 +178,7 @@
                 return 0;
             }
             case 'reason': return (trade.reason || '').toLowerCase();
+            case 'capital': return trade._runningCapital || 0;
             default: return 0;
         }
     }
@@ -405,11 +407,29 @@
         // Total Capital (final balance after backtest)
         const capEl = $('bt-metric-capital');
         if (capEl) {
-            const initialBal = data.final_balance || data.final_capital || data.initial_balance || data.initial_capital || 0;
-            const finalBal = initialBal || (pnl);
+            const finalBal = data.final_capital || data.final_balance || (data.initial_capital || 0) + pnl;
             capEl.textContent = `$${finalBal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             capEl.style.color = pnl >= 0 ? 'var(--success)' : 'var(--error)';
         }
+
+        // Payout — same velocity-based logic as the Payout Mentor
+        const payoutEl = $('bt-metric-payout');
+        if (payoutEl) {
+            if (pnl <= 0) {
+                payoutEl.textContent = '$0.00';
+                payoutEl.style.color = 'var(--text-muted)';
+            } else {
+                const initCap = data.initial_capital || parseFloat($('bt-start-capital')?.value || 10000);
+                const velocityPct = initCap > 0 ? (pnl / initCap) * 100 : 0;
+                const recommendedPct = velocityPct >= 2.5 ? 0.75 : 0.50;
+                const payout = pnl * recommendedPct;
+                payoutEl.textContent = `$${payout.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                payoutEl.style.color = '#34d399';
+            }
+        }
+
+        // Store initial capital for running capital computation
+        _btInitialCapital = data.initial_capital || parseFloat($('bt-start-capital')?.value || 10000);
 
         // Trade history table
         _renderTradeHistory(data.trades || []);
@@ -433,10 +453,24 @@
         if (!tbody) return;
 
         if (!isReSort) _lastBtTrades = trades || [];
+
+        // Compute running capital for each trade (based on chronological order)
+        // Sort by time first for capital calculation
+        const chronological = [..._lastBtTrades].sort((a, b) => {
+            const ta = new Date(a.time || 0).getTime();
+            const tb = new Date(b.time || 0).getTime();
+            return ta - tb;
+        });
+        let runCap = _btInitialCapital;
+        for (const t of chronological) {
+            runCap += (t.pnl || 0);
+            t._runningCapital = runCap;
+        }
+
         const sorted = _sortBtTrades(_lastBtTrades);
 
         if (sorted.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-dim); padding:40px 16px; font-style:italic;">
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-dim); padding:40px 16px; font-style:italic;">
                 <span class="material-symbols-outlined" style="font-size:28px; display:block; margin-bottom:8px; opacity:0.25;">search_off</span>
                 No trades in this backtest
             </td></tr>`;
@@ -446,12 +480,15 @@
         tbody.innerHTML = sorted.map(t => {
             const pnl = t.pnl || 0;
             const isWin = pnl >= 0;
+            const cap = t._runningCapital || 0;
+            const capColor = cap >= _btInitialCapital ? 'var(--success)' : 'var(--error)';
             return `<tr>
                 <td style="color:var(--text-secondary);">${t.time ? new Date(t.time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}</td>
                 <td style="font-weight:700; color:var(--text-main);">${t.symbol || '--'}</td>
                 <td style="text-align:center;"><span class="side-badge ${t.side || ''}">${(t.side || '--').toUpperCase()}</span></td>
                 <td style="text-align:center;"><span class="wl-dot ${isWin ? 'win' : 'loss'}"></span>${isWin ? 'Win' : 'Loss'}</td>
                 <td style="text-align:right; font-weight:700; color:${isWin ? 'var(--success)' : 'var(--error)'};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
+                <td style="text-align:right; font-weight:600; color:${capColor}; font-variant-numeric:tabular-nums;">$${cap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td style="color:var(--text-muted);">${t.duration || '--'}</td>
                 <td style="color:var(--text-muted);">${t.reason || '--'}</td>
             </tr>`;
@@ -485,7 +522,7 @@
     function _exportCSV() {
         if (!_lastBtTrades || _lastBtTrades.length === 0) return;
 
-        const headers = ['Time', 'Symbol', 'Side', 'Result', 'PnL', 'Duration', 'Exit Reason'];
+        const headers = ['Time', 'Symbol', 'Side', 'Result', 'PnL', 'Capital', 'Duration', 'Exit Reason'];
         const rows = _lastBtTrades.map(t => {
             const pnl = t.pnl || 0;
             const timeStr = t.time ? new Date(t.time).toLocaleString() : '';
@@ -495,6 +532,7 @@
                 (t.side || '').toUpperCase(),
                 pnl >= 0 ? 'Win' : 'Loss',
                 pnl.toFixed(2),
+                (t._runningCapital || 0).toFixed(2),
                 t.duration || '',
                 t.reason || '',
             ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');

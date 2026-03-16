@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from tradebot_sci import paths as _paths
@@ -82,6 +83,11 @@ class OandaExchangeBroker(IExchangeBroker):
         self._exit_cooldowns: dict[str, float] = {}  # symbol -> timestamp of last exit
         self.REENTRY_COOLDOWN = float(os.getenv("OANDA_REENTRY_COOLDOWN", "300"))  # 5 min default
         self._spread_cache: dict[str, tuple[float, float]] = {}  # symbol -> (spread_pips, timestamp)
+        # Sunday early session block: spreads are 5-15 pips during first N hours after Sunday open (5 PM ET)
+        self.SUNDAY_BLOCK_HOURS = int(os.getenv("OANDA_SUNDAY_BLOCK_HOURS", "3"))
+        # Whether to use LIMIT FOK orders instead of MARKET IOC (reduces slippage)
+        self.USE_LIMIT_ORDERS = os.getenv("OANDA_USE_LIMIT_ORDERS", "true").lower() in ("true", "1", "yes")
+        self.LIMIT_ORDER_BUFFER_PIPS = float(os.getenv("OANDA_LIMIT_BUFFER_PIPS", "0.5"))
         self._tracked_path = _paths.DATA_DIR / "oanda_tracked_positions.json"
         self._load_tracked_positions()
 
@@ -199,7 +205,6 @@ class OandaExchangeBroker(IExchangeBroker):
         if not entry_time_str:
             return "N/A", None
         try:
-            from datetime import datetime, timezone
             # OANDA timestamps: "2026-02-14T16:03:52.123456789Z"
             clean = entry_time_str.replace("Z", "+00:00")
             # Truncate nanoseconds to microseconds for fromisoformat
@@ -589,7 +594,6 @@ class OandaExchangeBroker(IExchangeBroker):
 
                 # Add to TradeResultStore
                 if self.trade_results:
-                    from datetime import datetime, timezone
                     self.trade_results.add_result(TradeResult(
                         symbol=symbol,
                         closed_at=datetime.now(timezone.utc).isoformat(),
@@ -728,6 +732,64 @@ class OandaExchangeBroker(IExchangeBroker):
             )
             return False
 
+    def enable_native_trailing_stop(self, symbol: str, distance: float) -> bool:
+        """Enable OANDA's server-side trailing stop on all trades for *symbol*.
+
+        Uses the OANDA v20 TradeCRCDO endpoint to replace/add a
+        ``trailingStopLoss`` attached to the trade.  The server tracks
+        it at tick-level precision, far tighter than the bot's 60-90s
+        scan cycle.
+
+        Args:
+            symbol: Canonical symbol (e.g. "NZDUSD")
+            distance: Trailing distance in price units (NOT pips).
+                      For EURUSD 15-pip trail: 0.0015
+                      For USDJPY 15-pip trail: 0.15
+
+        Returns True if at least one trade was modified, False otherwise.
+        """
+        if not self._authorized:
+            logger.warning("[OANDA] Cannot enable trailing stop: not authorized")
+            return False
+        try:
+            instrument = self._normalize_symbol(symbol)
+            r_pos = oanda_positions.PositionDetails(self.account_id, instrument)
+            self.client.request(r_pos)
+            pos = r_pos.response.get("position", {})
+            long_units = float(pos.get("long", {}).get("units", 0))
+            short_units = float(pos.get("short", {}).get("units", 0))
+            side = "long" if abs(long_units) > abs(short_units) else "short"
+            trade_ids = pos.get(side, {}).get("tradeIDs", [])
+            if not trade_ids:
+                logger.warning(f"[OANDA] enable_trailing_stop: no trade IDs for {symbol}")
+                return False
+
+            fmt = ".3f" if "JPY" in instrument else ".5f"
+            success = False
+            for tid in trade_ids:
+                data = {
+                    "trailingStopLoss": {"distance": f"{distance:{fmt}}"}
+                }
+                # Remove fixed SL when enabling trailing SL
+                r_mod = trades.TradeCRCDO(
+                    accountID=self.account_id,
+                    tradeID=tid,
+                    data=data,
+                )
+                self.client.request(r_mod)
+                logger.info(
+                    f"[OANDA] TRAILING STOP enabled {symbol} trade#{tid}: "
+                    f"distance={distance:{fmt}}"
+                )
+                success = True
+            return success
+        except Exception as e:
+            logger.error(
+                f"[OANDA] Failed to enable trailing stop for {symbol}: {e}",
+                exc_info=True,
+            )
+            return False
+
     def list_open_position_symbols(self) -> list[str]:
         """Returns list of canonical symbols with open positions."""
         if not self._authorized:
@@ -853,6 +915,28 @@ class OandaExchangeBroker(IExchangeBroker):
             else:
                 del self._exit_cooldowns[decision.symbol]
 
+        # ── SUNDAY EARLY SESSION GUARD ─────────────────────────────
+        # OANDA spreads balloon to 5-15 pips during the first few hours
+        # after the Sunday forex open (5 PM ET). Block new entries during
+        # this window to avoid getting eaten alive by spread costs.
+        if action not in {"scale_in", "add_to_position"} and self.SUNDAY_BLOCK_HOURS > 0:
+            et_tz = timezone(timedelta(hours=-4))  # Eastern Time (EDT)
+            now_et = datetime.now(et_tz)
+            if now_et.weekday() == 6:  # Sunday
+                market_open_hour = 17  # 5 PM ET
+                hours_since_open = now_et.hour - market_open_hour if now_et.hour >= market_open_hour else -1
+                if 0 <= hours_since_open < self.SUNDAY_BLOCK_HOURS:
+                    remaining_hrs = self.SUNDAY_BLOCK_HOURS - hours_since_open
+                    logger.warning(
+                        f"[OANDA] [BLOCKED] Sunday early session — spreads unreliable. "
+                        f"{remaining_hrs}h remaining until normal trading "
+                        f"(block window: Sun {market_open_hour}:00-{market_open_hour + self.SUNDAY_BLOCK_HOURS}:00 ET)"
+                    )
+                    return (
+                        ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, f"Sunday spread block ({remaining_hrs}h)"),
+                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"Sunday early session")
+                    )
+
         is_short = action in ["short", "enter_short", "flip_to_short"]
 
         try:
@@ -960,11 +1044,23 @@ class OandaExchangeBroker(IExchangeBroker):
             # 1. Prioritize explicit dollar risk from the strategy (if provided)
             risk_amount = decision.risk_per_trade_dollars or 0.0
 
-            # 2. Prioritize explicit percentage from the strategy (e.g. Pyramiding)
-            if risk_amount <= 0 and decision.risk_per_trade_pct:
+            # 2. Handle Pyramiding scale_in relative risk
+            # A scale_in passes risk_per_trade_pct (e.g. 0.3 for 30%)
+            # We want 30% of the ORIGINAL trade's risk, not 30% of the entire account capital!
+            if action in {"scale_in", "add_to_position"} and risk_amount <= 0:
+                original_risk = self.profile.risk_per_trade_dollars
+                if original_risk <= 0:
+                    original_risk = self._liquid_capital * self.profile.risk_per_trade_pct
+                
+                scale_fraction = float(decision.risk_per_trade_pct) if decision.risk_per_trade_pct else 0.5
+                risk_amount = original_risk * scale_fraction
+                logger.debug(f"[OANDA] Scale-In Sizing: original_risk={original_risk:.2f}, fraction={scale_fraction:.2f} -> new_risk={risk_amount:.2f}")
+
+            # 3. Prioritize explicit percentage from the strategy for regular trades
+            elif risk_amount <= 0 and decision.risk_per_trade_pct:
                 risk_amount = self._liquid_capital * float(decision.risk_per_trade_pct)
 
-            # 3. Fallback to global profile settings
+            # 4. Fallback to global profile settings
             if risk_amount <= 0:
                 risk_amount = self.profile.risk_per_trade_dollars
                 if risk_amount <= 0:
@@ -1004,11 +1100,10 @@ class OandaExchangeBroker(IExchangeBroker):
             # units = risk_in_quote / effective_stop_dist (spread-adjusted)
             units = risk_amount_in_quote / effective_stop_dist
             
-            # Leverage-based sizing Cap
-            # Prevent units from exceeding account_equity * target_leverage
-            # NOTE: For USD-base pairs (USD/JPY, USD/CHF), 1 unit = $1,
-            # so notional_per_unit = 1.0.  For other pairs (EUR/USD, GBP/USD),
-            # 1 unit costs price in USD, so notional_per_unit = price.
+            # Leverage-based sizing Cap (Multi-Position Aware)
+            # Prevent TOTAL notional across all open positions from exceeding
+            # account_equity * target_leverage. This shares the leverage cap
+            # across all positions instead of allowing each to use the full 50x.
             target_leverage = getattr(self.profile, "target_leverage", 50.0)
             if target_leverage > 0:
                 max_notional = self._liquid_capital * target_leverage
@@ -1018,11 +1113,8 @@ class OandaExchangeBroker(IExchangeBroker):
                 if is_usd_base:
                     notional_per_unit = 1.0
                 elif is_jpy_quote:
-                    # JPY cross pairs (AUDJPY, GBPJPY, EURJPY): price is in JPY.
-                    # Convert to USD: notional_per_unit = price_in_JPY / USDJPY_rate
-                    usdjpy_rate = 157.0  # approximate; updated each calculation
+                    usdjpy_rate = 157.0
                     try:
-                        # Try to get live USDJPY rate from recent candles
                         from tradebot_sci.market import oanda_provider
                         usdjpy_rate = getattr(oanda_provider, '_last_usdjpy', 157.0) or 157.0
                     except Exception:
@@ -1030,7 +1122,34 @@ class OandaExchangeBroker(IExchangeBroker):
                     notional_per_unit = price / usdjpy_rate if usdjpy_rate > 0 else price
                 else:
                     notional_per_unit = price if price > 0 else 1.0
-                max_units = max_notional / notional_per_unit
+
+                # ── MULTI-POSITION LEVERAGE HEADROOM ──
+                # Sum notional value of all existing open positions, then subtract
+                # from the total leverage cap to avoid over-exposing the account.
+                existing_notional = 0.0
+                try:
+                    for sym, pos_info in self._tracked_positions.items():
+                        pos_size = abs(float(pos_info.get("size", 0)))
+                        pos_price = float(pos_info.get("avg_price", 0)) or 1.0
+                        pos_sym = sym.upper().replace("_", "")
+                        if pos_sym.startswith("USD"):
+                            existing_notional += pos_size * 1.0
+                        elif pos_sym.endswith("JPY"):
+                            existing_notional += pos_size * (pos_price / usdjpy_rate) if usdjpy_rate > 0 else pos_size
+                        else:
+                            existing_notional += pos_size * pos_price
+                except Exception as e:
+                    logger.debug(f"[OANDA] Could not calculate existing notional: {e}")
+
+                remaining_notional = max(max_notional - existing_notional, 0)
+                max_units = remaining_notional / notional_per_unit if notional_per_unit > 0 else 0
+
+                logger.info(
+                    f"[OANDA] Leverage Headroom: existing=${existing_notional:,.0f} / "
+                    f"cap=${max_notional:,.0f} ({target_leverage}x), "
+                    f"remaining=${remaining_notional:,.0f}, max_units={max_units:.0f}"
+                )
+
                 if abs(units) > max_units and max_units > 0:
                     logger.warning(
                         f"[OANDA] Sizing Cap: Calculated units {abs(units):.2f} exceeds "
@@ -1038,6 +1157,15 @@ class OandaExchangeBroker(IExchangeBroker):
                         f"notional_per_unit={'$1' if is_usd_base else f'${notional_per_unit:.4f}'})"
                     )
                     units = max_units if units > 0 else -max_units
+                elif max_units <= 0 and remaining_notional <= 0:
+                    logger.warning(
+                        f"[OANDA] [BLOCKED] No leverage headroom for {decision.symbol}: "
+                        f"existing=${existing_notional:,.0f} >= cap=${max_notional:,.0f}"
+                    )
+                    return (
+                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "leverage headroom exhausted"),
+                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"leverage headroom exhausted")
+                    )
 
             logger.info(
                 f"[OANDA] [SIZING] {decision.symbol}: capital=${self._liquid_capital:.2f} "
@@ -1050,36 +1178,79 @@ class OandaExchangeBroker(IExchangeBroker):
             if is_short:
                 units = -units
             
-            # Crypto might require more than 0 decimals, Forex usually whole units?
-            # Actually OANDA supports fractional units regardless of class if using v20?
-            # Let's keep 4 decimals for crypto, whole for forex to be safe.
+            # Crypto might require more than 0 decimals, Forex usually whole units
             is_crypto = any(c in decision.symbol.upper() for c in ["BTC", "ETH", "SOL", "ADA", "LTC"])
+            
+            # Allow fractional units for crypto, integer for forex
             if is_crypto:
                 units = round(units, 4)
+                min_size = 0.0001
             else:
                 units = int(units)
-            
-            # Allow fractional units for crypto
-            min_size = 0.0001 if is_crypto else 1
+                min_size = 1
+                
             if abs(units) < min_size:
-                logger.warning(f"[OANDA] Calculated units too small: {units} for {decision.symbol} (min={min_size})")
+                logger.warning(f"[OANDA] Calculated units too small: {units} for {decision.symbol} (min={min_size}). This is likely a pyramid scale-in that was too small.")
                 return ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "units too small"), ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "units too small")
 
-            # Prepare Order
-            order_data = {
-                "order": {
-                    "units": str(units),
-                    "instrument": oanda_sym,
-                    "timeInForce": "IOC",
-                    "type": "MARKET",
-                    "positionFill": "DEFAULT"
+            # Prepare Order — use LIMIT FOK to reduce slippage, fallback to MARKET IOC
+            fmt = ".5f" if not is_crypto else ".2f"
+            if "JPY" in decision.symbol: fmt = ".3f"  # JPY pairs use 3 decimals
+
+            order_data = None
+            if self.USE_LIMIT_ORDERS:
+                # Fetch live bid/ask for LIMIT pricing
+                try:
+                    _oanda_sym = self._normalize_symbol(decision.symbol)
+                    params = {"instruments": _oanda_sym}
+                    r_pricing = pricing.PricingInfo(self.account_id, params=params)
+                    resp_pricing = self.client.request(r_pricing)
+                    prices = resp_pricing.get("prices", [])
+                    if prices:
+                        p = prices[0]
+                        bids = p.get("bids", [])
+                        asks = p.get("asks", [])
+                        if bids and asks:
+                            bid = float(bids[0].get("price", 0))
+                            ask = float(asks[0].get("price", 0))
+                            mid = (bid + ask) / 2.0
+                            pip_val = self.PIP_VALUE_JPY if "JPY" in decision.symbol.upper() else self.PIP_VALUE_STANDARD
+                            buffer = self.LIMIT_ORDER_BUFFER_PIPS * pip_val
+                            # For buys: limit slightly above mid; for sells: slightly below mid
+                            if units > 0:  # buy
+                                limit_price = mid + buffer
+                            else:  # sell
+                                limit_price = mid - buffer
+                            order_data = {
+                                "order": {
+                                    "units": str(units),
+                                    "instrument": oanda_sym,
+                                    "timeInForce": "FOK",
+                                    "type": "LIMIT",
+                                    "price": f"{limit_price:{fmt}}",
+                                    "positionFill": "DEFAULT"
+                                }
+                            }
+                            logger.info(
+                                f"[OANDA] Using LIMIT order @ {limit_price:{fmt}} "
+                                f"(bid={bid:{fmt}} ask={ask:{fmt}} mid={mid:{fmt}} buffer={buffer:.5f})"
+                            )
+                except Exception as e:
+                    logger.warning(f"[OANDA] LIMIT pricing failed, falling back to MARKET: {e}")
+
+            # Fallback to MARKET IOC if LIMIT pricing unavailable or disabled
+            if order_data is None:
+                order_data = {
+                    "order": {
+                        "units": str(units),
+                        "instrument": oanda_sym,
+                        "timeInForce": "IOC",
+                        "type": "MARKET",
+                        "positionFill": "DEFAULT"
+                    }
                 }
-            }
             
             # Attach SL/TP if provided
-            fmt = ".5f" if not is_crypto else ".2f"
-            if "JPY" in decision.symbol: fmt = ".3f" # JPY pairs use 3 decimals
-            
             if stop_price:
                 order_data["order"]["stopLossOnFill"] = {"price": f"{stop_price:{fmt}}"}
             if take_profit:
@@ -1099,12 +1270,13 @@ class OandaExchangeBroker(IExchangeBroker):
                 nav = float(summ.get("NAV", "0"))
                 logger.info(f"[OANDA] Pre-order Margin Check: Used=${margin_used}, Available=${margin_avail:.4f}, Leverage={1/float(margin_rate) if float(margin_rate) > 0 else 'N/A'}:1")
 
-                # ── MARGIN GATE: Abort if available margin < 10% of NAV ──
-                min_margin = nav * 0.10
-                if margin_avail < min_margin:
+                # ── MARGIN GATE: Abort if available margin < 1% of NAV or $5 (whichever is greater) ──
+                # Exempt pyramids (scale_in / add_to_position) — let OANDA reject server-side if needed.
+                min_margin = max(nav * 0.01, 5.0)
+                if action not in {"scale_in", "add_to_position"} and margin_avail < min_margin:
                     logger.warning(
                         f"[OANDA] [BLOCKED] Insufficient margin for {decision.symbol}: "
-                        f"Available=${margin_avail:.2f} < min ${min_margin:.2f} (10% of NAV=${nav:.2f})"
+                        f"Available=${margin_avail:.2f} < min ${min_margin:.2f} (Max of 1% NAV=${nav:.2f} or $5)"
                     )
                     return (
                         ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "insufficient margin"),
@@ -1131,7 +1303,6 @@ class OandaExchangeBroker(IExchangeBroker):
                 # Live Bot Pyramiding Math Fix
                 # On initial entry, persist the original entry price and initial risk
                 if action not in {"scale_in", "add_to_position"} and hasattr(self, "position_hold_store") and self.position_hold_store:
-                    from datetime import datetime, timezone
                     stop_loss_val = getattr(decision, "stop_loss", None)
                     initial_risk_val = abs(avg_fill - stop_loss_val) if stop_loss_val else None
                     self.position_hold_store.upsert(

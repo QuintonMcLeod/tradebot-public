@@ -39,9 +39,12 @@ sleep 2
 # Restart the bot in tmux session if it exists
 if tmux has-session -t tradebot 2>/dev/null; then
     echo "[RESTART] Restarting in existing tmux session 'tradebot'..."
-    tmux send-keys -t tradebot:view.0 C-c
-    sleep 1
-    tmux send-keys -t tradebot:view.0 "cd '$PROJECT_DIR' && '$PROJECT_DIR'/.venv/bin/python scripts/run_dev_bot.py --continuous" C-m
+    if tmux list-windows -t tradebot | grep -q 'bot'; then
+        tmux respawn-pane -k -t tradebot:bot.0 "cd '$PROJECT_DIR' && '$PROJECT_DIR'/.venv/bin/python scripts/run_dev_bot.py --continuous" 2>/dev/null \
+            || tmux send-keys -t tradebot:bot.0 C-c && tmux send-keys -t tradebot:bot.0 "cd '$PROJECT_DIR' && '$PROJECT_DIR'/.venv/bin/python scripts/run_dev_bot.py --continuous" C-m
+    else
+        tmux new-window -t tradebot:1 -n bot "cd '$PROJECT_DIR' && '$PROJECT_DIR'/.venv/bin/python scripts/run_dev_bot.py --continuous"
+    fi
     echo "[RESTART] Bot restarted in tmux session"
 else
     echo "[RESTART] Starting bot in new background process..."

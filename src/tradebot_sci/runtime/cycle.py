@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Tuple, Optional, TYPE_CHECKING
 
@@ -25,6 +27,43 @@ _warmed_up_symbols: set[str] = set()
 # 2016 five-minute candles = 7 calendar days of 5m data
 _WARMUP_LTF_CANDLES = 2016
 _WARMUP_HTF_CANDLES = 200  # 200 four-hour candles ≈ 33 days
+
+# ── Bar-Close Confirmation Gate ──
+# When enabled, strips incomplete (still-forming) candles before strategy
+# evaluation — ensuring the live bot signals on closed bars only, matching
+# the backtester's behavior.
+_BAR_CLOSE_GATE_ENABLED = os.environ.get("BAR_CLOSE_GATE_ENABLED", "true").lower() in ("true", "1", "yes")
+
+def _parse_bar_seconds(timeframe: str) -> int:
+    """Converts a timeframe string (e.g. '5m', '1h', '4h') to seconds."""
+    m = re.match(r'^(\d+)\s*(m|min|mins|h|hour|hours|d|day|days)$', timeframe.lower().strip())
+    if not m:
+        return 300  # fallback 5m
+    val, unit = int(m.group(1)), m.group(2)
+    if unit.startswith('m'):
+        return val * 60
+    elif unit.startswith('h'):
+        return val * 3600
+    elif unit.startswith('d'):
+        return val * 86400
+    return 300
+
+def _strip_incomplete_bar(candles: list, timeframe: str) -> list:
+    """Removes the last candle if it hasn't closed yet (still forming)."""
+    if not _BAR_CLOSE_GATE_ENABLED or not candles:
+        return candles
+    bar_secs = _parse_bar_seconds(timeframe)
+    last = candles[-1]
+    bar_close_time = last.timestamp + timedelta(seconds=bar_secs)
+    now = datetime.now(timezone.utc)
+    if bar_close_time > now:
+        remaining = int((bar_close_time - now).total_seconds())
+        logger.info(
+            f"[BAR-CLOSE] Stripped incomplete {timeframe} bar for "
+            f"{getattr(candles[-1], 'symbol', '?')} (closes in {remaining}s)"
+        )
+        return candles[:-1]
+    return candles
 
 def fetch_snapshot(
     provider: Any, 
@@ -64,6 +103,10 @@ def fetch_snapshot(
     if key not in cache:
         ltf_candles = provider.get_latest_candles(symbol, ltf_timeframe, limit=ltf_limit)
         htf_candles = provider.get_latest_candles(symbol, htf_timeframe, limit=htf_limit)
+
+        # ── Bar-Close Gate: strip incomplete candles ──
+        ltf_candles = _strip_incomplete_bar(ltf_candles, ltf_timeframe)
+        htf_candles = _strip_incomplete_bar(htf_candles, htf_timeframe)
         
         # Update chart candle cache so on_tick always has fresh data
         if ws_controller and ltf_candles and hasattr(ws_controller, 'update_candle_cache'):
@@ -118,39 +161,12 @@ def fetch_snapshot(
 def _get_dynamic_max_concurrent(profile_settings: Any, now: datetime) -> int:
     """
     Get dynamic concurrent positions limit.
-    For oanda_multi_asset:
-    - 8 from Friday 17:00 ET to Sunday 17:00 ET
-    - 4 otherwise
+    Always respects the user's configured max_concurrent_positions setting.
     """
-    # Try to find profile name in settings or name attribute
-    profile_name = getattr(profile_settings, "name", "")
-    if not profile_name:
-        if "oanda" in str(getattr(profile_settings, "runtime_overrides", "")).lower():
-            profile_name = "oanda_multi_asset"
-            
     val = getattr(profile_settings, "max_concurrent_positions", 1)
     if val is None:
         val = 1
-
-    if profile_name != "oanda_multi_asset":
-        return val
-
-    # Convert now to America/New_York
-    local_now = (now or datetime.now()).astimezone(ZoneInfo("America/New_York"))
-    
-    # 0=Monday, 4=Friday, 5=Saturday, 6=Sunday
-    wd = local_now.weekday()
-    hr = local_now.hour
-    
-    is_weekend = False
-    if wd == 4 and hr >= 17: # Friday after 5pm
-        is_weekend = True
-    elif wd == 5: # Saturday all day
-        is_weekend = True
-    elif wd == 6 and hr < 17: # Sunday before 5pm
-        is_weekend = True
-        
-    return 8 if is_weekend else 4
+    return int(val)
 
 
 def build_candidate_list(
@@ -390,6 +406,32 @@ def process_candidate_cycle(
                         blocked += 1
                         continue
 
+                # ── Bar-Close Freshness Gate ──────────────────────────
+                # Only allow NEW entries if the last completed LTF bar
+                # closed recently (within one bar duration). This prevents
+                # stale signals from firing mid-candle.
+                if (
+                    _BAR_CLOSE_GATE_ENABLED
+                    and decision.action in ("go_long", "go_short")
+                    and snapshot.ltf_candles
+                ):
+                    ltf_tf = getattr(snapshot, "ltf_timeframe", None) or "5m"
+                    bar_secs = _parse_bar_seconds(ltf_tf)
+                    last_close = snapshot.ltf_candles[-1].timestamp + timedelta(seconds=bar_secs)
+                    age = (datetime.now(timezone.utc) - last_close).total_seconds()
+                    if age > bar_secs:
+                        logger.info(
+                            f"[BAR-CLOSE] {symbol}: blocked {decision.action} — "
+                            f"last {ltf_tf} bar closed {age:.0f}s ago (stale, max={bar_secs}s)"
+                        )
+                        blocked += 1
+                        continue
+                    else:
+                        logger.info(
+                            f"[BAR-CLOSE] {symbol}: {decision.action} OK — "
+                            f"last {ltf_tf} bar closed {age:.0f}s ago (fresh)"
+                        )
+
                 result, outcome = executor.execute_decision(decision)
                 handle_execution_result(outcome, strike_tracker)
                 if result and result.status.value == "executed":
@@ -420,7 +462,6 @@ def process_candidate_cycle(
                                 rec.strategy = strat_name
                                 hold_store.save()
                             else:
-                                from datetime import datetime, timezone
                                 hold_store.upsert(symbol, datetime.now(timezone.utc), strategy=strat_name)
                         # Also tag broker's internal position dict (Paper broker compatibility)
                         broker_positions = getattr(executor, "positions", None)

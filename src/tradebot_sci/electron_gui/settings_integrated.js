@@ -97,6 +97,7 @@ const CONFIG_MAP = {
     'CONDUCTOR_PYRAMID_FIRST_PCT': ['global', 'conductor_pyramid_first_pct'],
     'SWAP_AVOIDANCE_ENABLED': ['safety', 'swap_avoidance_enabled'],
     'SPREAD_GATE_MAX_PCT': ['safety', 'spread_gate_max_pct'],
+    'BLOCK_RANGING_REGIME': ['global', 'block_ranging_regime'],
     // Exit Logic & Position Management (under global in config.json)
     'MIN_HOLD_HOURS': ['global', 'min_hold_hours'],
     'MAX_HOLD_HOURS': ['global', 'max_hold_hours'],
@@ -248,6 +249,7 @@ const TOOLTIPS = {
     CONDUCTOR_PYRAMID_START_R: "When to Press the Bet. How deep into profit the trade needs to be before adding more money. For example, 1.0 means 'add more when my profit matches what I originally risked.' 0.5 means 'add more when I am halfway to my goal.'",
     CONDUCTOR_PYRAMID_FIRST_PCT: "How Much to Add. The size of the extra bet, compared to your original one. 100% means double down (match the original bet). 50% means add half as much as the first time.",
     MAX_PYRAMID_ENTRIES: "Maximum extra bets allowed. 'Pyramiding' means adding more as a trade goes in your favor. 1 = no extra bets, just the original trade.",
+    BLOCK_RANGING_REGIME: "Sit Out The Chop. When enabled, the bot completely avoids opening new trades if the market is deemed 'ranging' or 'choppy' with no clear direction.",
     PYRAMID_RISK_LOAD: "The size of the VERY FIRST extra bet you place on a winning trade.",
     PYRAMID_RISK_SCALE: "The size of all the OTHER extra bets after the first one. Usually smaller, because your trade is getting pretty huge by now!",
     BREAKEVEN_TRAIL_AFTER_PYRAMIDS: "Free Ride Mode. After making this many extra bets, the bot moves your safety net up to your exact entry price, ensuring you absolutely cannot lose money on the trade. 0 turns this off.",
@@ -3118,6 +3120,7 @@ function renderTrendsTab(container) {
     section.appendChild(createCard('Macro Correlation Stacking', 'Allow simultaneous entries on correlated pairs (e.g., EURUSD + GBPUSD)', 'TREND_CORRELATION_STACKING_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('ADX — Trend Strength Gate', 'Blocks entries when market has no clear trend (ADX < threshold)', 'TREND_ADX_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createSliderCard('ADX Threshold', 'Entries blocked below this ADX value (0 = disabled)', 'TREND_ADX_THRESHOLD', 0, 60, 1, ''));
+    section.appendChild(createCard('Block Ranging Regimes', 'Stand aside during choppy/ranging markets instead of attempting to trade.', 'BLOCK_RANGING_REGIME', 'toggle', { default: 'true' }));
 
     section.appendChild(createDivider());
 

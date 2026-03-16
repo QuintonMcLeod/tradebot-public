@@ -613,7 +613,6 @@ window.profilesModule = (function () {
                         'STRATEGY_FUTURES': ['global', 'strategy_futures'],
                         'MULTI_POSITION_ENABLED': ['global', 'multi_position_enabled'],
                         'MAX_CONCURRENT_POSITIONS': ['global', 'max_concurrent_positions'],
-                        'SMART_POSITIONS_ENABLED': ['global', 'smart_positions_enabled'],
                         'AUTO_FLATTEN_ON_CLOSE': ['global', 'flatten_on_exit'],
                         'MAX_PYRAMID_ENTRIES': ['global', 'max_pyramid_entries'],
                         'PYRAMID_RISK_LOAD': ['global', 'pyramid_risk_load'],
@@ -1086,6 +1085,25 @@ window.profilesModule = (function () {
                 }
             }
             await window.api.invoke('save-profiles', yaml);
+
+            // ── Also sync profiles to config.json so backtester & bot engine see changes ──
+            try {
+                const currentConfig = await window.api.readConfig() || {};
+                if (!currentConfig.profiles) currentConfig.profiles = {};
+                for (const [name, profile] of Object.entries(allProfiles)) {
+                    if (!currentConfig.profiles[name]) currentConfig.profiles[name] = {};
+                    // Sync symbols
+                    currentConfig.profiles[name].symbols = Array.isArray(profile.symbols) ? [...profile.symbols] : null;
+                    // Sync strategies
+                    if (profile.strategies && typeof profile.strategies === 'object') {
+                        currentConfig.profiles[name].strategies = { ...profile.strategies };
+                    }
+                }
+                await window.api.invoke('save-config', currentConfig);
+            } catch (syncErr) {
+                console.warn('[PROFILES] config.json sync failed (non-critical):', syncErr);
+            }
+
             originalProfileData = JSON.parse(JSON.stringify(allProfiles[selectedProfileName]));
             resetChangeCounter();
             appendLog("SUCCESS", `[PROFILES] Profile "${selectedProfileName}" saved.`);

@@ -1,186 +1,200 @@
-forex_continuous:
-  symbols:
-  - EURUSD
-  - GBPUSD
-  - USDJPY
-  - AUDUSD
-  - USDCAD
-  - USDCHF
-  - NZDUSD
-  - EURJPY
-  - GBPJPY
-  - AUDJPY
-  - XAUUSD
-  - WTICOUSD
-  strategy_forex: london_breakout
-  strategy_variant: forex_conductor
-  risk_per_trade_pct: 0.045
-  strategies:
-    forex: forex_conductor
-    stocks: robocop
-    etf: meta_sci
-    metals: orb_breakout
-    futures: supply_demand
-  continuous_mode: true
-  sabbath_astronomical: true
-  stop_and_reverse_enabled: true
-  counter_reversal_enabled: true
-  max_consecutive_sar: 2       # Block SAR after 2 consecutive SAR losses per symbol
-  sar_cooldown_hours: 4.0      # Hours to block SAR after spiral detected
-forex_intraday:
-  symbols:
-  - EURUSD
-  - GBPUSD
-  - USDJPY
-  - AUDUSD
-  - USDCAD
-  - USDCHF
-  - NZDUSD
-  - GBPJPY
-  - EURJPY
-  - AUDJPY
-  - BTCUSD
-  - ETHUSD
-  - SOLUSD
-  - XRPUSD
-  - LINKUSD
-  - LTCUSD
-  - DOGEUSD
-  - SOLUSD
-scalp:
-  symbols: null
-intraday:
-  symbols: null
-swing:
-  symbols: null
-coinbase_futures:
-  symbols:
-  - AVAX/USD
-  - SHIB/USD
-  - ETH/USD
-  - ADA/USD
-  - SOL/USD
-  - DOGE/USD
-  - LINK/USD
-  - LTC/USD
-  - BTC/USD
-crypto_247:
-  symbols:
-  - BTCUSD
-  - ETHUSD
-  - SOLUSD
-  - XRPUSD
-  - LINKUSD
-  - LTCUSD
-  - DOGEUSD
-  - SOLUSD
-  - XRPUSD
-  - ZECUSD
-  - BCHUSD
-  profile_overrides_enabled: true
-all_247:
-  symbols:
-  - SPY
-  - QQQ
-  - DIA
-  - IWM
-  - VTI
-  - XLK
-  - XLF
-  - XLE
-  - XLY
-  - XLP
-  - XLI
-  - XLU
-  - SMH
-  - XLB
-  - XOP
-  - XME
-  - ARKK
-  - ARKF
-  - SOXX
-  - GLD
-  - SLV
-  - GDX
-  - USO
-  - UNG
-  - EWU
-  - EWG
-  - EWQ
-  - EWT
-  - EWJ
-  - EWS
-  - FXI
-  - BTCUSD
-  - ETHUSD
-  - SOLUSD
-  - XRPUSD
-  - LINKUSD
-  - LTCUSD
-  - DOGEUSD
-  - SOLUSD
-  - XRPUSD
-  - ZECUSD
-  - BCHUSD
-  - EURUSD
-  - GBPUSD
-  - USDJPY
-  - AUDUSD
-  - NZDUSD
-  - USDCAD
-  - USDCHF
-  - XAUUSD
-  - XAGUSD
-  - MES
-  - MNQ
-  - M2K
-  - MGC
-  - CL
-auto_schedule:
-  symbols:
-  - BTCUSD
-  - ETHUSD
-  - SOLUSD
-  - XRPUSD
-  - LINKUSD
-  - LTCUSD
-  - DOGEUSD
-  - LTCUSD
-  - BCHUSD
-  - XRPUSD
-  - ZECUSD
-  - SOLUSD
-coinbase_futures_nano:
-  symbols: null
-oanda_multi_asset:
-  symbols: null
-forex_crypto_hybrid:
-  symbols:
-  - EURUSD
-  - GBPUSD
-  - USDJPY
-  - AUDUSD
-  - USDCAD
-  - USDCHF
-  - NZDUSD
-  - GBPJPY
-  - EURJPY
-  - AUDJPY
-  - EURGBP
-  - GBPCHF
-  - NZDJPY
-  - CADJPY
-  - BTCUSD
-  - ETHUSD
-  - SOLUSD
-  - XRPUSD
-  - LINKUSD
-  - LTCUSD
-  - DOGEUSD
-  - ZECUSD
-  - BCHUSD
-  - AAVEUSD
-  - COMPUSD
-  - MATICUSD
-  safety_stability_mode_enabled: false
-  performance_mode: flywheel,sniper,regime_sync,hydra
+profiles:
+  forex_continuous: 
+    symbols: 
+    - EURUSD 
+    - GBPUSD 
+    - USDJPY 
+    - AUDUSD 
+    - USDCAD 
+    - USDCHF 
+    - NZDUSD 
+    - EURJPY 
+    - GBPJPY 
+    - AUDJPY 
+    strategy_forex: london_breakout 
+    strategy_variant: forex_conductor 
+    risk_per_trade_pct: 0.04 
+    strategies: 
+      forex: forex_conductor 
+      stocks: robocop 
+      etf: meta_sci 
+      metals: forex_conductor 
+      futures: forex_conductor 
+    continuous_mode: true 
+    sabbath_astronomical: true 
+    stop_and_reverse_enabled: true 
+    multi_position_enabled: true 
+    max_concurrent_positions: 2 
+    guillotine_r_threshold: -0.75 
+    scale_out_fraction: 0.95 
+    target_risk_multiplier: 3 
+    stop_atr_multiplier: 1.5 
+    reversal_tp_r: 1 
+    reversal_cost_aware_tp: true 
+    max_consecutive_sar: 1 
+    counter_reversal_enabled: true 
+    counter_reversal_tp_r: 1 
+    max_consecutive_cr: 1 
+    consecutive_loss_cooldown_bars: 4 
+    consecutive_loss_threshold: 3 
+    tier1_r_threshold: 0 
+    tier2_r_threshold: 0 
+    tier1_cut_fraction: 0.8 
+    tier2_cut_fraction: 0.8 
+    block_ranging_regime: true 
+    structure_invalidation_enabled: false 
+    safety_regime_flip_enabled: false 
+    risk_dynamic_auto: true 
+    paper_balance: 3000 
+  forex_intraday: 
+    symbols: 
+    - EURUSD 
+    - GBPUSD 
+    - USDJPY 
+    - AUDUSD 
+    - USDCAD 
+    - USDCHF 
+    - NZDUSD 
+    - GBPJPY 
+    - EURJPY 
+    - AUDJPY 
+    - BTCUSD 
+    - ETHUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - LINKUSD 
+    - LTCUSD 
+    - DOGEUSD 
+    - SOLUSD 
+  scalp: 
+  intraday: 
+  swing: 
+  coinbase_futures: 
+    symbols: 
+    - AVAX/USD 
+    - SHIB/USD 
+    - ETH/USD 
+    - ADA/USD 
+    - SOL/USD 
+    - DOGE/USD 
+    - LINK/USD 
+    - LTC/USD 
+    - BTC/USD 
+  crypto_247: 
+    symbols: 
+    - BTCUSD 
+    - ETHUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - LINKUSD 
+    - LTCUSD 
+    - DOGEUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - ZECUSD 
+    - BCHUSD 
+    profile_overrides_enabled: true 
+  all_247: 
+    symbols: 
+    - SPY 
+    - QQQ 
+    - DIA 
+    - IWM 
+    - VTI 
+    - XLK 
+    - XLF 
+    - XLE 
+    - XLY 
+    - XLP 
+    - XLI 
+    - XLU 
+    - SMH 
+    - XLB 
+    - XOP 
+    - XME 
+    - ARKK 
+    - ARKF 
+    - SOXX 
+    - GLD 
+    - SLV 
+    - GDX 
+    - USO 
+    - UNG 
+    - EWU 
+    - EWG 
+    - EWQ 
+    - EWT 
+    - EWJ 
+    - EWS 
+    - FXI 
+    - BTCUSD 
+    - ETHUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - LINKUSD 
+    - LTCUSD 
+    - DOGEUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - ZECUSD 
+    - BCHUSD 
+    - EURUSD 
+    - GBPUSD 
+    - USDJPY 
+    - AUDUSD 
+    - NZDUSD 
+    - USDCAD 
+    - USDCHF 
+    - XAUUSD 
+    - XAGUSD 
+    - MES 
+    - MNQ 
+    - M2K 
+    - MGC 
+    - CL 
+  auto_schedule: 
+    symbols: 
+    - BTCUSD 
+    - ETHUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - LINKUSD 
+    - LTCUSD 
+    - DOGEUSD 
+    - LTCUSD 
+    - BCHUSD 
+    - XRPUSD 
+    - ZECUSD 
+    - SOLUSD 
+  coinbase_futures_nano: 
+  oanda_multi_asset: 
+  forex_crypto_hybrid: 
+    symbols: 
+    - EURUSD 
+    - GBPUSD 
+    - USDJPY 
+    - AUDUSD 
+    - USDCAD 
+    - USDCHF 
+    - NZDUSD 
+    - GBPJPY 
+    - EURJPY 
+    - AUDJPY 
+    - EURGBP 
+    - GBPCHF 
+    - NZDJPY 
+    - CADJPY 
+    - BTCUSD 
+    - ETHUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - LINKUSD 
+    - LTCUSD 
+    - DOGEUSD 
+    - ZECUSD 
+    - BCHUSD 
+    - AAVEUSD 
+    - COMPUSD 
+    - MATICUSD 
+    safety_stability_mode_enabled: false 
+    performance_mode: none 

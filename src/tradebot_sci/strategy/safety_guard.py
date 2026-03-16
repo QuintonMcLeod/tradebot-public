@@ -195,9 +195,10 @@ class SafetyGuard:
         rf_cooldown = cls._state.regime_flip_cooldown.get(symbol)
         if rf_cooldown:
             # Normalise both to tz-aware (UTC) to avoid naive/aware comparison crash
-            # (backtester may pass a naive `now`)
             _rf = rf_cooldown if rf_cooldown.tzinfo else rf_cooldown.replace(tzinfo=timezone.utc)
-            _now = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+            # Fix: Since `now` is local naive, replacing it with UTC makes it offset by the local hour difference.
+            # Convert to UTC properly (e.g. from local EST -> UTC)
+            _now = datetime.now(timezone.utc)
             if _now < _rf:
                 remaining = int((_rf - _now).total_seconds())
                 return cls._reject(symbol, timeframe, "Regime Flip Cooldown", f"Regime Flip Cooldown: {remaining}s remaining (no re-entry within 3 min of regime flip)")
