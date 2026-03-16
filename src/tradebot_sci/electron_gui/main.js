@@ -681,11 +681,11 @@ function setupIpcHandlers() {
                 return { error: 'Minovsky Engine (engine_replay.py) not found.' };
             }
 
-            // ── Build CLI args ────────────────────────────────────────────────
             let args;
             if (enginePath === minovskyPath) {
                 // Minovsky Engine mode — uses date range and symbols
                 args = [enginePath];
+                if (config.use_api_fallback) args.push('--api-fallback');
                 if (config.start_date) args.push('--start-date', config.start_date);
                 if (config.end_date) args.push('--end-date', config.end_date);
                 if (config.symbols && config.symbols.length > 0) {
@@ -695,6 +695,7 @@ function setupIpcHandlers() {
             } else {
                 // Fallback: paper_replay.py
                 args = [enginePath, '--json-output', '--speed', '0'];
+                if (config.use_api_fallback) args.push('--api-fallback');
                 if (config.start_date) args.push('--start-date', config.start_date);
                 if (config.end_date) args.push('--end-date', config.end_date);
                 if (config.symbols && config.symbols.length > 0) {
@@ -718,11 +719,11 @@ function setupIpcHandlers() {
             return new Promise((resolve) => {
                 let stdoutBuf = '';
                 let stderrBuf = '';
-
                 const proc = spawn(pythonExe, args, {
                     cwd: path.join(__dirname, '../../..'),
                     env: { ...process.env },
                     timeout: 1800000, // 30 min max for long replays
+                    maxBuffer: 1024 * 1024 * 500 // 500 MB max buffer for massive date ranges
                 });
 
                 // ── Stream logs to GUI in real time ───────────────────────────

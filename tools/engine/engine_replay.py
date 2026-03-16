@@ -182,8 +182,12 @@ def _get_candle_dir() -> Path:
     return _CONFIG_DIR / "data" / "candle_history"
 
 
-def _discover_symbols(candle_dir: Path, symbols_filter=None) -> list[str]:
+def _discover_symbols(candle_dir: Path, symbols_filter=None, api_fallback: bool = False) -> list[str]:
     """Discover available symbols from candle_history subdirectories."""
+    # If API fallback is allowed, trust the explicitly provided symbols list
+    if api_fallback and symbols_filter:
+        return list(symbols_filter)
+        
     available: set[str] = set()
     if candle_dir.exists():
         for d in candle_dir.iterdir():
@@ -200,6 +204,7 @@ def _load_candles_for_range(
     symbols: list[str],
     date_start: str,
     date_end: str,
+    api_fallback: bool = False,
 ):
     """Load LTF and HTF candles from .jsonl files for the given date range.
 
@@ -257,6 +262,151 @@ def _load_candles_for_range(
                             ))
             except Exception as e:
                 logging.getLogger("engine_replay").warning(f"[ENGINE] Error reading {f}: {e}")
+
+        if api_fallback and not ltf_candles:
+            try:
+                import json as _json
+                from tradebot_sci.config.loader import load_config_json
+                from tradebot_sci.market.oanda_provider import OandaMarketDataProvider
+                from tradebot_sci import paths as _paths
+                secrets_path = _paths.SECRETS_FILE
+                
+                account_id = None
+                api_key = None
+                env = "practice"
+                if secrets_path.exists():
+                    from dotenv import dotenv_values
+                    secrets = dotenv_values(secrets_path)
+                    config = load_config_json()
+                    account_id = config.get("brokers", {}).get("oanda", {}).get("account_id")
+                    api_key = secrets.get("OANDA_API_KEY") or secrets.get("OANDA_API_TOKEN")
+                    env = config.get("brokers", {}).get("oanda", {}).get("environment", "practice")
+                
+                if account_id and api_key:
+                    provider = OandaMarketDataProvider(account_id, api_key, env)
+                    
+                    start_dt = datetime.strptime(date_start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    end_dt = datetime.strptime(date_end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+                    
+                    # 5-min candles
+                    delta_ltf = end_dt - start_dt
+                    minutes_ltf = int(delta_ltf.total_seconds() / 60)
+                    limit_ltf = min(5000, minutes_ltf // 5)
+                    
+                    # 4-hour candles
+                    delta_htf = end_dt - start_dt
+                    hours_htf = int(delta_htf.total_seconds() / 3600)
+                    limit_htf = min(5000, hours_htf // 4)
+                    
+                    _log = logging.getLogger("engine_replay")
+                    _log.info(f"[API-FALLBACK] Fetching {limit_ltf} LTF and {limit_htf} HTF candles for {sym}")
+                    
+                    # Custom fetch to specify `from` and `to` with pagination (OANDA limits to 5000 per request)
+                    import oandapyV20.endpoints.instruments as instruments
+                    oanda_sym = provider._normalize_symbol(sym)
+                    
+                    def _fetch_paginated_candles(granularity: str, start: datetime, end: datetime) -> list:
+                        all_candles = []
+                        current_start = start
+                        # OANDA allows max 5000 candles per request.
+                        # For M5, 5000 candles is ~17.3 days.
+                        # For H4, 5000 candles is ~833 days.
+                        while current_start < end:
+                            params = {
+                                "granularity": granularity,
+                                "price": "M",
+                                "from": current_start.isoformat(),
+                                "count": 5000 # Use count instead of 'to' for reliable pagination
+                            }
+                            
+                            try:
+                                r = instruments.InstrumentsCandles(instrument=oanda_sym, params=params)
+                                provider.client.request(r)
+                                batch = r.response.get("candles", [])
+                                
+                                if not batch:
+                                    break # No more data
+                                    
+                                all_candles.extend(batch)
+                                
+                                # Update current_start to the time of the LAST candle retrieved + 1 second
+                                last_time_str = batch[-1]["time"]
+                                if "." in last_time_str:
+                                    base, rest = last_time_str.split(".", 1)
+                                    rest = rest.replace("Z", "+00:00")
+                                    last_time_str = f"{base}.{rest[:6]}"
+                                else:
+                                    last_time_str = last_time_str.replace("Z", "+00:00")
+                                    
+                                last_ts = datetime.fromisoformat(last_time_str).replace(tzinfo=timezone.utc)
+                                
+                                if last_ts >= end:
+                                    break
+                                    
+                                current_start = last_ts + timedelta(seconds=1)
+                                
+                            except Exception as e:
+                                _log.error(f"[API-FALLBACK] Pagination fail for {granularity} at {current_start}: {e}")
+                                break
+                                
+                        return [c for c in all_candles if datetime.fromisoformat(c["time"].split(".")[0].replace("Z", "+00:00")).replace(tzinfo=timezone.utc) <= end]
+
+                    raw_ltf = _fetch_paginated_candles("M5", start_dt, end_dt)
+                    for c in raw_ltf:
+                        mid = c.get("mid")
+                        if mid and c.get("complete", True):
+                            ts_str = c["time"]
+                            # Clean up nanoseconds issue like in provider
+                            if "." in ts_str:
+                                base, rest = ts_str.split(".", 1)
+                                suffix = ""
+                                if "Z" in rest:
+                                    suffix = "Z"
+                                    rest = rest.replace("Z", "")
+                                elif "+" in rest:
+                                    rest, offset = rest.split("+", 1)
+                                    suffix = "+" + offset
+                                elif "-" in rest:
+                                    rest, offset = rest.split("-", 1)
+                                    suffix = "-" + offset
+                                ts_str = f"{base}.{rest[:6]}{suffix}"
+
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                            if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
+                            ltf_candles.append(Candle(
+                                timestamp=ts, open=float(mid["o"]), high=float(mid["h"]),
+                                low=float(mid["l"]), close=float(mid["c"]), volume=float(c["volume"])
+                            ))
+
+                    raw_htf = _fetch_paginated_candles("H4", start_dt, end_dt)
+
+                    for c in raw_htf:
+                        mid = c.get("mid")
+                        if mid and c.get("complete", True):
+                            ts_str = c["time"]
+                            if "." in ts_str:
+                                base, rest = ts_str.split(".", 1)
+                                suffix = ""
+                                if "Z" in rest:
+                                    suffix = "Z"
+                                    rest = rest.replace("Z", "")
+                                elif "+" in rest:
+                                    rest, offset = rest.split("+", 1)
+                                    suffix = "+" + offset
+                                elif "-" in rest:
+                                    rest, offset = rest.split("-", 1)
+                                    suffix = "-" + offset
+                                ts_str = f"{base}.{rest[:6]}{suffix}"
+
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                            if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
+                            htf_candles.append(Candle(
+                                timestamp=ts, open=float(mid["o"]), high=float(mid["h"]),
+                                low=float(mid["l"]), close=float(mid["c"]), volume=float(c["volume"])
+                            ))
+
+            except Exception as e:
+                logging.getLogger("engine_replay").warning(f"[API-FALLBACK] Failed to fetch {sym}: {e}")
 
         if ltf_candles:
             ltf_candles.sort(key=lambda c: c.timestamp)
@@ -358,10 +508,10 @@ def _write_temp_json(candles_dict: dict) -> tuple[dict[str, str], list[str]]:
 def _run_single_day_worker(args: tuple) -> dict:
     """Run one day of backtesting in an isolated process.
 
-    Args is a tuple: (day_str, balance, symbols_filter)
+    Args is a tuple: (day_str, balance, symbols_filter, api_fallback)
     Returns a dict: {day, trades, pnl, return_pct, initial, final, stats}
     """
-    day_str, balance, symbols_filter = args
+    day_str, balance, symbols_filter, api_fallback = args
 
     # Suppress noisy loggers in worker processes
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
@@ -389,7 +539,7 @@ def _run_single_day_worker(args: tuple) -> dict:
         # Load candles: include 5 days before for indicator warmup
         warmup_start = (day_start - timedelta(days=5)).strftime("%Y-%m-%d")
         all_ltf, all_htf = _load_candles_for_range(
-            candle_dir, symbols, warmup_start, day_str
+            candle_dir, symbols, warmup_start, day_str, api_fallback=api_fallback
         )
 
         if not all_ltf:
@@ -464,6 +614,7 @@ def run_candle_history_mode(
     symbols_filter=None,
     start_date_str: str | None = None,
     end_date_str: str | None = None,
+    api_fallback: bool = False,
 ):
     """Run engine using recorded candle_history data (non-cartridge mode).
 
@@ -487,7 +638,7 @@ def run_candle_history_mode(
     else:
         start_date = end_date - timedelta(days=days)
 
-    symbols = _discover_symbols(candle_dir, symbols_filter)
+    symbols = _discover_symbols(candle_dir, symbols_filter, api_fallback)
     if not symbols:
         logger.error("No symbols found in candle_history. Use --cartridge instead.")
         return
@@ -504,7 +655,7 @@ def run_candle_history_mode(
     # ── Single day: run directly (no multiprocessing overhead) ──
     if num_days <= 1:
         _run_single_day_sequential(
-            candle_dir, symbols, start_date, end_date, balance
+            candle_dir, symbols, start_date, end_date, balance, api_fallback
         )
         return
 
@@ -523,7 +674,7 @@ def run_candle_history_mode(
 
     t0 = time.perf_counter()
 
-    worker_args = [(day_str, balance, symbols_filter) for day_str in day_list]
+    worker_args = [(day_str, balance, symbols_filter, api_fallback) for day_str in day_list]
 
     with multiprocessing.Pool(processes=num_cores) as pool:
         day_results = pool.map(_run_single_day_worker, worker_args)
@@ -542,6 +693,7 @@ def _run_single_day_sequential(
     start_date: datetime,
     end_date: datetime,
     balance: float,
+    api_fallback: bool = False,
 ):
     """Run a single-day backtest sequentially (no multiprocessing overhead)."""
     from tradebot_sci.config.loader import get_settings
@@ -552,7 +704,7 @@ def _run_single_day_sequential(
     # Load candles with warmup
     warmup_start = (start_date - timedelta(days=5)).strftime("%Y-%m-%d")
     all_ltf, all_htf = _load_candles_for_range(
-        candle_dir, symbols, warmup_start, end_date.strftime("%Y-%m-%d")
+        candle_dir, symbols, warmup_start, end_date.strftime("%Y-%m-%d"), api_fallback=api_fallback
     )
 
     if not all_ltf:
@@ -746,6 +898,10 @@ def main():
         "--no-parallel", action="store_true",
         help="Disable multi-core parallelism (force single-threaded)"
     )
+    parser.add_argument(
+        "--api-fallback", action="store_true",
+        help="Fetch missing historical data from OANDA API if local data is unavailable"
+    )
     args = parser.parse_args()
 
     syms = (
@@ -776,6 +932,7 @@ def main():
             symbols_filter=syms,
             start_date_str=args.start_date,
             end_date_str=args.end_date,
+            api_fallback=args.api_fallback,
         )
 
 

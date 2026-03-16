@@ -572,8 +572,9 @@ class ReplayPaperBroker(PaperBroker):
 # Observation Loader
 # ─────────────────────────────────────────────────────────────────────────────
 
-def load_observations(symbols: list[str], days: int) -> dict[str, list[dict]]:
-    """Load recorded observations for each symbol for the past N days."""
+def load_observations(symbols: list[str], days: int, api_fallback: bool = False) -> dict[str, list[dict]]:
+    """Load recorded observations for each symbol for the past N days.
+    If api_fallback is True and no local data is found, it synthesizes observations from OANDA."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     start_str = cutoff.strftime("%Y-%m-%d")
     end_str   = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -601,6 +602,98 @@ def load_observations(symbols: list[str], days: int) -> dict[str, list[dict]]:
                         obs.append(json.loads(line))
                     except json.JSONDecodeError:
                         continue
+        if not obs and api_fallback:
+            try:
+                from tradebot_sci.market.oanda_provider import OandaMarketDataProvider
+                import json as _json
+                from tradebot_sci import paths as _paths
+                secrets_path = _paths.SECRETS_FILE
+                account_id, api_key, env = None, None, "practice"
+                if secrets_path.exists():
+                    from dotenv import dotenv_values
+                    from tradebot_sci.config.loader import load_config_json
+                    secrets = dotenv_values(secrets_path)
+                    config = load_config_json()
+                    account_id = config.get("brokers", {}).get("oanda", {}).get("account_id")
+                    api_key = secrets.get("OANDA_API_KEY") or secrets.get("OANDA_API_TOKEN")
+                    env = config.get("brokers", {}).get("oanda", {}).get("environment", "practice")
+                
+                if account_id and api_key:
+                    provider = OandaMarketDataProvider(account_id, api_key, env)
+                    import oandapyV20.endpoints.instruments as instruments
+                    oanda_sym = provider._normalize_symbol(sym)
+                    
+                    # Compute timestamps
+                    start_dt = cutoff
+                    end_dt = datetime.now(timezone.utc)
+                    
+                    logger.info(f"[API-FALLBACK] Fetching synthetic observations for {sym} from OANDA (Paginated)")
+                    
+                    def _fetch_paginated_candles(granularity: str, start: datetime, end: datetime) -> list:
+                        all_candles = []
+                        current_start = start
+                        while current_start < end:
+                            params = {
+                                "granularity": granularity,
+                                "price": "M",
+                                "from": current_start.isoformat(),
+                                "count": 5000
+                            }
+                            try:
+                                r = instruments.InstrumentsCandles(instrument=oanda_sym, params=params)
+                                provider.client.request(r)
+                                batch = r.response.get("candles", [])
+                                if not batch: break
+                                all_candles.extend(batch)
+                                
+                                last_time_str = batch[-1]["time"]
+                                if "." in last_time_str:
+                                    base, rest = last_time_str.split(".", 1)
+                                    rest = rest.replace("Z", "+00:00")
+                                    last_time_str = f"{base}.{rest[:6]}"
+                                else:
+                                    last_time_str = last_time_str.replace("Z", "+00:00")
+                                    
+                                last_ts = datetime.fromisoformat(last_time_str).replace(tzinfo=timezone.utc)
+                                if last_ts >= end: break
+                                current_start = last_ts + timedelta(seconds=1)
+                            except Exception as e:
+                                logger.error(f"[API-FALLBACK] Pagination fail for {granularity}: {e}")
+                                break
+                        return [c for c in all_candles if datetime.fromisoformat(c["time"].split(".")[0].replace("Z", "+00:00")).replace(tzinfo=timezone.utc) <= end]
+
+                    ltf_raw = _fetch_paginated_candles("M5", start_dt, end_dt)
+                    htf_raw = _fetch_paginated_candles("H4", start_dt, end_dt)
+                    
+                    def _fmt(c):
+                        ts_str = c["time"]
+                        if "." in ts_str:
+                            base, rest = ts_str.split(".", 1)
+                            suffix = ""
+                            if "Z" in rest: suffix = "Z"; rest = rest.replace("Z", "")
+                            elif "+" in rest: rest, offset = rest.split("+", 1); suffix = "+" + offset
+                            elif "-" in rest: rest, offset = rest.split("-", 1); suffix = "-" + offset
+                            ts_str = f"{base}.{rest[:6]}{suffix}"
+                        return {"t": ts_str, "o": c["mid"]["o"], "h": c["mid"]["h"], "l": c["mid"]["l"], "c": c["mid"]["c"], "v": c["volume"]}
+                    
+                    ltf_fmt = [_fmt(c) for c in ltf_raw if c.get("mid") and c.get("complete", True)]
+                    htf_fmt = [_fmt(c) for c in htf_raw if c.get("mid") and c.get("complete", True)]
+                    
+                    if ltf_fmt:
+                        synth_obs = {
+                            "sym": sym,
+                            "tf": "5m",
+                            "htf_tf": "4h",
+                            "ltf_tf": "5m",
+                            "ltf": ltf_fmt,
+                            "htf": htf_fmt,
+                            "ts": end_dt.isoformat()
+                        }
+                        obs.append(synth_obs)
+                        logger.info(f"[API-FALLBACK] Created synthetic snapshot with {len(ltf_fmt)} LTF + {len(htf_fmt)} HTF")
+            except Exception as e:
+                logger.warning(f"[API-FALLBACK] Failed to simulate data for {sym}: {e}")
+
         obs.sort(key=lambda x: x.get("ts", ""))
         if obs:
             logger.info(f"[REPLAY] {sym}: loaded {len(obs)} observations ({start_str} → {end_str})")
@@ -643,30 +736,51 @@ def obs_to_snapshot(obs: dict) -> Optional[MarketSnapshot]:
 # Per-Symbol Worker (must be top-level for ProcessPoolExecutor pickling)
 # ───────────────────────────────────────────────────────────────────────────────
 
-def _worker_replay_symbol(
-    sym: str,
-    obs_list: list,
-    ltf_raw: list,
-    htf_raw: list,
-    initial_balance: float,
-    speed: float,
-    src_path: str,
-) -> dict:
+def _worker_replay_symbol(args: tuple) -> dict:
     """Runs the full replay for ONE symbol in an isolated subprocess.
+    Args: (sym, days, api_fallback)
+    All state is local — no shared memory contention.
     All state is local — no shared memory contention.
     Returns a plain dict (picklable).
     """
-    import sys, time, logging
-    from datetime import datetime
-    from pathlib import Path
+    sym, days, api_fallback = args
+    initial_balance = 5700.0  # From default or could pass from args if needed
+    src_path = str(Path(__file__).resolve().parents[1] / "src")
 
     if src_path not in sys.path:
         sys.path.insert(0, src_path)
-
+        
     # Worker processes are silent — all output goes through main process
     logging.basicConfig(level=logging.DEBUG, format="%(message)s")
     for _ln in list(logging.Logger.manager.loggerDict.keys()):
         logging.getLogger(_ln).setLevel(logging.INFO) # Keep libs quiet, script loud
+
+    import sys, time, logging
+    from datetime import datetime, timezone, timedelta
+    from pathlib import Path
+    import json
+    
+    # Load inside worker because process isolation breaks if we don't
+    obs_dict = load_observations([sym], days, api_fallback)
+    obs_list = obs_dict.get(sym, [])
+    
+    if not obs_list:
+        return {"sym": sym, "error": "No data", "trades": [], "total_pnl": 0.0, "ticks": 0, "elapsed": 0.0}
+
+    # Reconstruct raw candles for the provider timeline
+    ltf_raw = []
+    htf_raw = []
+    seen_ltf = set()
+    seen_htf = set()
+    for o in obs_list:
+        for c in o.get("ltf", []):
+            if c["t"] not in seen_ltf:
+                seen_ltf.add(c["t"])
+                ltf_raw.append(c)
+        for c in o.get("htf", []):
+            if c["t"] not in seen_htf:
+                seen_htf.add(c["t"])
+                htf_raw.append(c)
 
     from tradebot_sci.market.models import MarketSnapshot, Candle, TrendState
     from tradebot_sci.broker.trade_result_store import TradeResultStore
@@ -1068,8 +1182,14 @@ def main():
                         help="Starting paper balance (default: 5700)")
     parser.add_argument("--symbols",    type=str,   default=None,
                         help="Comma-separated symbols to replay (default: all recorded)")
-    parser.add_argument("--json-output", action="store_true",
-                        help="Emit a JSON summary line at end (for UI consumption)")
+    parser.add_argument(
+        "--no-parallel", action="store_true",
+        help="Disable multi-core parallelism (force single-threaded)"
+    )
+    parser.add_argument(
+        "--api-fallback", action="store_true",
+        help="Fetch missing historical data from OANDA API if local data is unavailable"
+    )
     parser.add_argument("--max-workers", type=int, default=None,
                         help="Limit the number of CPU cores used. Defaults to 4 to prevent resource exhaustion.")
     args = parser.parse_args()

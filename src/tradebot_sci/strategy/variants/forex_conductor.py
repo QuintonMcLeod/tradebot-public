@@ -943,6 +943,20 @@ class ForexConductorStrategy(BaseStrategy):
     def score_signal(self, snapshot: MarketSnapshot, gates: dict):
         """Score using regime-appropriate strategy."""
         regime = gates.get("market_regime", "unknown")
+        
+        # ── RANGING/CHOPPY UI FIX ──────────────────────────────────────
+        # Display an F- in the UI to match the engine's internal block
+        # on ranging/choppy markets (unless forced by profile).
+        _profile = getattr(self, 'profile', None) or gates.get('profile') or type('_P', (), {})()
+        block_ranging = bool(getattr(_profile, 'block_ranging_regime', True))
+        
+        blocked_regimes = ["choppy", "unknown"]
+        if block_ranging:
+            blocked_regimes.append("ranging")
+            
+        if regime in blocked_regimes:
+            return 0.0, "F-", f"Regime blocked: {regime}"
+
         primary_key = _REGIME_MAP.get(regime)
         if primary_key and primary_key in self._strategies:
             return self._strategies[primary_key].score_signal(snapshot, gates)

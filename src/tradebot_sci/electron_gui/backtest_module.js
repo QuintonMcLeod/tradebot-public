@@ -259,11 +259,13 @@
         }
 
         try {
+            const useApiFallback = !$('bt-mode-toggle').checked;
             const result = await api.invoke('run-backtest', {
                 start_date: startDate,
                 end_date: endDate,
                 symbols: symbols,
                 balance: startCapital,
+                use_api_fallback: useApiFallback,
             });
 
             if (result?.error) {
@@ -365,6 +367,7 @@
 
     // ── Render results ───────────────────────────────────────
     function _renderResults(data) {
+        if (!data) return;
         const resultsSection = $('bt-results');
         if (!resultsSection) return;
         resultsSection.classList.remove('hidden');
