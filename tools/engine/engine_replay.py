@@ -265,7 +265,6 @@ def _load_candles_for_range(
 
         if api_fallback and not ltf_candles:
             try:
-                import json as _json
                 from tradebot_sci.config.loader import load_config_json
                 from tradebot_sci.market.oanda_provider import OandaMarketDataProvider
                 from tradebot_sci import paths as _paths
@@ -312,11 +311,19 @@ def _load_candles_for_range(
                         # For M5, 5000 candles is ~17.3 days.
                         # For H4, 5000 candles is ~833 days.
                         while current_start < end:
+                            duration_seconds = (end - current_start).total_seconds()
+                            if granularity == "M5":
+                                needed = int(duration_seconds / 300) + 10
+                            elif granularity == "H4":
+                                needed = int(duration_seconds / 14400) + 10
+                            else:
+                                needed = 5000
+                            
                             params = {
                                 "granularity": granularity,
                                 "price": "M",
                                 "from": current_start.isoformat(),
-                                "count": 5000 # Use count instead of 'to' for reliable pagination
+                                "count": min(5000, max(1, needed))
                             }
                             
                             try:
@@ -378,7 +385,20 @@ def _load_candles_for_range(
                                 low=float(mid["l"]), close=float(mid["c"]), volume=float(c["volume"])
                             ))
 
-                    raw_htf = _fetch_paginated_candles("H4", start_dt, end_dt)
+                    # ── Resolve HTF from active profile ───────────────────────
+                    from tradebot_sci.config.loader import get_settings
+                    _active_prof = get_settings().get_active_profile()
+                    _htf_setting = getattr(_active_prof, "htf_timeframe", None) or "4h"
+                    
+                    # Map common timeframes to OANDA granularity
+                    _oanda_granularity_map = {
+                        "1m": "M1", "5m": "M5", "15m": "M15", "30m": "M30",
+                        "1h": "H1", "4h": "H4", "1d": "D", "1w": "W"
+                    }
+                    oanda_htf_tf = _oanda_granularity_map.get(_htf_setting.lower(), "H1")
+                    _log.info(f"[API-FALLBACK] Using mapped OANDA HTF Timeframe: {oanda_htf_tf} (from profile setting: {_htf_setting})")
+
+                    raw_htf = _fetch_paginated_candles(oanda_htf_tf, start_dt, end_dt)
 
                     for c in raw_htf:
                         mid = c.get("mid")
@@ -773,8 +793,8 @@ def _merge_and_print_parallel_results(
 
     for dr in day_results:
         day = dr["day"]
-        daily_return = dr["return_pct"] / 100.0  # Convert percentage to decimal
-        day_pnl = compounded_capital * daily_return  # Compounded PnL for this day
+        day_pnl = dr["pnl"]  # Use the raw uncompounded dollar PnL from the day
+        daily_return = day_pnl / compounded_capital if compounded_capital > 0 else 0
         compounded_capital += day_pnl
         n_trades = len(dr["trades"])
         total_blocked += dr.get("stats", {}).get("trades_blocked", 0)
@@ -837,8 +857,8 @@ def _merge_and_print_parallel_results(
     max_dd = 0.0
     equity = initial_balance
     for dr in day_results:
-        daily_return = dr["return_pct"] / 100.0
-        equity += equity * daily_return
+        day_pnl = dr["pnl"]
+        equity += day_pnl
         if equity > peak:
             peak = equity
         dd = ((peak - equity) / peak) * 100 if peak > 0 else 0

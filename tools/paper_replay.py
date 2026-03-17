@@ -605,7 +605,6 @@ def load_observations(symbols: list[str], days: int, api_fallback: bool = False)
         if not obs and api_fallback:
             try:
                 from tradebot_sci.market.oanda_provider import OandaMarketDataProvider
-                import json as _json
                 from tradebot_sci import paths as _paths
                 secrets_path = _paths.SECRETS_FILE
                 account_id, api_key, env = None, None, "practice"
@@ -633,11 +632,19 @@ def load_observations(symbols: list[str], days: int, api_fallback: bool = False)
                         all_candles = []
                         current_start = start
                         while current_start < end:
+                            duration_seconds = (end - current_start).total_seconds()
+                            if granularity == "M5":
+                                needed = int(duration_seconds / 300) + 10
+                            elif granularity == "H4":
+                                needed = int(duration_seconds / 14400) + 10
+                            else:
+                                needed = 5000
+                            
                             params = {
                                 "granularity": granularity,
                                 "price": "M",
                                 "from": current_start.isoformat(),
-                                "count": 5000
+                                "count": min(5000, max(1, needed))
                             }
                             try:
                                 r = instruments.InstrumentsCandles(instrument=oanda_sym, params=params)
@@ -662,8 +669,21 @@ def load_observations(symbols: list[str], days: int, api_fallback: bool = False)
                                 break
                         return [c for c in all_candles if datetime.fromisoformat(c["time"].split(".")[0].replace("Z", "+00:00")).replace(tzinfo=timezone.utc) <= end]
 
+                    # ── Resolve HTF from active profile ───────────────────────
+                    _active_prof_name = config.get("active_profile", "default")
+                    _prof_data = config.get("profiles", {}).get(_active_prof_name, {})
+                    _htf_setting = _prof_data.get("htf_timeframe") or config.get("global", {}).get("htf_timeframe") or "4h"
+
+                    # Map common timeframes to OANDA granularity
+                    _oanda_granularity_map = {
+                        "1m": "M1", "5m": "M5", "15m": "M15", "30m": "M30",
+                        "1h": "H1", "4h": "H4", "1d": "D", "1w": "W"
+                    }
+                    oanda_htf_tf = _oanda_granularity_map.get(_htf_setting.lower(), "H1")
+                    logger.info(f"[API-FALLBACK] Using mapped OANDA HTF Timeframe: {oanda_htf_tf} (from profile setting: {_htf_setting})")
+
                     ltf_raw = _fetch_paginated_candles("M5", start_dt, end_dt)
-                    htf_raw = _fetch_paginated_candles("H4", start_dt, end_dt)
+                    htf_raw = _fetch_paginated_candles(oanda_htf_tf, start_dt, end_dt)
                     
                     def _fmt(c):
                         ts_str = c["time"]
@@ -680,17 +700,24 @@ def load_observations(symbols: list[str], days: int, api_fallback: bool = False)
                     htf_fmt = [_fmt(c) for c in htf_raw if c.get("mid") and c.get("complete", True)]
                     
                     if ltf_fmt:
-                        synth_obs = {
-                            "sym": sym,
-                            "tf": "5m",
-                            "htf_tf": "4h",
-                            "ltf_tf": "5m",
-                            "ltf": ltf_fmt,
-                            "htf": htf_fmt,
-                            "ts": end_dt.isoformat()
-                        }
-                        obs.append(synth_obs)
-                        logger.info(f"[API-FALLBACK] Created synthetic snapshot with {len(ltf_fmt)} LTF + {len(htf_fmt)} HTF")
+                        for ltf_c in ltf_fmt:
+                            c_ts = ltf_c["t"]
+                            # Only include HTF candles up to this LTF timestamp
+                            valid_htf = [h for h in htf_fmt if h["t"] <= c_ts]
+                            
+                            synth_obs = {
+                                "sym": sym,
+                                "tf": "5m",
+                                "htf_tf": _htf_setting.lower(),
+                                "ltf_tf": "5m",
+                                "ltf": [ltf_c],  # current candle for this tick
+                                "htf": valid_htf[-1:] if valid_htf else [], # current active HTF candle
+                                "ts": c_ts.replace("Z", "+00:00")
+                            }
+                            obs.append(synth_obs)
+                        logger.info(f"[API-FALLBACK] Created {len(obs)} synthetic snapshots from {len(ltf_fmt)} LTF + {len(htf_fmt)} HTF")
+                    else:
+                        logger.warning(f"[API-FALLBACK] No LTF candles generated for {sym} despite paginated fetch.")
             except Exception as e:
                 logger.warning(f"[API-FALLBACK] Failed to simulate data for {sym}: {e}")
 
@@ -738,13 +765,16 @@ def obs_to_snapshot(obs: dict) -> Optional[MarketSnapshot]:
 
 def _worker_replay_symbol(args: tuple) -> dict:
     """Runs the full replay for ONE symbol in an isolated subprocess.
-    Args: (sym, days, api_fallback)
-    All state is local — no shared memory contention.
+    Args: (sym, all_obs, ltf_raw, htf_raw, initial_balance, speed, src_path)
     All state is local — no shared memory contention.
     Returns a plain dict (picklable).
     """
-    sym, days, api_fallback = args
-    initial_balance = 5700.0  # From default or could pass from args if needed
+    import sys, time, logging
+    from datetime import datetime, timezone, timedelta
+    from pathlib import Path
+    import json
+
+    sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path = args
     src_path = str(Path(__file__).resolve().parents[1] / "src")
 
     if src_path not in sys.path:
@@ -754,33 +784,25 @@ def _worker_replay_symbol(args: tuple) -> dict:
     logging.basicConfig(level=logging.DEBUG, format="%(message)s")
     for _ln in list(logging.Logger.manager.loggerDict.keys()):
         logging.getLogger(_ln).setLevel(logging.INFO) # Keep libs quiet, script loud
-
-    import sys, time, logging
-    from datetime import datetime, timezone, timedelta
-    from pathlib import Path
-    import json
-    
-    # Load inside worker because process isolation breaks if we don't
-    obs_dict = load_observations([sym], days, api_fallback)
-    obs_list = obs_dict.get(sym, [])
     
     if not obs_list:
         return {"sym": sym, "error": "No data", "trades": [], "total_pnl": 0.0, "ticks": 0, "elapsed": 0.0}
 
-    # Reconstruct raw candles for the provider timeline
-    ltf_raw = []
-    htf_raw = []
-    seen_ltf = set()
-    seen_htf = set()
-    for o in obs_list:
-        for c in o.get("ltf", []):
-            if c["t"] not in seen_ltf:
-                seen_ltf.add(c["t"])
-                ltf_raw.append(c)
-        for c in o.get("htf", []):
-            if c["t"] not in seen_htf:
-                seen_htf.add(c["t"])
-                htf_raw.append(c)
+    # Reconstruct raw candles for the provider timeline if not already provided
+    if not ltf_raw:
+        seen_ltf = set()
+        seen_htf = set()
+        for o in obs_list:
+            for c in o.get("ltf", []):
+                t_val = c.get("t", c.get("time"))
+                if t_val not in seen_ltf:
+                    seen_ltf.add(t_val)
+                    ltf_raw.append(c)
+            for c in o.get("htf", []):
+                t_val = c.get("t", c.get("time"))
+                if t_val not in seen_htf:
+                    seen_htf.add(t_val)
+                    htf_raw.append(c)
 
     from tradebot_sci.market.models import MarketSnapshot, Candle, TrendState
     from tradebot_sci.broker.trade_result_store import TradeResultStore
@@ -792,12 +814,18 @@ def _worker_replay_symbol(args: tuple) -> dict:
     profile  = settings.get_active_profile()
 
     def _dc(d: dict) -> Candle:
-        ts = datetime.fromisoformat(d["t"].replace("Z", "+00:00"))
-        return Candle(timestamp=ts, open=float(d["o"]), high=float(d["h"]),
-                      low=float(d["l"]), close=float(d["c"]), volume=float(d.get("v", 0)))
+        ts = datetime.fromisoformat(d.get("t", d.get("time")).replace("Z", "+00:00"))
+        return Candle(timestamp=ts, open=float(d.get("o", d.get("mid", {}).get("o", 0))), 
+                      high=float(d.get("h", d.get("mid", {}).get("h", 0))),
+                      low=float(d.get("l", d.get("mid", {}).get("l", 0))), 
+                      close=float(d.get("c", d.get("mid", {}).get("c", 0))), 
+                      volume=float(d.get("v", d.get("volume", 0))))
 
     ltf_timeline = sorted([_dc(c) for c in ltf_raw], key=lambda c: c.timestamp)
     htf_timeline = sorted([_dc(c) for c in htf_raw], key=lambda c: c.timestamp)
+    
+    if len(ltf_timeline) > 0:
+        logging.info(f"[REPLAY] {sym} timelines generated. LTF count: {len(ltf_timeline)}, HTF count: {len(htf_timeline)}")
 
     provider = ReplayMarketProvider(candle_timeline={sym: ltf_timeline})
     provider.set_htf_timeline({sym: htf_timeline})
@@ -859,31 +887,40 @@ def _worker_replay_symbol(args: tuple) -> dict:
     _neutral   = TrendState(direction="neutral", strength=0.0)
 
     import bisect as _bisect
-    ltf_timestamps = [c.timestamp.isoformat()[:19] for c in ltf_timeline]
-    htf_timestamps = [c.timestamp.isoformat()[:19] for c in htf_timeline]
+    ltf_timestamps = [c.timestamp for c in ltf_timeline]
+    htf_timestamps = [c.timestamp for c in htf_timeline]
 
     # Speed governor: only sleep when the candle bar CHANGES, not every raw tick.
     # With ~13,000 raw obs/day but only ~288 unique 5m bars, this reduces sleeps
     # from 13,000 to ~288, making speed=2 take ~2.4 min/day instead of ~110 min.
     _last_bar_ts = None
+    
+    logging.info(f"[REPLAY] {sym} starting loop with {len(obs_list)} synthetic obs. Timestamps: LTF={len(ltf_timestamps)}, HTF={len(htf_timestamps)}.")
 
     for obs in obs_list:
         try:
-            tick_ts = obs.get("ts", "")[:19]  # "YYYY-MM-DDTHH:MM:SS"
+            raw_ts = obs.get("ts", "")
+            if not raw_ts: continue
+            
+            # Normalize timestamp to UTC datetime for accurate bisect sorting
+            if "Z" in raw_ts: raw_ts = raw_ts.replace("Z", "+00:00")
+            tick_dt = datetime.fromisoformat(raw_ts)
 
             # Full rolling window: last 200 LTF candles up to this tick
-            ltf_idx = _bisect.bisect_right(ltf_timestamps, tick_ts)
+            ltf_idx = _bisect.bisect_right(ltf_timestamps, tick_dt)
             ltf = ltf_timeline[max(0, ltf_idx - 200): ltf_idx]
 
             # Full rolling window: last 200 HTF candles up to this tick
             # (gives ADX/EMA/MACD enough history to compute proper htf_strength)
-            htf_idx = _bisect.bisect_right(htf_timestamps, tick_ts)
+            htf_idx = _bisect.bisect_right(htf_timestamps, tick_dt)
             htf = htf_timeline[max(0, htf_idx - 200): htf_idx]
-        except Exception:
+        except Exception as e:
+            logging.error(f"[REPLAY] Exception in bisect loop: {e}")
             continue
 
         # Skip until we have enough LTF candles for indicators (EMA55 needs 55)
         if len(ltf) < 55:
+            # logging.info(f"[REPLAY] Skipped tick at {tick_ts}. ltf len: {len(ltf)}. Need 55.")
             continue
         if not ltf:
             continue
@@ -985,9 +1022,11 @@ def run_replay(days: int, speed: float, initial_balance: float,
         for obs in obs_list:
             if "ltf" in obs:
                 for c in obs.get("ltf", []):
-                    ltf_all[c["t"]] = c
+                    t_val = c.get("t", c.get("time"))
+                    if t_val: ltf_all[t_val] = c
                 for c in obs.get("htf", []):
-                    htf_all[c["t"]] = c
+                    t_val = c.get("t", c.get("time"))
+                    if t_val: htf_all[t_val] = c
                 
                 # BIG MEMORY & IPC SAVER: drop massive arrays before pickling to workers
                 obs.pop("ltf", None)
@@ -1033,13 +1072,13 @@ def run_replay(days: int, speed: float, initial_balance: float,
         futures = {
             pool.submit(
                 _worker_replay_symbol,
-                sym,
+                (sym,
                 all_obs[sym],
                 ltf_raw_by_sym[sym],
                 htf_raw_by_sym[sym],
                 initial_balance,
                 speed,
-                src_path,
+                src_path)
             ): sym
             for sym in all_obs
         }
@@ -1192,6 +1231,7 @@ def main():
     )
     parser.add_argument("--max-workers", type=int, default=None,
                         help="Limit the number of CPU cores used. Defaults to 4 to prevent resource exhaustion.")
+    parser.add_argument("--json-output", action="store_true", help="Output results as JSON")
     args = parser.parse_args()
 
     # Resolve date range → days

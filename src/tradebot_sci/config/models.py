@@ -564,6 +564,15 @@ class TradingProfileSettings(BaseModel):
                     "earlier on trades that show momentum at ~$50+.",
     )
 
+    # ── Position Eviction ───────────────────────────────────────────────
+    eviction_min_hold_minutes: int = Field(
+        default=30,
+        ge=5,
+        le=240,
+        description="Minimum minutes a position must be held before it can be "
+                    "evicted for a higher-scored signal. Prevents churn.",
+    )
+
     moon_trailer_enabled: bool = Field(
         default=False,
         description="Enable aggressive profit trailing (Moon Trailer).",

@@ -95,6 +95,7 @@ const CONFIG_MAP = {
     'CONDUCTOR_PYRAMID_ENABLED': ['global', 'conductor_pyramid_enabled'],
     'CONDUCTOR_PYRAMID_START_R': ['global', 'conductor_pyramid_start_r'],
     'CONDUCTOR_PYRAMID_FIRST_PCT': ['global', 'conductor_pyramid_first_pct'],
+    'EVICTION_MIN_HOLD_MINUTES': ['global', 'eviction_min_hold_minutes'],
     'SWAP_AVOIDANCE_ENABLED': ['safety', 'swap_avoidance_enabled'],
     'SPREAD_GATE_MAX_PCT': ['safety', 'spread_gate_max_pct'],
     'BLOCK_RANGING_REGIME': ['global', 'block_ranging_regime'],
@@ -248,6 +249,7 @@ const TOOLTIPS = {
     CONDUCTOR_PYRAMID_ENABLED: "Master Pyramid Switch. Allows the bot to automatically add more money to a trade that is already winning. Think of it like deciding to press your bet in poker because you're holding a great hand.",
     CONDUCTOR_PYRAMID_START_R: "When to Press the Bet. How deep into profit the trade needs to be before adding more money. For example, 1.0 means 'add more when my profit matches what I originally risked.' 0.5 means 'add more when I am halfway to my goal.'",
     CONDUCTOR_PYRAMID_FIRST_PCT: "How Much to Add. The size of the extra bet, compared to your original one. 100% means double down (match the original bet). 50% means add half as much as the first time.",
+    EVICTION_MIN_HOLD_MINUTES: "Swap Hold Timer. How long (in minutes) a position must be held before it can be swapped out for a better opportunity. Low values = more aggressive swapping, high values = more patient holding.",
     MAX_PYRAMID_ENTRIES: "Maximum extra bets allowed. 'Pyramiding' means adding more as a trade goes in your favor. 1 = no extra bets, just the original trade.",
     BLOCK_RANGING_REGIME: "Sit Out The Chop. When enabled, the bot completely avoids opening new trades if the market is deemed 'ranging' or 'choppy' with no clear direction.",
     PYRAMID_RISK_LOAD: "The size of the VERY FIRST extra bet you place on a winning trade.",
@@ -509,8 +511,8 @@ const CONFLICT_MAP = {
         type: 'modal'
     },
     'performance:smooth': {
-        targets: [],
-        message: "<strong>Equity Smoothing</strong> uses its own principal protection model.",
+        targets: ['RISK_DYNAMIC_AUTO'],
+        message: "<strong>Equity Smoothing</strong> dynamically calculates risk based on your real-time equity curve. This overrides standard <strong>Auto Risk</strong> scaling.",
         type: 'modal'
     },
     'performance:gamma': {
@@ -1638,7 +1640,7 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%', options 
     const card = document.createElement('div');
     card.className = 'slider-card';
     const _raw = getValue(key, stratNamespace);
-    let rawValue = (_raw !== null && _raw !== undefined && _raw !== '') ? _raw : min;
+    let rawValue = (_raw !== null && _raw !== undefined && _raw !== '') ? _raw : (options.default !== undefined ? options.default : min);
 
     // The model stores fractions (0.045 = 4.5%).
     // The slider displays human-friendly percentages (4.5%).
@@ -1877,6 +1879,12 @@ function renderSystemTab(container) {
         "<strong>Market Guards</strong><br><br>Safety checks that run before any trade is placed. These include things like the PDT (Pattern Day Trader) guard, automatic position flattening at market close, and cooldown timers that prevent overtrading."
     ));
     section.appendChild(createCard('PDT Safety Guard', 'Prevent US Equity 25k rule violations', 'PDT_GUARD_ENABLED', 'toggle'));
+
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('System & Debug', 'bug_report',
+        "<strong>Developer Options</strong><br><br>Enable these to diagnose issues or receive deep system notifications."
+    ));
+    section.appendChild(createCard('Debug Notifications', 'Show desktop push notifications for backend events like Pyramiding.', 'GUI_DEBUG_NOTIFICATIONS', 'toggle'));
 
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('Notifications & Sounds', 'notifications_active',
@@ -2240,6 +2248,7 @@ function renderStrategyTab(container) {
         const grid2 = document.createElement('div');
         grid2.className = 'card-grid';
         // (Moved Multi-Position and Smart Positions to Safety Tab)
+        grid2.appendChild(createSliderCard('Eviction Hold Timer', 'Min minutes before a loser can be swapped', 'EVICTION_MIN_HOLD_MINUTES', 5, 240, 5, 'min', { default: '30' }));
         section.appendChild(grid2);
         // REMOVED: Opening Range Sentry + AI Sentiment Shield duplicates — canonical controls live in Safety tab (Audit P2)
 
@@ -3737,19 +3746,30 @@ function showTooltip(e, title, content) {
 
     const rect = e.currentTarget.getBoundingClientRect();
     const tooltipWidth = popup.offsetWidth;
+    const tooltipHeight = popup.offsetHeight;
     const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
     const gap = 16;
 
     // Default: Position to the right
     let leftPos = rect.right + gap;
+    let topPos = rect.top;
 
     // Collision detection: If generic right position + width exceeds window width, flip to left
     if (leftPos + tooltipWidth > windowWidth - 20) { // 20px safety buffer
         leftPos = rect.left - tooltipWidth - gap;
     }
 
+    // Collision detection: If generic bottom position + height exceeds window height, shift up
+    if (topPos + tooltipHeight > windowHeight - 20) {
+        topPos = windowHeight - tooltipHeight - 20;
+    }
+
+    // Secondary sanity check in case tooltip height is massive
+    if (topPos < 20) topPos = 20;
+
     popup.style.left = `${leftPos}px`;
-    popup.style.top = `${rect.top}px`;
+    popup.style.top = `${topPos}px`;
 }
 
 function hideTooltip() {

@@ -1381,6 +1381,12 @@ class Backtester:
                         logger.warning(f"[BACKTEST] Account depleted (capital=${reconciled_capital:.2f}). Stopping backtest.")
                         break
 
+                # ── SIGNAL RANKING: Deferred entry list for position-limited mode ──
+                # When max_open_positions caps concurrent entries, we collect
+                # all entry signals first, rank them by quality, then execute
+                # only the top-N (vs first-come-first-served by dict order).
+                _max_concurrent = int(getattr(profile, 'max_open_positions', None) or 999)
+                _pending_entries = []  # list of (ranking_score, symbol, decision, snapshot, engine) tuples
 
                 for symbol in all_candles.keys():
 
@@ -2063,6 +2069,46 @@ class Backtester:
                             elif current_position is None:
                                 can_enter = True
 
+                        # ── MAX CONCURRENT POSITIONS — DEFER FOR RANKING ──
+                        # When a position cap is active and slots are full,
+                        # instead of blocking outright, defer the entry into
+                        # a candidate list so we can rank ALL signals and
+                        # pick the best N at the end of the symbol loop.
+                        if can_enter and len(positions) >= _max_concurrent:
+                            # Compute ranking score for this candidate
+                            # decision.score is set by engine (0-100 ICC grade)
+                            # snapshot.trend_htf has .strength and .direction
+                            _dec_score = float(getattr(decision, 'score', 0) or 0)
+                            _htf_obj = getattr(snapshot, 'trend_htf', None)
+                            _htf_str = float(getattr(_htf_obj, 'strength', 0) or 0) if _htf_obj else 0.0
+
+                            # Extract regime from Conductor tag in decision notes
+                            # Format: "[Conductor:strategy|regime]"
+                            _regime = 'unknown'
+                            _notes = getattr(decision, 'notes', '') or ''
+                            if '|' in _notes:
+                                import re as _re
+                                _regime_match = _re.search(r'\|(\w+)\]', _notes)
+                                if _regime_match:
+                                    _regime = _regime_match.group(1)
+
+                            _urgency = getattr(decision, 'urgency', 'medium') or 'medium'
+
+                            _regime_bonus = {'trending': 20, 'transitional': 10, 'ranging': 5}.get(_regime, 0)
+                            _urgency_bonus = 5 if _urgency == 'high' else 0
+                            _ranking_score = (_htf_str * 40) + (_dec_score * 0.35) + _regime_bonus + _urgency_bonus
+
+                            _pending_entries.append((
+                                _ranking_score, symbol, decision, snapshot, engine
+                            ))
+                            logger.info(
+                                f"[BACKTEST] {symbol} DEFERRED for ranking "
+                                f"(score={_ranking_score:.1f}, htf={_htf_str:.2f}, "
+                                f"dec_score={_dec_score:.0f}, regime={_regime}, "
+                                f"{len(positions)}/{_max_concurrent} slots full)"
+                            )
+                            can_enter = False  # Don't execute now
+
                         if can_enter:
                             # ── CONSECUTIVE-LOSS COOLDOWN ─────────────────
                             # After 2 consecutive losses on a symbol, sit out
@@ -2318,6 +2364,241 @@ class Backtester:
                             f"[BACKTEST] Error generating decision for {symbol} at {current_time.strftime('%Y-%m-%d %H:%M')}: {e}",
                             exc_info=True
                         )
+                # ── SIGNAL RANKING: Execute top-N deferred entries ─────────
+                # After evaluating all symbols, sort deferred candidates by
+                # ranking score and execute the best available entries.
+                if _pending_entries:
+                    _pending_entries.sort(key=lambda x: x[0], reverse=True)
+                    _available_slots = _max_concurrent - len(positions)
+
+                    logger.info(
+                        f"[RANKING] {len(_pending_entries)} candidates for "
+                        f"{_available_slots} slot(s): "
+                        + ", ".join(f"{sym}({sc:.1f})" for sc, sym, *_ in _pending_entries)
+                    )
+
+                    for _rank_idx, (_score, _r_sym, _r_dec, _r_snap, _r_eng) in enumerate(_pending_entries):
+                        if len(positions) >= _max_concurrent:
+                            # ── OPPORTUNITY COST EVICTION ────────────────
+                            # Slots full — but if the best pending signal is
+                            # stronger than our worst LOSING position, swap.
+                            # RULE: never evict a winning position.
+                            _worst_key = None
+                            _worst_pnl = 0.0
+                            _worst_sym = None
+                            for _pk, _pp in positions.items():
+                                _sym_for_pos = _symbol_from_key(_pk)
+                                # Anti-churn: position must be held ≥N min before eviction
+                                _evict_min_sec = int(getattr(profile, 'eviction_min_hold_minutes', 30)) * 60
+                                _held_sec = (current_time - _pp.entry_time).total_seconds() if _pp.entry_time else 0
+                                if _held_sec < _evict_min_sec:
+                                    continue  # Too young to evict
+                                # Get current price for this position's symbol
+                                _pos_candles = all_candles.get(_sym_for_pos, [])
+                                if not _pos_candles:
+                                    continue
+                                # Find the candle at current_time
+                                _pos_price = None
+                                for _c in reversed(_pos_candles):
+                                    if _c.timestamp <= current_time:
+                                        _pos_price = _c.close
+                                        break
+                                if _pos_price is None:
+                                    _pos_price = _pos_candles[-1].close
+                                _pos_pnl = _calculate_pnl(
+                                    _pp.entry_price, _pos_price,
+                                    _pp.size, _pp.direction,
+                                    symbol=_sym_for_pos
+                                )
+                                # Only consider LOSING positions for eviction
+                                if _pos_pnl < 0 and (_worst_key is None or _pos_pnl < _worst_pnl):
+                                    _worst_key = _pk
+                                    _worst_pnl = _pos_pnl
+                                    _worst_sym = _sym_for_pos
+
+                            if _worst_key is None:
+                                # All positions are winning or too young — don't evict
+                                _remaining = len(_pending_entries) - _rank_idx
+                                potential_trades_blocked += _remaining
+                                potential_trade_block_reasons["all_positions_winning"] += _remaining
+                                logger.info(
+                                    f"[EVICTION] Blocked {_remaining} entries — "
+                                    f"no evictable positions (all winning or too young)"
+                                )
+                                break
+
+                            # Close the worst loser to make room
+                            _evicted = positions.pop(_worst_key)
+                            _evict_sym = _symbol_from_key(_worst_key)
+                            _evict_candles = all_candles.get(_evict_sym, [])
+                            _evict_price = _evict_candles[-1].close if _evict_candles else _evicted.entry_price
+                            for _ec in reversed(_evict_candles):
+                                if _ec.timestamp <= current_time:
+                                    _evict_price = _ec.close
+                                    break
+                            _evict_pnl = _calculate_pnl(
+                                _evicted.entry_price, _evict_price,
+                                _evicted.size, _evicted.direction,
+                                symbol=_evict_sym
+                            )
+                            capital += _evict_pnl
+
+                            # Record the evicted trade
+                            _evict_duration = (current_time - _evicted.entry_time).total_seconds() if _evicted.entry_time else 0
+                            completed_trades.append(SimulatedTrade(
+                                symbol=_evict_sym,
+                                direction=_evicted.direction,
+                                entry_price=_evicted.entry_price,
+                                exit_price=_evict_price,
+                                size=_evicted.size,
+                                entry_time=_evicted.entry_time,
+                                exit_time=current_time,
+                                pnl=_evict_pnl,
+                                exit_reason=f"Evicted for {_r_sym} (score={_score:.1f})",
+                                entry_gates=getattr(_evicted, "entry_gates", None),
+                                strategy_name=getattr(_evicted, 'strategy_name', 'unknown'),
+                            ))
+                            trade_results_store.add_result(TradeResult(
+                                symbol=_evict_sym,
+                                closed_at=current_time.isoformat(),
+                                pnl_pct=(_evict_pnl / (_evicted.entry_price * _evicted.size)) if (_evicted.entry_price * _evicted.size) != 0 else 0,
+                                pnl_usd=_evict_pnl,
+                                is_win=_evict_pnl > 0,
+                                tier="backtest",
+                                capital_at_close=capital,
+                                strategy=(getattr(_evicted, 'entry_gates', None) or {}).get('meta_source') or getattr(_evicted, 'strategy_name', 'unknown'),
+                                exit_reason=f"Evicted for {_r_sym}",
+                                side=_evicted.direction,
+                            ))
+
+                            logger.info(
+                                f"[EVICTION] Closed {_evict_sym} (PnL=${_evict_pnl:.2f}, "
+                                f"held {_evict_duration/60:.0f}m) "
+                                f"→ making room for {_r_sym} (score={_score:.1f})"
+                            )
+                            # Now a slot is free — fall through to entry logic below
+
+                        # ── Apply the same entry pipeline as normal entries ──
+                        # Cooldown check
+                        _r_can_enter = True
+                        if hasattr(self, '_symbol_cooldown'):
+                            _is_sar_r = getattr(_r_dec, 'notes', '') and 'reversal' in str(getattr(_r_dec, 'notes', '')).lower()
+                            _resume_bar_r = self._symbol_cooldown.get(_r_sym, 0)
+                            if _resume_bar_r > self._bar_counter and not _is_sar_r:
+                                _r_can_enter = False
+                                logger.info(
+                                    f"[RANKING] {_r_sym} SKIPPED (cooldown), "
+                                    f"score={_score:.1f}"
+                                )
+
+                        if not _r_can_enter:
+                            potential_trades_blocked += 1
+                            potential_trade_block_reasons["ranked_cooldown"] += 1
+                            continue
+
+                        # ── Risk sizing (mirrors the standard entry path) ──
+                        profile_risk = float(getattr(profile, "risk_per_trade_pct", 0.015))
+                        if hasattr(_r_dec, "risk_per_trade_pct") and _r_dec.risk_per_trade_pct is not None:
+                            _r_risk_pct = max(float(_r_dec.risk_per_trade_pct), profile_risk)
+                        else:
+                            _r_risk_pct = profile_risk
+
+                        # Per-symbol risk overrides
+                        sym_overrides = getattr(profile, 'symbol_risk_overrides', None) or {}
+                        _r_sym_scale = sym_overrides.get(_r_sym, 1.0)
+                        if _r_sym_scale < 1.0:
+                            _r_risk_pct *= _r_sym_scale
+
+                        # Hard max risk cap
+                        MAX_RISK_PCT = float(getattr(profile, 'max_risk_pct_hard_cap', None) or
+                                             (float(getattr(profile, 'risk_per_trade_pct', 0.045)) * 3))
+                        if _r_risk_pct > MAX_RISK_PCT:
+                            _r_risk_pct = MAX_RISK_PCT
+
+                        # Risk saturation
+                        comp_cap = 10000.0
+                        if getattr(profile, 'nuclear_overrides_enabled', False):
+                            comp_cap = getattr(profile, 'compounding_cap_override', 10000.0)
+                        compounding_capital = min(capital, comp_cap)
+                        num_symbols = max(len(symbols), 1)
+                        per_symbol_capital = compounding_capital / (num_symbols ** 0.5)
+
+                        max_risk = per_symbol_capital * _r_risk_pct
+                        entry_price = _r_snap.candles[-1].close
+
+                        # Position sizing
+                        stop_price = _r_dec.stop_loss or (entry_price * 0.98 if _r_dec.action == "enter_long" else entry_price * 1.02)
+                        risk_per_share = abs(entry_price - stop_price)
+
+                        # Min stop distance
+                        min_stop_distance = entry_price * 0.001
+                        if risk_per_share < min_stop_distance:
+                            original_rr = 2.5
+                            if _r_dec.take_profit and risk_per_share > 0:
+                                tp_dist = abs(_r_dec.take_profit - entry_price)
+                                original_rr = tp_dist / risk_per_share
+                            risk_per_share = min_stop_distance
+                            if _r_dec.action == "enter_long":
+                                stop_price = entry_price - min_stop_distance
+                            else:
+                                stop_price = entry_price + min_stop_distance
+                            if _r_dec.take_profit:
+                                if _r_dec.action == "enter_long":
+                                    _r_dec.take_profit = entry_price + (min_stop_distance * original_rr)
+                                else:
+                                    _r_dec.take_profit = entry_price - (min_stop_distance * original_rr)
+
+                        size = max_risk / _jpy_adjust_risk(risk_per_share, _r_sym, entry_price) if risk_per_share > 0 else 0
+
+                        # Leverage cap
+                        from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
+                        asset_class = classify_symbol(_r_sym)
+                        REALISTIC_LEVERAGE = {
+                            AssetClass.FOREX: 30.0,
+                            AssetClass.CRYPTO: 3.0,
+                            AssetClass.STOCKS: 4.0,
+                            AssetClass.ETF: 4.0,
+                            AssetClass.METALS: 20.0,
+                            AssetClass.FUTURES: 15.0,
+                        }
+                        lev_cap = REALISTIC_LEVERAGE.get(asset_class, 5.0)
+                        if os.getenv('RR_LEV_CAP'):
+                            lev_cap = float(os.environ['RR_LEV_CAP'])
+                        max_position_value = per_symbol_capital * lev_cap
+                        npu = _notional_per_unit(_r_sym, entry_price)
+                        max_shares = max_position_value / npu
+                        if size > max_shares:
+                            size = max_shares
+
+                        if size > 0:
+                            meta_src = (getattr(_r_dec, 'gates', None) or {}).get('meta_source')
+                            entry_pos_key = _pos_key(_r_sym, meta_src) if is_multi_position else _r_sym
+
+                            positions[entry_pos_key] = SimulatedPosition(
+                                symbol=_r_sym,
+                                direction="long" if _r_dec.action == "enter_long" else "short",
+                                entry_price=entry_price,
+                                size=size,
+                                entry_time=current_time,
+                                stop_price=stop_price,
+                                target_price=_r_dec.take_profit,
+                                pyramid_count=1,
+                                total_cost=entry_price * size,
+                                htf_neutral_bars=0,
+                                entry_gates=getattr(_r_dec, 'gates', None),
+                                strategy_name=(
+                                    (getattr(_r_dec, 'gates', None) or {}).get('meta_source')
+                                    or getattr(getattr(_r_eng, '_strategy', None), 'name', None)
+                                    or getattr(profile, 'strategy_variant', 'untagged')
+                                ),
+                                original_entry_price=entry_price,
+                                initial_risk=abs(entry_price - float(stop_price)) if stop_price else None,
+                            )
+                            logger.info(
+                                f"[RANKING] #{_rank_idx+1} {_r_sym} ENTRY {_r_dec.action.upper()} "
+                                f"@ ${entry_price:.5f}, score={_score:.1f}, "
+                                f"size={size:.0f}, stop=${stop_price:.5f}"
+                            )
 
             # Record equity curve
             unrealized_pnl = sum(pos.unrealized_pnl for pos in positions.values())
