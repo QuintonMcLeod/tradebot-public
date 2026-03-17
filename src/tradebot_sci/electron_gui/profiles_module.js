@@ -228,6 +228,37 @@ window.profilesModule = (function () {
             if (config && config.active_profile) {
                 activeProfileName = config.active_profile;
             }
+            
+            // Auto-create default profile if empty (e.g., fresh install)
+            if (!allProfiles || Object.keys(allProfiles).length === 0) {
+                console.log('[PROFILES] No profiles found. Auto-creating default profile.');
+                allProfiles = {
+                    'default': {
+                        strategy_variant: 'rubberband_reaper',
+                        htf_timeframe: '15m',
+                        ltf_timeframe: '5m',
+                        symbols: [],
+                        risk_per_trade_pct: 0.02,
+                        max_concurrent_positions: 1,
+                        icc_auto_entry_enabled: true,
+                        strategies: {}
+                    }
+                };
+                activeProfileName = 'default';
+                
+                // Immediately save default state to config.json and profiles.yaml
+                let currentConfig = config || {};
+                currentConfig.profiles = allProfiles;
+                currentConfig.active_profile = activeProfileName;
+                try {
+                    await window.api.invoke('save-config', currentConfig);
+                    const yamlStr = stringifyProfiles(allProfiles);
+                    await window.api.invoke('save-profiles', yamlStr);
+                } catch (saveErr) {
+                    console.error('[PROFILES] Failed to save default profile:', saveErr);
+                }
+            }
+            
         } catch (err) {
             console.error('[PROFILES] Load failed:', err);
             allProfiles = {};
@@ -1145,26 +1176,119 @@ window.profilesModule = (function () {
     }
 
     function createNewProfile() {
-        const name = prompt('Enter new profile name (lowercase, underscores):');
-        if (!name) return;
-        const safeName = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-        if (allProfiles[safeName]) {
-            alert('Profile already exists!');
-            return;
-        }
-        allProfiles[safeName] = {
-            strategy_variant: 'rubberband_reaper',
-            htf_timeframe: '15m',
-            ltf_timeframe: '5m',
-            symbols: [],
-            risk_per_trade_pct: 0.02,
-            max_concurrent_positions: 1,
-            icc_auto_entry_enabled: true,
-            strategies: {}
+        // Create modal overlay
+        const overlay = document.createElement('div');
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100vw';
+        overlay.style.height = '100vh';
+        overlay.style.backgroundColor = 'rgba(0,0,0,0.85)';
+        overlay.style.backdropFilter = 'blur(8px)';
+        overlay.style.zIndex = '9999';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        
+        const modal = document.createElement('div');
+        modal.style.background = 'linear-gradient(135deg, rgba(30,41,59,0.9) 0%, rgba(15,23,42,0.95) 100%)';
+        modal.style.border = '1px solid rgba(20,184,166,0.2)';
+        modal.style.borderRadius = '16px';
+        modal.style.padding = '32px';
+        modal.style.width = '400px';
+        modal.style.boxShadow = '0 25px 50px -12px rgba(0,0,0,0.5), 0 0 40px rgba(20,184,166,0.1)';
+        modal.style.display = 'flex';
+        modal.style.flexDirection = 'column';
+        modal.style.gap = '16px';
+
+        modal.innerHTML = `
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
+                <div style="width:40px; height:40px; border-radius:10px; background:rgba(20,184,166,0.1); border:1px solid rgba(20,184,166,0.2); display:flex; align-items:center; justify-content:center; color:#14b8a6;">
+                    <span class="material-symbols-outlined">add_circle</span>
+                </div>
+                <div>
+                    <h3 style="margin:0; font-size:18px; color:#f8fafc; font-weight:800; letter-spacing:-0.01em;">Create New Profile</h3>
+                    <p style="margin:4px 0 0; font-size:12px; color:#94a3b8;">Enter a unique name (lowercase, underscores).</p>
+                </div>
+            </div>
+            <input type="text" id="new-profile-input" placeholder="e.g. aggressive_crypto" 
+                style="width:100%; padding:12px 16px; border-radius:8px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); color:#f8fafc; font-size:14px; outline:none; transition:border 0.2s;"
+                autocomplete="off">
+            <div id="new-profile-error" style="color:#ef4444; font-size:12px; display:none; margin-top:-8px;"></div>
+            <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:8px;">
+                <button id="new-profile-cancel" style="padding:10px 20px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#cbd5e1; font-size:13px; font-weight:700; cursor:pointer; transition:all 0.2s;">Cancel</button>
+                <button id="new-profile-create" style="padding:10px 20px; border-radius:8px; background:linear-gradient(135deg, #14b8a6, #0d9488); border:none; color:#ffffff; font-size:13px; font-weight:800; cursor:pointer; box-shadow:0 4px 12px rgba(20,184,166,0.3);">Create Profile</button>
+            </div>
+        `;
+        
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const input = document.getElementById('new-profile-input');
+        const errorDiv = document.getElementById('new-profile-error');
+        
+        // Focus requires a slight delay after injecting into DOM in some Electron versions
+        setTimeout(() => input.focus(), 10);
+
+        input.addEventListener('focus', () => input.style.borderColor = 'rgba(20,184,166,0.5)');
+        input.addEventListener('blur', () => input.style.borderColor = 'rgba(255,255,255,0.1)');
+
+        const close = () => {
+            if (document.body.contains(overlay)) {
+                document.body.removeChild(overlay);
+            }
         };
-        renderProfileList();
-        selectProfile(safeName);
-        incrementChangeCounter();
+
+        const submit = () => {
+            const name = input.value.trim();
+            if (!name) {
+                errorDiv.textContent = 'Profile name cannot be empty.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            errorDiv.style.display = 'none';
+            const safeName = name.toLowerCase().replace(/\\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+            if (!safeName) {
+                errorDiv.textContent = 'Profile name must contain valid characters.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            if (allProfiles[safeName]) {
+                errorDiv.textContent = 'Profile already exists!';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            allProfiles[safeName] = {
+                strategy_variant: 'rubberband_reaper',
+                htf_timeframe: '15m',
+                ltf_timeframe: '5m',
+                symbols: [],
+                risk_per_trade_pct: 0.02,
+                max_concurrent_positions: 1,
+                icc_auto_entry_enabled: true,
+                strategies: {}
+            };
+            
+            renderProfileList();
+            selectProfile(safeName);
+            incrementChangeCounter();
+            close();
+        };
+
+        document.getElementById('new-profile-cancel').addEventListener('click', close);
+        document.getElementById('new-profile-create').addEventListener('click', submit);
+        
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submit();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                close();
+            }
+        });
     }
 
     // ── Activate Profile (set as the bot's active profile) ──────

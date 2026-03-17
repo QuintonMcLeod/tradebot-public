@@ -539,7 +539,17 @@ class StrategyEngine:
                     exit_decision.score = score
                     exit_decision.grade = grade
 
-                    logger.info(f"[ENGINE] {self.symbol} Strategy EXIT triggered: {exit_decision.summary()}")
+                    action_str = exit_decision.action.upper()
+                    if action_str in ("SCALE_IN", "ADD_TO_POSITION"):
+                        log_type = "PYRAMID"
+                    elif action_str in ("HOLD", "STAND_ASIDE"):
+                        log_type = "MANAGEMENT"
+                    elif "EXIT" in action_str or "LIQUIDATE" in action_str:
+                        log_type = "EXIT"
+                    else:
+                        log_type = "DECISION"
+                        
+                    logger.info(f"[ENGINE] {self.symbol} Strategy {log_type} triggered: {exit_decision.summary()}")
                     return exit_decision
             
             # [SAFETY GUARD] Augment with Safety Exits (ATR Armor, Trailing) if Strategy is silent
