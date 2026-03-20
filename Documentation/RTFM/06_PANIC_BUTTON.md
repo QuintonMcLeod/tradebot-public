@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Something is wrong. Make it stop. MAKE IT STOP."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"OK. Deep breath. The bot is either screaming in red text — or worse, doing absolutely nothing at all. Both are terrifying in their own way. The silence is actually scarier. But don't panic. That's what this chapter is for.<br><br>Every error you're about to see? I've seen it first. Usually at 2 AM. With coffee. And regret."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Look at you. You're a grown adult, hyperventilating because a computer program printed some red text. Pull yourself together! The bot is either screaming at you, or worse, doing absolutely nothing and making you sit with your own thoughts. Both are terrifying when you don't know what you're doing. But don't panic. That's why I wrote this chapter.<br><br>Every error in here? I've seen it. I've stared at it at 2 AM looking like a complete idiot before I figured it out. So shut up, sit down, and read."</td></tr></table>
 
 ---
 
@@ -59,7 +59,7 @@
 
 <table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"Patience. Silence is not failure — it is discipline. The absence of a trade IS a decision. And often the best one."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's the diagnostic checklist. Go through these IN ORDER before you assume something is broken:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Monk is right, but since you don't speak incense and yoga mats, let me translate: THE MARKET IS TRASH TODAY. Would you walk into a hurricane just to say you went outside? No! So why are you mad the bot isn't trading in garbage conditions? <br><br>But fine. If you absolutely MUST know why it's not trading, go through this checklist. IN ORDER. Before you come crying to me that it's broken."</td></tr></table>
 
 **Cause Checklist:**
 - **Position Lock:** Already an open position for that symbol? Lock blocks ALL new entries.
@@ -84,7 +84,7 @@
 ### "Connection Refused"
 **Symptom:** `[IBKR] Connection Refused: 127.0.0.1:7497`
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"TWS or IB Gateway isn't running. Or you're on the wrong port. 7497 = Paper. 7496 = Live. Verify API is enabled in TWS settings. This is always the first thing people forget."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"TWS or IB Gateway isn't running. Or you're on the wrong port. 7497 is for Paper. 7496 is for Live. You didn't enable the API in the settings, did you? Be honest. You skipped that step because reading is hard. Go back and turn it on."</td></tr></table>
 
 ### "Client ID in Use"
 **Symptom:** `[IBKR] Client ID 1 already in use`
@@ -134,7 +134,7 @@
 
 <table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"SKYNET SCENARIO! THE BOT'S GONE ROGUE! 🏴‍☠️"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Calm down. It hasn't gone rogue. It's doing exactly what the code tells it to do. Which might be wrong. But it's not rogue. Three options to stop it:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Rogue? Are you out of your mind? It's a Python script, not the Terminator! It's doing EXACTLY what your goofy settings told it to do. If it's doing something stupid, it's because YOU gave it stupid instructions. <br><br>But if you absolutely need to rip the steering wheel off, here are your three options:"</td></tr></table>
 
 1. **Ctrl+C** in the terminal.
 2. **`./scripts/tradebot.sh --exit-all`** (The Nuclear Option).
@@ -176,4 +176,4 @@ See Chapter 8 (**API Setup**) for step-by-step broker setup.
 | API errors | Key/secret correct? Not expired? Has trade permissions? |
 | Won't start | No broker configured? See Preflight Check above |
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you've gone through this entire chapter and nothing fixed your problem, check the logs again. The answer is always in the logs. Always. I didn't write 500 log messages for my health."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you've gone through this entire chapter and you're STILL confused, check the logs again. The answer is always in the logs. Always. I didn't write 500 different highly specific log messages just so you could ignore them and text me 'bot broke.' Read the damn screen. Stop playing with me."</td></tr></table>

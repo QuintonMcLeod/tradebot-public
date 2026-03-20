@@ -25,7 +25,7 @@
 
 <table><tr><td width="170"><img src="img/skeptic.png" width="150"></td><td><b>KAREN</b>:<br>"To be fair, they were also famously hacked in 2022. So your money disappears <em>faster</em> than just losing it trading. They cut out the middleman, which in this case is the market."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"TradeBot SCI cost? <b>$0/month. Forever.</b> You host it yourself. On your own machine. Nobody hacks your laptop. Nobody stores your API keys on a server in some data center next to a thousand other people's API keys. That's not paranoia — that's architecture."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Zero dollars! Does nobody understand the concept of free anymore? You host it on your own machine! Nobody's stealing your API keys from some cloud server doing God knows what. This isn't paranoia, it's just not being an idiot with your money!"</td></tr></table>
 
 ---
 
@@ -42,7 +42,7 @@
 
 <table><tr><td width="170"><img src="img/skeptic.png" width="150"></td><td><b>KAREN</b>:<br>"I looked at their top marketplace strategy. 60% win rate in backtesting. -40% return in live trading. Those two numbers are not supposed to go in opposite directions."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Meanwhile, TradeBot SCI's Conductor strategy? <b>33% win rate, +$610 profit on a $3,290 account.</b> Because win rate doesn't matter when your average loss is <b>$3</b> and your average win is <b>$137</b>. That's a 46:1 R:R ratio.<br><br>But sure, spend $107/month on a strategy named 'MOON_SHOT_PRO_V2' by @lambo_trader_69. Be my guest."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Win rate is a vanity metric for people who suck at math! Our average loss is $3! Our average win is $137! Do you understand? But go ahead, go pay a hundred bucks a month to a teenager named @lambo_trader_69 on the internet. See how that works out for you!"</td></tr></table>
 
 ---
 
@@ -125,7 +125,7 @@
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"I gotta hand it to Gunbot — one-time payment. Respect. No subscription hamster wheel. They also run locally which means you own your data. Two W's.<br><br>BUT — and this is a big but — their strategies are preset with minimal customization unless you write JavaScript. And their 'community' documentation is like reading assembly instructions written by someone who's never assembled anything. I spent 2 hours trying to figure out what 'stepgain' does and I'm still not sure."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Gunbot runs locally. Good. No subscription. Good. But no regime detection, no Meta-SCI tournament, no Fee Shield, no Smart Positions, no Sabbath Mode, no multi-broker support across different asset classes. Gunbot is a solid foundation missing the entire second floor."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Okay, Gunbot runs locally, I'll give them that. But it's barebones! It's missing half the house! No regime detection, no Meta-SCI, no Fee Shield! It's like buying a car and finding out the steering wheel is a subscription add-on!"</td></tr></table>
 
 ---
 
@@ -365,7 +365,7 @@
 
 # 🎤 The Closing Argument
 
-<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"Look. Every bot out there wants your <b>money</b> — subscription fees, exchange commissions, spread markups, 'premium' marketplace strategies. They want to take money from you for the opportunity to lose money FOR you. Think about that. You're paying someone to lose your money. That's not a service. That's a scam with good branding.<br><br>TradeBot SCI wants your <b>respect.</b> It's free, it's yours, it runs on your hardware, and it has a strategy that literally refuses to lose more than $8 on a trade.<br><br>The Conductor doesn't chase. It doesn't FOMO. It doesn't revenge trade. It sits in a choppy market for 40 hours and says 'nah.' You know how hard that is for a human? <em>I</em> can't even scroll past a pizza ad without ordering. The bot stares at 40 hours of market noise and says 'I'll pass.' That's superhuman discipline. Except it's not human at all."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Let me give you the reality check. Everyone else wants to charge you a subscription to lose your money. They are scamming you! TradeBot SCI is free. It runs on your own hardware. It doesn't revenge trade. It just sits there and ignores bad markets for 40 hours! You can't even ignore a text message for five minutes! It has the discipline of a Shaolin monk, and it costs you nothing. End of discussion."</td></tr></table>
 
 <table><tr><td width="170"><img src="img/skeptic.png" width="150"></td><td><b>KAREN</b>:<br>"I hate to admit it, but the numbers check out. The average loss really is $3-8. The regime detection really does block choppy entries. And it really does cost zero dollars.<br><br><em>adjusts glasses</em><br><br>My only complaint is that the documentation reads like it was written by someone who had too much coffee and strong opinions. But honestly? At least I stayed awake reading it. That's more than I can say for 3Commas' docs."</td></tr></table>
 

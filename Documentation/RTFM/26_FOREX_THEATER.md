@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Welcome to the Forex Theater. Three acts per day. The actors are central banks with printing presses. The audience is $7.5 trillion in daily volume."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Every day, $7.5 trillion changes hands in the foreign exchange market. That's more than the GDP of Japan. Every. Single. Day. And it happens in three acts, on three stages, across three continents.<br><br>Understanding these sessions isn't trivia — it's the difference between trading in a liquid ocean and trading in a puddle."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Every single day, $7.5 trillion changes hands. Trillion! With a T! That's more money than you can even comprehend. And it happens in three acts across three continents. If you don't understand these sessions, you are playing in traffic blindfolded. Learn the schedule or get run over!"</td></tr></table>
 
 ---
 
@@ -29,7 +29,7 @@
 
 **Best Strategies:** Session Momentum, Trend Rider, ORB Breakout, Supply & Demand
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"London's favorite party trick: the Fake-Out. Price breaks above the Asian range to grab stop-losses, then reverses hard. London saying 'thanks for the liquidity, retail.'"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"London's favorite trick is to fake you out. It breaks out just far enough to trigger your little stop-loss, steals your money, and then goes exactly the direction you thought it was going to go in the first place. That's London's way of saying 'Thanks for playing, idiot!'"</td></tr></table>
 
 ---
 
@@ -85,4 +85,4 @@ The **Friction Model** accounts for spreads. If the cost eats too much of the ex
 
 ## The Meta Point
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Forex isn't one market — it's three overlapping markets with different personalities, actors, and optimal strategies. The bot knows which session is active and adjusts accordingly. Your only job is to tell it which sessions to trade.<br><br><em>The market is always right. But it's more right during London.</em>"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Forex is basically three different animals. And you can't treat a bear the same way you treat a house cat. The bot knows what time it is and adjusts itself. Your only job is to turn it on and get out of its way. Stop pretending you know better than the London session!"</td></tr></table>

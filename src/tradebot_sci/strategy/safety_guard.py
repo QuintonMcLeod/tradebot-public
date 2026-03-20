@@ -388,14 +388,15 @@ class SafetyGuard:
         # -------------------------------------------------------------
         if safety and safety.safety_sentiment_shield_enabled and ai_client:
              try:
-                 # Prevent "Itchy Trigger Finger" / excessive API calls
+                 # Cache per ASSET CLASS (not per symbol) to reduce API calls.
+                 # All forex pairs share the same macro environment.
                  class_cache = cls._state.sentiment_cache.get(asset_class, {})
-                 cached = class_cache.get(symbol)
+                 cached = class_cache.get(asset_class)  # one entry per class
                  cache_valid = False
                  if cached:
                      ts, sentiment_val = cached
-                     # Valid if less than 15 mins old
-                     if (now - ts) < timedelta(minutes=15):
+                     # Valid if less than 30 mins old (was 15 — too aggressive)
+                     if (now - ts) < timedelta(minutes=30):
                          cache_valid = True
                          sentiment = sentiment_val
                  
@@ -403,17 +404,24 @@ class SafetyGuard:
                      # Fetch real-time news headlines
                      news_context = get_latest_news(limit=5)
                      sentiment_prompt = (
-                         f"Analyze market structure for {symbol} based on H1 trend: {snapshot.trend_htf} "
-                         f"and recent 5 candles. Here are the latest global financial headlines:\n"
-                         f"{news_context}\n"
-                         f"Based on technical structure and news, is the market DANGEROUS or SAFE? One word."
+                         f"You are a risk analyst evaluating whether {symbol} is safe to trade RIGHT NOW.\n"
+                         f"HTF trend: {snapshot.trend_htf}.\n"
+                         f"Recent headlines:\n{news_context}\n\n"
+                         f"IMPORTANT: General geopolitical tension, trade wars, or macro uncertainty are NORMAL "
+                         f"market conditions — they do NOT make a market DANGEROUS. Markets trade through uncertainty every day.\n\n"
+                         f"Only answer DANGEROUS if there is a SPECIFIC, IMMINENT threat to {symbol} such as:\n"
+                         f"- Central bank emergency intervention happening RIGHT NOW\n"
+                         f"- A flash crash or circuit breaker event in progress\n"
+                         f"- A currency peg breaking or sovereign default announcement\n"
+                         f"- An exchange or liquidity provider outage\n\n"
+                         f"If conditions are normal (even if volatile or uncertain), answer SAFE.\n"
+                         f"Answer with ONE word: SAFE or DANGEROUS."
                      )
-                     # Simple prompt to avoid complex analysis cost
                      sentiment = ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]).upper()
-                     # Update Cache
-                     class_cache[symbol] = (now, sentiment)
+                     # Update Cache — store per asset class
+                     class_cache[asset_class] = (now, sentiment)
                      cls._state.sentiment_cache[asset_class] = class_cache
-                     logger.info(f"[SAFETY] AI Shield Refreshed for {symbol}: {sentiment}")
+                     logger.info(f"[SAFETY] AI Shield Refreshed for {asset_class}: {sentiment}")
                  
                  if "DANGEROUS" in sentiment:
                       if not cache_valid: logger.warning(f"[SAFETY] AI Sentiment Shield blocked {symbol}: {sentiment}")

@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The Hybrid Engine lets you use one broker for data and another for execution. One broker is a dependency. Two brokers is a strategy. Three brokers is an empire."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You don't keep all your eggs in one basket. You don't put all your passwords in one text file. (Right? RIGHT?) So why would you run all your trades through one broker?<br><br>TradeBot SCI supports multi-broker, multi-market orchestration — forex through OANDA, crypto through Gemini, stocks through IBKR, all from the same dashboard, with the same strategies."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You don't put all your eggs in one basket, do you? You don't put all your passwords in a text file named 'passwords.txt' right on your desktop. (Well, maybe you do, but you shouldn't!) So why are you running every single trade through one broker like a peasant?<br><br>The Hybrid Engine orchestrates multiple brokers. OANDA for forex. CCXT for crypto. IBKR for stocks. All at the same time. You're building an empire, act like it."</td></tr></table>
 
 ---
 
@@ -68,7 +68,7 @@ alternative_broker: "ccxt"
 alternative_market_data: "ccxt"
 ```
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Forex goes through OANDA. Crypto goes through CCXT. Each symbol routes to the right broker based on its asset class. The bot handles the routing automatically. You just pick the mode."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"It's simple. Forex goes to OANDA. Crypto goes to CCXT. The bot plays traffic cop so you don't have to. You just tell it the mode, and it sends the orders to the right place while you take all the credit."</td></tr></table>
 
 ---
 

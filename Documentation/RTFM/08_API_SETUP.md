@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"API keys are your weapons. Handle them with care. Store them in .env.secrets. Never commit them to git. Never paste them in Discord. Never email them. If someone asks for your API key, they are not your friend."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The bot is only as smart as its connection. No connection = no data = no trades = expensive paperweight. This guide shows you exactly how to wire up every supported service — AI brain, brokers, and exchanges."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The bot is only as brilliant as its connection. If you don't connect it right, it's just a very complicated, very expensive paperweight humming on your desk doing nothing. Let's wire this thing up before you break something."</td></tr></table>
 
 ---
 

@@ -43,32 +43,137 @@
         return formatted;
     }
 
-    /**
-     * appendLog — appends a formatted log line to the terminal element.
-     */
     let _logTerminal = null;
     function appendLog(level, rawMessage) {
         if (!_logTerminal) {
             _logTerminal = document.getElementById('log-terminal');
             if (!_logTerminal) return;
         }
-        const div = document.createElement('div');
-        const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
 
-        if (level === 'GUI') {
-            div.className = "log-line py-1 px-2 my-1 rounded bg-amber-500/10 border-l-2 border-amber-500/50 text-amber-200/90 font-bold";
-            div.innerHTML = `<span class="text-amber-500/60 font-mono text-[10px] mr-2">[GUI]</span> ${rawMessage}`;
-        } else {
-            div.className = "log-line text-white/90 py-0.5";
-            div.innerHTML = `<span class="text-slate-600 font-mono">[${ts}]</span> ${formatLogMessage(rawMessage)}`;
+        const div = document.createElement('div');
+        const tsNow = new Date().toLocaleTimeString('en-US', { hour12: false });
+
+        // 1. Check if the rawMessage is structured JSON
+        let parsedJson = null;
+        let cleanMessage = rawMessage;
+        if (typeof rawMessage === 'string') {
+            // Often prefixed by the terminal router: [16:55:27] {"timestamp"...}
+            const match = rawMessage.match(/^\[\d{2}:\d{2}:\d{2}\]\s*({.*)/);
+            cleanMessage = match ? match[1] : rawMessage.trimStart();
+            
+            if (cleanMessage.startsWith('{')) {
+                try {
+                    parsedJson = JSON.parse(cleanMessage);
+                } catch (_) { }
+            }
         }
 
-        // Smart auto-scroll: only scroll down if user is already near the bottom.
-        // If they scrolled up to inspect logs, don't yank them back.
-        const isNearBottom = (_logTerminal.scrollHeight - _logTerminal.scrollTop - _logTerminal.clientHeight) < 80;
+        // 2. Render Structured JSON Logs
+        if (parsedJson) {
+            const pLevel = parsedJson.level || level || 'INFO';
+            let pMsg = parsedJson.message || '';
+            const pLogger = parsedJson.logger ? parsedJson.logger.split('.').pop() : '';
+            
+            // Format timestamp (use JSON timestamp if available, else current time)
+            let displayTs = tsNow;
+            if (parsedJson.timestamp) {
+                try {
+                    const d = new Date(parsedJson.timestamp);
+                    if (!isNaN(d)) {
+                        displayTs = d.toLocaleTimeString('en-US', { hour12: false });
+                    }
+                } catch (_) {}
+            }
+
+            // MOTD Special Handling
+            const isMotd = pMsg.includes('[MOTD]');
+            if (isMotd) {
+                pMsg = pMsg.replace(/\[MOTD\]\s*/g, '');
+            }
+
+            // Colors for log levels
+            const levelMap = {
+                'INFO': 'text-blue-400',
+                'SUCCESS': 'text-green-400',
+                'WARNING': 'text-yellow-400',
+                'ERROR': 'text-red-400',
+                'CRITICAL': 'text-red-500 font-bold animate-pulse',
+                'SYSTEM': 'text-slate-400',
+                'DEBUG': 'text-slate-500'
+            };
+            const levelColor = levelMap[pLevel] || 'text-slate-300';
+            const bgClass = pLevel === 'CRITICAL' ? 'bg-red-500/10' : (pLevel === 'ERROR' ? 'bg-red-900/10' : (pLevel === 'WARNING' ? 'bg-yellow-500/5' : 'hover:bg-slate-800/30'));
+
+            // Format standard keywords
+            let formattedMsg = formatLogMessage(pMsg);
+
+            // Markdown Processing
+            formattedMsg = formattedMsg.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>');
+            formattedMsg = formattedMsg.replace(/^\*\s+(.*?)$/gm, '<div class="flex items-start"><span class="text-slate-500 mr-2">•</span><span>$1</span></div>');
+            formattedMsg = formattedMsg.split('\n').join('<br>'); // Basic newlines
+
+            // Traceback Processing
+            let excHtml = '';
+            if (parsedJson.exc_info) {
+                excHtml = `<div class="mt-2 p-3 bg-red-950/30 border border-red-500/20 rounded-md text-red-300 font-mono text-[10px] whitespace-pre overflow-x-auto leading-relaxed opacity-90">${parsedJson.exc_info.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
+            }
+
+            // Hide dividers entirely per user request
+            const isDivider = pMsg && /^[═\-*]+$/.test(pMsg.trim());
+            if (isDivider) {
+                return;
+            }
+
+            div.className = `log-line py-1.5 px-3 transition-colors ${bgClass}`;
+            
+            if (isMotd) {
+                // Special MOTD styling (Hero banner text)
+                div.innerHTML = `
+                    <div class="flex items-start gap-3">
+                        <span class="text-slate-500/70 font-mono text-[10px] whitespace-nowrap pt-1 shrink-0">[${displayTs}]</span>
+                        <div class="flex-1 min-w-0 flex justify-center items-center py-1">
+                            <span class="text-teal-400 font-black tracking-widest uppercase text-[11px] drop-shadow-md text-center">${formattedMsg}</span>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Standard beautifully indented grid layout
+                div.innerHTML = `
+                    <div class="flex items-start gap-3">
+                        <span class="text-slate-500/70 font-mono text-[10px] whitespace-nowrap pt-0.5 shrink-0">[${displayTs}]</span>
+                        <span class="${levelColor} font-mono text-[10px] whitespace-nowrap pt-0.5 w-[60px] shrink-0 text-right">[${pLevel}]</span>
+                        <div class="flex-1 min-w-0 border-l border-slate-700/30 pl-3">
+                            ${pLogger ? `<span class="text-slate-500 font-mono text-[9px] uppercase tracking-wider block mb-0.5">${pLogger}</span>` : ''}
+                            <div class="text-slate-300 text-[11px] leading-relaxed break-words font-sans">${formattedMsg}</div>
+                            ${excHtml}
+                        </div>
+                    </div>
+                `;
+            }
+        } else {
+            // 3. Render legacy/unstructured strings
+            if (level === 'GUI') {
+                div.className = "log-line py-1.5 px-3 my-1 rounded bg-amber-500/10 border-l-2 border-amber-500/50 text-amber-200/90 font-bold text-[11px]";
+                div.innerHTML = `<span class="text-amber-500/60 font-mono text-[10px] mr-2">[GUI]</span> ${cleanMessage}`;
+            } else {
+                div.className = "log-line text-slate-300 text-[11px] py-1 px-3 hover:bg-slate-800/30 transition-colors";
+                div.innerHTML = `<span class="text-slate-500/70 font-mono text-[10px] mr-2">[${tsNow}]</span> ${formatLogMessage(cleanMessage)}`;
+            }
+        }
+
+        // Smart auto-scroll with tolerance for smooth scrolling
+        const threshold = 150;
+        const distFromBottom = _logTerminal.scrollHeight - _logTerminal.scrollTop - _logTerminal.clientHeight;
+        const isNearBottom = distFromBottom < threshold;
+        
         _logTerminal.appendChild(div);
-        if (_logTerminal.children.length > 300) _logTerminal.removeChild(_logTerminal.firstChild);
-        if (isNearBottom) _logTerminal.scrollTop = _logTerminal.scrollHeight;
+        while (_logTerminal.children.length > 500) _logTerminal.removeChild(_logTerminal.firstChild); // Keep up to 500 beautifully formatted logs
+        
+        if (isNearBottom) {
+            requestAnimationFrame(() => {
+                _logTerminal.scrollTop = _logTerminal.scrollHeight;
+            });
+        }
     }
 
     /**

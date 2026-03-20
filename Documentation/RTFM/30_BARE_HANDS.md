@@ -2,11 +2,11 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I just opened a brokerage account! I watched like four YouTube videos and I feel like I'm ready. I got my own strategy — I'm gonna buy when it goes up and sell when it goes down!"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Stop. Sit down. Put the phone down.<br><br>You're about to walk into a professional kitchen, hip-check Gordon Ramsay out of the way, and announce that you're gonna cook a five-course dinner using nothing but vibes and a YouTube video you watched <em>half</em> of. No knives, no measuring cups, no recipe, no thermometer. Just raw instinct and the unearned confidence of a man who once made scrambled eggs without setting off the smoke alarm.<br><br>That is what you look like to the market right now."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Shut up! Sit down! Put the phone away! You think because you watched three guys with fake teeth on YouTube that you're ready to trade? You're walking into a warzone with a butter knife! You're gonna get destroyed by computers that don't sleep, don't blink, and definitely don't care about your feelings!"</td></tr></table>
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"But I—"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I said sit DOWN.<br><br>The market is not a kitchen. It's a battlefield with no referees, real money on the line, and the people on the other side are not amateurs. They're hedge funds with billion-dollar AI systems. Institutional desks with fifteen screens per analyst. Algorithms that execute <b>twenty thousand orders</b> in the time it takes you to <em>type your password.</em><br><br>You know what you are in that arena? You're showing up to a sword fight with a pool noodle. And somehow — <em>somehow</em> — you're confident about it."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I told you to sit down! You're trading against hedge funds with billion-dollar AI systems right across from Wall Street! They execute twenty thousand orders before you even remember your broker password! And you're sitting there in your underwear on Webull thinking 'I feel like this is going up.' You are a clown!"</td></tr></table>
 
 ---
 
@@ -39,7 +39,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I just lost $400 on EURUSD. But I KNOW where it's going. If I just double my position—"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"STOP.<br><br>You just lost $400 on a bad call. Your jaw tightened. Your fingers are hovering over the keyboard. And right now, the dumbest voice you own — the one that's been wrong about everything since the third grade — is whispering: <em>'Double down and win it back.'</em><br><br>What follows is never a carefully considered, risk-managed re-entry. It's a furious, oversized bet with the emotional precision of a dart thrown by a blindfolded gorilla who is also angry. You lose another $600. Now you're down a thousand dollars and you hate yourself, the market, and whoever invented candlestick charts.<br><br>The revenge trade is the single most expensive impulse in all of retail trading. Banks literally <em>count</em> on it. They have departments dedicated to people like you. They call it 'retail flow.' But what they mean is: 'free money from emotional amateurs.'"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Listen to yourself! You just lost $400, and now the stupidest voice in your head is telling you to double down because 'you know where it's going.' You don't know anything! You throw an oversized bet at the screen because you're angry, and you lose another $600! Now you're down a grand and you're mad at the universe! Stop it! The banks are laughing at you! They literally call your money 'dumb retail flow'!"</td></tr></table>
 
 ### 2. The "I'll Sleep When I'm Rich" Phase 🥱
 

@@ -1,6 +1,6 @@
 # 35. The Minovsky Engine — Death of the Phoenix, Birth of the Reactor
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Alright. Sit down. We need to have a funeral. And then a christening. In that order.<br><br>The <b>Phoenix Engine</b> is dead. I killed it. With my bare hands. And I'd do it again.<br><br>See, the Phoenix Engine was supposed to be the 'replay engine' — the thing that takes historical data and runs our strategy through it to see how we would've done. Smart idea. Terrible execution. Like ordering a pizza and then rebuilding the oven from scratch when there's already a perfectly good one in the kitchen."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Alright. Sit down. We're having a funeral today. The Phoenix Engine is dead. I killed it. Put my hands right around its neck and squeezed. And I'd do it again! It was supposed to be our replay engine. Smart idea, right? No! It was like ordering a pizza and then building a new oven to cook it when you already have one right there! Complete waste of time!"</td></tr></table>
 
 ## The Crime Scene
 
@@ -10,7 +10,7 @@
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Worse. The copy was <em>wrong</em>. The backtester made $3,974 in 14 days. The Phoenix Engine lost $5,370 in the same 14 days. Same data. Same strategy. Same symbols. Negative five thousand dollars of difference."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's like hiring a stunt double for Tom Cruise and the stunt double falls off the building while Tom's fine.<br><br>Here's what was wrong with it:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's exactly it! It's like hiring a stunt double who trips on a pebble and dies while the actual actor is perfectly fine. Here's why this thing was garbage:"</td></tr></table>
 
 ### What Killed the Phoenix
 
@@ -24,7 +24,7 @@
 
 <table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"So the old engine was basically a knockoff? Like buying a Rolex from a guy in a trenchcoat at the subway station?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Exactly. And the real Rolex was sitting right there. In the same codebase. Just... unused. <br><br>So I did what any sane person would do. I threw the knockoff in a dumpster and started wearing the real one."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yes! And the real Rolex was right there! Intact! So I did the only logical thing. I took the knockoff, threw it in the trash, and set the trash on fire."</td></tr></table>
 
 ---
 

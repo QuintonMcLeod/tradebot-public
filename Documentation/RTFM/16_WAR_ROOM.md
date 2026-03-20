@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"Welcome to the War Room. This is where we review the carnage and plan the next assault."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You opened the log panel. You saw a wall of text scrolling by at the speed of anxiety. Half of it is green, half is yellow, and there's an occasional red line that makes your heart skip a beat.<br><br>Don't worry. This is normal. Let's learn to read the Matrix."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I know what happened. You opened the log panel, you saw a wall of hacker-looking text scrolling by at the speed of light, and you immediately had a panic attack. Half of it is green, half of it is yellow, and then you see one red line and you start crying.<br><br>Calm down. Take a breath. It's just a log file. Let me teach you how to read it before you hyperventilate."</td></tr></table>
 
 ---
 

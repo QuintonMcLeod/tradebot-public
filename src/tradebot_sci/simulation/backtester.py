@@ -78,11 +78,13 @@ logger = logging.getLogger(__name__)
 
 
 def _jpy_adjust_risk(risk_per_share: float, symbol: str, price: float) -> float:
-    """Convert JPY-denominated stop distance to USD per-unit.
-    For JPY-quoted pairs (USDJPY, EURJPY), stop_dist is in JPY but risk is in USD.
+    """Convert quote-currency-denominated stop distance to USD per-unit.
+    For quote currencies (USDJPY, EURJPY, USDCHF), stop_dist is NOT in USD.
     Divide by price to get USD per-unit risk."""
     sym = symbol.upper().replace("_", "")
-    if "JPY" in sym and price > 0:
+    if sym.startswith("USD") and price > 0:
+        return risk_per_share / price
+    elif "JPY" in sym and price > 0:
         return risk_per_share / price
     return risk_per_share
 
@@ -97,6 +99,35 @@ def _notional_per_unit(symbol: str, price: float) -> float:
     return price if price > 0 else 1.0
 
 
+def _apply_leverage_cap(size: float, symbol: str, capital_base: float, price: float, logger=None) -> float:
+    from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
+    import os
+    asset_class = classify_symbol(symbol)
+    lev_cap = {
+        AssetClass.FOREX: 30.0,
+        AssetClass.CRYPTO: 3.0,
+        AssetClass.STOCKS: 4.0,
+        AssetClass.ETF: 4.0,
+        AssetClass.METALS: 20.0,
+        AssetClass.FUTURES: 15.0,
+    }.get(asset_class, 5.0)
+    
+    if os.getenv('RR_LEV_CAP'):
+        lev_cap = float(os.environ['RR_LEV_CAP'])
+        
+    max_position_value = capital_base * lev_cap
+    npu = _notional_per_unit(symbol, price)
+    max_shares = max_position_value / npu
+    if size > max_shares:
+        if logger:
+            logger.warning(
+                f"[BACKTEST] {symbol}: Size capped from {size:.2f} to {max_shares:.2f} shares "
+                f"(max {lev_cap:.0f}x leverage = ${max_position_value:.2f} notional on ${capital_base:.2f} base)"
+            )
+        return max_shares
+    return size
+
+
 def _calculate_pnl(entry_price: float, exit_price: float, size: float, direction: str,
                    symbol: str = "") -> float:
     """Calculate PnL correctly for both long and short positions, MINUS fees.
@@ -104,19 +135,18 @@ def _calculate_pnl(entry_price: float, exit_price: float, size: float, direction
     Long: profit when price goes UP   -> (exit - entry) * size - fees
     Short: profit when price goes DOWN -> (entry - exit) * size - fees
     
-    For JPY-quoted pairs, the raw PnL is in JPY and must be converted to USD.
-    
-    Fees are deducted as round-trip spread/commission costs based on the
-    symbol's asset class. This ensures backtests reflect real trading costs.
+    Calculates quote currency adjustments appropriately back to USD.
     """
     if direction == "short":
         raw_pnl = (entry_price - exit_price) * size
     else:  # long
         raw_pnl = (exit_price - entry_price) * size
     
-    # JPY conversion: raw_pnl is in JPY for JPY-quoted pairs
+    # Quote currency conversion: raw_pnl is in quote currency
     sym = symbol.upper().replace("_", "")
-    if "JPY" in sym and exit_price > 0:
+    if sym.startswith("USD") and exit_price > 0:
+        raw_pnl = raw_pnl / exit_price
+    elif "JPY" in sym and exit_price > 0:
         raw_pnl = raw_pnl / exit_price
     
     # Deduct round-trip fees (spread + commission)
@@ -125,7 +155,7 @@ def _calculate_pnl(entry_price: float, exit_price: float, size: float, direction
         fee_pct = get_fee_for_symbol(symbol)
         notional = entry_price * abs(size)
         # For JPY pairs, notional per unit is $1 if USD-base, else price-converted
-        if "JPY" in sym:
+        if "JPY" in sym or sym.startswith("USD"):
             if sym.startswith("USD"):
                 notional = abs(size)  # 1 unit = $1
             else:
@@ -626,6 +656,14 @@ class Backtester:
 
         # Wind-Down Calculation
         simulation_end_date = end_date + timedelta(days=wind_down_days)
+        # SAFETY: Never simulate into the future
+        _now_utc = datetime.now(timezone.utc)
+        if simulation_end_date > _now_utc:
+            logger.info(
+                f"[BACKTEST] Capping simulation_end_date from {simulation_end_date} "
+                f"to current time {_now_utc} (no future data)"
+            )
+            simulation_end_date = _now_utc
         # Warmup: run engine N days before start_date to stabilize indicators
         warmup_start = start_date - timedelta(days=warmup_days) if warmup_days > 0 else start_date
 
@@ -672,6 +710,8 @@ class Backtester:
                 symbol, timeframe, data_start_date, simulation_end_date, file_path=file_path
             )
             if candles:
+                # Clip candles at simulation_end_date to prevent future data
+                candles = [c for c in candles if c.timestamp <= simulation_end_date]
                 all_candles[symbol] = candles
                 logger.info(f"[BACKTEST] {symbol}: {len(candles)} candles from {candles[0].timestamp.date()} to {candles[-1].timestamp.date()}")
 
@@ -784,11 +824,11 @@ class Backtester:
             
             # Update current candles for each symbol
             for symbol, candles in all_candles.items():
-                # Find candles up to current_time
+                # Find candles fully closed by current_time
                 current_candles = [
                     c
                     for c in candles
-                    if c.timestamp <= current_time and self._is_market_hours_utc(c.timestamp)
+                    if (c.timestamp + timedelta(seconds=tf_seconds)) <= current_time and self._is_market_hours_utc(c.timestamp)
                 ]
                 cache_key = f"{symbol}:{timeframe}_current"
                 self.market_provider._cache[cache_key] = current_candles
@@ -798,7 +838,7 @@ class Backtester:
                     htf_tf = profile.htf_timeframe
                     htf_current = [
                         c for c in all_htf_candles[symbol]
-                        if c.timestamp <= current_time
+                        if (c.timestamp + timedelta(seconds=htf_seconds)) <= current_time
                     ]
                     htf_cache_key = f"{symbol}:{htf_tf}_current"
                     self.market_provider._cache[htf_cache_key] = htf_current
@@ -894,10 +934,114 @@ class Backtester:
                         logger.info(f"[BACKTEST] {symbol} profit-hold exit: PnL=${pnl:.2f}")
                         continue
 
+                # ── TICK SCALPING EXTENDED EXIT ─────────────────────────────
+                tick_scalping_enabled = bool(getattr(profile, 'tick_scalping_enabled', False))
+                min_usd = float(getattr(profile, 'tick_scalping_min_usd', 0.0))
+                if tick_scalping_enabled and pos.size > 0:
+                    from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                    fee_pct = get_fee_for_symbol(symbol)
+                    spread_cost = pos.entry_price * fee_pct * 2
+                    
+                    max_favorable_price = current_bar.high if pos.direction == "long" else current_bar.low
+                    max_favorable_dist = (max_favorable_price - pos.entry_price) if pos.direction == "long" else (pos.entry_price - max_favorable_price)
+                    
+                    if max_favorable_dist > spread_cost:
+                        test_pnl_at_max = _calculate_pnl(pos.entry_price, max_favorable_price, pos.size, pos.direction, symbol=symbol)
+                        if test_pnl_at_max >= min_usd:
+                            open_dist = (current_bar.open - pos.entry_price) if pos.direction == "long" else (pos.entry_price - current_bar.open)
+                            test_pnl_at_open = _calculate_pnl(pos.entry_price, current_bar.open, pos.size, pos.direction, symbol=symbol)
+                            
+                            if open_dist > spread_cost and test_pnl_at_open >= min_usd:
+                                exit_price = current_bar.open
+                                pnl = test_pnl_at_open
+                            else:
+                                exit_price = max_favorable_price
+                                pnl = max(min_usd, 0.0)
+                            
+                            capital += pnl
+                            completed_trades.append(SimulatedTrade(
+                                symbol=symbol,
+                                direction=pos.direction,
+                                entry_price=pos.entry_price,
+                                exit_price=exit_price,
+                                size=pos.size,
+                                entry_time=pos.entry_time,
+                                exit_time=current_time,
+                                pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
+                                exit_reason="tick_scalping",
+                                entry_gates=getattr(pos, "entry_gates", None),
+                                strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                            ))
+                            trade_results_store.add_result(TradeResult(
+                                symbol=symbol,
+                                closed_at=current_time.isoformat(),
+                                pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                                pnl_usd=pnl,
+                                is_win=pnl > 0,
+                                tier="backtest",
+                                capital_at_close=capital,
+                                strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                                exit_reason="tick_scalping",
+                                side=pos.direction,
+                            ))
+                            del positions[pos_key]
+                            logger.info(f"[BACKTEST] {symbol} Tick Scalping exit: PnL=${pnl:.2f}")
+                            continue
+
                 # Check stop loss
                 if pos.stop_price is not None and not disable_stops:
                     if min_hold_seconds > 0 and held_seconds < min_hold_seconds:
                         continue
+
+                    # ── TIERED GUILLOTINE ─────────────────────────────────
+                    # Evaluated independently of the hard Stop Loss
+                    tiered_enabled = bool(getattr(profile, 'tiered_guillotine_enabled', True))
+                    if tiered_enabled and pos.size > 0:
+                        t1_r  = float(getattr(profile, 'tier1_r_threshold',  -0.15))
+                        t1_cut = float(getattr(profile, 'tier1_cut_fraction',  0.80))
+                        t2_r  = float(getattr(profile, 'tier2_r_threshold',  -0.30))
+                        t2_cut = float(getattr(profile, 'tier2_cut_fraction',  0.80))
+
+                        risk_dist = abs(pos.entry_price - pos.stop_price)
+
+                        # Price levels that correspond to each R threshold
+                        t1_active = t1_r < 0
+                        t2_active = t2_r < 0
+
+                        if pos.direction == "long":
+                            t1_price = pos.entry_price + risk_dist * t1_r   # e.g. entry - 0.15R
+                            t2_price = pos.entry_price + risk_dist * t2_r
+                            t1_breached = t1_active and (current_bar.low <= t1_price)
+                            t2_breached = t2_active and (current_bar.low <= t2_price)
+                        else:
+                            t1_price = pos.entry_price - risk_dist * t1_r
+                            t2_price = pos.entry_price - risk_dist * t2_r
+                            t1_breached = t1_active and (current_bar.high >= t1_price)
+                            t2_breached = t2_active and (current_bar.high >= t2_price)
+
+                        # Fire each tier that hasn't been fired yet
+                        for tier_label, tier_price, tier_cut, tier_attr in [
+                            ("T1", t1_price, t1_cut, "_guillotine_tier1_fired"),
+                            ("T2", t2_price, t2_cut, "_guillotine_tier2_fired"),
+                        ]:
+                            already_fired = getattr(pos, tier_attr, False)
+                            in_range = (t1_breached if tier_label == "T1" else t2_breached)
+                            if not already_fired and in_range and pos.size > 0:
+                                cut_size = pos.size * tier_cut
+                                tier_pnl = _calculate_pnl(
+                                    pos.entry_price, tier_price,
+                                    cut_size, pos.direction, symbol=symbol,
+                                )
+                                capital += tier_pnl
+                                pos.cumulative_partial_pnl = getattr(pos, 'cumulative_partial_pnl', 0.0) + tier_pnl
+                                pos.size -= cut_size
+                                setattr(pos, tier_attr, True)
+                                logger.info(
+                                    f"[GUILLOTINE-{tier_label}] {symbol}: "
+                                    f"cut {tier_cut*100:.0f}% at {tier_price:.5f} "
+                                    f"(PnL=${tier_pnl:.2f}, remaining={pos.size:.0f} units)"
+                                )
+
                     # Stop can ONLY trigger if the candle actually traded at the stop price.
                     stop_in_range = current_bar.low <= pos.stop_price <= current_bar.high
                     stop_hit = stop_in_range and (
@@ -905,67 +1049,6 @@ class Backtester:
                         (pos.direction == "short" and current_bar.high >= pos.stop_price)
                     )
                     if stop_hit:
-                        # ── TIERED GUILLOTINE ─────────────────────────────────
-                        # Before the stop fires, cascade partial closes through
-                        # -0.15R and -0.3R price levels IF those levels fell inside
-                        # the candle's range (price passed through them on the way
-                        # to the stop). This simulates intra-candle scale-outs that
-                        # the single-candle backtester would otherwise miss.
-                        #
-                        # Tier 1  @ -0.15R → close 80%  (20% remaining)
-                        # Tier 2  @ -0.3R  → close 80%  ( 4% remaining)
-                        # Stop    @ full   → close  4%  (final remnant)
-                        #
-                        # Profile flags (all default ON to match Guillotine intent):
-                        #   tiered_guillotine_enabled    (default True)
-                        #   tier1_r_threshold            (default -0.15)
-                        #   tier1_cut_fraction           (default  0.80)
-                        #   tier2_r_threshold            (default -0.30)
-                        #   tier2_cut_fraction           (default  0.80)
-                        tiered_enabled = bool(getattr(profile, 'tiered_guillotine_enabled', True))
-                        if tiered_enabled and pos.size > 0:
-                            t1_r  = float(getattr(profile, 'tier1_r_threshold',  -0.15))
-                            t1_cut = float(getattr(profile, 'tier1_cut_fraction',  0.80))
-                            t2_r  = float(getattr(profile, 'tier2_r_threshold',  -0.30))
-                            t2_cut = float(getattr(profile, 'tier2_cut_fraction',  0.80))
-
-                            risk_dist = abs(pos.entry_price - pos.stop_price)
-
-                            # Price levels that correspond to each R threshold
-                            if pos.direction == "long":
-                                t1_price = pos.entry_price + risk_dist * t1_r   # e.g. entry - 0.15R
-                                t2_price = pos.entry_price + risk_dist * t2_r
-                                t1_breached = current_bar.low <= t1_price
-                                t2_breached = current_bar.low <= t2_price
-                            else:
-                                t1_price = pos.entry_price - risk_dist * t1_r
-                                t2_price = pos.entry_price - risk_dist * t2_r
-                                t1_breached = current_bar.high >= t1_price
-                                t2_breached = current_bar.high >= t2_price
-
-                            # Fire each tier that hasn't been fired yet
-                            for tier_label, tier_price, tier_cut, tier_attr in [
-                                ("T1", t1_price, t1_cut, "_guillotine_tier1_fired"),
-                                ("T2", t2_price, t2_cut, "_guillotine_tier2_fired"),
-                            ]:
-                                already_fired = getattr(pos, tier_attr, False)
-                                in_range = (t1_breached if tier_label == "T1" else t2_breached)
-                                if not already_fired and in_range and pos.size > 0:
-                                    cut_size = pos.size * tier_cut
-                                    tier_pnl = _calculate_pnl(
-                                        pos.entry_price, tier_price,
-                                        cut_size, pos.direction, symbol=symbol,
-                                    )
-                                    capital += tier_pnl
-                                    pos.cumulative_partial_pnl = getattr(pos, 'cumulative_partial_pnl', 0.0) + tier_pnl
-                                    pos.size -= cut_size
-                                    setattr(pos, tier_attr, True)
-                                    logger.info(
-                                        f"[GUILLOTINE-{tier_label}] {symbol}: "
-                                        f"cut {tier_cut*100:.0f}% at {tier_price:.5f} "
-                                        f"(PnL=${tier_pnl:.2f}, remaining={pos.size:.0f} units)"
-                                    )
-
                         # Final stop on whatever remnant remains
                         exit_price = pos.stop_price
                         pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
@@ -1073,7 +1156,8 @@ class Backtester:
                                             cr_risk_pct = 0.01
 
                                     cr_max_risk = capital * cr_risk_pct
-                                    cr_size = cr_max_risk / _jpy_adjust_risk(risk_dist, symbol, cr_entry) if risk_dist > 0 else 0
+                                    raw_cr_size = cr_max_risk / _jpy_adjust_risk(risk_dist, symbol, cr_entry) if risk_dist > 0 else 0
+                                    cr_size = _apply_leverage_cap(raw_cr_size, symbol, capital, cr_entry, logger)
 
                                     if cr_size > 0:
                                         _cr_consecutive[symbol] = cr_chain + 1
@@ -1144,7 +1228,9 @@ class Backtester:
                                         rev_risk_pct = 0.01  # absolute fallback
                                 rev_max_risk = capital * rev_risk_pct
 
-                                rev_size = rev_max_risk / _jpy_adjust_risk(risk_dist, symbol, rev_entry) if risk_dist > 0 else 0
+                                raw_rev_size = rev_max_risk / _jpy_adjust_risk(risk_dist, symbol, rev_entry) if risk_dist > 0 else 0
+                                rev_size = _apply_leverage_cap(raw_rev_size, symbol, capital, rev_entry, logger)
+                                
                                 if rev_size > 0:
                                     positions[pos_key] = type(pos)(
                                         symbol=symbol,
@@ -1168,12 +1254,13 @@ class Backtester:
 
                 # Check take profit
                 if pos.target_price is not None:
-                    # TP can ONLY trigger if the candle actually traded at the target price.
-                    target_in_range = current_bar.low <= pos.target_price <= current_bar.high
-                    target_hit = target_in_range and (
-                        (pos.direction == "long" and current_bar.high >= pos.target_price) or
-                        (pos.direction == "short" and current_bar.low <= pos.target_price)
-                    )
+                    # TP can ONLY trigger if the candle actually traded at the target price,
+                    # OR if price gapped completely past the target in our favor.
+                    if pos.direction == "long":
+                        target_hit = current_bar.high >= pos.target_price
+                    else:
+                        target_hit = current_bar.low <= pos.target_price
+
                     if target_hit:
                         if min_hold_seconds > 0 and held_seconds < min_hold_seconds:
                             continue
@@ -1563,7 +1650,12 @@ class Backtester:
                                     if sp_decision.action == "scale_in":
                                         add_price = snapshot.candles[-1].close
                                         stop_price = sp_decision.stop_loss or sp_pos.stop_price
-                                        risk_per_share = abs(add_price - stop_price)
+                                        
+                                        original_risk_dist = getattr(sp_pos, "initial_risk", None)
+                                        if original_risk_dist and original_risk_dist > 1e-6:
+                                            risk_per_share = original_risk_dist
+                                        else:
+                                            risk_per_share = abs(add_price - stop_price)
 
                                         if hasattr(sp_decision, "risk_per_trade_pct") and sp_decision.risk_per_trade_pct:
                                             risk_pct = float(sp_decision.risk_per_trade_pct)
@@ -1576,7 +1668,8 @@ class Backtester:
 
                                         compounding_capital = min(capital, 10000.0)
                                         max_risk = compounding_capital * risk_pct
-                                        add_size = max_risk / risk_per_share if risk_per_share > 0 else 0
+                                        raw_add_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, add_price) if risk_per_share > 0 else 0
+                                        add_size = _apply_leverage_cap(raw_add_size, symbol, capital, add_price, logger)
 
                                         if add_size > 0:
                                             sp_pos.size += add_size
@@ -1821,33 +1914,13 @@ class Backtester:
                             max_risk = min(compounding_capital_py * risk_pct, max_loss_cap)
 
                             raw_add_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, add_price) if risk_per_share > 0 else 0.0
-                            add_size = raw_add_size
+                            add_size = _apply_leverage_cap(raw_add_size, symbol, capital, add_price, logger)
                             cap_reason = None
-
-                            # Cap pyramid entry notional (Config 13: 100x)
-                            # Default to 100x (Allow Profit Scaling)
-                            lev_cap = float(os.getenv('RR_LEV_CAP', '100.0'))
-                            max_add_notional = capital * lev_cap
-                            max_add_shares = max_add_notional / add_price
                             
                             # Safety calculation matching initial entry for consistency
                             min_stop_distance = add_price * 0.001
                             if risk_per_share < min_stop_distance:
                                 risk_per_share = min_stop_distance
-
-                            if add_size > max_add_shares:
-                                logger.warning(
-                                    f"[BACKTEST] {symbol}: Pyramid size capped from {add_size:.2f} to {max_add_shares:.2f} shares "
-                                    f"(max {lev_cap:.0f}× leverage = ${max_add_notional:.2f} notional on ${capital:.2f} capital)"
-                                )
-                                add_size = max_add_shares
-                                cap_reason = "pyramid_max_leverage"
-
-                            # [REMOVED] Cap total position at 3x initial size (Allows Scout -> Hammer scaling)
-                            # max_total_size = current_position.size * 3
-                            # if current_position.size + add_size > max_total_size:
-                            #     add_size = max_total_size - current_position.size
-                            #     cap_reason = "pyramid_max_total_size"
 
                             if add_size > 0:
                                 # Update position with pyramid entry
@@ -2295,35 +2368,10 @@ class Backtester:
                             # ICC methodology: size = risk_amount / stop_distance
                             # With tight stops (0.5%), this creates leverage which is intentional
                             # Example: $100 risk / $3 stop = 33 shares = $20k notional (20× leverage)
-                            size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, entry_price) if risk_per_share > 0 else 0
-
+                            raw_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, entry_price) if risk_per_share > 0 else 0
+                            
                             # Safety 2: Cap total notional to REALISTIC broker leverage
-                            # OANDA forex = 30:1, Crypto spot (Gemini/Kraken) = no margin = 1:1,
-                            # IBKR stocks = 4:1 day / 2:1 overnight
-                            from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
-                            asset_class = classify_symbol(symbol)
-                            REALISTIC_LEVERAGE = {
-                                AssetClass.FOREX: 30.0,    # OANDA retail max
-                                AssetClass.CRYPTO: 3.0,    # Gemini spot (no real margin)
-                                AssetClass.STOCKS: 4.0,    # IBKR reg-T day trading
-                                AssetClass.ETF: 4.0,       # Same as stocks
-                                AssetClass.METALS: 20.0,   # OANDA metals
-                                AssetClass.FUTURES: 15.0,  # IBKR futures margin
-                            }
-                            lev_cap = REALISTIC_LEVERAGE.get(asset_class, 5.0)
-                            # Allow env override for testing only
-                            if os.getenv('RR_LEV_CAP'):
-                                lev_cap = float(os.environ['RR_LEV_CAP'])
-                            max_position_value = per_symbol_capital * lev_cap
-                            npu = _notional_per_unit(symbol, entry_price)
-                            max_shares = max_position_value / npu
-                            if size > max_shares:
-                                logger.warning(
-                                    f"[BACKTEST] {symbol}: Position size capped from {size:.2f} to {max_shares:.2f} shares "
-                                    f"(max {lev_cap:.0f}× leverage = ${max_position_value:.2f} notional on ${compounding_capital:.2f} capital, "
-                                    f"notional/unit={'$1' if npu == 1.0 else f'${npu:.4f}'})"
-                                )
-                                size = max_shares
+                            size = _apply_leverage_cap(raw_size, symbol, per_symbol_capital, entry_price, logger)
 
                             if size > 0:
                                 # Build position key: compound for multi-position, simple otherwise

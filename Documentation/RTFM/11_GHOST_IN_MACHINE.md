@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"I think, therefore I trade. But unlike Descartes, when I'm wrong, it costs money. Which is why I think VERY carefully."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You know the bot trades. But HOW does it decide? That's the question that separates the curious from the clueless. This article explains the Brain, the 21-strong Strategy Arsenal, and the AI Backup — the three layers between 'candle data' and 'order placed.'"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You know the bot trades. You sit there and watch the little numbers go up and down. But HOW does it decide?<br><br>That's the question that separates the people who make money from the people who complain on Reddit. This article explains the Brain, the Strategy Arsenal, and the AI Backup. It explains how a cold, dead machine is smarter than you and your 'gut feelings.'"</td></tr></table>
 
 ---
 
@@ -25,7 +25,7 @@ The price rips back up, breaking local structure.
 
 <table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"Candle closing above the correction range. The Correction is over. The Trend is resuming. Three steps. Three confirmations. NOW we go. SEND IT."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"ICC is like a three-step handshake before a relationship. The market says 'I'm going up' (Indication). Then it says 'let me think about it' (Correction). Then it says 'yeah, I'm definitely going up' (Continuation). We only invest after step three. Because step one and two are just... talking."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"ICC is like a three-step handshake before a relationship. The market says 'I'm going up' (Indication). Then it says 'let me think about it' (Correction). Then it says 'yeah, I'm definitely going up' (Continuation). We only invest after step three. Because step one and two are just sweet talk, and you've been lied to enough in your life."</td></tr></table>
 
 ---
 
@@ -180,7 +180,7 @@ Bollinger + RSI. Best for ranging crypto and forex.
 
 ## Per-Asset Strategy Selection
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Different assets behave differently. Crypto at 3 AM is nothing like forex at London open. That's why you assign different strategies per asset class:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Different assets behave differently! Crypto at 3 AM is a bunch of dudes drinking Monster Energy. Forex at London Open is bankers in suits. They are NOT the same! That's why you assign different strategies per asset class. Don't be lazy!"</td></tr></table>
 
 > 📺 **In the UI:** Settings → **Strategy Workshop** → **Asset Strategies** sub-tab
 
@@ -257,4 +257,4 @@ These guards fire in sequence. If any one fails, the trade is blocked and logged
 
 <table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"But does it guarantee profits?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Nothing guarantees profits. Anyone who tells you otherwise is selling something. But in a chaotic market, a solid process is the closest thing to a money printer you will find. And this process has math on its side."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Nothing guarantees profits. If someone guarantees you profits, hold on to your wallet and run the other way. But in a chaotic market of pure insanity, a solid, emotionless process is the closest thing to a money printer you are ever going to find. The bot has math on its side. You have 'hope' and a Reddit account. Who do you think wins?"</td></tr></table>

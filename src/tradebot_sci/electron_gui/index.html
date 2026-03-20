@@ -563,7 +563,8 @@
 
                 <!-- Log Content -->
                 <div id="log-terminal"
-                    class="flex-1 p-5 font-mono text-[13px] text-slate-300 overflow-y-auto overflow-x-hidden break-all leading-relaxed scrollbar-thin space-y-3 border-t border-white/5">
+                    class="flex-1 p-5 font-mono text-[13px] text-slate-300 overflow-y-auto overflow-x-hidden break-all leading-relaxed scrollbar-thin space-y-3 border-t border-white/5"
+                    style="user-select: text; -webkit-user-select: text;">
                 </div>
             </div>
 
@@ -1080,8 +1081,8 @@
             <!-- ═══ Configuration Card ═══ -->
             <div class="analytics-card accent-teal analytics-animate" style="padding:28px 32px; flex-shrink: 0;">
 
-                <!-- Row 1: Date Range + Profile + Capital -->
-                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:20px; margin-bottom:20px;">
+                <!-- Row 1: Date Range + Profile + Strategy + Capital -->
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1.5fr 1fr; gap:20px; margin-bottom:20px;">
                     <div>
                         <label class="metric-label"
                             style="color:var(--text-muted); margin-bottom:8px; display:block;">Start Date</label>
@@ -1099,8 +1100,39 @@
                     </div>
                     <div>
                         <label class="metric-label"
-                            style="color:var(--text-muted); margin-bottom:8px; display:block;">Starting Capital</label>
-                        <input type="number" id="bt-start-capital" class="settings-input" style="color-scheme:dark;" value="10000" step="100">
+                            style="color:var(--text-muted); margin-bottom:8px; display:block;">Strategy (Opt)</label>
+                        <select id="bt-strategy-select" class="settings-input" style="cursor:pointer;">
+                            <option value="">-- Profile Default --</option>
+                            <option value="aggregator">Aggregator</option>
+                            <option value="bearish_engulfing">Bearish Engulfing</option>
+                            <option value="breakout">Breakout</option>
+                            <option value="crypto_double_macd">Crypto Double MACD</option>
+                            <option value="crypto_grid">Crypto Grid</option>
+                            <option value="crypto_rsi_macd">Crypto RSI MACD</option>
+                            <option value="crypto_vwap_reversion">Crypto VWAP Reversion</option>
+                            <option value="evolution">Evolution</option>
+                            <option value="forex_conductor">Forex Conductor</option>
+                            <option value="hyper_scalper">Hyper Scalper</option>
+                            <option value="icc_core">ICC Core</option>
+                            <option value="icc_core_standalone">ICC Core Standalone</option>
+                            <option value="london_breakout">London Breakout</option>
+                            <option value="mean_reversion">Mean Reversion</option>
+                            <option value="meta_sci">Meta-SCI</option>
+                            <option value="orb_breakout">ORB Breakout</option>
+                            <option value="quantum">Quantum</option>
+                            <option value="robocop">Robocop</option>
+                            <option value="rubberband_reaper">Rubberband Reaper</option>
+                            <option value="session_momentum">Session Momentum</option>
+                            <option value="supply_demand">Supply Demand</option>
+                            <option value="trend_rider">Trend Rider</option>
+                            <option value="wind_down_truffle">Wind Down Truffle</option>
+                            <option value="yoyo">YoYo</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="metric-label"
+                            style="color:var(--text-muted); margin-bottom:8px; display:block;">Start Capital</label>
+                        <input type="number" id="bt-start-capital" class="settings-input" style="color-scheme:dark;" value="100" step="100">
                     </div>
                 </div>
 

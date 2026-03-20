@@ -2,19 +2,19 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I only have $2,000 to start. Is that even worth it? My friend says you need at least $25K to make real money trading."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Your friend is broke. No offense to your friend, but broke people love giving financial advice. It's like getting swimming lessons from someone who's actively drowning.<br><br>$2,000 is <em>plenty</em> to start. And I'm gonna show you exactly why. With math. Not hype. Not motivational YouTube thumbnails with Lamborghinis. <em>Math.</em>"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Your friend is broke! Why are you listening to broke people talk about money? That's like taking relationship advice from a guy who's been divorced four times! Listen to me. $2,000 is plenty. And I'm going to prove it to you with math. Actual math. Not some fake rented Lamborghini on Instagram. Math!"</td></tr></table>
 
 ---
 
 ## The Human Problem (Why You Can't Compound Manually)
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Before we talk about the compound effect, let me explain why YOU can't do this by yourself. And I'm not being mean — I'm being real.<br><br>If you're trading manually, the statistics are biblical in their cruelty. 80 to 95 percent of retail traders lose money. Not because the strategies don't work — most of them do, on paper. You know what paper doesn't do? <b>Paper doesn't panic at 2 AM.</b>"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Before we get to compounding, let's talk about why YOU, personally, cannot do this. And I'm not trying to hurt your feelings, I'm just telling the truth. 95% of you are losing money. It's not a secret! You guys panic at 2 AM because a candle turned red! The bot doesn't care. The bot doesn't sweat!"</td></tr></table>
 
 It takes one to several years of daily screen time, journaling, backtesting, and paying what the market calls "tuition" before most manual traders become consistently profitable. And that's the *optimistic* timeline. That's assuming you have the hours, the emotional discipline, and the kind of personal life that lets you stare at candlestick charts during dinner without getting something thrown at you.
 
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Baby, I've seen it. You're in a winning trade and your boss walks in. You close early and pretend you were looking at a spreadsheet. You're watching a setup form at 2 AM but you work at 7, so you go to bed. The setup hits target while you're unconscious. Your money was right there, and you missed it because you needed to sleep like a human being. The <em>audacity</em> of needing sleep."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"And then the revenge trades. You take two losses in a row and that little voice — the dumbest voice you own — says <em>'take a bigger position and win it back.'</em> That voice has never once been right. Not once. In the history of that voice existing inside your head, its batting average is zero.<br><br>You blow 6% on a revenge trade and spend the rest of the day searching 'is trading a scam.' Spoiler: it's not a scam. You're just doing it wrong."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Oh, the revenge trades! You lose two in a row and suddenly you're Rambo. 'I'm gonna double down and win it back!' That is the dumbest voice in your head, and you listen to it every time! You blow your account and then go on Reddit to complain that the market is rigged. It's not rigged, you just have no discipline!"</td></tr></table>
 
 | Human Weakness | What It Costs You | How The Bot Handles It |
 |---|---|---|
@@ -28,7 +28,7 @@ It takes one to several years of daily screen time, journaling, backtesting, and
 
 <table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"So the bot doesn't eliminate risk..."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"It eliminates the <em>human tax</em> on risk. The sloppy execution, the emotional overrides, the self-inflicted wounds that drain most accounts long before the strategy ever had a fair shot.<br><br>You don't have to spend two years learning not to panic-sell. The bot was never going to panic-sell in the first place. It has the emotional range of a toaster. A very profitable toaster."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"It eliminates the YOU tax! The sloppy button-pushing, the crying, the panic-selling. The bot has the emotional range of a refrigerator. It just sits there and does its job. Stop trying to 'feel' the market! Let the machine do what machines do best: not care!"</td></tr></table>
 
 ---
 

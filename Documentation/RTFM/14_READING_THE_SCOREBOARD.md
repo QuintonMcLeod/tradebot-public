@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Numbers don't lie. But they can mislead if you read them wrong. A 70% win rate sounds great until you realize the losses are 3× bigger than the wins. Let me teach you what each metric REALLY means — and more importantly, which ones to ignore."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"So the bot is running. Trades are happening. Numbers are flying across your screen. But what do they actually MEAN? This chapter teaches you how to read performance like a professional. Because reading your P&L wrong is almost as expensive as not reading it at all."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Look at you. Staring at the screen like you're reading the Matrix. The bot is running, trades are happening, and you're sitting there with your mouth open looking at the Profit Factor wondering if 1.2 is a grade point average or a temperature.<br><br>Listen to me. If you can't read your own P&L, you are going to lose all your money, and you're going to deserve it. This chapter teaches you how to read performance like an adult. Pay attention."</td></tr></table>
 
 ---
 
@@ -19,7 +19,7 @@
 | **1.5 - 2.5** | Solid edge. This is where most profitable systems live. |
 | **2.5+** | Excellent — but verify it's not curve-fit or a small sample. |
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"A profit factor of 1.5+ over 100+ trades means the system has a real edge. Under 50 trades? That's statistical noise. You're reading tea leaves, not data."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If your profit factor is 1.5 after a hundred trades, you have a real edge. If you have a profit factor of 6.0 after THREE trades, you don't have an edge, you have luck and a gambling problem. That's statistical noise. Stop acting like a genius after two lucky guesses."</td></tr></table>
 
 ---
 
@@ -27,7 +27,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I want at least 80% win rate!"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"And I want a Lamborghini. Here's why that's a trap:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"EIGHTY PERCENT?! You sound like a child asking Santa for a pet dinosaur! EIGHTY PERCENT?! Do you know who has an 80% win rate? Nobody who makes real money! Here's why that's a trap for stupid people:"</td></tr></table>
 
 A 30% win rate with 4:1 reward-to-risk is FAR more profitable than a 70% win rate with 1:1. The math:
 
@@ -53,7 +53,7 @@ A 30% win rate with 4:1 reward-to-risk is FAR more profitable than a 70% win rat
 | **20-30%** | Warning zone. Check if strategy still matches market. |
 | **30%+** | Critical. Reduce risk or pause. |
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's the math that keeps me up at night:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here is the math that keeps me awake at night, because I know none of you understand it:"</td></tr></table>
 
 | Drawdown | Gain Needed to Recover |
 |----------|----------------------|
@@ -63,7 +63,7 @@ A 30% win rate with 4:1 reward-to-risk is FAR more profitable than a 70% win rat
 | 50% | 100.0% |
 | 75% | 300.0% |
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"A 50% drawdown requires a 100% gain just to break even. That's not a comeback. That's a miracle. This is why capital preservation ALWAYS beats aggressive growth. The math doesn't negotiate."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you lose 50% of your money, you don't need 50% to get it back. YOU NEED A HUNDRED PERCENT! You have to double your account just to get back to zero! That's not a comeback story, that's a miracle! This is why capital preservation beats your greedy little attempts at aggressive growth. The math does not negotiate with your ego."</td></tr></table>
 
 ---
 
@@ -119,7 +119,7 @@ Expectancy = (Win Rate × Avg Win) - (Loss Rate × Avg Loss)
 | **STAND_ASIDE** | No qualifying setup — this is healthy |
 | **EXIT** | Closing a position |
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"A day full of STAND_ASIDE is NOT a bad day. It means the bot looked at every chart, evaluated every setup, and said 'nah, nothing's worth risking money on today.' That's discipline. That's what you're paying for."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"A day full of STAND_ASIDE is NOT a bad day! It means the bot looked at the garbage market conditions and said, 'I'm not risking my boss's money on this crap.' That's discipline! You should be thanking it! Instead, you're sitting there tapping your watch like 'Come on, do a trick!' Stop it."</td></tr></table>
 
 ---
 
@@ -166,7 +166,7 @@ Expectancy = (Win Rate × Avg Win) - (Loss Rate × Avg Loss)
 
 ## The Patience Tax
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The hardest part of systematic trading isn't the math — it's the waiting. The bot will have losing days. Losing weeks. The question isn't 'did I win today?' but 'is my edge still intact over the last 100 trades?'<br><br>Think of it like a casino. The house doesn't win every hand — but over 10,000 hands, the math always wins. You are the house. Act like it."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The hardest part of algorithmic trading isn't the math. It's YOU. It's your complete inability to sit still and wait. The bot is going to have losing days. It's going to have losing weeks. You know what you do during a losing week? YOU SHUT UP AND LET IT WORK. <br><br>The house in Vegas doesn't win every hand of blackjack, but over ten thousand hands, they own the entire strip! You are the house! Start acting like it! Stop panicking because a machine lost $12 on a Tuesday!"</td></tr></table>
 
 If profit factor is above 1.5, expectancy is positive, and drawdown is manageable — **the only thing you need to do is not interfere.**
 

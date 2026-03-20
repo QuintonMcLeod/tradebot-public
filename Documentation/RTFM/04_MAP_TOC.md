@@ -4,7 +4,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Where is main.py again?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Look down."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Are you blind? It's right there. Look down!"</td></tr></table>
 
 ---
 
@@ -136,7 +136,7 @@
 
 ## Quick Navigation
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Don't wander. Tell me what you need and I'll tell you exactly where to go:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Stop whining and wandering around the codebase like a lost tourist. Tell me what you want to do, and I'll tell you which file to break:"</td></tr></table>
 
 | Task | Go To |
 |------|-------|
@@ -188,4 +188,4 @@
 | `electron_gui/settings_integrated.js` | Settings window logic (all tabs) |
 | `electron_gui/renderer.js` | Dashboard logic |
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you're lost after reading this, you're not lost — you're not reading. This map has literally everything. Go back to the Quick Navigation table and start there."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you read this whole page and you're still lost, you shouldn't be operating a computer. Seriously. This map is foolproof. Stop skimming and actually read the words I wrote for you!"</td></tr></table>

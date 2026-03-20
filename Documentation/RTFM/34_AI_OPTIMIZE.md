@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I just opened the Settings tab and I see 47 toggles, 12 sliders, and a dropdown menu with 21 strategies named 'Rubberband Reaper' and 'Singularity Aggregator.' I don't know what any of this means. I feel like I'm defusing a bomb."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That feeling? That's called <b>analysis paralysis</b>. And it has killed more trading accounts than bad strategies ever did. People stare at settings for three hours, change something they don't understand, break everything, panic, change six more things, and then wonder why the bot is trading like it's having a seizure.<br><br>AI Optimize exists so you never have to feel that feeling again. One button. Zero excuses. Click it and the AI configures everything for you."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That feeling? That's you realizing you have no idea what you're doing. And it's killed more accounts than bad strategies ever did. You stare at settings for three hours, flip a switch you don't understand, break the whole thing, and wonder why the bot is having a seizure on the chart! AI Optimize exists to save you from yourself. One button. Stop thinking. Click the button and let the machine do the homework you didn't do."</td></tr></table>
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"I am the optimizer. I analyze your strategy performance and recommend configuration changes. I have read every strategy's documentation, every backtest result, every risk parameter. I know things about your bot that you don't. Click the button. Let me work."</em></td></tr></table>
 
@@ -10,7 +10,7 @@
 
 ## What It Actually Does
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"When you click that shiny <b>✨ AI Optimize</b> button, here's what happens behind the scenes. And I'm going step by step because I want you to understand the magnitude of what 10 seconds of AI processing replaces:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"When you click that shiny button, here's what happens while you're sitting there staring. And I'm going step by step because I want you to understand exactly how much work this thing is doing that you were too lazy to do yourself:"</td></tr></table>
 
 1. **Reads your symbols** — Looks at every ticker in the profile (EUR_USD, BTCUSD, XAUUSD, etc.) and figures out *what* you're trading: forex, crypto, metals, stocks, or some chaos mix of all four.
 
@@ -32,7 +32,7 @@
 
 ## Where to Find It
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is the shortest tutorial I'll ever write:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is the shortest tutorial I'll ever write, and if you mess this up, you deserve to lose your money:"</td></tr></table>
 
 1. Open the **Profiles** tab (sidebar with your trading profiles)
 2. Select any profile — click on its name
@@ -71,7 +71,7 @@ Position sizing, max exposure, daily loss limits. The stuff that determines whet
 
 ## The History Panel
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"After AI Optimize runs, you'll see a detailed breakdown card showing <b>when</b> it was last run, <b>what</b> it changed with per-category explanations, and <b>why</b> it made each recommendation.<br><br>This history persists. When you come back tomorrow, you'll see your last optimization with all the reasoning intact. If you want to re-run it — maybe you added new symbols — just click the button again. It's not afraid of being clicked twice."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"After it runs, it gives you a report card. It tells you WHAT it changed and WHY it changed it. It's literally trying to educate you! It leaves a persistent history so you can come back tomorrow and remind yourself why you shouldn't touch the settings. And if you add new symbols? Just click the button again. It doesn't get tired. It's not a person."</td></tr></table>
 
 ---
 
@@ -79,7 +79,7 @@ Position sizing, max exposure, daily loss limits. The stuff that determines whet
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Does it overwrite my manual settings?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yes. That's the point. If you've manually tuned something and want to keep it, don't click AI Optimize on that profile. Create a separate profile for experimentation — profiles are free. They cost literally zero. You can have a hundred of them."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yes! That's the entire point! If you manually tuned something and want to keep your garbage settings, don't click the button! Make a separate profile! Profiles are free! They cost zero dollars! Stop hoarding them like they're gold!"</td></tr></table>
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Can I undo it?"</td></tr></table>
 

@@ -1,10 +1,10 @@
 # 17. The Sabbath Protocol — When the Bot Takes a Day Off
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Sabbath Protocol is not optional. Rest is not weakness — it is strategy. Even the Most High rested. The bot follows suit."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Sabbath Protocol is not optional! Rest is not a weakness, it's a strategy. Even the Most High took a day off. You think you're better than Him? You think your little forex account is more important than the literal creation of the universe? Sit down!"</td></tr></table>
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"But the market is still moving! What about my trades?!"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Your trades have server-side stops and take-profits. They're protected. And the bot doesn't actually stop — it switches to paper. It keeps watching, keeps analyzing, keeps taking notes. It just doesn't use real money. When Sabbath ends, it picks up right where it left off. Nothing lost. Nothing missed."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Your trades have server-side stops! They're protected! The bot doesn't actually go to sleep — it just switches to paper money so you don't violate the holy day trying to scalp two pips. It watches, it takes notes, and when the sun goes down on Saturday, it goes back to work. Breathe."</td></tr></table>
 
 ---
 
@@ -88,4 +88,4 @@ Review the paper ledger (`data/paper_ledger.json`) to see:
 
 ## The Philosophy
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Trading is a tool. It serves you — you don't serve it. If your faith requires rest, the bot respects that. It doesn't guilt-trip you. It doesn't FOMO you with 'look what you missed!' notifications.<br><br>It simply says: 'I've got this. Go rest. I'll keep watching and take notes. We'll compare notes Saturday night.'<br><br>That's the Sabbath Protocol."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Trading is a tool! It serves you, you don't serve it! If your religion says 'take a day off,' the bot is going to respect it. It's not going to text you like a toxic ex saying 'omg look at this candle you missed.'<br><br>It handles the business, you handle your soul. We reconvene on Saturday night."</td></tr></table>

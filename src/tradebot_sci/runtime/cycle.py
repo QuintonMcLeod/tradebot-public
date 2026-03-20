@@ -227,6 +227,17 @@ def build_candidate_list(
         multi_enabled = getattr(profile_settings, "multi_position_enabled", False)
         max_concurrent = _get_dynamic_max_concurrent(profile_settings, now or datetime.now())
         if not multi_enabled or len(position_candidates) >= max_concurrent:
+            # ── EVICTION SCAN: still scan for new entries to enable swaps ──
+            # Even when slots are full, scan the universe so that
+            # process_candidate_cycle can evict a loser for a better signal.
+            for symbol in symbols:
+                if symbol in [c[0] for c in position_candidates]: continue
+                if strike_tracker and strike_tracker.is_skipped(symbol): continue
+                try:
+                    snap = fetch_snapshot(provider, snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller)
+                    position_candidates.append((symbol, snap, 0.0, "eviction_scan"))
+                except Exception:
+                    continue
             return position_candidates, True
 
     if not allow_entries:
@@ -306,20 +317,20 @@ def process_candidate_cycle(
         except Exception as e:
             logger.warning(f"[CYCLE] Global PnL fetch failed: {e}")
 
-    for symbol, snapshot, score, reason in sorted_candidates:
+    evaluations = []
+    
+    # =========================================================================
+    # PHASE 1: EVALUATE ALL CANDIDATES
+    # =========================================================================
+    for symbol, snapshot, score_placeholder, reason in candidates:
         if strike_tracker and (strike_tracker.is_skipped(symbol) or strike_tracker.is_guard_skipped(symbol)):
             skipped += 1
             continue
 
         attempts += 1
         pos = executor.get_open_position_snapshot(symbol) if executor else None
+        
         # ── SL/TP Backfill ────────────────────────────────────────────────
-        # If Oanda didn't return a stopLossOrder (e.g. no SL bracket was set,
-        # or the API call for trade details failed), the snapshot has
-        # stop_loss=None.  The Conductor's R-milestone block (Guillotine, ATR
-        # trail, SAR) is gated on current_stop > 0, so a missing SL silently
-        # disables ALL exit management.  Backfill from hold_store here so the
-        # decision path always has the best known SL price.
         if pos is not None:
             hold_store = getattr(executor, "position_hold_store", None)
             if hold_store:
@@ -338,7 +349,6 @@ def process_candidate_cycle(
                     if not pos.get("initial_risk") and getattr(record, "initial_risk", None) is not None:
                         pos["initial_risk"] = record.initial_risk
 
-        
         try:
             liq_cap = executor.get_liquid_capital(symbol) if executor else None
             total_equity = executor.get_total_equity() if executor and hasattr(executor, "get_total_equity") else (liq_cap or 0.0)
@@ -356,44 +366,122 @@ def process_candidate_cycle(
                     "open_symbols": open_syms if 'open_syms' in locals() else []
                 }
             )
-            # Include 'hold' in decision logging to ensure the Decisions Panel is populated for existing positions
+            
+            evaluations.append((symbol, snapshot, decision, reason))
+            
+            # If it's a hold action with a stop loss update, apply it immediately
             if not decision or decision.action in ("stand_aside", "hold"):
-                reason = decision.notes if decision else "No strategy signal"
+                reason_log = decision.notes if decision else "No strategy signal"
                 d_score = (decision.score * 100.0) if (decision and decision.score is not None) else 0.0
                 d_grade = (decision.grade) if (decision and decision.grade is not None) else "N/A"
                 d_strat_name = engines[symbol].last_strat_name
                 d_strat_grade = engines[symbol].last_strat_grade
                 d_strat_score = engines[symbol].last_strat_score
-                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} strategy={d_strat_name} strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} reason={reason}")
-
+                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} strategy={d_strat_name} strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} reason={reason_log}")
+                
                 # ── Propagate stop modifications from hold decisions ──
-                # The Conductor returns hold+stop_loss to trail stops.
-                # Forward to broker so OANDA actually moves the stop.
                 _d_sl = getattr(decision, "stop_loss", None) if decision else None
                 _has_mod = hasattr(executor, "modify_stop_loss") if executor else False
-                logger.info(
-                    f"[TRAIL-DEBUG] {symbol}: action={decision.action if decision else 'None'} "
-                    f"stop_loss={_d_sl} executor={bool(executor)} has_modify={_has_mod}"
-                )
-                if (
-                    decision
-                    and decision.action == "hold"
-                    and _d_sl is not None
-                    and executor
-                    and _has_mod
-                ):
+                if decision and decision.action == "hold" and _d_sl is not None and executor and _has_mod:
                     try:
                         logger.info(f"[TRAIL] Calling modify_stop_loss({symbol}, {float(_d_sl)})")
                         executor.modify_stop_loss(symbol, float(_d_sl))
                     except Exception as e:
                         logger.warning(f"[TRAIL] Stop modification failed for {symbol}: {e}")
 
+        except Exception as e:
+            logger.error(f"[CYCLE] Engine evaluation failed for {symbol}: {e}")
+            continue
+
+    # =========================================================================
+    # PHASE 2: RANK & EXECUTE
+    # =========================================================================
+    def _rank_decision(item):
+        dec = item[2]
+        is_manage = dec and dec.action in ("close_position", "scale_out", "scale_out_leg")
+        d_score = getattr(dec, "score", 0.0) if dec else 0.0
+        if d_score is None:
+            d_score = 0.0
+        return (not is_manage, -d_score)
+
+    evaluations.sort(key=_rank_decision)
+
+    for symbol, snapshot, decision, reason in evaluations:
+        try:
+            if not decision or decision.action in ("stand_aside", "hold", "none"):
                 blocked += 1
                 continue
-            
+
             if executor:
+                # ── OPPORTUNITY COST EVICTION ──────────────────────────
+                if decision.action in ("enter_long", "enter_short", "go_long", "go_short"):
+                    max_concurrent = getattr(profile_settings, "max_open_positions", 2)
+                    open_positions = executor.list_open_position_symbols() if hasattr(executor, 'list_open_position_symbols') else []
+                    if len(open_positions) >= max_concurrent:
+                        evict_min_hold = int(getattr(profile_settings, 'eviction_min_hold_minutes', 30)) * 60
+                        worst_sym = None
+                        worst_pnl = 0.0
+                        for _os in open_positions:
+                            _op = executor.get_open_position_snapshot(_os)
+                            if not _op:
+                                continue
+                            _up = float(_op.get('unrealized_pnl', 0) or 0)
+                            _et = _op.get('entry_time')
+                            if _et:
+                                if isinstance(_et, str):
+                                    try:
+                                        from datetime import datetime as dt
+                                        _et = dt.fromisoformat(_et.replace('Z', '+00:00'))
+                                    except (ValueError, TypeError):
+                                        _et = None
+                                if _et:
+                                    _now_utc = datetime.now(timezone.utc)
+                                    if _et.tzinfo is None:
+                                        _et = _et.replace(tzinfo=timezone.utc)
+                                    _held = (_now_utc - _et).total_seconds()
+                                    if _held < evict_min_hold:
+                                        continue
+                            if _up < 0 and (worst_sym is None or _up < worst_pnl):
+                                worst_sym = _os
+                                worst_pnl = _up
+
+                        if worst_sym is not None:
+                            logger.info(
+                                f"[EVICTION] Closing {worst_sym} (PnL=${worst_pnl:.2f}) "
+                                f"→ making room for {symbol} ({decision.action})"
+                            )
+                            try:
+                                from tradebot_sci.strategy.decisions import AITradeDecision as _AITD
+                                evict_decision = _AITD(
+                                    symbol=worst_sym,
+                                    timeframe=snapshot.timeframe,
+                                    bias="neutral",
+                                    phase="eviction",
+                                    action="close_position",
+                                    entry_price=None,
+                                    stop_loss=None,
+                                    take_profit=None,
+                                    notes=f"[EVICTION] Closed for {symbol} (score={decision.score:.2f})",
+                                )
+                                evict_result, evict_outcome = executor.execute_decision(evict_decision)
+                                handle_execution_result(evict_outcome, strike_tracker)
+                                if not (evict_result and evict_result.status.value == "executed"):
+                                    logger.warning(f"[EVICTION] Failed to close {worst_sym}")
+                                    blocked += 1
+                                    continue
+                            except Exception as e:
+                                logger.error(f"[EVICTION] Error closing {worst_sym}: {e}")
+                                blocked += 1
+                                continue
+                        else:
+                            logger.info(
+                                f"[EVICTION] {symbol} entry blocked — "
+                                f"no evictable positions (all winning or too young)"
+                            )
+                            blocked += 1
+                            continue
+
                 # ── Broker-agnostic re-entry cooldown ──────────────────────
-                # Block entry if this symbol recently closed (prevents churn)
                 hold_store = getattr(executor, "position_hold_store", None)
                 if hold_store and decision.action not in ("scale_in", "add_to_position", "scale_out", "scale_out_leg", "close_position"):
                     in_cooldown, remaining = hold_store.is_in_cooldown(symbol)
@@ -407,12 +495,9 @@ def process_candidate_cycle(
                         continue
 
                 # ── Bar-Close Freshness Gate ──────────────────────────
-                # Only allow NEW entries if the last completed LTF bar
-                # closed recently (within one bar duration). This prevents
-                # stale signals from firing mid-candle.
                 if (
                     _BAR_CLOSE_GATE_ENABLED
-                    and decision.action in ("go_long", "go_short")
+                    and decision.action in ("go_long", "go_short", "enter_long", "enter_short")
                     and snapshot.ltf_candles
                 ):
                     ltf_tf = getattr(snapshot, "ltf_timeframe", None) or "5m"
@@ -436,7 +521,6 @@ def process_candidate_cycle(
                 handle_execution_result(outcome, strike_tracker)
                 if result and result.status.value == "executed":
                     success_symbol = symbol
-                    # ── Log a [DECISION] line for fills so the GUI Decision Panel gets score/grade ──
                     fill_score = (decision.score * 100.0) if (decision.score is not None) else 0.0
                     fill_grade = decision.grade if (decision.grade is not None) else "N/A"
                     fill_strat_name = engines[symbol].last_strat_name if symbol in engines else "unknown"
@@ -449,10 +533,8 @@ def process_candidate_cycle(
                         f"strat_grade={fill_strat_grade} "
                         f"reason=FILL executed @ {decision.entry_price or 'market'}"
                     )
-                    # [CHURN BURNER] Only count ACTUAL fills, not signals
                     from tradebot_sci.strategy.safety_guard import SafetyGuard
                     SafetyGuard.notify_entry(symbol)
-                    # Tag position_hold_store with winning strategy name
                     try:
                         strat_name = getattr(engines.get(symbol), "last_strat_name", None) or "unknown"
                         hold_store = getattr(executor, "position_hold_store", None)
@@ -463,12 +545,11 @@ def process_candidate_cycle(
                                 hold_store.save()
                             else:
                                 hold_store.upsert(symbol, datetime.now(timezone.utc), strategy=strat_name)
-                        # Also tag broker's internal position dict (Paper broker compatibility)
                         broker_positions = getattr(executor, "positions", None)
                         if broker_positions and isinstance(broker_positions, dict) and symbol in broker_positions:
                             broker_positions[symbol]["strategy"] = strat_name
                     except Exception:
-                        pass  # non-critical — don't break trade flow
+                        pass
                     if stop_after_submit:
                         break
         except Exception:

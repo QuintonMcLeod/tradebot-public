@@ -66,7 +66,21 @@ async function loadAnalyticsData(filter) {
             updateSymbolBreakdown(d.symbolStats || {});
             updateStrategyBreakdown(d.strategyStats || {});
 
-            updateCalendar(d.trades || [], currentFilter);
+            let calTrades = d.trades || [];
+            // If the filter is 24h, fetch a full week's worth of data purely to supply
+            // the 3-day Performance Calendar widget so "Yesterday" and "Day Before" calculate properly.
+            if (filter === '24h') {
+                try {
+                    const weekResult = await window.api.getAnalyticsSummary('week', !!(window.isPaper || window.isSabbath));
+                    if (weekResult && weekResult.success && weekResult.data) {
+                        calTrades = weekResult.data.trades || [];
+                    }
+                } catch (e) {
+                    console.error('[ANALYTICS] Failed to fetch week data for 24h calendar:', e);
+                }
+            }
+
+            updateCalendar(calTrades, currentFilter);
         } else {
             showErrorState(result?.error || 'Failed to load');
             updateMetrics({});

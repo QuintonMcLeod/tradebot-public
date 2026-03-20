@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I want to understand the strategies! There's like... twenty-one of them? Which one do I pick? This is like being at a buffet where everything is labeled in a language I don't speak."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You don't pick. You let <b>Meta-SCI</b> pick for you. That's the whole point. That's why I spent months building a strategy tournament system so you — respectfully — don't have to make decisions you're not qualified to make.<br><br>But since you asked, and since knowledge is power, let me walk you through all 21. Think of this as a weapons catalog. You don't need to fire every gun — you just need to know what's in the armory."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You don't pick! Why would you pick? I spent months building Meta-SCI so you don't have to make decisions that you are completely unqualified to make! But fine, since you want to look at the shiny toys, let me walk you through the catalog. You don't need to touch them, just look at them and appreciate the engineering!"</td></tr></table>
 
 ---
 
@@ -60,7 +60,7 @@
 
 ## 1. Meta-SCI — The Adaptive Ensemble ⭐
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Why pick one strategy when the bot can run a tournament and pick the best one every single cycle? That's not a rhetorical question. I'm genuinely asking why anyone would manually choose when a machine can evaluate 21 options in milliseconds.<br><br>Meta-SCI runs all eligible strategies in parallel and picks the highest-scoring signal. It's like hiring 21 expert traders, locking them in a room, making them compete for your money, and only paying the winner. It's <em>The Apprentice</em> except nobody cries and nobody gets a reality show out of it."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Why would you commit to one strategy? That's insane! The bot can run twenty-one options in the time it takes you to blink! It's literally putting 21 traders in a cage match and only paying the one who wins. It's brutal, it's efficient, and it doesn't complain about the air conditioning!"</td></tr></table>
 
 ### How the Tournament Works
 
@@ -99,7 +99,7 @@ Tournament:
 
 <table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"So when the market is choppy, it doesn't just YOLO into a random strategy?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"No. When the market is choppy, the tournament narrows the field. Fewer strategies are eligible. And if none of them score above threshold? STAND ASIDE. No trade. The bot goes and sits in the corner quietly. Which is exactly what YOU should do in choppy markets — except you won't, because you're human and you'll convince yourself you see a pattern in randomness."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"No! When the market is garbage, the bot sits in the corner and does nothing! Which is exactly what you should do, but you can't, because you have a gambling problem and you keep seeing patterns in static electricity! The bot has the restraint you wish you had!"</td></tr></table>
 
 **Crypto Routing:** When Meta-SCI scans a crypto symbol, it automatically includes crypto-specific strategies (RSI+MACD, VWAP Reversion, Double MACD, Virtual Grid) alongside universal strategies.
 
@@ -361,7 +361,7 @@ risk_per_trade_pct: 0.01  # 1% risk only
 
 ## 62 Common Misconceptions (And Why They're Wrong)
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Now for my favorite part: the part where I destroy everything you think you know about trading. This is gonna hurt. But it's the good kind of hurt — the kind that saves you money."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Alright, my favorite part. The part where I shatter all your delusions. I'm gonna take everything you learned from 19-year-olds on TikTok and throw it in the garbage. It's gonna hurt your feelings, but it's gonna save your wallet."</td></tr></table>
 
 ### 🎯 Win Rate & Performance
 

@@ -10,7 +10,7 @@ tail -F "$LOG_FILE" | while read -r line; do
         CONFIG_FILE="$HOME/.config/tradebot-sci/config.json"
         DEBUG_NOTIFS="false"
         if command -v jq >/dev/null 2>&1 && [ -f "$CONFIG_FILE" ]; then
-            DEBUG_NOTIFS=$(jq -r '.global.GUI_DEBUG_NOTIFICATIONS // false' "$CONFIG_FILE" 2>/dev/null)
+            DEBUG_NOTIFS=$(jq -r '.runtime.gui_debug_notifications // false' "$CONFIG_FILE" 2>/dev/null)
         fi
 
         # Play a sound or send a notification if desktop environment is active AND debug mode is on

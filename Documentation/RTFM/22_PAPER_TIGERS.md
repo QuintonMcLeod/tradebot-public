@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br><em>"Would you test a parachute by jumping off a cliff? Then don't test a trading strategy with real money."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Before you connect your broker, enter your API keys, and let the bot loose on the live markets with your hard-earned cash — STOP.<br><br>Run it in Paper Mode first. I don't care how confident you are. I don't care if the backtest looked incredible. Paper trade it. The market has a way of humbling people who skip this step."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Before you connect your broker, enter your API keys, and let the bot loose on the live markets with your hard-earned cash... STOP. Drop your mouse.<br><br>Run it in Paper Mode first! I do not care how confident you are. I do not care if the backtest looked like a staircase to heaven. Paper trade it! The market has a very funny way of humbling people who think they're smarter than the process."</td></tr></table>
 
 ---
 
@@ -100,4 +100,4 @@ Stored in `data/paper_trade_results.json` and `data/paper_ledger.json`.
 
 ## The Harsh Truth
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Paper trading has one limitation: it doesn't simulate <b>your emotions.</b> In paper mode, watching -$200 feels like nothing. In live mode, that same -$200 makes you want to close early, override the bot, and 'manage' the position.<br><br>Paper mode teaches you the system. Live mode teaches you yourself.<br><br>Start paper. Graduate to live with small sizes. Scale up only when you trust both the bot and yourself."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Paper trading has exactly one limitation: it doesn't simulate <b>your fragile emotional state.</b> In paper mode, watching a trade go into the red by $200 feels like nothing. In live mode, that same -$200 makes you sweat, makes you want to close early, override the bot, and 'manage' the position like a moron.<br><br>Paper mode teaches you the system. Live mode teaches you how weak your discipline actually is.<br><br>Start on paper. Graduate to live with small sizes. Scale up only when you figure out how to stop hyperventilating."</td></tr></table>

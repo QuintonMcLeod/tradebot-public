@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Whoa, the dashboard looks amazing! What do all these panels do?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Let me give you the tour. You opened the app. There's a chart. Numbers. Colors. A sidebar with things that blink. You feel like you accidentally opened NASA Mission Control.<br><br>Relax. Every panel has a purpose. Let's break it down."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Look at you. You open the app, you see a chart, some blinking lights, and suddenly you think you're launching a space shuttle. Calm down, Commander. It's a dashboard. It's designed so that even a guy who has to sound out the words on a Denny's menu can figure out if he is making money or losing money.<br><br>Let me give you the tour before you hurt yourself."</td></tr></table>
 
 ---
 
@@ -59,7 +59,7 @@ Depending on active strategy:
 
 ## Zone 3: The Sidebar
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is your command center — navigation, status, and instrumentation all in one panel."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is the adult table. This is where the decisions happen. If you can't read what's in this sidebar, you shouldn't be trading. You should be putting your money in a savings account that yields 0.01%."</td></tr></table>
 
 ### Navigation & Status
 - **Tab Navigation** — Dashboard, Graph, Settings, Profile, Help
@@ -100,7 +100,7 @@ Each decision includes the **strategy name** and **score**.
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"That scrolling text at the bottom is intimidating."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's the bot's inner monologue. Every scan, every decision, every guard check. You'll get used to it."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Intimidating?! It's TEXT. Are you intimidated by a book?! That's the bot's inner monologue. Every scan, every decision, every time it looks at the market and says 'Wow, this is terrible,' it writes it down for you. Read it. Become one with it."</td></tr></table>
 
 | What You'll See | What It Means |
 |----------------|--------------|
@@ -137,4 +137,4 @@ See Chapter 16 (**The War Room**) for the full log-reading guide.
 - No new log entries for 5+ minutes
 - Holdings show positions with no SL/TP values
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If any of those happen, check Chapter 6 — The Panic Button. That's literally why it exists."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If the bot is gray, or spewing red errors, or just completely frozen like it's reconsidering its life choices... check Chapter 6. The Panic Button. Don't call me. Read the book."</td></tr></table>

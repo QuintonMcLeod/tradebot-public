@@ -197,6 +197,23 @@ class RuntimeController:
         policy = rt.commentary_policy.lower()
         if policy == "disabled":
             return False
+
+        # Suppress regular commentary when the Seasoned Trader Autopilot is active.
+        # The Autopilot broadcasts its OWN insight commentary — regular commentary
+        # would overwrite it in the UI panel.
+        try:
+            from tradebot_sci.paths import CONFIG_FILE
+            if CONFIG_FILE.exists():
+                import json as _json
+                with open(CONFIG_FILE, "r") as f:
+                    _raw = _json.load(f)
+                _active = _raw.get("active_profile", "")
+                _prof = _raw.get("profiles", {}).get(_active, {}) if _active else {}
+                if str(_prof.get("ai_seasoned_trader_enabled", False)).lower() == "true" or _prof.get("ai_seasoned_trader_enabled") is True:
+                    logger.debug("[COMMENTARY] Suppressed — Seasoned Trader Autopilot is active")
+                    return False
+        except Exception:
+            pass  # If config read fails, allow commentary as fallback
         
         # Check daily limit
         today = datetime.now().strftime("%Y-%m-%d")

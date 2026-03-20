@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"What does this button do?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Famous last words. That's literally on the tombstone of a former trader. He clicked 'EXECUTE_TRADES = true' before he understood what anything else did and lost $1,200 in forty-five minutes.<br><br>This chapter explains every knob, lever, and switch in the cockpit. Read it before you touch anything."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Famous last words! That's literally etched onto the tombstone of a former trader. He clicked 'EXECUTE_TRADES = true' before he understood what anything else meant and incinerated $1,200 in forty-five minutes. <br><br>This chapter explains every single knob, lever, and switch in the cockpit. READ IT before you start pressing buttons like a toddler in an elevator."</td></tr></table>
 
 ---
 
@@ -103,7 +103,7 @@ See Chapter 9 (**20 Weapons of War**) for detailed explanations of each.
 - **Aggressive:** 4-5% (not recommended for beginners)
 - 📺 **In the UI:** Settings → **Strategy Workshop** → **Global Risk** sub-tab → **Default Risk %** slider
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The difference between 2% and 5% risk doesn't sound like much. But after 5 consecutive losses, 2% risk means you're down 9.6%. 5% risk means you're down 22.6%. Some differences only reveal themselves under pressure. Like character. And trading parameters."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The difference between 2% and 5% risk doesn't sound like much to you, does it? It's just three little points. But after 5 consecutive losses, 2% risk means you're down 9.6%. 5% risk means you're down almost 23%! Some differences only reveal themselves under pressure. Like your character. Stop trying to be a hero and turn the slider down."</td></tr></table>
 
 ---
 
@@ -128,7 +128,7 @@ See Chapter 9 (**20 Weapons of War**) for detailed explanations of each.
 |---------|---------|-------------|
 | `max_daily_loss_pct` | `0.10` (10%) | Circuit breaker — stops all trading |
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you lose 10% in a day, the bot shuts down trading entirely. That's not a suggestion — it's a circuit breaker. Because after losing 10%, the human reaction is 'I need to win it back.' That reaction leads to losing another 10%. And then 10% more. The circuit breaker says 'go to bed.' Which is always the right call."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you lose 10% in a day, the bot SHUTS DOWN. Completely! That's not a suggestion, it's a circuit breaker. Because when you lose 10%, your fragile little human brain goes, 'I gotta win it back right now!' And then you lose another 10%. And then you're holding a sign on the freeway. The circuit breaker says 'go to bed.' Listen to the circuit breaker!"</td></tr></table>
 
 ### Breakeven Trail
 | Setting | Default | Description |
@@ -261,4 +261,4 @@ All broker settings: Settings → **Broker Suite**.
 
 ---
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The best traders aren't the ones who touch every button. They're the ones who know which buttons NOT to touch. The cockpit has 50 controls. A good pilot uses 6 of them 99% of the time. Be a good pilot."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The best traders aren't the ones who touch every single button. They're the ones who know which buttons NOT to touch. The cockpit has 50 controls. A good pilot uses 6 of them 99% of the time. You are not Tom Cruise in Top Gun. Be a boring pilot."</td></tr></table>

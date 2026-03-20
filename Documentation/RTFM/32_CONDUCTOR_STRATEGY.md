@@ -15,7 +15,7 @@
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Then the dynamic ATR trail catches it. And if it doesn't? We ride to 5R, 7R, 10R. Your 2.5R 'win' is frankly embarrassing. That's like leaving a restaurant after the appetizer because you were 'satisfied.' No. We're having the full course. Dessert included."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Conductor is my magnum opus. It is, without exaggeration, the single most <em>aggressively optimized</em> trading strategy I've ever built. It doesn't just manage trades — it tortures winners into submission and humiliates losers on the way out. Let me show you how."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Conductor is a masterpiece of aggressive behavior. It doesn't just manage your trades — it ruthlessly tortures your winners into paying out maximum cash, and it absolutely humiliates your losers as it kicks them out the door. It's beautiful. Let me show you how vicious this thing really is."</td></tr></table>
 
 ---
 
@@ -479,7 +479,7 @@ Avg Per Window: +$462
 
 ## ⚠️ DO NOT MODIFY
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I'm going to say this once and I mean every syllable: <b>DO NOT touch these parameters.</b> They were tuned over multiple sessions through iterative backtesting. Every number exists for a reason. If you change one thing, you WILL break the delicate balance. It's like a house of cards except the cards are money."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I'm going to say this exactly once, and I mean every single syllable: <b>DO NOT TOUCH THESE PARAMETERS.</b> They were tuned through hours of pain and iterative backtesting. Every number is there for a reason! If you go in there tweaking sliders because you think you're a genius, you WILL break it. It's a delicate house of cards, except the cards are made of your actual money."</td></tr></table>
 
 > [!CAUTION]
 > **These parameters were tuned through iterative backtesting. DO NOT MODIFY.**

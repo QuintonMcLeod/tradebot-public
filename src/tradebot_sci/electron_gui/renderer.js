@@ -494,30 +494,26 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
     const scroller = document.getElementById('insight-scroller');
     if (!scroller || !content) return;
 
-    // Clear placeholder and existing content
-    scroller.innerHTML = '';
+    // Remove the placeholder if it still exists
+    const placeholder = scroller.querySelector('.insight-placeholder');
+    if (placeholder) placeholder.remove();
 
-    // Parse markdown-like formatting from AI response
+    // ── Build a new message group (timestamped card with parsed bubbles) ──
+    const messageGroup = document.createElement('div');
+    messageGroup.className = 'insight-message-group mb-3 animate-fade-in';
+
+    // Timestamp header for this message
+    const header = document.createElement('div');
+    header.className = 'flex items-center gap-2 mb-2';
+    header.innerHTML = `
+        <span class="material-symbols-outlined text-teal-400 text-sm">smart_toy</span>
+        <span class="text-[10px] font-bold text-teal-400/80 uppercase tracking-wider">${timestamp}</span>
+        <div class="flex-1 h-px bg-gradient-to-r from-teal-500/30 to-transparent"></div>
+    `;
+    messageGroup.appendChild(header);
+
+    // Parse sections from AI content into bubbles
     const lines = content.split('\n');
-    let currentSection = null;
-    let sectionContent = [];
-
-    const createBubble = (title, text, icon, colorClass) => {
-        const bubble = document.createElement('div');
-        bubble.className = `insight-bubble bg-black/40 border border-${colorClass}-500/30 rounded-xl p-4 backdrop-blur-sm`;
-        bubble.innerHTML = `
-            <div class="flex items-start gap-3">
-                <span class="material-symbols-outlined text-${colorClass}-400 text-lg mt-0.5">${icon}</span>
-                <div class="flex-1">
-                    <div class="text-[10px] font-bold uppercase tracking-wider text-${colorClass}-400 mb-1">${title}</div>
-                    <div class="text-xs text-slate-300 leading-relaxed">${text}</div>
-                </div>
-            </div>
-        `;
-        return bubble;
-    };
-
-    // Parse sections from AI content
     const sections = [];
     let current = { title: 'Market Update', content: [], icon: 'insights', color: 'teal' };
 
@@ -525,7 +521,6 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        // Detect section headers by emoji markers
         if (trimmed.includes('📊') || trimmed.toLowerCase().includes("what's happening")) {
             if (current.content.length > 0) sections.push({ ...current });
             current = { title: "What's Happening Now", content: [], icon: 'trending_up', color: 'teal' };
@@ -538,27 +533,54 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
         } else if (trimmed.includes('⚠️') || trimmed.toLowerCase().includes('heads up')) {
             if (current.content.length > 0) sections.push({ ...current });
             current = { title: 'Heads Up', content: [], icon: 'warning', color: 'amber' };
+        } else if (trimmed.includes('🤖') || trimmed.toLowerCase().includes('autopilot activated')) {
+            if (current.content.length > 0) sections.push({ ...current });
+            current = { title: 'Autopilot Activated', content: [], icon: 'psychology', color: 'emerald' };
         } else {
-            // Clean up markdown formatting
             let cleaned = trimmed.replace(/\*\*/g, '').replace(/^\s*[-•]\s*/, '• ');
             current.content.push(cleaned);
         }
     }
     if (current.content.length > 0) sections.push(current);
 
-    // Render sections as bubbles
+    // Render each section as a bubble inside this message group
     for (const section of sections) {
-        const bubble = createBubble(section.title, section.content.join('<br>'), section.icon, section.color);
-        scroller.appendChild(bubble);
+        const bubble = document.createElement('div');
+        bubble.className = `insight-bubble bg-black/40 border border-${section.color}-500/30 rounded-xl p-4 backdrop-blur-sm mb-2`;
+        bubble.innerHTML = `
+            <div class="flex items-start gap-3">
+                <span class="material-symbols-outlined text-${section.color}-400 text-lg mt-0.5">${section.icon}</span>
+                <div class="flex-1">
+                    <div class="text-[10px] font-bold uppercase tracking-wider text-${section.color}-400 mb-1">${section.title}</div>
+                    <div class="text-xs text-slate-300 leading-relaxed">${section.content.join('<br>')}</div>
+                </div>
+            </div>
+        `;
+        messageGroup.appendChild(bubble);
     }
 
-    // Add update timer footer
+    // ── Prepend new message at the TOP of the scroller ──
+    // Remove the old footer (countdown) if present
+    const oldFooter = scroller.querySelector('.insight-footer');
+    if (oldFooter) oldFooter.remove();
+
+    scroller.insertBefore(messageGroup, scroller.firstChild);
+
+    // ── Cap message history at 20 groups to prevent memory bloat ──
+    const groups = scroller.querySelectorAll('.insight-message-group');
+    if (groups.length > 20) {
+        for (let i = 20; i < groups.length; i++) {
+            groups[i].remove();
+        }
+    }
+
+    // ── Add/update countdown footer at the bottom ──
     const footer = document.createElement('div');
-    footer.className = 'insight-footer flex items-center justify-between text-[10px] text-slate-500 pt-3 border-t border-white/5 mt-4';
+    footer.className = 'insight-footer flex items-center justify-between text-[10px] text-slate-500 pt-3 border-t border-white/5 mt-2';
     footer.innerHTML = `
         <span class="flex items-center gap-1">
             <span class="material-symbols-outlined text-xs">schedule</span>
-            Updated ${timestamp}
+            Last updated ${timestamp}
         </span>
         <span id="ai-countdown" class="text-teal-500/70">Next update in ${Math.floor(nextUpdateIn / 60)}m</span>
     `;
@@ -579,6 +601,9 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
             clearInterval(aiCommentaryTimer);
         }
     }, 1000);
+
+    // Scroll to top so the newest message is visible
+    scroller.scrollTop = 0;
 }
 
 // --- Decisions Logic ---

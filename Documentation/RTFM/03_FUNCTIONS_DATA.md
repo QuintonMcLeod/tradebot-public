@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"Every function has a purpose. Every data structure has a reason. If you are debugging this machine, you need to know what the data actually looks like. Let me catalog them for you — organ by organ, nerve by nerve."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is the chapter for debuggers and developers. If you're just trading, you can skip this. But if the bot does something weird at 2 AM and you need to figure out WHY, this is where you come. Bookmark it. You'll be back."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Listen, if you're just here to push buttons, get out of this chapter. This is for the nerds. The people who actually want to know why the machine sneezed at 2 AM. Do not read this if you don't know what a JSON file is, you'll just hurt yourself. But you should bookmark it, because you're gonna break something eventually."</td></tr></table>
 
 ---
 
@@ -24,7 +24,7 @@ class MarketSnapshot:
     trend_ltf: TrendState   # Lower Timeframe Trend
 ```
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This object is <b>immutable.</b> Once created, nobody touches it. It represents 'What Happened.' Past tense. Facts. Not opinions. Not predictions. Just cold, hard market data packaged neatly for consumption.<br><br>If I catch anyone mutating a MarketSnapshot after creation, I will find you. And I will revert your commit."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This thing is IMMUTABLE. Do you know what that means? It means you DO NOT TOUCH IT! It is cold, hard facts. It's history. You can't change the past! If I catch you trying to mutate a MarketSnapshot, I will personally come to your house and delete your hard drive."</td></tr></table>
 
 ### 2. `AITradeDecision` (`src/tradebot_sci/strategy/decisions.py`)
 
@@ -78,7 +78,7 @@ class PerAssetStrategies:
         return getattr(self, asset_class.value)
 ```
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Notice how every default is meta_sci? That's not laziness. That's intention. Meta-SCI picks the best strategy automatically. Unless you have a tested, backtested, verified reason to override this, leave it alone."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You see how every default says meta_sci? That's not because I was lazy. It's because Meta-SCI is smarter than you! It picks the best strategy on its own. Unless you have a PhD in quantitative analysis and a binder full of backtests, leave it the hell alone!"</td></tr></table>
 
 **Available strategies:** `meta_sci` ⭐, `rubberband_reaper`, `robocop`, `mean_reversion`, `supply_demand`, `trend_rider`, `session_momentum`, `bearish_engulfing`, `icc_core`, `orb_breakout`, `crypto_rsi_macd`, `crypto_vwap_reversion`, `crypto_double_macd`, `crypto_grid`, `evolution`, `quantum`, `hyper_scalper`, `london_breakout`, `volatility_breakout`, `aggregator`.
 
@@ -109,7 +109,7 @@ class PerAssetStrategies:
     4. `strategy.evaluate()`: Run strategy-specific logic.
     5. Returns a Decision.
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Five steps. Clean. Predictable. If something goes wrong, you can trace it step by step. That's not an accident — that's design. When things blow up at 3 AM, you need a clean trace, not spaghetti."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Five steps. That's it. Clean, predictable, boring. When things explode in the middle of the night, you want boring. You don't want spaghetti code! You want to be able to point your finger exactly at the thing that failed and yell at it!"</td></tr></table>
 
 ### Broker Execution
 

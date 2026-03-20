@@ -2,7 +2,7 @@
 // into comments or log statements. Write clean, professional comments only.
 // See AGENTS.md for full guidelines.
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, MenuItem } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -333,7 +333,7 @@ function setupIpcHandlers() {
     const RTFM_DIR = path.join(DOCS_DIR, 'RTFM');
 
     const HELP_CATALOG = [
-        { filename: 'HOW_TO_USE.md', title: 'First Time? Everything You Need to Launch Your First Trade', category: 'guide', icon: 'rocket_launch', description: 'First time? Start here. This is the practical, no-fluff guide to getting the bot running and making trades. Prerequisites, first-time setup, broker configuration, risk profiles, and your first live trade — everything from install to execution, with no detours into architecture or philosophy.', featured: true },
+        { filename: 'HOW_TO_USE.md', title: "First Time? Here's How to Set Up the Bot & Launch Your First Trade", category: 'guide', icon: 'rocket_launch', description: "Brand new? This walks you through everything — connecting your broker, picking a profile, setting your risk, and pressing the start button for the very first time. Step by step. No experience needed.", featured: true },
         { filename: 'RTFM/01_PHILOSOPHY.md', title: 'Born From Late-Stage Capitalism: Why This Bot Exists', category: 'rtfm', icon: 'psychology', description: 'Welcome to TradeBot SCI Enterprise. It has no fancy marketing name. It has no singular author. It is a tool, forged in the fires of late-stage capitalism, designed with one singular, ruthless purpose: To Make Money. Food prices are climbing faster than a crypto shitcoin. Insurance premiums are ridiculous. Companies are firing millions of people while executives buy another yacht to park inside their bigger yacht.', featured: true },
         { filename: 'RTFM/30_BARE_HANDS.md', title: 'STOP! Don\'t Trade With Your Bare Hands!', category: 'rtfm', icon: 'front_hand', description: '"You\'re showing up to a sword fight with a pool noodle." 80-95% of manual traders lose money. Not break even — LOSE money. This humorous but dead-serious guide covers the five ways humans self-destruct in the markets: revenge trades, fatigue, analysis paralysis, overconfidence, and life happening at the worst possible moment. Plus the math of what bare-handed trading actually costs the average person.', featured: true },
         { filename: 'RTFM/31_SEASONED_TRADER.md', title: 'The Bot Is a 20-Year Seasoned Trader', category: 'rtfm', icon: 'military_tech', description: '"You spent 20 years learning to read price action. The bot learned it in 200 milliseconds." This bot doesn\'t trade like a beginner. It trades like a grizzled veteran who\'s seen three market crashes and didn\'t develop a drinking problem from any of them. 20 strategies, 12 safety guards, zero ego, millisecond execution, and the discipline that takes humans two decades to learn — baked in from Day 1.', featured: true },
@@ -359,7 +359,7 @@ function setupIpcHandlers() {
         { filename: 'RTFM/17_SABBATH_PROTOCOL.md', title: 'The Sabbath Protocol: When the Bot Takes a Day Off', category: 'rtfm', icon: 'synagogue', description: '"Even God rested on the seventh day. The bot just switches to paper trading." Some of us observe the Sabbath. The markets don\'t. This guide explains how the bot automatically swaps to the Paper Broker during Sabbath, keeps scanning and analyzing in paper mode, and seamlessly resumes live trading when Sabbath ends — all calculated astronomically based on your location.' },
         { filename: 'RTFM/18_SHIELD_WALL.md', title: 'The Shield Wall: Risk Management Deep Dive', category: 'rtfm', icon: 'shield', description: '"The fastest way to go broke is to be right 90% of the time and blow up on the other 10%." Every layer of risk management explained: position sizing formulas, the Leverage Sentry, Daily Loss Limit circuit breaker, ICC Gatekeeper, Position Lock, and ATR Armor. With the actual math behind each one. Because the best trade is the catastrophic trade you never took.' },
         { filename: 'RTFM/19_HYBRID_ENGINE.md', title: 'The Hybrid Engine: Multi-Broker Orchestration', category: 'rtfm', icon: 'hub', description: '"One broker is a dependency. Two brokers is a strategy. Three brokers is an empire." How the bot routes trades to different brokers based on asset class: OANDA for forex, CCXT for crypto, IBKR for stocks. Simple mode, primary mode, and full hybrid mode explained. Architecture diagrams, routing logic, and when to add complexity versus when to keep it simple.' },
-        { filename: 'RTFM/20_AUTOPILOT.md', title: 'The Autopilot: Auto-Schedule & Profile Switching', category: 'rtfm', icon: 'schedule', description: '"The bot doesn\'t have a 9-to-5. It has a 24/7 and a strong opinion about when to show up." How Auto-Schedule automatically switches trading profiles based on active market sessions — London forex at 3 AM, NY overlap at 8 AM, crypto during off-hours and weekends. Maximum coverage, zero wasted scans.' },
+        { filename: 'RTFM/44_AUTOPILOT.md', title: 'The Autopilot (Or: Why You Should Stop Touching Things)', category: 'rtfm', icon: 'smart_toy', description: '"You, a guy who learned trading from a TikTok video with subway surfers gameplay at the bottom, want to override a machine that is evaluating the entire global macroeconomic landscape in milliseconds?" A brutal breakdown of why the Autopilot exists.', featured: true },
         { filename: 'RTFM/21_DASHBOARD.md', title: 'The Dashboard: Reading the GUI Like a Fighter Pilot', category: 'rtfm', icon: 'dashboard', description: '"If fighter pilots can land on aircraft carriers using instruments, you can read a P&L number." A zone-by-zone breakdown of every element in the GUI: the chart (candles, indicators, price lines), the sidebar (holdings, decisions, P&L), the log panel, and the controls. What healthy looks like versus what should worry you.' },
         { filename: 'RTFM/22_PAPER_TIGERS.md', title: 'Paper Tigers: Simulation & Paper Trading', category: 'rtfm', icon: 'science', description: '"Would you test a parachute by jumping off a cliff? Then don\'t test a trading strategy with real money." Everything about paper trading: what it simulates, what it doesn\'t, how the Paper Broker works, the difference between paper mode and backtesting, and the graduation checklist for going live. Plus the harsh truth about what paper trading can\'t teach you.' },
         { filename: 'RTFM/23_UPDATE_PROTOCOL.md', title: 'The Update Protocol: How the Bot Updates Itself', category: 'rtfm', icon: 'system_update', description: '"In the future, software updates itself. We\'re living in the future. It\'s terrifying." How the self-update mechanism works: git fetch, version comparison, one-click apply. What gets updated (code), what doesn\'t (your config), and why your open positions are completely safe during updates. Plus how to roll back if you don\'t like the new version.' },
@@ -367,6 +367,7 @@ function setupIpcHandlers() {
         { filename: 'RTFM/25_CRYPTO_FRONTIER.md', title: 'The Crypto Frontier: The Wild West of 24/7 Markets', category: 'rtfm', icon: 'currency_bitcoin', description: '"Crypto: where stability means it only moved 8% today." How crypto trading differs from forex — 24/7 hours, extreme volatility, variable spreads, whale manipulation, and flash crashes. Crypto-optimized strategies, quantity steps, fee awareness, and why the bot uses wider stops and smaller positions for crypto. Plus the pairs you should actually trade versus the ones from Reddit.' },
         { filename: 'RTFM/26_FOREX_THEATER.md', title: 'The Forex Theater: Sessions, Spreads, and the Global Money Dance', category: 'rtfm', icon: 'public', description: '"The forex market is a theater. Three acts per day. The actors are central banks with printing presses." A full guide to the three forex sessions (Tokyo, London, New York), their personalities, best strategies for each, the London fake-out, spread economics, the dead zone, the carry trade, and a personality guide for every major currency pair. Including why NZD/USD is sensitive to dairy prices.' },
         { filename: 'RTFM/27_POSITION_ALCHEMY.md', title: 'Position Alchemy: The Art and Science of SL, TP, and Trailing Stops', category: 'rtfm', icon: 'auto_graph', description: '"The entry is science. The exit is art. The stop-loss is religion." Deep dive into every exit mechanism: ATR-based stop-losses, risk/reward take-profits, trailing stops with activation thresholds, breakeven trails, and the exit priority stack. With actual formulas, examples, and the philosophy of why exits matter more than entries.' },
+        { filename: 'RTFM/20_GLOBAL_SCHEDULER.md', title: 'The Global Scheduler: Precision Timing & Off-Hours', category: 'rtfm', icon: 'schedule', description: '"The bot doesn\'t have a 9-to-5. It has a 24/7 and a strong opinion about when to show up." How Auto-Schedule automatically switches trading profiles based on active market sessions — London forex at 3 AM, NY overlap at 8 AM, crypto during off-hours and weekends. Maximum coverage, zero wasted scans.' },
         { filename: 'WHAT_S_PLUS_MEANS.md', title: 'What Does S+ Grade Mean For You?', category: 'guide', icon: 'workspace_premium', description: '"Your bot went from bleeding $52/day with every safety guard off, to an S+-rated system with typed interfaces, failure contracts, and a CI pipeline that blocks broken code at the gate." A plain-English guide for humans who trade, not humans who type-check.', featured: true, size: 'md' },
         { filename: 'adr/001-strategy-registry.md', title: 'ADR-001: The Strategy Registry', category: 'adr', icon: 'extension', description: '"Please Stop Adding Elif Branches." How we replaced a growing if/elif factory with a dictionary registry. Adding a strategy is now a 2-file change, not a prayer.' },
         { filename: 'RTFM/43_ALLERGIC_TO_MONEY.md', title: 'Allergic to Money: Stop Playing With Me', category: 'rtfm', icon: 'money_off', description: '"You can\'t invest a HUNNIT dollars in yourself? But you\'d spend $100 on an ugly jacket you\'re gonna wear twice." A brutally honest breakdown of why people claim they can\'t afford to trade, while dropping $1,000 on vintage Jordans and $75 at Five Guys. With actual screenshots proving what $100 and $1,000 can do in 30 days.', featured: true },
@@ -376,7 +377,7 @@ function setupIpcHandlers() {
         { filename: 'RTFM/32_CONDUCTOR_STRATEGY.md', title: 'The Forex Conductor: The Strategy That Refuses to Lose Gracefully', category: 'rtfm', icon: 'music_note', description: '"Take profit? At 2.5R? My dear boy, we don\'t DO fixed take profits here." The Conductor enters trend pullbacks, cuts 95% of losers at -0.3R ($8 instead of $75), pyramids up to 50 times on winners, and flips direction when stopped out. With cost-aware TP, dynamic ATR trail, and a 100% hit rate across 6 backtesting windows. Includes the complete settings map, the math behind every number, and a very stern warning not to change any of them.', featured: true },
         { filename: 'RTFM/35_MINOVSKY_ENGINE.md', title: 'The Minovsky Engine: Death of the Phoenix, Birth of the Reactor', category: 'rtfm', icon: 'precision_manufacturing', description: '"Why are you making your own bread when there\'s a perfectly good bakery next door?" The Minovsky Engine replaced the Phoenix Engine — a 1,423-line disaster that reimplemented the backtester and lost $5,370 in 14 days. 240 lines of wrapper around the proven backtester. Named after the Gundam Minovsky Reactor: the core power source ALL systems connect to.' },
         { filename: 'RTFM/36_ENGINE_AUDIT.md', title: 'Engine Audit: The Minovsky Engine\'s 14-Day Stress Test', category: 'rtfm', icon: 'verified', description: '"Show me what you can do in two weeks." 2,278 trades. +$3,974 PnL. Profit Factor 2.10. SAR, Counter-Reversal, and Guillotine in full action. The complete 14-day audit with per-symbol breakdown, big winners, worst losses, and system activity counts.' },
-        { filename: 'RTFM/37_CONTEXT_MASKING.md', title: 'Context Masking for Dummies', category: 'rtfm', icon: 'theater_comedy', description: '"Wait... so if I tell the bot to risk 1% globally, how the hell do I tell RoboCop to risk 3% without screwing up my entire profile?" Patrice O\'Neal style breakdown of the Context Masking feature.' },
+        { filename: 'RTFM/37_CONTEXT_MASKING.md', title: 'Context Masking for Dummies', category: 'rtfm', icon: 'theater_comedy', description: '"Wait... so if I tell the bot to risk 1% globally, how the hell do I tell RoboCop to risk 3% without screwing up my entire profile?" A brutal breakdown of the Context Masking feature.' },
         { filename: 'RTFM/38_NOT_A_MONEY_PRINTER.md', title: 'This Is Not a Money Printer', category: 'rtfm', icon: 'hourglass_top', description: '"I installed the bot forty-five minutes ago. When do I get rich?" A brutally honest conversation about why trading is an investment — not a slot machine — and why the compound effect takes months, not minutes. With real math, real timelines, and a gym analogy that will haunt you.', featured: true },
         { filename: 'RTFM/39_LIVE_SPREAD.md', title: 'Live Spread Integration: Why Your Bot Was Trading Blindfolded', category: 'rtfm', icon: 'visibility', description: '"The bot thought the highway toll was $1.50 but sometimes it was $15." How OANDA\'s dynamic spreads were silently eating your profits, and how the bot now fetches real-time bid/ask data every 30 seconds instead of guessing.' },
         { filename: 'RTFM/40_TARGET.md', title: 'The Payout Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Payout card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing. Three states: LOCKED, SHIELDED, and CASHOUT.' },
@@ -692,6 +693,7 @@ function setupIpcHandlers() {
                     args.push('--symbols', config.symbols.join(','));
                 }
                 if (config.balance) args.push('--balance', String(config.balance));
+                if (config.strategy) args.push('--strategy', config.strategy);
             } else {
                 // Fallback: paper_replay.py
                 args = [enginePath, '--json-output', '--speed', '0'];
@@ -702,6 +704,7 @@ function setupIpcHandlers() {
                     args.push('--symbols', config.symbols.join(','));
                 }
                 if (config.balance) args.push('--balance', String(config.balance));
+                if (config.strategy) args.push('--strategy', config.strategy);
             }
             // ── Find Python ───────────────────────────────────────────────────
             let pythonExe = 'python3';
@@ -1867,6 +1870,28 @@ function createSettingsWindow() {
     });
 
     settingsWindow.loadFile('settings.html');
+
+    // Enable native Copy/Paste context menu for settings window
+    settingsWindow.webContents.on('context-menu', (event, params) => {
+        const menu = new Menu();
+        let hasItems = false;
+
+        if (params.selectionText) {
+            menu.append(new MenuItem({ label: 'Copy Text', role: 'copy' }));
+            hasItems = true;
+        }
+
+        if (params.isEditable) {
+            menu.append(new MenuItem({ label: 'Paste', role: 'paste' }));
+            menu.append(new MenuItem({ label: 'Cut', role: 'cut' }));
+            hasItems = true;
+        }
+
+        if (hasItems) {
+            menu.popup(settingsWindow);
+        }
+    });
+
     settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 
@@ -1892,6 +1917,27 @@ function createWindow() {
 
     win.loadFile('index.html');
     mainWindow = win;
+
+    // Enable native Copy/Paste context menu
+    win.webContents.on('context-menu', (event, params) => {
+        const menu = new Menu();
+        let hasItems = false;
+
+        if (params.selectionText) {
+            menu.append(new MenuItem({ label: 'Copy Text', role: 'copy' }));
+            hasItems = true;
+        }
+
+        if (params.isEditable) {
+            menu.append(new MenuItem({ label: 'Paste', role: 'paste' }));
+            menu.append(new MenuItem({ label: 'Cut', role: 'cut' }));
+            hasItems = true;
+        }
+
+        if (hasItems) {
+            menu.popup(win);
+        }
+    });
 
     win.on('close', () => {
         try { fs.writeFileSync(statePath, JSON.stringify(win.getBounds())); } catch (e) { }

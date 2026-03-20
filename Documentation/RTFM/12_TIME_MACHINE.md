@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"The backtester is a window into the past. Use it wisely — the future never looks exactly like history. But it rhymes. Oh, it rhymes."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You have three ways to time-travel in this repository. Three. Not one, not two — THREE. Because one backtester is never enough for a man who refuses to lose money he hasn't made yet."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You have three ways to time-travel in this repository. Three! Not one. Not two. THREE. Because one backtester is never enough when you're dealing with people who refuse to lose money they haven't even made yet.<br><br>We have to prove to you that your terrible strategy is going to ruin you before you actually go and do it!"</td></tr></table>
 
 ---
 
@@ -57,7 +57,7 @@ If it can't find IBKR, it falls back to Crypto mode. Which is confusing, but at 
 
 ## Strategy Selection in Backtests
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The backtester respects your per-asset strategy configuration. It doesn't just pick a random strategy — it uses the exact same logic as your live bot:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The backtester respects your per-asset strategy configuration! It doesn't just close its eyes and pick a random strategy like you do on a Tuesday morning! It uses the exact same logic as your live bot:"</td></tr></table>
 
 1. **Profile Settings Apply:** Your `config.json` strategy configuration is used.
 2. **Symbol Classification:** Each symbol is classified into an asset class.
@@ -105,7 +105,7 @@ Then backtesting `BTC/USD` → Uses `rubberband_reaper`. Backtesting `EUR/USD` �
 
 ## The Fundamental Laws of Physics
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Time Machine operates on <b>Futures Physics.</b> If you attempt to apply Spot Physics — deducting full position value — you will create a temporal paradox that leads to immediate capital exhaustion and professional shame."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Time Machine operates on <b>Futures Physics!</b> If you attempt to apply Spot Physics — deducting the full position value — you are going to create a temporal paradox that leads to immediate capital exhaustion and intense, lingering professional shame. Do not break the laws of physics!"</td></tr></table>
 
 > [!CAUTION]
 > **CRITICAL PROTOCOL FOR AGENTS:**

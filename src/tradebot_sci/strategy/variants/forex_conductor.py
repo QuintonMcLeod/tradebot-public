@@ -43,7 +43,7 @@ _COOLDOWN_BARS = 6
 
 # ── Per-symbol entry cooldown (prevents rapid re-entry after stops) ──
 _entry_cooldown: dict[str, int] = {}
-_ENTRY_COOLDOWN_BARS = 0  # Disabled — other guardrails handle spacing
+_ENTRY_COOLDOWN_BARS = 12  # 1-hour cooldown on 5m chart to prevent clustered re-entries
 
 # ── SAR: conductor delegates to engine for detection/cooldowns. ──────
 # Engine populates gates["sar_dir"] ("long"/"short"/None) before
@@ -134,6 +134,9 @@ class ForexConductorStrategy(BaseStrategy):
         current_capital: Optional[float] = None,
         trade_history: Optional[list] = None,
     ) -> Optional[AITradeDecision]:
+        sar_dir = gates.get("sar_dir")
+        if sar_dir:
+            logger.info(f"[DEBUG SAR] check_entry_signal started. open_pos={bool(open_position)}")
         if open_position:
             return None
 
@@ -147,8 +150,10 @@ class ForexConductorStrategy(BaseStrategy):
         # so only block EUR/GBP/CHF/CAD majors and commodities.
         _ASIAN_FRIENDLY = {"USDJPY", "EURJPY", "GBPJPY", "AUDJPY",
                            "AUDUSD", "NZDUSD"}
+        sar_dir = gates.get("sar_dir")  # Set by engine SAR
+
         if snapshot.candles:
-            if not gates.get("is_synthetic_override", False):
+            if not gates.get("is_synthetic_override", False) and not sar_dir:
                 from zoneinfo import ZoneInfo
                 _ts = snapshot.candles[-1].timestamp
                 if _ts.tzinfo is None:
@@ -159,7 +164,6 @@ class ForexConductorStrategy(BaseStrategy):
                         return None  # Dead zone — skip non-Asian pairs
 
         # ── Loss streak cooldown ─────────────────────────────────
-        sar_dir = gates.get("sar_dir")  # Set by engine SAR
         if _check_loss_cooldown(snapshot.symbol) and not sar_dir:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by loss streak cooldown")
             return None
@@ -191,9 +195,17 @@ class ForexConductorStrategy(BaseStrategy):
         htf_strength = gates.get("htf_strength", 0)
         # Only gate strength for trending regime — ranging is counter-trend so
         # a neutral/conflicted HTF is actually the ideal entry condition.
-        if regime == "trending" and htf_strength < 0.10 and not has_reversal:
-            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by weak htf_strength={htf_strength:.2f} (need >=0.10)")
+        if regime == "trending" and htf_strength < 0.40 and not has_reversal:
+            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by weak htf_strength={htf_strength:.2f} (need >=0.40)")
             return None  # Too weak to trust as trending
+
+
+        # ── EXPERT VETERAN ROUTER FILTER (PnL Protection) ───────
+        # (2026-03-20: REMOVED — was unconditionally blocking all symbols
+        # except AUDJPY with no toggle.  Caused zero trades for 2 days.
+        # Regime, strength, and alignment gates above already provide
+        # adequate chop filtering.  If a symbol-restrict mode is needed,
+        # it should be a config toggle, not a hardcode.)
 
 
         # ── HTF/LTF alignment for directional regimes ────────────
@@ -204,9 +216,11 @@ class ForexConductorStrategy(BaseStrategy):
                 htf_dir = gates.get("htf_dir", "neutral")
                 ltf_dir = gates.get("ltf_dir", "neutral")
                 # Soft conflict: set flag for sub-strategies to penalize, but don't hard-block.
-                # A conflicted multi-TF picture is often ideal for mean-reversion entries.
                 if htf_dir in ("long", "short") and ltf_dir in ("long", "short") and htf_dir != ltf_dir:
                     if not has_reversal:
+                        if regime == "trending":
+                            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED — HTF/LTF conflict in trending (htf={htf_dir}, ltf={ltf_dir})")
+                            return None
                         logger.info(f"[CONDUCTOR] {snapshot.symbol}: HTF/LTF conflict (htf={htf_dir}, ltf={ltf_dir}) — soft flag")
                     gates["htf_ltf_conflict"] = True
 
@@ -250,8 +264,8 @@ class ForexConductorStrategy(BaseStrategy):
         cooldown_bar = self._cooldown_until.get(sym, 0)
 
         if streak >= 2 and cooldown_bar == 0:
-            # Start cooldown: 4 bars (~1 hour)
-            self._cooldown_until[sym] = self._bar_index + 4
+            # Start cooldown: 24 bars (2 hours) to avoid toxic structural zones
+            self._cooldown_until[sym] = self._bar_index + 24
             cooldown_bar = self._cooldown_until[sym]
 
         is_sar_pending = bool(sar_dir)
@@ -264,31 +278,18 @@ class ForexConductorStrategy(BaseStrategy):
             return None
 
         # ── Route to primary strategy for this regime ────────────
-        primary_key = _REGIME_MAP.get(regime)
-        candidates = []
-
-        if primary_key and primary_key in self._strategies:
-            candidates.append(primary_key)
-
-        # ── Transitional fallback: also try mean_reversion ────────
-        # Session Breakout only fires on actual Asian Box breakouts,
-        # which are rare. If the breakout hasn't happened, Mean Reversion
-        # can catch BB bounce opportunities during transitional periods.
-        if regime == "transitional" and "mean_reversion" in self._strategies:
-            candidates.append("mean_reversion")
+        primary_key = _REGIME_MAP.get(regime, "session_momentum")
+        candidates = [primary_key]
+        # Add session_momentum as fallback if not already the primary
+        if primary_key != "session_momentum":
+            candidates.append("session_momentum")
 
         logger.info(
             f"[CONDUCTOR] {snapshot.symbol}: regime={regime}, "
             f"htf_str={htf_strength:.2f}, route={primary_key}, "
-            f"candidates={candidates + ['session_momentum']}"
+            f"candidates={candidates}"
             + (f" [SAR:{sar_dir}]" if sar_dir else "")
         )
-
-        # Session Momentum is always a candidate (self-gates by time)
-        candidates.append("session_momentum")
-
-        # Wind Down Truffle is always a candidate (self-gates to Friday PM)
-        candidates.append("wind_down_truffle")
 
         # ── Try each candidate ───────────────────────────────────
         for key in candidates:
@@ -300,6 +301,7 @@ class ForexConductorStrategy(BaseStrategy):
                 trade_history=trade_history,
             )
             if signal and signal.action not in ("stand_aside", "hold"):
+
                 # ── CORRELATION GUARD ─────────────────────────────
                 # Prevent simultaneous entries on correlated pairs.
                 # SAR entries bypass — they are time-critical.
@@ -356,6 +358,22 @@ class ForexConductorStrategy(BaseStrategy):
                 signal.risk_per_trade_pct = 0.01
                 # Set entry cooldown for this symbol
                 _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
+
+                # ── GLOBAL TARGET_R OVERRIDE ──
+                # Force the base strategy to respect the config target_r but enforce a minimum mathematical viability floor
+                tr = float(getattr(self._profile, 'target_r', 0) or 0)
+                if tr < 1.5:
+                    tr = 1.5
+                    
+                _ep = float(signal.entry_price or 0.0)
+                _sl = float(signal.stop_loss or 0.0)
+                if _ep > 0 and _sl > 0:
+                    _ir = abs(_ep - _sl)
+                    if signal.bias == "long":
+                        signal.take_profit = _ep + (_ir * tr)
+                    else:
+                        signal.take_profit = _ep - (_ir * tr)
+
                 signal.strategy_name = self.name
                 return signal
 
@@ -379,6 +397,7 @@ class ForexConductorStrategy(BaseStrategy):
                     f"cands={len(snapshot.candles)})"
                 )
                 return None  # Engine will retry next tick (sar_dir stays in _sar_pending)
+            logger.info(f"[DEBUG SAR] Reached ATR calculation. candles={candles_ok}, dir={has_direction}")
 
             from tradebot_sci.strategy.icc_signals import calculate_atr
             atr = calculate_atr(snapshot.candles[-50:], period=14)
@@ -408,11 +427,14 @@ class ForexConductorStrategy(BaseStrategy):
                     sl = price + stop_dist
                     tp = price - tp_dist
                     action = "enter_short"
+                if tp_dist <= 0:
+                    logger.info(f"[DEBUG SAR] TP dist <= 0? {tp_dist}")
                 logger.info(
                     f"[CONDUCTOR] {snapshot.symbol}: FORCED SAR {sar_dir.upper()} "
                     f"via engine (ATR={atr:.5f}, sl={sl:.5f}, tp_r={tp_r})"
                 )
                 _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
+                logger.info("[DEBUG SAR] Returning Force SAR Decision")
                 return AITradeDecision(
                     symbol=snapshot.symbol,
                     timeframe=snapshot.timeframe,
@@ -432,7 +454,11 @@ class ForexConductorStrategy(BaseStrategy):
                     ),
                     strategy_name="[SAR] Reversal",
                 )
+            else:
+                logger.info(f"[DEBUG SAR] ATR WAS ZERO OR NONE! atr={atr}")
 
+        if sar_dir:
+            logger.info("[DEBUG SAR] Reached end of function. Returning None.")
         return None
 
     def check_exit_signal(
@@ -535,11 +561,28 @@ class ForexConductorStrategy(BaseStrategy):
                     pnl_dist = orig_entry - current_price
                 r_multiple = pnl_dist / initial_risk
 
+                # ── TICK SCALPING EXTENDED EXIT ───────────────
+                _profile = getattr(self, 'profile', None) or gates.get('profile') or type('_P', (), {})()
+                if getattr(_profile, 'tick_scalping_enabled', False):
+                    from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                    fee_pct = get_fee_for_symbol(snapshot.symbol)
+                    spread_cost = orig_entry * fee_pct * 2  # Bid-ask + slippage estimation
+                    
+                    min_usd = float(getattr(_profile, 'tick_scalping_min_usd', 0.0))
+                    unrealized = float(open_position.get("unrealized_pnl", 0) or 0)
+                    
+                    if pnl_dist > spread_cost and unrealized >= min_usd:
+                        logger.info(f"[TICK-SCALP] {snapshot.symbol} positive over spread (Dist: {pnl_dist:.5f} > Spread: {spread_cost:.5f}) and reached ${min_usd:.2f} minimum profit (${unrealized:.2f}). Bailing.")
+                        from tradebot_sci.strategy.decisions import exit_decision
+                        return exit_decision(
+                            snapshot.symbol, snapshot.timeframe,
+                            reason=f"Tick Scalping: ${unrealized:.2f} >= ${min_usd:.2f} Min"
+                        )
 
                 # SAR reversals: skip pyramids + de-risk milestones,
                 # but KEEP ATR trailing active so they benefit from
                 # regime-aware trailing stops (especially on ranging days).
-                is_sar = open_position.get("strategy_name") == "reversal"
+                is_sar = "reversal" in (open_position.get("strategy_name") or "").lower()
 
                 # Track which milestones have already fired
                 sym = snapshot.symbol
@@ -833,10 +876,11 @@ class ForexConductorStrategy(BaseStrategy):
                         _pyr_sub = getattr(self._profile, 'conductor_pyramid_subsequent_pct', 0.10) if self._profile else 0.10
                         pyr_risk = _pyr_first if m_idx == 0 else _pyr_sub
                         
-                        # Trailing stop 1R behind the peak (only applied after first pyramid)
-                        # So if we hit 1.5R, the stop moves to 0.5R.
-                        # If we hit 0.2R (first pyr), the stop moves to -0.8R (but we don't move it backwards, only forwards)
-                        target_floor_r = max(0.0, highest_milestone - 1.0)
+                        # Tighter trailing stop: lock in BE at 0.5R. Otherwise 0.5R behind peak.
+                        if highest_milestone >= 0.5:
+                            target_floor_r = max(0.0, highest_milestone - 0.5)
+                        else:
+                            target_floor_r = max(-1.0, highest_milestone - 1.0)
                         
                         if pos_dir == "long":
                             floor_price = orig_entry + (initial_risk * target_floor_r)
@@ -847,11 +891,13 @@ class ForexConductorStrategy(BaseStrategy):
                         
                         # Pyramid (if not already fired)
                         pyr_count = sum(1 for k in fired if k.startswith("pyr_"))
-                        need_pyramid = (m_key not in fired and pyr_count < MAX_PYRAMIDS)
+                        need_pyramid = _pyr_enabled and (m_key not in fired and pyr_count < MAX_PYRAMIDS)
                         
                         if need_floor or need_pyramid:
                             if need_pyramid:
                                 fired.add(m_key)
+                            else:
+                                fired.add(m_key + "_trail")
                                 
                             action = "scale_in" if need_pyramid else "hold"
                             notes_parts = []
@@ -866,15 +912,16 @@ class ForexConductorStrategy(BaseStrategy):
                                 f"{', '.join(notes_parts)}"
                             )
                             
-                            # Push target outward if pyramiding so we don't hit the original tight TP
+                            # Push target outward slowly (0.5R bumps) so it doesn't stretch infinitely away
                             new_tp = None
                             if need_pyramid:
                                 _tp_r = getattr(self._profile, 'target_r', 2.0) if self._profile else 2.0
-                                new_ep = snapshot.candles[-1].close
+                                bump_r = highest_milestone + 0.5  # Push TP just half an R ahead of current milestone
+                                dynamic_tp_r = max(_tp_r, bump_r)
                                 if pos_dir == "long":
-                                    new_tp = new_ep + (initial_risk * _tp_r)
+                                    new_tp = orig_entry + (initial_risk * dynamic_tp_r)
                                 else:
-                                    new_tp = new_ep - (initial_risk * _tp_r)
+                                    new_tp = orig_entry - (initial_risk * dynamic_tp_r)
                                     
                             return AITradeDecision(
                                 symbol=sym,

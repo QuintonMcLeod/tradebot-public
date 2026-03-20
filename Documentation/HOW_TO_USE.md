@@ -1,491 +1,179 @@
-# Trade by SCI — How To Use
+# First Time? Read This Or Stay Poor
 
-> **First time? Start here.** This is the practical, no-fluff guide to getting the bot running and making trades. For deep dives into architecture and philosophy, see the `RTFM/` folder. For installation and setup, see the `README.md`.
+<table><tr><td width="170"><img src="RTFM/img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Okay, I downloaded the bot. Now what? Do I just... press 'Go'? Where's the 'Make Money' button?"</td></tr></table>
+
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"There is no 'Make Money' button. If there was a 'Make Money' button, you think I'd be sitting here EXPLAINING things to you? I'd be on a beach somewhere, pressing the button repeatedly like a crack addict with a Staples Easy Button.<br><br>No. This is real. And real things require a little bit of effort. Not a LOT of effort — we're not building a deck here — but enough effort that you need to actually READ something for once in your adult life. Sound good? Good. Let's go."</td></tr></table>
 
 ---
 
-## 🔌 Step 1: Connect Your Broker(s)
+## 🔌 Step 1: Plug In Your Money (Brokers)
 
-Go to **Settings** (gear icon) → **Brokers** tab.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"First things first: the bot needs access to a place where money lives. That place is called a BROKER. Think of it like this — the bot is a professional chef. The broker is the kitchen. You can't cook without a kitchen, and the bot can't trade without a broker.<br><br>Go to <b>Settings</b> (the gear icon — yeah, the one that looks like a gear, because it IS a gear) and click <b>Brokers</b>."</td></tr></table>
 
-You need at least **one** broker connected to trade. The bot performs a **pre-flight check** on startup — if no broker is configured, it refuses to start and tells you exactly what to do.
+### 💱 Forex: OANDA (Start Here If You Have No Idea What You're Doing)
 
-### Forex (OANDA) — Recommended for Beginners
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"OANDA is the easiest broker on the planet. If you can order something on Amazon, you can set up OANDA. I'm not even exaggerating. My mother could do this, and my mother thinks 'the cloud' is an actual cloud."</td></tr></table>
 
-OANDA is the simplest broker to set up. Great for forex with tight spreads.
-
-1. Create a **live** account at [oanda.com](https://www.oanda.com) — choose **fxTrade** (not fxTrade Practice).
-2. Go to Account Settings → **Manage API Access** → Generate a Personal Access Token.
+1. Go to [oanda.com](https://www.oanda.com) and make a **live** account. Choose **fxTrade** (not fxTrade Practice).
+2. Once you're in, go to Account Settings → **Manage API Access** → Generate a Personal Access Token.
 3. In the bot: **Settings** → **Brokers** → **OANDA** section:
-   - **Account ID**: Your OANDA sub-account number (format: `101-001-XXXXXXX-XXX`)
-   - **API Key**: Paste your full token (starts with a long alphanumeric string)
+   - **Account ID**: Your sub-account number (looks like `101-001-XXXXXXX-XXX`)
+   - **API Key**: That huge ugly string of letters and numbers you just generated
    - **Environment**: `live`
-4. Click **Save**.
-5. Confirm connection in logs: `[INFO] Connected to OANDA (live)` ✅
+4. Click **Save**. If you see `[INFO] Connected to OANDA (live)` in the logs, congratulations — you didn't screw it up. ✅
 
-> ⚠️ **Why not Practice?** OANDA practice accounts have limited API permissions — they **cannot fetch candle data**, which the bot needs for chart display and strategy analysis. Use a **live** account. If you don't want to risk real money, enable the bot's built-in **Paper Trading** mode (Settings → toggle off Execute Trades).
+<table><tr><td width="170"><img src="RTFM/img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wait — live? I don't wanna risk real money yet! Can't I use a practice account?"</td></tr></table>
 
-### Crypto (Gemini / Coinbase / Kraken / etc.)
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I hear you, and I respect the caution. But here's the thing nobody tells you: OANDA's practice account API is broken. Not 'kinda broken' — BROKEN broken. It can't pull the candle data the bot needs to look at charts and do math. It's like hiring a financial advisor and then blindfolding them. Useless.<br><br>Use a LIVE account for the connection. If you're scared of losing real money — and you SHOULD be a little scared, fear is healthy — just toggle on the bot's built-in <b>Paper Trading</b> mode. Settings → turn off 'Execute Trades.' Now the bot uses OANDA's real data but trades with Monopoly money. Best of both worlds. Real charts, fake risk."</td></tr></table>
 
-1. Create API keys on your exchange:
-   - **Gemini**: Account → API → Create a New API Key → Enable "Trading" scope
-   - **Coinbase**: Settings → API → Create API Key → Portfolio permissions
-   - **Kraken**: Settings → API → Create Key → Enable "Create & Modify Orders"
-2. In the bot: **Settings** → **Brokers** → **CCXT** section:
-   - **Exchange**: `gemini`, `coinbase`, `kraken`, etc.
-   - **API Key**: From your exchange
-   - **API Secret**: From your exchange
-   - **Sandbox**: Enable for testnet/paper trading (if the exchange supports it)
-3. Click **Save**.
-4. Confirm: `[INFO] Connected to gemini via CCXT` ✅
+### 🪙 Crypto: Gemini / Coinbase / Kraken
 
-> ⚠️ **API key permissions**: Only enable **trading** permissions. Never enable withdrawal permissions — the bot never needs to withdraw funds.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If crypto is your thing, go to your exchange and generate API keys. Here's the ONE thing I need you to hear:<br><br><b>Only enable 'Trading' permissions.</b> Do NOT — and I mean do NOT — enable 'Withdrawals.' The bot doesn't need the ability to wire your money somewhere. If you enable withdrawals, you're basically giving a stranger the keys to your house and saying 'I trust you, take whatever you want.' Don't be that person.<br><br>In the bot: <b>Settings</b> → <b>Brokers</b> → <b>CCXT</b>. Pick your exchange, paste the Key and Secret, hit <b>Save</b>. Done."</td></tr></table>
 
-### Stocks / Options / Futures (Interactive Brokers)
+### 📉 Stocks & Futures: Interactive Brokers (IBKR)
 
-IBKR is the most powerful but most involved setup. It requires TWS (Trader Workstation) or IB Gateway running alongside the bot.
-
-**Quick version:**
-1. Download and install TWS or IB Gateway from [interactivebrokers.com](https://www.interactivebrokers.com)
-2. Enable the API: File → Global Configuration → API → Settings → Check "Enable ActiveX and Socket Clients"
-3. Set Socket Port to `7497` (paper) or `7496` (live)
-4. In the bot: **Settings** → **Brokers** → **IBKR** section:
-   - **Account ID**: Your IBKR account number (e.g., `U1234567`)
-   - **Host**: `127.0.0.1` (or your server's IP)
-   - **Port**: `7497` (paper) / `7496` (live)
-   - **Client ID**: `1` (or any unique number if running multiple clients)
-
-For the full walkthrough, see `Documentation/RTFM/08_API_SETUP.md`.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"IBKR is for the big dogs. It's the most powerful broker out there, but setting it up is like assembling IKEA furniture — technically possible, emotionally draining, and you'll question your life choices halfway through.<br><br>You need their TWS (Trader Workstation) software running on your computer at the same time as the bot. It's like having a clingy ex — it always has to be there or nothing works.<br><br>Host: <code>127.0.0.1</code>, Port: <code>7497</code> for paper, <code>7496</code> for live. Full walkthrough is in <code>RTFM/08_API_SETUP.md</code> if you're about that life."</td></tr></table>
 
 ---
 
-## 🧠 Step 2: Connect the AI Brain
+## 🧠 Step 2: The AI Brain (Optional But Worth It)
 
-Go to **Settings** → **Intelligence** tab.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Go to <b>Settings</b> → <b>Intelligence</b> tab.<br><br>Let me be clear about something: the AI does NOT place trades. The math engine does that. The AI is like a sports commentator — it watches what's happening, explains the market conditions, and gives color commentary so you don't feel like you're staring at numbers in a vacuum. It also double-checks the bot's work, like a teacher grading homework.<br><br>Pick a provider. Gemini is cheap and good. DeepSeek is even cheaper and surprisingly not terrible. OpenAI is the luxury option — it's like paying for first class when coach gets you there just as fast, but hey, some people like the legroom.<br><br>Paste your API key, pick a model, leave Temperature at <b>0.3</b> unless you want the AI to start writing poetry instead of market analysis."</td></tr></table>
 
-The bot uses AI for two things:
-1. **Market Commentary** — Rich analysis of market conditions shown in the Decisions panel
-2. **Decision Validation** — AI cross-checks strategy signals for quality
+<table><tr><td width="170"><img src="RTFM/img/skeptic.png" width="150"></td><td><b>SKEPTIC</b>:<br>"What if I don't have an API key? What if I can't afford one?"</td></tr></table>
 
-| Provider | Model | Best For | Cost |
-|---|---|---|---|
-| **Gemini** | gemini-2.0-flash | Recommended default — fast, smart, cheap | ~$0.001/trade |
-| **DeepSeek** | deepseek-chat | Budget-friendly, surprisingly good | ~$0.0005/trade |
-| **OpenAI** | gpt-4-turbo | Premium analysis, best reasoning | ~$0.01/trade |
-| **Claude** | claude-3.5 | Nuanced market analysis | ~$0.008/trade |
-| **OpenRouter** | Various | Access to multiple models via one API key | Varies |
-| **Local (Ollama)** | Any LLM | Free, private, runs on your machine | Free |
-
-### Setup
-
-1. Pick your **Provider** from the dropdown.
-2. Paste your **API Key** (get one from the provider's website).
-3. Select a **Model** (the default is pre-selected and usually the best choice).
-4. Optionally adjust **Temperature** (0.1 = conservative, 0.7 = creative) — default 0.3 is recommended.
-5. **Save**.
-
-> 💡 **No AI key?** The bot still trades without it — strategies run mathematically, no AI required. You just won't get the AI commentary overlay in the Decisions panel. The core trading engine works the same either way.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Then don't use one. The bot trades with pure math. No AI required. You just won't get the fancy commentary on the dashboard. It's like driving without the radio — the car still drives, you just don't get background music."</td></tr></table>
 
 ---
 
-## 📊 Step 3: Choose a Profile
+## 📊 Step 3: Build Your Profile (Your Battle Plan)
 
-The left sidebar in the **Profile Editor** tab shows your **Trading Profiles**. A profile is a complete trading configuration that bundles together:
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"A 'Profile' is basically an instruction manual you hand to the bot before sending it to war. It says: what to trade, when to trade it, and how aggressive to be. Think of it like giving a hitman a target list and a set of rules. Except legal. And with currency pairs instead of people.<br><br>You're going to need to make one. Don't panic — it takes about two minutes. Click <b>Profile</b> in the left nav bar, then hit <b>'+ New Profile'</b> at the top of the sidebar. Give it a name (lowercase, underscores — like <code>my_first_setup</code>). Once it's created, you'll see two things:"</td></tr></table>
 
-- **Which symbols** to trade
-- **Which strategy** to use
-- **Risk parameters** (risk per trade, leverage, max positions)
-- **ICC scores** (market structure filters)
-- **Schedule** (trading hours, session gates)
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"<b>🤖 AI Optimize</b> (top of the page): See that shiny button at the top? Just click it. It uses our own AI system (relayed through GhostSpotter.com) — you do NOT need your own API key for this. It reads your symbols, figures out what you're trading, and automatically configures your strategies, safety shields, and risk settings for you. One click. Done. If you want to do things yourself, just add your symbols manually instead.<br><br><b>📊 Trading Symbols</b>: Below the AI Optimize button, this is your shopping list. You'll see a directory of symbols organized by category — Crypto, Forex & Metals, Equities & ETFs, Futures. Just click the ones you want to trade and they'll light up teal. If you're on OANDA (forex), the symbols use underscores (<code>EUR_USD</code>). Crypto uses no underscores (<code>BTCUSD</code>). You can also type custom symbols into the text box and press Enter.<br><br>Start with 3-5 symbols. Don't add 20 symbols on a $500 account — the bot won't have enough capital to trade them all and the Leverage Sentry will block everything."</td></tr></table>
 
-### Built-in Profiles
+<table><tr><td width="170"><img src="RTFM/img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wait, so there's no pre-made profiles? I have to build my own?"</td></tr></table>
 
-| Profile | Symbols | Strategy | Runs When |
-|---|---|---|---|
-| `forex_continuous` | 10 major forex pairs | Rubberband Reaper | Mon-Fri market hours |
-| `crypto_247` | 6 high-volume crypto | Meta-SCI | 24/7 |
-| `forex_crypto_hybrid` | 10 forex + 12 crypto | Meta-SCI | Market hours + 24/7 crypto |
-| `forex_intraday` | 18 forex pairs | Rubberband Reaper | London/NY sessions only |
-| `all_247` | Everything | Meta-SCI | 24/7 |
-
-**Click a profile** to load it. The bot immediately starts scanning those symbols.
-
-### Creating Your Own Profile
-
-1. Click **"+ New Profile"** at the bottom of the sidebar.
-2. Give it a name (lowercase, underscores: `my_forex_setup`).
-3. Configure each tab:
-
-#### General Tab
-| Setting | What It Controls |
-|---|---|
-| **Strategy** | Which algorithm drives trade decisions (Meta-SCI recommended) |
-| **Timeframe** | Primary chart timeframe (15m for scalping, 1h for swing, 4h for position) |
-| **Polling Interval** | How often the bot re-scans each symbol (in seconds) |
-| **Higher Timeframe** | Secondary timeframe for trend confirmation (e.g., 4h when primary is 1h) |
-
-#### Symbols Tab
-Add or remove symbols the bot monitors. Symbols must match your broker's naming:
-- **Forex**: `EUR_USD`, `GBP_JPY`, `USD_CHF` (OANDA format with underscore)
-- **Crypto**: `BTCUSD`, `ETHUSD`, `SOLUSD` (exchange format, no separator)
-- **Futures**: `ES`, `NQ`, `GC` (IBKR contract symbols)
-
-#### Risk Tab
-| Setting | What It Does | Example |
-|---|---|---|
-| **Risk Per Trade %** | Max % of equity risked on a single trade | 2.0 = risk $80 on a $4,000 account |
-| **Max Leverage** | Hard cap on leverage ratio | 3.0 = max 3x notional exposure |
-| **Max Concurrent Positions** | How many trades can be open at once | 5 |
-| **Crypto Qty Steps** | Minimum lot increments for crypto | `{"BTCUSD": 0.00001, "ETHUSD": 0.001}` |
-
-#### ICC Tab (Inter-Candle Confluence)
-ICC is the bot's market structure scoring system. It rates each setup from 0-100.
-
-| Setting | What It Controls | Default |
-|---|---|---|
-| **Min Score** | Minimum ICC score to accept a trade | 55 (conservative: 65+) |
-| **Threshold Grade** | Minimum letter grade | C+ |
-| **Higher TF Weight** | How much the higher timeframe influences the score | 0.3 |
-
-> 💡 **Higher ICC = fewer but better trades.** Setting min score to 70+ means only high-conviction setups trigger entries.
-
-#### Schedule Tab
-| Setting | What It Controls |
-|---|---|
-| **Session Start/End** | When the bot is allowed to enter new trades |
-| **Sabbath Mode** | Pause trading from Friday sunset to Sunday (configurable) |
-| **Auto-Flatten** | Close all positions before sessions end |
-| **Crypto Window** | Specific hours for crypto trading (e.g., 02:00-06:00 UTC for Asian session volatility) |
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yes. And that's on PURPOSE. A pre-made profile would be like handing you someone else's prescription glasses — technically glasses, but they don't fit YOUR eyes. Your account size, your risk tolerance, your schedule, the symbols your broker supports — all of that is different from the next person. Building your own profile takes 2 minutes and guarantees the bot is actually trading what YOU want, how YOU want it. Trust me, it's better this way.<br><br>Oh, and one more thing: everything auto-saves as you make changes. You'll see a little 'Saving...' indicator at the top that turns into 'All changes saved.' No save button to forget to click. You're welcome."</td></tr></table>
 
 ---
 
-## ⚙️ Step 4: Configure Your Risk
+## ⚙️ Step 4: Risk Management (The 'Don't Blow Up Your Account' Section)
 
-This is the most important step. Go to **Settings** → **System** tab.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Alright, listen. I need you to pay attention right now like your rent depends on it. Because it might.<br><br>Risk management is the difference between 'I'm building wealth' and 'I'm calling my mom for gas money.' It's not sexy. It's not exciting. It's the financial equivalent of wearing a seatbelt. Nobody WANTS to wear a seatbelt, but everybody's glad they did when the crash happens."</td></tr></table>
 
-### Key Risk Settings
+Go to **Settings** (gear icon) → **Strategy** tab → scroll to **Global Risk Limits**.
 
-| Setting | What It Does | Conservative | Moderate | Aggressive |
-|---|---|---|---|---|
-| **Default Risk %** | Equity risked per trade | 1% | 2-3% | 4-5% |
-| **Short Risk %** | Risk for short positions | 1% | 2% | 3% |
-| **Max Exposure %** | Total portfolio risk at any time | 5% | 10% | 15% |
-| **Daily Loss Limit %** | Circuit breaker — stops all trading | 5% | 10% | 20% |
-| **Risk Reward Ratio** | Target profit ÷ risk amount | 2.0 | 2.0 | 1.5-2.0 |
-| **Max Concurrent Positions** | Open trades at once | 3 | 5 | 8 |
+<table><tr><td width="170"><img src="RTFM/img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Here are the critical settings, translated into language that doesn't require a finance degree:"</td></tr></table>
 
-### Understanding the Math
-
-With **$4,000 capital** and **2% risk per trade**:
-
-```
-Risk per trade:    $4,000 × 2% = $80 at risk
-Take profit:       $80 × 2.0 RR = $160 potential gain
-Max daily loss:    $4,000 × 10% = $400 circuit breaker
-
-Winning scenario:  3 wins/day × $160 = $480/day
-Losing scenario:   4 losses in a row = $320 drawdown (8% of account)
-```
-
-### Sizing by Account
-
-| Account Size | Risk % | Max Positions | Reasoning |
+| Setting | What It Actually Means | Safe | Reckless |
 |---|---|---|---|
-| **Under $500** | 1-2% | 3 | Limited capital needs preservation |
-| **$500 – $2,000** | 2-3% | 4 | Balanced growth |
-| **$2,000 – $10,000** | 2-4% | 5-6 | Good position sizing range |
-| **$10,000+** | 1-3% | 6+ | Larger account, lower % = more $ per trade |
+| **Default Risk %** | "How much of my whole pile of money am I okay losing on ONE single trade?" | 1-2% | 5%+ |
+| **Max Exposure %** | "How much of my money can be at risk RIGHT NOW across ALL trades combined?" | 10% | 50% |
+| **Daily Loss Limit %** | "If I lose THIS much today, shut everything down so I don't spiral." | 5% | Not setting one at all |
+| **Risk Reward Ratio** | "For every dollar I risk, how many dollars do I want to win?" | 2.0 | Less than 1.0 |
 
-> ⚠️ **The compounding effect of losses**: A 4.5% risk with 4 consecutive losses = 18% drawdown. At 2% risk, the same streak = 8%. Pick a risk level where the worst-case scenario doesn't keep you up at night.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Let me make this real. You have $4,000 in your account. You set risk to 2%.<br><br>The bot risks <b>$80</b> on a trade. If it wins at 2:1, you make <b>$160</b>. If it loses, you lose $80. If you lose FOUR trades in a row — which happens, markets are unpredictable — you're down $320. That's 8%. That stings, but you survive. You trade tomorrow. Life goes on.<br><br>Now imagine you set risk to 10% because some guru on TikTok told you to 'be aggressive.' Same $4,000. Same four-trade losing streak. Except now you lost <b>$1,600</b>. Forty percent of your account is gone. Your hands are shaking. Your significant other is asking why you look like you saw a ghost. You're Googling 'how to recover from 40% drawdown' at 2 AM.<br><br>The answer, by the way, is that you need a 67% gain just to get back to EVEN. The math of recovery is brutally unfair. The deeper the hole, the harder it is to climb out. So don't dig the hole in the first place. Keep your risk at 1-2% and sleep like a baby."</td></tr></table>
+
+<table><tr><td width="170"><img src="RTFM/img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Baby, my third husband gambled away our vacation fund in Vegas because he 'felt lucky.' Luck is not a strategy. Math is a strategy. Listen to the math."</td></tr></table>
 
 ---
 
-## 🗡️ Step 5: Understand the Strategies
+## 🗡️ Step 5: The Strategy (What Is The Bot Actually Doing?)
 
-Go to **Settings** → **Strategy** tab to browse, or set your strategy in **Profile** → **General** tab.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Okay, here's the part where people's eyes glaze over. Don't let your eyes glaze over. I will reach through this screen.<br><br>The bot has multiple 'strategies' — different playbooks for different market conditions. Trending market? One playbook. Choppy market? Different playbook. Market going sideways like a crab? Another playbook.<br><br>But here's the beautiful part: <b>you don't have to pick.</b><br><br>Just use <b>Meta-SCI</b>. That's the default. Meta-SCI is like hiring a coaching staff instead of one coach. It runs ALL the strategies at the same time, scores them from 0 to 100, and only lets the BEST one take the shot. If none of them score high enough? It does nothing. It sits on its hands. It says 'Nah, the market looks like trash right now, I'm not touching it.'<br><br>That 'doing nothing' part? That's the most valuable thing the bot does. Because YOU would have forced a trade. You KNOW you would have. You would have seen a candle that 'looked promising' and thrown money at it like a drunk guy at a strip club. The bot doesn't do that. The bot has standards."</td></tr></table>
 
-### Strategy Quick Reference
+<table><tr><td width="170"><img src="RTFM/img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"So I just... leave it on Meta-SCI and don't touch it?"</td></tr></table>
 
-#### Universal Strategies (Forex + Crypto)
-
-| Strategy | Style | How It Works | Best Market |
-|---|---|---|---|
-| **Meta-SCI** ⭐ | AI Ensemble | Runs a tournament of all eligible strategies, picks the best signal | All markets — recommended default |
-| **Rubberband Reaper** | Anti-Martingale Momentum | Catches momentum after overextension snaps back | Strong trending forex |
-| **Mean Reversion** | Statistical Reversion | Identifies when price deviates too far from fair value and bets on return | Ranging/trending markets |
-| **RoboCop** | Sniper Precision | Extremely selective, only fires on high-conviction structural setups | Low-frequency, any market |
-| **Supply & Demand** | Institutional Zones | Identifies supply/demand zones where institutions place orders | Support/resistance plays |
-| **Trend Rider** | EMA Pullback | Waits for pullbacks to moving averages in established trends | Strong trends |
-| **Session Momentum** | VWAP at Open | Trades momentum at London/NY session opens against VWAP | Session open volatility |
-| **Engulfing Reversal** | Candlestick Patterns | Identifies bullish/bearish engulfing patterns at key levels | Key reversal zones |
-
-#### Crypto-Specific Strategies
-
-| Strategy | Style | How It Works | Best Market |
-|---|---|---|---|
-| 🪙 **RSI + MACD** | Classic Momentum | RSI oversold/overbought + MACD cross confirmation | Crypto trending |
-| 🪙 **VWAP Reversion** | Mean Reversion to VWAP | Identifies deviations from VWAP with volume confirmation | Crypto ranging |
-| 🪙 **Double MACD** | Dual-Timeframe Scalp | Fast/slow MACD on two timeframes for precision entries | Crypto scalping |
-| 🪙 **Virtual Grid** | Grid Trading | Places virtual buy/sell levels at fixed intervals | Crypto sideways markets |
-
-### How Meta-SCI Works (The Recommended Strategy)
-
-Meta-SCI is like a **coach running tryouts**. For each symbol, every scan cycle:
-
-1. **Detects market regime** — Is the market trending, ranging, mean-reverting, or choppy?
-2. **Picks eligible strategies** — Each strategy has regimes it's suited for. Only matching ones compete.
-3. **Runs a tournament** — Every eligible strategy generates a signal independently.
-4. **Scores and ranks** — Signals are scored by conviction (0-100), entry precision, and risk/reward.
-5. **Picks the winner** — The highest-scoring signal becomes the trade decision.
-6. **Falls back gracefully** — If no strategy scores above threshold, it says "STAND ASIDE" (no trade).
-
-This means Meta-SCI **never forces a trade**. It only enters when at least one strategy has high conviction for the current market conditions.
-
-> 💡 **Not sure? Use Meta-SCI.** It adapts to any market regime automatically. You'd only switch to a specific strategy if you have a strong preference for a particular trading style.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"YES. That's it. That's the whole thing. Leave it on Meta-SCI. Stop overthinking. You're not a hedge fund manager. You're a person who downloaded a bot. Let the bot be the smart one. That's literally why it exists."</td></tr></table>
 
 ---
 
-## ▶️ Step 6: Start Trading
+## ▶️ Step 6: Turn It On
 
-Once broker + profile + risk are configured:
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You connected your broker. You built a profile. You set your risk to something that isn't financially suicidal. Time to let the machine eat."</td></tr></table>
 
 1. **Select your profile** from the sidebar.
-2. The bot immediately begins **scanning** your symbols on a timed loop.
-3. Watch the **Decisions** panel — it shows what the bot thinks for each symbol in real time.
-4. When conditions are right, the bot enters trades **automatically**.
-5. Positions appear in the **Holdings** panel with live P&L.
+2. The bot starts scanning. Immediately. No warm-up period.
+3. Watch the **Decisions** panel — it tells you what the bot thinks about each symbol in real time.
+4. When the math lines up, the bot pulls the trigger automatically.
+5. Your open trades show up in **Holdings** with live profit/loss.
 
-### Understanding the Decision Panel
-
-Each symbol gets a decision card showing:
-
-| Field | Meaning | Example |
-|---|---|---|
-| **Action** | What the bot decided | `ENTER_LONG`, `ENTER_SHORT`, `HOLD`, `STAND_ASIDE` |
-| **Score** | ICC market structure score (0-100) | `82.3` (good), `45.2` (marginal) |
-| **Grade** | Letter grade for the setup quality | `A-` (excellent), `C+` (acceptable), `D` (rejected) |
-| **Strategy** | Which strategy generated the signal | `META_SCI → Rubberband Reaper` |
-| **Entry/SL/TP** | Proposed entry, stop loss, and take profit | `1.0865 / 1.0840 / 1.0915` |
-| **R:R** | Risk-to-reward ratio | `2.0` (risking 1 to make 2) |
-
-### Reading the Logs
-
-```
-✅ Healthy operation:
-[INFO] [MINOVSKY] === ENGINE LOADED === Symbol: EURUSD | Variant: META_SCI
-[INFO] [META-SCI] ⚔️ Starting BULLISH_TRENDING Tournament for EURUSD (5 strategies eligible)
-[INFO] [META-SCI] 🏆 Winner: rubberband_reaper (score: 78.5, action: ENTER_LONG)
-[INFO] [DECISION] symbol=EURUSD action=ENTER_LONG score=82.3 grade=A-
-[INFO] [OANDA] Filled: BUY 1000 EURUSD @ 1.08692
-
-⚠️ Normal – bot is being selective (this is GOOD):
-[INFO] [MINOVSKY] EURUSD Strategy STAND_ASIDE triggered
-[INFO] [DECISION] symbol=EURUSD action=HOLD reason=Meta-SCI Tournament: No signals found
-[INFO] [ICC] GBPUSD Score 42.1 below threshold 55.0 — rejected
-
-🛡️ Safety guards working correctly:
-[INFO] [SAFETY] Entry Blocked for USDJPY: Leverage Sentry (FOREX): 4.0x > 3.0x cap
-[INFO] [POSITION LOCK] EURUSD — Holding, position managed by existing SL/TP
-[INFO] [DAILY LIMIT] Trading suspended — daily loss -$312 exceeds limit -$400
-
-❌ Errors that need attention:
-[ERROR] [OANDA] API Error 401 — invalid API token (re-enter key in Settings)
-[ERROR] [CCXT] Connection refused — check exchange is accessible
-[CRITICAL] [PREFLIGHT] No broker configured — see Settings → Brokers
-```
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's what the decisions look like in plain English:<br><br><code>ENTER_LONG</code> = 'I see an opportunity to buy.'<br><code>ENTER_SHORT</code> = 'I see an opportunity to sell.'<br><code>HOLD</code> = 'I'm already in a trade and I'm keeping it.'<br><code>STAND_ASIDE</code> = 'The market looks like garbage right now. I'm not touching it.'<br><br>That last one — STAND_ASIDE — you're going to see it A LOT. And every time you see it, I want you to say 'Thank you.' Because that's the bot saving you from a bad trade. That's the bot being smarter than you. Embrace it."</td></tr></table>
 
 ---
 
-## 🛡️ Step 7: Safety Features
+## 🛡️ Step 7: The Bodyguards (Safety Features)
 
-These protect you automatically, all enabled by default:
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The bot comes with bodyguards. You didn't hire them. You don't pay them. They just showed up and they're not leaving. Here's who they are:"</td></tr></table>
 
-| Feature | What It Does | Where To Configure |
-|---|---|---|
-| **Position Lock** | Once in a trade, ignores conflicting signals. No whipsawing. | Always on (cannot disable) |
-| **Leverage Sentry** | Blocks new trades if leverage exceeds your cap | Settings → System → Max Leverage |
-| **Daily Loss Limit** | Stops ALL trading if daily loss hits your circuit breaker | Settings → System → Daily Loss Limit |
-| **Trailing Stop** | Moves stop-loss in your favor as price advances | Settings → Safety & Shields |
-| **Breakeven Trail** | Locks in breakeven after a configurable profit threshold | Settings → Safety & Shields |
-| **ICC Gatekeeper** | Rejects low-quality setups regardless of strategy signal | Profile → ICC → Min Score |
-| **Sabbath Mode** | Pauses trading on weekends (Friday→Sunday, configurable) | Profile → Schedule |
+- **Position Lock**: Once the bot buys something, it LOCKS that position. If the market dips 5 minutes later and another signal screams "SELL!", the bot ignores it. No flip-flopping. No whipsawing. No burning cash on broker fees because the bot can't make up its mind. One trade, one direction, until it's done.
 
-### How Position Lock Works
+- **Leverage Sentry**: If you try to open too many huge trades at once, this guard physically blocks the door. It doesn't care about your feelings. It cares about your account not getting margin called.
 
-Position Lock is one of the most important safety features. Here's the problem it solves:
+- **Daily Loss Limit**: If you're having a BAD day and losses pile up, the bot shuts down ALL trading for the rest of the day. It stops you from doing what every losing trader does — doubling down in a panic. The bot goes, "Nope. We're done. Go watch TV. Come back tomorrow."
 
-```
-Without Position Lock:
-  12:00 — Meta-SCI says BUY EURUSD → Bot opens LONG
-  12:15 — Market dips, another strategy says SELL EURUSD → Bot flips to SHORT
-  12:30 — Market recovers, strategy says BUY again → Bot flips back to LONG
-  Result: 3 trades, 2 losses from whipsawing, paid spread 3 times ❌
+- **Sabbath Mode**: Weekend markets are a ghost town run by bots and manipulation. The bot automatically pauses real trading and switches to simulation from Friday sunset to Sunday. Even the bot observes a day of rest.
 
-With Position Lock:
-  12:00 — Meta-SCI says BUY EURUSD → Bot opens LONG
-  12:15 — New signals for EURUSD → IGNORED (position locked)
-  12:30 — Price hits take-profit → Bot closes at profit
-  Result: 1 trade, 1 win, paid spread once ✅
-```
-
-> 💡 **Don't manually close positions** the bot opened. If you do, Position Lock won't know the trade is closed and will keep blocking new entries for that symbol until the next restart.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"One critical thing: <b>DO NOT manually close trades</b> that the bot opened. If you do, Position Lock gets confused. It thinks the trade is still open. Now it won't enter new trades for that symbol. It's like telling your babysitter you'll be home at 9, then sneaking in at 7 and rearranging the furniture. The babysitter doesn't know what's happening. Leave the bot alone. Let it manage its own exits."</td></tr></table>
 
 ---
 
-## 📈 Step 8: Monitor Performance
+## 🧪 Step 8: The Time Machine (Backtesting)
 
-### Dashboard (Real-Time)
-- **Live Chart**: Current symbol with candles, indicators, and entry/exit markers
-- **Holdings Panel**: All open positions with entry price, current price, unrealized P&L, and position size
-- **Status Bar**: Current profile, active strategy, capital, and number of open positions
-
-### Analytics Tab (Historical)
-Click the **Analytics** tab to see:
-- **Win Rate**: Percentage of winning trades
-- **Average P&L**: Mean profit/loss per trade
-- **Profit Factor**: Total wins ÷ Total losses (>1.0 = profitable)
-- **Max Drawdown**: Largest peak-to-trough decline
-- **Trade Breakdown**: Performance by strategy, by symbol, by time of day
-
-### Log Files
-All activity is logged to `logs/`:
-- `tradebot.log` — Current session log (rotates daily)
-- `tradebot.log.1` through `.5` — Previous sessions
-- `tradebot_manual.log` — Manual-mode decisions
-
----
-
-## 🧪 Step 9: Backtesting (Test Before You Trade)
-
-Before deploying a strategy live, test it on historical data:
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Before you throw real money at a custom profile you built with your bare hands, test it on historical data first. This is called 'backtesting.' It's like a dress rehearsal for your money.<br><br>Open a terminal and run:"</td></tr></table>
 
 ```bash
-# Quick backtest — last 7 days of forex
+# Test the last 7 days of Forex
 poetry run python tools/run_forex_backtest.py
-
-# Crypto backtest — last 3 days
-poetry run python tools/run_crypto_backtest.py
-
-# Head-to-head strategy comparison (30 days)
-poetry run python tools/cartridges/forex_30day_h2h.py
 ```
 
-### Understanding Backtest Results
-
-```
-═══════════════════════════════════════════════════
-        BACKTEST RESULTS — EURUSD (30 days)
-═══════════════════════════════════════════════════
-Total Trades:     142
-Win Rate:         57.7%
-Avg Win:          $164.20
-Avg Loss:         -$82.10
-Profit Factor:    1.88
-Net P&L:          +$4,218.60
-Max Drawdown:     -$612.40 (-3.1%)
-Sharpe Ratio:     2.14
-═══════════════════════════════════════════════════
-```
-
-| Metric | What It Means | Good Value |
-|---|---|---|
-| **Win Rate** | % of trades that were profitable | >50% |
-| **Profit Factor** | Total profit ÷ Total loss | >1.5 |
-| **Max Drawdown** | Worst peak-to-trough decline | <10% |
-| **Sharpe Ratio** | Risk-adjusted return | >1.5 |
-
-> ⚠️ **Backtests aren't guarantees.** Past performance ≠ future results. Use backtesting to validate strategy logic and risk parameters, not to predict exact returns.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"It spits out a scoreboard. The two numbers you care about:<br><br><b>Win Rate</b>: Above 50% = good. Below 50% = your strategy needs work.<br><b>Profit Factor</b>: Above 1.5 = making money. Below 1.0 = you're donating to the market.<br><br>Now here's the part where I have to be the responsible adult: <b>backtests are not crystal balls.</b> They show you what WOULD have happened. They don't promise what WILL happen. But they're a hell of a lot better than guessing."</td></tr></table>
 
 ---
 
-## 💡 Pro Tips
+## 💡 The "I'm Begging You" Checklist
 
-### For New Users
-1. **Start with paper trading.** Enable the bot's built-in Paper Trading mode (Settings → toggle off Execute Trades). Trade with virtual money first.
-2. **Use Meta-SCI strategy.** It automatically adapts to market conditions so you don't have to.
-3. **Keep risk at 1-2%** until you've seen at least 2 weeks of consistent performance.
-4. **Don't touch positions manually.** Let the bot manage SL/TP. Manual interference confuses Position Lock.
-5. **Read the logs for the first few days.** Understanding what the bot is thinking builds trust and helps you tune settings.
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I'm going to give you the cheat codes. The things that separate the people who make money from the people who blow up their accounts and blame the bot. Write these down. Tattoo them on your arm. I don't care. Just remember them."</td></tr></table>
 
-### For Intermediate Users
-1. **Create separate profiles** for Forex and Crypto — they have different characteristics.
-2. **Schedule crypto sessions.** Crypto is 24/7 but volatility spikes at specific hours (Asian session open, US morning).
-3. **Raise the ICC threshold** to 65+ if you want fewer, higher-quality trades.
-4. **Use the Strategy tab** to view detailed descriptions of each strategy before choosing.
-5. **Monitor your Profit Factor** — if it drops below 1.0, reduce risk or switch strategies.
+1. **Paper trade first.** Toggle off 'Execute Trades.' Use fake money for at least a week. If you can't be profitable with Monopoly money, what makes you think you'll be profitable with your mortgage payment?
 
-### For Advanced Users
-1. **Backtest every strategy change** before deploying live.
-2. **Use head-to-head scripts** (`tools/cartridges/`) to compare strategies on your specific symbol list.
-3. **Write custom cartridges** — copy an existing one and modify parameters.
-4. **Run multiple profiles** with different strategies to diversify signal sources.
-5. **Review `RTFM/09_FEET_WET_STRATEGY.md`** for deep strategy tuning guidance.
+2. **Leave it alone.** Stop closing trades early because you got scared of a red candle. You hired a robot to remove human emotion from the equation. Let the robot do its job. You don't hire a plumber and then stand behind him telling him how to hold the wrench.
 
-### Common Mistakes to Avoid
-- ❌ **Running the bot with no risk limits.** Always set Max Exposure and Daily Loss Limit before your first trade.
-- ❌ **Too many symbols with too little capital.** The Leverage Sentry will block most entries. Start with 3-5 symbols.
-- ❌ **Manually closing trades the bot opened.** This breaks Position Lock tracking.
-- ❌ **Changing strategies mid-trade.** Wait for all open positions to close before switching.
-- ❌ **Ignoring the logs.** The logs tell you exactly why trades were taken or rejected.
-- ❌ **Over-optimizing in backtests.** A strategy that works perfectly on historical data but was tuned to fit that specific period will fail live. Test on out-of-sample data.
+3. **Read the logs.** If the bot isn't trading, the logs will tell you exactly why. It's usually something like `Score 42.1 below threshold 55.0`. Translation: "The market looks like crap and I'm protecting your capital by doing absolutely nothing." That's not a bug. That's a FEATURE.
+
+4. **Scale slowly.** You won three trades in a row? Great. Don't immediately double your risk because you feel invincible. The market will humble you. It humbles EVERYONE. It humbled hedge funds, Wall Street veterans, and people way smarter than both of us combined. You are not the exception.
+
+<table><tr><td width="170"><img src="RTFM/img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Baby, the tortoise beat the hare. And the tortoise wasn't even trying that hard. He was just consistent. Be the tortoise. The hare is broke and out of breath somewhere."</td></tr></table>
 
 ---
 
-## 🆘 Troubleshooting
+## 🆘 Something Broke? (Troubleshooting)
 
-| Problem | Fix |
+| What Happened | What To Do |
 |---|---|
-| **Bot refuses to start** | No broker configured — see banner message, add credentials in Settings → Brokers |
-| **"Another instance is already running"** | Delete `logs/tradebot.lock` and restart |
-| **Bot scans but never trades** | Capital too low for position sizing, or ICC score threshold too high |
-| **"Leverage Sentry" blocking everything** | Add more capital, reduce position count, lower leverage cap, or reduce risk % |
-| **Decisions say "No signals found"** | Normal — the bot is being selective. Wait for better setups |
-| **Crypto P&L seems wrong** | Check `crypto_qty_steps` in your profile — incorrect step sizes cause rounding |
-| **UI not loading profiles** | Ensure `config/settings_profiles.yaml` or `config.json` exists |
-| **API 401 errors** | API key is expired or invalid — regenerate and re-enter in Settings |
-| **Bot trades then immediately closes** | Stop loss too tight — increase risk %, or the market is too choppy |
-| **"Rate limited" warnings** | Too many API calls — increase polling interval in your profile |
-| **IBKR connection drops** | TWS/Gateway needs to be running; check "Enable Socket API" in TWS settings |
+| **Bot won't start** | No broker plugged in. Go to Settings → Brokers and add your credentials. |
+| **"Another instance running"** | Delete `logs/tradebot.lock` and restart. The bot thinks it's already running. It's not. It's just confused. |
+| **Bot scans but never trades** | Either your capital is too low for the position size, or your ICC score threshold is too high. Lower the threshold or add more capital. |
+| **"Leverage Sentry" blocking everything** | You're trying to open more trades than your account can handle. Add capital, reduce positions, or lower your risk %. |
+| **Decisions say "No signals found"** | That's NORMAL. The bot is being picky. Good. You WANT a picky bot. |
+| **API 401 errors** | Your API key expired or you typed it wrong. Regenerate it and paste it again. |
+| **Bot trades then immediately closes** | Stop loss is too tight. The market breathed and the bot panicked. Widen your stops or increase the timeframe. |
 
 ---
 
-## 📖 Glossary
+## 📖 Want to Keep Learning?
 
-| Term | Definition |
+<table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you actually read this far, I'm genuinely impressed. Most people gave up at Step 1. You didn't. That tells me something about you. Here's the deeper stuff if you want it:"</td></tr></table>
+
+| Document | What You'll Learn |
 |---|---|
-| **ICC** | Inter-Candle Confluence — the bot's market structure scoring system (0-100) |
-| **Meta-SCI** | Meta Strategy Confluence Intelligence — the AI ensemble that picks the best strategy |
-| **Position Lock** | Safety feature that prevents the bot from flipping positions on the same symbol |
-| **Leverage Sentry** | Guard that blocks trades when exposure exceeds your leverage cap |
-| **SL / TP** | Stop Loss / Take Profit — automatic exit levels set on every trade |
-| **R:R** | Risk-to-Reward Ratio — how much you gain vs. how much you risk (2.0 = gain 2x your risk) |
-| **Profit Factor** | Total gross profit ÷ Total gross loss — above 1.0 means the system is profitable |
-| **Drawdown** | Peak-to-trough decline in account equity — measures worst-case losing streak |
-| **Scalping** | Very short-term trades lasting minutes to hours |
-| **Swing Trading** | Medium-term trades lasting hours to days |
-| **Position Trading** | Long-term trades lasting days to weeks |
-| **CCXT** | CryptoCurrency eXchange Trading Library — connects the bot to crypto exchanges |
-| **HTF** | Higher Timeframe — secondary chart used for trend confirmation |
-| **VWAP** | Volume-Weighted Average Price — institutional fair value reference |
-| **EMA** | Exponential Moving Average — weighted average of recent prices |
-| **MACD** | Moving Average Convergence Divergence — momentum indicator |
+| `RTFM/01_PHILOSOPHY.md` | Why this bot exists (spoiler: late-stage capitalism) |
+| `RTFM/06_PANIC_BUTTON.md` | How to flatten everything if the world is ending |
+| `RTFM/09_FEET_WET_STRATEGY.md` | Deep dive into every strategy and when to use them |
+| `RTFM/30_BARE_HANDS.md` | Why manual trading is a bloodsport and you're unarmed |
+| `RTFM/43_ALLERGIC_TO_MONEY.md` | The speech that will either change your life or hurt your feelings |
 
----
+<table><tr><td width="170"><img src="RTFM/img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"The journey of a thousand trades begins with a single profile. You have read the manual. Now press the button. The market awaits no one."</em></td></tr></table>
 
-## 📚 Further Reading
-
-| Document | What It Covers |
-|---|---|
-| `RTFM/01_PHILOSOPHY.md` | Design philosophy and core principles of the trading system |
-| `RTFM/08_API_SETUP.md` | Detailed broker API setup walkthrough (IBKR, OANDA, CCXT) |
-| `RTFM/09_FEET_WET_STRATEGY.md` | Deep dive into strategy selection and tuning |
-| `RTFM/06_PANIC_BUTTON.md` | Emergency procedures — how to flatten all positions |
-| `RTFM/07_COCKPIT_CONTROLS.md` | Complete GUI controls reference |
-| `Rubberband_Reaper_Strategy.md` | How the flagship Rubberband Reaper strategy works |
-| `RTFM/35_MINOVSKY_ENGINE.md` | The Minovsky Engine — history, architecture, and why Phoenix was replaced |
-| `RTFM/36_ENGINE_AUDIT.md` | The 14-day engine stress test with SAR/CR/Guillotine breakdowns |
-| `BACKTESTER_RULES.md` | How to write and run backtests |
-
----
-
-*Last updated: February 2026 | Trade by SCI v2.x*
+*Last updated: March 2026 | Trade by SCI v2.x*

@@ -152,6 +152,7 @@ def print_results(result, initial_balance: float, elapsed: float):
             "time": t.entry_time.isoformat() if t.entry_time else None,
             "duration": dur,
             "reason": t.exit_reason or "",
+            "strategy": getattr(t, "strategy_name", ""),
         })
 
     summary = {
@@ -528,25 +529,36 @@ def _write_temp_json(candles_dict: dict) -> tuple[dict[str, str], list[str]]:
 def _run_single_day_worker(args: tuple) -> dict:
     """Run one day of backtesting in an isolated process.
 
-    Args is a tuple: (day_str, balance, symbols_filter, api_fallback)
+    Args is a tuple: (day_str, balance, symbols_filter, api_fallback, strategy_override)
     Returns a dict: {day, trades, pnl, return_pct, initial, final, stats}
     """
-    day_str, balance, symbols_filter, api_fallback = args
+    if len(args) == 5:
+        day_str, balance, symbols_filter, api_fallback, strategy_override = args
+    else:
+        day_str, balance, symbols_filter, api_fallback = args
+        strategy_override = None
 
     # Suppress noisy loggers in worker processes
-    logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     for _noisy in ("tradebot_sci.market", "tradebot_sci.confluence",
-                   "tradebot_sci.strategy.safety_guard", "tradebot_sci.strategy",
+                   "tradebot_sci.strategy.safety_guard",
                    "httpcore", "httpx"):
         logging.getLogger(_noisy).setLevel(logging.WARNING)
-    logging.getLogger("engine_replay").setLevel(logging.WARNING)
-    logging.getLogger("tradebot_sci.simulation.backtester").setLevel(logging.WARNING)
+    logging.getLogger("engine_replay").setLevel(logging.INFO)
+    logging.getLogger("tradebot_sci.simulation.backtester").setLevel(logging.INFO)
 
     try:
         from tradebot_sci.config.loader import get_settings
         from tradebot_sci.simulation.backtester import Backtester
 
         settings = get_settings()
+        if strategy_override:
+            act_prof = settings.get_active_profile()
+            if hasattr(act_prof, "strategy_variant"):
+                act_prof.strategy_variant = strategy_override
+                act_prof.strategies = None
+            settings.profiles[settings.app.profile_name] = act_prof
+
         candle_dir = _get_candle_dir()
         symbols = _discover_symbols(candle_dir, symbols_filter)
         if not symbols:
@@ -635,6 +647,7 @@ def run_candle_history_mode(
     start_date_str: str | None = None,
     end_date_str: str | None = None,
     api_fallback: bool = False,
+    strategy_override: str | None = None,
 ):
     """Run engine using recorded candle_history data (non-cartridge mode).
 
@@ -675,7 +688,7 @@ def run_candle_history_mode(
     # ── Single day: run directly (no multiprocessing overhead) ──
     if num_days <= 1:
         _run_single_day_sequential(
-            candle_dir, symbols, start_date, end_date, balance, api_fallback
+            candle_dir, symbols, start_date, end_date, balance, api_fallback, strategy_override
         )
         return
 
@@ -694,7 +707,7 @@ def run_candle_history_mode(
 
     t0 = time.perf_counter()
 
-    worker_args = [(day_str, balance, symbols_filter, api_fallback) for day_str in day_list]
+    worker_args = [(day_str, balance, symbols_filter, api_fallback, strategy_override) for day_str in day_list]
 
     with multiprocessing.Pool(processes=num_cores) as pool:
         day_results = pool.map(_run_single_day_worker, worker_args)
@@ -714,12 +727,19 @@ def _run_single_day_sequential(
     end_date: datetime,
     balance: float,
     api_fallback: bool = False,
+    strategy_override: str | None = None,
 ):
     """Run a single-day backtest sequentially (no multiprocessing overhead)."""
     from tradebot_sci.config.loader import get_settings
     from tradebot_sci.simulation.backtester import Backtester
 
     settings = get_settings()
+    if strategy_override:
+        act_prof = settings.get_active_profile()
+        if hasattr(act_prof, "strategy_variant"):
+            act_prof.strategy_variant = strategy_override
+            act_prof.strategies = None
+        settings.profiles[settings.app.profile_name] = act_prof
 
     # Load candles with warmup
     warmup_start = (start_date - timedelta(days=5)).strftime("%Y-%m-%d")
@@ -953,6 +973,7 @@ def main():
             start_date_str=args.start_date,
             end_date_str=args.end_date,
             api_fallback=args.api_fallback,
+            strategy_override=args.strategy,
         )
 
 

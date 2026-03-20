@@ -1,6 +1,6 @@
 # 💀 The Death Spiral Diaries: 188 Trades, 3 Wins, and $17 of Pain
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"What I'm about to tell you is a true story. A tragically hilarious, embarrassingly detailed account of how one innocent little trading bot ate $17 in 9 hours, one 30-second trade at a time.<br><br>Names have not been changed. Nobody is innocent. Especially me."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I'm gonna tell you a story that I'm deeply ashamed of. A profoundly embarrassing story about how my highly engineered trading bot chewed through $17 in 9 hours, one thirty-second trade at a time. It's pathetic. And I'm telling you so you don't do the same stupid thing I did."</td></tr></table>
 
 ---
 
@@ -51,7 +51,7 @@ Total trades: **87.** Wins: **2.**
 
 <table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"Arrr! The spread costs alone — $35 — are now <b>213%</b> of the total losses! We've become OANDA's most profitable customer! Not because we're good — because we trade so frequently they named an internal metric after us! They call it 'The SCI Special!'"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"At this point, I'm watching the logs and I notice the bot is trading more frequently than my heartbeat. And my heart rate is elevated because I'm watching a $135 account commit slow, methodical financial self-harm one dime at a time.<br><br>It's not a crash. It's not a blow-up. It's a <em>drip.</em> Like a faucet that's costing you $17 on your water bill except the water is money and the faucet is my code."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I'm sitting there watching this thing trade faster than a squirrel on pre-workout. It's just methodically bleeding out $135 one single dime at a time. It wasn't even a spectacular crash! It was just a slow, depressing drip. I was literally paying OANDA to hold my money for thirty seconds."</td></tr></table>
 
 ---
 
@@ -77,7 +77,7 @@ Total trades: **87.** Wins: **2.**
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Meta-SCI picks a different strategy each cycle. Cycle 1: Bearish Engulfing says SHORT. Cycle 2, thirty seconds later: ICC Core says LONG. Cycle 3, another thirty seconds: Bearish Engulfing says SHORT again.<br><br>The bot was flip-flopping faster than a politician in an election year. And paying the spread toll both directions every time."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"So to recap: we had a stop loss that was shorter than a tweet, a breakeven exit that didn't understand spreads, and a strategy tournament that couldn't make up its mind for more than half a minute.<br><br><b>188 trades. 3 wins. 9 hours. $17 gone.</b><br><br>The worst part? Nobody noticed for NINE HOURS. The bot was in the basement doing this while I was upstairs thinking everything was fine. That's the financial equivalent of your kid drawing on the walls for 9 hours while you watch TV thinking 'wow, they're so quiet. They must be sleeping.'"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"To summarize this disaster: the stop loss was microscopic, the exit was literally paying the broker for the privilege of losing, and the bot was changing its mind every thirty seconds like an indecisive toddler.<br><br>188 trades! 3 wins! $17 gone! And I didn't notice for nine hours! I was upstairs living my life while this thing was downstairs eating crayons!"</td></tr></table>
 
 ---
 

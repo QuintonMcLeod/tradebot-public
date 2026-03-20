@@ -127,6 +127,7 @@ class MetaSCIStrategy(BaseStrategy):
         # [PHASE 7] Previously missing — these are proven forex winners
         from tradebot_sci.strategy.variants.breakout import VolatilityBreakoutStrategy
         from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
+        from tradebot_sci.strategy.variants.forex_conductor import ForexConductorStrategy
         # [CRYPTO SUITE] Crypto-specific strategies
         from tradebot_sci.strategy.variants.crypto_rsi_macd import CryptoRSIMACDStrategy
         from tradebot_sci.strategy.variants.crypto_vwap_reversion import CryptoVWAPReversionStrategy
@@ -141,6 +142,7 @@ class MetaSCIStrategy(BaseStrategy):
             "trend_rider": TrendRiderStrategy(),
             "quantum": QuantumStrategy(),
             "volatility_breakout": VolatilityBreakoutStrategy(),  # [PHASE 7] Was missing!
+            "forex_conductor": ForexConductorStrategy(profile_settings=getattr(self, 'profile', None)),
             # --- Ranging / Reversal Market ---
             "rubberband_reaper": RubberbandReaperStrategy(),
             "icc_core": ICCCoreStrategy(),
@@ -181,19 +183,23 @@ class MetaSCIStrategy(BaseStrategy):
             "bearish_trending": [
                 "icc_core",             # ✅ +$1,237 solo (ATR*2.0, 2.0R, profit guard)
                 "mean_reversion",       # Near-break (R:R 0.82, best of losers)
+                "forex_conductor",
             ],
             "bullish_trending": [
                 "icc_core",             # ✅ +$1,237 solo
                 "mean_reversion",
+                "forex_conductor",
             ],
             "ranging": [
                 "icc_core",             # ✅ Works in all regimes
                 "mean_reversion",       # Mean reversion natural in ranging
+                "forex_conductor",
             ],
             "session_open": [
                 "london_breakout",      # Session-specific (London open)
                 "orb_breakout",         # ✅ +$1,718 solo (Opening Range Breakout)
                 "session_momentum",     # Session-specific
+                "forex_conductor",
             ],
             "crypto_trending": [
                 "supply_demand", "robocop", "hyper_scalper", "trend_rider", "quantum",
@@ -215,6 +221,7 @@ class MetaSCIStrategy(BaseStrategy):
             "london_breakout": 10,       # Session-only, -$116 in Meta-SCI context
             "mean_reversion": 8,         # Best remaining R:R (0.82)
             "session_momentum": 5,       # Low volume, session-specific
+            "forex_conductor": 20,       # Strong router
         }
         # CRYPTO weights: keep old weights (legacy, for when crypto is re-enabled)
         self.CRYPTO_WEIGHTS = {
@@ -259,6 +266,7 @@ class MetaSCIStrategy(BaseStrategy):
         "icc_core",             # ✅ +$1,237 solo (battle-hardened)
         "orb_breakout",         # ✅ +$1,718 solo (battle-hardened)
         "london_breakout",      # Session-specific, near-profitable in ensemble
+        "forex_conductor",      # Router-based ensemble
     }
 
     CRYPTO_PROVEN_WINNERS = set()  # None profitable yet
@@ -276,6 +284,7 @@ class MetaSCIStrategy(BaseStrategy):
     ALL_AROUND_HITTERS = {
         "icc_core",        # ICT methodology works in any session
         "mean_reversion",  # Mean reversion works in any session (best R:R 0.82)
+        "forex_conductor", # Conductor handles sessions internally
     }
 
     def _is_in_session_window(self, strategy_name: str, snapshot) -> bool:
@@ -589,17 +598,26 @@ class MetaSCIStrategy(BaseStrategy):
         #    Judge boost = 10× proven winner × 10× session window
         #    Loss streaks reduce the boost (see _judge_boost)
         def _tournament_score(sig):
-            base = sig.score or 0
-            grade_bonus = 10 if sig.grade == 'A' else 0
-            raw = base + grade_bonus
             name = sig.gates.get("meta_source", "")
+            
+            # Rule-based strategies (icc_core, etc.) don't emit scores; if they fire, 
+            # it's 100% conviction. Conductor supplies a 0-100 scale.
+            base = float(sig.score) if getattr(sig, "score", None) is not None else 100.0
+            grade_bonus = 10.0 if getattr(sig, "grade", "") == 'A' else 0.0
+            
+            # Add strategy's inherent weight as a tie-breaker / edge
+            weights = self._get_weights(snapshot.symbol)
+            inherent_weight = float(weights.get(name, 5.0))
+            
+            raw = base + grade_bonus + inherent_weight
+            
             boost = self._judge_boost(name, snapshot.symbol, snapshot)
             final = raw * boost
             if boost > 1.0:
                 losses = self._get_loss_streak(snapshot.symbol, name)
                 logger.info(
                     f"[JUDGE] {snapshot.symbol} {name.upper()}: "
-                    f"raw={raw:.0f} × boost={boost:.0f}× = {final:.0f} "
+                    f"base={base:.0f} wt={inherent_weight:.0f} raw={raw:.0f} × boost={boost:.0f}× = {final:.0f} "
                     f"(losses={losses})"
                 )
             return final

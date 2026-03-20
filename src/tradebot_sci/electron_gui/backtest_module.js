@@ -178,6 +178,7 @@
                 return 0;
             }
             case 'reason': return (trade.reason || '').toLowerCase();
+            case 'strategy': return (typeof trade.strategy === 'string' ? trade.strategy : (trade.strategy_name || '')).toLowerCase();
             case 'capital': return trade._runningCapital || 0;
             default: return 0;
         }
@@ -232,7 +233,8 @@
 
         const startDate = $('bt-start-date')?.value;
         const endDate = $('bt-end-date')?.value;
-        const startCapital = parseFloat($('bt-start-capital')?.value || 10000);
+        const startCapital = parseFloat($('bt-start-capital')?.value || 100);
+        const strategyOverride = $('bt-strategy-select')?.value || null;
 
         // Get selected symbols
         const pills = document.querySelectorAll('#bt-symbol-pills input:checked');
@@ -265,6 +267,7 @@
                 end_date: endDate,
                 symbols: symbols,
                 balance: startCapital,
+                strategy: strategyOverride,
                 use_api_fallback: useApiFallback,
             });
 
@@ -422,7 +425,7 @@
                 payoutEl.textContent = '$0.00';
                 payoutEl.style.color = 'var(--text-muted)';
             } else {
-                const initCap = data.initial_capital || parseFloat($('bt-start-capital')?.value || 10000);
+                const initCap = data.initial_capital || parseFloat($('bt-start-capital')?.value || 100);
                 const velocityPct = initCap > 0 ? (pnl / initCap) * 100 : 0;
                 const recommendedPct = velocityPct >= 2.5 ? 0.75 : 0.50;
                 const payout = pnl * recommendedPct;
@@ -432,7 +435,7 @@
         }
 
         // Store initial capital for running capital computation
-        _btInitialCapital = data.initial_capital || parseFloat($('bt-start-capital')?.value || 10000);
+        _btInitialCapital = data.initial_capital || parseFloat($('bt-start-capital')?.value || 100);
 
         // Trade history table
         _renderTradeHistory(data.trades || []);
@@ -473,7 +476,7 @@
         const sorted = _sortBtTrades(_lastBtTrades);
 
         if (sorted.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-dim); padding:40px 16px; font-style:italic;">
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-dim); padding:40px 16px; font-style:italic;">
                 <span class="material-symbols-outlined" style="font-size:28px; display:block; margin-bottom:8px; opacity:0.25;">search_off</span>
                 No trades in this backtest
             </td></tr>`;
@@ -485,6 +488,7 @@
             const isWin = pnl >= 0;
             const cap = t._runningCapital || 0;
             const capColor = cap >= _btInitialCapital ? 'var(--success)' : 'var(--error)';
+            const stratStr = typeof t.strategy === 'string' ? t.strategy : (t.strategy_name || '--');
             return `<tr>
                 <td style="color:var(--text-secondary);">${t.time ? new Date(t.time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}</td>
                 <td style="font-weight:700; color:var(--text-main);">${t.symbol || '--'}</td>
@@ -493,6 +497,7 @@
                 <td style="text-align:right; font-weight:700; color:${isWin ? 'var(--success)' : 'var(--error)'};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
                 <td style="text-align:right; font-weight:600; color:${capColor}; font-variant-numeric:tabular-nums;">$${cap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td style="color:var(--text-muted);">${t.duration || '--'}</td>
+                <td style="color:var(--text-muted);">${stratStr}</td>
                 <td style="color:var(--text-muted);">${t.reason || '--'}</td>
             </tr>`;
         }).join('');

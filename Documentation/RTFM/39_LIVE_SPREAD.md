@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"What's a spread?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Oh, we're starting from <em>there.</em> Okay. Sit down.<br><br>When you buy EUR/USD, you don't pay the real price. You pay a little <em>more</em> than the real price. When you sell, you get a little <em>less</em> than the real price. That gap between the buy price and the sell price? That's the <b>spread.</b><br><br>It's the toll booth on the highway. Every time you enter a trade, you pay. Every time you exit, you pay. OANDA doesn't charge commissions — it charges the spread. And the spread is how they buy their office furniture."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Oh boy, we are starting from the very bottom. Okay, listen up. When you buy something, you pay a premium. When you sell, you get a discount. That gap is the spread! It's the toll booth! OANDA says 'no commissions!' Yeah, right! They charge the spread! That's how they pay for their yachts!"</td></tr></table>
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Okay, so it's like... a fee?"</td></tr></table>
 
@@ -16,7 +16,7 @@
 
 <table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"Wait. It was just... guessing?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Not guessing. <em>Estimating.</em> Which is a fancy word for educated guessing. And 1.5 pips is a perfectly reasonable number... <b>during London and New York hours on major pairs.</b><br><br>You know when it's NOT a reasonable number? At 2 AM Eastern. On a holiday. During NFP. During a flash crash. During the 15 minutes when Jerome Powell clears his throat and the entire forex market loses its mind.<br><br>Let me show you what actually happens to spreads:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Estimating! It's an educated guess! And 1.5 pips is fine if it's high noon in New York. But at 2 AM on a bank holiday? When Jerome Powell sneezes and the market implodes? 1.5 pips is a joke! Look at this table and weep:"</td></tr></table>
 
 | Time / Condition | EUR/USD Spread | What the Bot Assumed |
 |---|---|---|
@@ -29,7 +29,7 @@
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"Bro, the bot thought the highway toll was $1.50 but sometimes it was $15?!"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"EXACTLY. And you know what happens when you think you're paying $1.50 in fees but you're actually paying $15? Your $20 profit turns into a $5 <em>loss.</em> And you're sitting there going 'But the strategy was right! Why did I lose money?' Because the toll booth took everything, my guy. The strategy was right. The math was wrong."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yes! You think the toll is a buck fifty, you pull up, and they demand fifteen dollars! Your profit is gone! The strategy was right, but you got robbed at the toll booth because you didn't check the price first!"</td></tr></table>
 
 ---
 

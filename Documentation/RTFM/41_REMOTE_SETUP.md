@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wait — I can run the bot on one computer and watch it from a completely different one?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yes. And it takes about 90 seconds to set up.<br><br>The bot has two halves — a <b>brain</b> and a <b>face</b>. The brain is the Python engine that does the actual trading. The face is the Electron GUI — the pretty dashboard you stare at. They don't need to be on the same computer. They talk to each other over a WebSocket connection on port 8080. That's it."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yes! And it takes 90 seconds! Are you people allergic to convenience? The bot has a brain, and it has a face. The brain trades. The face is the pretty little dashboard you drool over. They don't need to be in the same room! They talk over a WebSocket! It's not magic, it's basic networking!"</td></tr></table>
 
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Think of it like a kitchen and a dining room, baby. One computer is the kitchen — that's where the cooking happens. The other computer is the dining room — that's where you sit and watch. You don't need to be in the kitchen to enjoy the meal. You just need the waiter to know where the kitchen is."</td></tr></table>
 
@@ -24,7 +24,7 @@ Or headless (no GUI on the server side):
 
 The `-p` flag lets you pick which trading profile to use (e.g. `-p forex_continuous`, `-p crypto_247`). **You don't need it** — the bot reads the active profile from `config.json`, and you can switch profiles anytime through the GUI's **Profiles** tab. The `-p` flag just overrides it from the command line if you want to.
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's it for the server. The bot automatically starts a WebSocket server on port 8080 and broadcasts everything — candles, trades, state, holdings — to anyone who connects. It's already doing this. You don't need to configure anything extra."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's it! The server part is done! The bot turns on, starts yelling all its data on port 8080, and anyone can listen! You don't have to configure anything! I already did the hard part so you don't have to think!"</td></tr></table>
 
 Before moving on, grab the server's IP address:
 
@@ -56,7 +56,7 @@ ws://192.168.1.100:8080/ws
 
 6. Save
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The GUI will reconnect automatically. One field. One change. Done. You're now watching a bot that's running on a completely different machine. Any OS. Same room or different continent — the WebSocket doesn't care."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"One field! You change ONE field! And it works! You're now watching your money being managed by a robot in another room... or another country! The WebSocket doesn't care! It's beautiful, isn't it? Just don't type the IP wrong."</td></tr></table>
 
 ---
 

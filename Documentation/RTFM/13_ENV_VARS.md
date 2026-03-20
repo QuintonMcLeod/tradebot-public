@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Environment variables are the hidden levers. Most users never touch them. But if you're reading this, you're not most users. You're the person who reads the owner's manual cover to cover. Respect."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is the encyclopedic reference. Every environment variable. Every setting. Every hidden switch. You probably don't need to edit these directly — the Settings GUI handles most of them. But if you want to know what's REALLY going on under the hood, this is your map."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This right here is the encyclopedic reference. Every environment variable. Every single hidden switch. You probably don't need to touch these directly because the Settings GUI handles them for you. But I know you. You're gonna get in here and try to tweak something to be 'smarter' than the bot. So here's the map. When you break it, don't say I didn't warn you."</td></tr></table>
 
 > 📺 **Most of these variables can be adjusted through the Settings UI** — you don't need to edit files directly. The Settings menu organizes them into tabs: **System**, **Strategy Workshop**, **Safety & Shields**, **Performance & Profits**, **Broker Suite**, **Intelligence**, and **Hours & Sabbath**. For raw access to any variable, use Settings → **Advanced**.
 
@@ -61,7 +61,7 @@
 
 ## Bot Runtime & General Settings
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"These are the master controls. Runtime mode, live trading toggle, logging — the fundamentals."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"These are the master controls! The heavy machinery! Runtime mode, live trading toggle, logging. Don't flip these switches unless you actually know what they do. You're not flying a spaceship in an arcade, this is real money."</td></tr></table>
 
 | Environment Variable | Description |
 |----------------------|-------------|
@@ -190,4 +190,4 @@
 | `MULTI_POSITION_ENABLED` | **Multi-Position Mode.** Allow concurrent trades. |
 | `MAX_CONCURRENT_POSITIONS` | **Concurrent Limit.** Cap total active symbols. |
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you made it this far, you've read every environment variable in the entire system. You now know more about the bot's internal configuration than 99% of the people who will ever use it. Use this knowledge wisely. Or at least don't break anything."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you made it all the way down here, congratulations! You just read every environment variable in the system. You now know more about this bot than 99% of the people running it. Use this knowledge to make money. And for the love of God, don't break anything."</td></tr></table>

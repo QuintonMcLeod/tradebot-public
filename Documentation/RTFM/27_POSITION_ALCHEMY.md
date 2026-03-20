@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The entry is science. The exit is art. The stop-loss is religion."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Entry gets all the glory. 'I called the bottom!' 'I bought the dip!' Nobody talks about exits. And exits are where the money is actually made or lost.<br><br>You can have a 90% win rate and still lose money if your losers are 10× bigger than your winners. This article is about the exit side — the mechanics that turn a good entry into actual profit."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Everyone loves the entry. 'I called the bottom!' 'I bought the dip, bro!' Nobody talks about exits. But exits are where the money actually changes hands. You people love entering trades and then you just stare at the screen hoping God takes the wheel.<br><br>You can have a 90% win rate and still go broke if your losers are ten times bigger than your winners! This article is about the exit side — the math that physically forces you to keep the money you made."</td></tr></table>
 
 ---
 
@@ -42,7 +42,7 @@ Take-Profit = Entry Price + (SL Distance × R:R Ratio)
 - SL Distance: 52.5 pips
 - Take-Profit: 1.0850 + (52.5 × 2.0) = **1.0955**
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Without a take-profit, you'll watch price hit your target, think 'let it run,' then watch it reverse all the way back. The TP removes the temptation."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Without a take-profit, you're going to watch the price hit your target, get greedy, think 'let it run, I'm a genius,' and then watch it reverse all the way back to zero and cry. The Take-Profit cures your greed by taking the money while you're still hallucinating about buying a boat."</td></tr></table>
 
 ---
 
@@ -116,10 +116,10 @@ breakeven_trail:
 7. Session Close (If intraday_flatten is enabled)
 ```
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"First condition to trigger wins. If the trailing stop fires at +60 pips, the TP at +100 never gets a chance. But you still made 60. That's more than zero."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Whichever one hits first, wins! If the trailing stop fires at +60 pips, the TP at +100 never gets a chance. But you still made 60! Be happy! That's more than the zero you would have made trying to manage it yourself!"</td></tr></table>
 
 ---
 
 ## The Exit Philosophy
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Most traders spend 90% of their energy on entries and 10% on exits. It should be the opposite. A mediocre entry with a great exit system outperforms a brilliant entry with sloppy exits. Every time.<br><br>Losses are small (ATR-based SL). Wins are meaningful (R:R-based TP). Trends are ridden (trailing stop). Capital is protected (breakeven trail).<br><br><em>You don't need to be right. You just need to lose less when you're wrong than you make when you're right.</em>"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Most of you spend 90% of your energy trying to find the perfect entry and 10% on your exits. It's completely backwards. A mediocre entry with a ruthless exit system completely destroys a brilliant entry with sloppy exits. Every single time.<br><br>Losses are small. Wins are meaningful. Capital is protected. <br><br><em>You don't need to be right all the time. You just need to stop bleeding like a stuck pig when you're wrong!</em>"</td></tr></table>

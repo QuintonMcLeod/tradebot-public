@@ -4,13 +4,13 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Do I need to understand all of this to use the bot?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"No. You don't need to understand how a car engine works to drive to the grocery store. But if the car makes a weird noise at 3 AM and you're alone on a highway? You're gonna wish you'd read the manual.<br><br>This is the manual."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Look, do you need to know how a transmission works to drive to Wendy's? No. But when your car starts smoking on the highway at 3 AM and you don't know what a radiator is, you're gonna look real stupid on the side of the road. This is the manual so you don't look stupid."</td></tr></table>
 
 ---
 
 ## High-Level Architecture
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's the bird's-eye view. The whole machine, laid out like a blueprint. If this looks complicated, that's because it IS complicated. But each piece has a job, and none of them are optional."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's the blueprint. And yes, it looks complicated, because it IS complicated! You think making money while you sleep is supposed to be easy? Every piece here has a job. Don't touch anything unless you know exactly what it does."</td></tr></table>
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -59,7 +59,7 @@
 
 ## The Loop — The Heartbeat (`runtime/loop.py`)
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is the heartbeat. The pulse. The thing that never stops. Every X seconds, it wakes up, scans every symbol in your list, asks each one 'is it time to trade?', and either pulls the trigger or goes back to sleep.<br><br>It's like a night watchman who checks every door, every window, every lock — methodically, tirelessly, and without complaining about the hours."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"This is the heartbeat. The pulse. It wakes up every few seconds, looks at every single symbol you told it to watch, and asks 'Are we making money right now?' If no, it goes back to sleep. It's like a night watchman, except it doesn't complain about the hours, it doesn't need coffee, and it doesn't fall asleep on the job!"</td></tr></table>
 
 Here's what happens each cycle:
 
@@ -155,7 +155,7 @@ See Chapter 9 (**20 Weapons of War**) for the full tournament flow.
 
 ## The Safety Layer — The Bodyguard
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Safety Layer is the bouncer at the door. The Brain says 'I want to trade.' The Safety Layer says 'Show me your ID, your vaccination card, and your reasoning, and MAYBE I'll let you in.'<br><br>Most of the time? The Safety Layer says no. And that's the point. The best trade is the bad trade you never took."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Safety Layer is the bouncer. The big guy at the door who doesn't care who you know. The Brain goes, 'Hey, I wanna trade!' and the Safety Layer goes, 'Show me some ID, empty your pockets, and explain your entire life story, and MAYBE I'll let you in.' Most of the time it just throws you back on the street. And it's doing you a favor!"</td></tr></table>
 
 | Guard | What It Prevents | When It Acts |
 |-------|--------------------|--------------|

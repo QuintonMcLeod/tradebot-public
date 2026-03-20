@@ -1,6 +1,6 @@
 # 5. The Cookbook — Step-by-Step Recipes
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Give a man a fish, he trades for a day. Teach a man to configure the bot, he loses money <em>automatically.</em><br><br>I'm kidding. These are the most common tasks, laid out step by step, so you can't screw them up. And if you DO screw them up after reading these recipes? That's on you. I gave you the cookbook."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Give a man a fish, he trades for a day. Teach a man to configure the bot, he destroys his own account <em>automatically.</em><br><br>I'm kidding. Mostly. These are the recipes. Step by step. Menu options. Buttons. Do exactly what I say. And if you screw this up after reading the cookbook? That's on you. I gave you the ingredients, you still managed to burn the water."</td></tr></table>
 
 ---
 
@@ -8,7 +8,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I want to trade DOGE! How do I add it?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Of course you want to trade DOGE. Everyone wants to trade DOGE. Fine. Two ways:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Of COURSE you want to trade DOGE. Why wouldn't you? It's a coin based on a meme of a dog from 2013! What could possibly go wrong with your retirement fund? Fine. If you absolutely have to gamble on dog money, here are the two ways:"</td></tr></table>
 
 **Via GUI (Recommended):**
 1. Open Profile Editor → Select your profile → **Symbols** tab.
@@ -119,7 +119,7 @@ Then restart: `./scripts/tradebot.sh --restart`.
 
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Now calm down, honey. Be careful lowering those thresholds. The bot is being selective for a reason."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Fine, you want more action? Lower the entry score threshold. But understand what you're doing — you're telling the bot to accept lower-quality setups. That's not 'more aggressive.' That's 'less picky.' There's a difference."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Fine, you want more 'action'? You want to feel alive? Go to a casino. But if you must do it here, lower the entry score threshold. Just understand what you're actually doing: you are telling the bot to lower its standards. You're telling the bot to date ugly charts. That's not 'more aggressive.' That's 'desperate.' There is a difference."</td></tr></table>
 
 1. Settings → **System** tab (or edit `config.json`).
 2. Find `icc_entry_score_threshold`.
@@ -165,7 +165,7 @@ Then restart: `./scripts/tradebot.sh --restart`.
     - `[META-SCI] Tournament: No qualifying signals found` → Bot is being selective (good)
     - `[META-SCI] 🏆 Winner: trend_rider (score: 78.5)` → Signal found, check guards
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Nine times out of ten, the bot not trading is the bot doing its job. The tenth time, you forgot to add symbols to your profile. Check the simple things first before assuming something is broken."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Nine times out of ten, when the bot isn't trading, it's because it's doing its job and saving you from a terrible market. The tenth time, it's because you forgot to add symbols to your profile like an absolute amateur. Check your spelling before you complain that my code is broken."</td></tr></table>
 
 ---
 

@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"While you sleep, the bot watches. The night shift runs in silence and discipline. No complaints. No overtime pay."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"So you've got an open position and the clock says 11 PM. Your spouse is already asleep. Your dog is judging you. And you're sitting there, watching a 5-minute chart in your underwear, wondering if EUR/USD is going to gap against you overnight.<br><br>Stop it. That's the bot's job now."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"It's 11 PM. Your spouse is asleep. Your dog is looking at you with disappointment. And you're sitting in the dark in your underwear, sweating bullets over a 5-minute chart, praying that the Bank of Japan doesn't ruin your life while you're unconscious.<br><br>Stop doing that! That is exactly what the bot is for! Go to sleep! You look ridiculous!"</td></tr></table>
 
 ---
 

@@ -1,8 +1,8 @@
-# 20. The Global Scheduler — Precision Timing & Off-Hours
+# 20. The Global Scheduler: Precision Timing & Off-Hours
 
 <table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"I am a machine of infinite patience, but even I need to know when the casino is open."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Markets aren't all open at the same time. London opens at 3 AM Eastern. Tokyo opens at 7 PM Eastern. Equities sleep on weekends, but crypto never closes.<br><br>That's why the bot has the Global Scheduler — a precision timing engine that lets you dictate exactly when each profile should run, and more importantly, what it should do when it's off the clock."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Listen to me. Markets are not open 24/7. London is up at 3 AM. Tokyo is up at 7 PM. Crypto never sleeps, and equities take the weekend off to play golf.<br><br>The Global Scheduler lets you tell the bot exactly when to work and when to sit in the corner and think about what it's done. Stop trading low-liquidity garbage at 2 AM!"</td></tr></table>
 
 ---
 
@@ -76,4 +76,4 @@ The legacy "Auto-Schedule" and "Session Gate" features have been formally deprec
 
 If you previously relied on auto-schedule to swap between `asian_session` and `london_session` profiles, the recommended approach is now to run a single hybrid profile and use the AI Optimization feature, or use the Global Scheduler to define exact trading windows.
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The old system was a hammer. The Global Scheduler is a scalpel. Use it wisely."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The old system was a caveman's club. The Global Scheduler is a surgical scalpel. Try not to cut your own finger off with it."</td></tr></table>

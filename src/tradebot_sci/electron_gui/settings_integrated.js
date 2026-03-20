@@ -58,6 +58,7 @@ const CONFIG_MAP = {
     'WS_SERVER_PORT': ['runtime', 'ws_server_port'],
     'GUI_WS_URL': ['runtime', 'gui_ws_url'],
     'GUI_PNL_TIMEFRAME': ['runtime', 'pnl_timeframe'],
+    'GUI_DEBUG_NOTIFICATIONS': ['runtime', 'gui_debug_notifications'],
     'GLOBAL_RISK_PCT': ['runtime', 'global_default_risk_pct'],
     'FRIDAY_FADE_ENABLED': ['runtime', 'friday_fade_enabled'],
     // Safety & Shields
@@ -341,6 +342,13 @@ const TOOLTIPS = {
     COMMENTARY_INTERVAL_MINUTES: "The Chatty Timer. If set to 15, the AI will give you an update every 15 minutes.",
     COMMENTARY_LLM_DAILY_SLOTS: "The Scheduled Briefing. Tell the AI 'Only talk to me exactly at 9:00 AM and 4:00 PM'.",
     COMMENTARY_LLM_MAX_CALLS_PER_DAY: "The Penny Saver. The absolute maximum number of times the AI is allowed to speak per day, just to make sure you don't overspend on API fees.",
+
+    // Seasoned Trader (Autopilot)
+    AI_SEASONED_TRADER_ENABLED: "The Big Red Switch. When you flip this ON, you are handing the keys to a 20-year veteran AI trader. It will actively manage your bot — adjusting risk, switching strategies, reading global news, and making real-time decisions on your behalf. This is NOT the regular commentary AI. This AI physically RUNS the bot. It watches your PnL, monitors the news, and makes adjustments like a seasoned professional sitting at your desk. Turn this off and the bot goes back to following your manual settings.",
+    AI_MONETARY_PATH: "What's Your Goal? This tells the AI what kind of trader YOU want to be. 'Aggressive Growth' means the AI will take bigger, calculated risks to grow your account fast — think wolf of Wall Street energy. 'Balanced Compounder' means steady, consistent gains without wild swings — the tortoise approach. 'Capital Preservation' means the AI's #1 job is to NOT lose your money, even if that means making less profit. Pick the one that lets you sleep at night.",
+    AI_PERSONALITY: "Who's Driving? This changes HOW the AI thinks and talks. 'The Calculating Quant' is cold, mathematical, and emotionless — pure numbers. 'The 20-Year Veteran' is experienced and measured — been through crashes and knows when to sit tight. 'The Aggressive Scalper' is fast and hungry — loves quick trades and small wins that add up. 'The Patient Sniper' waits for hours or days for the PERFECT shot, then strikes once and walks away. Each personality produces different commentary and makes different trading decisions.",
+    AI_AUTOPILOT_INTERVAL_MINS: "How Often Does the AI Check In? Every this-many minutes, the AI wakes up, looks at your account, reads the latest news, reviews what it did last time, and decides if anything needs to change. 30 minutes is the default — frequent enough to catch problems, but not so frequent that it's burning through your API budget. Set it lower (like 5) if you want the AI hyper-attentive during volatile markets. Set it higher (like 60) if things are calm and you want to save on API costs.",
+
     GUI_CAPITAL_DISPLAY_MODE: "Dashboard Display preference. 'Overall' shows your total net worth. 'Buying Power' shows only the cash you have left to spend.",
 
     // Sabbath Settings
@@ -1001,7 +1009,7 @@ const STRATEGY_PRESETS = {
     forex_conductor: {
         RISK_PER_TRADE_PCT: '1.0',
         STOP_AND_REVERSE_ENABLED: 'true',   // SAR is the Conductor's cornerstone
-        REVERSAL_TP_R: '1.0',
+        REVERSAL_TP_R: '0.2',
         REVERSAL_COST_AWARE_TP: 'true',
         REVERSAL_RISK_PER_TRADE: '0.045',
         TRAILING_STOP_ENABLED: 'true',
@@ -1029,7 +1037,7 @@ const STRATEGY_PRESETS = {
     robocop: {
         RISK_PER_TRADE_PCT: '2.0',
         STOP_AND_REVERSE_ENABLED: 'true',
-        REVERSAL_TP_R: '1.0',
+        REVERSAL_TP_R: '0.2',
         REVERSAL_COST_AWARE_TP: 'true',
         REVERSAL_RISK_PER_TRADE: '0.02',
         TRAILING_STOP_ENABLED: 'true',
@@ -1041,7 +1049,7 @@ const STRATEGY_PRESETS = {
     yoyo: {
         RISK_PER_TRADE_PCT: '1.0',
         STOP_AND_REVERSE_ENABLED: 'true',
-        REVERSAL_TP_R: '1.0',
+        REVERSAL_TP_R: '0.2',
         REVERSAL_COST_AWARE_TP: 'true',
         REVERSAL_RISK_PER_TRADE: '0.015',
         TRAILING_STOP_ENABLED: 'false',
@@ -1061,7 +1069,7 @@ const STRATEGY_PRESETS = {
     icc_core_standalone: {
         RISK_PER_TRADE_PCT: '1.6',  // Backtested optimal: +$3,564 at 1.6% with SAR
         STOP_AND_REVERSE_ENABLED: 'true', // SAR critical for ICC Core
-        REVERSAL_TP_R: '1.0',
+        REVERSAL_TP_R: '0.2',
         REVERSAL_COST_AWARE_TP: 'true',
         REVERSAL_RISK_PER_TRADE: '0.016',
         TRAILING_STOP_ENABLED: 'true',
@@ -1115,7 +1123,7 @@ const STRATEGY_PRESETS = {
     meta_sci: {
         RISK_PER_TRADE_PCT: '1.0',
         STOP_AND_REVERSE_ENABLED: 'true',
-        REVERSAL_TP_R: '1.0',
+        REVERSAL_TP_R: '0.2',
         REVERSAL_COST_AWARE_TP: 'true',
         REVERSAL_RISK_PER_TRADE: '0.045',
         TRAILING_STOP_ENABLED: 'true',
@@ -2322,7 +2330,7 @@ function renderStrategyTab(container) {
         section.appendChild(createCard('Enable Stop-and-Reverse', 'Flip direction on stop loss hits', 'STOP_AND_REVERSE_ENABLED', 'toggle'));
         section.appendChild(createCard('Enable Counter-Reversal', 'Fire 2× trade when SAR is losing', 'COUNTER_REVERSAL_ENABLED', 'toggle'));
         section.appendChild(createCard('Keep SAR Open', 'SAR stays open alongside CR (per-strategy)', 'SAR_KEEP_OPEN', 'toggle'));
-        section.appendChild(createSliderCard('Reversal TP (R-Multiple)', 'Take profit target for reversals', 'REVERSAL_TP_R', 0.5, 5.0, 0.5, 'R'));
+        section.appendChild(createSliderCard('Reversal TP (R-Multiple)', 'Take profit target for reversals', 'REVERSAL_TP_R', 0.1, 5.0, 0.1, 'R'));
         section.appendChild(createSliderCard('Reversal Risk %', 'Risk per reversal trade', 'REVERSAL_RISK_PER_TRADE', 1.0, 10.0, 0.5, '', { pctFormat: true }));
         section.appendChild(createCard('Cost-Aware TP', 'Add spread buffer to TP target', 'REVERSAL_COST_AWARE_TP', 'toggle'));
         section.appendChild(createSliderCard('Partial Close Fraction', 'De-risk close percentage', 'SCALE_OUT_FRACTION', 0.25, 1.0, 0.05, ''));
@@ -2660,6 +2668,41 @@ function renderAITab(container) {
 
     // Daily limit
     section.appendChild(createCard('Daily API Limit', 'Max AI calls per day', 'COMMENTARY_LLM_MAX_CALLS_PER_DAY', 'input', { number: true, default: '50' }));
+
+    // ── SEASONED TRADER AUTOPILOT ────────────────────────────────────────────────
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Seasoned Trader (Autopilot)', 'psychiatry',
+        "<strong>Seasoned Trader (Autopilot)</strong><br><br>Activates the 20-year veteran AI daemon that physically runs the bot on your behalf. It analyzes global news, monitors your PnL, adjusts settings dynamically, and executes advanced safeguards like Synthetic Pre-Flight tests."
+    ));
+
+    section.appendChild(createCard('Enable Seasoned Trader', 'AI assumes complete execution control', 'AI_SEASONED_TRADER_ENABLED', 'toggle', { default: 'false' }));
+
+    section.appendChild(createCard('Monetary Path', 'The core AI objective function', 'AI_MONETARY_PATH', 'dropdown', {
+        items: [
+            { value: 'aggressive', label: 'Aggressive Growth' },
+            { value: 'balanced', label: 'Balanced Compounder' },
+            { value: 'preservation', label: 'Capital Preservation' }
+        ],
+        default: 'balanced'
+    }));
+
+    section.appendChild(createCard('AI Personality', 'Execution persona & commentary style', 'AI_PERSONALITY', 'dropdown', {
+        items: [
+            { value: 'quant', label: 'The Calculating Quant' },
+            { value: 'veteran', label: 'The 20-Year Veteran' },
+            { value: 'scalper', label: 'The Aggressive Scalper' },
+            { value: 'sniper', label: 'The Patient Sniper' }
+        ],
+        default: 'veteran'
+    }));
+
+    section.appendChild(createCard('Autopilot Interval (Mins)', 'How often the AI daemon evaluates', 'AI_AUTOPILOT_INTERVAL_MINS', 'input', {
+        number: true,
+        default: '30',
+        min: 1,
+        max: 1440,
+        step: 1
+    }));
 
     container.appendChild(section);
 }
@@ -4205,6 +4248,17 @@ function renderStrategyToolbox(container) {
         section.appendChild(createCard('Quick Ranging TP', 'Cap profits at 0.7R during choppy/ranging sessions', 'QUICK_RANGING_TP_ENABLED', 'toggle', {
             default: 'false',
             tooltip: "When the market is boring and just bouncing up and down in a tight tunnel, the bot usually just gets stopped out waiting for a big move. Turn this ON to tell the bot to settle for small, quick profits during the boring times."
+        }));
+
+        section.appendChild(createCard('Tick Scalping', 'Exit immediately on ANY net profit', 'TICK_SCALPING_ENABLED', 'toggle', {
+            default: 'false',
+            tooltip: "Instantly closes any trade the moment it reaches net profit (covering spread). Does not let the bot ride trades."
+        }));
+
+        section.appendChild(createCard('Min Scalp Profit ($)', 'Minimum net USD before scalping', 'TICK_SCALPING_MIN_USD', 'input', {
+            number: true,
+            default: '0.0',
+            tooltip: "The absolute minimum profit in dollars to accept before bailing out. If set to 2.0, the bot will wait until it clears the spread AND makes $2.00 before closing the trade."
         }));
 
         section.appendChild(createDivider());

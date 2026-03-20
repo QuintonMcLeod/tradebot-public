@@ -608,3 +608,31 @@
 [data-theme="light"] .text-white {
     color: #0f172a !important;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   AI INSIGHT PANEL — Message Feed Animations
+   ═══════════════════════════════════════════════════════════ */
+
+@keyframes insightFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in {
+    animation: insightFadeIn 0.4s ease-out;
+}
+
+/* Dim older messages to visually separate from the newest */
+.insight-message-group:not(:first-child) {
+    opacity: 0.6;
+}
+
+.insight-message-group:not(:first-child):hover {
+    opacity: 0.9;
+}

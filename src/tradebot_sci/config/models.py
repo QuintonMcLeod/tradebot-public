@@ -428,10 +428,10 @@ class TradingProfileSettings(BaseModel):
         description="If >0, CR uses this % of capital for sizing instead of 2× SAR. 0 = use 2× SAR (default).",
     )
     reversal_tp_r: float = Field(
-        default=1.0,
-        ge=0.5,
+        default=0.2,
+        ge=0.1,
         le=10.0,
-        description="Take profit target in R-multiples for stop-and-reverse entries (1.0 = 1R).",
+        description="Take profit target in R-multiples for stop-and-reverse entries (0.2 = 0.2R).",
     )
     reversal_cost_aware_tp: bool = Field(
         default=True,
@@ -497,12 +497,21 @@ class TradingProfileSettings(BaseModel):
         description="Daily drawdown threshold (10%) before drawdown breaker halts entries.",
     )
     safety_streak_breaker_enabled: bool = Field(
-        default=True,
-        description="Pause a symbol after N consecutive losses.",
+        default=False,
+        description="Pause a symbol after N consecutive losses. Disabled by default — bots don't tilt.",
     )
     safety_atr_shield_enabled: bool = Field(
         default=True,
         description="Scale down stops / block entries when ATR is extreme.",
+    )
+
+    tick_scalping_enabled: bool = Field(
+        default=False,
+        description="Instantly close any trade the moment it reaches net profit (covering spread). Does not let the bot ride trades.",
+    )
+    tick_scalping_min_usd: float = Field(
+        default=0.0,
+        description="Minimum net profit required before tick scalping triggers.",
     )
 
     # ── Cost Savings (Spread / Swap / Correlation) ──────────────────────
@@ -1190,7 +1199,7 @@ class SafetySettings(BaseModel):
         default_factory=lambda: float(os.getenv("SAFETY_GREED_GUARD_TARGET", "100.0"))
     )
     safety_streak_breaker_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_STREAK_BREAKER_ENABLED", "True").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_STREAK_BREAKER_ENABLED", "False").lower() == "true"
     )
     safety_churn_burner_enabled: bool = Field(
         default_factory=lambda: os.getenv("SAFETY_CHURN_BURNER_ENABLED", "True").lower() == "true"
@@ -1387,6 +1396,10 @@ class RuntimeSettings(BaseModel):
     time_format: str = Field(
         default_factory=lambda: os.getenv("GUI_TIME_FORMAT", "24h"),
         description="Time axis format for the chart display: '12h' (AM/PM) or '24h'."
+    )
+    gui_debug_notifications: bool = Field(
+        default=True,
+        description="Enable OS desktop notifications for debug events like pyradmiding from the Electron UI."
     )
     global_default_risk_pct: float = Field(
         default_factory=lambda: float(os.getenv("GLOBAL_DEFAULT_RISK_PCT", "0.015")),

@@ -4,7 +4,7 @@
 
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Please be careful out there, sweetie. Crypto is volatile."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Welcome to the asset class that never sleeps, rarely makes sense, and occasionally drops 40% because someone tweeted a meme. Trading crypto is fundamentally different from forex or stocks. The rules change. The hours change. The volatility changes. And the bot adapts to all of it."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Welcome to Crypto! The only place on Earth where a billionaire tweets a picture of his dog and you lose your life savings! It never sleeps, it doesn't make any sense, and it's governed by absolute lunatics on the internet. The bot adapts to all of this chaos so you don't have to stay awake for 48 hours staring at candles."</td></tr></table>
 
 ---
 
@@ -22,7 +22,7 @@
 
 EUR/USD moves 0.5-1.0% per day (normal). BTC/USD can move 5-10% per day (also "normal"). On spicy days: 15-20% swings.
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"ATR-based stops automatically widen for crypto. Position sizes automatically shrink. More volatility = smaller positions = same risk per trade. The math stays the same, the numbers just get bigger."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Look, EUR/USD moves like a reasonable adult. Bitcoin moves like a teenager who just drank four energy drinks. The bot knows this. It widens the stops and shrinks the position size so you don't get obliterated on a random Tuesday sneeze."</td></tr></table>
 
 ### 3. Spreads and Slippage
 
@@ -67,7 +67,7 @@ crypto_qty_steps:
 
 ## The Whales and the Plankton
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's the brutal truth: crypto markets are heavily manipulated. Whales move the market by sneezing. Wash trading inflates volume. Influencers pump and dump in the same hour."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Let me break your heart real quick: this entire market is manipulated by about twelve guys in Dubai. Whales move the market by blinking. Influencers pump and dump while you're still reading their tweet. The bot doesn't care. It ignores their nonsense and literally just reads the structure."</td></tr></table>
 
 The bot's defense:
 - **Structure over narrative.** Doesn't read Twitter. Reads candles.
@@ -89,4 +89,4 @@ The bot's defense:
 
 ## The Bottom Line
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Crypto is the most exciting and the most dangerous asset class you can trade. The rewards are larger, the risks are larger, and the variance is enough to make a casino blush.<br><br>The bot treats crypto with respect — wider stops, smaller sizes, dedicated strategies. It doesn't fear crypto. It just sizes its bets appropriately.<br><br><em>Fortune favors the bold. But position sizing favors the alive.</em>"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Crypto is dangerous, man. It'll make a casino look like a savings account. The bot doesn't fear it, though. It just puts on a helmet, widens the stops, and goes to work. Fortune favors the bold, but proper position sizing favors the guy who actually wants to keep his money."</td></tr></table>

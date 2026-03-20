@@ -209,6 +209,8 @@ class TrendRiderStrategy(BaseStrategy):
                 is_jpy = "JPY" in snapshot.symbol.upper()
                 min_sl_dist = 15 * (0.01 if is_jpy else 0.0001)  # 15 pip floor
                 stop_dist = max(last_close - swing_low, atr * 1.5, min_sl_dist)
+                if atr and stop_dist > atr * 2.0:
+                    stop_dist = atr * 2.0
                 stop_loss = last_close - stop_dist
                 take_profit = last_close + (stop_dist * 2.5)  # 2.5R target (Conductor trail may exit earlier)
 
@@ -245,6 +247,8 @@ class TrendRiderStrategy(BaseStrategy):
                 is_jpy = "JPY" in snapshot.symbol.upper()
                 min_sl_dist = 15 * (0.01 if is_jpy else 0.0001)  # 15 pip floor
                 stop_dist = max(swing_high - last_close, atr * 1.5, min_sl_dist)
+                if atr and stop_dist > atr * 2.0:
+                    stop_dist = atr * 2.0
                 stop_loss = last_close + stop_dist
                 take_profit = last_close - (stop_dist * 2.5)  # 2.5R target (Conductor trail may exit earlier)
 

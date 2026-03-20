@@ -955,7 +955,21 @@ class OandaExchangeBroker(IExchangeBroker):
             if not price or not stop_price:
                  return ExecutionResult(ExecutionStatus.ERROR, decision.symbol, "missing price or SL"), ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "missing price or SL")
                 
-            stop_dist = abs(price - stop_price)
+            if action in {"scale_in", "add_to_position"}:
+                original_risk_dist = None
+                if hasattr(self, "position_hold_store") and self.position_hold_store:
+                    record = self.position_hold_store.get(decision.symbol)
+                    if record and getattr(record, "initial_risk", None):
+                        original_risk_dist = float(record.initial_risk)
+                
+                if original_risk_dist and original_risk_dist > 1e-6:
+                    stop_dist = original_risk_dist
+                    logger.debug(f"[OANDA] Sizing Pyramid using ORIGINAL SL distance: {stop_dist:.5f}")
+                else:
+                    stop_dist = abs(price - stop_price)
+            else:
+                stop_dist = abs(price - stop_price)
+
             if stop_dist < 1e-8:
                  return ExecutionResult(ExecutionStatus.ERROR, decision.symbol, "stop distance too small"), ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, "stop distance too small")
 
@@ -1216,11 +1230,11 @@ class OandaExchangeBroker(IExchangeBroker):
                             mid = (bid + ask) / 2.0
                             pip_val = self.PIP_VALUE_JPY if "JPY" in decision.symbol.upper() else self.PIP_VALUE_STANDARD
                             buffer = self.LIMIT_ORDER_BUFFER_PIPS * pip_val
-                            # For buys: limit slightly above mid; for sells: slightly below mid
+                            # For buys: limit slightly above ask; for sells: slightly below bid
                             if units > 0:  # buy
-                                limit_price = mid + buffer
+                                limit_price = ask + buffer
                             else:  # sell
-                                limit_price = mid - buffer
+                                limit_price = bid - buffer
                             order_data = {
                                 "order": {
                                     "units": str(units),

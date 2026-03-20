@@ -29,7 +29,6 @@ from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.runtime.universe import resolve_symbol_universe, instrument_classes_for_symbols
 from tradebot_sci.runtime.provider_factory import build_exchange_broker, build_market_provider
 from tradebot_sci.runtime.pair_selector import PairSelector
-from tradebot_sci.runtime.friction import FrictionModel
 from tradebot_sci.runtime.auto_schedule import select_auto_schedule_symbols
 from tradebot_sci.strategy.engine import StrategyEngine
 from tradebot_sci.strategy.decisions import stand_aside_decision
@@ -39,6 +38,7 @@ from tradebot_sci.broker.trade_result_store import TradeResultStore, TradeResult
 from tradebot_sci.runtime.trackers import StrikeTracker
 from tradebot_sci.runtime.sabbath import SabbathContext
 from tradebot_sci.runtime.ledger_daemon import LedgerDaemon
+from tradebot_sci.ai.seasoned_trader import SeasonedTraderDaemon
 from tradebot_sci.broker.paper_broker import PaperBroker
 from tradebot_sci.market.replay_provider import ReplayMarketProvider
 from tradebot_sci.runtime.scheduling import (
@@ -1069,6 +1069,61 @@ def run_bot(
     # Expose cache updater so the trading cycle can refresh the chart cache
     controller.update_candle_cache = update_candle_cache
 
+    # ── Seasoned Trader Autopilot Daemon ──────────────────────────────────
+    # Reads AI_SEASONED_TRADER_ENABLED from config.json (set by GUI toggle).
+    # The GUI stores toggle keys in the active profile as lowercase, e.g.
+    # config.profiles[active].ai_seasoned_trader_enabled
+    # The daemon runs as a background thread, calling the LLM on its own interval.
+    seasoned_daemon = None
+    def _maybe_start_seasoned_daemon():
+        nonlocal seasoned_daemon
+        try:
+            import json as _json
+            _cfg_path = _paths.CONFIG_FILE
+            if _cfg_path.exists():
+                with open(_cfg_path, "r") as f:
+                    _raw = _json.load(f)
+
+                # The GUI stores Autopilot settings in the active profile (lowercase keys)
+                # or as a fallback in the "ai" section or "global" section.
+                active_name = _raw.get("active_profile", "")
+                _prof = _raw.get("profiles", {}).get(active_name, {}) if active_name else {}
+                _ai = _raw.get("ai", {})
+                _global = _raw.get("global", {})
+
+                # Check multiple locations (profile first, then ai section, then global)
+                enabled = (
+                    str(_prof.get("ai_seasoned_trader_enabled",
+                        _ai.get("AI_SEASONED_TRADER_ENABLED",
+                        _global.get("ai_seasoned_trader_enabled", "false")))
+                    ).lower() == "true"
+                )
+
+                if enabled and (seasoned_daemon is None or not seasoned_daemon.running):
+                    autopilot_cfg = {
+                        "AI_MONETARY_PATH": _prof.get("ai_monetary_path",
+                            _ai.get("AI_MONETARY_PATH", "balanced")),
+                        "AI_PERSONALITY": _prof.get("ai_personality",
+                            _ai.get("AI_PERSONALITY", "veteran")),
+                        "AI_AUTOPILOT_INTERVAL_MINS": _prof.get("ai_autopilot_interval_mins",
+                            _ai.get("AI_AUTOPILOT_INTERVAL_MINS", 30)),
+                    }
+                    seasoned_daemon = SeasonedTraderDaemon(
+                        ai_client=ai_client,
+                        config_payload=autopilot_cfg,
+                        ws_server=controller.ws_server,
+                    )
+                    seasoned_daemon.start()
+                    logger.info("[AUTOPILOT] 🤖 Seasoned Trader Daemon STARTED (interval=%sm)", autopilot_cfg["AI_AUTOPILOT_INTERVAL_MINS"])
+                elif not enabled and seasoned_daemon and seasoned_daemon.running:
+                    seasoned_daemon.stop()
+                    logger.info("[AUTOPILOT] Seasoned Trader Daemon STOPPED (disabled by user).")
+                    seasoned_daemon = None
+        except Exception as e:
+            logger.warning(f"[AUTOPILOT] Failed to check/start Seasoned Trader: {e}")
+
+    _maybe_start_seasoned_daemon()
+
     last_auto_mode: str | None = None
     last_holdings_log_ts = 0.0
     last_capital_check_ts = 0.0
@@ -1126,6 +1181,9 @@ def run_bot(
                         
                         # Fetch pure UI variables that aren't in Pydantic models
                         _update_paper_settings()
+
+                        # Check Autopilot toggle on hot-reload
+                        _maybe_start_seasoned_daemon()
 
                         # 2. Update Profile & Context
                         # We assume the profile name doesn't change mid-stream, just its content
@@ -1457,17 +1515,9 @@ def run_bot(
                     continue
 
 
-                # Replay mode: limit to 1 new-entry candidate per cycle
-                # to prevent position avalanche (all symbols entering at once)
-                if replay_provider is not None and candidates:
-                    manage_cands = [(s, snap, sc, r) for s, snap, sc, r in candidates if r == "existing position"]
-                    entry_cands = [(s, snap, sc, r) for s, snap, sc, r in candidates if r != "existing position"]
-                    # Keep only the top-scoring new-entry candidate
-                    if entry_cands:
-                        entry_cands.sort(key=lambda x: x[2], reverse=True)
-                        candidates = manage_cands + entry_cands[:1]
-
-                managing_positions = any(reason == "existing position" for _, _, _, reason in candidates)
+                # The live bot's cycle.py now evaluates all candidates in two phases,
+                # respects maximum slots dynamically, and ranks entries by score.
+                # Therefore, we no longer artificially restrict the cycle to 1 entry here.
                 success_symbol, attempts, blocked, skipped = process_candidate_cycle(
                     executor,
                     engines,
@@ -1476,8 +1526,7 @@ def run_bot(
                     settings,
                     strike_tracker,
                     candidates,
-                    # During replay, always stop after first entry to prevent avalanche
-                    stop_after_submit=True if replay_provider is not None else (not managing_positions),
+                    stop_after_submit=False,
                 )
                 if success_symbol:
                     logger.info(

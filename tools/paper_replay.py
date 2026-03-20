@@ -15,6 +15,9 @@ Usage:
 """
 from __future__ import annotations
 
+import os
+os.environ["BAR_CLOSE_GATE_ENABLED"] = "false"
+
 import argparse
 import json
 import logging
@@ -49,8 +52,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 # Quieten noisy internal loggers
-for _noisy in ("tradebot_sci.market", "tradebot_sci.confluence",
-               "tradebot_sci.strategy.safety_guard", "httpcore", "httpx"):
+for _noisy in ("tradebot_sci", "httpcore", "httpx"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 logger = logging.getLogger("paper_replay")
@@ -765,7 +767,7 @@ def obs_to_snapshot(obs: dict) -> Optional[MarketSnapshot]:
 
 def _worker_replay_symbol(args: tuple) -> dict:
     """Runs the full replay for ONE symbol in an isolated subprocess.
-    Args: (sym, all_obs, ltf_raw, htf_raw, initial_balance, speed, src_path)
+    Args: (sym, all_obs, ltf_raw, htf_raw, initial_balance, speed, src_path, strategy)
     All state is local — no shared memory contention.
     Returns a plain dict (picklable).
     """
@@ -774,7 +776,11 @@ def _worker_replay_symbol(args: tuple) -> dict:
     from pathlib import Path
     import json
 
-    sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path = args
+    if len(args) == 8:
+        sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path, args_strategy = args
+    else:
+        sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path = args
+        args_strategy = None
     src_path = str(Path(__file__).resolve().parents[1] / "src")
 
     if src_path not in sys.path:
@@ -842,17 +848,19 @@ def _worker_replay_symbol(args: tuple) -> dict:
     #   long → SL → SAR short → SL → SAR long → SL → … (58 EURJPY trades in 14 days)
     # This creates a systematic 0% WR that has nothing to do with strategy quality.
     # Solution: disable SAR+CR in replay so we measure the BASE strategy performance.
+    update_args = {
+        "stop_and_reverse_enabled": True,
+        "counter_reversal_enabled": True,
+    }
+    if args_strategy:
+        update_args["strategy_variant"] = args_strategy
+        update_args["strategies"] = None
+
     try:
-        replay_profile = profile.model_copy(update={
-            "stop_and_reverse_enabled": True,
-            "counter_reversal_enabled": True,
-        })
+        replay_profile = profile.model_copy(update=update_args)
     except AttributeError:
         # Pydantic v1 fallback
-        replay_profile = profile.copy(update={
-            "stop_and_reverse_enabled": True,
-            "counter_reversal_enabled": True,
-        })
+        replay_profile = profile.copy(update=update_args)
 
     broker = ReplayPaperBroker(
         profile_settings=replay_profile,
@@ -986,7 +994,8 @@ def _worker_replay_symbol(args: tuple) -> dict:
 def run_replay(days: int, speed: float, initial_balance: float,
                symbols_filter: Optional[list] = None,
                cutoff_dt: Optional[datetime] = None,
-               max_workers: Optional[int] = None) -> dict:
+               max_workers: Optional[int] = None,
+               strategy: Optional[str] = None) -> dict:
     # ── Bootstrap ────────────────────────────────────────────────────────────
     settings = get_settings()
     profile_name = getattr(settings, "profile", "forex_continuous")
@@ -1078,7 +1087,8 @@ def run_replay(days: int, speed: float, initial_balance: float,
                 htf_raw_by_sym[sym],
                 initial_balance,
                 speed,
-                src_path)
+                src_path,
+                strategy)
             ): sym
             for sym in all_obs
         }
@@ -1195,6 +1205,7 @@ def run_replay(days: int, speed: float, initial_balance: float,
                 "side":   t["side"],
                 "pnl":    round(t["pnl_usd"], 2),
                 "reason": t["exit_reason"],
+                "strategy": t.get("strategy", ""),
             }
             for t in all_trades
         ],
@@ -1229,6 +1240,8 @@ def main():
         "--api-fallback", action="store_true",
         help="Fetch missing historical data from OANDA API if local data is unavailable"
     )
+    parser.add_argument("--strategy", type=str, default=None,
+                        help="Strategy to force override")
     parser.add_argument("--max-workers", type=int, default=None,
                         help="Limit the number of CPU cores used. Defaults to 4 to prevent resource exhaustion.")
     parser.add_argument("--json-output", action="store_true", help="Output results as JSON")
@@ -1276,16 +1289,16 @@ def main():
             
             # ── Evaluate Break Conditions ──
             if execute_trades and not sabbath_active:
-                logger.info("[REPLAY] BREAK: Live Trading is enabled and Sabbath is inactive. Exiting Continuous Replay.")
-                break
+                logger.info("[REPLAY] BYPASS: Live Trading is enabled and Sabbath is inactive, but bypassing for manual run.")
+                # break
                 
             if not paper_replay_mode and not sabbath_active:
-                logger.info("[REPLAY] BREAK: Paper Replay Mode is disabled and Sabbath is inactive. Exiting Continuous Replay.")
-                break
+                logger.info("[REPLAY] BYPASS: Paper Replay Mode is disabled and Sabbath is inactive, bypassing for manual run.")
+                # break
                 
             if not sabbath_active and sabbath_replay_mode and not paper_replay_mode:
-                logger.info("[REPLAY] BREAK: Sabbath has ended. Returning to standard Live/Paper ops. Exiting Continuous Replay.")
-                break
+                logger.info("[REPLAY] BYPASS: Sabbath has ended, bypassing for manual run.")
+                # break
 
         except Exception as e:
             logger.error(f"[REPLAY] Failed to reload configuration for break check: {e}")
@@ -1293,15 +1306,16 @@ def main():
         logger.info(f"\n[REPLAY] Starting continuous replay cycle...")
         result = run_replay(days=days, speed=args.speed,
                             initial_balance=args.balance, symbols_filter=syms,
-                            cutoff_dt=cutoff_dt, max_workers=args.max_workers)
+                            cutoff_dt=cutoff_dt, max_workers=args.max_workers,
+                            strategy=args.strategy)
 
         # ── Emit JSON summary for UI consumption ─────────────────────────────
         if args.json_output and result:
             import json as _json
             print(_json.dumps(result), flush=True)
             
-        logger.info(f"[REPLAY] Cycle complete. Waiting 10 seconds before next pass...")
-        time.sleep(10)
+        logger.info(f"[REPLAY] Cycle complete. Exiting single-pass replay.")
+        break
 
 
 if __name__ == "__main__":

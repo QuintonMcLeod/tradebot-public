@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Update with precision. One wrong move during an update can take the whole system down. Fortunately, we automated the whole thing."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The bot has a self-update mechanism. It checks for newer versions, shows a button in the GUI, and applies the update with one click. No `apt-get`. No `pip install`. No downloading a ZIP file and praying you put it in the right folder."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The bot updates itself! You click one button in the GUI. Look at you, you don't even have to open a terminal! No `pip install` garbage, no downloading ZIP files and accidentally deleting system folders. The bot handles it like a grown adult."</td></tr></table>
 
 ---
 
@@ -40,7 +40,7 @@ Lightweight — it doesn't download code yet. Just asks: "Is there something new
 | Documentation | Your log files |
 | Scripts and tools | Window preferences |
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The update changes the CODE, not your CONFIGURATION. API keys, profiles, risk settings, trading history — never touched."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The update changes the CODE, not your CONFIGURATION. Your API keys, your profiles, your risk settings — those stay safe. We don't wipe your settings. I'm not Microsoft pushing a Windows update."</td></tr></table>
 
 ---
 
@@ -64,4 +64,4 @@ git reset --hard <old-commit>  # Go back
 
 ## The Trust Model
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"No auto-updates happen without your explicit click. The bot shows you the button and waits. You're always in control."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"It does NOT auto-update. Because I know you. If the bot changed something while you were grabbing a sandwich, you'd think you were hacked. It shows the button, and it waits for your explicit permission."</td></tr></table>

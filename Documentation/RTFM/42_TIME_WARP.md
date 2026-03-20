@@ -1,6 +1,6 @@
 # 42. The Time Warp — Backtesting, Replay, and the Art of Fast-Forwarding Your Mistakes
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Alright. I want you to imagine something. Imagine if, before you asked that girl out in 10th grade — you know, the one who said 'Ew' loud enough for the whole cafeteria to hear — imagine if you could've <em>simulated</em> that conversation first. Run it through. Seen the 'Ew' coming. Adjusted your approach. Maybe brought flowers. Maybe just stayed home.<br><br>That's what the Backtester does. Except instead of cafeteria humiliation, it's your <b>money.</b> And instead of flowers, it's stop-losses."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Alright, picture this. Imagine being able to simulate proposing to your wife. Like, you get to see her say 'No' before you actually spend three months salary on a ring! You get to see the disaster before it happens! That's what the Backtester is! Except instead of marital humiliation, it's your actual money! It lets you look into the past and see how stupid you would have been!"</td></tr></table>
 
 ---
 
@@ -16,7 +16,7 @@
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wait, so I can test the bot without losing money?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yes. Three different ways. You have <em>no excuse</em> to go live unprepared. That's like having three fire extinguishers and still deciding to cook with gasoline."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yes! Three ways! You have absolutely ZERO excuse to go live and lose money! If you lose money after I gave you THREE ways to practice, that's not the market's fault, that's your fault! It's like having three seatbelts and deciding to drive with your head out the window!"</td></tr></table>
 
 ---
 
@@ -68,7 +68,7 @@ Click the **Clear** button next to "Run Backtest." It nukes the results, clears 
 
 ## Part 2: Replay Mode — Weekend Warrior Training
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"OK, so here's where it gets wild. The Backtester is great for 'would this strategy have worked?' But what if you want to <em>watch</em> the bot trade? Like, actually see it making decisions in real-time? Watch the chart move? See positions open and close?<br><br>That's Replay Mode. It's like watching game tape, except the game is the forex market and the player is your robot."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Okay, listen to this. The Backtester tells you if you're an idiot, but Replay Mode lets you WATCH yourself be an idiot in real-time! It's game tape! You get to sit there and watch the bot make decisions! You get to watch the chart! It's like watching a football game, except you're not gaining weight on the couch!"</td></tr></table>
 
 ### How Replay Works
 
@@ -84,7 +84,7 @@ You can also trigger it manually by enabling the **Replay** toggle in the Paper 
 
 ## Part 3: The Time Warp — Understanding Simulated Time
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Now we need to talk about something that confuses <em>everybody</em> the first time they see it. And I mean everybody. Including me. The first time I saw it, I thought the bot was broken. It wasn't. I was just stupid.<br><br><b>Simulated time is not real time.</b><br><br>I'm going to say that again because I know you weren't paying attention:<br><br><b>SIMULATED. TIME. IS NOT. REAL. TIME.</b>"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Now I have to explain something that confuses every single one of you. And I know you're gonna get confused because people don't read! Simulated time is not real time! I'll say it louder for the people in the back: SIMULATED TIME IS NOT REAL TIME! Stop panic emailing me!"</td></tr></table>
 
 ### The Speed of Time Warp
 
@@ -104,7 +104,7 @@ You can also trigger it manually by enabling the **Replay** toggle in the Paper 
 
 <table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"So the trades aren't actually moving 'too fast'? They're just moving at warp speed because..."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Because time is compressed. You're watching a full trading day in 10 minutes. It's like watching a football game on TiVo at 60x speed. The players look like they're teleporting, but the game is the same length. Nobody actually ran a 0.2-second 40-yard dash.<br><br>The duration column shows <em>market time</em> — how long the trade was actually open in the market's timeline. Not how long it took your eyeballs to watch it happen."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Because it's fast-forwarded! Do I have to explain how Netflix works?! The players aren't teleporting, the video is just sped up! The duration column shows how long the trade was open in the MARKET, not how long you sat there staring at your screen like a zombie!"</td></tr></table>
 
 <table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"So when I'm watching Replay and I see trades opening and closing every few seconds like a machine gun..."</td></tr></table>
 
@@ -232,7 +232,7 @@ Level 4: LIVE TRADING (Real money)
 
 ## The Bottom Line
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's how I want you to think about it.<br><br>The Backtester is your <b>history book</b>. It tells you what <em>would have</em> happened.<br><br>Replay Mode is your <b>game tape</b>. It lets you <em>watch</em> it happen.<br><br>Paper Trading is your <b>dress rehearsal</b>. Same stage, same script, but the audience is imaginary.<br><br>Live Trading is <b>opening night</b>. The audience is real. The money is real. And you better have done your homework.<br><br>Do NOT skip to opening night. I don't care how talented you think you are. Beyoncé rehearses. Michael Jordan practiced free throws. And you — yes, <em>you</em>, sitting there in your underwear at 2 AM reading trading documentation — you need to paper trade first.<br><br>The time warp is a gift. Use it. Fast-forward through your mistakes in simulation so you don't have to live through them in real life.<br><br>Because in real life? There's no Clear button."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Look at me. Do not skip to live trading. I don't care who you think you are! Michael Jordan practiced! You are sitting in your underwear at 2 AM reading a manual, you are NOT Michael Jordan! You need to paper trade! I gave you a time machine to make all your stupid mistakes for free! Use it! Because when you lose real money, there is no undo button! You just have to sit there and be poor!"</td></tr></table>
 
 <table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"The wise warrior trains a thousand battles in his mind before he draws his sword once in the field."</em></td></tr></table>
 

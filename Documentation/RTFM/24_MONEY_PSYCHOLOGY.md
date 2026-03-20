@@ -1,6 +1,6 @@
 # 24. Money Psychology — The Emotional Traps the Bot Protects You From
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br><em>"The market is designed to do whatever hurts the most people. Your emotions are the weapon it uses against you."</em></td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br><em>"The market is a predator. It wakes up every morning looking for the dumbest, most emotional person in the room so it can take their rent money. And usually, that person is you. Your feelings are the weapon it uses against you."</em></td></tr></table>
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"This article isn't about code. It's about YOU. Specifically, the eight ways your brain will try to sabotage your trading — and how the bot is designed to prevent each one. Every feature in this bot exists because a human being, at some point, did something irrational with money. These features are the scar tissue."</td></tr></table>
 
@@ -84,4 +84,4 @@
 
 ## The Meta Lesson
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Every 'feature' in this bot — the guards, the stop-losses, the position locks, the daily limits — isn't really a trading feature. <b>They're psychology features.</b><br><br>They exist because human traders are their own worst enemy. The bot doesn't replace your market knowledge. It replaces your worst impulses.<br><br>The best trade you'll ever make is the one you didn't take because the bot said no."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Listen to me. Every 'feature' in this bot — the guards, the stop-losses, the position locks, the daily limits — none of that is actually an algorithm. <b>They're adult supervision.</b><br><br>They exist because human beings are overgrown toddlers with credit cards. The bot doesn't replace your market knowledge. It replaces your complete lack of emotional control. It replaces the part of your brain that wants to throw your laptop out the window because Jerome Powell cleared his throat on live television.<br><br>The best trade you'll ever make is the one you didn't take because the bot smacked your hand away and said 'No.'"</td></tr></table>

@@ -502,11 +502,24 @@ class PaperBroker:
                 pos = self.positions[symbol]
                 side = "buy" if pos["side"] == "long" else "sell"
                 
-                # Dynamic Paper Sizing (use initial balance to prevent compounding snowball)
-                risk_pct = getattr(decision, "risk_per_trade_pct", None) or getattr(self.profile, "conductor_pyramid_subsequent_pct", 0.04)
-                risk_usd = self._initial_balance * risk_pct
+                # Dynamic Paper Sizing
+                # BUGFIX: decision.risk_per_trade_pct for pyramids is a multiplier of the BASE RISK,
+                # NOT a percentage of the entire account capital!
+                base_risk_pct = getattr(self.profile, "risk_per_trade_pct", 0.01)
+                base_risk_usd = self._initial_balance * base_risk_pct
                 
-                if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
+                scale_fraction = getattr(decision, "risk_per_trade_pct", None)
+                if scale_fraction is not None:
+                    risk_usd = base_risk_usd * float(scale_fraction)
+                else:
+                    risk_usd = base_risk_usd * float(getattr(self.profile, "conductor_pyramid_subsequent_pct", 0.5))
+                
+                # Use the ORIGINAL risk distance for pyramiding to prevent breakeven slippage bombs
+                original_risk_dist = pos.get("initial_risk")
+                if original_risk_dist and original_risk_dist > 1e-6:
+                    risk_per_unit = original_risk_dist
+                    qty = risk_usd / risk_per_unit
+                elif decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
                     risk_per_unit = abs(price - decision.stop_loss)
                     qty = risk_usd / risk_per_unit
                 else:
@@ -636,7 +649,11 @@ class PaperBroker:
         return False, None, None
 
     def evaluate_synthetic_stops(self, market_provider, timeframe):
-        """Check SL/TP for all open paper positions against current market prices."""
+        """Check SL/TP for all open paper positions using intra-candle OHLC data.
+        
+        Uses candle HIGH/LOW for TP/SL detection (like real broker stop/limit orders)
+        and exits at the exact SL/TP price, not the candle close.
+        """
         results = []
         for symbol in list(self.positions.keys()):
             pos = self.positions[symbol]
@@ -645,30 +662,55 @@ class PaperBroker:
             except Exception:
                 continue
 
+            # ── Get OHLC of the most recent candle for intra-bar evaluation ──
+            candle_high = None
+            candle_low = None
+            if market_provider:
+                try:
+                    candles = market_provider.get_latest_candles(symbol, timeframe, limit=1)
+                    if candles:
+                        last_candle = candles[-1]
+                        candle_high = float(last_candle.high)
+                        candle_low = float(last_candle.low)
+                except Exception:
+                    pass
+
             sl = pos.get("stop_loss")
             tp = pos.get("take_profit")
             side = pos.get("side", "long")
             entry_p = pos.get("entry_price", 0)
             hit = None
+            exit_price = price  # Default to close price
 
             if side == "long":
-                if sl and price <= sl:
+                # SL: use candle LOW (worst intra-bar price against long)
+                check_sl = candle_low if candle_low is not None else price
+                # TP: use candle HIGH (best intra-bar price for long)
+                check_tp = candle_high if candle_high is not None else price
+                if sl and check_sl <= sl:
                     hit = "SL"
-                elif tp and tp > entry_p and price >= tp:
+                    exit_price = sl  # Exit at exact SL level
+                elif tp and tp > entry_p and check_tp >= tp:
                     hit = "TP"
+                    exit_price = tp  # Exit at exact TP level
                 elif tp and tp <= entry_p:
                     logger.warning(f"[PAPER] [GHOST GUARD] {symbol}: TP {tp} <= entry {entry_p} for LONG — ignoring TP")
             else:  # short
-                if sl and price >= sl:
+                # SL: use candle HIGH (worst intra-bar price against short)
+                check_sl = candle_high if candle_high is not None else price
+                # TP: use candle LOW (best intra-bar price for short)
+                check_tp = candle_low if candle_low is not None else price
+                if sl and check_sl >= sl:
                     hit = "SL"
-                elif tp and tp < entry_p and price <= tp:
+                    exit_price = sl  # Exit at exact SL level
+                elif tp and tp < entry_p and check_tp <= tp:
                     hit = "TP"
+                    exit_price = tp  # Exit at exact TP level
                 elif tp and tp >= entry_p:
                     logger.warning(f"[PAPER] [GHOST GUARD] {symbol}: TP {tp} >= entry {entry_p} for SHORT — ignoring TP")
 
             if hit:
-                # Parity with backtester: exact exit price
-                exit_price = price
+                # exit_price already set to exact SL/TP level from OHLC evaluation above
                 pnl_usd = (exit_price - entry_p) * pos["size"]
                 fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * self._get_taker_fee(symbol)
                 pnl_usd -= fee_usd

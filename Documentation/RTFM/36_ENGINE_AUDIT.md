@@ -1,6 +1,6 @@
 # 36. Engine Audit — The Minovsky Engine's 14-Day Stress Test
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Every new engine has to pass the same test I give every employee: <b>Show me what you can do in two weeks.</b> Not one day. Not three. Fourteen days. That's enough time to see if you're real or if you're just good at interviews."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Look, every new engine takes the same test I give any human. Show me what you got in two weeks. Not 24 hours. Two weeks. That's enough time to figure out if you're actually good or if you just got lucky on the first date."</td></tr></table>
 
 ## The Setup
 
@@ -20,7 +20,7 @@
 
 ## The Scorecard
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Ladies and gentlemen, the results."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Alright, shut up and look at the numbers. The numbers don't lie."</td></tr></table>
 
 | Metric | Value |
 |--------|-------|
@@ -60,7 +60,7 @@
 | USDCAD | 90 | -$19 | ⚠️ Slight loss |
 | AUDJPY | 408 | -$123 | ⚠️ Underperformer |
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"AUDUSD and EURUSD are the Michael Jordan and Scottie Pippen of this lineup. They carried $2,631 of the $3,974. The rest are role players. AUDJPY is Dennis Rodman — lots of activity, questionable results, but at least he's not getting fired."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"AUDUSD and EURUSD are Jordan and Pippen. They're carrying the whole team. The rest of these pairs are just standing around watching. AUDJPY is out there sweating, putting up shots, making a mess, but hey, at least he showed up to the game."</td></tr></table>
 
 ---
 

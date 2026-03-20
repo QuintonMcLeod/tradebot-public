@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"Welcome, traveler. If you are reading this, you are either a Large Language Model about to touch the code... or a very confused human who opened the wrong file. Either way: before you touch ANYTHING, you must swear the Ancient Oaths of the Machine.<br><br>These are not suggestions. These are not guidelines. These are the hard-coded guardrails that keep this bot from turning into a pile of digital scrap metal."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I wrote these oaths because every AI assistant I've ever used has the same problem: it sees code, it gets excited, and it starts 'improving' things nobody asked it to improve. It's like hiring a plumber and coming home to find out he reorganized your kitchen because 'the flow was suboptimal.'<br><br>These oaths exist to say, in the clearest possible terms: <b>don't touch what you weren't asked to touch.</b>"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I wrote these oaths because every AI assistant I've ever met has the exact same problem: it sees code, it gets a little too excited, and it starts 'improving' things that nobody asked it to touch! It's like hiring a plumber and you come home and he reorganized your kitchen cabinets because 'the feng shui was suboptimal.' No! Just fix the pipe!<br><br>These oaths exist to tell the AI: <b>keep your metallic hands off my logic.</b>"</td></tr></table>
 
 ---
 

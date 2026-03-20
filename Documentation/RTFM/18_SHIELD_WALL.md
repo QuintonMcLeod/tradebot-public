@@ -2,7 +2,7 @@
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"The Shield Wall is your defense. Every guard exists because someone, somewhere, blew up an account without it. I'm not being dramatic — I'm being historical."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You can have the greatest strategy in the world. You can be right 80% of the time. You can predict market moves with the accuracy of a caffeinated fortune teller. And STILL lose all your money.<br><br>How? Bad risk management. One over-leveraged trade. One 'I'll just hold through it' disaster. One time you turned off the stop-loss because you were 'sure' it would come back. This section makes sure that never happens."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You can have the greatest strategy in the world. You can be right 80% of the time! You can predict the market like you're from the future! And STILL go completely broke.<br><br>How? Because you're greedy. Bad risk management. One over-leveraged trade. One 'I'll just hold through it, it's gotta bounce' disaster. One time you turned off the stop-loss because you were 'sure' you were right. This section is the seatbelt that stops you from going through the windshield when you do something stupid."</td></tr></table>
 
 ---
 
@@ -26,7 +26,7 @@ Position Size = (Account Balance × Risk %) ÷ Stop-Loss Distance
 
 ## Layer 2: Leverage Sentry (The "Don't Be a Hero" Guard)
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Leverage is the most dangerous tool in trading. It multiplies your gains AND your losses. 10× leverage means a 5% move against you wipes out half your account. The Leverage Sentry enforces a hard cap:"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Leverage is a loaded gun. It multiplies your gains, which makes your ego huge, and it multiplies your losses, which empties your bank account. 10x leverage means a 5% move against you wipes out half your money. Half! The Leverage Sentry puts a hard cap on your stupidity:"</td></tr></table>
 
 | Setting | Default | What It Does |
 |---------|---------|-------------|
@@ -39,7 +39,7 @@ If adding a new trade pushes you over the cap → **blocked.** No exceptions. No
 
 ## Layer 3: Daily Loss Limit (The "Circuit Breaker")
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If your losses for the day exceed the threshold, ALL trading stops. Every strategy is muted. Every entry signal is blocked. The bot sits on its hands until the next session."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If your losses for the day exceed the threshold, ALL trading stops. Your computer goes on strike. It sits on its hands and refuses to participate in your self-destruction until tomorrow. You're done."</td></tr></table>
 
 > 📺 Settings → **Strategy Workshop** → **Global Risk** → **Daily Loss Limit** slider
 > Also: Settings → **Safety & Shields** → **Drawdown Breaker** toggle
@@ -97,7 +97,7 @@ Before any trade executes, the Fee Shield calculates whether the expected reward
 
 ## Layer 9: Smart Positions (Financed Risk)
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"New trades must be 'financed' by existing open profit. If your current positions aren't in profit enough to cover the risk of a new trade, the new trade is blocked. No pyramid on hope."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"New trades have to be 'financed' by open profit. If your current trades are bleeding, we aren't adding more trades to the pile! We do not pyramid on hope! Hope is what gets you a part-time job at Wendy's."</td></tr></table>
 
 ---
 
@@ -143,4 +143,4 @@ Smart Positions: "Open PnL covers new risk?" → Yes → PASS
 
 ## The Golden Rule
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Risk management isn't about avoiding losses. <b>Losses are inevitable.</b> Risk management is about making sure no single loss — or even a bad string of losses — can knock you out of the game.<br><br>The goal is to still be trading next month. And the month after that. And the year after that. Compound interest doesn't work if you're wiped out by February.<br><br><em>Survive first. Profit second.</em>"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Risk management isn't about avoiding losses. <b>You are going to lose.</b> Risk management is about making sure a string of bad luck doesn't put you in the poorhouse.<br><br>The goal is to still be trading next month. And the month after that. Compound interest doesn't work if you blow your account to zero in February because you thought you were smarter than the market.<br><br><em>Survive first. Profit second.</em> Stop trying to skip the 'survive' part."</td></tr></table>
