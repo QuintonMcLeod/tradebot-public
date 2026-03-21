@@ -99,7 +99,7 @@ def _notional_per_unit(symbol: str, price: float) -> float:
     return price if price > 0 else 1.0
 
 
-def _apply_leverage_cap(size: float, symbol: str, capital_base: float, price: float, logger=None) -> float:
+def _apply_leverage_cap(size: float, symbol: str, capital_base: float, price: float, logger=None, current_position_size: float = 0.0) -> float:
     from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
     import os
     asset_class = classify_symbol(symbol)
@@ -118,13 +118,14 @@ def _apply_leverage_cap(size: float, symbol: str, capital_base: float, price: fl
     max_position_value = capital_base * lev_cap
     npu = _notional_per_unit(symbol, price)
     max_shares = max_position_value / npu
-    if size > max_shares:
-        if logger:
+    if current_position_size + size > max_shares:
+        allowed_size = max(0.0, max_shares - current_position_size)
+        if logger and size > allowed_size:
             logger.warning(
-                f"[BACKTEST] {symbol}: Size capped from {size:.2f} to {max_shares:.2f} shares "
-                f"(max {lev_cap:.0f}x leverage = ${max_position_value:.2f} notional on ${capital_base:.2f} base)"
+                f"[BACKTEST] {symbol}: Size capped from {size:.2f} to {allowed_size:.2f} shares "
+                f"(max {lev_cap:.0f}x leverage = ${max_position_value:.2f} notional on ${capital_base:.2f} base, current size: {current_position_size:.2f})"
             )
-        return max_shares
+        return allowed_size
     return size
 
 
@@ -1035,6 +1036,7 @@ class Backtester:
                                 capital += tier_pnl
                                 pos.cumulative_partial_pnl = getattr(pos, 'cumulative_partial_pnl', 0.0) + tier_pnl
                                 pos.size -= cut_size
+                                pos.total_cost = pos.entry_price * pos.size
                                 setattr(pos, tier_attr, True)
                                 logger.info(
                                     f"[GUILLOTINE-{tier_label}] {symbol}: "
@@ -1157,7 +1159,7 @@ class Backtester:
 
                                     cr_max_risk = capital * cr_risk_pct
                                     raw_cr_size = cr_max_risk / _jpy_adjust_risk(risk_dist, symbol, cr_entry) if risk_dist > 0 else 0
-                                    cr_size = _apply_leverage_cap(raw_cr_size, symbol, capital, cr_entry, logger)
+                                    cr_size = _apply_leverage_cap(raw_cr_size, symbol, per_symbol_capital, cr_entry, logger, current_position_size=0.0)
 
                                     if cr_size > 0:
                                         _cr_consecutive[symbol] = cr_chain + 1
@@ -1229,7 +1231,7 @@ class Backtester:
                                 rev_max_risk = capital * rev_risk_pct
 
                                 raw_rev_size = rev_max_risk / _jpy_adjust_risk(risk_dist, symbol, rev_entry) if risk_dist > 0 else 0
-                                rev_size = _apply_leverage_cap(raw_rev_size, symbol, capital, rev_entry, logger)
+                                rev_size = _apply_leverage_cap(raw_rev_size, symbol, per_symbol_capital, rev_entry, logger, current_position_size=0.0)
                                 
                                 if rev_size > 0:
                                     positions[pos_key] = type(pos)(
@@ -1475,6 +1477,14 @@ class Backtester:
                 _max_concurrent = int(getattr(profile, 'max_open_positions', None) or 999)
                 _pending_entries = []  # list of (ranking_score, symbol, decision, snapshot, engine) tuples
 
+                # Hoist capital allocation for consistent Risk/Leverage Caps
+                num_symbols = max(len(all_candles), 1)
+                comp_cap = 10000.0
+                if getattr(profile, 'nuclear_overrides_enabled', False):
+                    comp_cap = getattr(profile, 'compounding_cap_override', 10000.0)
+                compounding_capital = min(capital, comp_cap)
+                per_symbol_capital = compounding_capital / (num_symbols ** 0.5)
+
                 for symbol in all_candles.keys():
 
                     # Always evaluate strategy, even when in position
@@ -1573,7 +1583,7 @@ class Backtester:
                                     'target_price': sp_pos.target_price,
                                     'take_profit': sp_pos.target_price,
                                     'entry_time': sp_pos.entry_time.isoformat() if sp_pos.entry_time else None,
-                                    'unrealized_pnl': sp_pnl,
+                                    'unrealized_pnl': sp_pnl + getattr(sp_pos, 'cumulative_partial_pnl', 0.0),
                                     'pyramid_count': sp_pos.pyramid_count,
                                     'htf_neutral_bars': sp_pos.htf_neutral_bars,
                                     'meta_source': sp_meta,
@@ -1669,7 +1679,7 @@ class Backtester:
                                         compounding_capital = min(capital, 10000.0)
                                         max_risk = compounding_capital * risk_pct
                                         raw_add_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, add_price) if risk_per_share > 0 else 0
-                                        add_size = _apply_leverage_cap(raw_add_size, symbol, capital, add_price, logger)
+                                        add_size = _apply_leverage_cap(raw_add_size, symbol, per_symbol_capital, add_price, logger, current_position_size=sp_pos.size)
 
                                         if add_size > 0:
                                             sp_pos.size += add_size
@@ -1706,7 +1716,7 @@ class Backtester:
                                         'target_price': sp_pos.target_price,
                                         'take_profit': sp_pos.target_price,
                                         'entry_time': sp_pos.entry_time.isoformat() if sp_pos.entry_time else None,
-                                        'unrealized_pnl': sp_pnl,
+                                        'unrealized_pnl': sp_pnl + getattr(sp_pos, 'cumulative_partial_pnl', 0.0),
                                         'pyramid_count': sp_pos.pyramid_count,
                                         'htf_neutral_bars': sp_pos.htf_neutral_bars,
                                         'meta_source': sp_meta,
@@ -1743,7 +1753,7 @@ class Backtester:
                                 'stop_price': current_position.stop_price,
                                 'stop_loss': current_position.stop_price, # Mapping for RoboCop
                                 'target_price': current_position.target_price,
-                                'unrealized_pnl': pnl,
+                                'unrealized_pnl': pnl + getattr(current_position, 'cumulative_partial_pnl', 0.0),
                                 'pyramid_count': current_position.pyramid_count,
                                 'htf_neutral_bars': current_position.htf_neutral_bars,
                                 'entry_time': current_position.entry_time,
@@ -1914,7 +1924,7 @@ class Backtester:
                             max_risk = min(compounding_capital_py * risk_pct, max_loss_cap)
 
                             raw_add_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, add_price) if risk_per_share > 0 else 0.0
-                            add_size = _apply_leverage_cap(raw_add_size, symbol, capital, add_price, logger)
+                            add_size = _apply_leverage_cap(raw_add_size, symbol, per_symbol_capital, add_price, logger, current_position_size=current_position.size)
                             cap_reason = None
                             
                             # Safety calculation matching initial entry for consistency
@@ -2008,7 +2018,7 @@ class Backtester:
                                         f"PnL=${dust_pnl:.2f}"
                                     )
                                     # Record trade with combined partial + dust PnL
-                                    total_pnl = partial_pnl + dust_pnl
+                                    total_pnl = partial_pnl + dust_pnl + getattr(current_position, "cumulative_partial_pnl", 0.0)
                                     completed_trades.append(SimulatedTrade(
                                         symbol=symbol,
                                         direction=current_position.direction,
@@ -2110,7 +2120,12 @@ class Backtester:
 
                                 compounding_capital = min(capital, 10000.0)
                                 max_risk = compounding_capital * risk_pct
-                                add_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, add_price) if risk_per_share > 0 else 0
+                                raw_add_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, add_price) if risk_per_share > 0 else 0
+                                
+                                add_size = _apply_leverage_cap(
+                                    raw_add_size, symbol, per_symbol_capital, add_price, logger, 
+                                    current_position_size=existing.size
+                                )
 
                                 if add_size > 0:
                                     existing.size += add_size
@@ -2313,21 +2328,6 @@ class Backtester:
                                 )
                                 risk_pct = MAX_RISK_PCT
 
-
-                            # [RISK SATURATION] Cap compounding to prevent Nuclear Blowout
-                            comp_cap = 10000.0  # Conservative cap for consistency
-                            if getattr(profile, 'nuclear_overrides_enabled', False):
-                                comp_cap = getattr(profile, 'compounding_cap_override', 10000.0)
-
-                            compounding_capital = min(capital, comp_cap)
-
-                            # [PORTFOLIO RISK] Scale risk capital using sqrt(N) to balance
-                            # pyramid growth against concentration risk.
-                            # sqrt(12) ≈ 3.46 → each symbol gets ~29% of capital
-                            # (vs 8% with 1/N or 100% with no division).
-                            num_symbols = max(len(symbols), 1)
-                            per_symbol_capital = compounding_capital / (num_symbols ** 0.5)
-
                             max_risk = per_symbol_capital * risk_pct
                             logger.info(f"[BACKTEST] Entry: {symbol} using {risk_pct*100:.2f}% risk on ${per_symbol_capital:.2f} base (${max_risk:.2f}) [Cap: ${comp_cap}]")
 
@@ -2371,7 +2371,7 @@ class Backtester:
                             raw_size = max_risk / _jpy_adjust_risk(risk_per_share, symbol, entry_price) if risk_per_share > 0 else 0
                             
                             # Safety 2: Cap total notional to REALISTIC broker leverage
-                            size = _apply_leverage_cap(raw_size, symbol, per_symbol_capital, entry_price, logger)
+                            size = _apply_leverage_cap(raw_size, symbol, per_symbol_capital, entry_price, logger, current_position_size=0.0)
 
                             if size > 0:
                                 # Build position key: compound for multi-position, simple otherwise
@@ -2501,7 +2501,7 @@ class Backtester:
                                 size=_evicted.size,
                                 entry_time=_evicted.entry_time,
                                 exit_time=current_time,
-                                pnl=_evict_pnl,
+                                pnl=_evict_pnl + getattr(_evicted, "cumulative_partial_pnl", 0.0),
                                 exit_reason=f"Evicted for {_r_sym} (score={_score:.1f})",
                                 entry_gates=getattr(_evicted, "entry_gates", None),
                                 strategy_name=getattr(_evicted, 'strategy_name', 'unknown'),
@@ -2510,8 +2510,8 @@ class Backtester:
                                 symbol=_evict_sym,
                                 closed_at=current_time.isoformat(),
                                 pnl_pct=(_evict_pnl / (_evicted.entry_price * _evicted.size)) if (_evicted.entry_price * _evicted.size) != 0 else 0,
-                                pnl_usd=_evict_pnl,
-                                is_win=_evict_pnl > 0,
+                                pnl_usd=_evict_pnl + getattr(_evicted, "cumulative_partial_pnl", 0.0),
+                                is_win=(_evict_pnl + getattr(_evicted, "cumulative_partial_pnl", 0.0)) > 0,
                                 tier="backtest",
                                 capital_at_close=capital,
                                 strategy=(getattr(_evicted, 'entry_gates', None) or {}).get('meta_source') or getattr(_evicted, 'strategy_name', 'unknown'),
@@ -2596,27 +2596,8 @@ class Backtester:
                                 else:
                                     _r_dec.take_profit = entry_price - (min_stop_distance * original_rr)
 
-                        size = max_risk / _jpy_adjust_risk(risk_per_share, _r_sym, entry_price) if risk_per_share > 0 else 0
-
-                        # Leverage cap
-                        from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
-                        asset_class = classify_symbol(_r_sym)
-                        REALISTIC_LEVERAGE = {
-                            AssetClass.FOREX: 30.0,
-                            AssetClass.CRYPTO: 3.0,
-                            AssetClass.STOCKS: 4.0,
-                            AssetClass.ETF: 4.0,
-                            AssetClass.METALS: 20.0,
-                            AssetClass.FUTURES: 15.0,
-                        }
-                        lev_cap = REALISTIC_LEVERAGE.get(asset_class, 5.0)
-                        if os.getenv('RR_LEV_CAP'):
-                            lev_cap = float(os.environ['RR_LEV_CAP'])
-                        max_position_value = per_symbol_capital * lev_cap
-                        npu = _notional_per_unit(_r_sym, entry_price)
-                        max_shares = max_position_value / npu
-                        if size > max_shares:
-                            size = max_shares
+                        raw_size = max_risk / _jpy_adjust_risk(risk_per_share, _r_sym, entry_price) if risk_per_share > 0 else 0
+                        size = _apply_leverage_cap(raw_size, _r_sym, per_symbol_capital, entry_price, logger, current_position_size=0.0)
 
                         if size > 0:
                             meta_src = (getattr(_r_dec, 'gates', None) or {}).get('meta_source')
