@@ -49,7 +49,7 @@ class AISettings(BaseModel):
         le=2.0
     )
     max_tokens: PositiveInt = Field(
-        default_factory=lambda: int(os.getenv("TRADE_SCI_MAX_TOKENS", "2048"))
+        default_factory=lambda: int(os.getenv("TRADE_SCI_MAX_TOKENS", "4096"))
     )
     timeout_seconds: PositiveInt = Field(default=30)
 
@@ -142,10 +142,6 @@ class TradingProfileSettings(BaseModel):
         default=None,
         description="Per-asset-class strategy overrides.",
     )
-    strategy_overrides: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict,
-        description="Nested dictionary of strategy-specific setting overrides (Context Masking).",
-    )
     candle_timeframe: str = Field(
         default="5m",
         description="Candle timeframe for the profile (e.g. 1m, 5m, 15m, 1h).",
@@ -165,6 +161,10 @@ class TradingProfileSettings(BaseModel):
     ltf_timeframe: str | None = Field(
         default=None,
         description="Lower timeframe used for ICC execution structure; defaults to candle_timeframe when unset.",
+    )
+    target_r: float = Field(
+        default=2.0,
+        description="Global Risk-to-Reward ratio fallback. Also maps to the specific targets of sub-strategies.",
     )
     trend_window: PositiveInt = Field(
         default=18,
@@ -324,7 +324,7 @@ class TradingProfileSettings(BaseModel):
         description="Fixed risk per trade in account currency. Overrides risk_per_trade_pct when > 0.",
     )
     risk_per_trade_pct: float = Field(
-        default=0.01,
+        default=0.001,
         ge=0.0,
         le=1.0,
         description="Standard risk per trade as a fraction of equity.",
@@ -462,24 +462,24 @@ class TradingProfileSettings(BaseModel):
         description="If True, cuts positions 80% if a micro lower-high or higher-low forms against the trade.",
     )
     tier1_r_threshold: float = Field(
-        default=-0.30,
-        description="R-multiple that triggers Tier-1 Guillotine cut (default -0.30 — was -0.15 which was too tight).",
+        default=-0.80,
+        description="R-multiple that triggers Tier-1 Guillotine cut.",
     )
     tier1_cut_fraction: float = Field(
         default=0.80,
         ge=0.0,
         le=1.0,
-        description="Fraction of position to close at Tier-1 Guillotine (0.80 = 80%).",
+        description="Fraction of position to close at Tier-1 Guillotine (1.0 = 100%).",
     )
     tier2_r_threshold: float = Field(
-        default=-0.60,
+        default=-1.20,
         description="R-multiple that triggers Tier-2 Guillotine cut on residual position.",
     )
     tier2_cut_fraction: float = Field(
-        default=0.80,
+        default=1.0,
         ge=0.0,
         le=1.0,
-        description="Fraction of remaining position to close at Tier-2 Guillotine (0.80 = 80%).",
+        description="Fraction of remaining position to close at Tier-2 Guillotine (1.0 = 100%).",
     )
     # ── Safety guards (profile-level overrides) ─────────────────────────────
     safety_regime_flip_enabled: bool = Field(
@@ -510,7 +510,7 @@ class TradingProfileSettings(BaseModel):
         description="Instantly close any trade the moment it reaches net profit (covering spread). Does not let the bot ride trades.",
     )
     tick_scalping_min_usd: float = Field(
-        default=0.0,
+        default=5.0,
         description="Minimum net profit required before tick scalping triggers.",
     )
 
@@ -791,6 +791,25 @@ class TradingProfileSettings(BaseModel):
         ge=0.0,
         description="Minimum estimated 24h quote volume (USD) for a crypto pair to be considered.",
     )
+    eviction_min_hold_minutes: PositiveInt = Field(
+        default=5,
+        description="Minimum hold time in minutes before a position can be evicted. Use 0 for no minimum.",
+    )
+    # ── Strategy Specific Overrides ──────────────────────────────────
+    quick_ranging_tp_enabled: bool = Field(
+        default=False,
+        description="Cap profits at 0.7R during choppy/ranging sessions (Forex Conductor).",
+    )
+    tick_scalping_enabled: bool = Field(
+        default=True,
+        description="Exit immediately on ANY net profit (Forex Conductor).",
+    )
+    tick_scalping_min_usd: float = Field(
+        default=5.0,
+        ge=0.0,
+        description="Minimum net USD before scalping (Forex Conductor).",
+    )
+    # ── Miscellaneous ────────────────────────────────────────────────
     pair_selector_max_spread_bps: float = Field(
         default=25.0,
         ge=0.0,

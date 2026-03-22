@@ -1111,7 +1111,7 @@ def run_bot(
                     seasoned_daemon = SeasonedTraderDaemon(
                         ai_client=ai_client,
                         config_payload=autopilot_cfg,
-                        ws_server=controller.ws_server,
+                        controller=controller,
                     )
                     seasoned_daemon.start()
                     logger.info("[AUTOPILOT] 🤖 Seasoned Trader Daemon STARTED (interval=%sm)", autopilot_cfg["AI_AUTOPILOT_INTERVAL_MINS"])
@@ -1314,7 +1314,8 @@ def run_bot(
             # Check for Halt Signal
             if controller.is_halted():
                 logger.debug("[LOOP] Bot is HALTED via signal. Waiting...")
-                time.sleep(poll_interval)
+                # Force a 1s sleep regardless of poll_interval to prevent CPU pin
+                time.sleep(1.0 if poll_interval <= 0 else poll_interval)
                 continue
 
             # Evaluate Schedule & Sabbath Status FIRST (every loop tick)
@@ -1700,6 +1701,10 @@ def run_bot(
                     )
                 except Exception as e:
                     logger.debug(f"[COMMENTARY] Trigger skipped: {e}")
+                
+                # Push immediate post-entry holding state so rapid Replay Mode doesn't flash past trades
+                controller.broadcast_holdings(executor)
+                controller.broadcast_state(executor, executor_real=executor_real)
                 
                 next_decision_in = decision_interval
             else:

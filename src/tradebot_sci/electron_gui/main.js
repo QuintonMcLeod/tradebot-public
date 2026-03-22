@@ -730,16 +730,36 @@ function setupIpcHandlers() {
                 });
 
                 // ── Stream logs to GUI in real time ───────────────────────────
+                let logThrottle = null;
+                let logQueue = [];
                 proc.stderr.on('data', (data) => {
                     stderrBuf += data.toString();
                     const lines = stderrBuf.split('\n');
                     stderrBuf = lines.pop(); // keep incomplete line buffered
+                    
                     for (const line of lines) {
                         if (!line.trim()) continue;
-                        if (senderWindow && !senderWindow.isDestroyed()) {
-                            senderWindow.webContents.send('backtest-progress', line);
+                        logQueue.push(line);
+                        // Too verbose for main console during heavy backtests, disabling inner console.log
+                    }
+
+                    // CAP IPC PAYLOAD TO PREVENT V8 OOM
+                    if (logQueue.length > 500) {
+                        const overflow = logQueue.length - 500;
+                        logQueue.splice(0, overflow);
+                        if (logQueue[0] !== "[SYSTEM] ... log output truncated to save memory ...") {
+                           logQueue.unshift("[SYSTEM] ... log output truncated to save memory ...");
                         }
-                        console.log('[REPLAY]', line);
+                    }
+
+                    if (!logThrottle && logQueue.length > 0) {
+                        logThrottle = setTimeout(() => {
+                            if (senderWindow && !senderWindow.isDestroyed() && logQueue.length > 0) {
+                                senderWindow.webContents.send('backtest-progress', logQueue);
+                            }
+                            logQueue = [];
+                            logThrottle = null;
+                        }, 50);
                     }
                 });
 
@@ -1828,12 +1848,33 @@ function startLogWatcher(win) {
             fileSize = newFileSize;
             return;
         }
-        const buffer = Buffer.alloc(sizeDiff);
+        
+        // Clamp massive throughput (e.g. Backtesting) to prevent V8 OOM
+        let bytesToRead = sizeDiff;
+        let position = fileSize;
+        const MAX_BYTES = 100 * 1024; // 100 KB max UI tail chunk
+
+        if (bytesToRead > MAX_BYTES) {
+            bytesToRead = MAX_BYTES;
+            position = newFileSize - MAX_BYTES;
+        }
+
+        const buffer = Buffer.alloc(bytesToRead);
         const fd = fs.openSync(logPath, 'r');
-        fs.readSync(fd, buffer, 0, sizeDiff, fileSize);
+        fs.readSync(fd, buffer, 0, bytesToRead, position);
         fs.closeSync(fd);
         fileSize = newFileSize;
-        win.webContents.send('fromMain', { type: 'log-update', line: buffer.toString() });
+        
+        let chunkStr = buffer.toString();
+        if (sizeDiff > MAX_BYTES) {
+            const firstNL = chunkStr.indexOf('\n');
+            if (firstNL !== -1) chunkStr = chunkStr.substring(firstNL + 1);
+            chunkStr = "\n[SYSTEM] ... massive log throughput omitted (tailing end only) ...\n" + chunkStr;
+        }
+
+        if (!win.isDestroyed()) {
+            win.webContents.send('fromMain', { type: 'log-update', line: chunkStr });
+        }
     });
 }
 

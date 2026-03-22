@@ -111,8 +111,21 @@
         const endInput = $('bt-end-date');
         if (!startInput || !endInput) return;
 
-        if (info.earliest) startInput.value = info.earliest;
-        if (info.latest) endInput.value = info.latest;
+        if (info.latest) {
+            endInput.value = info.latest;
+            const endDate = new Date(info.latest);
+            if (!isNaN(endDate.getTime())) {
+                endDate.setDate(endDate.getDate() - 14);
+                const yyyy = endDate.getFullYear();
+                const mm = String(endDate.getMonth() + 1).padStart(2, '0');
+                const dd = String(endDate.getDate()).padStart(2, '0');
+                startInput.value = `${yyyy}-${mm}-${dd}`;
+            } else if (info.earliest) {
+                startInput.value = info.earliest;
+            }
+        } else if (info.earliest) {
+            startInput.value = info.earliest;
+        }
     }
 
     // ── Wire events ──────────────────────────────────────────
@@ -304,26 +317,39 @@
     let _logBuffer = '';
     let _logRAF = null;
 
-    function _appendLogLine(line) {
+    function _appendLogLine(data) {
         const panel = $('bt-log-stream');
         if (!panel) return;
-        let c = line
-            .replace(/\[GUILLOTINE/g, '<span style="color:#f97316">[GUILLOTINE')
-            .replace(/\[SAR/g, '<span style="color:#a78bfa">[SAR')
-            .replace(/\[ENGINE/g, '<span style="color:#34d399">[ENGINE')
-            .replace(/\[PARALLEL/g, '<span style="color:#38bdf8">[PARALLEL')
-            .replace(/\[ERROR\]/g, '<span style="color:#f87171">[ERROR]</span>')
-            .replace(/\[REPLAY\]/g, '<span style="color:#60a5fa">[REPLAY]</span>');
-        const diff = (c.match(/<span/g) || []).length - (c.match(/<\/span>/g) || []).length;
-        for (let i = 0; i < diff; i++) c += '</span>';
+
+        const lines = Array.isArray(data) ? data : [data];
+        let blockHtml = '';
+
+        for (const line of lines) {
+            let c = line
+                .replace(/\[GUILLOTINE/g, '<span style="color:#f97316">[GUILLOTINE')
+                .replace(/\[SAR/g, '<span style="color:#a78bfa">[SAR')
+                .replace(/\[ENGINE/g, '<span style="color:#34d399">[ENGINE')
+                .replace(/\[PARALLEL/g, '<span style="color:#38bdf8">[PARALLEL')
+                .replace(/\[ERROR\]/g, '<span style="color:#f87171">[ERROR]</span>')
+                .replace(/\[REPLAY\]/g, '<span style="color:#60a5fa">[REPLAY]</span>');
+            const diff = (c.match(/<span/g) || []).length - (c.match(/<\/span>/g) || []).length;
+            for (let i = 0; i < diff; i++) c += '</span>';
+            blockHtml += c + '<br>';
+        }
 
         // Buffer lines and flush via rAF to avoid per-line DOM thrashing
-        _logBuffer += c + '<br>';
+        _logBuffer += blockHtml;
         if (!_logRAF) {
             _logRAF = requestAnimationFrame(() => {
                 panel.insertAdjacentHTML('beforeend', _logBuffer);
                 _logBuffer = '';
                 _logRAF = null;
+
+                // PRUNE DOM to prevent infinite node accumulation OOM
+                while (panel.childNodes.length > 1000) {
+                    panel.removeChild(panel.firstChild);
+                }
+
                 // Throttled scroll: max once per 100ms
                 if (!_logScrollTimer) {
                     _logScrollTimer = setTimeout(() => {

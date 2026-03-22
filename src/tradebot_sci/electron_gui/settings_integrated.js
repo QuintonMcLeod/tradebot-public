@@ -100,6 +100,11 @@ const CONFIG_MAP = {
     'SWAP_AVOIDANCE_ENABLED': ['safety', 'swap_avoidance_enabled'],
     'SPREAD_GATE_MAX_PCT': ['safety', 'spread_gate_max_pct'],
     'BLOCK_RANGING_REGIME': ['global', 'block_ranging_regime'],
+    // Strategy Specific
+    'QUICK_RANGING_TP_ENABLED': ['global', 'quick_ranging_tp_enabled'],
+    'TICK_SCALPING_ENABLED': ['global', 'tick_scalping_enabled'],
+    'TICK_SCALPING_MIN_USD': ['global', 'tick_scalping_min_usd'],
+    'TARGET_R': ['global', 'target_r'],
     // Exit Logic & Position Management (under global in config.json)
     'MIN_HOLD_HOURS': ['global', 'min_hold_hours'],
     'MAX_HOLD_HOURS': ['global', 'max_hold_hours'],
@@ -451,14 +456,8 @@ function getValue(key, strategyNamespace = null) {
         return window.pnlTimeframe;
     }
 
-    if (strategyNamespace && configData && configData.active_profile) {
-        const active = configData.active_profile;
-        if (configData.profiles[active] && configData.profiles[active].strategy_overrides) {
-            const stratOverrides = configData.profiles[active].strategy_overrides[strategyNamespace];
-            if (stratOverrides && stratOverrides[key.toLowerCase()] !== undefined) {
-                return String(stratOverrides[key.toLowerCase()]); // contextual masked value
-            }
-        }
+    if (key === 'GUI_PNL_TIMEFRAME' && typeof window.pnlTimeframe !== 'undefined') {
+        return window.pnlTimeframe;
     }
 
     if (envData[key] !== undefined) return envData[key];
@@ -490,15 +489,6 @@ function syncEnvData() {
     // 2. Load from Secrets
     for (const [envKey, secretKey] of Object.entries(SECRETS_MAP)) {
         if (secretsData[secretKey]) envData[envKey] = secretsData[secretKey];
-    }
-
-    // 3. Load from Active Profile (Overrides)
-    const active = configData.active_profile;
-    if (active && configData.profiles && configData.profiles[active]) {
-        const profile = configData.profiles[active];
-        for (const [key, val] of Object.entries(profile)) {
-            envData[key.toUpperCase()] = String(val);
-        }
     }
 }
 
@@ -1809,12 +1799,6 @@ function renderSystemTab(container) {
         ],
         default: '24h'
     }));
-    // ── Profile Overrides ──────────────────────────────────
-    section.appendChild(createDivider());
-    section.appendChild(createSectionHeader('Profile Overrides', 'tune',
-        "<strong>What are Profile Overrides?</strong><br><br>When enabled, global settings are saved separately for each profile. Switching profiles will load that profile's custom global settings.<br><br>When disabled, all profiles share the same global settings."
-    ));
-    section.appendChild(createCard('Profile Overrides', 'Allow each profile to have its own global settings', 'PROFILE_OVERRIDES_ENABLED', 'toggle', { default: 'false' }));
 
     section.appendChild(createDivider());
 
@@ -2309,7 +2293,8 @@ function renderStrategyTab(container) {
         ));
 
         section.appendChild(createCard('The "Greedy Exit"', 'Enable trailing stop logic', 'TRAILING_STOP_ENABLED', 'toggle'));
-        section.appendChild(createSliderCard('The "Sniper Target"', 'Target Reward Ratio (R:R)', 'RISK_REWARD_RATIO', 1, 5, 0.5, 'R'));
+        section.appendChild(createSliderCard('Strategy Base Target R', 'Default Take-Profit R-multiple', 'TARGET_R', 0.5, 20.0, 0.5, 'R', { default: '2.0', tooltip: "The default base risk-to-reward target used by sub-strategies to plan their exits." }));
+        section.appendChild(createSliderCard('Safety Sniper Override', 'Hard cap Reward Ratio (R:R)', 'RISK_REWARD_RATIO', 1, 20, 0.5, 'R', { default: '3.0', tooltip: "Global safety override. If a position hits this R-multiple, the safety guard instantly flattens it regardless of the core strategy." }));
         section.appendChild(createSliderCard('Trailing Stop Min Profit %', 'Min profit to activate trail', 'TRAILING_STOP_MIN_PROFIT_PCT', 0, 10, 0.5, '%'));
         // REMOVED: 'Stop ATR Multiplier' (STOP_ATR_MULTIPLIER) duplicate — canonical in Safety tab (Audit P2)
 
@@ -3556,21 +3541,7 @@ function getValue(key, strategyNamespace = null) {
         return secretsData[SECRETS_MAP[key]] || '';
     }
 
-    // 2. Check Active Profile (Overrides ALWAYS win)
-    const active = configData.active_profile;
-    if (active && configData.profiles && configData.profiles[active]) {
-        let profileValue;
-        if (strategyNamespace) {
-            profileValue = configData.profiles[active].strategy_overrides?.[strategyNamespace]?.[key.toLowerCase()];
-        } else {
-            profileValue = configData.profiles[active][key.toLowerCase()];
-        }
-        if (profileValue !== undefined) {
-            return profileValue === true ? 'true' : profileValue === false ? 'false' : String(profileValue);
-        }
-    }
-
-    // 3. Fallback to Global Config
+    // 2. Fallback to Global Config
     if (CONFIG_MAP[key]) {
         const path = CONFIG_MAP[key];
         let current = configData;
@@ -3583,19 +3554,7 @@ function getValue(key, strategyNamespace = null) {
         return value === true ? 'true' : value === false ? 'false' : String(value);
     }
 
-    // 4. Fallback to Active Profile (Historical Catch-all)
-    else if (active && configData.profiles && configData.profiles[active]) {
-        let value;
-        if (strategyNamespace) {
-            value = configData.profiles[active].strategy_overrides?.[strategyNamespace]?.[key.toLowerCase()];
-        } else {
-            value = configData.profiles[active][key.toLowerCase()];
-        }
-        if (value === undefined) return undefined;
-        return value === true ? 'true' : value === false ? 'false' : String(value);
-    }
-
-    // 5. Fallback to envData (for values not in config/secrets, e.g., dynamically set ones)
+    // 3. Fallback to envData (for values not in config/secrets, e.g., dynamically set ones)
     const value = envData[key];
     if (value === undefined) return undefined;
     return value === true ? 'true' : value === false ? 'false' : String(value);
@@ -3642,32 +3601,6 @@ function updateValue(key, value, strategyNamespace = null) {
         // Sync PnL timeframe back to renderer.js if changed
         if (key === 'GUI_PNL_TIMEFRAME' && typeof window.syncPnLTimeframe === 'function') {
             window.syncPnLTimeframe(value);
-        }
-
-        // [BUGFIX] If the active profile currently overrides this global setting, update the override too
-        const active = configData.active_profile;
-        if (active && configData.profiles && configData.profiles[active]) {
-            if (configData.profiles[active][key.toLowerCase()] !== undefined) {
-                configData.profiles[active][key.toLowerCase()] = val;
-            }
-        }
-    }
-    // 3. Update Active Profile
-    else {
-        const active = configData.active_profile;
-        if (active && configData.profiles && configData.profiles[active]) {
-            let val = value;
-            if (value === 'true') val = true;
-            else if (value === 'false') val = false;
-            else if (!isNaN(value) && value.trim() !== "") val = Number(value);
-
-            if (strategyNamespace) {
-                if (!configData.profiles[active].strategy_overrides) configData.profiles[active].strategy_overrides = {};
-                if (!configData.profiles[active].strategy_overrides[strategyNamespace]) configData.profiles[active].strategy_overrides[strategyNamespace] = {};
-                configData.profiles[active].strategy_overrides[strategyNamespace][key.toLowerCase()] = val;
-            } else {
-                configData.profiles[active][key.toLowerCase()] = val;
-            }
         }
     }
 
@@ -4155,11 +4088,6 @@ function renderStrategyToolbox(container) {
             min: 1, limit: 3,
             tooltip: "How many candles RoboCop waits after seeing a signal before jumping in. 1 means it shoots first and asks questions later. Higher numbers mean it waits to make sure it's not a head-fake."
         }));
-        section.appendChild(createCard('Target Multiplier', 'R-multiple', 'TARGET_R', 'input', {
-            number: true,
-            default: '3.0',
-            tooltip: "How far the profit target is compared to the normal market wiggle (volatility). 3.0 means it wants a massive, 3x sized run before it cashes out."
-        }));
         section.appendChild(createCard('Stop ATR Buffer', 'Protection width buffer', 'STOP_ATR_BUFFER', 'input', {
             number: true,
             default: '0.2',
@@ -4180,11 +4108,6 @@ function renderStrategyToolbox(container) {
         const stratInfo = STRATEGIES.evolution;
         section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'smart_toy', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
 
-        section.appendChild(createCard('Target Risk:Reward', 'R-Multiple', 'TARGET_R', 'input', {
-            number: true,
-            default: '2.0',
-            tooltip: "The golden rule of trading: always try to make more than you risk. 2.0 means if the bot risks losing $50, it sets the target at making $100."
-        }));
         section.appendChild(createCard('Stop ATR Mult', 'Volatility based stop', 'STOP_ATR_MULT', 'input', {
             number: true,
             default: '1.0',
@@ -4222,29 +4145,6 @@ function renderStrategyToolbox(container) {
             "<strong>Forex Conductor</strong><br><br>The Conductor orchestrates sub-strategies (Trend Rider, Mean Reversion) and manages entries, exits, and risk. SAR (Stop And Reverse) automatically flips direction after a losing trade when conditions support a reversal — preventing consecutive losses in the same direction."
         ));
 
-        section.appendChild(createCard('Base Risk %', `Specific risk for ${stratInfo.name}`, 'RISK_PER_TRADE_PCT', 'input', {
-            number: true,
-            placeholder: 'Default',
-            tooltip: `Tell the bot exactly how much account money (%) to risk every time ${stratInfo.name} takes a trade. This will override your master settings.`
-        }));
-
-        section.appendChild(createCard('Stop & Reverse (SAR)', 'Auto-flip direction after a stopped trade', 'STOP_AND_REVERSE_ENABLED', 'toggle', {
-            default: 'true',
-            tooltip: "If a trade hits the stop loss, this tells the bot to immediately check if the trend completely reversed. If it did, it instantly opens a new trade in the opposite direction to catch the real move. Leave this ON!"
-        }));
-
-        section.appendChild(createCard('Scale-Out Fraction', 'Partial close % on de-risk signal', 'SCALE_OUT_FRACTION', 'input', {
-            number: true,
-            default: '0.95',
-            tooltip: "When the bot feels danger and decides to take profit early, this is the percentage of the position it closes. 0.95 means it closes 95% of the trade and leaves a tiny 5% 'runner' just in case it keeps going."
-        }));
-
-        section.appendChild(createCard('R:R Ratio', 'Reward-to-Risk target', 'RISK_REWARD_RATIO', 'input', {
-            number: true,
-            default: '2.0',
-            tooltip: "How much profit it targets compared to the risk. 2.0 means it tries to make double what it risks."
-        }));
-
         section.appendChild(createCard('Quick Ranging TP', 'Cap profits at 0.7R during choppy/ranging sessions', 'QUICK_RANGING_TP_ENABLED', 'toggle', {
             default: 'false',
             tooltip: "When the market is boring and just bouncing up and down in a tight tunnel, the bot usually just gets stopped out waiting for a big move. Turn this ON to tell the bot to settle for small, quick profits during the boring times."
@@ -4261,21 +4161,6 @@ function renderStrategyToolbox(container) {
             tooltip: "The absolute minimum profit in dollars to accept before bailing out. If set to 2.0, the bot will wait until it clears the spread AND makes $2.00 before closing the trade."
         }));
 
-        section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Reversal (SAR) Settings', 'swap_horiz',
-            "<strong>SAR Reversal Config</strong><br><br>Fine-tune how the Stop-And-Reverse mechanism behaves when it flips direction."
-        ));
-
-        section.appendChild(createCard('Reversal TP (R)', 'Take-profit R-multiple for SAR entries', 'REVERSAL_TP_R', 'input', {
-            number: true,
-            default: '1.0',
-            tooltip: "When the bot gets stopped out and flips direction, this tells it how aggressive to be on the recovery trade. 1.0 means it just tries to make back exactly what it just lost. Keep this low."
-        }));
-
-        section.appendChild(createCard('Cost-Aware TP', 'Adjust TP to cover previous loss + spread', 'REVERSAL_COST_AWARE_TP', 'toggle', {
-            default: 'true',
-            tooltip: "When the bot flips direction after a loss, this forces it to do the math and add the broker spread fees into the recovery target, so you actually break completely even."
-        }));
 
     } else if (toolboxTab === 'hyper_scalper') {
         const stratInfo = STRATEGIES.hyper_scalper;
@@ -4285,7 +4170,6 @@ function renderStrategyToolbox(container) {
         section.appendChild(createCard('Slow EMA Period', 'Slow EMA line', 'SLOW_EMA', 'input', { number: true, default: '21', tooltip: "The slightly slower moving average. When the fast line crosses the slow line, that's the trigger." }));
         section.appendChild(createCard('Trend EMA Period', 'Trend baseline', 'TREND_EMA', 'input', { number: true, default: '200', tooltip: "The massive baseline that tells the bot whether the big picture is going up or down. Never trade against this." }));
         section.appendChild(createCard('Stop ATR Mult', 'Stop distance', 'STOP_ATR_MULT', 'input', { number: true, default: '2.0', tooltip: "How wide the safety net should be based on market noise." }));
-        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '3.0', tooltip: "How much profit it wants compared to the risk. 3.0 means it wants triple what it risks." }));
 
     } else if (toolboxTab === 'rubberband_reaper') {
         const stratInfo = STRATEGIES.rubberband_reaper;
@@ -4301,7 +4185,6 @@ function renderStrategyToolbox(container) {
         const stratInfo = STRATEGIES.supply_demand;
         section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'account_balance'));
 
-        section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0', tooltip: "When the bot finds a great zone, this is how much profit it tries to capture compared to what it risks. 2.0 means double the risk." }));
         section.appendChild(createCard('Zone Lookback', 'Candles to check for BOS', 'ZONE_WINDOW', 'input', { number: true, default: '100', tooltip: "How far back in history the bot will scan to find powerful, unfilled institutional orders." }));
 
     } else if (toolboxTab === 'london_breakout') {
@@ -4358,7 +4241,6 @@ function renderStrategyToolbox(container) {
             section.appendChild(createCard('SMA Period', 'Trend Filter', 'SMA_PERIOD', 'input', { number: true, default: '50', tooltip: "The baseline that tells the bot the general direction of the market." }));
             section.appendChild(createCard('Risk Escalation', 'Risk to add per win', 'RISK_ESCALATION', 'input', { number: true, default: '0.01', tooltip: "Every time the bot wins, it adds this much extra risk to the next trade to snowball profits." }));
             section.appendChild(createCard('Max Risk', 'Hard cap risk %', 'MAX_RISK_PCT', 'input', { number: true, default: '0.05', tooltip: "The absolute maximum percentage of your account YoYo is allowed to risk, no matter how many times it wins." }));
-            section.appendChild(createCard('Target R', 'Target R ratio', 'TARGET_R', 'input', { number: true, default: '2.0', tooltip: "How much profit it wants compared to the risk. 2.0 means it wants double what it risks." }));
         }
 
     } else {
@@ -4366,17 +4248,6 @@ function renderStrategyToolbox(container) {
         const stratInfo = STRATEGIES[toolboxTab];
         if (stratInfo) {
             section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'tune', `<strong>${stratInfo.name}</strong><br><br>${stratInfo.description}`));
-
-            section.appendChild(createWarningBox(`
-                <strong>Strategy Override Enabled:</strong><br>
-                Settings configured here for <em>${stratInfo.name}</em> will take precedence over global Global Risk limits.
-            `));
-
-            section.appendChild(createCard('Base Risk %', `Specific risk for ${stratInfo.name}`, 'RISK_PER_TRADE_PCT', 'input', {
-                number: true,
-                placeholder: 'Default',
-                tooltip: `Tell the bot exactly how much account money (%) to risk every time ${stratInfo.name} takes a trade. This will override your master settings.`
-            }));
 
             // Add strategy description again for context
             const descCard = document.createElement('div');

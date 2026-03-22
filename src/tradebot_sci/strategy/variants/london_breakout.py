@@ -306,34 +306,6 @@ class LondonBreakoutStrategy(BaseStrategy):
         # ── FAILED BREAKOUT detection removed ─────────────────
         # Was cutting winners at $1-3. Let TP/SL handle exits.
 
-        # Breakeven management
-        entry_price = float(open_position["entry_price"])
-        current_price = snapshot.candles[-1].close
-        current_stop = float(open_position.get("stop_price") or 0.0)
-        direction = open_position.get("direction")
-        initial_risk = abs(entry_price - current_stop)
-
-        if initial_risk > 0:
-            profit_dist = (
-                (current_price - entry_price)
-                if direction == "long"
-                else (entry_price - current_price)
-            )
-            r_multiple = profit_dist / initial_risk
-
-            if direction == "long" and current_stop < entry_price and r_multiple >= 1.0:
-                return AITradeDecision(
-                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="long", phase="management", action="hold",
-                    stop_loss=entry_price,
-                    notes="[MANAGEMENT] Session Breakout: stop → BREAKEVEN (1R)"
-                )
-            if direction == "short" and current_stop > entry_price and r_multiple >= 1.0:
-                return AITradeDecision(
-                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="short", phase="management", action="hold",
-                    stop_loss=entry_price,
-                    notes="[MANAGEMENT] Session Breakout: stop → BREAKEVEN (1R)"
-                )
+        pass
 
         return None

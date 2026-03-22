@@ -221,9 +221,28 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         list(RiskSettings.model_fields.keys())
     )
 
+    _REAL_PROFILE_KEYS = {
+        "name", "strategy_variant", "strategies", "symbols",
+        "htf_timeframe", "ltf_timeframe"
+    }
+
     profiles = {}
     for name, p_data in config.get("profiles", {}).items():
-        merged = dict(p_data)  # shallow copy
+        # Validate that no deprecated profile overrides are present
+        invalid_keys = [k for k in p_data.keys() if k not in _REAL_PROFILE_KEYS]
+        if invalid_keys:
+            raise ValueError(
+                f"\n\n🚨 FATAL CONFIG ERROR 🚨\n"
+                f"Found invalid profile-specific overrides: {invalid_keys} in profile '{name}'.\n"
+                f"Profile-level overrides are DEPRECATED and ignored by the loader.\n"
+                f"All strategy variants, risk settings, leverage caps, and behavioral parameters MUST "
+                f"be placed in the 'global' or 'risk' configuration blocks instead.\n"
+                f"The ONLY allowed keys inside a profile block are: {list(_REAL_PROFILE_KEYS)}.\n"
+                f"Please move your '{name}' settings into the global block."
+            )
+
+        # Only keep genuine profile fields from the JSON to eliminate legacy overrides
+        merged = {k: v for k, v in p_data.items() if k in _REAL_PROFILE_KEYS}
 
         # ── Universal global → profile promotion ─────────────────────
         # Promote ALL config.json "global" keys that match a
@@ -238,26 +257,6 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
 
         # Risk-section keys are stored separately in config.json;
         # promote them the same way.
-        #
-        # ⚠️  DEPRECATED PATTERN — Why this section exists:
-        # Old code wrote risk settings to config.json["risk"] as a top-level
-        # block.  The GUI historically also read/wrote from that block.
-        # Profile-specific overrides lived in config.json["profiles"][name]
-        # as individual fields.  This created a "dual config" problem where:
-        #
-        #   - config.json["risk"]["risk_per_trade_pct"] = 1.0  ← OLD stale value
-        #   - config.json["global"]["risk_per_trade_pct"] = 0.045  ← current
-        #   - config.json["profiles"]["forex_continuous"]["risk_per_trade_pct"] = 0.045  ← current
-        #
-        # THE NEW SYSTEM (active since universal promotion above):
-        #   1. All settings live in config.json["global"] as the defaults.
-        #   2. Profile-level values in config.json["profiles"][name] OVERRIDE globals.
-        #   3. When "Profile Overrides" is ON in the GUI, switching profiles
-        #      WRITES those profile values back to globals so the whole system
-        #      uses the profile's settings — no more dual layer.
-        #   4. Code should ALWAYS READ from:  settings.get_active_profile().*
-        #   5. config.json["risk"] is FROZEN FOR LEGACY COMPAT ONLY.  The GUI
-        #      no longer writes to it.  Treat it as read-only archaeology.
         for key in risk_model_cfg:
             if key not in merged and key in _profile_fields:
                 merged[key] = risk_model_cfg[key]

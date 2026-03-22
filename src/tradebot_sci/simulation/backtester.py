@@ -904,7 +904,8 @@ class Backtester:
                 ):
                     mark_price = current_bar.close
                     pnl = _calculate_pnl(pos.entry_price, mark_price, pos.size, pos.direction, symbol=symbol)
-                    if pnl > 0:
+                    profit_hold_min = float(getattr(profile, 'profit_hold_min_usd', 2.00))
+                    if pnl >= profit_hold_min:
                         capital += pnl
                         completed_trades.append(SimulatedTrade(
                             symbol=symbol,
@@ -991,11 +992,9 @@ class Backtester:
 
                 # Check stop loss
                 if pos.stop_price is not None and not disable_stops:
-                    if min_hold_seconds > 0 and held_seconds < min_hold_seconds:
-                        continue
 
                     # ── TIERED GUILLOTINE ─────────────────────────────────
-                    # Evaluated independently of the hard Stop Loss
+                    # Fires independently of min_hold — it is a risk safety
                     tiered_enabled = bool(getattr(profile, 'tiered_guillotine_enabled', True))
                     if tiered_enabled and pos.size > 0:
                         t1_r  = float(getattr(profile, 'tier1_r_threshold',  -0.15))
@@ -1043,6 +1042,41 @@ class Backtester:
                                     f"cut {tier_cut*100:.0f}% at {tier_price:.5f} "
                                     f"(PnL=${tier_pnl:.2f}, remaining={pos.size:.0f} units)"
                                 )
+
+                        # If guillotine fully drained the position, close trade
+                        if pos.size <= 0:
+                            completed_trades.append(SimulatedTrade(
+                                symbol=symbol,
+                                direction=pos.direction,
+                                entry_price=pos.entry_price,
+                                exit_price=tier_price,
+                                size=0,
+                                entry_time=pos.entry_time,
+                                exit_time=current_time,
+                                pnl=getattr(pos, 'cumulative_partial_pnl', 0.0),
+                                exit_reason="guillotine",
+                                entry_gates=getattr(pos, "entry_gates", None),
+                                strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                            ))
+                            trade_results_store.add_result(TradeResult(
+                                symbol=symbol,
+                                closed_at=current_time.isoformat(),
+                                pnl_pct=0,
+                                pnl_usd=getattr(pos, 'cumulative_partial_pnl', 0.0),
+                                is_win=False,
+                                tier="backtest",
+                                capital_at_close=capital,
+                                strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                                exit_reason="guillotine",
+                                side=pos.direction,
+                            ))
+                            del positions[pos_key]
+                            logger.info(f"[BACKTEST] {symbol} GUILLOTINE full exit: PnL=${getattr(pos, 'cumulative_partial_pnl', 0.0):.2f}")
+                            continue
+
+                    # ── Min-hold gate (hard stop only) ───────────────────
+                    if min_hold_seconds > 0 and held_seconds < min_hold_seconds:
+                        continue
 
                     # Stop can ONLY trigger if the candle actually traded at the stop price.
                     stop_in_range = current_bar.low <= pos.stop_price <= current_bar.high
@@ -2238,10 +2272,10 @@ class Backtester:
                                 del self._symbol_cooldown[symbol]
 
                         if can_enter:
-                            # Use strategy-defined risk, but profile risk acts as FLOOR
-                            profile_risk = float(getattr(profile, "risk_per_trade_pct", 0.015))
+                            # Use strategy-defined risk, but profile risk acts as CAP
+                            profile_risk = float(getattr(profile, "risk_per_trade_pct", 0.001))
                             if hasattr(decision, "risk_per_trade_pct") and decision.risk_per_trade_pct is not None:
-                                risk_pct = max(float(decision.risk_per_trade_pct), profile_risk)
+                                risk_pct = min(float(decision.risk_per_trade_pct), profile_risk)
                             else:
                                 risk_pct = profile_risk
 
@@ -2545,9 +2579,9 @@ class Backtester:
                             continue
 
                         # ── Risk sizing (mirrors the standard entry path) ──
-                        profile_risk = float(getattr(profile, "risk_per_trade_pct", 0.015))
+                        profile_risk = float(getattr(profile, "risk_per_trade_pct", 0.001))
                         if hasattr(_r_dec, "risk_per_trade_pct") and _r_dec.risk_per_trade_pct is not None:
-                            _r_risk_pct = max(float(_r_dec.risk_per_trade_pct), profile_risk)
+                            _r_risk_pct = min(float(_r_dec.risk_per_trade_pct), profile_risk)
                         else:
                             _r_risk_pct = profile_risk
 
@@ -2559,7 +2593,7 @@ class Backtester:
 
                         # Hard max risk cap
                         MAX_RISK_PCT = float(getattr(profile, 'max_risk_pct_hard_cap', None) or
-                                             (float(getattr(profile, 'risk_per_trade_pct', 0.045)) * 3))
+                                             (float(getattr(profile, 'risk_per_trade_pct', 0.001)) * 3))
                         if _r_risk_pct > MAX_RISK_PCT:
                             _r_risk_pct = MAX_RISK_PCT
 

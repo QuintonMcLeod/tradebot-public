@@ -207,17 +207,4 @@ class YoYoStrategy(BaseStrategy):
         if r_multiple >= 1.0:
             self._escalate_risk(snapshot.symbol)
 
-        # At 1.0R: move stop to breakeven
-        already_at_be = (direction == "long" and stop_price >= entry_price) or \
-                        (direction == "short" and stop_price <= entry_price)
-
-        if r_multiple >= 1.0 and not already_at_be:
-            dec = hold_decision(
-                snapshot.symbol, snapshot.timeframe,
-                reason=f"Yo-Yo: Move to BE at {r_multiple:.2f}R",
-                stop_loss=entry_price,
-            )
-            dec.strategy_name = self.name
-            return dec
-
         return None

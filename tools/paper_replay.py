@@ -157,12 +157,12 @@ class ReplayMarketProvider:
         else:
             ltf_window = raw_ltf
 
-        # Serve the last 50 HTF candles up to current_ts
+        # Serve the last 500 HTF candles up to current_ts
         if current_ts and sym in self._htf_timeline:
             htf_timeline = self._htf_timeline[sym]
             import bisect
             idx = bisect.bisect_right([c.timestamp for c in htf_timeline], current_ts)
-            htf_window = htf_timeline[max(0, idx - 50):idx]
+            htf_window = htf_timeline[max(0, idx - 500):idx]
         else:
             htf_window = snap.htf_candles or []
 
@@ -574,12 +574,11 @@ class ReplayPaperBroker(PaperBroker):
 # Observation Loader
 # ─────────────────────────────────────────────────────────────────────────────
 
-def load_observations(symbols: list[str], days: int, api_fallback: bool = False) -> dict[str, list[dict]]:
-    """Load recorded observations for each symbol for the past N days.
+def load_observations(symbols: list[str], start_dt: datetime, end_dt: datetime, api_fallback: bool = False) -> dict[str, list[dict]]:
+    """Load recorded observations for each symbol for the given date range.
     If api_fallback is True and no local data is found, it synthesizes observations from OANDA."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    start_str = cutoff.strftime("%Y-%m-%d")
-    end_str   = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    start_str = start_dt.strftime("%Y-%m-%d")
+    end_str   = end_dt.strftime("%Y-%m-%d")
 
     all_obs: dict[str, list[dict]] = {}
     for sym in symbols:
@@ -624,9 +623,7 @@ def load_observations(symbols: list[str], days: int, api_fallback: bool = False)
                     import oandapyV20.endpoints.instruments as instruments
                     oanda_sym = provider._normalize_symbol(sym)
                     
-                    # Compute timestamps
-                    start_dt = cutoff
-                    end_dt = datetime.now(timezone.utc)
+                    # Transferred start_dt and end_dt from method arguments
                     
                     logger.info(f"[API-FALLBACK] Fetching synthetic observations for {sym} from OANDA (Paginated)")
                     
@@ -776,11 +773,15 @@ def _worker_replay_symbol(args: tuple) -> dict:
     from pathlib import Path
     import json
 
-    if len(args) == 8:
+    if len(args) == 9:
+        sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path, args_strategy, sim_start_dt = args
+    elif len(args) == 8:
         sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path, args_strategy = args
+        sim_start_dt = None
     else:
         sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path = args
         args_strategy = None
+        sim_start_dt = None
     src_path = str(Path(__file__).resolve().parents[1] / "src")
 
     if src_path not in sys.path:
@@ -914,14 +915,17 @@ def _worker_replay_symbol(args: tuple) -> dict:
             if "Z" in raw_ts: raw_ts = raw_ts.replace("Z", "+00:00")
             tick_dt = datetime.fromisoformat(raw_ts)
 
-            # Full rolling window: last 200 LTF candles up to this tick
-            ltf_idx = _bisect.bisect_right(ltf_timestamps, tick_dt)
-            ltf = ltf_timeline[max(0, ltf_idx - 200): ltf_idx]
+            if sim_start_dt and tick_dt < sim_start_dt:
+                continue
 
-            # Full rolling window: last 200 HTF candles up to this tick
+            # Full rolling window: last 500 LTF candles up to this tick
+            ltf_idx = _bisect.bisect_right(ltf_timestamps, tick_dt)
+            ltf = ltf_timeline[max(0, ltf_idx - 500): ltf_idx]
+
+            # Full rolling window: last 500 HTF candles up to this tick
             # (gives ADX/EMA/MACD enough history to compute proper htf_strength)
             htf_idx = _bisect.bisect_right(htf_timestamps, tick_dt)
-            htf = htf_timeline[max(0, htf_idx - 200): htf_idx]
+            htf = htf_timeline[max(0, htf_idx - 500): htf_idx]
         except Exception as e:
             logging.error(f"[REPLAY] Exception in bisect loop: {e}")
             continue
@@ -991,9 +995,8 @@ def _worker_replay_symbol(args: tuple) -> dict:
 # Main Replay Orchestrator (dispatches symbol workers in parallel)
 # ───────────────────────────────────────────────────────────────────────────────
 
-def run_replay(days: int, speed: float, initial_balance: float,
+def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balance: float,
                symbols_filter: Optional[list] = None,
-               cutoff_dt: Optional[datetime] = None,
                max_workers: Optional[int] = None,
                strategy: Optional[str] = None) -> dict:
     # ── Bootstrap ────────────────────────────────────────────────────────────
@@ -1015,7 +1018,8 @@ def run_replay(days: int, speed: float, initial_balance: float,
     logger.info(f"[REPLAY] Symbols: {', '.join(available_syms)}")
 
     # ── Load observations ──────────────────────────────────────────────
-    all_obs = load_observations(available_syms, days)
+    fetch_start = start_dt - timedelta(days=35)
+    all_obs = load_observations(available_syms, fetch_start, end_dt, api_fallback=True)
     if not all_obs:
         logger.error("[REPLAY] No observations loaded — nothing to replay.")
         sys.exit(1)
@@ -1088,7 +1092,8 @@ def run_replay(days: int, speed: float, initial_balance: float,
                 initial_balance,
                 speed,
                 src_path,
-                strategy)
+                strategy,
+                start_dt)
             ): sym
             for sym in all_obs
         }
@@ -1247,19 +1252,18 @@ def main():
     parser.add_argument("--json-output", action="store_true", help="Output results as JSON")
     args = parser.parse_args()
 
-    # Resolve date range → days
-    days = args.days
-    cutoff_dt = None
+    # Resolve date range
     if args.start_date:
         try:
             start_dt = datetime.strptime(args.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             end_dt = datetime.strptime(args.end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) \
                 if args.end_date else datetime.now(timezone.utc)
-            days = max(1, (end_dt - start_dt).days + 1)
-            cutoff_dt = start_dt
         except ValueError as e:
             logger.error(f"Invalid date format: {e}")
             sys.exit(1)
+    else:
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(days=args.days)
 
     syms = [s.strip().upper() for s in args.symbols.split(",")] if args.symbols else None
     
@@ -1304,9 +1308,9 @@ def main():
             logger.error(f"[REPLAY] Failed to reload configuration for break check: {e}")
 
         logger.info(f"\n[REPLAY] Starting continuous replay cycle...")
-        result = run_replay(days=days, speed=args.speed,
+        result = run_replay(start_dt, end_dt, speed=args.speed,
                             initial_balance=args.balance, symbols_filter=syms,
-                            cutoff_dt=cutoff_dt, max_workers=args.max_workers,
+                            max_workers=args.max_workers,
                             strategy=args.strategy)
 
         # ── Emit JSON summary for UI consumption ─────────────────────────────

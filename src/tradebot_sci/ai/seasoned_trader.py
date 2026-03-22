@@ -182,15 +182,18 @@ class SeasonedTraderDaemon:
     manages profiles & schedules, respects Sabbath boundaries, and maintains temporal
     continuity through the SentinelMemory system.
     """
-    def __init__(self, ai_client, config_payload=None, ws_server=None):
+    def __init__(self, ai_client, config_payload: dict, controller=None):
         self.ai = ai_client
-        self.memory = SentinelMemory()
-        self.news_scraper = RSSNewsScraper()
+        self.controller = controller
+        self.ws_server = controller.ws_server if controller else None
+        self.interval_mins = int(config_payload.get("AI_AUTOPILOT_INTERVAL_MINS", 30))
+        self.personality = config_payload.get("AI_PERSONALITY", "veteran")
+        self.monetary_path = config_payload.get("AI_MONETARY_PATH", "balanced")
+        self.memory = SentinelMemory() # Kept SentinelMemory as per original
+        self.news_scraper = RSSNewsScraper() # Kept RSSNewsScraper as per original
         self.running = False
         self._thread = None
         self.cfg = config_payload or {}
-        self.ws_server = ws_server  # WebSocket server for commentary broadcast
-        
         self.monetary_path = self.cfg.get("AI_MONETARY_PATH", "balanced")
         self.personality = self.cfg.get("AI_PERSONALITY", "veteran")
         self.interval_mins = int(self.cfg.get("AI_AUTOPILOT_INTERVAL_MINS", 30))
@@ -779,7 +782,10 @@ class SeasonedTraderDaemon:
         return "\n".join(lines)
 
     def _get_market_provider(self, config: dict):
-        """Lazily create an OANDA market data provider from config credentials."""
+        """Lazily create an OANDA market data provider, or return ReplayProvider from controller."""
+        if self.controller and hasattr(self.controller, "replay_provider") and self.controller.replay_provider:
+            return self.controller.replay_provider
+
         if hasattr(self, '_market_provider') and self._market_provider:
             return self._market_provider
         try:
@@ -1015,17 +1021,30 @@ class SeasonedTraderDaemon:
         config = self._read_config()
         sabbath = self._get_sabbath_status(config)
         sabbath_active = sabbath.get("active", False)
+        
+        execute_trades = config.get("runtime", {}).get("execute_trades", False)
+        is_paper = not execute_trades
+
         sabbath_instruction = ""
         if sabbath_active:
-            sabbath_instruction = (
-                "\n\n⚠️ SABBATH IS CURRENTLY ACTIVE. You MUST NOT:\n"
-                "  - Create, modify, or delete any profiles\n"
-                "  - Create or delete any schedule sessions\n"
-                "  - Adjust any settings that affect trade execution\n"
-                "  - Trigger the kill switch (trades are already paused)\n"
-                "You MAY only observe, analyze, and write memory notes for the next cycle.\n"
-                "Return empty arrays/objects for profile_actions, schedule_actions, and adjust_settings.\n"
-            )
+            if is_paper:
+                sabbath_instruction = (
+                    "\n\n⚠️ SABBATH IS CURRENTLY ACTIVE, BUT YOU ARE IN PAPER TRADING MODE.\n"
+                    "Because this is a simulated paper-trading environment and not real commerce, "
+                    "you ARE permitted to continue evaluating profiles, monitoring the simulation, "
+                    "and adjusting parameters. You do not need to halt operations for Sabbath "
+                    "since no real money is being risked.\n"
+                )
+            else:
+                sabbath_instruction = (
+                    "\n\n⚠️ SABBATH IS CURRENTLY ACTIVE. You MUST NOT:\n"
+                    "  - Create, modify, or delete any profiles\n"
+                    "  - Create or delete any schedule sessions\n"
+                    "  - Adjust any settings that affect trade execution\n"
+                    "  - Trigger the kill switch (trades are already paused)\n"
+                    "You MAY only observe, analyze, and write memory notes for the next cycle.\n"
+                    "Return empty arrays/objects for profile_actions, schedule_actions, and adjust_settings.\n"
+                )
         
         system_prompt = (
             f"You are the '{self.personality}' 20-year veteran autonomous trading manager.\n"
@@ -1119,7 +1138,7 @@ class SeasonedTraderDaemon:
             insight_commentary = decision.get("insight_commentary", "")
             
             # ── Sabbath hard block — reject all mutations ──
-            if sabbath_active:
+            if sabbath_active and not is_paper:
                 if adjustments or profile_actions or schedule_actions or kill_switch:
                     logger.warning("[Sentinel] Sabbath is active — rejecting all mutations from AI response.")
                     self.memory.add_note("[SABBATH] AI attempted changes during Sabbath — all blocked.")
@@ -1331,10 +1350,57 @@ class SeasonedTraderDaemon:
         except Exception as e:
             logger.error(f"[Sentinel] Initial briefing failed: {e}")
 
+        last_eval_time = None
+        last_real_eval_time = 0.0
+
         while self.running:
-            self._evaluate_and_adjust()
-            logger.info(f"[Sentinel] Suspending cycle for {self.interval_mins} minutes...")
-            time.sleep(self.interval_mins * 60)
+            # Wake up frequently to tick the simulation time delta
+            time.sleep(5)
+            
+            # 1. Fetch current simulated or real time
+            latest_time = None
+            is_replay = False
+            if self.controller and getattr(self.controller, "replay_provider", None):
+                # We are in Replay mode! Sync to simulated market time
+                sim_time = getattr(self.controller.replay_provider, "sim_time", None)
+                if sim_time:
+                    latest_time = sim_time
+                    is_replay = True
+            
+            if not latest_time:
+                # Default to real wall-clock time if not replaying
+                from datetime import datetime
+                latest_time = datetime.now()
+
+            # 2. Bootstrap first interval
+            if last_eval_time is None:
+                last_eval_time = latest_time
+                last_real_eval_time = time.time()
+                self._evaluate_and_adjust()
+                logger.info(f"[Sentinel] First evaluation passed. Synchronizing next cycle to {self.interval_mins} mins.")
+                continue
+
+            # 3. Check time delta (handles both 1:1 real-time and x300 Replay-time)
+            delta = latest_time - last_eval_time
+            if delta.total_seconds() >= (self.interval_mins * 60):
+                # Apply a strict wall-clock throttling guard for Replay Mode.
+                # If we are rapidly fast-forwarding an entire week in 3 minutes,
+                # we do NOT want the AI to make an API call for every 30-min candle.
+                # Restrict it to the user's configured interval in REAL-WORLD minutes
+                # so it behaves exactly like a live 24/7 session.
+                real_now = time.time()
+                real_delta = real_now - last_real_eval_time
+                
+                if is_replay and real_delta < (self.interval_mins * 60):
+                    # Sync the sim cursor forward without firing the expensive LLM.
+                    # We skip the execution to avoid spamming the UI.
+                    last_eval_time = latest_time
+                    continue
+
+                self._evaluate_and_adjust()
+                last_eval_time = latest_time
+                last_real_eval_time = time.time()
+                logger.debug(f"[Sentinel] Cycle sync boundary met. (SimDelta={delta.total_seconds()}s, RealDelta={real_delta:.1f}s)")
 
     def start(self):
         if not self._thread or not self._thread.is_alive():

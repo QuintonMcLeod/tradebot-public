@@ -191,12 +191,26 @@ class ForexConductorStrategy(BaseStrategy):
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by regime={regime}")
             return None
 
+        # ── CANDLE CHOP DETECTOR (independent of classifier) ─────
+        # Count direction changes in last 10 candles. If the market
+        # is whipsawing (>5 reversals), it's choppy regardless of
+        # what the regime classifier says.
+        if len(snapshot.candles) >= 10:
+            _recent = [c.close for c in snapshot.candles[-10:]]
+            _reversals = sum(
+                1 for i in range(2, len(_recent))
+                if (_recent[i] - _recent[i-1]) * (_recent[i-1] - _recent[i-2]) < 0
+            )
+            if _reversals > 6:
+                logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by chop detector ({_reversals} reversals in 10 bars)")
+                return None
+
         # ── Strength gate: don't enter weak signals ──────────────
         htf_strength = gates.get("htf_strength", 0)
         # Only gate strength for trending regime — ranging is counter-trend so
         # a neutral/conflicted HTF is actually the ideal entry condition.
-        if regime == "trending" and htf_strength < 0.40 and not has_reversal:
-            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by weak htf_strength={htf_strength:.2f} (need >=0.40)")
+        if regime == "trending" and htf_strength < 0.60 and not has_reversal:
+            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by weak htf_strength={htf_strength:.2f} (need >=0.60)")
             return None  # Too weak to trust as trending
 
 
@@ -208,21 +222,21 @@ class ForexConductorStrategy(BaseStrategy):
         # it should be a config toggle, not a hardcode.)
 
 
-        # ── HTF/LTF alignment for directional regimes ────────────
-        # Trending and transitional entries need both timeframes
-        # pointing the same way. Ranging is exempt (counter-trend).
-        if regime in ("trending", "transitional"):
-            if not gates.get("htf_align", False):
-                htf_dir = gates.get("htf_dir", "neutral")
-                ltf_dir = gates.get("ltf_dir", "neutral")
-                # Soft conflict: set flag for sub-strategies to penalize, but don't hard-block.
-                if htf_dir in ("long", "short") and ltf_dir in ("long", "short") and htf_dir != ltf_dir:
-                    if not has_reversal:
-                        if regime == "trending":
-                            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED — HTF/LTF conflict in trending (htf={htf_dir}, ltf={ltf_dir})")
-                            return None
-                        logger.info(f"[CONDUCTOR] {snapshot.symbol}: HTF/LTF conflict (htf={htf_dir}, ltf={ltf_dir}) — soft flag")
-                    gates["htf_ltf_conflict"] = True
+        # ── HTF/LTF strict alignment for trending regimes ────────
+        # Trending entries demand strong momentum mirroring their HTF.
+        # Ranging is exempt (counter-trend). Transitional uses soft-flag.
+        htf_dir = gates.get("htf_dir", "neutral")
+        ltf_dir = gates.get("ltf_dir", "neutral")
+        
+        if regime == "trending" and not has_reversal:
+            if htf_dir in ("long", "short") and htf_dir != ltf_dir:
+                logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED — Strict LTF alignment required in trending (htf={htf_dir}, ltf={ltf_dir})")
+                return None
+                
+        if regime == "transitional" and not has_reversal:
+            if htf_dir in ("long", "short") and ltf_dir in ("long", "short") and htf_dir != ltf_dir:
+                logger.info(f"[CONDUCTOR] {snapshot.symbol}: HTF/LTF conflict in transitional (htf={htf_dir}, ltf={ltf_dir}) — soft flag")
+                gates["htf_ltf_conflict"] = True
 
         # ── NOTE: Macro trend filters tested and reverted ─────────
         # EMA slope, price-vs-EMA, persistence, EMA-50/100 alignment
@@ -241,6 +255,23 @@ class ForexConductorStrategy(BaseStrategy):
         self._bar_index += 1
         sym = snapshot.symbol
 
+        # ── DAILY MAX-LOSS CIRCUIT BREAKER ───────────────────────
+        # Cross-symbol: total daily loss across ALL symbols.
+        if not hasattr(self, '_daily_total_pnl'):
+            self._daily_total_pnl = 0.0
+            self._daily_cb_date = None
+        current_date = snapshot.candles[-1].timestamp.date() if snapshot.candles else None
+        if current_date:
+            if self._daily_cb_date != current_date:
+                self._daily_total_pnl = 0.0
+                self._daily_cb_date = current_date
+            if self._daily_total_pnl <= -3.0:
+                logger.info(
+                    f"[CONDUCTOR] {sym}: BLOCKED by daily max-loss "
+                    f"(daily total=${self._daily_total_pnl:.2f}, limit=-$3)"
+                )
+                return None
+
         # Update loss streak from trade history
         if trade_history:
             # Find last closed trade for this symbol
@@ -254,6 +285,8 @@ class ForexConductorStrategy(BaseStrategy):
                     self._last_seen_exit = {}
                 if last_key != self._last_seen_exit.get(sym):
                     self._last_seen_exit[sym] = last_key
+                    # Update cross-symbol daily PnL for circuit breaker
+                    self._daily_total_pnl = getattr(self, '_daily_total_pnl', 0) + last_pnl
                     if last_pnl <= 0:
                         self._loss_streak[sym] = self._loss_streak.get(sym, 0) + 1
                     else:
@@ -263,9 +296,9 @@ class ForexConductorStrategy(BaseStrategy):
         streak = self._loss_streak.get(sym, 0)
         cooldown_bar = self._cooldown_until.get(sym, 0)
 
-        if streak >= 2 and cooldown_bar == 0:
+        if streak >= 1 and cooldown_bar == 0:
             # Start cooldown: 24 bars (2 hours) to avoid toxic structural zones
-            self._cooldown_until[sym] = self._bar_index + 24
+            self._cooldown_until[sym] = self._bar_index + 36
             cooldown_bar = self._cooldown_until[sym]
 
         is_sar_pending = bool(sar_dir)
@@ -301,6 +334,33 @@ class ForexConductorStrategy(BaseStrategy):
                 trade_history=trade_history,
             )
             if signal and signal.action not in ("stand_aside", "hold"):
+
+                # ── NET MOMENTUM VALIDATION ──────────────────────
+                # Verify the market has ACTUALLY moved in the proposed
+                # direction over the last 50 candles (~4h on 5m TF).
+                # Prevents entering "bullish" EMA setups in markets
+                # that are flat or moving against the trade.
+                if len(snapshot.candles) >= 30:
+                    _trade_dir = "long" if signal.action == "enter_long" else "short"
+                    _c50 = [c.close for c in snapshot.candles[-30:]]
+                    _net_move = _c50[-1] - _c50[0]  # positive = price went up
+
+                    # Calculate ATR for minimum-move requirement
+                    from tradebot_sci.strategy.icc_signals import calculate_atr
+                    _atr = calculate_atr(snapshot.candles[-14:], period=14) or (snapshot.candles[-1].close * 0.001)
+                    _min_move = _atr * 2.0  # Net move must exceed 2.0 ATR (strong trend)
+
+                    # Validate: long entries need positive net move, short need negative
+                    _direction_ok = (
+                        (_trade_dir == "long" and _net_move > _min_move) or
+                        (_trade_dir == "short" and _net_move < -_min_move)
+                    )
+                    if not _direction_ok:
+                        logger.info(
+                            f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by momentum gate "
+                            f"(dir={_trade_dir}, net_move={_net_move:.5f}, min={_min_move:.5f})"
+                        )
+                        continue  # Try next candidate strategy
 
                 # ── CORRELATION GUARD ─────────────────────────────
                 # Prevent simultaneous entries on correlated pairs.
@@ -362,8 +422,8 @@ class ForexConductorStrategy(BaseStrategy):
                 # ── GLOBAL TARGET_R OVERRIDE ──
                 # Force the base strategy to respect the config target_r but enforce a minimum mathematical viability floor
                 tr = float(getattr(self._profile, 'target_r', 0) or 0)
-                if tr < 1.5:
-                    tr = 1.5
+                if tr < 0.2:
+                    tr = 0.2
                     
                 _ep = float(signal.entry_price or 0.0)
                 _sl = float(signal.stop_loss or 0.0)
@@ -876,11 +936,11 @@ class ForexConductorStrategy(BaseStrategy):
                         _pyr_sub = getattr(self._profile, 'conductor_pyramid_subsequent_pct', 0.10) if self._profile else 0.10
                         pyr_risk = _pyr_first if m_idx == 0 else _pyr_sub
                         
-                        # Tighter trailing stop: lock in BE at 0.5R. Otherwise 0.5R behind peak.
-                        if highest_milestone >= 0.5:
-                            target_floor_r = max(0.0, highest_milestone - 0.5)
+                        # Loose trailing stop: lock in BE at 1.5R. Otherwise trail 1.5R behind peak.
+                        if highest_milestone >= 1.5:
+                            target_floor_r = max(0.0, highest_milestone - 1.5)
                         else:
-                            target_floor_r = max(-1.0, highest_milestone - 1.0)
+                            target_floor_r = max(-1.0, highest_milestone - 1.5)
                         
                         if pos_dir == "long":
                             floor_price = orig_entry + (initial_risk * target_floor_r)

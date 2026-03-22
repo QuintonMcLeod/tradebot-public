@@ -158,8 +158,8 @@ class OandaMarketDataProvider:
             candles=ltf_candles,
             trend_htf=_neutral,
             trend_ltf=_neutral,
-            htf_candles=htf_candles[-100:] if len(htf_candles) >= 100 else htf_candles,
-            ltf_candles=ltf_candles[-20:] if len(ltf_candles) >= 20 else ltf_candles,
+            htf_candles=htf_candles,
+            ltf_candles=ltf_candles,
             htf_timeframe=htf_setting,
             ltf_timeframe=timeframe,
         )

@@ -517,6 +517,18 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
     const sections = [];
     let current = { title: 'Market Update', content: [], icon: 'insights', color: 'teal' };
 
+    const escapeHTML = (str) => {
+        return str.replace(/[&<>'"]/g, 
+            tag => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                "'": '&#39;',
+                '"': '&quot;'
+            }[tag] || tag)
+        );
+    };
+
     for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -524,24 +536,44 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
         if (trimmed.includes('📊') || trimmed.toLowerCase().includes("what's happening")) {
             if (current.content.length > 0) sections.push({ ...current });
             current = { title: "What's Happening Now", content: [], icon: 'trending_up', color: 'teal' };
+            const rest = trimmed.replace(/.*?(what's happening now|📊):?/i, '').trim();
+            if (rest.length > 2) current.content.push(escapeHTML(rest));
         } else if (trimmed.includes('📈') || trimmed.toLowerCase().includes('chart breakdown')) {
             if (current.content.length > 0) sections.push({ ...current });
             current = { title: 'Chart Breakdown', content: [], icon: 'show_chart', color: 'cyan' };
+            const rest = trimmed.replace(/.*?(chart breakdown|📈):?/i, '').trim();
+            if (rest.length > 2) current.content.push(escapeHTML(rest));
         } else if (trimmed.includes('🎯') || trimmed.toLowerCase().includes('watching')) {
             if (current.content.length > 0) sections.push({ ...current });
             current = { title: "What I'm Watching", content: [], icon: 'visibility', color: 'purple' };
+            const rest = trimmed.replace(/.*?(what i'm watching|watching|🎯):?/i, '').trim();
+            if (rest.length > 2) current.content.push(escapeHTML(rest));
         } else if (trimmed.includes('⚠️') || trimmed.toLowerCase().includes('heads up')) {
             if (current.content.length > 0) sections.push({ ...current });
             current = { title: 'Heads Up', content: [], icon: 'warning', color: 'amber' };
+            const rest = trimmed.replace(/.*?(heads up|⚠️):?/i, '').trim();
+            if (rest.length > 2) current.content.push(escapeHTML(rest));
         } else if (trimmed.includes('🤖') || trimmed.toLowerCase().includes('autopilot activated')) {
             if (current.content.length > 0) sections.push({ ...current });
             current = { title: 'Autopilot Activated', content: [], icon: 'psychology', color: 'emerald' };
+            const rest = trimmed.replace(/.*?(autopilot activated|🤖):?/i, '').trim();
+            if (rest.length > 2) current.content.push(escapeHTML(rest));
         } else {
             let cleaned = trimmed.replace(/\*\*/g, '').replace(/^\s*[-•]\s*/, '• ');
-            current.content.push(cleaned);
+            current.content.push(escapeHTML(cleaned));
         }
     }
     if (current.content.length > 0) sections.push(current);
+
+    // Fallback: if no sections were created at all because the parser failed
+    if (sections.length === 0 && content.trim().length > 0) {
+        sections.push({
+            title: 'AI Insight',
+            content: [escapeHTML(content.trim())],
+            icon: 'smart_toy',
+            color: 'teal'
+        });
+    }
 
     // Render each section as a bubble inside this message group
     for (const section of sections) {
@@ -1562,18 +1594,22 @@ function setupInteractiveElements() {
 
 // --- Main Initialization ---
 // --- Persistence Logic ---
+let _saveStateTimeout = null;
 function saveState() {
-    const state = {
-        profile: document.getElementById('status-profile')?.innerText,
-        equity: document.getElementById('account-equity')?.innerText,
-        decisions: document.getElementById('decisions-table')?.innerHTML,
-        commentary: document.getElementById('commentary-content')?.innerText,
-        holdings: document.getElementById('holdings-table-body')?.innerHTML,
-        symbol: document.getElementById('chart-symbol-label')?.innerText,
-        timeframe: document.getElementById('chart-tf-label')?.innerText,
-        isHalted: document.getElementById('btn-panic')?.classList.contains('bg-emerald-500')
-    };
-    localStorage.setItem('tradebot_state', JSON.stringify(state));
+    if (_saveStateTimeout) clearTimeout(_saveStateTimeout);
+    _saveStateTimeout = setTimeout(() => {
+        const state = {
+            profile: document.getElementById('status-profile')?.innerText,
+            equity: document.getElementById('account-equity')?.innerText,
+            decisions: document.getElementById('decisions-table')?.innerHTML,
+            commentary: document.getElementById('commentary-content')?.innerText,
+            holdings: document.getElementById('holdings-table-body')?.innerHTML,
+            symbol: document.getElementById('chart-symbol-label')?.innerText,
+            timeframe: document.getElementById('chart-tf-label')?.innerText,
+            isHalted: document.getElementById('btn-panic')?.classList.contains('bg-emerald-500')
+        };
+        localStorage.setItem('tradebot_state', JSON.stringify(state));
+    }, 500);
 }
 
 function loadState() {

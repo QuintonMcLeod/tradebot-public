@@ -568,8 +568,8 @@ def _run_single_day_worker(args: tuple) -> dict:
         day_start = datetime.strptime(day_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         day_end = day_start.replace(hour=23, minute=59, second=59)
 
-        # Load candles: include 5 days before for indicator warmup
-        warmup_start = (day_start - timedelta(days=5)).strftime("%Y-%m-%d")
+        # Load candles: include 35 days before for indicator warmup (H4 SMA 200 needs ~34 days)
+        warmup_start = (day_start - timedelta(days=35)).strftime("%Y-%m-%d")
         all_ltf, all_htf = _load_candles_for_range(
             candle_dir, symbols, warmup_start, day_str, api_fallback=api_fallback
         )
@@ -741,8 +741,8 @@ def _run_single_day_sequential(
             act_prof.strategies = None
         settings.profiles[settings.app.profile_name] = act_prof
 
-    # Load candles with warmup
-    warmup_start = (start_date - timedelta(days=5)).strftime("%Y-%m-%d")
+    # Load candles with warmup (35 days)
+    warmup_start = (start_date - timedelta(days=35)).strftime("%Y-%m-%d")
     all_ltf, all_htf = _load_candles_for_range(
         candle_dir, symbols, warmup_start, end_date.strftime("%Y-%m-%d"), api_fallback=api_fallback
     )

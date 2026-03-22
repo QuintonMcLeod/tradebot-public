@@ -52,17 +52,7 @@ class StrategyEngine:
         # Determine which strategy this engine instance will run
         self._variant_key = self._resolve_variant_key()  # For SAR exclusion and masking
         
-        # [CONTEXT MASKING] Apply isolated overrides for this specific strategy variant
-        if hasattr(self.profile, "strategy_overrides"):
-            overrides = self.profile.strategy_overrides.get(self._variant_key)
-            if overrides:
-                logger.info(f" [ENGINE] Applying {len(overrides)} Context Mask overrides for {self._variant_key.upper()} on {self.symbol}")
-                if hasattr(self.profile, "model_copy"):
-                    # Pydantic v2
-                    self.profile = self.profile.model_copy(update=overrides)
-                elif hasattr(self.profile, "copy"):
-                    # Pydantic v1
-                    self.profile = self.profile.copy(update=overrides)
+        # Engine Initialization Complete
         
         # Load the Strategy Variant using the purely isolated & masked profile
         self._strategy = self._load_strategy_variant()
@@ -147,12 +137,8 @@ class StrategyEngine:
         mod = importlib.import_module(module_path)
         cls = getattr(mod, class_name)
         
-        # [CONTEXT MASKING] Pass strategy overrides down as kwargs
+        # Pass strategy base kwargs 
         kwargs = {}
-        if hasattr(self.profile, "strategy_overrides"):
-            overrides = self.profile.strategy_overrides.get(variant, {})
-            # Transform keys to lowercase so they match Python variable names
-            kwargs = {k.lower(): v for k, v in overrides.items()}
 
         # MetaSCIStrategy and ForexConductor require profile_settings kwarg
         if variant in ("meta_sci", "forex_conductor"):

@@ -315,9 +315,9 @@ class ICCCoreStandaloneStrategy(BaseStrategy):
         initial_risk = initial_risk_per_unit * size if initial_risk_per_unit > 0 else 1
         r_multiple = pos_pnl / initial_risk if initial_risk > 0 else 0
 
-        # Only check structure invalidation if losing or barely profitable
-        if r_multiple >= 0.5:
-            return None  # Trade is 0.5R+ profitable — let it run to target
+        # Only check structure invalidation if LOSING — never cut profitable trades
+        if r_multiple >= 0.0:
+            return None  # [HARDENED] Any profit = let TP/trail handle it (was 0.5R)
 
         # Check for structure invalidation (swing level broken by ATR buffer)
         # Use 1.0× ATR buffer (was 0.5×) to avoid noise triggers

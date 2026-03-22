@@ -397,13 +397,16 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
             trade_results=trade_results,
             position_hold_store_path=settings.runtime.position_hold_store_path
         )
-        # Wire live spread data into the global fee system
-        try:
-            from tradebot_sci.utils.symbol_classifier import set_live_spread_provider
-            set_live_spread_provider(broker.get_live_spread_as_pct)
-            logger.info("[SPREAD] Live spread provider registered (OANDA Pricing API)")
-        except Exception as e:
-            logger.warning(f"[SPREAD] Failed to register live spread provider: {e}")
+        # Wire live spread data into the global fee system (Skip in Replay mode to avoid offline/weekend API spread blowouts)
+        if os.getenv("IS_REPLAY") != "1":
+            try:
+                from tradebot_sci.utils.symbol_classifier import set_live_spread_provider
+                set_live_spread_provider(broker.get_live_spread_as_pct)
+                logger.info("[SPREAD] Live spread provider registered (OANDA Pricing API)")
+            except Exception as e:
+                logger.warning(f"[SPREAD] Failed to register live spread provider: {e}")
+        else:
+            logger.info("[SPREAD] Replay Mode: Live spread injection bypassed (using historical/static defaults)")
         return broker
     elif name == "paxos" or name == "itbit":
         if not settings.paxos:

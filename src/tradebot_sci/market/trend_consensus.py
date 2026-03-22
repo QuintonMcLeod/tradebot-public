@@ -247,8 +247,10 @@ def _compute_timeframe(
             direction_votes.append(hma_dir)
             vote_trail.append(f"{label}:HMA={hma_dir}")
 
-    # ── Validate: at least one directional indicator must be enabled ──
-    any_directional_enabled = any([
+    # ── Count ENABLED directional indicators ────────────────────────
+    # Used as the denominator for strength: prevents inflation when
+    # indicators can't vote due to insufficient candle data.
+    _enabled_flags = [
         getattr(profile, 'trend_adx_enabled', True),
         getattr(profile, 'trend_ema_ribbon_enabled', False),
         getattr(profile, 'trend_supertrend_enabled', False),
@@ -258,33 +260,48 @@ def _compute_timeframe(
         getattr(profile, 'trend_parabolic_sar_enabled', False),
         getattr(profile, 'trend_vwap_enabled', False),
         getattr(profile, 'trend_hull_ma_enabled', False),
-    ])
+    ]
+    enabled_count = sum(1 for f in _enabled_flags if f)
+    any_directional_enabled = enabled_count > 0
+
     if not any_directional_enabled:
         logger.error(
             "[TREND-DETECT] NO directional indicators enabled! "
             "Defaulting to ADX."
         )
+        enabled_count = 1  # ADX fallback counts as 1
         adx_dir = adx_data.get("direction", "neutral")
         if adx_val >= adx_threshold and adx_dir in ("long", "short"):
             direction_votes.append(adx_dir)
             vote_trail.append(f"{label}:ADX(fallback)={adx_dir}")
 
     # ── Build Raw Consensus ──────────────────────────────────────────
+    # Strength = majority_votes / max(actual_voters, enabled_count)
+    # This prevents strength inflation when indicators can't vote
+    # due to insufficient candle data. E.g., 2 agreeing votes out
+    # of 4 enabled indicators = 0.50, not 2/2 = 1.00.
     direction = "neutral"
     strength = 0.0
 
     if direction_votes:
         long_votes = direction_votes.count("long")
         short_votes = direction_votes.count("short")
-        total = len(direction_votes)
+        total_votes = len(direction_votes)
+        # Use the larger of actual voters or enabled count as denominator
+        denominator = max(total_votes, enabled_count)
 
         if long_votes > short_votes:
             direction = "long"
-            strength = round(long_votes / total, 2)
+            strength = round(long_votes / denominator, 2)
         elif short_votes > long_votes:
             direction = "short"
-            strength = round(short_votes / total, 2)
+            strength = round(short_votes / denominator, 2)
         # Tie = neutral
+
+        if total_votes < enabled_count:
+            vote_trail.append(
+                f"{label}:PARTIAL {total_votes}/{enabled_count} indicators voted"
+            )
 
     # ── Structure Confidence Layer ────────────────────────────────────
     # Validates indicator consensus against price structure.

@@ -177,66 +177,6 @@ class SessionMomentumStrategy(BaseStrategy):
         if not snapshot.candles or not open_position:
             return None
 
-        entry_price = float(open_position.get("entry_price", 0))
-        stop_price = float(open_position.get("stop_price", 0) or open_position.get("stop_loss", 0))
-        current_price = snapshot.candles[-1].close
-        direction = open_position.get("direction", "long")
-
-        if entry_price <= 0 or stop_price <= 0:
-            return None
-
-        initial_risk = abs(entry_price - stop_price)
-        if initial_risk <= 0:
-            return None
-
-        atr = calculate_atr(snapshot.candles, period=14) or (current_price * 0.001)
-
-        if direction == "long":
-            profit = current_price - entry_price
-        else:
-            profit = entry_price - current_price
-
-        r_multiple = profit / initial_risk
-
-
-
-        # At 1R: move to breakeven (proven ORB technique)
-        if r_multiple >= 1.0:
-            already_at_be = (direction == "long" and stop_price >= entry_price) or \
-                            (direction == "short" and stop_price <= entry_price)
-
-            if not already_at_be:
-                from tradebot_sci.strategy.decisions import hold_decision
-                dec = hold_decision(
-                    snapshot.symbol, snapshot.timeframe,
-                    reason=f"Session Momentum: Move to BE at {r_multiple:.1f}R",
-                    stop_loss=entry_price,
-                )
-                dec.strategy_name = self.name
-                return dec
-
-            # After BE: trail 0.5× ATR behind price (tight for momentum)
-            trail_distance = atr * 0.5
-            from tradebot_sci.strategy.decisions import hold_decision
-            if direction == "long":
-                new_stop = current_price - trail_distance
-                if new_stop > stop_price:
-                    dec = hold_decision(
-                        snapshot.symbol, snapshot.timeframe,
-                        reason=f"Session Momentum: Trail {new_stop:.5f} ({r_multiple:.1f}R)",
-                        stop_loss=new_stop,
-                    )
-                    dec.strategy_name = self.name
-                    return dec
-            else:
-                new_stop = current_price + trail_distance
-                if new_stop < stop_price:
-                    dec = hold_decision(
-                        snapshot.symbol, snapshot.timeframe,
-                        reason=f"Session Momentum: Trail {new_stop:.5f} ({r_multiple:.1f}R)",
-                        stop_loss=new_stop,
-                    )
-                    dec.strategy_name = self.name
-                    return dec
+        pass
 
         return None
