@@ -53,6 +53,26 @@ class AISettings(BaseModel):
     )
     timeout_seconds: PositiveInt = Field(default=30)
 
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _normalize_provider(cls, v: Any) -> str:
+        if not v:
+            return "openai"
+        val = str(v).lower().strip()
+        if "gemini" in val:
+            return "gemini"
+        if "claude" in val or "anthropic" in val:
+            return "claude"
+        if "deepseek" in val:
+            return "deepseek"
+        if "openrouter" in val:
+            return "openrouter"
+        if "local" in val or "ollama" in val:
+            return "local"
+        if "openai" in val or "chatgpt" in val:
+            return "openai"
+        return val
+
 
 class CryptoRoutingSettings(BaseModel):
     default_exchange: str = Field(
