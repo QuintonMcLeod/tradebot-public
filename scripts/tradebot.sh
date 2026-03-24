@@ -360,8 +360,12 @@ if [[ "$STOP_GUI" == "true" ]]; then
 fi
 
 if [[ -z "$PROFILE_NAME" ]]; then
-  echo "ERROR: --profile is required" >&2
-  exit 2
+  if [[ "$GUI" == "true" ]] || [[ "$SETTINGS" == "true" ]]; then
+    PROFILE_NAME="default"
+  else
+    echo "ERROR: --profile is required" >&2
+    exit 2
+  fi
 fi
 
 case "$MODE" in
