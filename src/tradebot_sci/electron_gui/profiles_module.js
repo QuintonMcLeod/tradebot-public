@@ -1307,12 +1307,8 @@ window.profilesModule = (function () {
         // Update local cache
         activeProfileName = selectedProfileName;
 
-        // Update configData directly
-        if (typeof configData !== 'undefined') {
-            configData.active_profile = selectedProfileName;
-        }
-
         // Use settings_integrated's updateValue + autoSave if available
+        // updateValue handles modifying configData safely via its CONFIG_MAP binding
         if (typeof updateValue === 'function') {
             updateValue('APP_PROFILE', selectedProfileName);
         }

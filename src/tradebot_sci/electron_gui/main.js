@@ -185,6 +185,24 @@ function setupIpcHandlers() {
         }
     });
 
+    ipcMain.handle('reset-config', async (event) => {
+        try {
+            const configPath = fs.existsSync(CONFIG_JSON_PATH) ? CONFIG_JSON_PATH : LEGACY_CONFIG_JSON_PATH;
+            if (fs.existsSync(configPath)) {
+                fs.unlinkSync(configPath);
+                
+                // Relaunch the app to apply default settings
+                app.relaunch();
+                app.exit(0);
+                return { success: true };
+            }
+            return { success: false, error: 'Config file not found to delete.' };
+        } catch (e) {
+            console.error("[MAIN] Reset Config Error:", e);
+            return { success: false, error: e.message };
+        }
+    });
+
     ipcMain.handle('import-config', async (event) => {
         const { dialog } = require('electron');
         try {
@@ -686,8 +704,7 @@ function setupIpcHandlers() {
             let args;
             if (enginePath === minovskyPath) {
                 // Minovsky Engine mode — uses date range and symbols
-                args = [enginePath];
-                if (config.use_api_fallback) args.push('--api-fallback');
+                args = [enginePath, '--api-fallback'];
                 if (config.start_date) args.push('--start-date', config.start_date);
                 if (config.end_date) args.push('--end-date', config.end_date);
                 if (config.symbols && config.symbols.length > 0) {
@@ -697,8 +714,7 @@ function setupIpcHandlers() {
                 if (config.strategy) args.push('--strategy', config.strategy);
             } else {
                 // Fallback: paper_replay.py
-                args = [enginePath, '--json-output', '--speed', '0'];
-                if (config.use_api_fallback) args.push('--api-fallback');
+                args = [enginePath, '--json-output', '--speed', '0', '--api-fallback'];
                 if (config.start_date) args.push('--start-date', config.start_date);
                 if (config.end_date) args.push('--end-date', config.end_date);
                 if (config.symbols && config.symbols.length > 0) {

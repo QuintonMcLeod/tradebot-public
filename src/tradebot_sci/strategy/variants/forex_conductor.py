@@ -174,7 +174,7 @@ class ForexConductorStrategy(BaseStrategy):
         # ── CHOPPY / RANGING: Block all entries (SAR bypasses) ─────────────
         # 2026-03-10: Restored profile override so ranging can be traded if desired.
         _profile = getattr(self, 'profile', None) or gates.get('profile') or type('_P', (), {})()
-        block_ranging = bool(getattr(_profile, 'block_ranging_regime', True))
+        block_ranging = bool(getattr(_profile, 'block_ranging_regime', False))  # Switched to False to enable London Sweep
         
         blocked_regimes = ["choppy", "unknown"]
         if block_ranging:
@@ -335,32 +335,7 @@ class ForexConductorStrategy(BaseStrategy):
             )
             if signal and signal.action not in ("stand_aside", "hold"):
 
-                # ── NET MOMENTUM VALIDATION ──────────────────────
-                # Verify the market has ACTUALLY moved in the proposed
-                # direction over the last 50 candles (~4h on 5m TF).
-                # Prevents entering "bullish" EMA setups in markets
-                # that are flat or moving against the trade.
-                if len(snapshot.candles) >= 30:
-                    _trade_dir = "long" if signal.action == "enter_long" else "short"
-                    _c50 = [c.close for c in snapshot.candles[-30:]]
-                    _net_move = _c50[-1] - _c50[0]  # positive = price went up
-
-                    # Calculate ATR for minimum-move requirement
-                    from tradebot_sci.strategy.icc_signals import calculate_atr
-                    _atr = calculate_atr(snapshot.candles[-14:], period=14) or (snapshot.candles[-1].close * 0.001)
-                    _min_move = _atr * 2.0  # Net move must exceed 2.0 ATR (strong trend)
-
-                    # Validate: long entries need positive net move, short need negative
-                    _direction_ok = (
-                        (_trade_dir == "long" and _net_move > _min_move) or
-                        (_trade_dir == "short" and _net_move < -_min_move)
-                    )
-                    if not _direction_ok:
-                        logger.info(
-                            f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by momentum gate "
-                            f"(dir={_trade_dir}, net_move={_net_move:.5f}, min={_min_move:.5f})"
-                        )
-                        continue  # Try next candidate strategy
+                # (Net Momentum Validation removed because it suffocates new pullback/reversal trap modules)
 
                 # ── CORRELATION GUARD ─────────────────────────────
                 # Prevent simultaneous entries on correlated pairs.

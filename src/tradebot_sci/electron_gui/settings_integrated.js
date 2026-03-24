@@ -2034,7 +2034,7 @@ function renderSystemTab(container) {
     ));
 
     const dataGrid = document.createElement('div');
-    dataGrid.className = 'card-grid card-grid-2 mb-8';
+    dataGrid.className = 'card-grid card-grid-3 mb-8';
 
     const btnImport = createControlButton('Import Settings', 'download', 'purple', async () => {
         if (!window.api || !window.api.invoke) return;
@@ -2058,8 +2058,21 @@ function renderSystemTab(container) {
         }
     });
 
+    const btnReset = createControlButton('Reset To Defaults', 'delete_forever', 'red', async () => {
+        if (!window.api || !window.api.invoke) return;
+        if (confirm("Are you ABSOLUTELY SURE you want to Reset to Defaults?\n\nThis will permanently delete your configuration file and restart the application.")) {
+            const res = await window.api.invoke('reset-config');
+            if (res && res.success) {
+                if (window.showToast) window.showToast(`Application is restarting...`, 'success');
+            } else if (res && !res.canceled) {
+                if (window.showToast) window.showToast(`Reset failed: ${res.error}`, 'error');
+            }
+        }
+    });
+
     dataGrid.appendChild(btnImport);
     dataGrid.appendChild(btnExport);
+    dataGrid.appendChild(btnReset);
     section.appendChild(dataGrid);
 
     container.appendChild(section);

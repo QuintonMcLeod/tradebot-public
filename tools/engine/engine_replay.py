@@ -679,7 +679,7 @@ def run_candle_history_mode(
     symbols = _discover_symbols(candle_dir, symbols_filter, api_fallback)
     if not symbols:
         logger.error("No symbols found in candle_history. Use --cartridge instead.")
-        return
+        import sys; sys.exit(1)
 
     # Calculate day list
     day_list: list[str] = []
@@ -770,7 +770,7 @@ def _run_single_day_sequential(
 
     if not all_ltf:
         logger.error("No candle data loaded from candle_history.")
-        return
+        import sys; sys.exit(1)
 
     for sym in all_ltf:
         ltf = all_ltf[sym]
