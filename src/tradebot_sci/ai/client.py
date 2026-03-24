@@ -55,6 +55,12 @@ class TradeSciAIClient:
     def raw_chat(self, messages: List[ChatMessage], *, expect_json: bool) -> str:
         """Sends polite JSON to the AI and hopes for polite JSON back."""
         provider = self.settings.provider
+        
+        # Guard against remote API calls when no key is provided (prevents 401 crashes on startup)
+        if provider != "local" and not getattr(self.settings, "api_key", None):
+            logger.info(f"[AI] Skipping AI request: No API key configured for provider '{provider}'.")
+            return "{}" if expect_json else ""
+            
         if provider in {"openai", "openrouter", "deepseek", "custom", "local"}:
             return self._chat_openai(messages, expect_json=expect_json)
         if provider == "claude":

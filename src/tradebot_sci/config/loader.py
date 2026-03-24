@@ -143,8 +143,20 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     # Robustly fetch AI settings
     g_cfg = config.get("global", {})
     ai_raw = config.get("ai", {})
+    
+    raw_provider = str(ai_raw.get("provider") or g_cfg.get("trade_sci_provider") or os.getenv("TRADE_SCI_PROVIDER", "openai"))
+    # Normalize GUI display names to backend slugs
+    if "gemini" in raw_provider.lower():
+        raw_provider = "gemini"
+    elif "claude" in raw_provider.lower():
+        raw_provider = "claude"
+    elif "deepseek" in raw_provider.lower():
+        raw_provider = "deepseek"
+    elif "openai" in raw_provider.lower() or "chatgpt" in raw_provider.lower():
+        raw_provider = "openai"
+        
     ai_model_cfg = {
-        "provider": ai_raw.get("provider") or g_cfg.get("trade_sci_provider") or os.getenv("TRADE_SCI_PROVIDER", "openai"),
+        "provider": raw_provider,
         "base_url": ai_raw.get("base_url") or g_cfg.get("trade_sci_api_base_url") or os.getenv("TRADE_SCI_API_BASE_URL", "https://api.openai.com/v1"),
         "api_key": ai_raw.get("api_key") or os.getenv("TRADE_SCI_API_KEY") or os.getenv("CHATGPT_KEY"),
         "model_name": ai_raw.get("model_name") or g_cfg.get("trade_sci_model_name") or os.getenv("TRADE_SCI_MODEL_NAME", "trade-sci-max-icc"),

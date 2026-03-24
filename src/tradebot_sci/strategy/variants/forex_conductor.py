@@ -19,19 +19,18 @@ from typing import Optional
 from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.strategy.variants.base import BaseStrategy
-from tradebot_sci.strategy.variants.breakout import VolatilityBreakoutStrategy
-from tradebot_sci.strategy.variants.trend_rider import TrendRiderStrategy
-from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
-from tradebot_sci.strategy.variants.session_momentum import SessionMomentumStrategy
-from tradebot_sci.strategy.variants.wind_down_truffle import WindDownTruffleStrategy
+
+from tradebot_sci.strategy.variants.london_sweep import LondonSweepStrategy
+from tradebot_sci.strategy.variants.golden_pocket import GoldenPocketStrategy
+from tradebot_sci.strategy.variants.new_york_drive import NewYorkDriveStrategy
 
 logger = logging.getLogger(__name__)
 
 # ── Regime → Strategy mapping ────────────────────────────────────────
 _REGIME_MAP = {
-    "trending":      "trend_rider",
-    "ranging":       "breakout",
-    "transitional":  "session_breakout",
+    "trending":      "golden_pocket",
+    "ranging":       "london_sweep",
+    "transitional":  "new_york_drive",
     # "choppy" → no entry (handled explicitly)
 }
 
@@ -92,11 +91,9 @@ class ForexConductorStrategy(BaseStrategy):
     def __init__(self, **kwargs):
         self._profile_risk_pct: float | None = None
         self._strategies = {
-            "breakout": VolatilityBreakoutStrategy(range_period=20, atr_mult=1.5),
-            "session_breakout": LondonBreakoutStrategy(),
-            "trend_rider": TrendRiderStrategy(),
-            "session_momentum": SessionMomentumStrategy(),
-            "wind_down_truffle": WindDownTruffleStrategy(),
+            "london_sweep": LondonSweepStrategy(),
+            "golden_pocket": GoldenPocketStrategy(),
+            "new_york_drive": NewYorkDriveStrategy(),
         }
         self._profile = kwargs.get('profile_settings', None)
         
@@ -261,12 +258,22 @@ class ForexConductorStrategy(BaseStrategy):
             if self._daily_cb_date != current_date:
                 self._daily_total_pnl = 0.0
                 self._daily_cb_date = current_date
-            if self._daily_total_pnl <= -3.0:
-                logger.info(
-                    f"[CONDUCTOR] {sym}: BLOCKED by daily max-loss "
-                    f"(daily total=${self._daily_total_pnl:.2f}, limit=-$3)"
-                )
-                return None
+            
+            _profile = getattr(self, 'profile', None) or gates.get('profile') or type('_P', (), {})()
+            breaker_enabled = bool(getattr(_profile, 'safety_drawdown_breaker_enabled', True))
+            max_pct = float(getattr(_profile, 'safety_drawdown_max_pct', 0.10))
+            
+            if breaker_enabled:
+                limit = -300.0
+                if current_capital:
+                    limit = -(current_capital * max_pct)
+                    
+                if self._daily_total_pnl <= limit:
+                    logger.info(
+                        f"[CONDUCTOR] {sym}: BLOCKED by daily max-loss "
+                        f"(daily total=${self._daily_total_pnl:.2f}, limit=${limit:.2f})"
+                    )
+                    return None
 
         # Update loss streak from trade history
         if trade_history:
@@ -307,11 +314,8 @@ class ForexConductorStrategy(BaseStrategy):
             return None
 
         # ── Route to primary strategy for this regime ────────────
-        primary_key = _REGIME_MAP.get(regime, "session_momentum")
+        primary_key = _REGIME_MAP.get(regime, "london_sweep")
         candidates = [primary_key]
-        # Add session_momentum as fallback if not already the primary
-        if primary_key != "session_momentum":
-            candidates.append("session_momentum")
 
         logger.info(
             f"[CONDUCTOR] {snapshot.symbol}: regime={regime}, "

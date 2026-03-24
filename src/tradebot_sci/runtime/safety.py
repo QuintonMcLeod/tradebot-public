@@ -43,8 +43,8 @@ def validate_decision(
         return _downgrade(decision, "Action invalid")
 
     if decision.action in {"enter_long", "enter_short", "scale_in", "add_to_position", "flip_to_long", "flip_to_short"}:
-        if decision.entry_price is None or decision.stop_loss is None or decision.take_profit is None:
-            return _downgrade(decision, "Missing required entry/stop/target fields")
+        if decision.entry_price is None or decision.stop_loss is None:
+            return _downgrade(decision, "Missing required entry/stop fields")
             
         is_long = decision.action in {"enter_long", "flip_to_long"} or (
             decision.action in {"scale_in", "add_to_position"} and decision.bias == "long"
@@ -53,12 +53,17 @@ def validate_decision(
             decision.action in {"scale_in", "add_to_position"} and decision.bias == "short"
         )
 
-        if is_long and not (decision.stop_loss < decision.entry_price < decision.take_profit):
-            msg = f"Long pricing invalid: stop={decision.stop_loss} < entry={decision.entry_price} < target={decision.take_profit}"
-            return _downgrade(decision, msg)
-        if is_short and not (decision.stop_loss > decision.entry_price > decision.take_profit):
-            msg = f"Short pricing invalid: stop={decision.stop_loss} > entry={decision.entry_price} > target={decision.take_profit}"
-            return _downgrade(decision, msg)
+        if is_long:
+            if decision.stop_loss >= decision.entry_price:
+                return _downgrade(decision, f"Long pricing invalid: stop={decision.stop_loss} >= entry={decision.entry_price}")
+            if decision.take_profit is not None and decision.take_profit <= decision.entry_price:
+                return _downgrade(decision, f"Long pricing invalid: target={decision.take_profit} <= entry={decision.entry_price}")
+                
+        if is_short:
+            if decision.stop_loss <= decision.entry_price:
+                return _downgrade(decision, f"Short pricing invalid: stop={decision.stop_loss} <= entry={decision.entry_price}")
+            if decision.take_profit is not None and decision.take_profit >= decision.entry_price:
+                return _downgrade(decision, f"Short pricing invalid: target={decision.take_profit} >= entry={decision.entry_price}")
 
     caps = execution_capabilities or {}
     if decision.action in {"flip_to_long", "flip_to_short"}:

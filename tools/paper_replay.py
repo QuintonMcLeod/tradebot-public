@@ -1271,8 +1271,14 @@ def main():
                         help="Strategy to force override")
     parser.add_argument("--max-workers", type=int, default=None,
                         help="Limit the number of CPU cores used. Defaults to 4 to prevent resource exhaustion.")
+    parser.add_argument("--data-dir", type=str, default=None,
+                        help="Override default data directory (e.g. crypto_backtest)")
     parser.add_argument("--json-output", action="store_true", help="Output results as JSON")
     args = parser.parse_args()
+
+    if args.data_dir:
+        global _CANDLE_DIR
+        _CANDLE_DIR = _CONFIG_DIR / "data" / args.data_dir
 
     # Resolve date range
     def parse_cli_date(d_str: str) -> datetime:
