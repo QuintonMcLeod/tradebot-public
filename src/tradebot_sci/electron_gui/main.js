@@ -176,8 +176,27 @@ function setupIpcHandlers() {
                 return { success: false, error: 'Config file not found to export.' };
             }
             
+            // Parse config
             const content = fs.readFileSync(configPath, 'utf8');
-            fs.writeFileSync(filePath, content);
+            let configData;
+            try { configData = JSON.parse(content); } catch(e) { configData = {}; }
+
+            // Parse secrets to bundle
+            const secretsPath = fs.existsSync(SECRETS_PATH) ? SECRETS_PATH : LEGACY_SECRETS_PATH;
+            let secrets = {};
+            if (fs.existsSync(secretsPath)) {
+                const secretsContent = fs.readFileSync(secretsPath, 'utf8');
+                secretsContent.split('\n').forEach(line => {
+                    if (line.startsWith('#') || !line.trim()) return;
+                    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+                    if (match) secrets[match[1]] = match[2];
+                });
+            }
+
+            // Inject secrets under special namespace
+            configData._secrets = secrets;
+
+            fs.writeFileSync(filePath, JSON.stringify(configData, null, 2));
             return { success: true, path: filePath };
         } catch (e) {
             console.error("[MAIN] Export Config Error:", e);
@@ -232,8 +251,21 @@ function setupIpcHandlers() {
                 return { success: false, error: 'Invalid JSON file selected.' };
             }
             
-            // Save to active config path
-            fs.writeFileSync(CONFIG_JSON_PATH, content);
+            // Extract secrets if bundled
+            if (parsed._secrets) {
+                const secrets = parsed._secrets;
+                delete parsed._secrets; // Remove from main config body
+                
+                let secretsContent = "# API Keys and Secrets - DO NOT COMMIT TO GIT\n\n";
+                for (const [key, value] of Object.entries(secrets)) {
+                    secretsContent += `${key}=${value}\n`;
+                }
+                fs.writeFileSync(SECRETS_PATH, secretsContent);
+                console.log("[MAIN] Imported and saved .env.secrets");
+            }
+            
+            // Save payload to active config path
+            fs.writeFileSync(CONFIG_JSON_PATH, JSON.stringify(parsed, null, 2));
             console.log("[MAIN] Imported and saved config.json");
             
             // Notify all windows that config changed
