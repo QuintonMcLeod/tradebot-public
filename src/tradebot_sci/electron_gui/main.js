@@ -227,7 +227,7 @@ function setupIpcHandlers() {
             
             if (deletedSomething) {
                 app.relaunch();
-                const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -9 -f "tradebot_sci.runtime.controller"';
+                const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -9 -f "run_dev_bot.py"';
                 try { require('child_process').execSync(cmd); } catch (e) {}
                 app.quit();
                 return { success: true };
@@ -562,7 +562,7 @@ function setupIpcHandlers() {
         console.log('[MAIN] Resetting paper trading...');
 
         // Step 1: Kill the bot process
-        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "tradebot_sci.runtime.controller"';
+        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot.py"';
         await new Promise((resolve) => {
             exec(killCmd, (err) => {
                 if (err && err.code !== 1) console.warn('[MAIN] Kill during reset:', err.message);
@@ -576,7 +576,7 @@ function setupIpcHandlers() {
         let waited = 0;
         while (waited < maxWaitMs) {
             const alive = await new Promise(resolve => {
-                exec('pgrep -f "tradebot_sci.runtime.controller"', (err, stdout) => {
+                exec('pgrep -f "run_dev_bot.py"', (err, stdout) => {
                     resolve(!!(stdout && stdout.trim()));
                 });
             });
@@ -1819,7 +1819,7 @@ RULES:
         console.log(`[MAIN] Detected branch for update: ${branch}`);
 
         // Step 1: Stop bot if running
-        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "tradebot_sci.runtime.controller"';
+        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot.py"';
         await new Promise((resolve) => {
             exec(killCmd, (err) => {
                 if (err && err.code !== 1) console.warn('[MAIN] Kill during update:', err.message);
@@ -1857,7 +1857,7 @@ RULES:
         }
 
         // Step 4: Restart bot — kill again to be sure, wait for it to die, then start fresh
-        const postKillCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "tradebot_sci.runtime.controller"';
+        const postKillCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot.py"';
         await new Promise((resolve) => {
             exec(postKillCmd, () => resolve());
         });
@@ -1866,7 +1866,7 @@ RULES:
         await new Promise((resolve) => {
             let attempts = 0;
             const waitForDeath = setInterval(() => {
-                exec('pgrep -f "tradebot_sci.runtime.controller"', (err, stdout) => {
+                exec('pgrep -f "run_dev_bot.py"', (err, stdout) => {
                     const stillRunning = !!(stdout && stdout.trim());
                     attempts++;
                     if (!stillRunning || attempts >= 10) {
@@ -1962,7 +1962,7 @@ function startLogWatcher(win) {
 }
 
 function checkBotStatus(win, force = false) {
-    exec('pgrep -f "tradebot_sci.runtime.controller"', (err, stdout) => {
+    exec('pgrep -f "run_dev_bot.py"', (err, stdout) => {
         // More robust status check
         const isRunning = !!(stdout && stdout.trim());
         if (force || isRunning !== botRunning) {
@@ -2085,7 +2085,7 @@ function createWindow() {
 
         // 1. Check if already running
         let isStarted = await new Promise(resolve => {
-            exec('pgrep -f "tradebot_sci.runtime.controller"', (err, stdout) => {
+            exec('pgrep -f "run_dev_bot.py"', (err, stdout) => {
                 resolve(!!(stdout && stdout.trim()));
             });
         });
@@ -2104,7 +2104,7 @@ function createWindow() {
         // The GUI user clicking "Start" IS their trading confirmation — inject it
         // so the daemon doesn't die waiting for interactive stdin confirmation.
         let spawnCmd = isWindows()
-            ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" -m tradebot_sci.runtime.controller --daemon`
+            ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" scripts/run_dev_bot.py --daemon`
             : `TRADING_CONFIRMATION=YES bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);
@@ -2121,7 +2121,7 @@ function createWindow() {
             // We wait and check 3 times over 6 seconds to ensure it STICKS
             let checks = 0;
             const checkInterval = setInterval(() => {
-                exec('pgrep -f "tradebot_sci.runtime.controller"', (err, stdout) => {
+                exec('pgrep -f "run_dev_bot.py"', (err, stdout) => {
                     const running = !!(stdout && stdout.trim());
                     if (running) {
                         console.log('[MAIN] Verification: Bot is running.');
@@ -2198,7 +2198,7 @@ function createWindow() {
 
     ipcMain.on('stop-bot', () => {
         console.log('[MAIN] Stopping bot...');
-        const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -9 -f "tradebot_sci.runtime.controller"';
+        const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -9 -f "run_dev_bot.py"';
 
         try { require('child_process').execSync(cmd); } catch (e) {}
         setTimeout(() => checkBotStatus(mainWindow, true), 1000);
@@ -2206,7 +2206,7 @@ function createWindow() {
 
     ipcMain.on('restart-bot', () => {
         console.log('[MAIN] Restarting bot...');
-        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "tradebot_sci.runtime.controller"';
+        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot.py"';
 
         exec(killCmd, () => {
             setTimeout(() => {
