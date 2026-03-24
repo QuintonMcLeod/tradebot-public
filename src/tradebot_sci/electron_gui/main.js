@@ -511,7 +511,7 @@ function setupIpcHandlers() {
         console.log('[MAIN] Resetting paper trading...');
 
         // Step 1: Kill the bot process
-        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
+        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "tradebot_sci.runtime.controller"';
         await new Promise((resolve) => {
             exec(killCmd, (err) => {
                 if (err && err.code !== 1) console.warn('[MAIN] Kill during reset:', err.message);
@@ -525,7 +525,7 @@ function setupIpcHandlers() {
         let waited = 0;
         while (waited < maxWaitMs) {
             const alive = await new Promise(resolve => {
-                exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
+                exec('pgrep -f "tradebot_sci.runtime.controller"', (err, stdout) => {
                     resolve(!!(stdout && stdout.trim()));
                 });
             });
@@ -1768,7 +1768,7 @@ RULES:
         console.log(`[MAIN] Detected branch for update: ${branch}`);
 
         // Step 1: Stop bot if running
-        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
+        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "tradebot_sci.runtime.controller"';
         await new Promise((resolve) => {
             exec(killCmd, (err) => {
                 if (err && err.code !== 1) console.warn('[MAIN] Kill during update:', err.message);
@@ -1806,7 +1806,7 @@ RULES:
         }
 
         // Step 4: Restart bot — kill again to be sure, wait for it to die, then start fresh
-        const postKillCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
+        const postKillCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "tradebot_sci.runtime.controller"';
         await new Promise((resolve) => {
             exec(postKillCmd, () => resolve());
         });
@@ -1815,7 +1815,7 @@ RULES:
         await new Promise((resolve) => {
             let attempts = 0;
             const waitForDeath = setInterval(() => {
-                exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
+                exec('pgrep -f "tradebot_sci.runtime.controller"', (err, stdout) => {
                     const stillRunning = !!(stdout && stdout.trim());
                     attempts++;
                     if (!stillRunning || attempts >= 10) {
@@ -1911,7 +1911,7 @@ function startLogWatcher(win) {
 }
 
 function checkBotStatus(win, force = false) {
-    exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
+    exec('pgrep -f "tradebot_sci.runtime.controller"', (err, stdout) => {
         // More robust status check
         const isRunning = !!(stdout && stdout.trim());
         if (force || isRunning !== botRunning) {
@@ -2034,7 +2034,7 @@ function createWindow() {
 
         // 1. Check if already running
         let isStarted = await new Promise(resolve => {
-            exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
+            exec('pgrep -f "tradebot_sci.runtime.controller"', (err, stdout) => {
                 resolve(!!(stdout && stdout.trim()));
             });
         });
@@ -2070,7 +2070,7 @@ function createWindow() {
             // We wait and check 3 times over 6 seconds to ensure it STICKS
             let checks = 0;
             const checkInterval = setInterval(() => {
-                exec('pgrep -f "run_dev_bot[.]py"', (err, stdout) => {
+                exec('pgrep -f "tradebot_sci.runtime.controller"', (err, stdout) => {
                     const running = !!(stdout && stdout.trim());
                     if (running) {
                         console.log('[MAIN] Verification: Bot is running.');
@@ -2147,7 +2147,7 @@ function createWindow() {
 
     ipcMain.on('stop-bot', () => {
         console.log('[MAIN] Stopping bot...');
-        const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
+        const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "tradebot_sci.runtime.controller"';
 
         exec(cmd, (error) => {
             if (error && error.code !== 1 && error.code !== 128) console.error(`[MAIN] Stop error: ${error}`);
@@ -2157,7 +2157,7 @@ function createWindow() {
 
     ipcMain.on('restart-bot', () => {
         console.log('[MAIN] Restarting bot...');
-        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "run_dev_bot[.]py"';
+        const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "tradebot_sci.runtime.controller"';
 
         exec(killCmd, () => {
             setTimeout(() => {
