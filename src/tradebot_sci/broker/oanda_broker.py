@@ -181,6 +181,7 @@ class OandaExchangeBroker(IExchangeBroker):
                     "[OANDA] No funded accounts found! All accounts returned $0. "
                     "Check your API key permissions and environment (practice vs live)."
                 )
+                self._authorized = False
 
         except Exception as e:
             logger.error(f"[OANDA] Account discovery failed: {e}")
@@ -612,6 +613,8 @@ class OandaExchangeBroker(IExchangeBroker):
             logger.error(f"[OANDA] Failed to flatten {symbol}: {e}")
 
     def get_open_position_snapshot(self, symbol: str) -> dict | None:
+        if not getattr(self, "_authorized", True):
+            return None
         try:
             oanda_sym = self._normalize_symbol(symbol)
             r = oanda_positions.PositionDetails(self.account_id, instrument=oanda_sym)
@@ -785,6 +788,8 @@ class OandaExchangeBroker(IExchangeBroker):
             return False
 
     def list_open_position_symbols(self) -> list[str]:
+        if not self._authorized:
+            return []
         """Returns list of canonical symbols with open positions."""
         if not self._authorized:
             return list(self._tracked_positions.keys())
