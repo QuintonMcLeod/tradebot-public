@@ -116,7 +116,7 @@ class CryptoGridStrategy(BaseStrategy):
                         bias="long", phase="range", action="scale_in",
                         entry_price=last_close,
                         stop_loss=open_position.get("stop_loss"),
-                        take_profit=grid["anchor"],
+                        take_profit=None,
                         risk_per_trade_pct=self.get_risk_pct(),
                         structure_summary=f"Grid Scale-in Level {buy_level['level']}",
                         invalidation_conditions=f"Stop at {open_position.get('stop_loss')}",
@@ -131,7 +131,7 @@ class CryptoGridStrategy(BaseStrategy):
                         bias="short", phase="range", action="scale_in",
                         entry_price=last_close,
                         stop_loss=open_position.get("stop_loss"),
-                        take_profit=grid["anchor"],
+                        take_profit=None,
                         risk_per_trade_pct=self.get_risk_pct(),
                         structure_summary=f"Grid Scale-in Level {sell_level['level']}",
                         invalidation_conditions=f"Stop at {open_position.get('stop_loss')}",
@@ -148,14 +148,14 @@ class CryptoGridStrategy(BaseStrategy):
         buy_level = self._get_nearest_buy_level(symbol, last_close)
         if htf_dir in ("long", "neutral") and buy_level and prev_close > buy_level["price"] >= last_close:
             stop_loss = last_close - (interval * 2)
-            take_profit = buy_level["price"] + interval  # Target: next grid level up
+            take_profit=None
 
             score = 55 + abs(buy_level["level"]) * 3  # Deeper levels = higher score
 
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                 bias="long", phase="range", action="enter_long",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
+                entry_price=last_close, stop_loss=stop_loss, take_profit=None,
                 risk_per_trade_pct=self.get_risk_pct(),
                 structure_summary=f"Grid Buy Level {buy_level['level']} ({buy_level['price']:.5f})",
                 invalidation_conditions=f"Close below {stop_loss:.5f}",
@@ -169,14 +169,14 @@ class CryptoGridStrategy(BaseStrategy):
         sell_level = self._get_nearest_sell_level(symbol, last_close)
         if htf_dir in ("short", "neutral") and sell_level and prev_close < sell_level["price"] <= last_close:
             stop_loss = last_close + (interval * 2)
-            take_profit = sell_level["price"] - interval
+            take_profit=None
 
             score = 55 + abs(sell_level["level"]) * 3
 
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                 bias="short", phase="range", action="enter_short",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
+                entry_price=last_close, stop_loss=stop_loss, take_profit=None,
                 risk_per_trade_pct=self.get_risk_pct(),
                 structure_summary=f"Grid Sell Level {sell_level['level']} ({sell_level['price']:.5f})",
                 invalidation_conditions=f"Close above {stop_loss:.5f}",

@@ -49,7 +49,7 @@ Choose from **16+ premium themes** — each with a unique background, color pale
 
 ## Features
 
-- **17 Trading Strategies** — Mean reversion, breakout, scalping, trend-following, and more
+- **28 Trading Strategies** — Mean reversion, breakout, scalping, trend-following, quantitative filters, and more
 - **Per-Asset Strategy Selection** — Assign different strategies to forex, crypto, stocks, etc.
 - **Multi-Broker Support** — OANDA, Interactive Brokers, Gemini, Coinbase, Kraken (via CCXT)
 - **Electron GUI Dashboard** — Real-time charts, holdings, decisions panel, system logs
@@ -63,7 +63,7 @@ Choose from **16+ premium themes** — each with a unique background, color pale
 
 ## Trading Strategies
 
-17 strategies organized by market condition. **No strategy is guaranteed to be profitable.** Backtest results do not predict live performance.
+28 strategies organized by market condition. **No strategy is guaranteed to be profitable.** Backtest results do not predict live performance.
 
 #### Trending Market
 | Strategy | Style | Description |
@@ -96,6 +96,17 @@ Choose from **16+ premium themes** — each with a unique background, color pale
 | **Crypto VWAP Reversion** | Mean Reversion | VWAP deviation entries |
 | **Crypto Double MACD** | Dual Timeframe | Multi-MACD confirmation |
 | **Crypto Grid** | Grid Trading | Range-bound grid entries |
+
+#### Advanced Quantitative Strategies
+| Strategy | Style | Description |
+|----------|-------|-------------|
+| **QS 200-SMA Filter** | Regime Filter | Capital preservation in bear markets |
+| **QS Golden Cross** | Long-term Trend | Catching massive multi-month bull runs |
+| **QS RSI-2 Mean Rev** | Mean Reversion | Buying aggressive dips in an uptrend |
+| **QS 3/10 Trend** | Macro Trend | Lazy, slow multi-month investing |
+| **QS TQQQ/BTAL** | Rebalancing | Monthly index fund management |
+| **QS Choppiness** | Measurement Filter | Checking if market is actually moving |
+| **QS Seasonal FDOM** | Seasonal / Calendar | Front-running institutional beginning-of-month cash |
 
 #### Meta Engine
 | Strategy | Style | Description |

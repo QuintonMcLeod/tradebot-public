@@ -137,6 +137,7 @@ const CONFIG_MAP = {
     'TREND_HULL_MA_ENABLED': ['global', 'trend_hull_ma_enabled'],
     // ── Risk & ICC (Global — not per-profile) ──────────────────
     'RISK_PER_TRADE_PCT': ['risk', 'risk_per_trade_pct'],
+    'RISK_DYNAMIC_AUTO': ['risk', 'risk_dynamic_auto'],
     'RISK_PER_TRADE_DOLLARS': ['risk', 'risk_per_trade_dollars'],
     'MAX_EXPOSURE_PCT': ['risk', 'max_exposure_pct'],
     'LIMIT_LOSS_DAILY_PCT': ['risk', 'limit_loss_daily_pct'],
@@ -944,6 +945,84 @@ const STRATEGIES = {
         risk: "Medium",
         bestFor: "Universal: trending markets with SAR enabled",
         stats: { target: "2:1 R:R", stop: "Swing-based", sar: "Auto-reverse", cap: "3/day/symbol" }
+    },
+    // 📈 ADVANCED QUANTITATIVE STRATEGIES
+    qs_sma_filter: {
+        name: 'QS 200-SMA Filter',
+        icon: 'filter_alt',
+        shortDesc: 'Market Weather Thermometer',
+        assetClass: 'universal',
+        description: 'Before stepping outside, it checks the weather! If the market is crashing, it completely shuts down to protect your money. It only trades when the long-term trend is clearly going up.',
+        style: 'Regime Filter',
+        risk: 'Low',
+        bestFor: 'Universal: protecting capital during bear markets',
+        stats: { indicator: '200-Day Average', action: 'Blocks trades' }
+    },
+    qs_golden_cross: {
+        name: 'QS Golden Cross',
+        icon: 'timeline',
+        shortDesc: 'Big Picture Momentum',
+        assetClass: 'universal',
+        description: 'Looks for the rare moment when a fast-moving trend successfully crosses over a slow, sturdy trend. When this Golden Cross happens, it signals the start of a massive, long-term wealth run.',
+        style: 'Long-term Trend',
+        risk: 'Medium',
+        bestFor: 'Universal: catching major bull runs early',
+        stats: { fast: '50-Day', slow: '200-Day', hold: 'Months' }
+    },
+    qs_rsi_mean_reversion: {
+        name: 'QS RSI-2 Mean Reversion',
+        icon: 'multiline_chart',
+        shortDesc: 'Panic Buying Engine',
+        assetClass: 'universal',
+        description: 'Wait for everyone to panic! When the market violently crashes for a couple of days and gets way too cheap, this strategy buys the massive dip for an immediate, sharp bounce back.',
+        style: 'Mean Reversion',
+        risk: 'Medium',
+        bestFor: 'Universal: buying aggressive dips in an uptrend',
+        stats: { trigger: 'RSI under 10', hold: '1-3 days' }
+    },
+    qs_3_10_trend: {
+        name: 'QS 3/10 Trend Follower',
+        icon: 'insights',
+        shortDesc: 'Smooth Monthly Trend Rider',
+        assetClass: 'universal',
+        description: 'Ignores the daily noise completely. It looks at the 3-month and 10-month averages to jump on massive, slow-moving trains. Perfect for investors who don\'t want to stress about daily price swings.',
+        style: 'Macro Trend',
+        risk: 'Low',
+        bestFor: 'Universal: stress-free, slow wealth building',
+        stats: { fast: '3-Month', slow: '10-Month' }
+    },
+    qs_tqqq_btal: {
+        name: 'QS TQQQ/BTAL Rebalancer',
+        icon: 'pie_chart',
+        shortDesc: 'Monthly Portfolio Guard',
+        assetClass: 'universal',
+        description: 'A proxy for holding tech stocks and a crash-insurance fund at the same time. On the very first day of the month, it neatly re-balances the two so you are always protected against sudden market drops.',
+        style: 'Rebalancing',
+        risk: 'Low',
+        bestFor: 'Universal: monthly index fund management',
+        stats: { frequency: 'Monthly', focus: 'Risk Parity' }
+    },
+    qs_choppiness: {
+        name: 'QS Choppiness Index',
+        icon: 'waves',
+        shortDesc: 'Sideways Market Detector',
+        assetClass: 'universal',
+        description: 'Is the market actually going somewhere, or just running in circles? This uses advanced math to measure the "choppiness", ensuring you never get trapped in a boring, unprofitable sideways mess.',
+        style: 'Measurement Filter',
+        risk: 'Low',
+        bestFor: 'Universal: avoiding fake breakouts',
+        stats: { threshold: 'Under 38.2', action: 'Confirms trend' }
+    },
+    qs_first_day_month: {
+        name: 'QS Seasonal First DOM',
+        icon: 'calendar_month',
+        shortDesc: 'The Payday Anomaly',
+        assetClass: 'universal',
+        description: 'Capitalizes on a massive human habit: millions of workers automatically investing their new paychecks at the very start of the month! It buys right before the new month starts to ride this predictable wave of cash.',
+        style: 'Seasonal / Calendar',
+        risk: 'Low',
+        bestFor: 'Stocks/Indices: End of Month / Start of Month',
+        stats: { holding: '1 to 5 days', edge: 'Institutional Flows' }
     }
 };
 
@@ -3799,7 +3878,15 @@ function renderStrategyToolbox(container) {
         { id: 'crypto_rsi_macd', label: 'RSI + MACD', icon: 'currency_bitcoin', color: '#f59e0b' },
         { id: 'crypto_vwap_reversion', label: 'VWAP Reversion', icon: 'swap_horiz', color: '#84cc16' },
         { id: 'crypto_double_macd', label: 'Double MACD', icon: 'speed', color: '#fb923c' },
-        { id: 'crypto_grid', label: 'Virtual Grid', icon: 'grid_on', color: '#a78bfa' }
+        { id: 'crypto_grid', label: 'Virtual Grid', icon: 'grid_on', color: '#a78bfa' },
+        // 📈 Advanced Quantitative Strategies
+        { id: 'qs_sma_filter', label: 'QS SMA Filter', icon: 'filter_alt', color: '#38bdf8' },
+        { id: 'qs_golden_cross', label: 'QS Golden Cross', icon: 'timeline', color: '#fcd34d' },
+        { id: 'qs_rsi_mean_reversion', label: 'QS RSI-2 MR', icon: 'multiline_chart', color: '#2dd4bf' },
+        { id: 'qs_3_10_trend', label: 'QS 3/10 Trend', icon: 'insights', color: '#a78bfa' },
+        { id: 'qs_tqqq_btal', label: 'QS TQQQ/BTAL', icon: 'pie_chart', color: '#f472b6' },
+        { id: 'qs_choppiness', label: 'QS Choppiness', icon: 'waves', color: '#fb923c' },
+        { id: 'qs_first_day_month', label: 'QS Seasonal FDOM', icon: 'calendar_month', color: '#4ade80' }
     ];
 
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';

@@ -12,7 +12,6 @@ which is built on the Backtester foundation. This file just:
 Usage:
     python tools/engine/engine_replay.py --cartridge conductor_14d_all
     python tools/engine/engine_replay.py --cartridge conductor_14d_all --symbols EURUSD,USDJPY
-    python tools/engine/engine_replay.py --days 14
     python tools/engine/engine_replay.py --days 14 --symbols EURUSD,USDJPY --balance 10000
 """
 from __future__ import annotations
@@ -48,6 +47,12 @@ logger = logging.getLogger("engine_replay")
 
 # ── Imports ───────────────────────────────────────────────────────────────────
 from tools.engine.minovsky_engine import MinovskyEngine
+from datetime import datetime
+def parse_cli_date(d_str: str) -> datetime:
+    try:
+        return datetime.strptime(d_str, "%Y-%m-%d")
+    except ValueError:
+        return datetime.strptime(d_str, "%m/%d/%Y")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -285,8 +290,8 @@ def _load_candles_for_range(
                 if account_id and api_key:
                     provider = OandaMarketDataProvider(account_id, api_key, env)
                     
-                    start_dt = datetime.strptime(date_start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                    end_dt = datetime.strptime(date_end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+                    start_dt = parse_cli_date(date_start).replace(tzinfo=timezone.utc)
+                    end_dt = parse_cli_date(date_end).replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
                     
                     # 5-min candles
                     delta_ltf = end_dt - start_dt
@@ -565,11 +570,11 @@ def _run_single_day_worker(args: tuple) -> dict:
             return {"day": day_str, "trades": [], "pnl": 0.0, "return_pct": 0.0,
                     "initial": balance, "final": balance, "stats": {}}
 
-        day_start = datetime.strptime(day_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        day_start = parse_cli_date(day_str).replace(tzinfo=timezone.utc)
         day_end = day_start.replace(hour=23, minute=59, second=59)
 
-        # Load candles: include 35 days before for indicator warmup (H4 SMA 200 needs ~34 days)
-        warmup_start = (day_start - timedelta(days=35)).strftime("%Y-%m-%d")
+        # Load candles: include 50 days before for indicator warmup (H4 SMA 200 requires ~47 calendar days accounting for weekends)
+        warmup_start = (day_start - timedelta(days=50)).strftime("%Y-%m-%d")
         all_ltf, all_htf = _load_candles_for_range(
             candle_dir, symbols, warmup_start, day_str, api_fallback=api_fallback
         )
@@ -658,14 +663,14 @@ def run_candle_history_mode(
 
     # Date range: prefer explicit start/end, fall back to --days offset
     if end_date_str:
-        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(
+        end_date = parse_cli_date(end_date_str).replace(
             hour=23, minute=59, second=59, tzinfo=timezone.utc
         )
     else:
         end_date = datetime.now(tz=timezone.utc)
 
     if start_date_str:
-        start_date = datetime.strptime(start_date_str, "%Y-%m-%d").replace(
+        start_date = parse_cli_date(start_date_str).replace(
             tzinfo=timezone.utc
         )
     else:
@@ -709,8 +714,24 @@ def run_candle_history_mode(
 
     worker_args = [(day_str, balance, symbols_filter, api_fallback, strategy_override) for day_str in day_list]
 
+    import sys
+    import json as _json
+    day_results = []
+    completed = 0
     with multiprocessing.Pool(processes=num_cores) as pool:
-        day_results = pool.map(_run_single_day_worker, worker_args)
+        for res in pool.imap_unordered(_run_single_day_worker, worker_args):
+            day_results.append(res)
+            completed += 1
+            print(
+                _json.dumps({
+                    "_type": "progress",
+                    "pct": int((completed / num_days) * 100),
+                    "symbol": "Engine",
+                    "details": f"({completed}/{num_days} Days)"
+                }),
+                file=sys.stderr,
+                flush=True
+            )
 
     elapsed = time.perf_counter() - t0
 
@@ -741,8 +762,8 @@ def _run_single_day_sequential(
             act_prof.strategies = None
         settings.profiles[settings.app.profile_name] = act_prof
 
-    # Load candles with warmup (35 days)
-    warmup_start = (start_date - timedelta(days=35)).strftime("%Y-%m-%d")
+    # Load candles with warmup (50 days)
+    warmup_start = (start_date - timedelta(days=50)).strftime("%Y-%m-%d")
     all_ltf, all_htf = _load_candles_for_range(
         candle_dir, symbols, warmup_start, end_date.strftime("%Y-%m-%d"), api_fallback=api_fallback
     )

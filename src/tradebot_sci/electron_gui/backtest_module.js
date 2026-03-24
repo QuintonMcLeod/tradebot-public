@@ -25,6 +25,7 @@
     let _btSortKey = null;
     let _btSortDir = null;
     let _lastBtTrades = [];
+    let _lastBtMetrics = null;
     let _btInitialCapital = 0;
 
     // ── DOM refs (lazy) ──────────────────────────────────────
@@ -266,11 +267,11 @@
         _showStatus('Replay running...', 'running');
         _setRunButtonState(true);
         _hideResults();
-        _showLogStream();
+        _showProgressBar();
 
         // Register live progress listener
         if (window.api?.onBacktestProgress) {
-            window.api.onBacktestProgress((line) => _appendLogLine(line));
+            window.api.onBacktestProgress((data) => _updateProgressBar(data));
         }
 
         try {
@@ -299,65 +300,62 @@
         }
     }
 
-    // ── Live log stream panel ─────────────────────────────────────────────
-    function _showLogStream() {
-        let panel = $('bt-log-stream');
+    // ── Live Progress Panel ─────────────────────────────────────────────
+    function _showProgressBar() {
+        let panel = $('bt-progress-panel');
         if (!panel) {
             panel = document.createElement('div');
-            panel.id = 'bt-log-stream';
-            panel.style.cssText = 'background:var(--surface-2,#0d1117);border:1px solid var(--border,#30363d);border-radius:8px;padding:12px;margin:12px 0;max-height:220px;overflow-y:auto;font-family:monospace;font-size:11px;color:var(--text-secondary,#8b949e);line-height:1.5;flex-shrink:0;';
+            panel.id = 'bt-progress-panel';
+            panel.style.cssText = 'background:var(--surface-2,#0d1117);border:1px solid var(--border,#30363d);border-radius:8px;padding:16px;margin:12px 0;flex-shrink:0;';
             const anchor = $('bt-results') || document.body;
             anchor.parentElement ? anchor.parentElement.insertBefore(panel, anchor) : document.body.appendChild(panel);
         }
-        panel.innerHTML = '<span style="color:var(--accent,#58a6ff)">\u25cf Replay starting\u2026</span><br>';
+        panel.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="color:var(--text-primary,#c9d1d9);font-weight:600;font-size:13px;">Simulating Timeline...</span>
+                <span id="bt-progress-text" style="color:var(--text-secondary,#8b949e);font-size:12px;font-variant-numeric:tabular-nums;">0%</span>
+            </div>
+            <div style="width:100%;height:6px;background:var(--surface-3,#21262d);border-radius:3px;overflow:hidden;">
+                <div id="bt-progress-fill" style="width:0%;height:100%;background:var(--accent,#58a6ff);transition:width 0.2s ease;"></div>
+            </div>
+            <div id="bt-progress-details" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;font-size:11px;color:var(--text-secondary,#8b949e);">
+            </div>
+        `;
         panel.style.display = 'block';
+        
+        // Hide legacy log stream if it's there
+        const logPanel = $('bt-log-stream');
+        if (logPanel) logPanel.style.display = 'none';
     }
 
-    let _logScrollTimer = null;
-    let _logBuffer = '';
-    let _logRAF = null;
+    function _updateProgressBar(progressState) {
+        if (!progressState || typeof progressState !== 'object') return;
+        
+        // If the payload from main is an array, it likely comes from a rogue string log that snuck through
+        // but our main.js now emits an object map of symbols.
+        if (Array.isArray(progressState)) return;
+        
+        let totalPct = 0;
+        let count = 0;
+        let detailsHtml = '';
 
-    function _appendLogLine(data) {
-        const panel = $('bt-log-stream');
-        if (!panel) return;
-
-        const lines = Array.isArray(data) ? data : [data];
-        let blockHtml = '';
-
-        for (const line of lines) {
-            let c = line
-                .replace(/\[GUILLOTINE/g, '<span style="color:#f97316">[GUILLOTINE')
-                .replace(/\[SAR/g, '<span style="color:#a78bfa">[SAR')
-                .replace(/\[ENGINE/g, '<span style="color:#34d399">[ENGINE')
-                .replace(/\[PARALLEL/g, '<span style="color:#38bdf8">[PARALLEL')
-                .replace(/\[ERROR\]/g, '<span style="color:#f87171">[ERROR]</span>')
-                .replace(/\[REPLAY\]/g, '<span style="color:#60a5fa">[REPLAY]</span>');
-            const diff = (c.match(/<span/g) || []).length - (c.match(/<\/span>/g) || []).length;
-            for (let i = 0; i < diff; i++) c += '</span>';
-            blockHtml += c + '<br>';
+        for (const sym in progressState) {
+            const p = progressState[sym];
+            totalPct += p.pct;
+            count++;
+            const color = p.pct === 100 ? 'var(--success,#3fb950)' : 'var(--text-secondary,#8b949e)';
+            detailsHtml += `<div style="background:var(--surface-1,#010409);padding:4px 8px;border-radius:4px;border:1px solid var(--border,#30363d);"><span style="color:var(--text-primary,#c9d1d9)">${sym}</span> <span style="color:${color}">${p.pct}%</span></div>`;
         }
 
-        // Buffer lines and flush via rAF to avoid per-line DOM thrashing
-        _logBuffer += blockHtml;
-        if (!_logRAF) {
-            _logRAF = requestAnimationFrame(() => {
-                panel.insertAdjacentHTML('beforeend', _logBuffer);
-                _logBuffer = '';
-                _logRAF = null;
-
-                // PRUNE DOM to prevent infinite node accumulation OOM
-                while (panel.childNodes.length > 1000) {
-                    panel.removeChild(panel.firstChild);
-                }
-
-                // Throttled scroll: max once per 100ms
-                if (!_logScrollTimer) {
-                    _logScrollTimer = setTimeout(() => {
-                        panel.scrollTop = panel.scrollHeight;
-                        _logScrollTimer = null;
-                    }, 100);
-                }
-            });
+        if (count > 0) {
+            const avgPct = Math.round(totalPct / count);
+            const fill = $('bt-progress-fill');
+            const text = $('bt-progress-text');
+            const details = $('bt-progress-details');
+            
+            if (fill) fill.style.width = `${avgPct}%`;
+            if (text) text.textContent = `${avgPct}%`;
+            if (details) details.innerHTML = detailsHtml;
         }
     }
 
@@ -397,6 +395,7 @@
     // ── Render results ───────────────────────────────────────
     function _renderResults(data) {
         if (!data) return;
+        _lastBtMetrics = data;
         const resultsSection = $('bt-results');
         if (!resultsSection) return;
         resultsSection.classList.remove('hidden');
@@ -572,7 +571,23 @@
             ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
         });
 
-        const csv = [headers.join(','), ...rows].join('\n');
+        const m = _lastBtMetrics || {};
+        const pnl = m.total_pnl || 0;
+        const summaryRows = [
+            ['Total PnL', (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2)],
+            ['Win Rate', (m.win_rate || 0).toFixed(1) + '%'],
+            ['Total Trades', m.total_trades || 0],
+            ['Max Drawdown', (m.max_drawdown || 0).toFixed(2) + '%'],
+            ['Profit Factor', (m.profit_factor || 0).toFixed(2)],
+            ['Avg Win', '$' + (m.avg_win || 0).toFixed(2)],
+            ['Avg Loss', '$' + (m.avg_loss || 0).toFixed(2)],
+            ['Risk:Reward', m.risk_reward ? m.risk_reward.toFixed(1) + ':1' : 'N/A'],
+            ['Final Capital', '$' + (m.final_capital || m.final_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })],
+            [],
+            ['--- TRADE LOG ---', '']
+        ].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+
+        const csv = [...summaryRows, headers.join(','), ...rows].join('\n');
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');

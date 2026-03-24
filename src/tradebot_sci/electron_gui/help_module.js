@@ -1337,7 +1337,7 @@ window.helpModule = (() => {
                 { filename: 'RTFM/06_PANIC_BUTTON.md', title: 'Something Is Wrong — The Emergency Panic Protocol', category: 'rtfm', icon: 'emergency', description: '"Something is wrong. Make it stop."' },
                 { filename: 'RTFM/07_COCKPIT_CONTROLS.md', title: 'What Does This Button Do? The Complete Cockpit Guide', category: 'rtfm', icon: 'tune', description: '"What does this button do?" — Last words of a former trader.' },
                 { filename: 'RTFM/08_API_SETUP.md', title: 'Connecting to the World: Every Broker, Every API Key', category: 'rtfm', icon: 'key', description: '"The bot is only as smart as its connection."' },
-                { filename: 'RTFM/09_FEET_WET_STRATEGY.md', title: '20 Weapons of War: The Complete Strategy Arsenal', category: 'rtfm', icon: 'strategy', description: '"One strategy doesn\'t fit all markets."', featured: true },
+                { filename: 'RTFM/09_FEET_WET_STRATEGY.md', title: '28 Weapons of War: The Complete Strategy Arsenal', category: 'rtfm', icon: 'strategy', description: '"One strategy doesn\'t fit all markets."', featured: true },
                 { filename: 'RTFM/14_READING_THE_SCOREBOARD.md', title: 'Am I Winning? How to Read Your Performance Metrics', category: 'rtfm', icon: 'monitoring', description: '"If you can\'t measure it, you can\'t improve it."' },
                 { filename: 'RTFM/11_GHOST_IN_MACHINE.md', title: 'I Think, Therefore I Trade: The AI Decision Engine', category: 'rtfm', icon: 'smart_toy', description: '"I think, therefore I trade."' },
                 { filename: 'RTFM/12_TIME_MACHINE.md', title: 'I Have to Go Back: The Trinity of Backtesting', category: 'rtfm', icon: 'history', description: '"I have to go back."' },
@@ -1355,6 +1355,7 @@ window.helpModule = (() => {
                 { filename: 'RTFM/39_LIVE_SPREAD.md', title: 'Live Spread Integration: Why Your Bot Was Trading Blindfolded', category: 'rtfm', icon: 'visibility', description: '"The bot thought the highway toll was $1.50 but sometimes it was $15." How the bot now fetches real-time bid/ask spread data from OANDA every 30 seconds.' },
                 { filename: 'RTFM/40_TARGET.md', title: 'The Payout Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Payout card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing.' },
                 { filename: 'RTFM/41_REMOTE_SETUP.md', title: 'Remote Setup: Run the Core on One PC, the GUI on Another', category: 'rtfm', icon: 'lan', description: '"The bot has two halves — a brain and a face." How to run the Python engine on one computer and connect the Electron GUI from a different one. Any OS, any two machines. Kitchen-and-dining-room style.' },
+                { filename: 'RTFM/45_QUANTITATIVE_STRATEGIES.md', title: '7 Advanced Quantitative Strategies', category: 'rtfm', icon: 'functions', description: '"You don\'t even know how to balance your own checkbook, but suddenly you\'re Jim Simons..." The 7 aggressive quantitative mathematically-driven algorithms translated into terms your grandma would understand.', featured: true },
             ];
         }
 

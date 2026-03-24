@@ -58,7 +58,7 @@ class HyperScalperStrategy(BaseStrategy):
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias="long", phase="trend", action="enter_long",
-                    entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                    entry_price=last_close, stop_loss=stop_loss, take_profit=None,
                     structure_summary=f"HyperScalper Hardened Long (Trend={trend_ema:.4f})",
                     invalidation_conditions="Bearish EMA cross",
                     management_instructions=f"Target {self.target_r}R. Filtered by EMA {self.trend_ema_period} + RSI.",
@@ -77,7 +77,7 @@ class HyperScalperStrategy(BaseStrategy):
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias="short", phase="trend", action="enter_short",
-                    entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                    entry_price=last_close, stop_loss=stop_loss, take_profit=None,
                     structure_summary=f"HyperScalper Hardened Short (Trend={trend_ema:.4f})",
                     invalidation_conditions="Bullish EMA cross",
                     management_instructions=f"Target {self.target_r}R. Filtered by EMA {self.trend_ema_period} + RSI.",

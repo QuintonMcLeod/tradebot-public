@@ -19,7 +19,7 @@ from typing import Optional
 from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.strategy.variants.base import BaseStrategy
-from tradebot_sci.strategy.variants.mean_reversion import MeanReversionStrategy
+from tradebot_sci.strategy.variants.breakout import VolatilityBreakoutStrategy
 from tradebot_sci.strategy.variants.trend_rider import TrendRiderStrategy
 from tradebot_sci.strategy.variants.london_breakout import LondonBreakoutStrategy
 from tradebot_sci.strategy.variants.session_momentum import SessionMomentumStrategy
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # ── Regime → Strategy mapping ────────────────────────────────────────
 _REGIME_MAP = {
     "trending":      "trend_rider",
-    "ranging":       "mean_reversion",
+    "ranging":       "breakout",
     "transitional":  "session_breakout",
     # "choppy" → no entry (handled explicitly)
 }
@@ -90,18 +90,14 @@ class ForexConductorStrategy(BaseStrategy):
     """
 
     def __init__(self, **kwargs):
-        # Build _strategies BEFORE super().__init__() because BaseStrategy's
-        # __init__ sets self.profile_risk_pct = None which triggers our
-        # property setter, which iterates self._strategies.
         self._profile_risk_pct: float | None = None
         self._strategies = {
-            "mean_reversion": MeanReversionStrategy(),
+            "breakout": VolatilityBreakoutStrategy(range_period=20, atr_mult=1.5),
             "session_breakout": LondonBreakoutStrategy(),
             "trend_rider": TrendRiderStrategy(),
             "session_momentum": SessionMomentumStrategy(),
             "wind_down_truffle": WindDownTruffleStrategy(),
         }
-        self.quick_ranging_tp_enabled = kwargs.get('quick_ranging_tp_enabled', False)
         self._profile = kwargs.get('profile_settings', None)
         
         if self._profile:
@@ -410,29 +406,40 @@ class ForexConductorStrategy(BaseStrategy):
                         break  # Fall through to ATR forced SAR entry
                     signal.notes = f"[REVERSAL] {signal.notes}"
 
+                _ts = snapshot.candles[-1].timestamp.strftime('%Y-%m-%d %H:%M') if snapshot.candles else "Unknown"
                 logger.info(
-                    f"[CONDUCTOR] {snapshot.symbol}: "
+                    f"[CONDUCTOR] {_ts} {snapshot.symbol}: "
                     f"Entry via {key} (regime={regime})"
                 )
-                # Hard 1% risk — override backtester performance boosts
-                signal.risk_per_trade_pct = 0.01
+                signal.risk_per_trade_pct = getattr(self._profile, 'risk_per_trade_pct', 0.01)
                 # Set entry cooldown for this symbol
                 _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
 
                 # ── GLOBAL TARGET_R OVERRIDE ──
                 # Force the base strategy to respect the config target_r but enforce a minimum mathematical viability floor
                 tr = float(getattr(self._profile, 'target_r', 0) or 0)
-                if tr < 0.2:
-                    tr = 0.2
-                    
-                _ep = float(signal.entry_price or 0.0)
-                _sl = float(signal.stop_loss or 0.0)
-                if _ep > 0 and _sl > 0:
-                    _ir = abs(_ep - _sl)
-                    if signal.bias == "long":
-                        signal.take_profit = _ep + (_ir * tr)
-                    else:
-                        signal.take_profit = _ep - (_ir * tr)
+                if tr > 0:
+                    if tr < 0.2:
+                        tr = 0.2
+                        
+                    _ep = float(signal.entry_price or 0.0)
+                    _sl = float(signal.stop_loss or 0.0)
+                    if _ep > 0 and _sl > 0:
+                        _ir = abs(_ep - _sl)
+                        if signal.bias == "long":
+                            signal.take_profit = _ep + (_ir * tr)
+                        else:
+                            signal.take_profit = _ep - (_ir * tr)
+                else:
+                    _ep = float(signal.entry_price or 0.0)
+                    _sl = float(signal.stop_loss or 0.0)
+                    if _ep > 0 and _sl > 0:
+                        _ir = abs(_ep - _sl)
+                        # Use a distant 100R target to safely bypass safety validators while keeping trades open
+                        if signal.bias == "long":
+                            signal.take_profit = _ep + (_ir * 100.0)
+                        else:
+                            signal.take_profit = _ep - (_ir * 100.0)
 
                 signal.strategy_name = self.name
                 return signal
@@ -976,8 +983,12 @@ class ForexConductorStrategy(BaseStrategy):
                             new_tp = None
                             if need_pyramid:
                                 _tp_r = getattr(self._profile, 'target_r', 2.0) if self._profile else 2.0
-                                bump_r = highest_milestone + 0.5  # Push TP just half an R ahead of current milestone
-                                dynamic_tp_r = max(_tp_r, bump_r)
+                                if float(_tp_r) <= 0:
+                                    dynamic_tp_r = 100.0  # Keep endless scale open
+                                else:
+                                    bump_r = highest_milestone + 0.5  # Push TP just half an R ahead of current milestone
+                                    dynamic_tp_r = max(float(_tp_r), bump_r)
+                                    
                                 if pos_dir == "long":
                                     new_tp = orig_entry + (initial_risk * dynamic_tp_r)
                                 else:

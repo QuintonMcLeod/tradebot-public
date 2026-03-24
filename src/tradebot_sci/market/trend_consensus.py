@@ -433,8 +433,13 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
     # (≥75%) or ADX>30 with any strength. This prevents false choppy blocks.
     ema_unavailable = (ema.get("ema8", 0) == 0) if ema else True
     high_consensus = strength >= 0.75
+    
+    # A pullback often breaks perfect EMA alignment on the HTF.
+    # If the timeframes agree (trend resumption) and we have decent ADX, allow it as trending.
+    has_trend_momentum = ema_aligned or (htf_dir == ltf_dir and strength >= 0.5)
     _ema_adx_threshold = 20 if (ema_unavailable and high_consensus) else 30
-    if adx > 20 and (ema_aligned or (ema_unavailable and adx > _ema_adx_threshold)):
+    
+    if adx > 20 and (has_trend_momentum or (ema_unavailable and adx > _ema_adx_threshold)):
         confirmations = 0
         if bb_bandwidth > 0.01:  # Bands expanding
             confirmations += 1

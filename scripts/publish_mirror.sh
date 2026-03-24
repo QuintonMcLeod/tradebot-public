@@ -17,6 +17,7 @@ fi
 
 RAW_URL="${1:-}"
 BRANCH="${2:-main}"
+COMMIT_MSG="${3:-Update public mirror: $(date '+%Y-%m-%d %H:%M:%S')}"
 EXPORT_DIR="public_mirror"
 
 if [ -z "$RAW_URL" ]; then
@@ -125,7 +126,7 @@ if git diff-index --quiet HEAD --; then
     echo "No changes to publish."
 else
     echo "Committing changes..."
-    git commit -m "Update public mirror: $(date '+%Y-%m-%d %H:%M:%S')"
+    git commit -m "$COMMIT_MSG"
     
     echo "Pushing to public remote..."
     git push origin "$BRANCH"

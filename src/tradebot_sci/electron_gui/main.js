@@ -347,7 +347,7 @@ function setupIpcHandlers() {
         { filename: 'RTFM/06_PANIC_BUTTON.md', title: 'Something Is Wrong — The Emergency Panic Protocol', category: 'rtfm', icon: 'emergency', description: '"Something is wrong. Make it stop." So the bot is screaming in red text, or worse — it\'s doing nothing at all. Don\'t panic. Read this. Covers every emergency scenario: Kill Switch activation, insufficient funds, broker disconnects, stuck positions, API rate limits, and the nuclear option — how to flatten everything and shut down safely.' },
         { filename: 'RTFM/07_COCKPIT_CONTROLS.md', title: 'What Does This Button Do? The Complete Cockpit Guide', category: 'rtfm', icon: 'tune', description: '"What does this button do?" — Last words of a former trader. The bot is configured through the Settings GUI, config.json, or config/settings_profiles.yaml. This guide covers every control in the cockpit: trading profiles, risk sliders, strategy selectors, broker toggles, safety shields, and the hidden power-user settings most people never find.' },
         { filename: 'RTFM/08_API_SETUP.md', title: 'Connecting to the World: Every Broker, Every API Key', category: 'rtfm', icon: 'key', description: '"The bot is only as smart as its connection." This guide explains specifically how to connect the bot to the outside world. Step-by-step configuration for every supported integration: the AI Brain (TradeSci, OpenAI, Gemini, Claude), Interactive Brokers for stocks and futures, OANDA for forex, and CCXT for crypto exchanges like Gemini and Coinbase.' },
-        { filename: 'RTFM/09_FEET_WET_STRATEGY.md', title: '21 Weapons of War: The Complete Strategy Arsenal', category: 'rtfm', icon: 'strategy', description: '\"One strategy doesn\'t fit all markets. Choose your weapon wisely — or let Meta-SCI choose for you.\" TradeBot SCI supports 21 distinct trading strategies — including the new Forex Conductor with regime-based routing and per-symbol cooldowns. You can assign different strategies to different asset classes, or use Meta-SCI to let the bot pick the best one automatically via tournament-style scoring.', featured: true },
+        { filename: 'RTFM/09_FEET_WET_STRATEGY.md', title: '28 Weapons of War: The Complete Strategy Arsenal', category: 'rtfm', icon: 'strategy', description: '"One strategy doesn\'t fit all markets. Choose your weapon wisely — or let Meta-SCI choose for you." TradeBot SCI supports 28 distinct trading strategies — including the new Forex Conductor with regime-based routing and per-symbol cooldowns. You can assign different strategies to different asset classes, or use Meta-SCI to let the bot pick the best one automatically via tournament-style scoring.', featured: true },
         { filename: 'RTFM/14_READING_THE_SCOREBOARD.md', title: 'Am I Winning? How to Read Your Performance Metrics', category: 'rtfm', icon: 'monitoring', description: '"If you can\'t measure it, you can\'t improve it." So the bot is running. Trades are happening. Numbers are flying across your screen. But what do they actually mean? This guide teaches you the Big Five metrics — Profit Factor, Win Rate, Max Drawdown, R:R, and Expectancy — how to read the dashboard, and when to worry versus when to be patient.' },
         { filename: 'RTFM/11_GHOST_IN_MACHINE.md', title: 'I Think, Therefore I Trade: The AI Decision Engine', category: 'rtfm', icon: 'smart_toy', description: '"I think, therefore I trade." You know the bot trades. But how does it decide? This document explains the Brain (strategy/engine.py), the Strategy Arsenal of 20 distinct weapons, and the Soul — the AI Backup system. The bot isn\'t locked to one strategy. It can assign different strategies per asset class, or use Meta-SCI to choose automatically based on real-time market conditions.' },
         { filename: 'RTFM/12_TIME_MACHINE.md', title: 'I Have to Go Back: The Trinity of Backtesting', category: 'rtfm', icon: 'history', description: '"I have to go back." You have discovered that there are actually three ways to time-travel in this repository. This document explains the Trinity of Backtesting: the Easy Way (GUI Benchmark for normal humans), the Intermediate Way (CLI scripts for power users), and the Hard Way (raw engine calls for developers who want full control over every parameter).' },
@@ -383,6 +383,7 @@ function setupIpcHandlers() {
         { filename: 'RTFM/40_TARGET.md', title: 'The Payout Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Payout card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing. Three states: LOCKED, SHIELDED, and CASHOUT.' },
         { filename: 'RTFM/41_REMOTE_SETUP.md', title: 'Remote Setup: Run the Core on One PC, the GUI on Another', category: 'rtfm', icon: 'lan', description: '"The bot has two halves — a brain and a face." How to run the Python engine on one computer and connect the Electron GUI from a different one. Any OS, any two machines. Kitchen-and-dining-room style.' },
         { filename: 'RTFM/42_TIME_WARP.md', title: 'The Time Warp: Backtesting, Replay & Paper Trading', category: 'rtfm', icon: 'fast_forward', description: '"Imagine if you could simulate that conversation before you had it." The complete guide to the bot\'s three simulation modes: Backtesting (warp-speed historical runs), Replay Mode (60x speed weekend practice), and Paper Trading (live data, fake money). Covers simulated time vs real time, why 1 hour of market time = ~1 minute on your couch, the Payout Mentor, sortable trade history, and why there\'s no Clear button in real life.' },
+        { filename: 'RTFM/45_QUANTITATIVE_STRATEGIES.md', title: '7 Advanced Quantitative Strategies', category: 'rtfm', icon: 'functions', description: '"You don\'t even know how to balance your own checkbook, but suddenly you\'re Jim Simons..." The 7 aggressive quantitative mathematically-driven algorithms translated into terms your grandma would understand.', featured: true },
     ];
 
     try {
@@ -726,40 +727,46 @@ function setupIpcHandlers() {
                     cwd: path.join(__dirname, '../../..'),
                     env: { ...process.env },
                     timeout: 1800000, // 30 min max for long replays
-                    maxBuffer: 1024 * 1024 * 500 // 500 MB max buffer for massive date ranges
+                    maxBuffer: 1024 * 1024 * 500, // 500 MB max buffer for massive date ranges
+                    detached: true // Detach from parent Node thread
                 });
 
-                // ── Stream logs to GUI in real time ───────────────────────────
+                // ── Stream progress to GUI in real time ───────────────────────────
                 let logThrottle = null;
-                let logQueue = [];
+                let progressState = {}; // { SYMBOL: { pct, ticks, total } }
+                
                 proc.stderr.on('data', (data) => {
                     stderrBuf += data.toString();
                     const lines = stderrBuf.split('\n');
                     stderrBuf = lines.pop(); // keep incomplete line buffered
                     
+                    let updated = false;
                     for (const line of lines) {
                         if (!line.trim()) continue;
-                        logQueue.push(line);
-                        // Too verbose for main console during heavy backtests, disabling inner console.log
-                    }
-
-                    // CAP IPC PAYLOAD TO PREVENT V8 OOM
-                    if (logQueue.length > 500) {
-                        const overflow = logQueue.length - 500;
-                        logQueue.splice(0, overflow);
-                        if (logQueue[0] !== "[SYSTEM] ... log output truncated to save memory ...") {
-                           logQueue.unshift("[SYSTEM] ... log output truncated to save memory ...");
+                        
+                        // Look for structured JSON progress from Python
+                        if (line.includes('{"_type": "progress"')) {
+                            try {
+                                // In case there's logging prefix, extract just the JSON
+                                const jsonStr = line.substring(line.indexOf('{'));
+                                const p = JSON.parse(jsonStr);
+                                if (p._type === 'progress') {
+                                    progressState[p.symbol] = p;
+                                    updated = true;
+                                }
+                            } catch (e) {
+                                // hide parse errors
+                            }
                         }
                     }
 
-                    if (!logThrottle && logQueue.length > 0) {
+                    if (updated && !logThrottle) {
                         logThrottle = setTimeout(() => {
-                            if (senderWindow && !senderWindow.isDestroyed() && logQueue.length > 0) {
-                                senderWindow.webContents.send('backtest-progress', logQueue);
+                            if (senderWindow && !senderWindow.isDestroyed()) {
+                                senderWindow.webContents.send('backtest-progress', progressState);
                             }
-                            logQueue = [];
                             logThrottle = null;
-                        }, 50);
+                        }, 250); // 250ms interval prevents freezing UI
                     }
                 });
 

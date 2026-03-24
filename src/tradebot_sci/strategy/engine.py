@@ -125,6 +125,13 @@ class StrategyEngine:
         "crypto_grid":          ("tradebot_sci.strategy.variants.crypto_grid",          "CryptoGridStrategy"),
         "aggregator":           ("tradebot_sci.strategy.variants.aggregator",           "AggregatorStrategy"),
         "forex_conductor":      ("tradebot_sci.strategy.variants.forex_conductor",      "ForexConductorStrategy"),
+        "qs_sma_filter":        ("tradebot_sci.strategy.variants.qs_sma_filter",        "QS_SMAFilterStrategy"),
+        "qs_golden_cross":      ("tradebot_sci.strategy.variants.qs_golden_cross",      "QS_GoldenCrossStrategy"),
+        "qs_rsi_mean_reversion":("tradebot_sci.strategy.variants.qs_rsi_mean_reversion","QS_RSIMeanReversionStrategy"),
+        "qs_3_10_trend":        ("tradebot_sci.strategy.variants.qs_3_10_trend",        "QS_3_10_TrendStrategy"),
+        "qs_tqqq_btal":         ("tradebot_sci.strategy.variants.qs_tqqq_btal",         "QS_TqqqBtalStrategy"),
+        "qs_choppiness":        ("tradebot_sci.strategy.variants.qs_choppiness",        "QS_ChoppinessStrategy"),
+        "qs_first_day_month":   ("tradebot_sci.strategy.variants.qs_first_day_month",   "QS_FirstDayOfMonthStrategy"),
     }
 
     def _instantiate_variant(self, variant: str):

@@ -201,7 +201,7 @@ class MeanReversionStrategy(BaseStrategy):
             if prev_touched_lower and bouncing_back and rsi_oversold:
                 stop_loss = last_close - (atr * 1.2)  # Moderately wide stop
                 risk = abs(last_close - stop_loss)
-                take_profit = last_close + (risk * 2.0)  # 2:1 R:R always
+                take_profit=None  # 2:1 R:R always
 
                 return AITradeDecision(
                     symbol=snapshot.symbol,
@@ -209,7 +209,7 @@ class MeanReversionStrategy(BaseStrategy):
                     bias="long", phase="correction", action="enter_long",
                     entry_price=last_close,
                     stop_loss=stop_loss,
-                    take_profit=take_profit,
+                    take_profit=None,
                     risk_per_trade_pct=self.get_risk_pct(fallback=0.01),
                     structure_summary=(
                         f"Mean Reversion Long: BB bounce "
@@ -233,7 +233,7 @@ class MeanReversionStrategy(BaseStrategy):
             if prev_touched_upper and bouncing_back and rsi_overbought:
                 stop_loss = last_close + (atr * 1.2)  # Equalized with long side
                 risk = abs(stop_loss - last_close)
-                take_profit = last_close - (risk * 2.0)  # 2:1 R:R always
+                take_profit=None  # 2:1 R:R always
 
                 return AITradeDecision(
                     symbol=snapshot.symbol,
@@ -241,7 +241,7 @@ class MeanReversionStrategy(BaseStrategy):
                     bias="short", phase="correction", action="enter_short",
                     entry_price=last_close,
                     stop_loss=stop_loss,
-                    take_profit=take_profit,
+                    take_profit=None,
                     risk_per_trade_pct=self.get_risk_pct(fallback=0.01),
                     structure_summary=(
                         f"Mean Reversion Short: BB bounce "

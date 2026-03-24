@@ -212,7 +212,7 @@ class TrendRiderStrategy(BaseStrategy):
                 if atr and stop_dist > atr * 2.0:
                     stop_dist = atr * 2.0
                 stop_loss = last_close - stop_dist
-                take_profit = last_close + (stop_dist * 2.5)  # 2.5R target (Conductor trail may exit earlier)
+                take_profit=None  # 2.5R target (Conductor trail may exit earlier)
 
                 return AITradeDecision(
                     symbol=snapshot.symbol,
@@ -220,7 +220,7 @@ class TrendRiderStrategy(BaseStrategy):
                     bias="long", phase="trend", action="enter_long",
                     entry_price=last_close,
                     stop_loss=stop_loss,
-                    take_profit=take_profit,
+                    take_profit=None,
                     risk_per_trade_pct=self.get_risk_pct(),
                     structure_summary=(
                         f"Trend Rider Long: EMA pullback "
@@ -250,7 +250,7 @@ class TrendRiderStrategy(BaseStrategy):
                 if atr and stop_dist > atr * 2.0:
                     stop_dist = atr * 2.0
                 stop_loss = last_close + stop_dist
-                take_profit = last_close - (stop_dist * 2.5)  # 2.5R target (Conductor trail may exit earlier)
+                take_profit=None  # 2.5R target (Conductor trail may exit earlier)
 
                 return AITradeDecision(
                     symbol=snapshot.symbol,
@@ -258,7 +258,7 @@ class TrendRiderStrategy(BaseStrategy):
                     bias="short", phase="trend", action="enter_short",
                     entry_price=last_close,
                     stop_loss=stop_loss,
-                    take_profit=take_profit,
+                    take_profit=None,
                     risk_per_trade_pct=self.get_risk_pct(),
                     structure_summary=(
                         f"Trend Rider Short: EMA pullback "

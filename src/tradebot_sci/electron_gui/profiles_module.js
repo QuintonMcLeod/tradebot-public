@@ -76,7 +76,16 @@ window.profilesModule = (function () {
         { value: 'crypto_rsi_macd', label: '🪙 RSI + MACD (Crypto)' },
         { value: 'crypto_vwap_reversion', label: '🪙 VWAP Reversion (Crypto)' },
         { value: 'crypto_double_macd', label: '🪙 Double MACD Scalper (Crypto)' },
-        { value: 'crypto_grid', label: '🪙 Virtual Grid (Crypto)' }
+        { value: 'crypto_grid', label: '🪙 Virtual Grid (Crypto)' },
+        
+        // 📈 Advanced Quantitative Strategies
+        { value: 'qs_sma_filter', label: 'QS 200-SMA Filter' },
+        { value: 'qs_golden_cross', label: 'QS Golden Cross' },
+        { value: 'qs_rsi_mean_reversion', label: 'QS RSI-2 Mean Reversion' },
+        { value: 'qs_3_10_trend', label: 'QS 3/10 Trend Follower' },
+        { value: 'qs_tqqq_btal', label: 'QS TQQQ/BTAL Rebalancer' },
+        { value: 'qs_choppiness', label: 'QS Choppiness Index' },
+        { value: 'qs_first_day_month', label: 'QS Seasonal First DOM' }
     ];
 
     const TIMEFRAME_OPTIONS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];

@@ -114,7 +114,7 @@ class SupplyDemandStrategy(BaseStrategy):
                 stop_loss = zone.bottom - (atr * 0.1)  # Proven: tight to zone (5-10 pips)
                 risk_dist = last_candle.close - stop_loss
                 if risk_dist <= 0: risk_dist = atr * 0.5
-                take_profit = last_candle.close + (risk_dist * self.RR_TARGET)
+                take_profit=None
 
                 action = "enter_long"
                 if open_position:
@@ -141,7 +141,7 @@ class SupplyDemandStrategy(BaseStrategy):
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias="long", phase="trend", action=action,
-                    entry_price=last_candle.close, stop_loss=stop_loss, take_profit=take_profit,
+                    entry_price=last_candle.close, stop_loss=stop_loss, take_profit=None,
                     risk_per_trade_pct=self.get_risk_pct(),
                     structure_summary=f"SND: Demand Zone Tap & Break (BOS at idx {zone.bos_index})",
                     invalidation_conditions="Zone Break / Structure Invalidation",
@@ -167,7 +167,7 @@ class SupplyDemandStrategy(BaseStrategy):
                 stop_loss = zone.top + (atr * 0.1)  # Proven: tight to zone (5-10 pips)
                 risk_dist = stop_loss - last_candle.close
                 if risk_dist <= 0: risk_dist = atr * 0.5
-                take_profit = last_candle.close - (risk_dist * self.RR_TARGET)
+                take_profit=None
 
                 action = "enter_short"
                 if open_position:
@@ -194,7 +194,7 @@ class SupplyDemandStrategy(BaseStrategy):
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                     bias="short", phase="trend", action=action,
-                    entry_price=last_candle.close, stop_loss=stop_loss, take_profit=take_profit,
+                    entry_price=last_candle.close, stop_loss=stop_loss, take_profit=None,
                     risk_per_trade_pct=self.get_risk_pct(),
                     structure_summary=f"SND: Supply Zone Tap & Break (BOS at idx {zone.bos_index})",
                     invalidation_conditions="Zone Break / Structure Invalidation",

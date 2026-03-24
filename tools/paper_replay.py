@@ -966,6 +966,28 @@ def _worker_replay_symbol(args: tuple) -> dict:
             if current_bar_ts != _last_bar_ts:
                 _last_bar_ts = current_bar_ts
                 time.sleep(1.0 / speed)
+                
+        # Emit progress JSON for UI
+        if tick_count % 250 == 0:
+            pct = int((tick_count / len(obs_list)) * 100)
+            import json as _json
+            print(_json.dumps({
+                "_type": "progress",
+                "symbol": sym,
+                "pct": pct,
+                "ticks": tick_count,
+                "total": len(obs_list)
+            }), flush=True, file=sys.stderr)
+
+    # Emit final 100%
+    import json as _json
+    print(_json.dumps({
+        "_type": "progress",
+        "symbol": sym,
+        "pct": 100,
+        "ticks": tick_count,
+        "total": len(obs_list)
+    }), flush=True, file=sys.stderr)
 
     elapsed = time.perf_counter() - start_real
 
@@ -1018,7 +1040,7 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
     logger.info(f"[REPLAY] Symbols: {', '.join(available_syms)}")
 
     # ── Load observations ──────────────────────────────────────────────
-    fetch_start = start_dt - timedelta(days=35)
+    fetch_start = start_dt - timedelta(days=50)
     all_obs = load_observations(available_syms, fetch_start, end_dt, api_fallback=True)
     if not all_obs:
         logger.error("[REPLAY] No observations loaded — nothing to replay.")
@@ -1253,11 +1275,16 @@ def main():
     args = parser.parse_args()
 
     # Resolve date range
+    def parse_cli_date(d_str: str) -> datetime:
+        try:
+            return datetime.strptime(d_str, "%Y-%m-%d")
+        except ValueError:
+            return datetime.strptime(d_str, "%m/%d/%Y")
+
     if args.start_date:
         try:
-            start_dt = datetime.strptime(args.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            end_dt = datetime.strptime(args.end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) \
-                if args.end_date else datetime.now(timezone.utc)
+            start_dt = parse_cli_date(args.start_date).replace(tzinfo=timezone.utc)
+            end_dt = parse_cli_date(args.end_date).replace(tzinfo=timezone.utc) if args.end_date else datetime.now(timezone.utc)
         except ValueError as e:
             logger.error(f"Invalid date format: {e}")
             sys.exit(1)

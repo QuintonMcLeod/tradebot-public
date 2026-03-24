@@ -1004,9 +1004,14 @@ class Backtester:
 
                         risk_dist = abs(pos.entry_price - pos.stop_price)
 
+                        # Guillotine should ONLY apply to fresh, unmanaged trades.
+                        # If we have Pyramided, the average entry price is shifted, making the fixed -0.15R cut dangerously close to current price.
+                        pyramided = getattr(pos, 'pyramid_count', 0) > 0
+                        trailed = getattr(pos, 'stop_was_trailed', False)
+                        
                         # Price levels that correspond to each R threshold
-                        t1_active = t1_r < 0
-                        t2_active = t2_r < 0
+                        t1_active = (t1_r < 0) and not pyramided
+                        t2_active = (t2_r < 0) and not pyramided
 
                         if pos.direction == "long":
                             t1_price = pos.entry_price + risk_dist * t1_r   # e.g. entry - 0.15R
@@ -1078,15 +1083,20 @@ class Backtester:
                     if min_hold_seconds > 0 and held_seconds < min_hold_seconds:
                         continue
 
-                    # Stop can ONLY trigger if the candle actually traded at the stop price.
-                    stop_in_range = current_bar.low <= pos.stop_price <= current_bar.high
-                    stop_hit = stop_in_range and (
-                        (pos.direction == "long" and current_bar.low <= pos.stop_price) or
-                        (pos.direction == "short" and current_bar.high >= pos.stop_price)
-                    )
+                    # Stop triggers if low/high breaches it, EVEN IF IT GAPPED (stop_in_range is too restrictive)
+                    if pos.direction == "long":
+                        stop_hit = current_bar.low <= pos.stop_price
+                    else:
+                        stop_hit = current_bar.high >= pos.stop_price
+                        
                     if stop_hit:
-                        # Final stop on whatever remnant remains
-                        exit_price = pos.stop_price
+                        # If price gapped past stop, we exit at the open price (slippage)
+                        if pos.direction == "long" and current_bar.open < pos.stop_price:
+                            exit_price = current_bar.open
+                        elif pos.direction == "short" and current_bar.open > pos.stop_price:
+                            exit_price = current_bar.open
+                        else:
+                            exit_price = pos.stop_price
                         pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                         capital += pnl
                         completed_trades.append(SimulatedTrade(
@@ -1900,35 +1910,11 @@ class Backtester:
                             # (e.g. $0.037 instead of $1.18 → phantom -$264K PnL).
                             MIN_PYRAMID_BASE = 10
                             if current_position.size < MIN_PYRAMID_BASE:
-                                exit_price = snapshot.candles[-1].close
-                                dust_pnl = _calculate_pnl(
-                                    current_position.entry_price, exit_price,
-                                    current_position.size, current_position.direction,
-                                    symbol=symbol,
-                                )
-                                capital += dust_pnl
-                                completed_trades.append(SimulatedTrade(
-                                    symbol=symbol,
-                                    direction=current_position.direction,
-                                    entry_price=current_position.entry_price,
-                                    exit_price=exit_price,
-                                    size=current_position.size,
-                                    entry_time=current_position.entry_time,
-                                    exit_time=current_time,
-                                    pnl=dust_pnl + getattr(current_position, "cumulative_partial_pnl", 0.0),
-                                    exit_reason="dust_before_pyramid",
-                                    entry_gates=getattr(current_position, "entry_gates", None),
-                                    strategy_name=getattr(current_position, 'strategy_name', 'unknown'),
-                                ))
-                                pos_key = next((k for k, v in positions.items() if v is current_position), None)
-                                if pos_key:
-                                    del positions[pos_key]
                                 logger.info(
-                                    f"[BACKTEST] {symbol} DUST GUARD (pre-pyramid): closed {current_position.size:.0f} "
-                                    f"dust units @ ${exit_price:.6f}, PnL=${dust_pnl:.2f}"
+                                    f"[BACKTEST] {symbol} DUST GUARD (pre-pyramid): position {current_position.size:.0f} "
+                                    f"too small to scale. Skipping pyramid."
                                 )
-                                current_position = None
-                                # Fall through to new entry logic below (don't pyramid onto dust)
+                                # Do not close the winning position! Just skip the addition.
                                 continue
 
                             add_price = snapshot.candles[-1].close
@@ -2439,6 +2425,12 @@ class Backtester:
                                 logger.info(
                                     f"[BACKTEST] {symbol}{sub_tag} ENTRY {decision.action.upper()} @ ${entry_price:.2f}, "
                                     f"size={size:.2f}, stop=${stop_price:.2f}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"[BACKTEST] {symbol} ENTRY BLOCKED (size <= 0): "
+                                    f"max_risk=${max_risk:.4f}, rps=${risk_per_share:.5f}, "
+                                    f"price=${entry_price:.5f}, size={size:.4f}, raw={raw_size:.4f}"
                                 )
 
                     except Exception as e:

@@ -1325,13 +1325,15 @@ def run_bot(
             
             is_scheduled, paper_trade_off_hours = get_schedule_status(profile_name, now, settings)
             sabbath_active, _, _ = sabbath_context.evaluate(now)
+            true_sabbath_active = sabbath_active
 
-            # If not scheduled but off-hours paper trading is allowed, force Sabbath mode
+            # If not scheduled but off-hours paper trading is allowed, force swap to paper broker
+            force_paper_broker = False
             if not is_scheduled and paper_trade_off_hours:
-                sabbath_active = True
+                force_paper_broker = True
 
-            if sabbath_active and executor_paper and executor != executor_paper:
-                logger.info("[SABBATH] Sabbath/Off-Hours active! Swapping to local Paper Trading for total silence.")
+            if (sabbath_active or force_paper_broker) and executor_paper and executor != executor_paper:
+                logger.info("[PAPER] Sabbath/Off-Hours active! Swapping to local Paper Trading for total silence.")
                 executor = executor_paper
 
             # Activate replay mode for paper trading based on UI configuration.
@@ -1339,7 +1341,7 @@ def run_bot(
             if not execute_trades and paper_sim_enabled:
                 if paper_replay_mode:
                     _want_replay = True
-                elif sabbath_active and sabbath_replay_mode:
+                elif true_sabbath_active and sabbath_replay_mode:
                     _want_replay = True
             if _want_replay and executor == executor_paper and replay_provider is None:
                 if paper_synthetic_mode or _replay_data_dir.is_dir():

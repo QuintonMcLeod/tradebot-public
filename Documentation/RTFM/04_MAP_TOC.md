@@ -65,7 +65,14 @@
 │       │       ├── hyper_scalper.py         # HyperScalper (EMA Crossover)
 │       │       ├── london_breakout.py      # London Breakout
 │       │       ├── breakout.py             # Volatility Breakout
-│       │       └── aggregator.py           # Multi-Strategy Parallel
+│       │       ├── aggregator.py           # Multi-Strategy Parallel
+│       │       ├── qs_sma_filter.py        # 📈 QS 200-SMA Filter
+│       │       ├── qs_golden_cross.py      # 📈 QS Golden Cross
+│       │       ├── qs_rsi_mean_reversion.py# 📈 QS RSI-2 Mean Reversion
+│       │       ├── qs_3_10_trend.py        # 📈 QS 3/10 Trend Follower
+│       │       ├── qs_tqqq_btal.py         # 📈 QS TQQQ/BTAL Rebalancer
+│       │       ├── qs_choppiness.py        # 📈 QS Choppiness Index
+│       │       └── qs_first_day_month.py   # 📈 QS Seasonal First DOM
 │       │
 │       ├── ai/                 # The Soul (AI Commentary)
 │       │   ├── client.py       # AI provider connections
@@ -124,7 +131,8 @@
 │       ├── 10_THE_ANCIENT_OATHS.md # AI Guidelines
 │       ├── 11_GHOST_IN_MACHINE.md  # AI & Strategy Logic
 │       ├── 12_TIME_MACHINE.md      # Backtesting
-│       └── 13_ENV_VARS.md          # Environment Variables Reference
+│       ├── 13_ENV_VARS.md          # Environment Variables Reference
+│       └── 45_QUANTITATIVE_STRATEGIES.md # 📈 7 Advanced Algorithms Explained
 │
 ├── logs/                       # Where the bot screams into the void
 │   └── tradebot.log            # The main log file

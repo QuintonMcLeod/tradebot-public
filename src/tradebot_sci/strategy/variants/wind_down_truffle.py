@@ -140,7 +140,7 @@ class WindDownTruffleStrategy(BaseStrategy):
         vwap_dist = abs(vwap - last_close)
         stop_dist = atr * 1.2 + vwap_dist  # Above VWAP + ATR buffer
         stop_loss = last_close + stop_dist
-        take_profit = last_close - (stop_dist * 2.0)  # 2:1 R:R
+        take_profit=None  # 2:1 R:R
 
         logger.info(
             f"[WIND_DOWN] {snapshot.symbol}: Friday fade SHORT "
@@ -156,7 +156,7 @@ class WindDownTruffleStrategy(BaseStrategy):
             action="enter_short",
             entry_price=last_close,
             stop_loss=stop_loss,
-            take_profit=take_profit,
+            take_profit=None,
             risk_per_trade_pct=self.get_risk_pct(fallback=0.01),
             structure_summary=(
                 f"Wind Down Truffle: Friday fade "

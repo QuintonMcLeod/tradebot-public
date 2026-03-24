@@ -155,8 +155,14 @@ class SafetyGuard:
         Runs ALL pre-entry checks.
         Returns a stand_aside_decision if unsafe. Returns None if safe to proceed.
         """
-        now = datetime.now()
-        est_now = datetime.now(ZoneInfo("America/New_York"))
+        if snapshot and snapshot.candles:
+            now = snapshot.candles[-1].timestamp
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=timezone.utc)
+        else:
+            now = datetime.now(timezone.utc)
+            
+        est_now = now.astimezone(ZoneInfo("America/New_York"))
         asset_class = classify_symbol(symbol)
         safety = getattr(settings, 'safety', None) if settings else None
 
@@ -183,24 +189,25 @@ class SafetyGuard:
         # 0.5 EXIT COOLDOWN (per-symbol, prevents death spiral re-entry)
         # -------------------------------------------------------------
         cooldown_until = cls._state.symbol_exit_cooldown.get(symbol)
-        if cooldown_until and now < cooldown_until:
-            remaining = int((cooldown_until - now).total_seconds())
-            return cls._reject(symbol, timeframe, "Exit Cooldown", f"Exit Cooldown: {remaining}s remaining (no re-entry within 5 min of exit)")
-        elif cooldown_until:
-            del cls._state.symbol_exit_cooldown[symbol]  # Expired
+        if cooldown_until:
+            if cooldown_until.tzinfo is None:
+                cooldown_until = cooldown_until.replace(tzinfo=timezone.utc)
+            if now < cooldown_until:
+                remaining = int((cooldown_until - now).total_seconds())
+                return cls._reject(symbol, timeframe, "Exit Cooldown", f"Exit Cooldown: {remaining}s remaining (no re-entry within 5 min of exit)")
+            else:
+                del cls._state.symbol_exit_cooldown[symbol]  # Expired
 
         # -------------------------------------------------------------
         # 0.6 REGIME FLIP COOLDOWN (prevents flip→SAR→flip churn)
         # -------------------------------------------------------------
         rf_cooldown = cls._state.regime_flip_cooldown.get(symbol)
         if rf_cooldown:
-            # Normalise both to tz-aware (UTC) to avoid naive/aware comparison crash
-            _rf = rf_cooldown if rf_cooldown.tzinfo else rf_cooldown.replace(tzinfo=timezone.utc)
-            # Fix: Since `now` is local naive, replacing it with UTC makes it offset by the local hour difference.
-            # Convert to UTC properly (e.g. from local EST -> UTC)
-            _now = datetime.now(timezone.utc)
-            if _now < _rf:
-                remaining = int((_rf - _now).total_seconds())
+            # Normalise to tz-aware (UTC) to avoid naive/aware comparison crash
+            if rf_cooldown.tzinfo is None:
+                rf_cooldown = rf_cooldown.replace(tzinfo=timezone.utc)
+            if now < rf_cooldown:
+                remaining = int((rf_cooldown - now).total_seconds())
                 return cls._reject(symbol, timeframe, "Regime Flip Cooldown", f"Regime Flip Cooldown: {remaining}s remaining (no re-entry within 3 min of regime flip)")
             else:
                 del cls._state.regime_flip_cooldown[symbol]  # Expired
@@ -244,8 +251,11 @@ class SafetyGuard:
         if safety and safety.safety_drawdown_breaker_enabled:
             # Check active pause
             pause_until = cls._state.drawdown_pause_until.get(asset_class)
-            if pause_until and now < pause_until:
-                return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker ({asset_class.value.upper()}) active until {pause_until.strftime('%H:%M')}")
+            if pause_until:
+                if pause_until.tzinfo is None:
+                    pause_until = pause_until.replace(tzinfo=timezone.utc)
+                if now < pause_until:
+                    return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker ({asset_class.value.upper()}) active until {pause_until.strftime('%H:%M')}")
 
             # Skip drawdown trigger check if a deposit was just detected.
             # The HWM may have been set with aggregate capital from one
@@ -340,7 +350,10 @@ class SafetyGuard:
         if safety and safety.safety_streak_breaker_enabled:
             # Check Active Pause
             if symbol in cls._state.symbol_pause_until:
-                if now < cls._state.symbol_pause_until[symbol]:
+                sym_pause = cls._state.symbol_pause_until[symbol]
+                if sym_pause.tzinfo is None:
+                    sym_pause = sym_pause.replace(tzinfo=timezone.utc)
+                if now < sym_pause:
                      return cls._reject(symbol, timeframe, "Streak Breaker", "Streak Breaker Cooldown Active")
                 else:
                     del cls._state.symbol_pause_until[symbol] # Expired
@@ -1064,23 +1077,28 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # Read from profile settings first, then decision, then fallback.
         # This ensures the user's configured risk_per_trade_pct is actually respected.
-        profile_risk = getattr(settings, 'risk_per_trade_pct', None) if settings else None
-        auto_risk = getattr(settings, 'risk_dynamic_auto', False) if settings else False
+        profile = settings.get_active_profile() if settings else None
+        profile_risk = decision.risk_per_trade_pct or getattr(profile, 'risk_per_trade_pct', 0.01)
+        auto_risk = getattr(profile, 'risk_dynamic_auto', False) if profile else False
 
         if auto_risk:
             # Dynamic Auto Risk Logic
-            dyn_risk = 0.01  # Default Base 1%
+            dyn_risk = 0.015  # Default Base 1.5%
             
             # Score-based Risk Scaling
             if score >= 90:
-                dyn_risk = 0.05  # 5% for A+ trades
+                dyn_risk = 0.10  # 10% for A+ trades
+            elif score >= 85:
+                dyn_risk = 0.08  # 8% for strong trades
             elif score >= 80:
-                dyn_risk = 0.04  # 4% for B+ trades
+                dyn_risk = 0.05  # 5% for B+ trades
+            elif score >= 75:
+                dyn_risk = 0.03  # 3% for C+ trades
             elif score >= 70:
-                dyn_risk = 0.02  # 2% for standard C+ trades
+                dyn_risk = 0.02  # 2% for standard trades
                 
             # Supplemental Adjustments (only if not an absolute A+/B+ setup to avoid blowing limits)
-            if score < 80:
+            if score < 85:
                 # Boost based on trend alignment
                 if htf_strength >= 0.7: dyn_risk += 0.01
                 elif htf_strength <= 0.3: dyn_risk -= 0.005
@@ -1095,7 +1113,7 @@ class SafetyGuard:
                         # If low volatility (compression), allow slightly more risk
                         elif atr_pct < 0.002: dyn_risk += 0.005
                         
-            base_risk = max(0.005, min(dyn_risk, 0.05))
+            base_risk = max(0.005, min(dyn_risk, 0.10))
             decision.notes = (decision.notes or "") + f" [AUTO RISK] {base_risk*100:.1f}%"
         else:
             base_risk = decision.risk_per_trade_pct or profile_risk or 0.015 
@@ -1293,12 +1311,12 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # 3. THE CLAMP (Nuclear Limiter)
         # -------------------------------------------------------------
-        risk_cap = 0.05 # Default hard wall
+        risk_cap = 0.10 # Default hard wall
         if hasattr(snapshot, 'profile') and snapshot.profile:
             if getattr(snapshot.profile, 'nuclear_overrides_enabled', False):
-                risk_cap = getattr(snapshot.profile, 'max_risk_cap_override', 0.05)
+                risk_cap = getattr(snapshot.profile, 'max_risk_cap_override', 0.10)
                 # Only log warning if we are actually capped or nearing it
-                if decision.risk_per_trade_pct > 0.05:
+                if decision.risk_per_trade_pct > 0.10:
                     logger.warning(f"☢️ [NUCLEAR] Risk scaling allowed up to {risk_cap*100:.1f}%")
 
         if decision.risk_per_trade_pct > risk_cap:

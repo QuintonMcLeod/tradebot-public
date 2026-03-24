@@ -1,6 +1,6 @@
-# 09. 21 Weapons of War: The Complete Strategy Arsenal
+# 09. 28 Weapons of War: The Complete Strategy Arsenal
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I want to understand the strategies! There's like... twenty-one of them? Which one do I pick? This is like being at a buffet where everything is labeled in a language I don't speak."</td></tr></table>
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I want to understand the strategies! There's like... twenty-eight of them? Which one do I pick? This is like being at a buffet where everything is labeled in a language I don't speak."</td></tr></table>
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You don't pick! Why would you pick? I spent months building Meta-SCI so you don't have to make decisions that you are completely unqualified to make! But fine, since you want to look at the shiny toys, let me walk you through the catalog. You don't need to touch them, just look at them and appreciate the engineering!"</td></tr></table>
 
@@ -56,11 +56,23 @@
 |----------|-----|-------|----------|
 | 📈 **Forex Conductor** | `forex_conductor` | Regime-Based Router (SAR + Pyramiding) | Forex trending — per-symbol cooldowns, cost-aware TP |
 
+### Advanced Quantitative Strategies
+
+| Strategy | Key | Style | Best For |
+|----------|-----|-------|----------|
+| **QS 200-SMA Filter** | `qs_sma_filter` | Regime Filter | Capital preservation in bear markets |
+| **QS Golden Cross** | `qs_golden_cross` | Long-term Trend | Catching massive multi-month bull runs |
+| **QS RSI-2 Mean Rev** | `qs_rsi_mean_reversion` | Mean Reversion | Buying aggressive dips in an uptrend |
+| **QS 3/10 Trend** | `qs_3_10_trend` | Macro Trend | Lazy, slow multi-month investing |
+| **QS TQQQ/BTAL** | `qs_tqqq_btal` | Rebalancing | Monthly index fund management |
+| **QS Choppiness** | `qs_choppiness` | Measurement Filter | Checking if market is actually moving |
+| **QS Seasonal FDOM** | `qs_first_day_month` | Seasonal / Calendar | Front-running institutional beginning-of-month cash |
+
 ---
 
 ## 1. Meta-SCI — The Adaptive Ensemble ⭐
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Why would you commit to one strategy? That's insane! The bot can run twenty-one options in the time it takes you to blink! It's literally putting 21 traders in a cage match and only paying the one who wins. It's brutal, it's efficient, and it doesn't complain about the air conditioning!"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Why would you commit to one strategy? That's insane! The bot can run twenty-eight options in the time it takes you to blink! It's literally putting 28 traders in a cage match and only paying the one who wins. It's brutal, it's efficient, and it doesn't complain about the air conditioning!"</td></tr></table>
 
 ### How the Tournament Works
 
@@ -451,7 +463,7 @@ risk_per_trade_pct: 0.01  # 1% risk only
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Usually? No. More often, the market is garbage and the bot is protecting you from yourself. A day with zero trades can be the <em>best</em> outcome. Standing aside IS a position. The most profitable position of all."</td></tr></table>
 
-29. **"One strategy should work everywhere"** — Wrong. That's why there are 20. Use Meta-SCI.
+29. **"One strategy should work everywhere"** — Wrong. That's why there are 28. Use Meta-SCI.
 
 30. **"Meta-SCI is slower because it runs multiple strategies"** — Wrong. Tournament runs in milliseconds.
 
@@ -547,4 +559,4 @@ risk_per_trade_pct: 0.01  # 1% risk only
 
 ---
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"There you go. 20 weapons and 62 myths destroyed. The market doesn't care about your feelings. It only respects your edge. Pick the right strategy for the right market — or let Meta-SCI pick for you — and let math do the rest.<br><br>And if you're still not sure which strategy to use after reading all of this? <b>Meta-SCI.</b> I can't say it enough times. <em>Meta-SCI.</em>"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"There you go. 28 weapons and 62 myths destroyed. The market doesn't care about your feelings. It only respects your edge. Pick the right strategy for the right market — or let Meta-SCI pick for you — and let math do the rest.<br><br>And if you're still not sure which strategy to use after reading all of this? <b>Meta-SCI.</b> I can't say it enough times. <em>Meta-SCI.</em>"</td></tr></table>

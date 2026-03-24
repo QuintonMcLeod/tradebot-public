@@ -90,7 +90,7 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
                     bias="long", phase="continuation", action="scale_in",
                     entry_price=last_close,
                     stop_loss=open_position.get("stop_loss"),
-                    take_profit=open_position.get("take_profit"),
+                    take_profit=None,
                     risk_per_trade_pct=self.get_risk_pct(),
                     structure_summary=f"Double MACD Scale-in (SlowH={slow_hist:.6f})",
                     invalidation_conditions=f"Stop at {open_position.get('stop_loss')}",
@@ -103,7 +103,7 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
                     bias="short", phase="continuation", action="scale_in",
                     entry_price=last_close,
                     stop_loss=open_position.get("stop_loss"),
-                    take_profit=open_position.get("take_profit"),
+                    take_profit=None,
                     risk_per_trade_pct=self.get_risk_pct(),
                     structure_summary=f"Double MACD Scale-in (SlowH={slow_hist:.6f})",
                     invalidation_conditions=f"Stop at {open_position.get('stop_loss')}",
@@ -120,7 +120,7 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
         if htf_dir in ("long", "neutral") and slow_hist > 0 and fast_bull_cross and rsi < self.rsi_pullback_high:
             stop_dist = atr * 1.0  # Tight for scalping
             stop_loss = last_close - stop_dist
-            take_profit = last_close + (stop_dist * 1.5)  # 1.5:1 RR for quick exits
+            take_profit=None  # 1.5:1 RR for quick exits
 
             score = 60
             if rsi < self.rsi_pullback_low:
@@ -131,7 +131,7 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                 bias="long", phase="trend", action="enter_long",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
+                entry_price=last_close, stop_loss=stop_loss, take_profit=None,
                 risk_per_trade_pct=self.get_risk_pct(),
                 structure_summary=f"Double MACD Long (SlowH={slow_hist:.6f}, FastX ✓, RSI={rsi:.1f})",
                 invalidation_conditions=f"Close below {stop_loss:.5f}",
@@ -145,7 +145,7 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
         if htf_dir in ("short", "neutral") and slow_hist < 0 and fast_bear_cross and rsi > self.rsi_pullback_low:
             stop_dist = atr * 1.0
             stop_loss = last_close + stop_dist
-            take_profit = last_close - (stop_dist * 1.5)
+            take_profit=None
 
             score = 60
             if rsi > self.rsi_pullback_high:
@@ -156,7 +156,7 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                 bias="short", phase="trend", action="enter_short",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
+                entry_price=last_close, stop_loss=stop_loss, take_profit=None,
                 risk_per_trade_pct=self.get_risk_pct(),
                 structure_summary=f"Double MACD Short (SlowH={slow_hist:.6f}, FastX ✓, RSI={rsi:.1f})",
                 invalidation_conditions=f"Close above {stop_loss:.5f}",

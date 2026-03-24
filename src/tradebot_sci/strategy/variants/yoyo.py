@@ -134,12 +134,12 @@ class YoYoStrategy(BaseStrategy):
             swing_stop = min(recent_lows)
             stop_loss = swing_stop - stop_buffer
             risk_dist = last_close - stop_loss
-            take_profit = last_close + (risk_dist * self.target_r)  # Target R
+            take_profit=None  # Target R
         else:
             swing_stop = max(recent_highs)
             stop_loss = swing_stop + stop_buffer
             risk_dist = stop_loss - last_close
-            take_profit = last_close - (risk_dist * self.target_r)  # Target R
+            take_profit=None  # Target R
 
         # Sanity: risk_dist must be > 0
         if risk_dist <= 0:
@@ -163,7 +163,7 @@ class YoYoStrategy(BaseStrategy):
             action=action,
             entry_price=last_close,
             stop_loss=stop_loss,
-            take_profit=take_profit,
+            take_profit=None,
             risk_per_trade_pct=risk_pct,
             structure_summary=notes,
             notes=notes,

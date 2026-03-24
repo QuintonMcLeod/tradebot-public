@@ -416,6 +416,8 @@ def process_candidate_cycle(
                 # ── OPPORTUNITY COST EVICTION ──────────────────────────
                 if decision.action in ("enter_long", "enter_short", "go_long", "go_short"):
                     max_concurrent = getattr(profile_settings, "max_open_positions", 2)
+                    if max_concurrent is None:
+                        max_concurrent = 2
                     open_positions = executor.list_open_position_symbols() if hasattr(executor, 'list_open_position_symbols') else []
                     if len(open_positions) >= max_concurrent:
                         evict_min_hold = int(getattr(profile_settings, 'eviction_min_hold_minutes', 30)) * 60
