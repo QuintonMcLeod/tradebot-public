@@ -98,18 +98,12 @@ class OandaExchangeBroker(IExchangeBroker):
         try:
             self._discover_and_validate_account(environment)
         except Exception as e:
-            err_msg = str(e).lower()
-            if "authorization" in err_msg or "403" in err_msg or "insufficient" in err_msg:
-                logger.warning(
-                    f"[OANDA] ⚠ API key authorization failed — OANDA broker DISABLED. "
-                    f"Check: (1) API key is valid, (2) environment is correct "
-                    f"(configured: '{environment}', try 'practice' if using demo account), "
-                    f"(3) key has not expired."
-                )
-                self._authorized = False
-                return
-            else:
-                logger.error(f"[OANDA] Account discovery failed: {e}")
+            logger.error(f"[OANDA] ⚠ Account connection failed or credentials invalid: {e}")
+            self._authorized = False
+
+        if not self._authorized or self._liquid_capital == 0:
+            logger.warning("[OANDA] ⚠ Could not validate or discover a funded OANDA account id. Broker will be marked unauthorized.")
+            self._authorized = False
 
         if self._authorized:
             self._bootstrap_tracked_positions()
@@ -190,9 +184,8 @@ class OandaExchangeBroker(IExchangeBroker):
 
         except Exception as e:
             logger.error(f"[OANDA] Account discovery failed: {e}")
-            # If we have an account_id, try it anyway
-            if self.account_id and self._liquid_capital == 0:
-                self.refresh_account_summary()
+            self._authorized = False
+            raise RuntimeError(f"Failed to discover funded accounts: {e}")
 
     def sync_profile(self, profile: TradingProfileSettings) -> None:
         """Update internal profile pointer to latest settings (Hot-Reload)."""
@@ -466,9 +459,10 @@ class OandaExchangeBroker(IExchangeBroker):
             logger.info(f"[OANDA] Account Summary: Balance={balance}, NAV={nav}, Capital=${self._liquid_capital:.2f}")
         except Exception as e:
             err_msg = str(e).lower()
-            if "authorization" in err_msg or "403" in err_msg or "insufficient" in err_msg:
-                logger.debug(f"[OANDA] Account summary skipped (authorization issue)")
+            if "authorization" in err_msg or "403" in err_msg or "invalid value" in err_msg or "insufficient" in err_msg:
+                logger.error(f"[OANDA] Account summary authorization failed: {e}")
                 self._authorized = False
+                raise RuntimeError(f"OANDA API key or Account ID is rejected by server: {e}")
             else:
                 logger.error(f"[OANDA] Failed to refresh account summary: {e}")
 

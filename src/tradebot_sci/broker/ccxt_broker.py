@@ -144,6 +144,7 @@ class CCXTExchangeBroker:
 
 
         self._exchange = self._build_exchange()
+        self._authorized = True
         self._local_orders: dict[str, _LocalOrder] = {}
         self._consecutive_errors = 0
         self._last_error_ts: float | None = None
@@ -805,7 +806,12 @@ class CCXTExchangeBroker:
             return amount
             
         except Exception as exc:
-            logger.warning("[CCXT] get_liquid_capital failed: %s", exc)
+            err_msg = str(exc).lower()
+            if "authentication" in err_msg or "unauthorized" in err_msg or "invalid key" in err_msg or isinstance(exc, ccxt.AuthenticationError):
+                logger.error("[CCXT] ⚠ API key authorization failed: %s", exc)
+                self._authorized = False
+            else:
+                logger.warning("[CCXT] get_liquid_capital failed: %s", exc)
             return 0.0
 
     def get_total_balance_value(self) -> float:

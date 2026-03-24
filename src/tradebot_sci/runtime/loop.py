@@ -817,6 +817,32 @@ def run_bot(
         else None
     )
 
+    if executor_real:
+        # ── Preflight Authorization Check ──
+        # Force a connection test to ensure at least one underlying broker is authenticated.
+        _auth_count = 0
+        try:
+            executor_real.refresh_account_summary()
+            executor_real.get_liquid_capital()  # forces CCXT to fetch balance
+        except Exception:
+            pass
+
+        if hasattr(executor_real, "brokers"):
+            # Routed broker
+            for _b in set(executor_real.brokers.values()):
+                if type(_b).__name__ != "NoOpExchangeBroker":
+                    if getattr(_b, "_authorized", True):
+                        _auth_count += 1
+        else:
+            # Single broker
+            if type(executor_real).__name__ != "NoOpExchangeBroker":
+                if getattr(executor_real, "_authorized", True):
+                    _auth_count += 1
+        
+        if _auth_count == 0:
+            logger.critical("[PREFLIGHT] ❌ FATAL: All configured tracking brokers failed authentication (no API data). Halting bot.")
+            import sys; sys.exit(2)
+
     # ── Paper Broker ──
     # Create PaperBroker if:
     #   (a) execute_trades is disabled (user wants paper/simulation mode), OR
