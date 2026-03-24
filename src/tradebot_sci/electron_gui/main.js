@@ -2105,12 +2105,13 @@ function createWindow() {
         // so the daemon doesn't die waiting for interactive stdin confirmation.
         let spawnCmd = isWindows()
             ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" scripts/run_dev_bot.py --daemon`
-            : `TRADING_CONFIRMATION=YES bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon`;
+            : `bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);
         fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
 
-        exec(spawnCmd, (error, stdout, stderr) => {
+        const envOpts = { ...process.env, TRADING_CONFIRMATION: 'YES', PYTHONPATH: 'src' };
+        exec(spawnCmd, { env: envOpts }, (error, stdout, stderr) => {
             if (error) {
                 console.error(`[MAIN] Exec Error: ${error}`);
                 fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC ERROR: ${error.message}\n[${timestamp}] STDERR: ${stderr}\n`);

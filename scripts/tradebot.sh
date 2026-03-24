@@ -360,7 +360,7 @@ if [[ "$STOP_GUI" == "true" ]]; then
 fi
 
 if [[ -z "$PROFILE_NAME" ]]; then
-  if [[ "$GUI" == "true" ]] || [[ "$SETTINGS" == "true" ]]; then
+  if [[ "$GUI" == "true" ]] || [[ "$SETTINGS" == "true" ]] || [[ "$DAEMON" == "true" ]]; then
     PROFILE_NAME="default"
   else
     echo "ERROR: --profile is required" >&2
