@@ -2113,6 +2113,7 @@ function createWindow() {
         exec(spawnCmd, (error, stdout, stderr) => {
             if (error) {
                 console.error(`[MAIN] Exec Error: ${error}`);
+                fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC ERROR: ${error.message}\n[${timestamp}] STDERR: ${stderr}\n`);
                 mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Start Command Failed", color: 'red' });
                 return;
             }
