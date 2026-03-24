@@ -240,6 +240,7 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
 
     profiles = {}
     for name, p_data in config.get("profiles", {}).items():
+        if not p_data: continue
         # Validate that no deprecated profile overrides are present
         invalid_keys = [k for k in p_data.keys() if k not in _REAL_PROFILE_KEYS]
         if invalid_keys:
