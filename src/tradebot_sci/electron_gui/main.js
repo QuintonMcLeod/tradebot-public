@@ -196,6 +196,11 @@ function setupIpcHandlers() {
             // Inject secrets under special namespace
             configData._secrets = secrets;
 
+            const liveLedgerPath = path.join(USER_DATA_DIR, 'data', 'ledger.json');
+            const paperLedgerPath = path.join(USER_DATA_DIR, 'data', 'paper_ledger.json');
+            if (fs.existsSync(liveLedgerPath)) try { configData._live_ledger = JSON.parse(fs.readFileSync(liveLedgerPath, 'utf8')); } catch(e) {}
+            if (fs.existsSync(paperLedgerPath)) try { configData._paper_ledger = JSON.parse(fs.readFileSync(paperLedgerPath, 'utf8')); } catch(e) {}
+
             fs.writeFileSync(filePath, JSON.stringify(configData, null, 2));
             return { success: true, path: filePath };
         } catch (e) {
@@ -208,7 +213,9 @@ function setupIpcHandlers() {
         try {
             let deletedSomething = false;
 
-            const pathsToDelete = [CONFIG_JSON_PATH, LEGACY_CONFIG_JSON_PATH, SECRETS_PATH, LEGACY_SECRETS_PATH];
+            const liveLedgerPath = path.join(USER_DATA_DIR, 'data', 'ledger.json');
+            const paperLedgerPath = path.join(USER_DATA_DIR, 'data', 'paper_ledger.json');
+            const pathsToDelete = [CONFIG_JSON_PATH, LEGACY_CONFIG_JSON_PATH, SECRETS_PATH, LEGACY_SECRETS_PATH, liveLedgerPath, paperLedgerPath];
             
             for (const p of pathsToDelete) {
                 if (fs.existsSync(p)) {
@@ -219,6 +226,8 @@ function setupIpcHandlers() {
             
             if (deletedSomething) {
                 app.relaunch();
+                const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -9 -f "tradebot_sci.runtime.controller"';
+                try { require('child_process').execSync(cmd); } catch (e) {}
                 app.quit();
                 return { success: true };
             }
@@ -262,6 +271,17 @@ function setupIpcHandlers() {
                 }
                 fs.writeFileSync(SECRETS_PATH, secretsContent);
                 console.log("[MAIN] Imported and saved .env.secrets");
+            }
+            
+            const liveLedgerPath = path.join(USER_DATA_DIR, 'data', 'ledger.json');
+            const paperLedgerPath = path.join(USER_DATA_DIR, 'data', 'paper_ledger.json');
+            if (parsed._live_ledger) {
+                fs.writeFileSync(liveLedgerPath, JSON.stringify(parsed._live_ledger, null, 2));
+                delete parsed._live_ledger;
+            }
+            if (parsed._paper_ledger) {
+                fs.writeFileSync(paperLedgerPath, JSON.stringify(parsed._paper_ledger, null, 2));
+                delete parsed._paper_ledger;
             }
             
             // Save payload to active config path
@@ -2177,12 +2197,10 @@ function createWindow() {
 
     ipcMain.on('stop-bot', () => {
         console.log('[MAIN] Stopping bot...');
-        const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "tradebot_sci.runtime.controller"';
+        const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -9 -f "tradebot_sci.runtime.controller"';
 
-        exec(cmd, (error) => {
-            if (error && error.code !== 1 && error.code !== 128) console.error(`[MAIN] Stop error: ${error}`);
-            setTimeout(() => checkBotStatus(mainWindow, true), 1000);
-        });
+        try { require('child_process').execSync(cmd); } catch (e) {}
+        setTimeout(() => checkBotStatus(mainWindow, true), 1000);
     });
 
     ipcMain.on('restart-bot', () => {
