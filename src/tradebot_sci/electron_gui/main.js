@@ -188,15 +188,24 @@ function setupIpcHandlers() {
     ipcMain.handle('reset-config', async (event) => {
         try {
             const configPath = fs.existsSync(CONFIG_JSON_PATH) ? CONFIG_JSON_PATH : LEGACY_CONFIG_JSON_PATH;
+            const secretsPath = fs.existsSync(SECRETS_PATH) ? SECRETS_PATH : LEGACY_SECRETS_PATH;
+            let deletedSomething = false;
+
             if (fs.existsSync(configPath)) {
                 fs.unlinkSync(configPath);
-                
-                // Relaunch the app to apply default settings
+                deletedSomething = true;
+            }
+            if (fs.existsSync(secretsPath)) {
+                fs.unlinkSync(secretsPath);
+                deletedSomething = true;
+            }
+            
+            if (deletedSomething) {
                 app.relaunch();
                 app.exit(0);
                 return { success: true };
             }
-            return { success: false, error: 'Config file not found to delete.' };
+            return { success: false, error: 'No configuration or secrets files found to delete.' };
         } catch (e) {
             console.error("[MAIN] Reset Config Error:", e);
             return { success: false, error: e.message };

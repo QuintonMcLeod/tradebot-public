@@ -2060,7 +2060,7 @@ function renderSystemTab(container) {
 
     const btnReset = createControlButton('Reset To Defaults', 'delete_forever', 'red', async () => {
         if (!window.api || !window.api.invoke) return;
-        if (confirm("Are you ABSOLUTELY SURE you want to Reset to Defaults?\n\nThis will permanently delete your configuration file and restart the application.")) {
+        if (confirm("Are you ABSOLUTELY SURE you want to Reset to Defaults?\n\nThis will permanently delete your configuration and Secret API keys, then restart the application.")) {
             const res = await window.api.invoke('reset-config');
             if (res && res.success) {
                 if (window.showToast) window.showToast(`Application is restarting...`, 'success');
