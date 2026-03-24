@@ -215,7 +215,8 @@ function setupIpcHandlers() {
 
             const liveLedgerPath = path.join(USER_DATA_DIR, 'data', 'ledger.json');
             const paperLedgerPath = path.join(USER_DATA_DIR, 'data', 'paper_ledger.json');
-            const pathsToDelete = [CONFIG_JSON_PATH, LEGACY_CONFIG_JSON_PATH, SECRETS_PATH, LEGACY_SECRETS_PATH, liveLedgerPath, paperLedgerPath];
+            const DOT_ENV_PATH = path.join(process.cwd(), '.env');
+            const pathsToDelete = [CONFIG_JSON_PATH, LEGACY_CONFIG_JSON_PATH, SECRETS_PATH, LEGACY_SECRETS_PATH, DOT_ENV_PATH, liveLedgerPath, paperLedgerPath];
             
             for (const p of pathsToDelete) {
                 if (fs.existsSync(p)) {
