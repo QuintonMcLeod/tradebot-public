@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import os
 from typing import Optional, Tuple
 from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.strategy.decisions import AITradeDecision
@@ -150,8 +151,18 @@ class TrendRiderStrategy(BaseStrategy):
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
         htf_strength = float(gates.get("htf_strength", 0))
 
-        if htf_dir == "neutral" or htf_strength < 0.25:
+        if htf_dir == "neutral" or htf_strength < 0.50:
             return None
+
+        # ── MICRO-MOMENTUM ──────────────────────────────────────
+        # On 1m charts, require the last close to show net
+        # directional movement aligned with the macro trend.
+        if len(closes) >= 2:
+            recent_move = closes[-1] - closes[-2]
+            if htf_dir == "long" and recent_move <= 0:
+                return None  # No bullish micro-momentum
+            if htf_dir == "short" and recent_move >= 0:
+                return None  # No bearish micro-momentum
 
         # ── EMA CROSSOVER CONFIRMATION ───────────────────────────
         # Require that EMA(8) is on the correct side of EMA(21)
@@ -159,32 +170,35 @@ class TrendRiderStrategy(BaseStrategy):
         ema_aligned_bull = ema_fast > ema_slow
         ema_aligned_bear = ema_fast < ema_slow
 
-        # RSI must be between 25-75 (filters only extreme exhaustion)
-        if rsi < 25 or rsi > 75:
+        # RSI must show an actual pullback (not entering at the absolute top/bottom)
+        # For 1m execution, requires price to breathe before continuing the macro trend.
+        if htf_dir == "long" and (rsi > 60 or rsi < 25):
+            return None
+        if htf_dir == "short" and (rsi < 40 or rsi > 75):
             return None
 
         # Distance from slow EMA
         ema_dist = abs(last_close - ema_slow)
-        proximity_threshold = atr * 2.0  # Within 2.0 ATR of slow EMA
+        proximity_threshold = atr * 0.8  # Must be tightly pulling back to EMA(21)
 
         # ── BOUNCE CONFIRMATION ──────────────────────────────────
         # Require EITHER:
-        #   A) 2 consecutive candles closing in the trend direction, OR
-        #   B) RSI divergence (price makes new extreme but RSI doesn't)
-        # This prevents trigger-happy entries on single-candle noise.
-        two_bull_candles = last_close > prev_close and prev_close > prev2_close
-        two_bear_candles = last_close < prev_close and prev_close < prev2_close
+        #   A) Current candle closing in the trend direction, OR
+        #   B) 2 consecutive candles closing in the trend direction, OR
+        #   C) RSI divergence (price makes new extreme but RSI doesn't)
+        one_bull_candle = last_close > prev_close
+        one_bear_candle = last_close < prev_close
+        two_bull_candles = one_bull_candle and prev_close > prev2_close
+        two_bear_candles = one_bear_candle and prev_close < prev2_close
 
         # RSI divergence: compare last 2 swing extremes
-        # Bullish div: price makes lower low but RSI makes higher low
-        # Bearish div: price makes higher high but RSI makes lower high
         rsi_prev = calculate_rsi(closes[:-1], self.rsi_period)
         rsi_prev2 = calculate_rsi(closes[:-2], self.rsi_period) if len(closes) > self.rsi_period + 2 else rsi_prev
         bullish_rsi_div = (last_close < closes[-3] and rsi > rsi_prev2) if len(closes) >= 3 else False
         bearish_rsi_div = (last_close > closes[-3] and rsi < rsi_prev2) if len(closes) >= 3 else False
 
-        confirmed_bull_bounce = two_bull_candles or bullish_rsi_div
-        confirmed_bear_bounce = two_bear_candles or bearish_rsi_div
+        confirmed_bull_bounce = one_bull_candle or bullish_rsi_div
+        confirmed_bear_bounce = one_bear_candle or bearish_rsi_div
 
         # ── DIAGNOSTIC: log why trend_rider returns None ─────────
         logger.info(
@@ -207,10 +221,11 @@ class TrendRiderStrategy(BaseStrategy):
                 recent_lows = [c.low for c in snapshot.candles[-10:]]
                 swing_low = min(recent_lows)
                 is_jpy = "JPY" in snapshot.symbol.upper()
-                min_sl_dist = 15 * (0.01 if is_jpy else 0.0001)  # 15 pip floor
-                stop_dist = max(last_close - swing_low, atr * 1.5, min_sl_dist)
-                if atr and stop_dist > atr * 2.0:
-                    stop_dist = atr * 2.0
+                min_pips = float(getattr(self._profile, 'min_pip_floor', 25.0)) if self._profile else 25.0
+                min_sl_dist = min_pips * (0.01 if is_jpy else 0.0001)  # Pip floor for 1m execution
+                stop_dist = max(last_close - swing_low, atr * 2.0, min_sl_dist)
+                if atr and stop_dist > atr * 3.5:
+                    stop_dist = atr * 3.5
                 stop_loss = last_close - stop_dist
                 take_profit=None  # 2.5R target (Conductor trail may exit earlier)
 
@@ -245,10 +260,11 @@ class TrendRiderStrategy(BaseStrategy):
                 recent_highs = [c.high for c in snapshot.candles[-10:]]
                 swing_high = max(recent_highs)
                 is_jpy = "JPY" in snapshot.symbol.upper()
-                min_sl_dist = 15 * (0.01 if is_jpy else 0.0001)  # 15 pip floor
-                stop_dist = max(swing_high - last_close, atr * 1.5, min_sl_dist)
-                if atr and stop_dist > atr * 2.0:
-                    stop_dist = atr * 2.0
+                min_pips = float(getattr(self._profile, 'min_pip_floor', 25.0)) if self._profile else 25.0
+                min_sl_dist = min_pips * (0.01 if is_jpy else 0.0001)  # Pip floor for 1m execution
+                stop_dist = max(swing_high - last_close, atr * 2.0, min_sl_dist)
+                if atr and stop_dist > atr * 3.5:
+                    stop_dist = atr * 3.5
                 stop_loss = last_close + stop_dist
                 take_profit=None  # 2.5R target (Conductor trail may exit earlier)
 
@@ -284,35 +300,85 @@ class TrendRiderStrategy(BaseStrategy):
         gates: dict,
         **kwargs,
     ) -> Optional[AITradeDecision]:
-        """Exit on reverse EMA crossover or trail stop."""
+        """Invalidation exits: EMA crossover, structure break, RSI extreme."""
         if not snapshot.candles or len(snapshot.candles) < self.slow_ema + 2:
             return None
 
         closes = [c.close for c in snapshot.candles]
         ema_fast = calculate_ema(closes, self.fast_ema)
         ema_slow = calculate_ema(closes, self.slow_ema)
+        rsi = calculate_rsi(closes, self.rsi_period)
+        atr = calculate_atr(snapshot.candles, period=14) or (closes[-1] * 0.001)
         direction = open_position.get("direction")
-
-        # Check if the trade is currently in profit
         entry_price = float(open_position.get("entry_price", 0))
         current_price = closes[-1]
-        is_winning = (
-            (direction == "long" and current_price > entry_price) or
-            (direction == "short" and current_price < entry_price)
-        )
 
-        # Reverse EMA crossover = trend over
-        # Require 2 consecutive candles with EMA crossed to avoid
-        # exiting on single-candle noise. This applies to ALL trades —
-        # small losses near breakeven often recover on the next candle.
-        ema_cross_long_exit = direction == "long" and ema_fast < ema_slow
-        ema_cross_short_exit = direction == "short" and ema_fast > ema_slow
+        exit_reason = None
 
-        if ema_cross_long_exit or ema_cross_short_exit:
-            # USER OVERRIDE: Disabled EMA Cross exits to let Guillotine/SAR
-            # run without interference from rapid $65 spread whipsaws.
-            pass
+        # ── 1. EMA CROSSOVER REVERSAL ────────────────────────────
+        # EMA(8) crossing EMA(21) against the trade = trend is over.
+        # This is the core invalidation: we entered on a pullback TO
+        # EMA21 with EMA8 > EMA21. If EMA8 drops below EMA21, the
+        # trend structure that justified the entry is gone.
+        if direction == "long" and ema_fast < ema_slow:
+            exit_reason = f"EMA crossover invalidation: EMA8={ema_fast:.5f} < EMA21={ema_slow:.5f}"
+        elif direction == "short" and ema_fast > ema_slow:
+            exit_reason = f"EMA crossover invalidation: EMA8={ema_fast:.5f} > EMA21={ema_slow:.5f}"
 
-        pass
+        # ── 2. PRICE STRUCTURE BREAK ─────────────────────────────
+        # Close decisively past EMA(21) against trade direction.
+        # "Decisively" = more than 0.5 ATR beyond EMA21.
+        # This catches the case where price smashes through the EMA
+        # before the fast EMA reacts.
+        if not exit_reason:
+            breach_threshold = atr * 0.5
+            if direction == "long" and current_price < (ema_slow - breach_threshold):
+                exit_reason = (
+                    f"Structure break: close {current_price:.5f} < "
+                    f"EMA21-0.5ATR ({ema_slow - breach_threshold:.5f})"
+                )
+            elif direction == "short" and current_price > (ema_slow + breach_threshold):
+                exit_reason = (
+                    f"Structure break: close {current_price:.5f} > "
+                    f"EMA21+0.5ATR ({ema_slow + breach_threshold:.5f})"
+                )
+
+        # ── 3. RSI EXTREME (exhaustion) ──────────────────────────
+        # RSI hitting extreme territory against the trade signals
+        # potential reversal. Exit before the move accelerates.
+        if not exit_reason:
+            if direction == "long" and rsi < 25:
+                exit_reason = f"RSI exhaustion: RSI={rsi:.1f} < 25 (oversold against long)"
+            elif direction == "short" and rsi > 75:
+                exit_reason = f"RSI exhaustion: RSI={rsi:.1f} > 75 (overbought against short)"
+
+        if exit_reason:
+            # Determine P&L direction for logging
+            if direction == "long":
+                pnl_sign = "+" if current_price > entry_price else ""
+                pnl_pips = (current_price - entry_price) * 10000
+            else:
+                pnl_sign = "+" if current_price < entry_price else ""
+                pnl_pips = (entry_price - current_price) * 10000
+
+            action = "exit_long" if direction == "long" else "exit_short"
+            logger.info(
+                f"[TREND-RIDER] {snapshot.symbol}: INVALIDATION EXIT — {exit_reason} "
+                f"(entry={entry_price:.5f}, now={current_price:.5f}, {pnl_sign}{pnl_pips:.1f} pips)"
+            )
+            return AITradeDecision(
+                symbol=snapshot.symbol,
+                timeframe=snapshot.timeframe,
+                bias=direction, phase="exit", action=action,
+                entry_price=current_price,
+                stop_loss=None,
+                take_profit=None,
+                risk_per_trade_pct=0,
+                structure_summary=f"Trend Rider Invalidation: {exit_reason}",
+                invalidation_conditions="",
+                management_instructions="Exit immediately — setup invalidated",
+                notes=exit_reason,
+                urgency="high",
+            )
 
         return None

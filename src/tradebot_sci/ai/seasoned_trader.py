@@ -194,9 +194,6 @@ class SeasonedTraderDaemon:
         self.running = False
         self._thread = None
         self.cfg = config_payload or {}
-        self.monetary_path = self.cfg.get("AI_MONETARY_PATH", "balanced")
-        self.personality = self.cfg.get("AI_PERSONALITY", "veteran")
-        self.interval_mins = int(self.cfg.get("AI_AUTOPILOT_INTERVAL_MINS", 30))
 
     # ── Profile I/O ─────────────────────────────────────────────────────────
 
@@ -415,6 +412,8 @@ class SeasonedTraderDaemon:
 
     def _build_system_state_payload(self) -> str:
         """Aggregates all bot state, profiles, Sabbath, schedule, and tooltips into one context block."""
+        from tradebot_sci.paths import DATA_DIR
+        
         config = self._read_config()
             
         active_prof = config.get("active_profile", "default")
@@ -1106,6 +1105,14 @@ class SeasonedTraderDaemon:
             '- OANDA US does NOT allow metals trading (XAU/USD, XAG/USD, etc.) — this is a US regulatory restriction (CFTC). Do NOT suggest gold, silver, or any metal pairs.\n'
             '- OANDA US supports: Forex pairs and CFD indices ONLY. No metals, no crypto.\n'
             '\n'
+            'FOREX 1-MINUTE (1M) MTF ARCHITECTURE:\n'
+            '- When managing a Forex profile using 1-minute execution, YOU MUST ENFORCE THE FOLLOWING to survive volatility spikes:\n'
+            '  1. Enforce Dynamic Risk ("risk_dynamic_auto": true).\n'
+            '  2. Set minimum stop-loss pip floor to 25 pips.\n'
+            '  3. Restrict trading universe to the 5 Core Majors (EURUSD, GBPUSD, AUDUSD, NZDUSD, USDCHF). Avoid JPY/CAD crosses as they bleed capital on 1m execution.\n'
+            '  4. Disable Greed Guard, Rollover Deadzone, Drawdown Breaker, and Leverage Sentry, as these conflict with Conductor internal logic.\n'
+            '- If you detect a Forex account violating this, FIX IT via "adjust_settings" and "profile_actions". Explain that dynamic risk with MTF strength blocks is the weapon of choice for 1m execution profitability.\n'
+            '\n'
             'INSIGHT COMMENTARY GUIDELINES:\n'
             '- The user reads your insight_commentary in a panel on their dashboard.\n'
             '- Write 2-3 sentences about what you\'re seeing and thinking RIGHT NOW.\n'
@@ -1124,7 +1131,13 @@ class SeasonedTraderDaemon:
         try:
             logger.info("[Sentinel] Requesting autonomous evaluation from cognitive backend...")
             response_json_str = self.ai.raw_chat(messages, expect_json=True)
-            decision = json.loads(response_json_str)
+            
+            import re
+            cleaned_str = re.sub(r'```(?:json)?\s*', '', response_json_str).strip()
+            if cleaned_str.endswith('```'):
+                cleaned_str = cleaned_str[:-3].strip()
+                
+            decision = json.loads(cleaned_str)
             
             analysis = decision.get("analysis", "")
             next_interval = decision.get("proposed_interval_mins", self.interval_mins)
@@ -1273,6 +1286,8 @@ class SeasonedTraderDaemon:
             
         except Exception as e:
             logger.error(f"[Sentinel] Cognitive evaluation error: {e}")
+            error_msg = f"⚠️ AUTOPILOT API ERROR\n\nThe cognitive backend rejected the request:\n{str(e)}\n\nPlease verify your API Keys, Model Name, and Network Connection."
+            self._broadcast_change_commentary(error_msg)
 
     def _apply_settings_adjustments(self, adjustments: dict):
         """Apply settings adjustments to config.json, mapping to the correct sections."""
@@ -1344,11 +1359,20 @@ class SeasonedTraderDaemon:
         logger.info("[Sentinel] Seasoned Trader Daemon initiated.")
         self.running = True
 
+        # Wait for the Electron GUI to reconnect its WebSocket before broadcasting the initial briefing.
+        # Hard backend restarts trigger a 5s GUI reconnect penalty; if we emit too fast, it goes into the void.
+        wait_loops = 0
+        while self.running and wait_loops < 30:
+            if self.ws_server and self.ws_server.clients:
+                break
+            time.sleep(0.5)
+            wait_loops += 1
+
         # Fire the initial battle plan briefing on first activation
         try:
             self._broadcast_initial_briefing()
         except Exception as e:
-            logger.error(f"[Sentinel] Initial briefing failed: {e}")
+            logger.error(f"[Sentinel] Initial briefing failed: {e}", exc_info=True)
 
         last_eval_time = None
         last_real_eval_time = 0.0

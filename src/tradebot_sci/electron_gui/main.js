@@ -334,15 +334,58 @@ function setupIpcHandlers() {
 
     // City / Location Resolver (Ported Logic)
     ipcMain.handle('resolve-city', async (event, cityName) => {
-        const cities = {
+        const https = require('https');
+        // Fallbacks for speed
+        const fallbacks = {
             "New York": { lat: 40.7128, lon: -74.0060, tz: "America/New_York" },
             "Los Angeles": { lat: 34.0522, lon: -118.2437, tz: "America/Los_Angeles" },
             "Chicago": { lat: 41.8781, lon: -87.6298, tz: "America/Chicago" },
             "Miami": { lat: 25.7617, lon: -80.1918, tz: "America/New_York" },
             "Jerusalem": { lat: 31.7683, lon: 35.2137, tz: "Asia/Jerusalem" },
-            "London": { lat: 51.5074, lon: -0.1278, tz: "Europe/London" }
+            "London": { lat: 51.5074, lon: -0.1278, tz: "Europe/London" },
+            "Atlanta": { lat: 33.7490, lon: -84.3880, tz: "America/New_York" }
         };
-        return cities[cityName] || null;
+
+        if (fallbacks[cityName]) return fallbacks[cityName];
+
+        return new Promise((resolve) => {
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cityName)}&format=json&limit=1`;
+            const options = { headers: { 'User-Agent': 'TradeBotSCI/1.0 (Integration for Geocoding timezones)' } };
+            https.get(url, options, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    try {
+                        const parsed = JSON.parse(data);
+                        if (parsed && parsed.length > 0) {
+                            const lat = parseFloat(parsed[0].lat);
+                            const lon = parseFloat(parsed[0].lon);
+                            
+                            // Chain request to get timezone from coordinates
+                            https.get(`https://api.wheretheiss.at/v1/coordinates/${lat},${lon}`, (tzRes) => {
+                                let tzData = '';
+                                tzRes.on('data', chunk => tzData += chunk);
+                                tzRes.on('end', () => {
+                                    try {
+                                        const tzParsed = JSON.parse(tzData);
+                                        if (tzParsed && tzParsed.timezone_id) {
+                                            resolve({ lat, lon, tz: tzParsed.timezone_id });
+                                        } else {
+                                            resolve({ lat, lon, tz: 'UTC' }); // fallback
+                                        }
+                                    } catch (e) { resolve({ lat, lon, tz: 'UTC' }); }
+                                });
+                            }).on('error', () => resolve({ lat, lon, tz: 'UTC' }));
+
+                        } else {
+                            resolve(null);
+                        }
+                    } catch (e) {
+                        resolve(null);
+                    }
+                });
+            }).on('error', () => resolve(null));
+        });
     });
 
     ipcMain.handle('read-profile-strategies', async (event, profileName) => {
@@ -415,6 +458,7 @@ function setupIpcHandlers() {
         { filename: 'RTFM/01_PHILOSOPHY.md', title: 'Born From Late-Stage Capitalism: Why This Bot Exists', category: 'rtfm', icon: 'psychology', description: 'Welcome to TradeBot SCI Enterprise. It has no fancy marketing name. It has no singular author. It is a tool, forged in the fires of late-stage capitalism, designed with one singular, ruthless purpose: To Make Money. Food prices are climbing faster than a crypto shitcoin. Insurance premiums are ridiculous. Companies are firing millions of people while executives buy another yacht to park inside their bigger yacht.', featured: true },
         { filename: 'RTFM/30_BARE_HANDS.md', title: 'STOP! Don\'t Trade With Your Bare Hands!', category: 'rtfm', icon: 'front_hand', description: '"You\'re showing up to a sword fight with a pool noodle." 80-95% of manual traders lose money. Not break even — LOSE money. This humorous but dead-serious guide covers the five ways humans self-destruct in the markets: revenge trades, fatigue, analysis paralysis, overconfidence, and life happening at the worst possible moment. Plus the math of what bare-handed trading actually costs the average person.', featured: true },
         { filename: 'RTFM/31_SEASONED_TRADER.md', title: 'The Bot Is a 20-Year Seasoned Trader', category: 'rtfm', icon: 'military_tech', description: '"You spent 20 years learning to read price action. The bot learned it in 200 milliseconds." This bot doesn\'t trade like a beginner. It trades like a grizzled veteran who\'s seen three market crashes and didn\'t develop a drinking problem from any of them. 20 strategies, 12 safety guards, zero ego, millisecond execution, and the discipline that takes humans two decades to learn — baked in from Day 1.', featured: true },
+        { filename: 'RTFM/46_1M_FOREX_ARCHITECTURE.md', title: 'The 1-Minute Forex Reality Check', category: 'rtfm', icon: 'speed', description: '"You want a lambo by Tuesday? You\'re gonna be taking the bus by Wednesday." A brutal breakdown of the mathematical armor required to survive 1-minute execution.', featured: true },
         { filename: 'RTFM/28_COMPOUND_EFFECT.md', title: 'The Compound Effect: Why Small Accounts Don\'t Stay Small', category: 'rtfm', icon: 'trending_up', description: '"Three good days a month. That\'s all the math needs." Take a $50k account with 4% risk per trade. Each winner pays $4,000. Three solid days and you\'re looking at $10,000 in a single month. This article walks through the real math — not fantasy projections — of how compounding turns $7,000 into $16,000 in six months, and why the bot\'s discipline is the engine that makes it work.', featured: true },
         { filename: 'RTFM/29_DEATH_SPIRAL_DIARIES.md', title: 'The Death Spiral Diaries: 188 Trades, 3 Wins, and $17 of Pain', category: 'rtfm', icon: 'local_fire_department', description: 'A true (and tragically hilarious) account of how a stop-loss shorter than a tweet, a breakeven floor that didn\'t understand spreads, and a Python cache with commitment issues conspired to turn $135 into $118 over one Sunday night. 188 trades. 3 wins. 1.4% win rate. Lessons learned the expensive way, so you don\'t have to.' },
 
@@ -853,9 +897,14 @@ function setupIpcHandlers() {
                 proc.on('close', (code) => {
                     console.log(`[MAIN] Replayer exited with code ${code}`);
 
-                    // Flush remaining stderr
-                    if (stderrBuf.trim() && senderWindow && !senderWindow.isDestroyed()) {
-                        senderWindow.webContents.send('backtest-progress', stderrBuf.trim());
+                    // Force final 100% progress update before UI renders results
+                    if (senderWindow && !senderWindow.isDestroyed()) {
+                        senderWindow.webContents.send('backtest-progress', {
+                            'Engine': { pct: 100, symbol: 'Engine', details: '(Merging Results)' }
+                        });
+                        if (stderrBuf.trim()) {
+                            senderWindow.webContents.send('backtest-progress', stderrBuf.trim());
+                        }
                     }
 
                     if (code !== 0) {
@@ -865,13 +914,16 @@ function setupIpcHandlers() {
 
                     // ── Parse JSON summary from stdout ────────────────────────
                     try {
-                        const lines = stdoutBuf.trim().split('\n');
                         let jsonResult = null;
-                        for (let i = lines.length - 1; i >= 0; i--) {
-                            const line = lines[i].trim();
-                            if (line.startsWith('{') && line.endsWith('}')) {
-                                jsonResult = JSON.parse(line);
-                                break;
+                        const trimmed = stdoutBuf.trim();
+                        // Optimization: avoid split('\n') on massive buffers which causes V8 OOM
+                        let lastBrace = trimmed.lastIndexOf('\n{');
+                        if (lastBrace === -1 && trimmed.startsWith('{')) lastBrace = 0;
+                        
+                        if (lastBrace !== -1) {
+                            const possibleJson = trimmed.substring(lastBrace).trim();
+                            if (possibleJson.startsWith('{') && possibleJson.endsWith('}')) {
+                                jsonResult = JSON.parse(possibleJson);
                             }
                         }
                         resolve(jsonResult || { error: 'Replay complete but no JSON summary found', raw: stdoutBuf.slice(-300) });
@@ -2257,6 +2309,82 @@ function createWindow() {
             win.webContents.send('fromMain', { type: 'gui-notice', message, color, timestamp });
         });
     });
+    ipcMain.handle('fetch-ai-models', async (event, provider, baseUrl, apiKey) => {
+        return new Promise((resolve) => {
+            const defaultM = {
+                'gemini': ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite-preview-02-05', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+                'openai': ['o3-mini', 'o1', 'o1-mini', 'gpt-4.5-preview', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+                'deepseek': ['deepseek-chat', 'deepseek-reasoner'],
+                'claude': ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest', 'claude-3-opus-latest', 'claude-3-haiku-20240307'],
+                'local': ['llama3', 'mistral', 'qwen2.5', 'phi3']
+            };
+
+            const fallbacks = defaultM[provider] || [];
+
+            if (!apiKey && provider !== 'local') return resolve({ success: true, models: fallbacks, notice: 'Showing defaults (No API key provided)' });
+
+            if (provider === 'gemini') {
+                const https = require('https');
+                const urlObj = new URL(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+                const req = https.get(urlObj.href, (res) => {
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => {
+                        try {
+                            const parsed = JSON.parse(data);
+                            if (parsed.models) {
+                                resolve({ success: true, models: parsed.models.map(m => m.name.replace('models/', '')).filter(n => n.includes('gemini')) });
+                            } else {
+                                resolve({ success: true, models: fallbacks, notice: 'Showing defaults (API request failed)' });
+                            }
+                        } catch (e) { resolve({ success: true, models: fallbacks, notice: 'Parse error' }); }
+                    });
+                });
+                req.on('error', (e) => resolve({ success: true, models: fallbacks, notice: e.message }));
+                return;
+            }
+
+            // OpenAI / DeepSeek / Local compatible /v1/models
+            if (provider === 'claude') {
+                return resolve({ success: true, models: fallbacks });
+            }
+
+            let endpoint = baseUrl;
+            if (!endpoint) {
+                if (provider === 'deepseek') endpoint = 'https://api.deepseek.com';
+                else if (provider === 'openrouter') endpoint = 'https://openrouter.ai/api/v1';
+                else if (provider === 'local') endpoint = 'http://localhost:11434/v1';
+                else endpoint = 'https://api.openai.com/v1';
+            }
+            // Strip trailing slash if present
+            endpoint = endpoint.replace(/\/$/, '');
+            let requestModule = endpoint.startsWith('http://') ? require('http') : require('https');
+            
+            const urlObj = new URL(`${endpoint}/models`);
+            const req = requestModule.get({
+                hostname: urlObj.hostname,
+                port: urlObj.port,
+                path: urlObj.pathname,
+                headers: { 'Authorization': `Bearer ${apiKey}` }
+            }, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    try {
+                        const parsed = JSON.parse(data);
+                        if (parsed.data && Array.isArray(parsed.data)) {
+                            let models = parsed.data.map(m => m.id);
+                            resolve({ success: true, models: models.sort() });
+                        } else {
+                            resolve({ success: true, models: fallbacks, notice: 'Showing defaults (API request failed)' });
+                        }
+                    } catch (e) { resolve({ success: true, models: fallbacks, notice: 'Parse error' }); }
+                });
+            });
+            req.on('error', (e) => resolve({ success: true, models: fallbacks, notice: e.message }));
+        });
+    });
+
 }
 
 app.whenReady().then(() => {

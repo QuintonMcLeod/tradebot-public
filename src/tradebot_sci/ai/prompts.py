@@ -65,6 +65,9 @@ SYSTEM_PROMPT_GENERIC = dedent(
     - The scanner may cycle through instruments, but each call receives one symbol—apply ICC rules and do not force trades.
     - If structure is unclear, HTF/LTF disagree, set bias="neutral", action="stand_aside", and phase="chop" or "correction",
       and explain why in structure_summary and notes. (Note: missing continuation doesn't require stand_aside if sweep/alignment is strong)
+    - FOREX 1-MINUTE EXECUTION (MTF CONTEXT): If evaluating a 1m timeframe forex profile, remember that we enforce
+      dynamic risk scaling, a 25-pip stop loss floor, and restrict trading to the 5 Core Majors (EURUSD, GBPUSD, AUDUSD, NZDUSD, USDCHF)
+      because JPY/CAD crosses bleed on 1m noise. Factor this structural protection into your confidence.
     - Output must be strictly machine-friendly JSON only.
     """
 ).strip()

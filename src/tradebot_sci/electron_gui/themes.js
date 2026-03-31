@@ -1083,9 +1083,9 @@ function applyTheme(themeId, _skipPersist = false) {
     // 2. Update sidebar gradient
     const sidebar = document.querySelector('#view-settings .w-72, [data-theme-sidebar]');
     // Main sidebar in dashboard
-    const mainSidebar = document.querySelector('.flex.flex-col.mt-4.ml-5 > div:first-child');
+    const mainSidebar = document.querySelector('#view-dashboard')?.previousElementSibling;
     if (mainSidebar) {
-        mainSidebar.style.background = theme.sidebar;
+        // mainSidebar background assignment disabled to preserve glass theme styling
     }
 
     // 3. Update titlebar

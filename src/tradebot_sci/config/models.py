@@ -4,7 +4,7 @@ import os
 from functools import lru_cache
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field, HttpUrl, NonNegativeInt, PositiveInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, NonNegativeInt, PositiveInt, field_validator
 from tradebot_sci.config.broker import BrokerSettings, OandaSettings, PaxosSettings, KrakenSettings
 
 
@@ -31,8 +31,8 @@ class AISettings(BaseModel):
         default_factory=lambda: os.getenv("TRADE_SCI_PROVIDER", "openai"),
         description="LLM provider: openai|gemini|claude|deepseek|openrouter|custom",
     )
-    base_url: HttpUrl = Field(
-        default_factory=lambda: os.getenv("TRADE_SCI_API_BASE_URL", "https://api.openai.com/v1"),
+    base_url: Optional[str] = Field(
+        default_factory=lambda: os.getenv("TRADE_SCI_API_BASE_URL", None),
         description="Base URL for Trade by SCI compatible API"
     )
     api_key: Optional[str] = Field(
@@ -150,10 +150,31 @@ class CoinbaseFuturesSettings(BaseModel):
     use_cross_margin: bool = Field(default=True, description="Use cross margin if supported")
 
 class TradingProfileSettings(BaseModel):
+    model_config = ConfigDict(extra='allow')
+
     name: Optional[str] = Field(
         default=None,
         description="Internal name for the profile.",
     )
+    
+    # ── Universal Exit Router Settings ──
+    universal_exit_strategies: list[Literal[
+        "fixed_rr", "chandelier", "scale_breakeven", "parabolic_sar", 
+        "ma_crossover", "time_decay", "swing_trailing", "rsi_exhaustion", 
+        "bollinger_snap", "ratchet_milestone", "adx_death", "structure_failure", "trend_invalidation"
+    ]] = Field(
+        default_factory=lambda: ["fixed_rr"],
+        description="The universal exit methodology that supersedes strategy-specific exits.",
+    )
+    chandelier_atr_mult: float = Field(
+        default=2.0,
+        description="The ATR multiplier for the Chandelier trailing stop.",
+    )
+    time_decay_bars: int = Field(
+        default=24,
+        description="The number of bars before the Time-Decay exit triggers.",
+    )
+
     strategy_variant: str = Field(
         default="rubberband_reaper",
         description="Legacy single strategy (fallback) for the profile.",
@@ -177,6 +198,10 @@ class TradingProfileSettings(BaseModel):
     htf_timeframe: str = Field(
         default="4h",
         description="Higher timeframe used for ICC structure trend (default 4h).",
+    )
+    mtf_timeframe: str | None = Field(
+        default="1h",
+        description="Medium timeframe used for ICC alignment (default 1h).",
     )
     ltf_timeframe: str | None = Field(
         default=None,
@@ -821,7 +846,7 @@ class TradingProfileSettings(BaseModel):
         description="Cap profits at 0.7R during choppy/ranging sessions (Forex Conductor).",
     )
     tick_scalping_enabled: bool = Field(
-        default=True,
+        default=False,
         description="Exit immediately on ANY net profit (Forex Conductor).",
     )
     tick_scalping_min_usd: float = Field(
@@ -1270,7 +1295,7 @@ class SafetySettings(BaseModel):
         description="Consecutive losses before Streak Breaker triggers a cooldown pause.",
     )
     safety_greedy_min_age_seconds: int = Field(
-        default_factory=lambda: int(os.getenv("SAFETY_GREEDY_MIN_AGE_SECONDS", "300")),
+        default_factory=lambda: int(os.getenv("SAFETY_GREEDY_MIN_AGE_SECONDS", "1200")),
         description="Minimum position age (seconds) before Greedy Exit floor can trigger.",
     )
     safety_fee_rt_pct: float = Field(

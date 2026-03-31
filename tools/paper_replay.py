@@ -603,7 +603,24 @@ def load_observations(symbols: list[str], start_dt: datetime, end_dt: datetime, 
                         obs.append(json.loads(line))
                     except json.JSONDecodeError:
                         continue
-        if not obs and api_fallback:
+        # Trigger API fallback if we have NO candles, OR if we are significantly missing the warmup period
+        needs_fallback = not obs
+        if api_fallback and obs:
+            try:
+                first_obs = obs[0]
+                first_t = None
+                if "ltf" in first_obs and first_obs["ltf"]:
+                    first_t = first_obs["ltf"][0]["t"]
+                
+                if first_t:
+                    ts = datetime.fromisoformat(first_t.replace("Z", "+00:00"))
+                    if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
+                    if (ts - start_dt).total_seconds() > 5 * 86400:
+                        needs_fallback = True
+            except Exception:
+                pass
+
+        if api_fallback and needs_fallback:
             try:
                 from tradebot_sci.market.oanda_provider import OandaMarketDataProvider
                 from tradebot_sci import paths as _paths

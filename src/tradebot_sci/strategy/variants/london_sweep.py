@@ -61,8 +61,9 @@ class LondonSweepStrategy(BaseStrategy):
         buffer = atr * 0.1
         
         # Bearish Sweep Check
-        if last_candle.high > asian_high and last_candle.close < asian_high:
-            sl = last_candle.high + buffer
+        recent_high = max(c.high for c in snapshot.candles[-3:])
+        if recent_high > asian_high and last_candle.close < asian_high:
+            sl = recent_high + buffer
             risk_dist = abs(last_candle.close - sl)
             # Reversal Short logic
             return AITradeDecision(
@@ -72,12 +73,13 @@ class LondonSweepStrategy(BaseStrategy):
                 risk_per_trade_pct=self.get_risk_pct(),
                 urgency="medium",
                 structure_summary=f"LondonSweep: Bearish sweep of Asian High {asian_high:.5f}",
-                notes="Ultra-tight SL placed above sweep wick."
+                notes="Ultra-tight SL placed above sweep peak."
             )
             
         # Bullish Sweep Check
-        if last_candle.low < asian_low and last_candle.close > asian_low:
-            sl = last_candle.low - buffer
+        recent_low = min(c.low for c in snapshot.candles[-3:])
+        if recent_low < asian_low and last_candle.close > asian_low:
+            sl = recent_low - buffer
             risk_dist = abs(last_candle.close - sl)
             # Reversal Long logic
             return AITradeDecision(
@@ -87,7 +89,7 @@ class LondonSweepStrategy(BaseStrategy):
                 risk_per_trade_pct=self.get_risk_pct(),
                 urgency="medium",
                 structure_summary=f"LondonSweep: Bullish sweep of Asian Low {asian_low:.5f}",
-                notes="Ultra-tight SL placed below sweep wick."
+                notes="Ultra-tight SL placed below sweep peak."
             )
 
         return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "LondonSweep: No active sweeps of Asian extremes")

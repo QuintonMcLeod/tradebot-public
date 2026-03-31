@@ -57,36 +57,43 @@ class GoldenPocketStrategy(BaseStrategy):
         
         # Bullish Golden Pocket
         if e21_0 > e55_0 and e21_1 > e55_1:
-            # Did price dip below 21 and touch/pierce 55, then reject?
-            if c1.low < e21_1 and c1.low <= e55_1:
-                # Rejection closed above the 55
-                if c0.close > e55_0 and c0.close > c0.open:
+            # Did price dip deeply towards the 55 EMA recently?
+            recent_low = min(c.low for c in snapshot.candles[-6:-1])
+            # Tolerance: low should breach 21 EMA and approach 55 EMA within ~0.2%
+            dist_to_55 = abs(recent_low - e55_1) / e55_1
+            
+            if recent_low < e21_1 and dist_to_55 < 0.002:
+                # Rejection closed above the 21 EMA, confirming bounce momentum
+                if c0.close > e21_0 and c0.close > c0.open:
                     atr = calculate_atr(snapshot.candles) or (c0.high - c0.low)
-                    sl = c0.low - (atr * 0.2)
+                    sl = c0.low - (atr * 1.5)  # Structural breather
                     return AITradeDecision(
                         symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                         bias="long", phase="correction", action="enter_long",
                         entry_price=c0.close, stop_loss=sl, take_profit=None,
                         risk_per_trade_pct=self.get_risk_pct(),
                         urgency="high",
-                        structure_summary=f"GoldenPocket: Bullish rejection at 55 EMA ({e55_0:.5f})",
-                        notes="Deep pullback entry with tight 55-EMA localized stop."
+                        structure_summary=f"GoldenPocket: Bullish pullback near 55 EMA ({e55_0:.5f}) confirmed",
+                        notes="Deep pullback entry with momentum resuming above 21 EMA."
                     )
                     
         # Bearish Golden Pocket
         if e21_0 < e55_0 and e21_1 < e55_1:
-            if c1.high > e21_1 and c1.high >= e55_1:
-                if c0.close < e55_0 and c0.close < c0.open:
+            recent_high = max(c.high for c in snapshot.candles[-6:-1])
+            dist_to_55 = abs(recent_high - e55_1) / e55_1
+            
+            if recent_high > e21_1 and dist_to_55 < 0.002:
+                if c0.close < e21_0 and c0.close < c0.open:
                     atr = calculate_atr(snapshot.candles) or (c0.high - c0.low)
-                    sl = c0.high + (atr * 0.2)
+                    sl = c0.high + (atr * 1.5)  # Structural breather
                     return AITradeDecision(
                         symbol=snapshot.symbol, timeframe=snapshot.timeframe,
                         bias="short", phase="correction", action="enter_short",
                         entry_price=c0.close, stop_loss=sl, take_profit=None,
                         risk_per_trade_pct=self.get_risk_pct(),
                         urgency="high",
-                        structure_summary=f"GoldenPocket: Bearish rejection at 55 EMA ({e55_0:.5f})",
-                        notes="Deep pullback entry with tight 55-EMA localized stop."
+                        structure_summary=f"GoldenPocket: Bearish pullback near 55 EMA ({e55_0:.5f}) confirmed",
+                        notes="Deep pullback entry with momentum resuming below 21 EMA."
                     )
 
         return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "GoldenPocket: No EMA-55 deep rejection detected")

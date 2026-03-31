@@ -1006,12 +1006,14 @@ def run_bot(
     _forex_chart_provider = None
     try:
         from tradebot_sci.market.oanda_provider import OandaMarketDataProvider
-        oanda_id = settings.broker.oanda_account_id
-        oanda_key = settings.broker.oanda_api_key
-        oanda_env = settings.broker.oanda_environment or "practice"
-        if oanda_id and oanda_key:
+        if settings.oanda and settings.oanda.account_id and settings.oanda.api_key:
+            oanda_id = settings.oanda.account_id
+            oanda_key = settings.oanda.api_key
+            oanda_env = settings.oanda.environment or "practice"
             _forex_chart_provider = OandaMarketDataProvider(oanda_id, oanda_key, oanda_env)
             logger.info("[WS] Created dedicated OANDA chart provider for forex ticks")
+        else:
+            logger.info("[WS] Skipping dedicated OANDA chart provider: missing credentials in settings.oanda")
     except Exception as e:
         logger.warning(f"[WS] Dedicated OANDA chart provider failed: {e}")
 
@@ -1121,7 +1123,8 @@ def run_bot(
                 enabled = (
                     str(_prof.get("ai_seasoned_trader_enabled",
                         _ai.get("AI_SEASONED_TRADER_ENABLED",
-                        _global.get("ai_seasoned_trader_enabled", "false")))
+                        _ai.get("ai_seasoned_trader_enabled",
+                        _global.get("ai_seasoned_trader_enabled", "false"))))
                     ).lower() == "true"
                 )
 

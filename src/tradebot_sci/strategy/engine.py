@@ -144,8 +144,12 @@ class StrategyEngine:
         mod = importlib.import_module(module_path)
         cls = getattr(mod, class_name)
         
-        # Pass strategy base kwargs 
+        # Pass strategy base kwargs from the profile's dynamically loaded attributes
         kwargs = {}
+        if hasattr(self.profile, "model_dump"):
+            kwargs.update(self.profile.model_dump())
+        elif hasattr(self.profile, "__dict__"):
+            kwargs.update(self.profile.__dict__)
 
         # MetaSCIStrategy and ForexConductor require profile_settings kwarg
         if variant in ("meta_sci", "forex_conductor"):
@@ -305,8 +309,10 @@ class StrategyEngine:
             # Use the forced synthetic trend directly, skipping lagging indicators
             htf_dir = snapshot.trend_htf.direction
             ltf_dir = snapshot.trend_ltf.direction
+            exec_dir = snapshot.trend_ltf.direction
             htf_strength = snapshot.trend_htf.strength
             ltf_strength = snapshot.trend_ltf.strength
+            exec_strength = snapshot.trend_ltf.strength
             htf_align = True # Synthetic overrides are strictly aligned
             htf_adx = 50.0 # Force high ADX for regime checks
             indicator_dir = snapshot.trend_htf.direction
@@ -323,13 +329,18 @@ class StrategyEngine:
             consensus = detect_trend_direction(
                 candles, self.profile,
                 htf_candles=getattr(snapshot, 'htf_candles', None),
+                mtf_candles=getattr(snapshot, 'mtf_candles', None),
                 ltf_candles=getattr(snapshot, 'ltf_candles', None),
             )
 
             htf_dir = consensus.htf_dir
+            mtf_dir = consensus.mtf_dir
             ltf_dir = consensus.ltf_dir
+            exec_dir = consensus.exec_dir
             htf_strength = consensus.htf_strength
+            mtf_strength = consensus.mtf_strength
             ltf_strength = consensus.ltf_strength
+            exec_strength = consensus.exec_strength
             htf_adx = consensus.htf_adx
             htf_align = consensus.htf_align
             indicator_dir = consensus.indicator_dir
@@ -349,6 +360,10 @@ class StrategyEngine:
             snapshot.trend_htf = dc_replace(
                 snapshot.trend_htf, direction=htf_dir, strength=htf_strength
             )
+            if hasattr(snapshot, "trend_mtf") and snapshot.trend_mtf is not None:
+                snapshot.trend_mtf = dc_replace(
+                    snapshot.trend_mtf, direction=mtf_dir, strength=mtf_strength
+                )
             snapshot.trend_ltf = dc_replace(
                 snapshot.trend_ltf, direction=ltf_dir, strength=ltf_strength
             )
@@ -430,8 +445,10 @@ class StrategyEngine:
         gates = {
             "htf_dir": htf_dir,  # Enriched trend direction for strategies to follow
             "ltf_dir": ltf_dir,
+            "exec_dir": exec_dir,
             "htf_strength": htf_strength,
             "ltf_strength": ltf_strength,
+            "exec_strength": exec_strength,
             "htf_adx": htf_adx,
             # Indicator raw data (strategies can use if they want granular access)
             "indicator_dir": indicator_dir,
@@ -879,21 +896,33 @@ class StrategyEngine:
             # Counter-Trend Entry Block
             # Prevents going long when HTF is bearish, or short when HTF is bullish.
             # SAR reversals bypass this — the whole point is to trade against the prior direction.
+            # Counter-trend strategies are also exempt, as they hunt pullbacks and sweeps autonomously.
             htf_dir = gates.get("htf_dir", "neutral")
+            ltf_dir = gates.get("ltf_dir", "neutral")
+            exec_dir = gates.get("exec_dir", "neutral")
+            
             is_sar_reversal = "[REVERSAL]" in (decision.notes or "")
-            if getattr(self.profile, "block_counter_trend_entries", True) and decision.action in ("enter_long", "enter_short", "scale_in") and not is_sar_reversal:
+            
+            # Explicitly whitelist known counter-trend / mean-reverting algorithms
+            counter_tags = (
+                "mean_reversion", "londonsweep", "london_sweep", "goldenpocket", "golden_pocket", 
+                "newyorkdrive", "new_york_drive", "counter", "reversal", "rubberband", "choppiness", "supply_demand", "yoyo"
+            )
+            is_counter_trend_strat = any(tag.lower() in (decision.strategy_name or "").lower() for tag in counter_tags)
+            
+            if getattr(self.profile, "block_counter_trend_entries", True) and decision.action in ("enter_long", "enter_short", "scale_in") and not is_sar_reversal and not is_counter_trend_strat:
                 # Determine effective direction for scale_in from existing position
                 effective_action = decision.action
                 if decision.action == "scale_in" and open_position:
                     pos_size = open_position.get("size", 0)
                     effective_action = "enter_long" if pos_size > 0 else "enter_short"
                 
-                is_counter_trend = (
-                    (htf_dir == "short" and effective_action == "enter_long")
-                    or (htf_dir == "long" and effective_action == "enter_short")
-                )
-                if is_counter_trend:
-                    reason = f"Counter-Trend Blocked: {decision.action} vs HTF={htf_dir}"
+                # Check Triple-Timeframe Alignment: All three timeframes MUST explicitly agree with the entry direction
+                req_dir = "long" if effective_action == "enter_long" else "short"
+                triple_aligned = (htf_dir == req_dir and ltf_dir == req_dir and exec_dir == req_dir)
+                
+                if not triple_aligned:
+                    reason = f"Triple-Timeframe Blocked: {effective_action} violates alignment (HTF={htf_dir}, LTF={ltf_dir}, EXEC={exec_dir})"
                     logger.info(f"[TREND_GUARD] {self.symbol} {reason}")
                     from tradebot_sci.strategy.decisions import stand_aside_decision
                     from tradebot_sci.runtime.rejection_journal import rejection_journal
@@ -905,16 +934,20 @@ class StrategyEngine:
                     return blocked
 
             # ── CHOP-PHASE ENTRY REJECTION ────────────────────────────
-            # If both HTF and LTF trend strengths are weak (< 0.15),
-            # the market is indecisive — no directional conviction.
+            # If both HTF and LTF trend strengths are weak (< 0.15), OR
+            # if ADX is too low (< 20.0), the market lacks conviction/volatility.
             # Entries during chop get stopped at ~40% rate. Block them.
             # SAR entries bypass this (they're reactive, not structural).
             is_sar_entry = decision.notes and "[SAR]" in decision.notes
             if not is_sar_entry and decision.action in ("enter_long", "enter_short"):
                 htf_str = gates.get("htf_strength", 0.0)
                 ltf_str = gates.get("ltf_strength", 0.0)
-                if htf_str < 0.15 and ltf_str < 0.15:
-                    reason = f"Chop Filter: HTF={htf_str:.2f} LTF={ltf_str:.2f} (both < 0.15)"
+                htf_adx = gates.get("htf_adx", 0.0)
+                
+                is_conflicted = htf_str < 0.15 and ltf_str < 0.15
+                
+                if is_conflicted:
+                    reason = f"Chop Filter: Trend Str Conflicts Str={htf_str:.2f}/{ltf_str:.2f}"
                     logger.info(f"[CHOP_GUARD] {self.symbol} {reason}")
                     from tradebot_sci.strategy.decisions import stand_aside_decision
                     from tradebot_sci.runtime.rejection_journal import rejection_journal

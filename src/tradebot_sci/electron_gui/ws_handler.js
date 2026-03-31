@@ -42,8 +42,14 @@ async function connectWebSocket() {
 
         // Start Ping-Pong
         if (pingInterval) clearInterval(pingInterval);
+        ws._lastPong = Date.now(); // Initialize to prevent immediate timeout
         pingInterval = setInterval(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
+                if (Date.now() - ws._lastPong > 15000) {
+                    console.warn("[WS] Ping timeout (No pong in 15s). Forcing reconnect...");
+                    ws.close();
+                    return;
+                }
                 ws._lastPing = Date.now();
                 ws.send(JSON.stringify({ type: 'ping' }));
             }
@@ -71,9 +77,12 @@ async function connectWebSocket() {
 
 
             if (msg.type === 'pong') {
+                ws._lastPong = Date.now();
                 if (ws._lastPing) {
                     const latency = Date.now() - ws._lastPing;
-                    if (statusLatency) statusLatency.textContent = `${latency}ms`;
+                    if (typeof statusLatency !== 'undefined' && statusLatency) {
+                        statusLatency.textContent = `${latency}ms`;
+                    }
                 }
             } else if (msg.type === 'history') {
                 const currentSym = (document.getElementById('chart-symbol-label')?.innerText || "").trim().toUpperCase();

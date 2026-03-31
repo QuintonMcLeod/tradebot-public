@@ -120,7 +120,7 @@ class TradeSciAIClient:
             "max_tokens": self.settings.max_tokens,
             "messages": messages,
         }
-        if expect_json:
+        if expect_json and "reasoner" not in self.settings.model_name.lower():
             payload["response_format"] = {"type": "json_object"}
         self.last_request_payload = payload
         response = self.http_client.post(
@@ -134,8 +134,14 @@ class TradeSciAIClient:
             data = {"text": response.text}
         self.last_response_json = data
         if response.status_code == 429:
-            raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
-        response.raise_for_status()
+            raise httpx.HTTPStatusError(f"Rate limited: {response.text}", request=response.request, response=response)
+        
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            # Inject the literal API response body into the exception message so the user can read the explicit error
+            raise httpx.HTTPStatusError(f"{e} | Details: {response.text}", request=response.request, response=response) from None
+
         try:
             message = data["choices"][0]["message"]
             if isinstance(message, dict):

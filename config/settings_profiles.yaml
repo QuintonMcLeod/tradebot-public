@@ -1,169 +1,177 @@
 profiles:
-  all_247:
-    symbols:
-    - SPY
-    - QQQ
-    - DIA
-    - IWM
-    - VTI
-    - XLK
-    - XLF
-    - XLE
-    - XLY
-    - XLP
-    - XLI
-    - XLU
-    - SMH
-    - XLB
-    - XOP
-    - XME
-    - ARKK
-    - ARKF
-    - SOXX
-    - GLD
-    - SLV
-    - GDX
-    - USO
-    - UNG
-    - EWU
-    - EWG
-    - EWQ
-    - EWT
-    - EWJ
-    - EWS
-    - FXI
-    - BTCUSD
-    - ETHUSD
-    - SOLUSD
-    - XRPUSD
-    - LINKUSD
-    - LTCUSD
-    - DOGEUSD
-    - SOLUSD
-    - XRPUSD
-    - ZECUSD
-    - BCHUSD
-    - EURUSD
-    - GBPUSD
-    - USDJPY
-    - AUDUSD
-    - NZDUSD
-    - USDCAD
-    - USDCHF
-    - XAUUSD
-    - XAGUSD
-    - MES
-    - MNQ
-    - M2K
-    - MGC
-    - CL
-  auto_schedule:
-    symbols:
-    - BTCUSD
-    - ETHUSD
-    - SOLUSD
-    - XRPUSD
-    - LINKUSD
-    - LTCUSD
-    - DOGEUSD
-    - LTCUSD
-    - BCHUSD
-    - XRPUSD
-    - ZECUSD
-    - SOLUSD
-  coinbase_futures:
-    symbols:
-    - AVAX/USD
-    - SHIB/USD
-    - ETH/USD
-    - ADA/USD
-    - SOL/USD
-    - DOGE/USD
-    - LINK/USD
-    - LTC/USD
-    - BTC/USD
-  coinbase_futures_nano: null
-  crypto_247:
-    symbols:
-    - BTCUSD
-    - ETHUSD
-    - SOLUSD
-    - XRPUSD
-    - LINKUSD
-    - LTCUSD
-    - DOGEUSD
-    - SOLUSD
-    - XRPUSD
-    - ZECUSD
-    - BCHUSD
-  forex_continuous:
-    strategies:
-      etf: meta_sci
-      forex: forex_conductor
-      futures: forex_conductor
-      metals: forex_conductor
-      stocks: robocop
-    strategy_variant: forex_conductor
-    symbols:
-    - EURUSD
-    - GBPUSD
-    - USDJPY
-    - AUDUSD
-    - USDCAD
-    - USDCHF
-    - NZDUSD
-    - EURJPY
-    - GBPJPY
-    - AUDJPY
-  forex_crypto_hybrid:
-    symbols:
-    - EURUSD
-    - GBPUSD
-    - USDJPY
-    - AUDUSD
-    - USDCAD
-    - USDCHF
-    - NZDUSD
-    - GBPJPY
-    - EURJPY
-    - AUDJPY
-    - EURGBP
-    - GBPCHF
-    - NZDJPY
-    - CADJPY
-    - BTCUSD
-    - ETHUSD
-    - SOLUSD
-    - XRPUSD
-    - LINKUSD
-    - LTCUSD
-    - DOGEUSD
-    - ZECUSD
-    - BCHUSD
-    - AAVEUSD
-    - COMPUSD
-    - MATICUSD
-  forex_intraday:
-    symbols:
-    - EURUSD
-    - GBPUSD
-    - USDJPY
-    - AUDUSD
-    - USDCAD
-    - USDCHF
-    - NZDUSD
-    - GBPJPY
-    - EURJPY
-    - AUDJPY
-    - BTCUSD
-    - ETHUSD
-    - SOLUSD
-    - XRPUSD
-    - LINKUSD
-    - LTCUSD
-    - DOGEUSD
-    - SOLUSD
-  intraday: null
-  oanda_multi_asset: null
-  scalp: null
-  swing: null
+  all_247: 
+    symbols: 
+    - SPY 
+    - QQQ 
+    - DIA 
+    - IWM 
+    - VTI 
+    - XLK 
+    - XLF 
+    - XLE 
+    - XLY 
+    - XLP 
+    - XLI 
+    - XLU 
+    - SMH 
+    - XLB 
+    - XOP 
+    - XME 
+    - ARKK 
+    - ARKF 
+    - SOXX 
+    - GLD 
+    - SLV 
+    - GDX 
+    - USO 
+    - UNG 
+    - EWU 
+    - EWG 
+    - EWQ 
+    - EWT 
+    - EWJ 
+    - EWS 
+    - FXI 
+    - BTCUSD 
+    - ETHUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - LINKUSD 
+    - LTCUSD 
+    - DOGEUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - ZECUSD 
+    - BCHUSD 
+    - EURUSD 
+    - GBPUSD 
+    - USDJPY 
+    - AUDUSD 
+    - NZDUSD 
+    - USDCAD 
+    - USDCHF 
+    - XAUUSD 
+    - XAGUSD 
+    - MES 
+    - MNQ 
+    - M2K 
+    - MGC 
+    - CL 
+  auto_schedule: 
+    symbols: 
+    - BTCUSD 
+    - ETHUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - LINKUSD 
+    - LTCUSD 
+    - DOGEUSD 
+    - LTCUSD 
+    - BCHUSD 
+    - XRPUSD 
+    - ZECUSD 
+    - SOLUSD 
+  coinbase_futures: 
+    symbols: 
+    - AVAX/USD 
+    - SHIB/USD 
+    - ETH/USD 
+    - ADA/USD 
+    - SOL/USD 
+    - DOGE/USD 
+    - LINK/USD 
+    - LTC/USD 
+    - BTC/USD 
+  coinbase_futures_nano: 
+  crypto_247: 
+    symbols: 
+    - BTCUSD 
+    - ETHUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - LINKUSD 
+    - LTCUSD 
+    - DOGEUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - ZECUSD 
+    - BCHUSD 
+  forex_continuous: 
+    strategies: 
+      etf: meta_sci 
+      forex: forex_conductor 
+      futures: forex_conductor 
+      metals: forex_conductor 
+      stocks: robocop 
+      crypto: forex_conductor 
+    strategy_variant: forex_conductor 
+    symbols: 
+    - EURUSD 
+    - GBPUSD 
+    - USDJPY 
+    - AUDUSD 
+    - NZDUSD 
+    - USDCAD 
+    - USDCHF 
+    - GBPJPY 
+    - EURJPY 
+    - AUDJPY 
+    candle_timeframe: 1m 
+    mtf_timeframe: 1h 
+    ltf_timeframe: 5m 
+    htf_timeframe: 4h 
+    risk_dynamic_auto: true 
+    continuous_mode: true 
+    session_gate_enabled: false 
+  forex_crypto_hybrid: 
+    symbols: 
+    - EURUSD 
+    - GBPUSD 
+    - USDJPY 
+    - AUDUSD 
+    - USDCAD 
+    - USDCHF 
+    - NZDUSD 
+    - GBPJPY 
+    - EURJPY 
+    - AUDJPY 
+    - EURGBP 
+    - GBPCHF 
+    - NZDJPY 
+    - CADJPY 
+    - BTCUSD 
+    - ETHUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - LINKUSD 
+    - LTCUSD 
+    - DOGEUSD 
+    - ZECUSD 
+    - BCHUSD 
+    - AAVEUSD 
+    - COMPUSD 
+    - MATICUSD 
+  forex_intraday: 
+    symbols: 
+    - EURUSD 
+    - GBPUSD 
+    - USDJPY 
+    - AUDUSD 
+    - USDCAD 
+    - USDCHF 
+    - NZDUSD 
+    - GBPJPY 
+    - EURJPY 
+    - AUDJPY 
+    - BTCUSD 
+    - ETHUSD 
+    - SOLUSD 
+    - XRPUSD 
+    - LINKUSD 
+    - LTCUSD 
+    - DOGEUSD 
+    - SOLUSD 
+  intraday: 
+  oanda_multi_asset: 
+  scalp: 
+  swing: 

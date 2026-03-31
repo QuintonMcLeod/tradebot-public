@@ -44,6 +44,16 @@ for _noisy in ("tradebot_sci.market", "tradebot_sci.confluence",
 
 logger = logging.getLogger("engine_replay")
 
+with open(f"{str(Path.home())}/.config/tradebot-sci/logs/gui_start_debug.log", "a") as df:
+    df.write(f"\n--- ENGINE REPLAY START ---\n")
+    df.write(f"SYS PATH: {sys.path}\n")
+    df.write(f"CWD: {os.getcwd()}\n")
+    df.write(f"ARGS: {sys.argv}\n")
+    try:
+        from tradebot_sci.paths import CONFIG_FILE
+        df.write(f"CONFIG PATH RESOLVED: {CONFIG_FILE}\n")
+    except Exception as e:
+        df.write(f"FAILED TO GET PATHS: {e}\n")
 
 # ── Imports ───────────────────────────────────────────────────────────────────
 from tools.engine.minovsky_engine import MinovskyEngine
@@ -173,6 +183,11 @@ def print_results(result, initial_balance: float, elapsed: float):
         "final_capital": round(final, 2),
         "trades": json_trades,
     }
+    
+    with open(f"{str(Path.home())}/.config/tradebot-sci/logs/gui_start_debug.log", "a") as df:
+        df.write(f"\n--- ENGINE REPLAY JSON OUTPUT ---\n")
+        df.write(json.dumps(summary, indent=2))
+        
     print(json.dumps(summary), flush=True)
 
 
@@ -269,7 +284,16 @@ def _load_candles_for_range(
             except Exception as e:
                 logging.getLogger("engine_replay").warning(f"[ENGINE] Error reading {f}: {e}")
 
-        if api_fallback and not ltf_candles:
+        # Trigger API fallback if we have NO candles, OR if we are significantly missing the warmup period
+        needs_fallback = not ltf_candles
+        if api_fallback and ltf_candles:
+            first_loaded = ltf_candles[0].timestamp
+            target_start = parse_cli_date(date_start).replace(tzinfo=timezone.utc)
+            # If our first local candle is more than 5 days after the requested start
+            if (first_loaded - target_start).total_seconds() > 5 * 86400:
+                needs_fallback = True
+
+        if api_fallback and needs_fallback:
             try:
                 from tradebot_sci.config.loader import load_config_json
                 from tradebot_sci.market.oanda_provider import OandaMarketDataProvider
@@ -364,7 +388,27 @@ def _load_candles_for_range(
                                 
                         return [c for c in all_candles if datetime.fromisoformat(c["time"].split(".")[0].replace("Z", "+00:00")).replace(tzinfo=timezone.utc) <= end]
 
-                    raw_ltf = _fetch_paginated_candles("M5", start_dt, end_dt)
+                    # ── Resolve Timeframes from active profile ─────────────────
+                    from tradebot_sci.config.loader import get_settings
+                    _active_prof = get_settings().get_active_profile()
+                    _exec_setting = getattr(_active_prof, "candle_timeframe", None) or "5m"
+                    _htf_setting = getattr(_active_prof, "htf_timeframe", None) or "4h"
+                    
+                    # Map common timeframes to OANDA granularity
+                    _oanda_granularity_map = {
+                        "1m": "M1", "5m": "M5", "15m": "M15", "30m": "M30",
+                        "1h": "H1", "4h": "H4", "1d": "D", "1w": "W"
+                    }
+                    oanda_exec_tf = _oanda_granularity_map.get(_exec_setting.lower(), "M5")
+                    oanda_htf_tf = _oanda_granularity_map.get(_htf_setting.lower(), "H1")
+                    _log.info(f"[API-FALLBACK] Using mapped OANDA EXEC Timeframe: {oanda_exec_tf} (from profile setting: {_exec_setting})")
+                    _log.info(f"[API-FALLBACK] Using mapped OANDA HTF Timeframe: {oanda_htf_tf} (from profile setting: {_htf_setting})")
+
+                    raw_ltf = _fetch_paginated_candles(oanda_exec_tf, start_dt, end_dt)
+
+                    raw_htf = _fetch_paginated_candles(oanda_htf_tf, start_dt, end_dt)
+                    
+                    # Process raw_ltf into ltf_candles
                     for c in raw_ltf:
                         mid = c.get("mid")
                         if mid and c.get("complete", True):
@@ -390,21 +434,6 @@ def _load_candles_for_range(
                                 timestamp=ts, open=float(mid["o"]), high=float(mid["h"]),
                                 low=float(mid["l"]), close=float(mid["c"]), volume=float(c["volume"])
                             ))
-
-                    # ── Resolve HTF from active profile ───────────────────────
-                    from tradebot_sci.config.loader import get_settings
-                    _active_prof = get_settings().get_active_profile()
-                    _htf_setting = getattr(_active_prof, "htf_timeframe", None) or "4h"
-                    
-                    # Map common timeframes to OANDA granularity
-                    _oanda_granularity_map = {
-                        "1m": "M1", "5m": "M5", "15m": "M15", "30m": "M30",
-                        "1h": "H1", "4h": "H4", "1d": "D", "1w": "W"
-                    }
-                    oanda_htf_tf = _oanda_granularity_map.get(_htf_setting.lower(), "H1")
-                    _log.info(f"[API-FALLBACK] Using mapped OANDA HTF Timeframe: {oanda_htf_tf} (from profile setting: {_htf_setting})")
-
-                    raw_htf = _fetch_paginated_candles(oanda_htf_tf, start_dt, end_dt)
 
                     for c in raw_htf:
                         mid = c.get("mid")
@@ -591,6 +620,30 @@ def _run_single_day_worker(args: tuple) -> dict:
         backtester = Backtester(ib=None, settings=settings, ai_client=None)
         backtester._is_market_hours_utc = lambda ts: True
 
+        # ── Auto-detect actual candle resolution from data ────────
+        # Local .jsonl files may contain 5m candles even if the profile
+        # says 1m. Detect median bar interval and override the profile
+        # so the backtester steps at the correct frequency.
+        _first_sym_candles = next(iter(all_ltf.values()), [])
+        if len(_first_sym_candles) >= 3:
+            _intervals = []
+            for _i in range(1, min(20, len(_first_sym_candles))):
+                _dt = (_first_sym_candles[_i].timestamp - _first_sym_candles[_i-1].timestamp).total_seconds()
+                if 0 < _dt <= 86400:  # Ignore gaps > 1 day
+                    _intervals.append(_dt)
+            if _intervals:
+                _median_interval = sorted(_intervals)[len(_intervals) // 2]
+                _tf_map = {60: "1m", 300: "5m", 900: "15m", 1800: "30m", 3600: "1h", 14400: "4h"}
+                _detected_tf = _tf_map.get(int(_median_interval))
+                _configured_tf = settings.get_active_profile().candle_timeframe
+                if _detected_tf and _detected_tf != _configured_tf:
+                    _log = logging.getLogger("engine_replay")
+                    _log.info(
+                        f"[ENGINE] Auto-detected candle resolution: {_detected_tf} "
+                        f"(profile says {_configured_tf}). Overriding for accurate simulation."
+                    )
+                    settings.get_active_profile().candle_timeframe = _detected_tf
+
         try:
             result = backtester.run_backtest(
                 initial_capital=balance,
@@ -700,7 +753,8 @@ def run_candle_history_mode(
     # ── Multi-day: parallel across CPU cores ──────────────────────
     import multiprocessing
 
-    num_cores = min(multiprocessing.cpu_count(), num_days)
+    num_cores = min(multiprocessing.cpu_count(), 6) # Cap at 6 to prevent OOM on large date ranges
+    num_cores = min(num_cores, num_days)
     logger.info(
         f"[PARALLEL] ⚡ Multi-core mode: {num_days} days across {num_cores} cores "
         f"({', '.join(day_list[:3])}{'...' if num_days > 3 else ''})"
@@ -786,6 +840,26 @@ def _run_single_day_sequential(
 
     backtester = Backtester(ib=None, settings=settings, ai_client=None)
     backtester._is_market_hours_utc = lambda ts: True
+
+    # ── Auto-detect actual candle resolution from data ────────
+    _first_sym_candles = next(iter(all_ltf.values()), [])
+    if len(_first_sym_candles) >= 3:
+        _intervals = []
+        for _i in range(1, min(20, len(_first_sym_candles))):
+            _dt = (_first_sym_candles[_i].timestamp - _first_sym_candles[_i-1].timestamp).total_seconds()
+            if 0 < _dt <= 86400:
+                _intervals.append(_dt)
+        if _intervals:
+            _median_interval = sorted(_intervals)[len(_intervals) // 2]
+            _tf_map = {60: "1m", 300: "5m", 900: "15m", 1800: "30m", 3600: "1h", 14400: "4h"}
+            _detected_tf = _tf_map.get(int(_median_interval))
+            _configured_tf = settings.get_active_profile().candle_timeframe
+            if _detected_tf and _detected_tf != _configured_tf:
+                logger.info(
+                    f"[ENGINE] Auto-detected candle resolution: {_detected_tf} "
+                    f"(profile says {_configured_tf}). Overriding for accurate simulation."
+                )
+                settings.get_active_profile().candle_timeframe = _detected_tf
 
     logger.info(
         f"[ENGINE] Candle-history mode: {len(symbols)} symbols, "

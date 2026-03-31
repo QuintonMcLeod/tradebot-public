@@ -33,9 +33,12 @@ class MarketSnapshot:
     candles: List[Candle]
     trend_htf: TrendState
     trend_ltf: TrendState
+    trend_mtf: Optional[TrendState] = None
     htf_candles: Optional[List[Candle]] = None
+    mtf_candles: Optional[List[Candle]] = None
     ltf_candles: Optional[List[Candle]] = None
     htf_timeframe: Optional[str] = None
+    mtf_timeframe: Optional[str] = None
     ltf_timeframe: Optional[str] = None
 
 

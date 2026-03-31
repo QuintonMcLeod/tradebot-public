@@ -9,6 +9,7 @@ class BaseStrategy:
     def __init__(self, name: str):
         self.name = name
         self.profile_risk_pct: float | None = None  # Set by Meta-SCI or engine
+        self._profile = None  # Set by engine or conductor — strategies read config from here
 
     def get_risk_pct(self, fallback: float = 0.015) -> float:
         """Return the profile-configured risk, or a safe fallback."""

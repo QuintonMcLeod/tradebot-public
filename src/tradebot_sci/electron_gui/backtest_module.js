@@ -289,6 +289,9 @@
                 _showStatus(result.error, 'error');
             } else {
                 _showStatus('Replay complete \u2713', 'success');
+                // Hide progress bar on success
+                const panel = $('bt-progress-panel');
+                if (panel) panel.style.display = 'none';
                 _renderResults(result);
             }
         } catch (e) {
@@ -296,6 +299,8 @@
         } finally {
             _running = false;
             _setRunButtonState(false);
+            const panel = $('bt-progress-panel');
+            if (panel && result?.error) panel.style.display = 'none';
             if (window.api?.offBacktestProgress) window.api.offBacktestProgress();
         }
     }
@@ -344,7 +349,8 @@
             totalPct += p.pct;
             count++;
             const color = p.pct === 100 ? 'var(--success,#3fb950)' : 'var(--text-secondary,#8b949e)';
-            detailsHtml += `<div style="background:var(--surface-1,#010409);padding:4px 8px;border-radius:4px;border:1px solid var(--border,#30363d);"><span style="color:var(--text-primary,#c9d1d9)">${sym}</span> <span style="color:${color}">${p.pct}%</span></div>`;
+            const detailsText = p.details ? ` <span style="color:var(--text-secondary,#8b949e);margin-left:4px;">${p.details}</span>` : '';
+            detailsHtml += `<div style="background:var(--surface-1,#010409);padding:4px 8px;border-radius:4px;border:1px solid var(--border,#30363d);"><span style="color:var(--text-primary,#c9d1d9)">${sym}</span> <span style="color:${color}">${p.pct}%</span>${detailsText}</div>`;
         }
 
         if (count > 0) {

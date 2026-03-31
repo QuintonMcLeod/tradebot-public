@@ -237,6 +237,13 @@ window.profilesModule = (function () {
             if (config && config.active_profile) {
                 activeProfileName = config.active_profile;
             }
+
+            // Sanitize explicit null profiles to prevent UI rendering crashes
+            if (allProfiles) {
+                Object.keys(allProfiles).forEach(key => {
+                    if (allProfiles[key] === null) allProfiles[key] = {};
+                });
+            }
             
             // Auto-create default profile if empty (e.g., fresh install)
             if (!allProfiles || Object.keys(allProfiles).length === 0) {
@@ -354,7 +361,7 @@ window.profilesModule = (function () {
         list.innerHTML = '';
 
         Object.keys(allProfiles).forEach(name => {
-            const profile = allProfiles[name];
+            const profile = allProfiles[name] || {}; // Protect against null template profiles
             const item = document.createElement('div');
             item.dataset.profile = name;
             Object.assign(item.style, {

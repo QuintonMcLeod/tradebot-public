@@ -96,6 +96,9 @@ def _notional_per_unit(symbol: str, price: float) -> float:
     sym = symbol.upper().replace("_", "")
     if sym.startswith("USD"):
         return 1.0
+    if "JPY" in sym and price > 0:
+        # Approximate base currency USD value by dividing JPY price by USDJPY (~150.0)
+        return price / 150.0
     return price if price > 0 else 1.0
 
 
@@ -104,7 +107,7 @@ def _apply_leverage_cap(size: float, symbol: str, capital_base: float, price: fl
     import os
     asset_class = classify_symbol(symbol)
     lev_cap = {
-        AssetClass.FOREX: 30.0,
+        AssetClass.FOREX: 10.0,
         AssetClass.CRYPTO: 3.0,
         AssetClass.STOCKS: 4.0,
         AssetClass.ETF: 4.0,
@@ -510,9 +513,11 @@ class HistoricalMarketDataProvider:
         profile = self.settings.get_active_profile()
         base_seconds = _timeframe_to_seconds(timeframe)
         htf_seconds = _timeframe_to_seconds(profile.htf_timeframe)
+        mtf_seconds = _timeframe_to_seconds(getattr(profile, "mtf_timeframe", "1h") or "1h")
         ltf_seconds = _timeframe_to_seconds(profile.ltf_timeframe or timeframe)
 
         htf_window = profile.trend_window
+        mtf_window = profile.trend_window  # MTF uses same structure window
         ltf_window = profile.ltf_trend_window or htf_window
 
         # Indicators need MORE candles than the trend_window:
@@ -520,9 +525,14 @@ class HistoricalMarketDataProvider:
         # Pass at least 60 candles so all indicator voters have enough data.
         INDICATOR_MIN_CANDLES = 60
         htf_indicator_window = max(htf_window, INDICATOR_MIN_CANDLES)
+        mtf_indicator_window = max(mtf_window, INDICATOR_MIN_CANDLES)
         ltf_indicator_window = max(ltf_window, INDICATOR_MIN_CANDLES)
 
-        required_seconds = max(htf_indicator_window * htf_seconds, ltf_indicator_window * ltf_seconds)
+        required_seconds = max(
+            htf_indicator_window * htf_seconds, 
+            mtf_indicator_window * mtf_seconds,
+            ltf_indicator_window * ltf_seconds
+        )
         base_limit = max(200, math.ceil(required_seconds / base_seconds) + 10)
 
         candles = self.get_latest_candles(symbol, timeframe, limit=base_limit)
@@ -540,6 +550,10 @@ class HistoricalMarketDataProvider:
             htf_candles = (
                 _resample_candles(candles, htf_seconds) if htf_seconds != base_seconds else candles
             )
+            
+        mtf_candles = (
+            _resample_candles(candles, mtf_seconds) if mtf_seconds != base_seconds else candles
+        )
         ltf_candles = (
             _resample_candles(candles, ltf_seconds) if ltf_seconds != base_seconds else candles
         )
@@ -553,9 +567,12 @@ class HistoricalMarketDataProvider:
             candles=candles,
             trend_htf=_neutral,
             trend_ltf=_neutral,
+            trend_mtf=_neutral,
             htf_candles=htf_candles[-htf_indicator_window:] if len(htf_candles) >= htf_indicator_window else htf_candles,
+            mtf_candles=mtf_candles[-mtf_indicator_window:] if len(mtf_candles) >= mtf_indicator_window else mtf_candles,
             ltf_candles=ltf_candles[-ltf_indicator_window:] if len(ltf_candles) >= ltf_indicator_window else ltf_candles,
             htf_timeframe=profile.htf_timeframe,
+            mtf_timeframe=getattr(profile, "mtf_timeframe", "1h"),
             ltf_timeframe=profile.ltf_timeframe or timeframe,
         )
 
@@ -1404,13 +1421,20 @@ class Backtester:
                     else:
                         # Reset counter when HTF becomes trending again
                         pos.htf_neutral_bars = 0
-                htf_neutral_exit_bars = int(getattr(profile, "htf_neutral_exit_bars", 0) or 0)
+                # Disable HTF override so Universal Exit Router has total control
+                htf_neutral_exit_bars = 0
+                
+                # [SNIPER FIX] Calculate current PnL. Do not assassinate trades
+                # that are already actively in profit just because the HTF took a breather.
+                exit_price = current_bar.close
+                pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
+                
                 if (
                     htf_neutral_exit_bars > 0
                     and pos.htf_neutral_bars >= htf_neutral_exit_bars
                     and (min_hold_seconds <= 0 or held_seconds >= min_hold_seconds)
+                    and pnl <= 0.0  # Only eject if trade is actually stalling/failing
                 ):
-                    exit_price = current_bar.close
                     pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                     capital += pnl
                     completed_trades.append(SimulatedTrade(
@@ -1645,8 +1669,9 @@ class Backtester:
                                     open_position=sp_open_pos,
                                     snapshot=snapshot,
                                     current_bar_time=current_time,
+                                    execution_capabilities={"open_symbols": list({p.symbol for p in positions.values()})}
                                 )
-                                if sp_decision and sp_decision.action in ("exit_position", "close", "close_position", "exit_long", "exit_short"):
+                                if sp_decision and sp_decision.action in ("exit_position", "close", "close_position", "exit", "exit_long", "exit_short"):
                                     exit_price = snapshot.candles[-1].close
                                     pnl = _calculate_pnl(sp_pos.entry_price, exit_price, sp_pos.size, sp_pos.direction, symbol=symbol)
                                     capital += pnl
@@ -1777,6 +1802,7 @@ class Backtester:
                                 open_position=combined_open_pos,
                                 snapshot=snapshot,
                                 current_bar_time=current_time,
+                                execution_capabilities={"open_symbols": list({p.symbol for p in positions.values()})}
                             )
                         elif current_position is not None:
                             # [FIXED] Strategy needs to know its profit to pyramid!
@@ -1804,6 +1830,7 @@ class Backtester:
                                 'strategy_name': getattr(current_position, 'strategy_name', 'unknown'),
                                 'original_entry_price': getattr(current_position, 'original_entry_price', current_position.entry_price),
                                 'initial_risk': getattr(current_position, 'initial_risk', None),
+                                'age_bars': max(0, int((current_time - current_position.entry_time).total_seconds() / 300)) if current_position.entry_time else 0,
                             }
 
                         decision = engine.decide(
@@ -1811,6 +1838,7 @@ class Backtester:
                             open_position=open_position,
                             snapshot=snapshot,
                             current_bar_time=current_time,
+                            execution_capabilities={"open_symbols": list({p.symbol for p in positions.values()})}
                         )
 
                         # Increment AI call counter AFTER successful decision
@@ -1857,11 +1885,13 @@ class Backtester:
                                 continue
                             exit_price = snapshot.candles[-1].close
                             pnl = _calculate_pnl(current_position.entry_price, exit_price, current_position.size, current_position.direction, symbol=symbol)
-                            if pnl <= 0 and not allow_loss_exit_after_hold:
+                            
+                            is_extreme_exit = getattr(decision, "urgency", "") in ("extreme", "high")
+                            if pnl <= 0 and not allow_loss_exit_after_hold and not is_extreme_exit:
                                 logger.info(f"[BACKTEST] {symbol} exit signal ignored (not profitable).")
                                 continue
-                            if pnl <= 0 and allow_loss_exit_after_hold:
-                                logger.info(f"[BACKTEST] {symbol} exit signal accepted after hold (loss allowed).")
+                            if pnl <= 0 and (allow_loss_exit_after_hold or is_extreme_exit):
+                                logger.info(f"[BACKTEST] {symbol} exit signal accepted (loss allowed/forced via {getattr(decision, 'urgency', '')}).")
                             capital += pnl
                             # Propagate actual exit reason from decision
                             actual_reason = (
@@ -1892,6 +1922,16 @@ class Backtester:
                                 del positions[symbol]
                             logger.info(f"[BACKTEST] {symbol} EXIT ({actual_reason[:50]}): PnL=${pnl:.2f}")
                             continue  # Skip to next symbol after exit
+
+                        # Handle trailing stops from holds or additions
+                        if current_position is not None and decision.action in ("hold", "add_to_position", "scale_in", "scale_out"):
+                            if decision.stop_loss is not None and decision.stop_loss != current_position.stop_price:
+                                old_stop = current_position.stop_price
+                                current_position.stop_price = decision.stop_loss
+                                current_position.stop_was_trailed = True
+                                logger.info(f"[BACKTEST] {symbol} stop updated: ${old_stop:.5f} -> ${decision.stop_loss:.5f}")
+                            if decision.take_profit is not None and decision.take_profit != current_position.target_price:
+                                current_position.target_price = decision.take_profit
 
                         # Handle pyramid/add to position
                         if current_position is not None and decision.action in ("add_to_position", "scale_in"):
@@ -2357,32 +2397,22 @@ class Backtester:
                             stop_price = decision.stop_loss or (entry_price * 0.98 if decision.action == "enter_long" else entry_price * 1.02)
                             risk_per_share = abs(entry_price - stop_price)
 
-                            # Safety 1: Enforce minimum stop distance (0.1% of entry - allows heavy scalping leverage)
-                            min_stop_distance = entry_price * 0.001
+                            # Safety 1: Enforce minimum stop distance (0.15% of entry)
+                            min_stop_distance = entry_price * 0.0015
                             if risk_per_share < min_stop_distance:
-                                # Compute original R:R so we can preserve it after widening
-                                original_rr = 2.5  # Default R:R
-                                if decision.take_profit and risk_per_share > 0:
-                                    tp_dist = abs(decision.take_profit - entry_price)
-                                    original_rr = tp_dist / risk_per_share
+                                target_r_cfg = float(getattr(profile, 'target_r', 2.5))
 
                                 logger.warning(
                                     f"[BACKTEST] {symbol}: Stop too tight (${risk_per_share:.4f} < ${min_stop_distance:.4f}), "
-                                    f"widening to minimum (preserving {original_rr:.1f}R target)"
+                                    f"widening to minimum (rescaling TP to {target_r_cfg}R)"
                                 )
                                 risk_per_share = min_stop_distance
-                                # Adjust stop price to match minimum distance
                                 if decision.action == "enter_long":
                                     stop_price = entry_price - min_stop_distance
+                                    decision.take_profit = entry_price + (min_stop_distance * target_r_cfg)
                                 else:
                                     stop_price = entry_price + min_stop_distance
-
-                                # Scale take_profit to preserve original R:R
-                                if decision.take_profit:
-                                    if decision.action == "enter_long":
-                                        decision.take_profit = entry_price + (min_stop_distance * original_rr)
-                                    else:
-                                        decision.take_profit = entry_price - (min_stop_distance * original_rr)
+                                    decision.take_profit = entry_price - (min_stop_distance * target_r_cfg)
 
                             # Calculate position size based on risk
                             # ICC methodology: size = risk_amount / stop_distance
@@ -2605,22 +2635,16 @@ class Backtester:
                         risk_per_share = abs(entry_price - stop_price)
 
                         # Min stop distance
-                        min_stop_distance = entry_price * 0.001
+                        min_stop_distance = entry_price * 0.0015
                         if risk_per_share < min_stop_distance:
-                            original_rr = 2.5
-                            if _r_dec.take_profit and risk_per_share > 0:
-                                tp_dist = abs(_r_dec.take_profit - entry_price)
-                                original_rr = tp_dist / risk_per_share
+                            target_r_cfg = float(getattr(profile, 'target_r', 2.5))
                             risk_per_share = min_stop_distance
                             if _r_dec.action == "enter_long":
                                 stop_price = entry_price - min_stop_distance
+                                _r_dec.take_profit = entry_price + (min_stop_distance * target_r_cfg)
                             else:
                                 stop_price = entry_price + min_stop_distance
-                            if _r_dec.take_profit:
-                                if _r_dec.action == "enter_long":
-                                    _r_dec.take_profit = entry_price + (min_stop_distance * original_rr)
-                                else:
-                                    _r_dec.take_profit = entry_price - (min_stop_distance * original_rr)
+                                _r_dec.take_profit = entry_price - (min_stop_distance * target_r_cfg)
 
                         raw_size = max_risk / _jpy_adjust_risk(risk_per_share, _r_sym, entry_price) if risk_per_share > 0 else 0
                         size = _apply_leverage_cap(raw_size, _r_sym, per_symbol_capital, entry_price, logger, current_position_size=0.0)

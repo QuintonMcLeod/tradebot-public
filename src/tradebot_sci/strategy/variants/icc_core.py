@@ -128,13 +128,17 @@ class ICCCoreStrategy(BaseStrategy):
         if _icc_bar_counter - last_bar < _ENTRY_COOLDOWN_BARS:
             return None  # Too soon after last entry on this symbol
             
-        # 1. Get bias from HTF direction (from engine trend detection)
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
         ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
+        exec_dir = str(gates.get("exec_dir", "neutral")).lower()
         phase = gates.get("phase", "neutral")
         
-        # Determine trading bias — prefer HTF, fallback to LTF
-        bias = htf_dir if htf_dir in ("long", "short") else ltf_dir
+        # Determine trading bias — Require strict Triple-Timeframe Confluence (e.g. H4 == H1 == M5)
+        # If any timeframe disagrees or is neutral, we sit out.
+        if htf_dir in ("long", "short") and htf_dir == ltf_dir == exec_dir:
+            bias = htf_dir
+        else:
+            bias = "neutral"
         
         last_close = candles[-1].close
         atr = calculate_atr(candles, period=14) or (last_close * 0.005)

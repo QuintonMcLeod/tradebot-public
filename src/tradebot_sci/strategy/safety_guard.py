@@ -882,17 +882,18 @@ class SafetyGuard:
              
              if direction == "long":
                  potential_stop = current_price - trail_dist
-                 # FLOOR: The Greedy Exit never loses money — stop can't go below entry
-                 potential_stop = max(potential_stop, entry_price)
+                 # FLOOR: Only lock to breakeven after trade proves itself (0.5R+)
+                 if r_multiple >= 0.5:
+                     potential_stop = max(potential_stop, entry_price)
                  # If price is at/below entry AND trade previously reached meaningful profit,
                  # the setup proved itself then reversed — close to protect capital.
                  # We check the PEAK R (highest high since entry), not current R
                  # (which is ~0 at entry). Without peak R, the gate never fires.
-                 min_greedy_age = getattr(settings.safety, 'safety_greedy_min_age_seconds', 300) if settings else 300
+                 min_greedy_age = getattr(settings.safety, 'safety_greedy_min_age_seconds', 1200) if settings else 1200
                  relevant_candles = [c for c in snapshot.candles if entry_time and isinstance(entry_time, datetime) and c.timestamp >= entry_time]
                  peak_price = max(c.high for c in relevant_candles) if relevant_candles else entry_price
                  peak_r = (peak_price - entry_price) / initial_risk if initial_risk > 0 else 0
-                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.2 and current_price <= entry_price:
+                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.5 and current_price <= entry_price:
                      logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} <= {entry_price:.5f}, peak was {peak_r:.1f}R). Closing at breakeven.")
                      return close_position_decision(snapshot.symbol, snapshot.timeframe,
                                                     reason=f"Greedy Exit: Back to entry (breakeven)")
@@ -909,15 +910,16 @@ class SafetyGuard:
                            )
              else: # short
                  potential_stop = current_price + trail_dist
-                 # FLOOR: The Greedy Exit never loses money — stop can't go above entry
-                 potential_stop = min(potential_stop, entry_price)
+                 # FLOOR: Only lock to breakeven after trade proves itself (0.5R+)
+                 if r_multiple >= 0.5:
+                     potential_stop = min(potential_stop, entry_price)
                  # If price is at/above entry AND trade previously reached meaningful profit,
                  # the setup proved itself then reversed — close to protect capital.
-                 min_greedy_age = getattr(settings.safety, 'safety_greedy_min_age_seconds', 300) if settings else 300
+                 min_greedy_age = getattr(settings.safety, 'safety_greedy_min_age_seconds', 1200) if settings else 1200
                  relevant_candles = [c for c in snapshot.candles if entry_time and isinstance(entry_time, datetime) and c.timestamp >= entry_time]
                  trough_price = min(c.low for c in relevant_candles) if relevant_candles else entry_price
                  peak_r = (entry_price - trough_price) / initial_risk if initial_risk > 0 else 0
-                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.2 and current_price >= entry_price:
+                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.5 and current_price >= entry_price:
                      logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} >= {entry_price:.5f}, peak was {peak_r:.1f}R). Closing at breakeven.")
                      return close_position_decision(snapshot.symbol, snapshot.timeframe,
                                                     reason=f"Greedy Exit: Back to entry (breakeven)")
@@ -957,13 +959,22 @@ class SafetyGuard:
         if settings.safety.safety_atr_shield_enabled:
             # 1. Breakeven (1R)
             if initial_risk > 0 and r_multiple >= 1.0:
-                if (direction == "long" and current_stop < entry_price) or \
-                   (direction == "short" and current_stop > entry_price):
-                    if not decision: 
+                if (direction == "long" and current_stop < entry_price):
+                    if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss < entry_price)): 
                          return hold_decision(
                              symbol=snapshot.symbol,
                              timeframe=snapshot.timeframe,
-                             bias="long" if direction == "long" else "short", 
+                             bias="long", 
+                             phase="management",
+                             reason="[SAFETY] Armor: Breakeven (1R)",
+                             stop_loss=entry_price
+                         )
+                elif (direction == "short" and (current_stop == 0 or current_stop > entry_price)):
+                    if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss > entry_price)): 
+                         return hold_decision(
+                             symbol=snapshot.symbol,
+                             timeframe=snapshot.timeframe,
+                             bias="short", 
                              phase="management",
                              reason="[SAFETY] Armor: Breakeven (1R)",
                              stop_loss=entry_price
@@ -1076,8 +1087,11 @@ class SafetyGuard:
         # 1. ESTABLISH BASE RISK (The Foundation)
         # -------------------------------------------------------------
         # Read from profile settings first, then decision, then fallback.
-        # This ensures the user's configured risk_per_trade_pct is actually respected.
-        profile = settings.get_active_profile() if settings else None
+        if settings:
+            profile = settings.get_active_profile() if hasattr(settings, 'get_active_profile') else settings
+        else:
+            profile = None
+            
         profile_risk = decision.risk_per_trade_pct or getattr(profile, 'risk_per_trade_pct', 0.01)
         auto_risk = getattr(profile, 'risk_dynamic_auto', False) if profile else False
 

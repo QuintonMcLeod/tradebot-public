@@ -313,7 +313,15 @@ class RuntimeController:
                     logger.info("[COMMENTARY] Session Lockout active — this will be the only update until session resumes.")
             
         except Exception as e:
-            logger.error(f"[COMMENTARY] Generation failed: {e}")
+            err_msg = str(e)
+            if "401" in err_msg or "403" in err_msg:
+                logger.error("[COMMENTARY] ⚠️ AI Provider rejected the request (Unauthorized). Please verify your API key in Settings.")
+            elif "404" in err_msg:
+                logger.error("[COMMENTARY] ⚠️ AI Provider rejected the request (Not Found). The selected model may not exist.")
+            elif "429" in err_msg or "rate limit" in err_msg.lower():
+                logger.error("[COMMENTARY] ⚠️ AI Provider rate limit exceeded. The bot will try again later.")
+            else:
+                logger.error(f"[SYSTEM] AI Commentary generation failed: {err_msg}")
     
     def get_last_commentary(self) -> tuple[str, float]:
         """Returns (last_commentary_content, last_update_timestamp)."""

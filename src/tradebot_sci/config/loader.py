@@ -140,8 +140,16 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     
     log_cfg = config.get("logging", {})
     
-    # Robustly fetch AI settings
+    # ── Legacy Schema Upgrades ─────────────────────────────────────────
     g_cfg = config.get("global", {})
+    if "universal_exit_strategy" in g_cfg and "universal_exit_strategies" not in g_cfg:
+        legacy_exit = g_cfg.pop("universal_exit_strategy")
+        if isinstance(legacy_exit, str):
+            g_cfg["universal_exit_strategies"] = [s.strip() for s in legacy_exit.split(",") if s.strip()]
+        elif isinstance(legacy_exit, list):
+            g_cfg["universal_exit_strategies"] = legacy_exit
+    
+    # Robustly fetch AI settings
     ai_raw = config.get("ai", {})
     
     raw_provider = str(ai_raw.get("provider") or g_cfg.get("trade_sci_provider") or os.getenv("TRADE_SCI_PROVIDER", "openai"))
@@ -155,11 +163,15 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     elif "openai" in raw_provider.lower() or "chatgpt" in raw_provider.lower():
         raw_provider = "openai"
         
+    ai_api_key = ai_raw.get("api_key")
+    if ai_api_key is None:
+        ai_api_key = os.getenv("TRADE_SCI_API_KEY") or os.getenv("CHATGPT_KEY")
+
     ai_model_cfg = {
         "provider": raw_provider,
-        "base_url": ai_raw.get("base_url") or g_cfg.get("trade_sci_api_base_url") or os.getenv("TRADE_SCI_API_BASE_URL", "https://api.openai.com/v1"),
-        "api_key": ai_raw.get("api_key") or os.getenv("TRADE_SCI_API_KEY") or os.getenv("CHATGPT_KEY"),
-        "model_name": ai_raw.get("model_name") or g_cfg.get("trade_sci_model_name") or os.getenv("TRADE_SCI_MODEL_NAME", "trade-sci-max-icc"),
+        "base_url": ai_raw.get("base_url") or g_cfg.get("trade_sci_api_base_url") or os.getenv("TRADE_SCI_API_BASE_URL") or None,
+        "api_key": ai_api_key,
+        "model_name": ai_raw.get("model_name") or ai_raw.get("model") or g_cfg.get("trade_sci_model_name") or os.getenv("TRADE_SCI_MODEL_NAME", "trade-sci-max-icc"),
         "temperature": ai_raw.get("temperature") or g_cfg.get("trade_sci_temperature") or float(os.getenv("TRADE_SCI_TEMPERATURE", "0.2")),
         "max_tokens": ai_raw.get("max_tokens") or g_cfg.get("trade_sci_max_tokens") or int(os.getenv("TRADE_SCI_MAX_TOKENS", "2048")),
     }
@@ -235,7 +247,10 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
 
     _REAL_PROFILE_KEYS = {
         "name", "strategy_variant", "strategies", "symbols",
-        "htf_timeframe", "ltf_timeframe"
+        "candle_timeframe", "htf_timeframe", "mtf_timeframe", "ltf_timeframe",
+        "risk_dynamic_auto",
+        # Profile-level behavioral flags (set by GUI profile editor)
+        "continuous_mode", "session_gate_enabled",
     }
 
     profiles = {}
@@ -273,6 +288,14 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         for key in risk_model_cfg:
             if key not in merged and key in _profile_fields:
                 merged[key] = risk_model_cfg[key]
+
+        # Safety-section keys (including Sabbath Protocol) are also stored separately;
+        # promote them to ensure UI payload propagation.
+        safety_model_cfg = config.get("safety", {})
+        if isinstance(safety_model_cfg, dict):
+            for key in safety_model_cfg:
+                if key not in merged and key in _profile_fields:
+                    merged[key] = safety_model_cfg[key]
 
 
         # ── Inject global per-asset strategies into profiles ──

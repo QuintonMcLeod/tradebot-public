@@ -87,9 +87,13 @@ class _TimeframeResult:
 class TrendConsensus:
     """Result of the multi-timeframe indicator direction consensus."""
     htf_dir: str           # HTF direction ("long", "short", "neutral")
+    mtf_dir: str           # MTF direction ("long", "short", "neutral")
     ltf_dir: str           # LTF direction ("long", "short", "neutral")
+    exec_dir: str          # Execution chart direction ("long", "short", "neutral")
     htf_strength: float    # 0.0 - 1.0
+    mtf_strength: float    # 0.0 - 1.0
     ltf_strength: float    # 0.0 - 1.0
+    exec_strength: float   # 0.0 - 1.0
     htf_align: bool        # HTF and LTF agree on direction
     indicator_dir: str     # Combined consensus ("long", "short", "neutral")
     indicator_strength: float  # Combined vote ratio
@@ -407,21 +411,24 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
     ema_aligned = ema.get("aligned", False) if ema else False
 
     # ── Early exit: HTF vs LTF directional conflict ─────────────────────
-    # If HTF and LTF point in OPPOSITE directions the market is whipsawing.
-    # Previously this returned "ranging" which routed to MeanReversionStrategy
-    # (a COUNTER-TREND strategy) — that caused systematic losses: entering
-    # LONG right into LTF downward momentum, or SHORT into LTF upward momentum.
-    # The correct response is "choppy" → block all entries. There is no edge
-    # when the two timeframes flatly contradict each other.
+    # If HTF and LTF point in OPPOSITE directions, it's usually whipsaw.
+    # However, if HTF ADX is strong (>= 25), this is likely just a healthy LTF
+    # pullback within a macro trend (exactly what Golden Pocket hunts).
     htf_dir = htf.direction
     ltf_dir = ltf.direction
     if (htf_dir == "long" and ltf_dir == "short") or \
        (htf_dir == "short" and ltf_dir == "long"):
-        logger.debug(
-            f"[REGIME] CHOPPY — HTF/LTF disagree ({htf_dir} vs {ltf_dir}), "
-            f"blocking entries (was incorrectly returning 'ranging' → MeanReversion)"
-        )
-        return "choppy"
+        if htf.adx < 25:
+            logger.debug(
+                f"[REGIME] CHOPPY — HTF/LTF disagree ({htf_dir} vs {ltf_dir}), "
+                f"blocking entries (was incorrectly returning 'ranging' → MeanReversion)"
+            )
+            return "choppy"
+        else:
+            logger.debug(
+                f"[REGIME] TREND-CORRECTION — HTF/LTF disagree ({htf_dir} vs {ltf_dir}) "
+                f"but HTF ADX is strong ({htf.adx:.1f}). Preserving trend status for pullback strata."
+            )
 
 
     # ── TRENDING: Strong, confirmed directional move ───────────────
@@ -456,14 +463,25 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
             )
             return "trending"
 
-    # ── RANGING: Sideways consolidation ───────────────────────────
-    # ADX <= 20 = no meaningful trend. Narrow BBs = price is coiled.
+    # ── RANGING vs CHOPPY: Sideways consolidation vs Noise ─────────
+    # ADX <= 20 = no meaningful trend.
+    # If ADX is extremely low (<15), it is usually pure chop, NOT a tradable range,
+    # UNLESS Bollinger Bands are visibly squeezing (which implies accumulation).
+    adx_chop_threshold = 15.0
+    
+    if adx < adx_chop_threshold and not bb_squeeze:
+        logger.debug(
+            f"[REGIME] CHOPPY (adx={adx:.0f} < {adx_chop_threshold}, no squeeze) "
+            f"→ Explicitly blocking directionless noise"
+        )
+        return "choppy"
+
     ranging_signals = 0
-    if adx <= 10:  # Tightened from 12: ADX 10-12 was letting choppy markets through
+    if adx <= adx_chop_threshold:
         ranging_signals += 2  # ADX is double-weighted
     if bb_squeeze:
         ranging_signals += 1
-    if bb_bandwidth < 0.006:  # Very narrow bands (tightened from 0.008)
+    if bb_bandwidth < 0.006:  # Very narrow bands
         ranging_signals += 1
     if strength < 0.35:  # Weak directional consensus
         ranging_signals += 1
@@ -518,6 +536,7 @@ def detect_trend_direction(
     profile: object,
     *,
     htf_candles: list[Candle] | None = None,
+    mtf_candles: list[Candle] | None = None,
     ltf_candles: list[Candle] | None = None,
 ) -> TrendConsensus:
     """Compute multi-timeframe indicator consensus + structure validation.
@@ -540,7 +559,9 @@ def detect_trend_direction(
         TrendConsensus with per-timeframe directions + merged vote trail.
     """
     htf = _compute_timeframe(htf_candles or candles, profile, label="HTF")
+    mtf = _compute_timeframe(mtf_candles or candles, profile, label="MTF")
     ltf = _compute_timeframe(ltf_candles or candles, profile, label="LTF")
+    exec_tf = _compute_timeframe(candles, profile, label="EXEC")
 
     # ── Regime Classification ──────────────────────────────────────────
     regime = _classify_regime(htf, ltf)
@@ -566,13 +587,17 @@ def detect_trend_direction(
         combined_str = 0.0
 
     # Merge vote trails
-    merged_votes = htf.votes + ltf.votes
+    merged_votes = htf.votes + mtf.votes + ltf.votes + exec_tf.votes
 
     return TrendConsensus(
         htf_dir=htf.direction,
+        mtf_dir=mtf.direction,
         ltf_dir=ltf.direction,
+        exec_dir=exec_tf.direction,
         htf_strength=htf.strength,
+        mtf_strength=mtf.strength,
         ltf_strength=ltf.strength,
+        exec_strength=exec_tf.strength,
         htf_align=htf_align,
         indicator_dir=combined_dir,
         indicator_strength=combined_str,
