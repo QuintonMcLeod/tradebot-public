@@ -449,6 +449,22 @@
             capEl.style.color = pnl >= 0 ? 'var(--success)' : 'var(--error)';
         }
 
+        // Payout — same velocity-based logic as the Payout Mentor
+        const payoutEl = $('bt-metric-payout');
+        if (payoutEl) {
+            if (pnl <= 0) {
+                payoutEl.textContent = '$0.00';
+                payoutEl.style.color = 'var(--text-muted)';
+            } else {
+                const initCap = data.initial_capital || parseFloat($('bt-start-capital')?.value || 100);
+                const velocityPct = initCap > 0 ? (pnl / initCap) * 100 : 0;
+                const recommendedPct = velocityPct >= 2.5 ? 0.75 : 0.50;
+                const payout = pnl * recommendedPct;
+                payoutEl.textContent = `$${payout.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                payoutEl.style.color = '#34d399';
+            }
+        }
+
         // Risk Rate — from selected profile config
         const riskEl = $('bt-metric-risk');
         if (riskEl) {

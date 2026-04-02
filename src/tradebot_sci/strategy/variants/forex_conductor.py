@@ -183,25 +183,10 @@ class ForexConductorStrategy(BaseStrategy):
 
         _tick_cooldowns(snapshot.symbol)
 
-        # ── SESSION FILTER: Block Asian dead zone for non-Asian pairs ─
-        # 8 PM – 3 AM ET is the Asian/Tokyo session.
-        # JPY crosses and AUD/NZD have decent Tokyo liquidity,
-        # so only block EUR/GBP/CHF/CAD majors and commodities.
-        _ASIAN_FRIENDLY = {"USDJPY", "EURJPY", "GBPJPY", "AUDJPY",
-                           "AUDUSD", "NZDUSD"}
+        # ── SESSION FILTER: Asian dead zone DISABLED ─────────────
+        # Previously blocked EUR/GBP/CHF/CAD majors during 8PM–3AM ET.
+        # Removed: locking out majors no longer benefits the strategy.
         sar_dir = gates.get("sar_dir")  # Set by engine SAR
-
-        if snapshot.candles:
-            if not gates.get("is_synthetic_override", False) and not sar_dir:
-                from zoneinfo import ZoneInfo
-                _ts = snapshot.candles[-1].timestamp
-                if _ts.tzinfo is None:
-                    _ts = _ts.replace(tzinfo=ZoneInfo("UTC"))
-                et_hour = _ts.astimezone(ZoneInfo("America/New_York")).hour
-                if et_hour >= 20 or et_hour < 3:
-                    if snapshot.symbol not in _ASIAN_FRIENDLY:
-                        logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by Asian dead zone ({et_hour}:00 ET)")
-                        return None  # Dead zone — skip non-Asian pairs
 
         # ── Loss streak cooldown ─────────────────────────────────
         if _check_loss_cooldown(snapshot.symbol) and not sar_dir:
