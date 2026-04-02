@@ -449,19 +449,22 @@
             capEl.style.color = pnl >= 0 ? 'var(--success)' : 'var(--error)';
         }
 
-        // Payout — same velocity-based logic as the Payout Mentor
-        const payoutEl = $('bt-metric-payout');
-        if (payoutEl) {
-            if (pnl <= 0) {
-                payoutEl.textContent = '$0.00';
-                payoutEl.style.color = 'var(--text-muted)';
+        // Risk Rate — from selected profile config
+        const riskEl = $('bt-metric-risk');
+        if (riskEl) {
+            const selProfile = $('bt-profile-select')?.value;
+            const profCfg = selProfile ? _profileData[selProfile] : null;
+            const isDynamic = profCfg?.risk_dynamic_auto === true || profCfg?.risk_dynamic_auto === 'true';
+            const riskPct = parseFloat(profCfg?.risk_per_trade_pct || 0);
+            if (isDynamic) {
+                riskEl.textContent = 'Dynamic';
+                riskEl.style.color = '#a78bfa';  // purple for AI-driven
+            } else if (riskPct > 0) {
+                riskEl.textContent = `${riskPct}%`;
+                riskEl.style.color = riskPct >= 3 ? 'var(--error)' : '#fbbf24';
             } else {
-                const initCap = data.initial_capital || parseFloat($('bt-start-capital')?.value || 100);
-                const velocityPct = initCap > 0 ? (pnl / initCap) * 100 : 0;
-                const recommendedPct = velocityPct >= 2.5 ? 0.75 : 0.50;
-                const payout = pnl * recommendedPct;
-                payoutEl.textContent = `$${payout.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                payoutEl.style.color = '#34d399';
+                riskEl.textContent = '1%';
+                riskEl.style.color = '#fbbf24';
             }
         }
 

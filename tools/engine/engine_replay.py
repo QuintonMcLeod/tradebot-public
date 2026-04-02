@@ -245,8 +245,10 @@ def _load_candles_for_range(
             return sym, [], []
         ltf_candles = []
         htf_candles = []
+        mtf_candles = []
         seen_ltf: set[str] = set()
         seen_htf: set[str] = set()
+        seen_mtf: set[str] = set()
 
         for f in sorted(sym_dir.glob("*.jsonl")):
             parts = f.stem.split("_", 1)
@@ -276,6 +278,16 @@ def _load_candles_for_range(
                         if ts_str not in seen_htf:
                             seen_htf.add(ts_str)
                             htf_candles.append(Candle(
+                                timestamp=datetime.fromisoformat(ts_str.replace("Z", "+00:00")),
+                                open=float(c["o"]), high=float(c["h"]),
+                                low=float(c["l"]), close=float(c["c"]),
+                                volume=float(c.get("v", 0)),
+                            ))
+                    for c in obs.get("mtf", []):
+                        ts_str = c["t"]
+                        if ts_str not in seen_mtf:
+                            seen_mtf.add(ts_str)
+                            mtf_candles.append(Candle(
                                 timestamp=datetime.fromisoformat(ts_str.replace("Z", "+00:00")),
                                 open=float(c["o"]), high=float(c["h"]),
                                 low=float(c["l"]), close=float(c["c"]),
@@ -393,6 +405,7 @@ def _load_candles_for_range(
                     _active_prof = get_settings().get_active_profile()
                     _exec_setting = getattr(_active_prof, "candle_timeframe", None) or "5m"
                     _htf_setting = getattr(_active_prof, "htf_timeframe", None) or "4h"
+                    _mtf_setting = getattr(_active_prof, "mtf_timeframe", None) or "1h"
                     
                     # Map common timeframes to OANDA granularity
                     _oanda_granularity_map = {
@@ -401,12 +414,21 @@ def _load_candles_for_range(
                     }
                     oanda_exec_tf = _oanda_granularity_map.get(_exec_setting.lower(), "M5")
                     oanda_htf_tf = _oanda_granularity_map.get(_htf_setting.lower(), "H1")
+                    oanda_mtf_tf = _oanda_granularity_map.get(_mtf_setting.lower(), "H1")
                     _log.info(f"[API-FALLBACK] Using mapped OANDA EXEC Timeframe: {oanda_exec_tf} (from profile setting: {_exec_setting})")
                     _log.info(f"[API-FALLBACK] Using mapped OANDA HTF Timeframe: {oanda_htf_tf} (from profile setting: {_htf_setting})")
+                    _log.info(f"[API-FALLBACK] Using mapped OANDA MTF Timeframe: {oanda_mtf_tf} (from profile setting: {_mtf_setting})")
 
                     raw_ltf = _fetch_paginated_candles(oanda_exec_tf, start_dt, end_dt)
-
                     raw_htf = _fetch_paginated_candles(oanda_htf_tf, start_dt, end_dt)
+
+                    # ── MTF (1H) candles: separate fetch for trend invalidation ──
+                    # Only fetch if MTF is a different granularity than HTF
+                    raw_mtf = []
+                    if oanda_mtf_tf != oanda_htf_tf:
+                        raw_mtf = _fetch_paginated_candles(oanda_mtf_tf, start_dt, end_dt)
+                    else:
+                        raw_mtf = raw_htf  # If MTF == HTF, reuse the same data
                     
                     # Process raw_ltf into ltf_candles
                     for c in raw_ltf:
@@ -435,30 +457,33 @@ def _load_candles_for_range(
                                 low=float(mid["l"]), close=float(mid["c"]), volume=float(c["volume"])
                             ))
 
-                    for c in raw_htf:
-                        mid = c.get("mid")
-                        if mid and c.get("complete", True):
-                            ts_str = c["time"]
-                            if "." in ts_str:
-                                base, rest = ts_str.split(".", 1)
-                                suffix = ""
-                                if "Z" in rest:
-                                    suffix = "Z"
-                                    rest = rest.replace("Z", "")
-                                elif "+" in rest:
-                                    rest, offset = rest.split("+", 1)
-                                    suffix = "+" + offset
-                                elif "-" in rest:
-                                    rest, offset = rest.split("-", 1)
-                                    suffix = "-" + offset
-                                ts_str = f"{base}.{rest[:6]}{suffix}"
+                    def _parse_raw_candles(raw_list, target_list):
+                        for c in raw_list:
+                            mid = c.get("mid")
+                            if mid and c.get("complete", True):
+                                ts_str = c["time"]
+                                if "." in ts_str:
+                                    base, rest = ts_str.split(".", 1)
+                                    suffix = ""
+                                    if "Z" in rest:
+                                        suffix = "Z"
+                                        rest = rest.replace("Z", "")
+                                    elif "+" in rest:
+                                        rest, offset = rest.split("+", 1)
+                                        suffix = "+" + offset
+                                    elif "-" in rest:
+                                        rest, offset = rest.split("-", 1)
+                                        suffix = "-" + offset
+                                    ts_str = f"{base}.{rest[:6]}{suffix}"
+                                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                                if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
+                                target_list.append(Candle(
+                                    timestamp=ts, open=float(mid["o"]), high=float(mid["h"]),
+                                    low=float(mid["l"]), close=float(mid["c"]), volume=float(c["volume"])
+                                ))
 
-                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                            if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
-                            htf_candles.append(Candle(
-                                timestamp=ts, open=float(mid["o"]), high=float(mid["h"]),
-                                low=float(mid["l"]), close=float(mid["c"]), volume=float(c["volume"])
-                            ))
+                    _parse_raw_candles(raw_htf, htf_candles)
+                    _parse_raw_candles(raw_mtf, mtf_candles)
 
             except Exception as e:
                 logging.getLogger("engine_replay").warning(f"[API-FALLBACK] Failed to fetch {sym}: {e}")
@@ -466,6 +491,7 @@ def _load_candles_for_range(
         if ltf_candles:
             ltf_candles.sort(key=lambda c: c.timestamp)
             htf_candles.sort(key=lambda c: c.timestamp)
+            mtf_candles.sort(key=lambda c: c.timestamp)
 
             # ── Price continuity guard ────────────────────────────
             # Drop candles where close jumps beyond asset-class-specific
@@ -508,21 +534,24 @@ def _load_candles_for_range(
 
             ltf_candles = _filter_corrupt(ltf_candles, "LTF", MAX_JUMP_LTF)
             htf_candles = _filter_corrupt(htf_candles, "HTF", MAX_JUMP_HTF)
-        return sym, ltf_candles, htf_candles
+            mtf_candles = _filter_corrupt(mtf_candles, "MTF", MAX_JUMP_HTF)  # MTF uses HTF threshold
+        return sym, ltf_candles, htf_candles, mtf_candles
 
     # Thread pool: load all symbols concurrently
     all_ltf: dict[str, list] = {}
     all_htf: dict[str, list] = {}
+    all_mtf: dict[str, list] = {}
 
     with ThreadPoolExecutor(max_workers=min(len(symbols), 8)) as executor:
         results = list(executor.map(_load_symbol, symbols))
 
-    for sym, ltf, htf in results:
+    for sym, ltf, htf, mtf in results:
         if ltf:
             all_ltf[sym] = ltf
             all_htf[sym] = htf
+            all_mtf[sym] = mtf
 
-    return all_ltf, all_htf
+    return all_ltf, all_htf, all_mtf
 
 
 def _write_temp_json(candles_dict: dict) -> tuple[dict[str, str], list[str]]:
@@ -604,7 +633,7 @@ def _run_single_day_worker(args: tuple) -> dict:
 
         # Load candles: include 50 days before for indicator warmup (H4 SMA 200 requires ~47 calendar days accounting for weekends)
         warmup_start = (day_start - timedelta(days=50)).strftime("%Y-%m-%d")
-        all_ltf, all_htf = _load_candles_for_range(
+        all_ltf, all_htf, all_mtf = _load_candles_for_range(
             candle_dir, symbols, warmup_start, day_str, api_fallback=api_fallback
         )
 
@@ -615,7 +644,8 @@ def _run_single_day_worker(args: tuple) -> dict:
         # Write temp files
         data_paths, temp_ltf = _write_temp_json(all_ltf)
         htf_paths, temp_htf = _write_temp_json(all_htf)
-        temp_files = temp_ltf + temp_htf
+        mtf_paths, temp_mtf = _write_temp_json(all_mtf)
+        temp_files = temp_ltf + temp_htf + temp_mtf
 
         backtester = Backtester(ib=None, settings=settings, ai_client=None)
         backtester._is_market_hours_utc = lambda ts: True
@@ -652,6 +682,7 @@ def _run_single_day_worker(args: tuple) -> dict:
                 symbols=list(all_ltf.keys()),
                 data_paths=data_paths,
                 htf_data_paths=htf_paths,
+                mtf_data_paths=mtf_paths,
             )
         finally:
             for f in temp_files:
@@ -818,7 +849,7 @@ def _run_single_day_sequential(
 
     # Load candles with warmup (50 days)
     warmup_start = (start_date - timedelta(days=50)).strftime("%Y-%m-%d")
-    all_ltf, all_htf = _load_candles_for_range(
+    all_ltf, all_htf, all_mtf = _load_candles_for_range(
         candle_dir, symbols, warmup_start, end_date.strftime("%Y-%m-%d"), api_fallback=api_fallback
     )
 
@@ -836,7 +867,8 @@ def _run_single_day_sequential(
 
     data_paths, temp_ltf = _write_temp_json(all_ltf)
     htf_paths, temp_htf = _write_temp_json(all_htf)
-    temp_files = temp_ltf + temp_htf
+    mtf_paths, temp_mtf = _write_temp_json(all_mtf)
+    temp_files = temp_ltf + temp_htf + temp_mtf
 
     backtester = Backtester(ib=None, settings=settings, ai_client=None)
     backtester._is_market_hours_utc = lambda ts: True
@@ -875,6 +907,7 @@ def _run_single_day_sequential(
             symbols=list(all_ltf.keys()),
             data_paths=data_paths,
             htf_data_paths=htf_paths,
+            mtf_data_paths=mtf_paths,
         )
     finally:
         for f in temp_files:

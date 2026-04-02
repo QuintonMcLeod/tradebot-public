@@ -550,10 +550,19 @@ class HistoricalMarketDataProvider:
             htf_candles = (
                 _resample_candles(candles, htf_seconds) if htf_seconds != base_seconds else candles
             )
-            
-        mtf_candles = (
-            _resample_candles(candles, mtf_seconds) if mtf_seconds != base_seconds else candles
-        )
+
+        # Use NATIVE MTF candles from cache if available (loaded from Oanda),
+        # otherwise fall back to resampling. This is critical for trend
+        # invalidation — resampled MTF from sparse LTF data produces only
+        # ~18 candles vs the 60+ needed for reliable indicator computation.
+        mtf_cache_key = f"{symbol}:{getattr(profile, 'mtf_timeframe', '1h') or '1h'}_current"
+        native_mtf = self._cache.get(mtf_cache_key)
+        if native_mtf and len(native_mtf) >= INDICATOR_MIN_CANDLES:
+            mtf_candles = native_mtf
+        else:
+            mtf_candles = (
+                _resample_candles(candles, mtf_seconds) if mtf_seconds != base_seconds else candles
+            )
         ltf_candles = (
             _resample_candles(candles, ltf_seconds) if ltf_seconds != base_seconds else candles
         )
@@ -647,6 +656,7 @@ class Backtester:
         wind_down_days: int = 0,
         data_paths: Optional[Dict[str, str]] = None,
         htf_data_paths: Optional[Dict[str, str]] = None,
+        mtf_data_paths: Optional[Dict[str, str]] = None,
         warmup_days: int = 0,
     ) -> BacktestResult:
         """Run a complete backtest over the specified date range.
@@ -661,6 +671,9 @@ class Backtester:
             htf_data_paths: Optional map of symbol to local JSON HTF data file path
                 (e.g., native 4h candles from Oanda). If provided, these are used
                 instead of resampling LTF candles, matching live bot behavior.
+            mtf_data_paths: Optional map of symbol to local JSON MTF data file path
+                (e.g., native 1h candles from Oanda). Enables reliable trend
+                invalidation by providing sufficient MTF history for indicators.
             warmup_days: Days to run the engine BEFORE start_date for indicator
                 stabilization. During warmup, the engine processes candles and
                 computes indicators but blocks ALL new trade entries.
@@ -762,6 +775,34 @@ class Backtester:
                         all_htf_candles[symbol] = htf_candles_loaded
                         logger.info(f"[BACKTEST] {symbol} HTF ({htf_tf}): {len(htf_candles_loaded)} native candles loaded")
 
+        # Load native MTF candles (e.g., real 1h from Oanda) if provided
+        # Same pattern as HTF — provides reliable data for trend invalidation.
+        all_mtf_candles: Dict[str, List[Candle]] = {}
+        mtf_tf = getattr(profile, "mtf_timeframe", "1h") or "1h"
+        mtf_seconds = _timeframe_to_seconds(mtf_tf)
+        if mtf_data_paths:
+            for symbol in symbols:
+                mtf_path = mtf_data_paths.get(symbol)
+                if mtf_path and os.path.exists(mtf_path):
+                    import json as _json
+                    with open(mtf_path) as _f:
+                        raw_mtf = _json.load(_f)
+                    mtf_candles_loaded = []
+                    for r in raw_mtf:
+                        ts_str = r["timestamp"]
+                        ts_str = ts_str.replace("000000000Z", "Z")
+                        if ts_str.endswith("Z"):
+                            ts_str = ts_str[:-1] + "+00:00"
+                        mtf_candles_loaded.append(Candle(
+                            timestamp=datetime.fromisoformat(ts_str),
+                            open=float(r["open"]), high=float(r["high"]),
+                            low=float(r["low"]), close=float(r["close"]),
+                            volume=int(r.get("volume", 0)),
+                        ))
+                    if mtf_candles_loaded:
+                        all_mtf_candles[symbol] = mtf_candles_loaded
+                        logger.info(f"[BACKTEST] {symbol} MTF ({mtf_tf}): {len(mtf_candles_loaded)} native candles loaded")
+
         if not all_candles:
             raise ValueError("No historical data available for any symbol")
 
@@ -809,6 +850,12 @@ class Backtester:
         signal_samples: list[dict[str, Any]] = []
         potential_trades_blocked = 0
         potential_trade_block_reasons: Dict[str, int] = defaultdict(int)
+
+        # ── Stop After Single Loss state ──────────────────────────────
+        _sasl_enabled = bool(getattr(profile, "stop_after_single_loss_enabled", False))
+        _sasl_had_win_today = False    # Have we had a winning trade today?
+        _sasl_halted_until = None      # datetime when trading resumes (midnight next day)
+        _sasl_last_check_date = None   # Track day changes to reset state
 
         # ── Pre-build StrategyEngine cache per symbol ──────────────────
         # Avoids re-creating the engine (module imports, strategy init,
@@ -861,12 +908,22 @@ class Backtester:
                     htf_cache_key = f"{symbol}:{htf_tf}_current"
                     self.market_provider._cache[htf_cache_key] = htf_current
 
+                # Also update native MTF candle cache if available
+                if symbol in all_mtf_candles:
+                    mtf_current = [
+                        c for c in all_mtf_candles[symbol]
+                        if (c.timestamp + timedelta(seconds=mtf_seconds)) <= current_time
+                    ]
+                    mtf_cache_key = f"{symbol}:{mtf_tf}_current"
+                    self.market_provider._cache[mtf_cache_key] = mtf_current
+
                 # DEBUG: Log candle availability for first few bars
                 if processed_bar_index < 3:
                     htf_count = len(self.market_provider._cache.get(f"{symbol}:{profile.htf_timeframe}_current", []))
+                    mtf_count = len(self.market_provider._cache.get(f"{symbol}:{mtf_tf}_current", []))
                     logger.info(
                         f"[BACKTEST] Bar {processed_bar_index}: {symbol} has {len(current_candles)} LTF candles, "
-                        f"{htf_count} HTF candles up to {current_time.strftime('%Y-%m-%d %H:%M')}"
+                        f"{htf_count} HTF candles, {mtf_count} MTF candles up to {current_time.strftime('%Y-%m-%d %H:%M')}"
                     )
 
             # Check stop/target hits for open positions
@@ -1006,6 +1063,97 @@ class Backtester:
                             del positions[pos_key]
                             logger.info(f"[BACKTEST] {symbol} Tick Scalping exit: PnL=${pnl:.2f}")
                             continue
+
+                # ── UNIVERSAL EXIT ROUTER (runs BEFORE hardcoded stop) ────────
+                # Gives trend_invalidation, structure_failure, and other exit
+                # strategies a chance to close at bar-close price before the
+                # mechanical stop fires on the next bar's low/high breach.
+                # Without this, the hardcoded stop deletes the position before
+                # engine.decide() ever evaluates the exit router.
+                if pos_key in positions and len(current_candles) >= 30:
+                    _router_held_s = (current_time - pos.entry_time).total_seconds()
+                    # Only run after 5-minute hold guard (same as engine.py)
+                    if _router_held_s >= 300:
+                        try:
+                            _router_engine = _engine_cache.get(symbol)
+                            if _router_engine:
+                                _router_snapshot = self.market_provider.get_latest_snapshot(symbol, timeframe)
+                                if _router_snapshot and _router_snapshot.candles:
+                                    # Build gates via trend_consensus (same path as engine.decide)
+                                    from tradebot_sci.market.trend_consensus import detect_trend_direction
+                                    _consensus = detect_trend_direction(
+                                        _router_snapshot.candles, profile,
+                                        htf_candles=getattr(_router_snapshot, 'htf_candles', None),
+                                        mtf_candles=getattr(_router_snapshot, 'mtf_candles', None),
+                                        ltf_candles=getattr(_router_snapshot, 'ltf_candles', None),
+                                    )
+                                    _router_gates = {
+                                        "exec_dir": _consensus.exec_dir,
+                                        "ltf_dir": _consensus.ltf_dir,
+                                        "mtf_dir": _consensus.mtf_dir,
+                                        "htf_dir": _consensus.htf_dir,
+                                    }
+                                    _router_pos = {
+                                        'symbol': pos.symbol,
+                                        'direction': pos.direction,
+                                        'entry_price': pos.entry_price,
+                                        'size': pos.size,
+                                        'stop_price': pos.stop_price,
+                                        'stop_loss': pos.stop_price,
+                                        'target_price': pos.target_price,
+                                        'entry_time': pos.entry_time.isoformat() if pos.entry_time else None,
+                                        'initial_risk': getattr(pos, 'initial_risk', None),
+                                    }
+                                    from tradebot_sci.strategy.exit_logic import run_universal_exit_logic
+                                    _router_decision = run_universal_exit_logic(
+                                        snapshot=_router_snapshot,
+                                        open_position=_router_pos,
+                                        gates=_router_gates,
+                                        profile=profile,
+                                        strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                                    )
+                                    if _router_decision and getattr(_router_decision, 'action', '') == 'close_position':
+                                        _exit_price = current_bar.close
+                                        _pnl = _calculate_pnl(pos.entry_price, _exit_price, pos.size, pos.direction, symbol=symbol)
+                                        capital += _pnl
+                                        _router_reason = getattr(_router_decision, 'notes', None) or 'invalidation'
+                                        completed_trades.append(SimulatedTrade(
+                                            symbol=symbol,
+                                            direction=pos.direction,
+                                            entry_price=pos.entry_price,
+                                            exit_price=_exit_price,
+                                            size=pos.size,
+                                            entry_time=pos.entry_time,
+                                            exit_time=current_time,
+                                            pnl=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
+                                            exit_reason=_router_reason,
+                                            entry_gates=getattr(pos, "entry_gates", None),
+                                            strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                                        ))
+                                        trade_results_store.add_result(TradeResult(
+                                            symbol=symbol,
+                                            closed_at=current_time.isoformat(),
+                                            pnl_pct=(_pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                                            pnl_usd=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
+                                            is_win=(_pnl + getattr(pos, "cumulative_partial_pnl", 0.0)) > 0,
+                                            tier="backtest",
+                                            capital_at_close=capital,
+                                            strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                                            exit_reason=_router_reason,
+                                            side=pos.direction,
+                                        ))
+                                        del positions[pos_key]
+                                        logger.info(f"[BACKTEST] {symbol} UNIVERSAL EXIT: {_router_reason} | PnL=${_pnl:.2f}")
+                                        continue
+                                    elif _router_decision and getattr(_router_decision, 'action', '') == 'hold' and _router_decision.stop_loss is not None:
+                                        # Trailing stop update from router (e.g., chandelier, ratchet)
+                                        if _router_decision.stop_loss != pos.stop_price:
+                                            old_stop = pos.stop_price
+                                            pos.stop_price = _router_decision.stop_loss
+                                            pos.stop_was_trailed = True
+                                            logger.info(f"[BACKTEST] {symbol} Router trail: stop {old_stop:.5f} → {pos.stop_price:.5f}")
+                        except Exception as _router_err:
+                            logger.debug(f"[BACKTEST] Universal exit router error for {symbol}: {_router_err}")
 
                 # Check stop loss
                 if pos.stop_price is not None and not disable_stops:
@@ -2158,6 +2306,43 @@ class Backtester:
                         # Only allow new entries if we don't already have a position
                         # Multi-position: allow entry if this sub-strategy doesn't already have a position
                         can_enter = False
+
+                        # ── STOP AFTER SINGLE LOSS GATE ───────────────
+                        # If enabled: after a win then a loss, halt all entries until midnight.
+                        if _sasl_enabled:
+                            # Reset at midnight UTC each day
+                            _current_date = current_time.date() if hasattr(current_time, 'date') else None
+                            if _current_date and _current_date != _sasl_last_check_date:
+                                _sasl_had_win_today = False
+                                _sasl_halted_until = None
+                                _sasl_last_check_date = _current_date
+
+                            # Check completed trades for win/loss tracking
+                            if completed_trades:
+                                _last_trade = completed_trades[-1]
+                                _lt_date = _last_trade.exit_time.date() if hasattr(_last_trade.exit_time, 'date') else None
+                                if _lt_date == _current_date:
+                                    if _last_trade.pnl > 0:
+                                        _sasl_had_win_today = True
+                                    elif _last_trade.pnl <= 0 and _sasl_had_win_today:
+                                        # Loss after a win → halt until midnight tomorrow
+                                        _sasl_halted_until = datetime.combine(
+                                            _current_date + timedelta(days=1),
+                                            datetime.min.time()
+                                        ).replace(tzinfo=timezone.utc)
+                                        logger.info(
+                                            f"[SASL] {symbol} HALTED — loss after win. "
+                                            f"No new entries until {_sasl_halted_until.isoformat()}"
+                                        )
+
+                            if _sasl_halted_until and current_time < _sasl_halted_until:
+                                logger.info(
+                                    f"[BACKTEST] {symbol} ENTRY BLOCKED (Stop After Single Loss): "
+                                    f"halted until {_sasl_halted_until.strftime('%Y-%m-%d %H:%M')}"
+                                )
+                                potential_trades_blocked += 1
+                                potential_trade_block_reasons['stop_after_single_loss'] += 1
+                                continue
 
                         # ── Handle pyramiding (scale_in) in multi-position mode ──
                         if decision.action in ("scale_in", "add_to_position") and is_multi_position:

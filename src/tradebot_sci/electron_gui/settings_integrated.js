@@ -180,6 +180,7 @@ const CONFIG_MAP = {
     'SAFETY_GREED_GUARD_ENABLED': ['safety', 'safety_greed_guard_enabled'],
     'SAFETY_GREED_GUARD_TARGET': ['safety', 'safety_greed_guard_target'],
     'SAFETY_STREAK_BREAKER_ENABLED': ['safety', 'safety_streak_breaker_enabled'],
+    'STOP_AFTER_SINGLE_LOSS_ENABLED': ['safety', 'stop_after_single_loss_enabled'],
     'SAFETY_CHURN_BURNER_ENABLED': ['safety', 'safety_churn_burner_enabled'],
     'SAFETY_CHURN_BURNER_MAX': ['safety', 'safety_churn_burner_max'],
     'SAFETY_LEVERAGE_SENTRY_ENABLED': ['safety', 'safety_leverage_sentry_enabled'],
@@ -426,6 +427,7 @@ const TOOLTIPS = {
     SAFETY_LEVERAGE_SENTRY_ENABLED: "The Credit Card Limit. Stops the bot from borrowing too much money from the broker if you have a lot of trades open at once.",
     SAFETY_VOLATILITY_VETO_ENABLED: "The Goldilocks Filter. Prevents trading if the market is too painfully slow, or too violently explosive. It waits for it to be 'just right'.",
     SAFETY_STREAK_BREAKER_ENABLED: "The 'Walk It Off' Timer. If the bot loses 3 times in a row on the same coin, it puts that coin in timeout for 4 hours to cool off.",
+    STOP_AFTER_SINGLE_LOSS_ENABLED: "The 'Quit While Ahead' Guard. Once the bot wins a trade today, it locks in profits. The very next losing trade halts ALL trading until midnight. This prevents giving back your daily gains by over-trading after a win.",
     SAFETY_OPENING_SENTRY_ENABLED: "The Morning Commute Guard. Blocks the bot from trading during the crazy, volatile first 15 minutes right after the market opens.",
     SAFETY_SENTIMENT_SHIELD_ENABLED: "The AI Co-Pilot. Asks your selected AI (like ChatGPT) to quickly look at the chart right before taking a trade. If the AI says 'this looks dangerous,' the bot cancels the trade.",
 
@@ -3822,6 +3824,7 @@ function renderSafetyTab(container) {
     section.appendChild(createSliderCard('Veto Min ATR %', 'Block if volatility falls below this', 'SAFETY_VOLATILITY_MIN_PCT', 0, 100, 1, '%'));
     section.appendChild(createSliderCard('Veto Max ATR %', 'Block if volatility exceeds this', 'SAFETY_VOLATILITY_MAX_PCT', 0, 100, 1, '%'));
     section.appendChild(createCard('Streak Breaker', 'Pause Symbol 4h after 3 Consecutive Losses', 'SAFETY_STREAK_BREAKER_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Stop After Single Loss', 'After a win, one loss halts ALL trading until midnight', 'STOP_AFTER_SINGLE_LOSS_ENABLED', 'toggle', { default: 'false' }));
     section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('AI Sentiment Shield', 'Smart Veto. AI blocks "Dangerous" setups.', 'SAFETY_SENTIMENT_SHIELD_ENABLED', 'toggle'));
 

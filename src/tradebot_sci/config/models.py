@@ -549,6 +549,12 @@ class TradingProfileSettings(BaseModel):
         default=True,
         description="Scale down stops / block entries when ATR is extreme.",
     )
+    stop_after_single_loss_enabled: bool = Field(
+        default=False,
+        description="After the first winning trade of the day, a single losing trade "
+                    "halts ALL new entries until 12:00 AM the next day. "
+                    "Protects daily profits from giving back gains.",
+    )
 
     tick_scalping_enabled: bool = Field(
         default=False,

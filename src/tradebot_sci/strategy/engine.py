@@ -308,9 +308,11 @@ class StrategyEngine:
         if is_synthetic_override:
             # Use the forced synthetic trend directly, skipping lagging indicators
             htf_dir = snapshot.trend_htf.direction
+            mtf_dir = snapshot.trend_htf.direction  # Synthetic: MTF follows HTF
             ltf_dir = snapshot.trend_ltf.direction
             exec_dir = snapshot.trend_ltf.direction
             htf_strength = snapshot.trend_htf.strength
+            mtf_strength = snapshot.trend_htf.strength  # Synthetic: MTF follows HTF
             ltf_strength = snapshot.trend_ltf.strength
             exec_strength = snapshot.trend_ltf.strength
             htf_align = True # Synthetic overrides are strictly aligned
@@ -444,6 +446,7 @@ class StrategyEngine:
 
         gates = {
             "htf_dir": htf_dir,  # Enriched trend direction for strategies to follow
+            "mtf_dir": mtf_dir,  # Required by exit router trend_invalidation (slow layer)
             "ltf_dir": ltf_dir,
             "exec_dir": exec_dir,
             "htf_strength": htf_strength,

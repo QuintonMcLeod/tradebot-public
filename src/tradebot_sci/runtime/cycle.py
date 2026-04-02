@@ -129,6 +129,7 @@ def fetch_snapshot(
             timeframe=timeframe,
             candles=ltf_candles,
             trend_htf=trend_htf,
+            trend_mtf=_neutral,
             trend_ltf=trend_ltf,
             htf_candles=htf_candles,
 

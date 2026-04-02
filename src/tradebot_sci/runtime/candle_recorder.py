@@ -75,6 +75,7 @@ class CandleRecorder:
             # Build compact observation record
             ltf = snapshot.ltf_candles or snapshot.candles or []
             htf = snapshot.htf_candles or []
+            mtf = getattr(snapshot, 'mtf_candles', None) or []
 
             # OPTIMIZATION: Only save the full trailing history on the first tick of the day
             # for this symbol. For all subsequent ticks, only save the latest currently-open candle.
@@ -82,19 +83,23 @@ class CandleRecorder:
             if is_new_day:
                 ltf_to_save = ltf[-self._tail:]
                 htf_to_save = htf[-self._tail:]
+                mtf_to_save = mtf[-self._tail:]
                 self._bootstrapped[symbol] = date_str
             else:
                 ltf_to_save = ltf[-1:] if ltf else []
                 htf_to_save = htf[-1:] if htf else []
+                mtf_to_save = mtf[-1:] if mtf else []
 
             record = {
                 "ts": now.isoformat(),
                 "sym": symbol,
                 "tf": snapshot.timeframe,
                 "htf_tf": getattr(snapshot, "htf_timeframe", None),
+                "mtf_tf": getattr(snapshot, "mtf_timeframe", None),
                 "ltf_tf": getattr(snapshot, "ltf_timeframe", None),
                 "ltf": [_candle_to_dict(c) for c in ltf_to_save],
                 "htf": [_candle_to_dict(c) for c in htf_to_save],
+                "mtf": [_candle_to_dict(c) for c in mtf_to_save],
             }
 
             # Write as JSONL (one JSON object per line)

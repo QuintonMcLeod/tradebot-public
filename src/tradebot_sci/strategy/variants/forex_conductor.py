@@ -200,6 +200,7 @@ class ForexConductorStrategy(BaseStrategy):
                 et_hour = _ts.astimezone(ZoneInfo("America/New_York")).hour
                 if et_hour >= 20 or et_hour < 3:
                     if snapshot.symbol not in _ASIAN_FRIENDLY:
+                        logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by Asian dead zone ({et_hour}:00 ET)")
                         return None  # Dead zone — skip non-Asian pairs
 
         # ── Loss streak cooldown ─────────────────────────────────
