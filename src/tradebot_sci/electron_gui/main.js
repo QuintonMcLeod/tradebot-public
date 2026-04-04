@@ -2214,8 +2214,17 @@ function createWindow() {
                             try {
                                 if (fs.existsSync(lp)) {
                                     const content = fs.readFileSync(lp, 'utf8');
-                                    const tail = content.split('\n').filter(l => l.trim()).slice(-5).join('\n');
-                                    if (tail) combinedTail += tail + '\n';
+                                    const tailLines = content.split('\n').filter(l => l.trim()).slice(-5);
+                                    const parsedTail = tailLines.map(line => {
+                                        try {
+                                            const obj = JSON.parse(line);
+                                            if (obj.message) {
+                                                return obj.level ? `[${obj.level}] ${obj.message}` : obj.message;
+                                            }
+                                        } catch(e) {}
+                                        return line;
+                                    }).join('\n');
+                                    if (parsedTail) combinedTail += parsedTail + '\n';
                                 }
                             } catch (e) { }
                         }
