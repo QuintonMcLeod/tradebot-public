@@ -15,7 +15,7 @@ class QS_GoldenCrossStrategy(BaseStrategy):
     signals a bullish trend (50 SMA > 200 SMA).
     """
     
-    def __init__(self, fast_sma: int = 50, slow_sma: int = 200):
+    def __init__(self, fast_sma: int = 50, slow_sma: int = 200, **kwargs):
         super().__init__("QS Golden Cross")
         self.fast_sma = fast_sma
         self.slow_sma = slow_sma

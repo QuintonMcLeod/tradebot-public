@@ -15,7 +15,7 @@ class QS_3_10_TrendStrategy(BaseStrategy):
     Rules: Buy when 3-Month MA (60 Daily) > 10-Month MA (200 Daily).
     """
     
-    def __init__(self, fast_ma: int = 60, slow_ma: int = 200):
+    def __init__(self, fast_ma: int = 60, slow_ma: int = 200, **kwargs):
         super().__init__("QS 3/10 Trend Following")
         self.fast_ma = fast_ma
         self.slow_ma = slow_ma

@@ -32,7 +32,7 @@ class SessionMomentumStrategy(BaseStrategy):
     LONDON_WINDOW = (time(8, 0), time(8, 30))
     NY_WINDOW = (time(9, 30), time(10, 0))
 
-    def __init__(self, volume_surge_mult=2.0):
+    def __init__(self, volume_surge_mult=2.0, **kwargs):
         super().__init__("Session Momentum")
         self.volume_surge_mult = volume_surge_mult
 

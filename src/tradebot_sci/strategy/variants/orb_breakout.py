@@ -20,7 +20,7 @@ class ORBStrategy(BaseStrategy):
     5. ENTRY on Break of Flag.
     """
     
-    def __init__(self, range_start="09:30", duration_minutes=15):
+    def __init__(self, range_start="09:30", duration_minutes=15, **kwargs):
         super().__init__("ORB Breakout")
         self.range_start = time.fromisoformat(range_start)
         self.duration_minutes = int(duration_minutes)

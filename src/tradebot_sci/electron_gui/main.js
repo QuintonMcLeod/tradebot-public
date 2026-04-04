@@ -2027,27 +2027,13 @@ function checkBotStatus(win, force = false) {
     exec('pgrep -f "[r]un_dev_bot.py"', (err, stdout) => {
         const isProcessRunning = !!(stdout && stdout.trim());
         
-        if (win && !win.isDestroyed()) {
-            win.webContents.executeJavaScript('window._isWsConnected === true')
-                .then(isWsConnected => {
-                    // Bot is only considered "running" if the process is alive AND the WS stream is healthy
-                    // (Our ws_handler now closes the WS if health vitals stop, catching zombies)
-                    const effectivelyRunning = isProcessRunning && isWsConnected;
-                    if (force || effectivelyRunning !== botRunning) {
-                        botRunning = effectivelyRunning;
-                        console.log(`[MAIN] Bot Status changed: ${botRunning ? 'RUNNING' : 'STOPPED'} (Process: ${isProcessRunning}, WS: ${isWsConnected})`);
-                        win.webContents.send('bot-status', { running: botRunning });
-                    }
-                })
-                .catch(err => {
-                    if (force || isProcessRunning !== botRunning) {
-                        botRunning = isProcessRunning;
-                        win.webContents.send('bot-status', { running: botRunning });
-                    }
-                });
-        } else {
-            if (force || isProcessRunning !== botRunning) {
-                botRunning = isProcessRunning;
+        // The Start/Stop (Panic) button strictly reflects the execution process
+        // We decouple this from WebSocket health to prevent the button reverting to "Start" during network glitches
+        if (force || isProcessRunning !== botRunning) {
+            botRunning = isProcessRunning;
+            console.log(`[MAIN] Bot Status changed: ${botRunning ? 'RUNNING' : 'STOPPED'} (Process: ${isProcessRunning})`);
+            if (win && !win.isDestroyed()) {
+                win.webContents.send('bot-status', { running: botRunning });
             }
         }
     });
@@ -2200,89 +2186,93 @@ function createWindow() {
             }
 
             // 4. VERIFICATION LOOP
-            // We wait and check 3 times over 6 seconds to ensure it STICKS
-            let checks = 0;
+            // We wait and check up to 5 times over 10 seconds to allow the python process time to spawn
+            let successes = 0;
+            let attempts = 0;
             const checkInterval = setInterval(() => {
+                attempts++;
                 exec('pgrep -f "[r]un_dev_bot.py"', (err, stdout) => {
                     const running = !!(stdout && stdout.trim());
                     if (running) {
                         console.log('[MAIN] Verification: Bot is running.');
-                        checks++;
-                        if (checks >= 2) {
+                        successes++;
+                        if (successes >= 2) {
                             clearInterval(checkInterval);
                             mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Bot Started Successfully", color: 'teal' });
                             checkBotStatus(mainWindow, true);
                         }
                     } else {
-                        console.error('[MAIN] Verification: Bot FAILED to stay alive.');
-                        clearInterval(checkInterval);
-
-                        // Read stdout + main log for error capture
-                        let errorDetail = "Process died unexpectedly.";
-                        const userDataDir = process.env.TRADEBOT_DATA_DIR
-                            || (process.platform === 'darwin'
-                                ? path.join(require('os').homedir(), 'Library/Application Support/tradebot-sci')
-                                : path.join(process.env.XDG_CONFIG_HOME || path.join(require('os').homedir(), '.config'), 'tradebot-sci'));
-                        const logPaths = [
-                            stdoutPath,
-                            path.join(userDataDir, 'logs', 'bot_stdout.log'),
-                            path.join(userDataDir, 'logs', 'tradebot.log'),
-                        ];
-                        let combinedTail = '';
-                        for (const lp of logPaths) {
-                            try {
-                                if (fs.existsSync(lp)) {
-                                    const content = fs.readFileSync(lp, 'utf8');
-                                    const tailLines = content.split('\n').filter(l => l.trim()).slice(-5);
-                                    const parsedTail = tailLines.map(line => {
-                                        try {
-                                            const obj = JSON.parse(line);
-                                            if (obj.message) {
-                                                return obj.level ? `[${obj.level}] ${obj.message}` : obj.message;
-                                            }
-                                        } catch(e) {}
-                                        return line;
-                                    }).join('\n');
-                                    if (parsedTail) combinedTail += parsedTail + '\n';
-                                }
-                            } catch (e) { }
-                        }
-                        if (combinedTail.trim()) {
-                            errorDetail = combinedTail.split('\n').filter(l => l.trim()).slice(-3).join('\n') || errorDetail;
-                        }
-
-                        // Detect "No broker configured" and show a popup dialog
-                        if (combinedTail.includes('No broker configured')) {
-                            const { dialog } = require('electron');
-                            dialog.showMessageBox(mainWindow, {
-                                type: 'warning',
-                                title: 'No Broker Configured',
-                                message: 'The bot requires at least one broker with valid API credentials to start.',
-                                detail: 'Go to Settings → Broker Suite and configure one of the following:\n\n' +
-                                    '• OANDA (Forex) — Account ID + API Key\n' +
-                                    '• Gemini (Crypto) — API Key + Secret\n' +
-                                    '• CCXT (Any Exchange) — API Key + Secret\n' +
-                                    '• IBKR (Stocks/Futures) — TWS/Gateway connection\n\n' +
-                                    'Need help? See Documentation → How to Use (Step 2: API Setup)',
-                                buttons: ['Open Broker Settings', 'Close'],
-                                defaultId: 0,
-                            }).then(({ response }) => {
-                                if (response === 0) {
-                                    // Navigate to settings and switch to Brokers tab
-                                    mainWindow.webContents.send('fromMain', { type: 'navigate', target: 'settings', tab: 'brokers' });
-                                }
+                        console.log(`[MAIN] Verification: Bot not found yet (Attempt ${attempts}/5).`);
+                        if (attempts >= 5) {
+                            console.error('[MAIN] Verification: Bot FAILED to start or stay alive.');
+                            clearInterval(checkInterval);
+    
+                            // Read stdout + main log for error capture
+                            let errorDetail = "Process died unexpectedly or took too long to spawn.";
+                            const userDataDir = process.env.TRADEBOT_DATA_DIR
+                                || (process.platform === 'darwin'
+                                    ? path.join(require('os').homedir(), 'Library/Application Support/tradebot-sci')
+                                    : path.join(process.env.XDG_CONFIG_HOME || path.join(require('os').homedir(), '.config'), 'tradebot-sci'));
+                            const logPaths = [
+                                stdoutPath,
+                                path.join(userDataDir, 'logs', 'bot_stdout.log'),
+                                path.join(userDataDir, 'logs', 'tradebot.log'),
+                            ];
+                            let combinedTail = '';
+                            for (const lp of logPaths) {
+                                try {
+                                    if (fs.existsSync(lp)) {
+                                        const content = fs.readFileSync(lp, 'utf8');
+                                        const tailLines = content.split('\n').filter(l => l.trim()).slice(-5);
+                                        const parsedTail = tailLines.map(line => {
+                                            try {
+                                                const obj = JSON.parse(line);
+                                                if (obj.message) {
+                                                    return obj.level ? `[${obj.level}] ${obj.message}` : obj.message;
+                                                }
+                                            } catch(e) {}
+                                            return line;
+                                        }).join('\n');
+                                        if (parsedTail) combinedTail += parsedTail + '\n';
+                                    }
+                                } catch (e) { }
+                            }
+                            if (combinedTail.trim()) {
+                                errorDetail = combinedTail.split('\n').filter(l => l.trim()).slice(-3).join('\n') || errorDetail;
+                            }
+    
+                            // Detect "No broker configured" and show a popup dialog
+                            if (combinedTail.includes('No broker configured')) {
+                                const { dialog } = require('electron');
+                                dialog.showMessageBox(mainWindow, {
+                                    type: 'warning',
+                                    title: 'No Broker Configured',
+                                    message: 'The bot requires at least one broker with valid API credentials to start.',
+                                    detail: 'Go to Settings → Broker Suite and configure one of the following:\n\n' +
+                                        '• OANDA (Forex) — Account ID + API Key\n' +
+                                        '• Gemini (Crypto) — API Key + Secret\n' +
+                                        '• CCXT (Any Exchange) — API Key + Secret\n' +
+                                        '• IBKR (Stocks/Futures) — TWS/Gateway connection\n\n' +
+                                        'Need help? See Documentation → How to Use (Step 2: API Setup)',
+                                    buttons: ['Open Broker Settings', 'Close'],
+                                    defaultId: 0,
+                                }).then(({ response }) => {
+                                    if (response === 0) {
+                                        // Navigate to settings and switch to Brokers tab
+                                        mainWindow.webContents.send('fromMain', { type: 'navigate', target: 'settings', tab: 'brokers' });
+                                    }
+                                });
+                            }
+    
+                            mainWindow.webContents.send('fromMain', {
+                                type: 'gui-notice',
+                                message: "Bot Startup Failed",
+                                detail: errorDetail,
+                                color: 'red'
                             });
+                            checkBotStatus(mainWindow, true);
                         }
-
-                        mainWindow.webContents.send('fromMain', {
-                            type: 'gui-notice',
-                            message: "Bot Startup Failed",
-                            detail: errorDetail,
-                            color: 'red'
-                        });
-                        checkBotStatus(mainWindow, true);
                     }
-                    checks++;
                 });
             }, 2000);
         });

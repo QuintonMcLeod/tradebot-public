@@ -16,7 +16,7 @@ class QS_FirstDayOfMonthStrategy(BaseStrategy):
     frequently registers anomalous positive returns due to capital inflows.
     Rules: Buy near the close of the last trading day of the month; sell near the close of the first day.
     """
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__("QS First Day of Month Seasonality")
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:

@@ -15,8 +15,8 @@ class QS_SMAFilterStrategy(BaseStrategy):
     and exit when it falls below it. Provides a massive filter against drawdowns.
     """
     
-    def __init__(self, sma_period: int = 200):
-        super().__init__("QS 200-SMA Filter")
+    def __init__(self, sma_period: int = 200, **kwargs):
+        super().__init__("QS SMA Trend Filter")
         self.sma_period = sma_period
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:

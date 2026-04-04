@@ -17,8 +17,8 @@ class AggregatorStrategy(BaseStrategy):
     Yields 400%+ by ensuring the bot is always 'loaded' with the best available signals.
     """
     
-    def __init__(self):
-        super().__init__("Singularity Aggregator")
+    def __init__(self, **kwargs):
+        super().__init__("Project Aggregator")
         self.mean_rev = MeanReversionStrategy(bb_period=15, bb_std=2.5, rsi_oversold=25, rsi_overbought=75)
         self.scalper = HyperScalperStrategy(fast_ema=13, slow_ema=50)
 

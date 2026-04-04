@@ -48,8 +48,8 @@ class WindDownTruffleStrategy(BaseStrategy):
     EMA_FAST = 8
     EMA_SLOW = 21
 
-    def __init__(self):
-        super().__init__("Wind Down Truffle")
+    def __init__(self, **kwargs):
+        super().__init__("The Wind-Down Truffle")
 
     def _is_friday_afternoon(self, snapshot: MarketSnapshot) -> bool:
         """Check if we're in the Friday wind-down window."""

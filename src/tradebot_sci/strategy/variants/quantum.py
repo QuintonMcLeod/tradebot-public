@@ -30,8 +30,8 @@ class QuantumStrategy(BaseStrategy):
     - Bounce confirmation (strong body candle)
     """
     
-    def __init__(self, sma_period=20):
-        super().__init__("Quantum")
+    def __init__(self, sma_period=20, **kwargs):
+        super().__init__("Project Quantum")
         self.sma_period = sma_period
 
     def check_entry_signal(

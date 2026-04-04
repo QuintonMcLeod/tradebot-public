@@ -47,7 +47,7 @@ class QS_ChoppinessStrategy(BaseStrategy):
     Core Idea: Distinguishes between trending and range-bound markets. 
     Avoids entering when Choppiness > 61.8 (ranging). Enters trends when Choppiness < 38.2.
     """
-    def __init__(self, chop_period: int = 14, trend_threshold: float = 38.2):
+    def __init__(self, chop_period: int = 14, trend_threshold: float = 38.2, **kwargs):
         super().__init__("QS Choppiness Filter")
         self.chop_period = chop_period
         self.trend_threshold = trend_threshold

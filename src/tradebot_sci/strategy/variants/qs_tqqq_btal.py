@@ -14,8 +14,8 @@ class QS_TqqqBtalStrategy(BaseStrategy):
     Combines TQQQ (growth) with BTAL (hedge). Since the bot evaluates symbols sequentially, 
     this module acts as a passive container to trigger allocations on target ETFs globally.
     """
-    def __init__(self):
-        super().__init__("QS TQQQ/BTAL Rebalancer")
+    def __init__(self, **kwargs):
+        super().__init__("QS TQQQ + BTAL Tail Risk")
 
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
         if not snapshot.symbol.upper() in ("TQQQ", "BTAL"):

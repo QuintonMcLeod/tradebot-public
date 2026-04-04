@@ -63,8 +63,9 @@ async function connectWebSocket() {
                 }
                 
                 // Guard against Zombie backend: verify actual health data is flowing
-                if (window._lastHealthUpdate && (now - window._lastHealthUpdate > 15000)) {
-                    console.warn("[WS] Health Vitals timeout (No loop data in 15s). Bot loop stalled. Forcing reconnect...");
+                // Backend broadcasts health every 30s, so give it up to 45s before assuming a zombie crash
+                if (window._lastHealthUpdate && (now - window._lastHealthUpdate > 45000)) {
+                    console.warn("[WS] Health Vitals timeout (No loop data in 45s). Bot loop stalled. Forcing reconnect...");
                     ws.close();
                     return;
                 }
@@ -315,6 +316,8 @@ async function connectWebSocket() {
                 // Store health vitals globally for the Vitals tab
                 window.__healthVitals = msg.data;
                 window.__healthVitals._receivedAt = Date.now();
+                window._lastHealthUpdate = Date.now(); // Reset the zombie watchdog timer
+
 
                 // Update sidebar health summary
                 const healthSummary = document.getElementById('health-summary');

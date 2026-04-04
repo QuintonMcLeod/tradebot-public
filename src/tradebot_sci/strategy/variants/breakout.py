@@ -16,7 +16,7 @@ class VolatilityBreakoutStrategy(BaseStrategy):
     Captures explosive moves when price breaks the recent range with high ATR/RSI momentum.
     """
     
-    def __init__(self, range_period=20, atr_mult=1.5):
+    def __init__(self, range_period=20, atr_mult=1.5, **kwargs):
         super().__init__("Volatility Breakout")
         self.range_period = range_period
         self.atr_mult = atr_mult

@@ -30,7 +30,7 @@ class TrendRiderStrategy(BaseStrategy):
     Target: 2.5R (let winners run)
     """
 
-    def __init__(self, fast_ema=8, slow_ema=21, rsi_period=14):
+    def __init__(self, fast_ema=8, slow_ema=21, rsi_period=14, **kwargs):
         super().__init__("Trend Rider")
         self.fast_ema = fast_ema
         self.slow_ema = slow_ema

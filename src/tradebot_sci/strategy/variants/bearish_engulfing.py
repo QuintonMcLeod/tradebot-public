@@ -32,7 +32,7 @@ class BearishEngulfingStrategy(BaseStrategy):
     R:R: Always 2:1 minimum.
     """
 
-    def __init__(self, swing_lookback=20, rsi_period=14):
+    def __init__(self, swing_lookback=20, rsi_period=14, **kwargs):
         super().__init__("Bearish Engulfing")
         self.swing_lookback = swing_lookback
         self.rsi_period = rsi_period

@@ -16,7 +16,7 @@ class QS_RSIMeanReversionStrategy(BaseStrategy):
     We apply this to HTF for daily equivalence, or LTF for intraday swings.
     """
     
-    def __init__(self, rsi_period: int = 2, rsi_threshold_long: int = 10, rsi_threshold_short: int = 90):
+    def __init__(self, rsi_period: int = 2, rsi_threshold_long: int = 10, rsi_threshold_short: int = 90, **kwargs):
         super().__init__("QS RSI-2 Mean Reversion")
         self.rsi_period = rsi_period
         self.rsi_threshold_long = rsi_threshold_long
