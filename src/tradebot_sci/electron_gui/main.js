@@ -539,6 +539,14 @@ function setupIpcHandlers() {
 
                 let content = fs.readFileSync(filePath, 'utf8');
 
+                // Strip YAML frontmatter before sending to the UI
+                if (content.startsWith('---')) {
+                    const parts = content.split('---');
+                    if (parts.length >= 3) {
+                        content = parts.slice(2).join('---').trimStart();
+                    }
+                }
+
                 // Resolve relative image paths to base64 data URIs so Electron can display them
                 // (file:// protocol is blocked by webSecurity)
                 const docDir = path.dirname(resolved);
