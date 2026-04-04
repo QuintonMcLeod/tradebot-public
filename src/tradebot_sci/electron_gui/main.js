@@ -471,22 +471,33 @@ function setupIpcHandlers() {
                 const content = fs.readFileSync(filePath, 'utf8');
                 
                 const filename = dir ? `${dir}/${file}` : file;
-                let meta = { filename, title: file.replace('.md', ''), category: 'rtfm', icon: 'article', description: '' };
+                let meta = null;
                 
                 if (content.startsWith('---')) {
                     const parts = content.split('---');
                     if (parts.length >= 3) {
                         try {
                             const parsedMeta = yaml.load(parts[1].trim());
-                            if (parsedMeta) {
-                                meta = { ...meta, ...parsedMeta, filename }; 
+                            if (parsedMeta && parsedMeta.title && parsedMeta.description) {
+                                meta = { 
+                                    filename, 
+                                    title: parsedMeta.title, 
+                                    category: parsedMeta.category || 'rtfm', 
+                                    icon: parsedMeta.icon || 'article', 
+                                    description: parsedMeta.description,
+                                    featured: !!parsedMeta.featured
+                                };
                             }
                         } catch (e) {
                             console.error(`[MAIN] Failed to parse frontmatter in ${filename}:`, e.message);
                         }
                     }
                 }
-                HELP_CATALOG.push(meta);
+                
+                // Only push if it has valid metadata
+                if (meta) {
+                    HELP_CATALOG.push(meta);
+                }
             }
         }
         console.log(`[MAIN] Dynamically loaded ${HELP_CATALOG.length} documents from Documentation/`);
