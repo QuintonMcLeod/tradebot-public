@@ -1357,6 +1357,7 @@ window.helpModule = (() => {
                 { filename: 'RTFM/40_TARGET.md', title: 'The Payout Card: When to Secure the Bag', category: 'rtfm', icon: 'paid', description: '"Profit doesn\'t count until it\'s in your bank account." The Payout card tells you how much of your realized earnings to withdraw — and how much to leave so the compounding machine keeps growing.' },
                 { filename: 'RTFM/41_REMOTE_SETUP.md', title: 'Remote Setup: Run the Core on One PC, the GUI on Another', category: 'rtfm', icon: 'lan', description: '"The bot has two halves — a brain and a face." How to run the Python engine on one computer and connect the Electron GUI from a different one. Any OS, any two machines. Kitchen-and-dining-room style.' },
                 { filename: 'RTFM/45_QUANTITATIVE_STRATEGIES.md', title: '7 Advanced Quantitative Strategies', category: 'rtfm', icon: 'functions', description: '"You don\'t even know how to balance your own checkbook, but suddenly you\'re Jim Simons..." The 7 aggressive quantitative mathematically-driven algorithms translated into terms your grandma would understand.', featured: true },
+                { filename: 'RTFM/47_UI_OVERHAUL_AND_VITALS.md', title: 'UI Overhauls & Nurse\'s Station Vitals', category: 'rtfm', icon: 'medical_services', description: 'Listen to me, you dumb motherfuckers. We just spent the last two weeks overhauling the UI and the Nurse\'s Station. A complete guide on reading the vitals, the universal exit router, and why your bot says Retrying.' },
             ];
         }
 
