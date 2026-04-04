@@ -2025,12 +2025,30 @@ function startLogWatcher(win) {
 
 function checkBotStatus(win, force = false) {
     exec('pgrep -f "[r]un_dev_bot.py"', (err, stdout) => {
-        // More robust status check
-        const isRunning = !!(stdout && stdout.trim());
-        if (force || isRunning !== botRunning) {
-            botRunning = isRunning;
-            console.log(`[MAIN] Bot Status changed: ${botRunning ? 'RUNNING' : 'STOPPED'}`);
-            if (win) win.webContents.send('bot-status', { running: botRunning });
+        const isProcessRunning = !!(stdout && stdout.trim());
+        
+        if (win && !win.isDestroyed()) {
+            win.webContents.executeJavaScript('window._isWsConnected === true')
+                .then(isWsConnected => {
+                    // Bot is only considered "running" if the process is alive AND the WS stream is healthy
+                    // (Our ws_handler now closes the WS if health vitals stop, catching zombies)
+                    const effectivelyRunning = isProcessRunning && isWsConnected;
+                    if (force || effectivelyRunning !== botRunning) {
+                        botRunning = effectivelyRunning;
+                        console.log(`[MAIN] Bot Status changed: ${botRunning ? 'RUNNING' : 'STOPPED'} (Process: ${isProcessRunning}, WS: ${isWsConnected})`);
+                        win.webContents.send('bot-status', { running: botRunning });
+                    }
+                })
+                .catch(err => {
+                    if (force || isProcessRunning !== botRunning) {
+                        botRunning = isProcessRunning;
+                        win.webContents.send('bot-status', { running: botRunning });
+                    }
+                });
+        } else {
+            if (force || isProcessRunning !== botRunning) {
+                botRunning = isProcessRunning;
+            }
         }
     });
 }
@@ -2189,6 +2207,7 @@ function createWindow() {
                     const running = !!(stdout && stdout.trim());
                     if (running) {
                         console.log('[MAIN] Verification: Bot is running.');
+                        checks++;
                         if (checks >= 2) {
                             clearInterval(checkInterval);
                             mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Bot Started Successfully", color: 'teal' });

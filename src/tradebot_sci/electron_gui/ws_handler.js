@@ -35,6 +35,9 @@ async function connectWebSocket() {
         window._isWsConnected = true;
         window._wsReconnectAttempts = 0;
         
+        // Give the backend a 20s grace period on startup before enforcing health heartbeat
+        window._lastHealthUpdate = Date.now() + 20000;
+        
         // Let the Vitals tab re-render immediately to reflect connected state if it's open
         if (typeof renderTab === 'function' && document.querySelector('.vitals-banner')) {
             renderTab();
@@ -48,17 +51,25 @@ async function connectWebSocket() {
         const tf = document.getElementById('chart-tf-label')?.innerText || '15m';
         if (symbol) subscribeToAsset(symbol, tf);
 
-        // Start Ping-Pong
         if (pingInterval) clearInterval(pingInterval);
         ws._lastPong = Date.now(); // Initialize to prevent immediate timeout
         pingInterval = setInterval(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
-                if (Date.now() - ws._lastPong > 15000) {
+                const now = Date.now();
+                if (now - ws._lastPong > 15000) {
                     console.warn("[WS] Ping timeout (No pong in 15s). Forcing reconnect...");
                     ws.close();
                     return;
                 }
-                ws._lastPing = Date.now();
+                
+                // Guard against Zombie backend: verify actual health data is flowing
+                if (window._lastHealthUpdate && (now - window._lastHealthUpdate > 15000)) {
+                    console.warn("[WS] Health Vitals timeout (No loop data in 15s). Bot loop stalled. Forcing reconnect...");
+                    ws.close();
+                    return;
+                }
+
+                ws._lastPing = now;
                 ws.send(JSON.stringify({ type: 'ping' }));
             }
         }, 5000);

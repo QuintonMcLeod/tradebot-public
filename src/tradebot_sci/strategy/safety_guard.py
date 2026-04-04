@@ -128,7 +128,7 @@ class SafetyGuard:
         # Per-symbol exit cooldown — prevents death spiral re-entry on LOSSES.
         # Winning trades skip cooldown so the bot can re-enter immediately.
         if not is_win:
-            cls._state.symbol_exit_cooldown[symbol] = datetime.now() + timedelta(minutes=5)
+            cls._state.symbol_exit_cooldown[symbol] = datetime.now(timezone.utc) + timedelta(minutes=5)
             logger.info(f"[SAFETY] Exit cooldown set for {symbol}: 5 min (loss)")
         else:
             # Clear any existing cooldown on a win
@@ -487,7 +487,7 @@ class SafetyGuard:
         asset_class = classify_symbol(symbol)
         if asset_class not in cls._state.trade_timestamps:
             cls._state.trade_timestamps[asset_class] = []
-        cls._state.trade_timestamps[asset_class].append(datetime.now())
+        cls._state.trade_timestamps[asset_class].append(datetime.now(timezone.utc))
 
     @classmethod
     def augment_exit_decision(cls, decision: Optional[AITradeDecision], open_position: dict, snapshot: MarketSnapshot, sim_time: Optional[datetime] = None) -> AITradeDecision:
@@ -609,7 +609,7 @@ class SafetyGuard:
                     elif r_multiple < 1.0:
                         logger.info(f"[SAFETY] Regime-Flip TRIGGERED for {snapshot.symbol}. HTF is {htf_dir} (R={r_multiple:.2f}).")
                         # Set 10-min cooldown to prevent flip→SAR→flip churn cycle
-                        cls._state.regime_flip_cooldown[snapshot.symbol] = (sim_time or datetime.now()) + timedelta(minutes=3)
+                        cls._state.regime_flip_cooldown[snapshot.symbol] = (sim_time or datetime.now(timezone.utc)) + timedelta(minutes=3)
                         logger.info(f"[SAFETY] Regime Flip Cooldown set for {snapshot.symbol}: 3 min")
                         return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Regime Flip: {htf_dir.upper()}")
                     else:
