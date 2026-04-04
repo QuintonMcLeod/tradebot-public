@@ -9,7 +9,7 @@ description: Listen to me, you dumb motherfuckers. We just spent the last two we
 
 # 47. UI Overhauls & Nurse's Station Vitals
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Listen to me, you dumb motherfuckers. I'm gonna break this down real slow so even the slowest guy in the room can understand it. We just spent the last two weeks overhauling the UI and the Nurse's Station because you idiots kept crying about 'Where do I click?' and 'Why is my bot dead?' Here is a complete guide to the new UI, the Exit Router, and the Vitals."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Listen up, Rookie. I'm gonna break this down real slow so even you can understand it. We just spent the last two weeks overhauling the UI and the Nurse's Station because guys like you kept crying about 'Where do I click?' and 'Why is my bot dead?' Here is a complete guide to the new UI, the Exit Router, and the Vitals."</td></tr></table>
 
 ---
 
@@ -43,4 +43,4 @@ description: Listen to me, you dumb motherfuckers. We just spent the last two we
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"I noticed the `trend_invalidation` exit was failing to trigger during backtests, leading to catastrophic drawdowns when the macroscopic 1H trend reversed against my 15-minute entries."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yeah, your backtester was starving for 1-hour candles. It didn't have enough history to know if the trend was flipping. We taught the backtester workers to fetch native 1H candles straight from Oanda so it has 60+ periods of history. It actually knows what the macroscopic trend is now. It prevents you from getting violently stopped out when the market flips.<br><br>So read the rest of the manuals, don't touch buttons if you don't know what they do, and let the Autopilot make you money before I lose my mind."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yeah, your backtester was starving for 1-hour candles. It didn't have enough history to know if the trend was flipping. We taught the backtester workers to fetch native 1H candles straight from Oanda so it has 60+ periods of history. It actually knows what the macroscopic trend is now. It prevents you guys from getting violently stopped out when the market flips.<br><br>Now read the rest of the manuals, don't touch buttons if you don't know what they do, and let the Autopilot make you money before I lose my mind."</td></tr></table>
