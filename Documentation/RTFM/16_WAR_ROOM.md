@@ -127,3 +127,8 @@ And here's a **blocked** trade:
 3. **Red lines aren't always bad.** A brief IBKR reconnect `ERROR` is normal. Only worry if it repeats.
 4. **Logs rotate.** Old logs → `tradebot.log.1`, `.2`, etc. Current session → `tradebot.log`.
 5. **`[DECISION]` is the most powerful line.** It tells you what the bot decided, the score, and which strategy called it. This is where you evaluate the bot's intelligence.
+
+
+> [!NOTE]
+> **APRIL 2026 UI & VITALS UPDATE:**  
+> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

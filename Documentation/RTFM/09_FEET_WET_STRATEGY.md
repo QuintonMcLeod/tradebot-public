@@ -560,3 +560,8 @@ risk_per_trade_pct: 0.01  # 1% risk only
 ---
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"There you go. 28 weapons and 62 myths destroyed. The market doesn't care about your feelings. It only respects your edge. Pick the right strategy for the right market — or let Meta-SCI pick for you — and let math do the rest.<br><br>And if you're still not sure which strategy to use after reading all of this? <b>Meta-SCI.</b> I can't say it enough times. <em>Meta-SCI.</em>"</td></tr></table>
+
+
+> [!NOTE]
+> **APRIL 2026 UI & VITALS UPDATE:**  
+> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

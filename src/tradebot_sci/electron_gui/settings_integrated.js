@@ -47,9 +47,9 @@ const CONFIG_MAP = {
     'CCXT_DEFAULT_TYPE': ['brokers', 'ccxt', 'default_type'],
     'CCXT_SANDBOX': ['brokers', 'ccxt', 'sandbox'],
     'CCXT_ENABLE_RATE_LIMIT': ['brokers', 'ccxt', 'enable_rate_limit'],
-    'BROKER_CRYPTO': ['market', 'broker_crypto'],
-    'BROKER_FOREX': ['market', 'broker_forex'],
-    'BROKER_EQUITIES': ['market', 'broker_equities'],
+    'BROKER_CRYPTO': ['brokers', 'primary_crypto'],
+    'BROKER_FOREX': ['brokers', 'primary_forex'],
+    'BROKER_EQUITIES': ['brokers', 'primary_equities'],
     'MARKET_DATA_MODE': ['market', 'market_data_mode'],
     'PAPER_SIM_ENABLED': ['paper', 'enabled'],
     'PAPER_REPLAY_MODE': ['paper', 'replay_mode'],
@@ -1444,6 +1444,7 @@ function formatStatKey(key) {
 
 const TABS = {
     system: { icon: 'dashboard', label: 'System', render: renderSystemTab },
+    vitals: { icon: 'monitor_heart', label: 'Vitals', render: renderVitalsTab },
     strategy: { icon: 'precision_manufacturing', label: 'Strategy', render: renderStrategyTab },
     paper: { icon: 'history', label: 'Paper & Replay', render: renderPaperTab },
     safety: { icon: 'shield', label: 'Safety', render: renderSafetyTab },
@@ -1707,6 +1708,7 @@ function getActiveProfileSettings() {
 // ═══════════════════════════════════════════════════════════
 
 function switchTab(tabId) {
+    hideTooltip();
     currentTab = tabId;
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabId);
@@ -1720,6 +1722,7 @@ function switchTab(tabId) {
 }
 
 function renderTab() {
+    hideTooltip();
     const container = document.getElementById('tab-content');
     if (!container) return;
     container.innerHTML = '';
@@ -1753,15 +1756,14 @@ function createSectionHeader(title, icon = null, tooltip = null) {
         ? `<span class="material-symbols-outlined">${icon}</span>${title}`
         : title;
     if (tooltip) {
-        html += ` <span class="material-symbols-outlined info-icon" style="font-size:14px;cursor:help;vertical-align:middle;color:var(--accent-teal);opacity:0.6">info</span>`;
+        html += ` <span class="material-symbols-outlined info-icon" style="font-size:14px;cursor:help;vertical-align:middle;color:var(--accent-teal);opacity:0.6;padding:5px;border-radius:50%">info</span>`;
     }
     header.innerHTML = html;
     // Wire up tooltip hover if content provided
     if (tooltip) {
-        const infoIcon = header.querySelector('.info-icon');
-        if (infoIcon && typeof showTooltip === 'function') {
-            infoIcon.addEventListener('mouseenter', (e) => showTooltip(e, title, tooltip));
-            infoIcon.addEventListener('mouseleave', hideTooltip);
+        if (typeof showTooltip === 'function') {
+            header.addEventListener('mouseenter', (e) => showTooltip(e, title, tooltip, header));
+            header.addEventListener('mouseleave', hideTooltip);
         }
     }
     return header;
@@ -1804,8 +1806,9 @@ function createCard(title, desc, key, controlType, options = {}) {
     const rawValue = getValue(key, stratNamespace);
     const value = (rawValue !== null && rawValue !== undefined && rawValue !== '') ? rawValue : (options.default || '');
 
+    // Bind tooltip to the entire card
     if (tooltipContent && !locked) {
-        card.addEventListener('mouseenter', (e) => showTooltip(e, key, tooltipContent));
+        card.addEventListener('mouseenter', (e) => showTooltip(e, title, tooltipContent, card));
         card.addEventListener('mouseleave', hideTooltip);
     }
 
@@ -1943,11 +1946,6 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%', options 
     const tooltipContent = options.tooltip || TOOLTIPS[key];
     const iconHtml = tooltipContent ? `<span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help;">info</span>` : '';
 
-    if (tooltipContent) {
-        card.addEventListener('mouseenter', (e) => showTooltip(e, key, tooltipContent));
-        card.addEventListener('mouseleave', hideTooltip);
-    }
-
     card.innerHTML = `
         <div class="slider-header" style="align-items:flex-start;">
             <div>
@@ -1959,15 +1957,16 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%', options 
             </div>
         </div>
         <input type="range" class="slider-input ${sliderDisabledClass}" min="${min}" max="${max}" step="${step}" value="${displayValue}">
-        <div class="slider-key">${key}</div>
+        <div class="slider-key" style="display:none;">${key}</div>
         ${toggleHtml}
     `;
 
     const slider = card.querySelector('.slider-input');
     const valueDisplay = card.querySelector('.slider-value');
 
-    if (TOOLTIPS[key]) {
-        card.addEventListener('mouseenter', (e) => showTooltip(e, key, TOOLTIPS[key]));
+    // Bind tooltip to the entire card
+    if (tooltipContent) {
+        card.addEventListener('mouseenter', (e) => showTooltip(e, title, tooltipContent, card));
         card.addEventListener('mouseleave', hideTooltip);
     }
 
@@ -2032,6 +2031,389 @@ function createWarningBox(text) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// VITALS TAB — "Nurse's Station"
+// ═══════════════════════════════════════════════════════════
+
+const VITAL_ICONS = {
+    "Heartbeat":           "monitor_heart",
+    "Indicator Integrity": "air",
+    "Data Feed":           "sensors",
+    "Trade Pipeline":      "science",
+    "Broker Link":         "cable",
+    "Config Integrity":    "genetics",
+    "Risk Sizing":         "balance",
+    "Strategy Signal":     "cell_tower",
+};
+
+const VITAL_ORDER = [
+    "Heartbeat", "Indicator Integrity", "Data Feed", "Trade Pipeline",
+    "Broker Link", "Config Integrity", "Risk Sizing", "Strategy Signal",
+];
+
+const VITAL_EMOJI = {
+    "Heartbeat":           "❤️",
+    "Indicator Integrity": "🫁",
+    "Data Feed":           "🩺",
+    "Trade Pipeline":      "💉",
+    "Broker Link":         "🔌",
+    "Config Integrity":    "🧬",
+    "Risk Sizing":         "⚖️",
+    "Strategy Signal":     "📡",
+};
+
+window.VITAL_TOOLTIPS = {
+    "Heartbeat":
+        "<strong>Is the bot still alive?</strong><br><br>" +
+        "Think of this like a heartbeat monitor in a hospital. Every few seconds, the bot checks in and says " +
+        "\"I'm still here, I'm still working.\" If the heartbeat stops, it means the bot froze or crashed " +
+        "and is no longer watching the market for you.<br><br>" +
+        "🟢 <em>Healthy</em> = The bot checked in recently (within the last minute).<br>" +
+        "🟡 <em>Warning</em> = It's been over a minute — the bot might be running slow.<br>" +
+        "🔴 <em>Critical</em> = Over 3 minutes of silence — the bot may be frozen!",
+
+    "Indicator Integrity":
+        "<strong>Are the market sensors working?</strong><br><br>" +
+        "The bot uses several mathematical tools (called indicators) to read the market — things like " +
+        "trend strength, momentum, and overbought/oversold conditions. If these tools start returning " +
+        "all zeros, the bot is effectively blind and can't make good trading decisions.<br><br>" +
+        "🟢 <em>Healthy</em> = All indicators are returning real numbers.<br>" +
+        "🟡 <em>Warning</em> = One or two indicators are stuck at zero.<br>" +
+        "🔴 <em>Critical</em> = ALL indicators are zeroed out — the bot can't see anything!",
+
+    "Data Feed":
+        "<strong>Is fresh price data coming in?</strong><br><br>" +
+        "The bot needs live price data (candles) from the market to make decisions. If the data stops " +
+        "arriving — maybe the broker's servers are down, or your internet hiccupped — the bot is " +
+        "looking at stale, outdated prices and could make bad decisions.<br><br>" +
+        "🟢 <em>Healthy</em> = All your trading pairs received fresh data within the last 5 minutes.<br>" +
+        "🟡 <em>Warning</em> = Some pairs haven't updated in 5–10 minutes.<br>" +
+        "🔴 <em>Critical</em> = Data is over 10 minutes old — charts are outdated!",
+
+    "Trade Pipeline":
+        "<strong>Is the bot finding opportunities?</strong><br><br>" +
+        "Every cycle, the bot scans all your trading pairs and builds a list of \"candidates\" — pairs " +
+        "that might be good to trade. If it goes a long time without finding ANY candidates during " +
+        "market hours, something might be wrong with the strategy or the data.<br><br>" +
+        "🟢 <em>Healthy</em> = The scanner is finding things to evaluate.<br>" +
+        "🟡 <em>Warning</em> = No candidates found in 20+ cycles — unusual during market hours.<br>" +
+        "🔴 <em>Critical</em> = 0 candidates for 60+ cycles — the strategy engine might be stuck!",
+
+    "Broker Link":
+        "<strong>Can the bot actually place trades?</strong><br><br>" +
+        "This checks whether the bot is properly connected to your broker (like OANDA). If the " +
+        "connection is lost, the bot can still analyze the market, but it <em>cannot</em> place, modify, " +
+        "or close any trades. It's like having a shopping list but the store is closed.<br><br>" +
+        "🟢 <em>Healthy</em> = Connected and authenticated — orders will execute normally.<br>" +
+        "🟡 <em>Warning</em> = Connected but the broker is responding very slowly (>5 seconds).<br>" +
+        "🔴 <em>Critical</em> = Disconnected — no trades can be placed!",
+
+    "Config Integrity":
+        "<strong>Are your settings valid?</strong><br><br>" +
+        "The bot reads a configuration file to know things like which pairs to trade, how much risk " +
+        "to take, and which strategies to use. If that file gets corrupted, has typos, or missing " +
+        "values, the bot might behave unpredictably or refuse to start.<br><br>" +
+        "🟢 <em>Healthy</em> = All settings parsed correctly and are applied.<br>" +
+        "🟡 <em>Warning</em> = Settings loaded, but some values look suspicious.<br>" +
+        "🔴 <em>Critical</em> = Config file has errors — the bot may not work correctly!",
+
+    "Risk Sizing":
+        "<strong>Are your trade sizes correct?</strong><br><br>" +
+        "When you set your risk to, say, 2% of your account, the bot calculates how many units " +
+        "to buy or sell. This check makes sure the actual position sizes match what your settings " +
+        "say they should be. A big mismatch could mean you're risking way more (or less) than intended.<br><br>" +
+        "🟢 <em>Healthy</em> = Position sizes are within 20% of your configured risk.<br>" +
+        "🟡 <em>Warning</em> = Sizes are 20–50% off — possibly due to leverage caps or lot rounding.<br>" +
+        "🔴 <em>Critical</em> = Over 50% deviation — risk calculation might be broken!",
+
+    "Strategy Signal":
+        "<strong>Is the strategy actually making decisions?</strong><br><br>" +
+        "The bot's brain (strategy engine) looks at all the data and decides: BUY, SELL, or HOLD. " +
+        "If it says HOLD for a very long time during active market hours, it might be stuck or " +
+        "misconfigured — it should at least occasionally find something interesting.<br><br>" +
+        "🟢 <em>Healthy</em> = The strategy is actively analyzing and has signaled recently.<br>" +
+        "🟡 <em>Warning</em> = HOLD for 30–100 consecutive cycles — no opportunities found.<br>" +
+        "🔴 <em>Critical</em> = HOLD for 100+ cycles — indicators may be misconfigured!",
+};
+
+function _buildVitalCard(vital, key) {
+    const status = vital.status || 'offline';
+    const icon = VITAL_ICONS[key] || 'help';
+    const emoji = VITAL_EMOJI[key] || '🔹';
+    const tooltipContent = VITAL_TOOLTIPS[key] || null;
+
+    // Format "seconds ago"
+    let agoStr = '--';
+    if (vital.seconds_ago !== null && vital.seconds_ago !== undefined) {
+        const s = Math.round(vital.seconds_ago);
+        if (s < 60) agoStr = `${s}s ago`;
+        else if (s < 3600) agoStr = `${Math.floor(s / 60)}m ${s % 60}s ago`;
+        else agoStr = `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ago`;
+    }
+
+    // Format status duration
+    let durationStr = '';
+    if (vital.status_duration) {
+        const d = Math.round(vital.status_duration);
+        if (d < 60) durationStr = `for ${d}s`;
+        else if (d < 3600) durationStr = `for ${Math.floor(d / 60)}m`;
+        else durationStr = `for ${Math.floor(d / 3600)}h ${Math.floor((d % 3600) / 60)}m`;
+    }
+
+    const statusLabels = { healthy: 'Healthy', warning: 'Warning', critical: 'Critical', offline: 'Offline' };
+    
+    const card = document.createElement('div');
+    card.className = `vital-card ${status}`;
+    card.innerHTML = `
+        <div class="vital-header">
+            <div class="vital-icon-name">
+                <div class="vital-icon ${status}">
+                    <span class="material-symbols-outlined">${icon}</span>
+                </div>
+                <div>
+                    <div class="vital-name">${emoji} ${key}${tooltipContent ? `<span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.45; margin-left: 6px; cursor: help; vertical-align: middle;">info</span>` : ''}</div>
+                    <div class="vital-timestamp">Checked ${agoStr} ${durationStr ? `· ${statusLabels[status]} ${durationStr}` : ''}</div>
+                </div>
+            </div>
+            <span class="vital-badge ${status}">
+                <span class="pulse-dot ${status}"></span>
+                ${statusLabels[status] || 'Unknown'}
+            </span>
+        </div>
+        <div class="vital-message">${vital.message || 'No data yet.'}</div>
+        ${vital.detail ? `<div class="vital-detail" title="Click to copy">${vital.detail}</div>` : ''}
+    `;
+
+    if (tooltipContent) {
+        card.addEventListener('mouseenter', (e) => showTooltip(e, key, tooltipContent, card));
+        card.addEventListener('mouseleave', () => hideTooltip());
+    }
+
+    // Click-to-copy on detail box
+    const detailEl = card.querySelector('.vital-detail');
+    if (detailEl) {
+        detailEl.addEventListener('click', () => {
+            navigator.clipboard.writeText(detailEl.textContent).then(() => {
+                const orig = detailEl.textContent;
+                detailEl.textContent = '✓ Copied to clipboard';
+                setTimeout(() => { detailEl.textContent = orig; }, 1500);
+            });
+        });
+    }
+
+    return card;
+}
+
+function _buildTimeline(events) {
+    const container = document.createElement('div');
+    container.className = 'vitals-timeline';
+
+    if (!events || events.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'font-size: 11px; color: var(--text-dim); padding: 8px 0;';
+        empty.textContent = 'No events recorded in this session yet.';
+        container.appendChild(empty);
+        return container;
+    }
+
+    // Reverse to show newest first
+    const sorted = [...events].reverse();
+    sorted.forEach(ev => {
+        const row = document.createElement('div');
+        row.className = `timeline-event ${ev.level || 'info'}`;
+
+        // Parse ISO time to readable
+        let timeStr = '';
+        try {
+            const d = new Date(ev.time);
+            timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        } catch { timeStr = '??:??'; }
+
+        row.innerHTML = `
+            <span class="timeline-time">${timeStr}</span>
+            <span>${ev.label}</span>
+        `;
+        container.appendChild(row);
+    });
+    return container;
+}
+
+function _buildCopyDiagButton(data) {
+    const btn = document.createElement('button');
+    btn.style.cssText = `
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 20px; border-radius: 12px;
+        background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+        color: var(--text-secondary); font-size: 11px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.06em;
+        cursor: pointer; transition: all 0.25s;
+        margin-top: 16px;
+    `;
+    btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px">content_copy</span> Copy Diagnostic Report`;
+    btn.addEventListener('mouseenter', () => {
+        btn.style.background = 'rgba(20, 184, 166, 0.1)';
+        btn.style.borderColor = 'rgba(20, 184, 166, 0.3)';
+        btn.style.color = 'var(--accent)';
+    });
+    btn.addEventListener('mouseleave', () => {
+        btn.style.background = 'rgba(255,255,255,0.04)';
+        btn.style.borderColor = 'rgba(255,255,255,0.08)';
+        btn.style.color = 'var(--text-secondary)';
+    });
+    btn.addEventListener('click', () => {
+        if (!data) return;
+        const lines = [
+            `=== TRADEBOT VITALS DIAGNOSTIC ===`,
+            `Generated: ${new Date().toISOString()}`,
+            `Uptime: ${data.uptime_formatted || '--'}`,
+            `Cycles: ${data.cycle_count || 0}`,
+            `Overall: ${(data.overall || 'unknown').toUpperCase()}`,
+            ``,
+        ];
+        const vitals = data.vitals || {};
+        VITAL_ORDER.forEach(key => {
+            const v = vitals[key];
+            if (!v) return;
+            lines.push(`[${v.status.toUpperCase()}] ${key}`);
+            lines.push(`  Message: ${v.message}`);
+            if (v.detail) lines.push(`  Detail: ${v.detail}`);
+            lines.push(``);
+        });
+        if (data.events && data.events.length > 0) {
+            lines.push(`--- SESSION EVENTS ---`);
+            data.events.forEach(e => {
+                lines.push(`  ${e.time} [${e.level}] ${e.label}`);
+            });
+        }
+        const report = lines.join('\n');
+        navigator.clipboard.writeText(report).then(() => {
+            btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px">check</span> Copied!`;
+            setTimeout(() => {
+                btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px">content_copy</span> Copy Diagnostic Report`;
+            }, 2000);
+        });
+    });
+    return btn;
+}
+
+function renderVitalsTab(container) {
+    const section = document.createElement('div');
+    section.className = 'settings-section';
+
+    // Header
+    section.appendChild(createSectionHeader("Nurse's Station", 'monitor_heart',
+        "<strong>Bot Health Monitor</strong><br><br>Real-time diagnostic dashboard showing 8 vital signs of bot functionality. " +
+        "Each vital indicates whether a critical subsystem is working correctly. " +
+        "Green = healthy, Amber = needs attention, Red = action required.<br><br>" +
+        "<em>Tip:</em> Click 'Copy Diagnostic Report' at the bottom to share the full status with your developer."
+    ));
+
+    const data = window.__healthVitals;
+
+    // ── No data state ──────────────────────
+    if (!data || !data.vitals) {
+        // Determine whether we are completely disconnected or just waiting for the first broadcast
+        const isConnected = window._isWsConnected;
+        const iconColor = isConnected ? 'var(--text-dim)' : 'var(--red-400, #ef4444)';
+        const attempts = window._wsReconnectAttempts || 1;
+        const titleText = isConnected ? 'Running Diagnostics Check...' : `Connection Lost — Retrying (Attempt ${attempts})`;
+        const subText = isConnected 
+            ? 'The bot is currently scanning its internal systems. Health data will appear here shortly.' 
+            : 'The connection to the backend was lost or the bot is rebooting. The UI is automatically retrying every 5 seconds.';
+        const pulseClass = 'animate-pulse'; // Always pulse when in this loading/retry state
+
+        const offline = document.createElement('div');
+        offline.className = 'vitals-banner offline';
+        offline.innerHTML = `
+            <span class="material-symbols-outlined ${pulseClass}" style="font-size:28px; color:${iconColor};">monitor_heart</span>
+            <div>
+                <div style="font-size:14px; font-weight:700; color:var(--text-secondary);">${titleText}</div>
+                <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">
+                    ${subText}
+                </div>
+            </div>
+        `;
+        section.appendChild(offline);
+        container.appendChild(section);
+        return;
+    }
+
+    // ── Overall Status Banner ──────────────
+    const overall = data.overall || 'healthy';
+    const banner = document.createElement('div');
+    banner.className = `vitals-banner ${overall}`;
+
+    const bannerIcons = { healthy: 'check_circle', warning: 'warning', critical: 'emergency' };
+    const bannerColors = { healthy: '#34d399', warning: '#fbbf24', critical: '#f87171' };
+    const bannerIcon = bannerIcons[overall] || 'help';
+    const bannerColor = bannerColors[overall] || 'var(--text-dim)';
+
+    banner.innerHTML = `
+        <span class="material-symbols-outlined" style="font-size:32px; color:${bannerColor};">${bannerIcon}</span>
+        <div style="flex:1;">
+            <div style="font-size:16px; font-weight:800; color:${bannerColor}; text-transform:uppercase; letter-spacing:0.05em;">
+                ${data.overall_message || 'Unknown Status'}
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+                Uptime: ${data.uptime_formatted || '--'} · Cycles: ${data.cycle_count || 0}
+            </div>
+        </div>
+        <div class="vital-badge ${overall}">
+            <span class="pulse-dot ${overall}"></span>
+            ${overall === 'healthy' ? 'ALL CLEAR' : overall === 'warning' ? 'ATTENTION' : 'CRITICAL'}
+        </div>
+    `;
+    section.appendChild(banner);
+
+    // ── Uptime Bar ─────────────────────────
+    if (data.uptime) {
+        const maxUptime = 86400; // 24h max display
+        const pct = Math.min((data.uptime / maxUptime) * 100, 100);
+        const uptimeBar = document.createElement('div');
+        uptimeBar.className = 'vitals-uptime-bar';
+        uptimeBar.style.marginBottom = '24px';
+        uptimeBar.innerHTML = `<div class="vitals-uptime-fill" style="width:${pct}%"></div>`;
+        section.appendChild(uptimeBar);
+    }
+
+    // ── Vital Cards Grid ───────────────────
+    const grid = document.createElement('div');
+    grid.className = 'vitals-grid';
+
+    VITAL_ORDER.forEach(key => {
+        const vital = data.vitals[key];
+        if (vital) {
+            grid.appendChild(_buildVitalCard(vital, key));
+        }
+    });
+    section.appendChild(grid);
+
+    // ── Session Event Timeline ─────────────
+    const timelineHeader = document.createElement('div');
+    timelineHeader.style.cssText = `
+        display:flex; align-items:center; gap:10px; margin-bottom:12px;
+        font-size:10px; font-weight:700; text-transform:uppercase;
+        letter-spacing:0.15em; color:var(--accent); padding-bottom:10px;
+        border-bottom:1px solid var(--accent-dim);
+    `;
+    timelineHeader.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">timeline</span> Session Timeline`;
+    section.appendChild(timelineHeader);
+
+    section.appendChild(_buildTimeline(data.events));
+
+    // ── Copy Diagnostic Report Button ──────
+    section.appendChild(_buildCopyDiagButton(data));
+
+    container.appendChild(section);
+
+    // Register refresh callback for live WS updates while tab is open
+    window._refreshVitalsTab = () => {
+        if (currentTab === 'vitals') {
+            renderTab();
+        }
+    };
+}
+
+// ═══════════════════════════════════════════════════════════
 // TAB RENDERERS
 // ═══════════════════════════════════════════════════════════
 
@@ -2044,10 +2426,6 @@ function renderSystemTab(container) {
         "<strong>Core Runtime</strong><br><br>The fundamental settings that control how the bot operates — which strategy to use, how it loops, and whether it places real orders. Think of this as the cockpit's master control panel."
     ));
 
-    // Active Profile selection moved to Profile tab (activate button on each profile card)
-
-    // Add Import/Export Buttons (Relocated to bottom)
-
     section.appendChild(createCard('Execution Mode', 'How the bot cycles through iterations', 'BOT_MODE', 'dropdown', {
         items: [
             { value: 'continuous', label: 'Continuous Loop' },
@@ -2057,7 +2435,6 @@ function renderSystemTab(container) {
     }));
 
     section.appendChild(createCard('Live Trading', 'Master switch for real order execution', 'EXECUTE_TRADES', 'toggle'));
-    // REMOVED: 'Auto-Start Bot' (GUI_AUTOSTART_BOT) — Dead toggle, 0 runtime refs (Audit P0)
     section.appendChild(createCard('Continuous Mode', 'Keep runtime alive indefinitely', 'CONTINUOUS_MODE', 'toggle'));
     section.appendChild(createCard('Friday Fade Damper', 'Risk cap after 12:00 PM EST Fri (Forex Only)', 'FRIDAY_FADE_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('WebConnect URL', 'Remote bot connection address', 'GUI_WS_URL', 'input', { default: 'ws://localhost:8080/ws' }));
@@ -2095,7 +2472,10 @@ function renderSystemTab(container) {
     });
     const btnRestart = createControlButton('Restart', 'refresh', 'purple', () => {
         window.api.restartBot();
-        showNotice('Bot restart sequence initiated', 'purple');
+        showNotice('Bot & UI restart sequence initiated', 'purple');
+        setTimeout(() => {
+            window.location.reload();
+        }, 500);
     });
 
     controlGrid.appendChild(btnStart);
@@ -2151,7 +2531,7 @@ function renderSystemTab(container) {
     section.appendChild(createSectionHeader('System & Debug', 'bug_report',
         "<strong>Developer Options</strong><br><br>Enable these to diagnose issues or receive deep system notifications."
     ));
-    section.appendChild(createCard('Debug Notifications', 'Show desktop push notifications for backend events like Pyramiding.', 'GUI_DEBUG_NOTIFICATIONS', 'toggle'));
+    section.appendChild(createCard('Debug Notifications', 'Show desktop push notifications for backend events like Pyramiding.', 'GUI_DEBUG_NOTIFICATIONS', 'toggle', { tooltip: 'Enable this to receive native OS popup notifications for deep system events, such as when the bot successfully pyramids into a winning trade or encounters a connection hiccup.' }));
 
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('Notifications & Sounds', 'notifications_active',
@@ -2160,7 +2540,10 @@ function renderSystemTab(container) {
 
     const soundHtml = `
         <div style="margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; position: relative;">
-            <div style="font-size: 11px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;">Payout Alert</div>
+            <div style="font-size: 11px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;">
+                Payout Alert 
+                <span class="material-symbols-outlined alert-info-trigger" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;">info</span>
+            </div>
             <select id="win-sound-type" class="settings-input" style="width: 100%; color-scheme: dark; padding: 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #f8fafc; font-weight: 500; cursor: pointer;">
                 <option value="default">Default ("Cha-Ching")</option>
                 <option value="disabled">Disabled (Silent)</option>
@@ -2176,6 +2559,10 @@ function renderSystemTab(container) {
 
     // Wire up the sound logic after appending
     setTimeout(() => {
+        const alertTrigger = soundDiv.querySelector('.alert-info-trigger');
+        alertTrigger.addEventListener('mouseenter', (e) => showTooltip(e, 'Payout Alert', 'Choose the sound the bot plays when it successfully exits a trade in profit. By default, it plays a satisfying Cha-Ching sound to celebrate a win.'));
+        alertTrigger.addEventListener('mouseleave', () => hideTooltip());
+
         const select = document.getElementById('win-sound-type');
         const upload = document.getElementById('custom-sound-upload');
         const pathDisplay = document.getElementById('custom-sound-path');
@@ -2243,6 +2630,8 @@ function renderSystemTab(container) {
             if (window.showToast) window.showToast(`Import failed: ${res.error}`, 'error');
         }
     });
+    btnImport.addEventListener('mouseenter', (e) => showTooltip(e, 'Import Settings', 'Upload a previously saved .json file to instantly restore your customized strategy profiles, risk parameters, and system settings.'));
+    btnImport.addEventListener('mouseleave', () => hideTooltip());
 
     const btnExport = createControlButton('Export Settings', 'upload', 'teal', async () => {
         if (!window.api || !window.api.invoke) return;
@@ -2253,6 +2642,8 @@ function renderSystemTab(container) {
             if (window.showToast) window.showToast(`Export failed: ${res.error}`, 'error');
         }
     });
+    btnExport.addEventListener('mouseenter', (e) => showTooltip(e, 'Export Settings', 'Downloads your entire configuration to a single .json file. Great for backing up your work before tweaking strategies or updating the bot.'));
+    btnExport.addEventListener('mouseleave', () => hideTooltip());
 
     const btnReset = createControlButton('Factory Reset', 'delete_forever', 'red', async () => {
         if (!window.api || !window.api.invoke) return;
@@ -2271,6 +2662,8 @@ function renderSystemTab(container) {
             }
         }
     });
+    btnReset.addEventListener('mouseenter', (e) => showTooltip(e, 'Factory Reset', '<strong style="color: #ef4444;">CAUTION DESTRUCTIVE ACTION:</strong> This completely wipes your database, deletes all profiles, and resets the bot back to brand new factory defaults. There is no undo.'));
+    btnReset.addEventListener('mouseleave', () => hideTooltip());
 
     dataGrid.appendChild(btnImport);
     dataGrid.appendChild(btnExport);
@@ -2298,7 +2691,7 @@ function renderPaperTab(container) {
     section.appendChild(createSectionHeader('Account Setup', 'account_balance_wallet',
         "<strong>Initial Capital</strong><br><br>Set the starting balance for your paper trading account. If you reset paper trading from the dashboard, it will go back to this amount."
     ));
-    section.appendChild(createCard('Initial Capital (USD)', 'Starting balance for paper trading', 'PAPER_BALANCE', 'input', { number: true, step: '100', default: '10000.0' }));
+    section.appendChild(createCard('Initial Capital (USD)', 'Starting balance for paper trading', 'PAPER_BALANCE', 'input', { number: true, step: '100', default: '10000.0', tooltip: "This is fake money. Setting this allows the simulation to accurately calculate risk percentages (like 2% of equity) just like it would on a live account. Make it match your real life starting capital for realistic forward-testing." }));
 
     section.appendChild(createDivider());
 
@@ -2553,16 +2946,7 @@ function renderStrategyTab(container) {
             }
         }, 0);
 
-        section.appendChild(createDivider());
-        section.appendChild(createSectionHeader('Forex Conductor Execution Constraints', 'network_node',
-            "<strong>Forex Execution Constraints</strong><br><br>Specific controls for the Forex Conductor architecture. The MTF Floor enforces macro trend strength, and the Pip Floor prevents 1-minute execution from placing stops too tightly and getting whipsawed out by noise."
-        ));
-        
-        const grid3 = document.createElement('div');
-        grid3.className = 'card-grid';
-        grid3.appendChild(createSliderCard('MTF Strength Floor', 'Min MTF trend alignment (0 = off)', 'MTF_STRENGTH_FLOOR', 0.0, 1.0, 0.05, '', { default: '0.50' }));
-        grid3.appendChild(createSliderCard('Minimum Pip Floor', 'Stop-loss minimum distance', 'MIN_PIP_FLOOR', 5, 50, 1, 'pips', { default: '25' }));
-        section.appendChild(grid3);
+        // Moved Forex Conductor Execution Constraints to Strategy Toolbox
 
     } else if (subTabs.strategy === 'pyramid') {
         section.appendChild(createSectionHeader('Pyramid Configuration', 'stacked_line_chart',
@@ -2643,7 +3027,14 @@ function renderExitLogicTab(container) {
         { id: 'adx_death', label: 'ADX Trend Death', desc: 'Exits immediately if trend strength (ADX) collapses.', tooltip: 'Monitors the absolute strength of the trend. The second the market loses its conviction and goes limp, this ejects you.' }
     ];
 
-    let activeRaw = getValue('UNIVERSAL_EXIT_STRATEGIES') || "fixed_rr";
+    if (!configData.profiles) configData.profiles = {};
+    let fallbackActiveObj = configData.active_profile || 'default';
+    if (!configData.profiles[fallbackActiveObj]) configData.profiles[fallbackActiveObj] = {};
+    let activeProfileObj = configData.profiles[fallbackActiveObj];
+    
+    let activeRaw = (activeProfileObj && activeProfileObj.universal_exit_strategies) 
+        ? activeProfileObj.universal_exit_strategies 
+        : getValue('UNIVERSAL_EXIT_STRATEGIES') || "fixed_rr";
     let activeStrategies = Array.isArray(activeRaw) ? activeRaw : activeRaw.split(',').map(s => s.trim());
 
     const listContainer = document.createElement('div');
@@ -2660,11 +3051,11 @@ function renderExitLogicTab(container) {
         stratWrapper.style.transition = 'all 0.3s ease';
 
         const cardHtml = `
-            <div class="control-card exit-toggle-card" data-strat-id="${strat.id}" data-tooltip="${strat.tooltip}" style="margin-bottom: 0;">
+            <div class="control-card exit-toggle-card" data-strat-id="${strat.id}" style="margin-bottom: 0;">
                 <div class="card-info">
                     <span class="card-title" style="display:flex; align-items:center;">
                         ${strat.label}
-                        <span class="material-symbols-outlined" style="font-size: 14px; margin-left: 6px; opacity: 0.5;">info</span>
+                        <span class="material-symbols-outlined exit-tooltip-trigger" data-tt-title="${strat.label}" data-tt-desc="${strat.tooltip.replace(/"/g, '&quot;')}" style="font-size: 14px; margin-left: 6px; opacity: 0.5; cursor: help;">info</span>
                     </span>
                     <span class="card-desc">${strat.desc}</span>
                 </div>
@@ -2677,6 +3068,10 @@ function renderExitLogicTab(container) {
 
         const toggleCard = stratWrapper.querySelector('.exit-toggle-card');
         const toggleBtn = stratWrapper.querySelector('.toggle');
+
+        // Bind tooltip to the ENTIRE exit toggle card, not just the icon trigger
+        toggleCard.addEventListener('mouseenter', (e) => showTooltip(e, strat.label, strat.tooltip, toggleCard));
+        toggleCard.addEventListener('mouseleave', () => hideTooltip());
         
         let subParamWrap = null;
         if (strat.param) {
@@ -2687,16 +3082,19 @@ function renderExitLogicTab(container) {
             subParamWrap.style.borderLeft = '2px solid var(--accent-dim)';
             subParamWrap.style.marginLeft = '16px';
             
-            if (!isActive) {
-                subParamWrap.style.opacity = '0.3';
-                subParamWrap.style.pointerEvents = 'none';
-                subParamWrap.style.filter = 'grayscale(100%)';
-            }
-            
             const p = strat.param;
             const sliderCard = createSliderCard(p.name, p.desc, p.key, p.min, p.max, p.step, p.unit, { default: p.default });
             sliderCard.style.background = 'rgba(255,255,255,0.02)';
             sliderCard.style.boxShadow = 'none';
+            
+            if (!isActive) {
+                subParamWrap.style.opacity = '0.3';
+                subParamWrap.style.filter = 'grayscale(100%)';
+                // Only disable the slider input, NOT the whole wrapper — tooltip on card must remain hoverable
+                const sliderInput = sliderCard.querySelector('.slider-input');
+                if (sliderInput) sliderInput.style.pointerEvents = 'none';
+            }
+            
             subParamWrap.appendChild(sliderCard);
             stratWrapper.appendChild(subParamWrap);
         }
@@ -2711,13 +3109,24 @@ function renderExitLogicTab(container) {
             
             if (subParamWrap) {
                 subParamWrap.style.opacity = isNowActive ? '1' : '0.3';
-                subParamWrap.style.pointerEvents = isNowActive ? 'auto' : 'none';
                 subParamWrap.style.filter = isNowActive ? 'none' : 'grayscale(100%)';
+                // Only disable/enable the slider input — card hover for tooltip remains active
+                const sliderInput = subParamWrap.querySelector('.slider-input');
+                if (sliderInput) sliderInput.style.pointerEvents = isNowActive ? 'auto' : 'none';
             }
             
-            let currentStrats = Array.isArray(configData.global.universal_exit_strategies) 
-                ? [...configData.global.universal_exit_strategies] 
-                : (configData.global.universal_exit_strategies || "fixed_rr").split(',').map(s => s.trim());
+            if (!configData.profiles) configData.profiles = {};
+            let activeProf = configData.active_profile || 'default';
+            if (!configData.profiles[activeProf]) configData.profiles[activeProf] = {};
+            
+            let currentStratsRaw = configData.profiles[activeProf].universal_exit_strategies;
+            if (!currentStratsRaw && configData.global.universal_exit_strategies) {
+                currentStratsRaw = configData.global.universal_exit_strategies;
+            }
+            
+            let currentStrats = Array.isArray(currentStratsRaw) 
+                ? [...currentStratsRaw] 
+                : (currentStratsRaw || "fixed_rr").split(',').map(s => s.trim());
                 
             if (isNowActive) {
                 if (!currentStrats.includes(stratId)) currentStrats.push(stratId);
@@ -2726,10 +3135,10 @@ function renderExitLogicTab(container) {
             }
             if (currentStrats.length === 0) currentStrats = ['fixed_rr']; 
             
-            // Bypass stringification to correctly persist RAW Array objects
-            configData.global.universal_exit_strategies = currentStrats;
+            // Persist RAW Array objects strictly to the active profile namespace
+            configData.profiles[activeProf].universal_exit_strategies = currentStrats;
             syncEnvData();
-            localChanges['_config_'] = true;
+            localChanges['UNIVERSAL_EXIT_STRATEGIES'] = true;
             if (typeof updateChangeCounter === 'function') updateChangeCounter();
             renderTab(); // Refresh the DOM elements
         });
@@ -2760,6 +3169,7 @@ function renderExitLogicTab(container) {
     section.appendChild(createSectionHeader('Hold Time Rules', 'timer',
         "<strong>Hold Time Rules</strong><br><br>How long the bot should hold a trade before considering an exit. The minimum hold prevents premature exits from short-term noise, while the maximum hold forces exits on stale positions that aren't going anywhere."
     ));
+
 
     section.appendChild(createSliderCard('Min Hold Hours', '0 = disabled', 'MIN_HOLD_HOURS', 0, 48, 1, 'hrs'));
     section.appendChild(createSliderCard('Max Hold Hours', '0 = disabled', 'MAX_HOLD_HOURS', 0, 168, 1, 'hrs'));
@@ -2832,8 +3242,8 @@ function renderBrokersTab(container) {
         ));
 
         // OANDA controls that seamlessly read/write from active profile via our updateValue interceptor
-        section.appendChild(createSliderCard('Max Spread (% of SL)', 'Blocks entries if spread is too wide', 'SPREAD_GATE_MAX_PCT', 10, 50, 5, '%', { default: '30' }));
-        section.appendChild(createCard('Wed Swap Avoidance', 'Closes marginal trades before 5PM Wed swap charge', 'SWAP_AVOIDANCE_ENABLED', 'toggle'));
+        section.appendChild(createSliderCard('Max Spread (% of SL)', 'Blocks entries if spread is too wide', 'SPREAD_GATE_MAX_PCT', 10, 50, 5, '%', { default: '30', tooltip: "During major news events (like NFP), spreads open up dramatically. If the broker is quoting you a spread that eats up 30% of your intended stop-loss distance, it's essentially a trap. This blocks the trade to prevent you from starting deep in the red." }));
+        section.appendChild(createCard('Wed Swap Avoidance', 'Closes marginal trades before 5PM Wed swap charge', 'SWAP_AVOIDANCE_ENABLED', 'toggle', { tooltip: "Brokers apply a massive triple-rollover fee for holding Forex trades over Wednesday 5PM EST. When enabled, this actively closes out marginal or 'boring' trades right before 5PM Wednesday so you don't pay high fees for a trade that isn't doing anything anyway." }));
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('OANDA Info', 'info',
@@ -2926,14 +3336,15 @@ function renderBrokersTab(container) {
             "<strong>Paxos / itBit Connection</strong><br><br>Connect to the Paxos (itBit) crypto exchange. This is a regulated US exchange often used for institutional-grade trading."
         ));
 
-        section.appendChild(createCard('API Key', 'Paxos API Key', 'PAXOS_API_KEY', 'input', { password: true }));
-        section.appendChild(createCard('API Secret', 'Paxos API Secret', 'PAXOS_API_SECRET', 'input', { password: true }));
+        section.appendChild(createCard('API Key', 'Paxos API Key', 'PAXOS_API_KEY', 'input', { password: true, tooltip: "Your unique API identifier. Generate this in your Paxos account dashboard." }));
+        section.appendChild(createCard('API Secret', 'Paxos API Secret', 'PAXOS_API_SECRET', 'input', { password: true, tooltip: "Your private API key. Keep this extremely safe! It grants trading access to your account." }));
         section.appendChild(createCard('Environment', 'Sandbox or Production', 'PAXOS_ENVIRONMENT', 'dropdown', {
             items: [
                 { value: 'sandbox', label: 'Sandbox - Test' },
                 { value: 'production', label: 'Production - Live' }
             ],
-            default: 'sandbox'
+            default: 'sandbox',
+            tooltip: "Use Sandbox to securely test the bot with fake internet money on the Paxos testnet. Switch to Production ONLY when you're fully ready to trade real capital."
         }));
 
         section.appendChild(createDivider());
@@ -3004,7 +3415,8 @@ function renderBrokersTab(container) {
                 { value: 'oanda', label: 'OANDA - Spot via Paxos' },
                 { value: 'ibkr', label: 'Interactive Brokers' }
             ],
-            default: 'ccxt'
+            default: 'ccxt',
+            tooltip: "Tells the bot exactly which exchange to send trades to whenever it encounters a cryptocurrency pair."
         }));
 
         section.appendChild(createCard('Forex Broker', 'eur/usd, jpy', 'BROKER_FOREX', 'dropdown', {
@@ -3012,14 +3424,16 @@ function renderBrokersTab(container) {
                 { value: 'ibkr', label: 'Interactive Brokers - Primary' },
                 { value: 'oanda', label: 'OANDA' }
             ],
-            default: 'ibkr'
+            default: 'ibkr',
+            tooltip: "Tells the bot exactly which exchange to send trades to whenever it encounters a traditional fiat currency pair."
         }));
 
         section.appendChild(createCard('Equities Broker', 'spy, aapl', 'BROKER_EQUITIES', 'dropdown', {
             items: [
                 { value: 'ibkr', label: 'Interactive Brokers Only' }
             ],
-            default: 'ibkr'
+            default: 'ibkr',
+            tooltip: "Tells the bot exactly which exchange to send trades to whenever it encounters a stock or ETF."
         }));
 
         // Hidden master mode (implicitly Hybrid)
@@ -3061,7 +3475,10 @@ function renderAITab(container) {
     modelCard.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
             <div class="card-info" style="flex: 1;">
-                <span class="card-title">Model Name</span>
+                <span class="card-title" style="display:flex; align-items:center;">
+                    Model Name
+                    <span class="material-symbols-outlined model-info-trigger" style="font-size: 14px; margin-left: 6px; opacity: 0.5; cursor: help;">info</span>
+                </span>
                 <span class="card-desc">e.g., gemini-1.5-pro-002</span>
             </div>
         </div>
@@ -3077,7 +3494,10 @@ function renderAITab(container) {
     section.appendChild(modelCard);
 
     setTimeout(() => {
-        const btnFetch = document.getElementById('btn-fetch-models');
+        const modelTrigger = modelCard.querySelector('.model-info-trigger');
+        modelTrigger.addEventListener('mouseenter', (e) => showTooltip(e, 'Model Name', 'The specific AI model ID to use. If your provider isn\'t listed, select "Other" and type the model ID manually.'));
+        modelTrigger.addEventListener('mouseleave', () => hideTooltip());
+
         const dropdown = document.getElementById('model-dropdown');
         const manualInput = document.getElementById('model-manual-input');
         const statusMsg = document.getElementById('model-fetch-status');
@@ -3302,7 +3722,7 @@ function renderScheduleTab(container) {
                 }
 
                 card.innerHTML = `
-                    <div class="card-info sched-edit-area" style="flex: 1; cursor: pointer; transition: opacity 0.2s;" onmouseenter="this.style.opacity='0.8'" onmouseleave="this.style.opacity='1'" title="Click to edit schedule">
+                    <div class="card-info sched-edit-area" style="flex: 1; cursor: pointer; transition: opacity 0.2s;" title="Click to edit schedule">
                         <span class="card-title" style="display:flex; align-items:center;">
                             ${sess.profile_name} ${modeLabel}
                         </span>
@@ -3353,14 +3773,14 @@ function renderScheduleTab(container) {
                 
                 <div style="display: flex; flex-direction: column; gap: 16px;">
                     <div>
-                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Target Profile <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Target Profile', 'Which profile should these rules apply to? Think of it like deciding which car gets these specific driving hours.')" onmouseleave="hideTooltip()">info</span></label>
+                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Target Profile <span class="material-symbols-outlined tt-modal-trigger" data-tt-title="Target Profile" data-tt-desc="Which profile should these rules apply to? Think of it like deciding which car gets these specific driving hours." style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;">info</span></label>
                         <select id="modal-profile" class="input-field" style="width: 100%;">
                             ${profileNames.map(p => `<option value="${p}" ${existingSess && existingSess.profile_name === p ? 'selected' : ''}>${p}</option>`).join('')}
                         </select>
                     </div>
                     
                     <div>
-                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Schedule Mode <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Schedule Mode', 'How often should this run? Recurring runs every week on your chosen days. One-Time runs exactly once and never again. 24/7 means it never stops.')" onmouseleave="hideTooltip()">info</span></label>
+                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Schedule Mode <span class="material-symbols-outlined tt-modal-trigger" data-tt-title="Schedule Mode" data-tt-desc="How often should this run? Recurring runs every week on your chosen days. One-Time runs exactly once and never again. 24/7 means it never stops." style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;">info</span></label>
                         <select id="modal-mode" class="input-field" style="width: 100%;">
                             <option value="business_hours" ${existingSess && existingSess.mode === 'business_hours' ? 'selected' : (!existingSess ? 'selected' : '')}>Recurring (Weekly)</option>
                             <option value="one_time" ${existingSess && existingSess.mode === 'one_time' ? 'selected' : ''}>One-Time Execution</option>
@@ -3369,12 +3789,12 @@ function renderScheduleTab(container) {
                     </div>
                     
                     <div id="modal-date-container" style="display: none;">
-                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Execution Date <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Execution Date', 'The exact day you want the bot to wake up, execute this schedule once, and then ignore it forever.')" onmouseleave="hideTooltip()">info</span></label>
+                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Execution Date <span class="material-symbols-outlined tt-modal-trigger" data-tt-title="Execution Date" data-tt-desc="The exact day you want the bot to wake up, execute this schedule once, and then ignore it forever." style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;">info</span></label>
                         <input type="date" id="modal-date" value="${existingSess && existingSess.specific_date ? existingSess.specific_date : ''}" class="input-field time-picker" style="width: 100%; color-scheme: dark;">
                     </div>
                     
                     <div id="modal-days-container">
-                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Active Days <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Active Days', 'Click the days you want the bot to actively trade. If a day is dark, the bot sleeps (or paper trades) that day.')" onmouseleave="hideTooltip()">info</span></label>
+                        <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Active Days <span class="material-symbols-outlined tt-modal-trigger" data-tt-title="Active Days" data-tt-desc="Click the days you want the bot to actively trade. If a day is dark, the bot sleeps (or paper trades) that day." style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;">info</span></label>
                         <div style="display: flex; gap: 6px; justify-content: space-between;" id="modal-days-row">
                             <button class="modal-day-btn" data-day="Sunday" style="flex:1; height: 32px; border-radius: 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s;">S</button>
                             <button class="modal-day-btn active" data-day="Monday" style="flex:1; height: 32px; border-radius: 8px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 10px rgba(20,184,166,0.2);">M</button>
@@ -3388,11 +3808,11 @@ function renderScheduleTab(container) {
                     
                     <div id="modal-time-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                         <div>
-                            <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Start Time <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Start Time', 'When the bot wakes up and starts looking for trades.')" onmouseleave="hideTooltip()">info</span></label>
+                            <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">Start Time <span class="material-symbols-outlined tt-modal-trigger" data-tt-title="Start Time" data-tt-desc="When the bot wakes up and starts looking for trades." style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;">info</span></label>
                             <input type="time" id="modal-start" value="${existingSess ? existingSess.start_time : '09:30'}" class="input-field time-picker" style="width: 100%; color-scheme: dark;">
                         </div>
                         <div>
-                            <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">End Time <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'End Time', 'When the bot stops taking new trades and manages existing ones.')" onmouseleave="hideTooltip()">info</span></label>
+                            <label style="display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 8px;">End Time <span class="material-symbols-outlined tt-modal-trigger" data-tt-title="End Time" data-tt-desc="When the bot stops taking new trades and manages existing ones." style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;">info</span></label>
                             <input type="time" id="modal-end" value="${existingSess ? existingSess.end_time : '16:00'}" class="input-field time-picker" style="width: 100%; color-scheme: dark;">
                         </div>
                     </div>
@@ -3645,6 +4065,14 @@ function createThemeCard(id, theme, activeId) {
     const card = document.createElement('div');
     card.className = `theme-card ${isActive ? 'active' : ''}`;
     card.dataset.themeId = id;
+    
+    // Use native event listeners to prevent raw string escaping bugs in tooltips
+    card.addEventListener('mouseenter', (e) => {
+        if (typeof showTooltip === 'function') showTooltip(e, `${theme.name} Theme`, `<strong>Visual Aesthetic:</strong><br><br>${theme.description}`);
+    });
+    card.addEventListener('mouseleave', () => {
+        if (typeof hideTooltip === 'function') hideTooltip();
+    });
 
     // Preview: either image thumbnail or color swatches
     let previewHTML = '';
@@ -3803,15 +4231,16 @@ function renderSafetyTab(container) {
     section.appendChild(createSliderCard('The "Lock-In"', 'Lock Risk-Free at this profit level', 'BREAKEVEN_TRAIL_PCT', 0, 5, 0.1, '%'));
     section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker — Adaptive (25% small → 5% large accounts)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Session Lockout', 'Stops new entries after cutoff time', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Lockout Time (EST)', 'No new entries after this time', 'SAFETY_SESSION_LOCKOUT_HOUR', 'time', { default: '16', tooltip: "Forces the bot to totally stop looking for new trades at this hour. If you set it to 16 (4:00 PM EST), the bot goes to sleep before the wild end-of-day volatility and spread widening kicks in." }));
     section.appendChild(createCard('Rollover Deadzone', 'Block entries during 5 PM EST spread spike', 'SAFETY_ROLLOVER_DEADZONE_ENABLED', 'toggle', { default: 'true' }));
-    section.appendChild(createCard('Lockout Time (EST)', 'No new entries after this time', 'SAFETY_SESSION_LOCKOUT_HOUR', 'time', { default: '16' }));
     section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock - Quit while ahead', 'SAFETY_GREED_GUARD_ENABLED', 'toggle', { default: 'true' }));
 
     // Greed Guard Target Input (Conditional visibility logic handled via CSS/JS later, or just always show for now)
     section.appendChild(createCard('Greed Guard Target USD', 'Daily profit amount to trigger lockout', 'SAFETY_GREED_GUARD_TARGET', 'input', {
         number: true,
         placeholder: '100.00',
-        default: '100.00'
+        default: '100.00',
+        tooltip: "If the bot makes this exact amount of profit in a single day, it will instantly shut down and refuse to take any more trades until midnight. This prevents 'giving it all back' to the market when you already hit a home run."
     }));
 
     section.appendChild(createCard('Churn Burner', 'Rate Limit (Max trades/hour)', 'SAFETY_CHURN_BURNER_ENABLED', 'toggle', { default: 'true' }));
@@ -3858,7 +4287,7 @@ function renderSafetyTab(container) {
     `;
     section.appendChild(nuclearWarning);
 
-    section.appendChild(createCard('Nuclear Mode Active', 'Bypass all hard-coded safety ceilings', 'NUCLEAR_OVERRIDES_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('Nuclear Mode Active', 'Bypass all hard-coded safety ceilings', 'NUCLEAR_OVERRIDES_ENABLED', 'toggle', { default: 'false', tooltip: "⚠️ WARNING: Bypasses maximum risk caps. Turning this on allows you to risk massive, devastating amounts of your capital per trade. Usually reserved for professional scaling or simulation testing. LEAVE THIS OFF." }));
     section.appendChild(createSliderCard('Risk Cap Override %', 'New hard risk wall', 'MAX_RISK_CAP_OVERRIDE', 0, 50, 1, '%'));
     section.appendChild(createCard('Compounding Cap Override USD', 'New capital growth wall - e.g. 50000', 'COMPOUNDING_CAP_OVERRIDE', 'input', {
         number: true,
@@ -4255,15 +4684,28 @@ async function saveAll() {
 // TOOLTIP
 // ═══════════════════════════════════════════════════════════
 
-function showTooltip(e, title, content) {
+function showTooltip(e, title, content, triggerEl) {
     const popup = document.getElementById('tooltip-popup');
+    if (!popup) return;
     document.getElementById('tooltip-title').innerHTML = title;
     document.getElementById('tooltip-content').innerHTML = content;
 
-    // Make visible first to get dimensions (but keep offscreen or transparent if possible, though opacity-0 handles visibility)
-    popup.classList.add('visible');
+    // Resolve the anchor element: prefer explicit triggerEl, then e.currentTarget, then e.target
+    const anchor = triggerEl || e.currentTarget || e.target;
+    if (!anchor || typeof anchor.getBoundingClientRect !== 'function') {
+        // Cannot position — just show centered fallback
+        popup.classList.add('visible');
+        popup.style.left = '50%';
+        popup.style.top = '50%';
+        popup.style.transform = 'translate(-50%, -50%) scale(1)';
+        return;
+    }
 
-    const rect = e.currentTarget.getBoundingClientRect();
+    // Make visible first to get dimensions
+    popup.classList.add('visible');
+    popup.style.transform = ''; // Reset any fallback transform
+
+    const rect = anchor.getBoundingClientRect();
     const tooltipWidth = popup.offsetWidth;
     const tooltipHeight = popup.offsetHeight;
     const windowWidth = window.innerWidth;
@@ -4286,6 +4728,7 @@ function showTooltip(e, title, content) {
 
     // Secondary sanity check in case tooltip height is massive
     if (topPos < 20) topPos = 20;
+    if (leftPos < 10) leftPos = 10;
 
     popup.style.left = `${leftPos}px`;
     popup.style.top = `${topPos}px`;
@@ -4712,6 +5155,16 @@ function renderStrategyToolbox(container) {
             tooltip: "The absolute minimum profit in dollars to accept before bailing out. If set to 2.0, the bot will wait until it clears the spread AND makes $2.00 before closing the trade."
         }));
 
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Execution Constraints', 'network_node',
+            "<strong>Forex Execution Constraints</strong><br><br>Specific controls for the Forex Conductor architecture. The MTF Floor enforces macro trend strength, and the Pip Floor prevents 1-minute execution from placing stops too tightly and getting whipsawed out by noise."
+        ));
+
+        const gridC = document.createElement('div');
+        gridC.className = 'card-grid';
+        gridC.appendChild(createSliderCard('MTF Strength Floor', 'Min MTF trend alignment (0 = off)', 'MTF_STRENGTH_FLOOR', 0.0, 1.0, 0.05, '', { default: '0.50', tooltip: "Force the bot to check the big 1-Hour chart to ensure the macro trend actually supports this 1-minute trade. Setting this to 0.50 means the 1-Hour trend must be at least 50% cleanly trending in the same direction." }));
+        gridC.appendChild(createSliderCard('Minimum Pip Floor', 'Stop-loss minimum distance', 'MIN_PIP_FLOOR', 5, 50, 1, 'pips', { default: '25', tooltip: "On the 1-minute chart, stops can be incredibly tight. A sudden spread widening or market twitch can knock you out instantly. This forces the bot to pad your stop loss to be AT LEAST this many pips wide, guaranteeing you don't get shaken out by random market noise." }));
+        section.appendChild(gridC);
 
     } else if (toolboxTab === 'hyper_scalper') {
         const stratInfo = STRATEGIES.hyper_scalper;

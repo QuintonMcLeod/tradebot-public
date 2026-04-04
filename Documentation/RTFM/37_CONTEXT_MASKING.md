@@ -62,3 +62,8 @@
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Baby, let me make this <em>real</em> simple for you.<br><br>The <b>Global Profile</b> is the house rules. Everybody follows them unless they have a <em>specific</em> exception.<br><br>The <b>Context Mask</b> is that specific exception. It's the note from the teacher that says, 'Little RoboCop is allowed to use 3R targets during recess. This does not apply to the other children.'<br><br>If you don't set any masks? Everything runs on the house rules. That's fine. Most people don't need to touch this at all.<br><br>But if you want <em>surgical</em> control — if you want the Forex Conductor to behave one way and Crypto Grid to behave another — this is how you do it without blowing up your entire profile like a child who found the thermostat."</td></tr></table>
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Now go customize your strategies. They've been sharing one outfit for too long and frankly, some of them are embarrassed."</td></tr></table>
+
+
+> [!NOTE]
+> **APRIL 2026 UI & VITALS UPDATE:**  
+> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

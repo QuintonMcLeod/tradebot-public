@@ -370,3 +370,8 @@
 <table><tr><td width="170"><img src="img/skeptic.png" width="150"></td><td><b>KAREN</b>:<br>"I hate to admit it, but the numbers check out. The average loss really is $3-8. The regime detection really does block choppy entries. And it really does cost zero dollars.<br><br><em>adjusts glasses</em><br><br>My only complaint is that the documentation reads like it was written by someone who had too much coffee and strong opinions. But honestly? At least I stayed awake reading it. That's more than I can say for 3Commas' docs."</td></tr></table>
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's a feature, Karen. That's a feature.<br><br>Built with 🔥 by someone who got tired of paying $107/month to lose money."</td></tr></table>
+
+
+> [!NOTE]
+> **APRIL 2026 UI & VITALS UPDATE:**  
+> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

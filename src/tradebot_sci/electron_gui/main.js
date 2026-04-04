@@ -816,6 +816,7 @@ function setupIpcHandlers() {
                 }
                 if (config.balance) args.push('--balance', String(config.balance));
                 if (config.strategy) args.push('--strategy', config.strategy);
+                if (config.risk_rate) args.push('--risk-rate', String(config.risk_rate));
             } else {
                 // Fallback: paper_replay.py
                 args = [enginePath, '--json-output', '--speed', '0', '--api-fallback'];
@@ -826,6 +827,7 @@ function setupIpcHandlers() {
                 }
                 if (config.balance) args.push('--balance', String(config.balance));
                 if (config.strategy) args.push('--strategy', config.strategy);
+                if (config.risk_rate) args.push('--risk-rate', String(config.risk_rate));
             }
             // ── Find Python ───────────────────────────────────────────────────
             let pythonExe = 'python3';
@@ -836,6 +838,9 @@ function setupIpcHandlers() {
                     break;
                 } catch (_) { continue; }
             }
+
+            console.log(`[MAIN] Spawning: ${pythonExe} ${args.join(' ')}`);
+            console.log(`[MAIN] config.risk_rate=${config.risk_rate} (type=${typeof config.risk_rate})`);
 
             // ── Get the sender window for live streaming ──────────────────────
             const senderWindow = BrowserWindow.getAllWindows()[0];

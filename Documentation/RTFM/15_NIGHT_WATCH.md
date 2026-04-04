@@ -79,3 +79,8 @@ The bot doesn't care what time it is — it evaluates structure, not clocks. But
 ## The Guarantee
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"The Night Watch guarantees one thing: <b>you will never wake up to an uncontrolled loss.</b> Every position has a stop. Every stop is server-side. Every exit is calculated. The bot doesn't panic at 3 AM. It doesn't revenge trade. It doesn't 'hold and hope.'<br><br>It either wins while you sleep, or it loses a controlled amount while you sleep. Either way — you slept. And that's worth more than any trade."</td></tr></table>
+
+
+> [!NOTE]
+> **APRIL 2026 UI & VITALS UPDATE:**  
+> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

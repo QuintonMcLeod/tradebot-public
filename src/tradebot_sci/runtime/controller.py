@@ -10,6 +10,7 @@ from typing import Dict, Any, List, Optional
 from tradebot_sci.config.models import Settings, TradingProfileSettings
 from tradebot_sci.server.ws_server import WebSocketServer
 from tradebot_sci.runtime.sabbath import SabbathContext
+from tradebot_sci.runtime.health_monitor import HealthMonitor, health_monitor
 from tradebot_sci.market.models import Candle
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,8 @@ class RuntimeController:
         self.ws_server: Optional[WebSocketServer] = None
         self.last_capital_sync_ts = 0.0
         self.replay_provider = None  # Set by loop.py during Sabbath replay
+        self.health_monitor: HealthMonitor = health_monitor
+        self._last_health_broadcast_ts = 0.0
         
     def start_ws_server(self, port: int = 8080):
         # Use port from settings if it's not the default or if we want to override
@@ -326,4 +329,23 @@ class RuntimeController:
     def get_last_commentary(self) -> tuple[str, float]:
         """Returns (last_commentary_content, last_update_timestamp)."""
         return self._last_commentary_content, self._last_commentary_ts
+
+    # --- Health Monitor Integration ---
+    def broadcast_health(self, force: bool = False) -> None:
+        """Push health vitals to the GUI via WebSocket (30s throttle)."""
+        if not self.ws_server:
+            return
+        now = time.time()
+        if not force and (now - self._last_health_broadcast_ts < 30.0):
+            return
+        try:
+            vitals = self.health_monitor.get_vitals()
+            self.ws_server.broadcast_health_sync(vitals)
+            self._last_health_broadcast_ts = now
+        except Exception as e:
+            logger.error(f"[CONTROLLER] Health broadcast failed: {e}")
+
+    def add_health_event(self, label: str, level: str = "info") -> None:
+        """Record an event in the health monitor timeline."""
+        self.health_monitor.add_event(label, level)
 

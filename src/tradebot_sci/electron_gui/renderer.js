@@ -490,19 +490,151 @@ const appendLog = (...a) => window.LogParser.appendLog(...a);
 let aiCommentaryTimer = null;
 let aiNextUpdateCountdown = 0;
 
+// --- AI Insight Persistence (24h) ---
+const AI_INSIGHT_STORAGE_KEY = 'tradebot_ai_insights';
+const AI_INSIGHT_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const AI_INSIGHT_MAX_ENTRIES = 20;
+
+function _saveInsightToStorage(content, timestamp) {
+    try {
+        const raw = localStorage.getItem(AI_INSIGHT_STORAGE_KEY);
+        const entries = raw ? JSON.parse(raw) : [];
+        entries.unshift({ content, timestamp, epoch: Date.now() });
+        // Cap at max entries
+        while (entries.length > AI_INSIGHT_MAX_ENTRIES) entries.pop();
+        localStorage.setItem(AI_INSIGHT_STORAGE_KEY, JSON.stringify(entries));
+    } catch (e) {
+        console.warn('[AI-INSIGHT] Failed to save insight to localStorage:', e);
+    }
+}
+
+function _loadInsightsFromStorage() {
+    try {
+        const raw = localStorage.getItem(AI_INSIGHT_STORAGE_KEY);
+        if (!raw) return [];
+        const entries = JSON.parse(raw);
+        const cutoff = Date.now() - AI_INSIGHT_MAX_AGE_MS;
+        // Filter out expired entries and save back
+        const valid = entries.filter(e => e.epoch >= cutoff);
+        if (valid.length !== entries.length) {
+            localStorage.setItem(AI_INSIGHT_STORAGE_KEY, JSON.stringify(valid));
+        }
+        return valid;
+    } catch (e) {
+        console.warn('[AI-INSIGHT] Failed to load insights from localStorage:', e);
+        return [];
+    }
+}
+
+function restoreAIInsights() {
+    const entries = _loadInsightsFromStorage();
+    if (entries.length === 0) return;
+
+    const scroller = document.getElementById('insight-scroller');
+    if (!scroller) return;
+
+    // Remove the placeholder
+    const placeholder = scroller.querySelector('.insight-entry');
+    if (placeholder) placeholder.remove();
+
+    // Render entries oldest-first so newest ends up at top via prepend
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i];
+        // Re-render using the same panel function but skip re-saving
+        _renderInsightBubbles(scroller, entry.content, entry.timestamp, false);
+    }
+
+    // Add a restored footer
+    const footer = document.createElement('div');
+    footer.className = 'insight-footer flex items-center justify-between text-[10px] text-slate-500 pt-3 border-t border-white/5 mt-2';
+    const ago = entries.length > 0 ? _timeAgo(entries[0].epoch) : '';
+    footer.innerHTML = `
+        <span class="flex items-center gap-1">
+            <span class="material-symbols-outlined text-xs">history</span>
+            ${entries.length} insight${entries.length !== 1 ? 's' : ''} restored (latest ${ago})
+        </span>
+        <span id="ai-countdown" class="text-teal-500/70">Waiting for next update...</span>
+    `;
+    scroller.appendChild(footer);
+    scroller.scrollTop = 0;
+    console.log(`[AI-INSIGHT] Restored ${entries.length} insight(s) from localStorage`);
+}
+
+function _timeAgo(epochMs) {
+    const diff = Date.now() - epochMs;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ${mins % 60}m ago`;
+    return 'over 24h ago';
+}
+
 function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
     const scroller = document.getElementById('insight-scroller');
     if (!scroller || !content) return;
 
+    // Persist to localStorage
+    _saveInsightToStorage(content, timestamp);
+
     // Remove the placeholder if it still exists
-    const placeholder = scroller.querySelector('.insight-placeholder');
+    const placeholder = scroller.querySelector('.insight-placeholder') || scroller.querySelector('.insight-entry');
     if (placeholder) placeholder.remove();
 
-    // ── Build a new message group (timestamped card with parsed bubbles) ──
-    const messageGroup = document.createElement('div');
-    messageGroup.className = 'insight-message-group mb-3 animate-fade-in';
+    _renderInsightBubbles(scroller, content, timestamp, true);
 
-    // Timestamp header for this message
+    // ── Cap message history at 20 groups to prevent memory bloat ──
+    const groups = scroller.querySelectorAll('.insight-message-group');
+    if (groups.length > AI_INSIGHT_MAX_ENTRIES) {
+        for (let i = AI_INSIGHT_MAX_ENTRIES; i < groups.length; i++) {
+            groups[i].remove();
+        }
+    }
+
+    // ── Add/update countdown footer at the bottom ──
+    const oldFooter = scroller.querySelector('.insight-footer');
+    if (oldFooter) oldFooter.remove();
+
+    const footer = document.createElement('div');
+    footer.className = 'insight-footer flex items-center justify-between text-[10px] text-slate-500 pt-3 border-t border-white/5 mt-2';
+    footer.innerHTML = `
+        <span class="flex items-center gap-1">
+            <span class="material-symbols-outlined text-xs">schedule</span>
+            Last updated ${timestamp}
+        </span>
+        <span id="ai-countdown" class="text-teal-500/70">Next update in ${Math.floor(nextUpdateIn / 60)}m</span>
+    `;
+    scroller.appendChild(footer);
+
+    // Start countdown timer
+    if (aiCommentaryTimer) clearInterval(aiCommentaryTimer);
+    aiNextUpdateCountdown = nextUpdateIn;
+    aiCommentaryTimer = setInterval(() => {
+        aiNextUpdateCountdown--;
+        const countdownEl = document.getElementById('ai-countdown');
+        if (countdownEl && aiNextUpdateCountdown > 0) {
+            const mins = Math.floor(aiNextUpdateCountdown / 60);
+            const secs = aiNextUpdateCountdown % 60;
+            countdownEl.textContent = mins > 0 ? `Next update in ${mins}m ${secs}s` : `Next update in ${secs}s`;
+        } else if (countdownEl) {
+            countdownEl.textContent = 'Updating soon...';
+            clearInterval(aiCommentaryTimer);
+        }
+    }, 1000);
+
+    // Scroll to top so the newest message is visible
+    scroller.scrollTop = 0;
+}
+
+/**
+ * Shared renderer: parses AI content into section bubbles and prepends to scroller.
+ * Used by both live updates and localStorage restore.
+ */
+function _renderInsightBubbles(scroller, content, timestamp, animate) {
+    const messageGroup = document.createElement('div');
+    messageGroup.className = `insight-message-group mb-3${animate ? ' animate-fade-in' : ''}`;
+
+    // Timestamp header
     const header = document.createElement('div');
     header.className = 'flex items-center gap-2 mb-2';
     header.innerHTML = `
@@ -565,7 +697,7 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
     }
     if (current.content.length > 0) sections.push(current);
 
-    // Fallback: if no sections were created at all because the parser failed
+    // Fallback
     if (sections.length === 0 && content.trim().length > 0) {
         sections.push({
             title: 'AI Insight',
@@ -575,7 +707,7 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
         });
     }
 
-    // Render each section as a bubble inside this message group
+    // Render each section as a bubble
     for (const section of sections) {
         const bubble = document.createElement('div');
         bubble.className = `insight-bubble bg-black/40 border border-${section.color}-500/30 rounded-xl p-4 backdrop-blur-sm mb-2`;
@@ -591,51 +723,8 @@ function updateAIInsightPanel(content, timestamp, nextUpdateIn) {
         messageGroup.appendChild(bubble);
     }
 
-    // ── Prepend new message at the TOP of the scroller ──
-    // Remove the old footer (countdown) if present
-    const oldFooter = scroller.querySelector('.insight-footer');
-    if (oldFooter) oldFooter.remove();
-
+    // Prepend at top
     scroller.insertBefore(messageGroup, scroller.firstChild);
-
-    // ── Cap message history at 20 groups to prevent memory bloat ──
-    const groups = scroller.querySelectorAll('.insight-message-group');
-    if (groups.length > 20) {
-        for (let i = 20; i < groups.length; i++) {
-            groups[i].remove();
-        }
-    }
-
-    // ── Add/update countdown footer at the bottom ──
-    const footer = document.createElement('div');
-    footer.className = 'insight-footer flex items-center justify-between text-[10px] text-slate-500 pt-3 border-t border-white/5 mt-2';
-    footer.innerHTML = `
-        <span class="flex items-center gap-1">
-            <span class="material-symbols-outlined text-xs">schedule</span>
-            Last updated ${timestamp}
-        </span>
-        <span id="ai-countdown" class="text-teal-500/70">Next update in ${Math.floor(nextUpdateIn / 60)}m</span>
-    `;
-    scroller.appendChild(footer);
-
-    // Start countdown timer
-    if (aiCommentaryTimer) clearInterval(aiCommentaryTimer);
-    aiNextUpdateCountdown = nextUpdateIn;
-    aiCommentaryTimer = setInterval(() => {
-        aiNextUpdateCountdown--;
-        const countdownEl = document.getElementById('ai-countdown');
-        if (countdownEl && aiNextUpdateCountdown > 0) {
-            const mins = Math.floor(aiNextUpdateCountdown / 60);
-            const secs = aiNextUpdateCountdown % 60;
-            countdownEl.textContent = mins > 0 ? `Next update in ${mins}m ${secs}s` : `Next update in ${secs}s`;
-        } else if (countdownEl) {
-            countdownEl.textContent = 'Updating soon...';
-            clearInterval(aiCommentaryTimer);
-        }
-    }, 1000);
-
-    // Scroll to top so the newest message is visible
-    scroller.scrollTop = 0;
 }
 
 // --- Decisions Logic ---
@@ -1652,6 +1741,9 @@ function init() {
 
     // Load Cached State
     loadState();
+
+    // Restore AI Insights from localStorage (24h persistence)
+    restoreAIInsights();
 
     try {
         initChart();

@@ -181,3 +181,8 @@ A rookie risks the same amount on every trade like they're playing a slot machin
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Is the bot literally a 20-year seasoned trader? No. <b>It's better.</b> Because a 20-year trader still has emotions. Still has biases. Still has that voice in the back of their head whispering 'just this once, I'll skip the stop loss.'<br><br>The bot doesn't have that voice. It doesn't have any voices. It has 21 strategies, 12 safety guards, 6 asset classes, millisecond execution, zero ego, infinite patience, and a singular mandate: <b>protect the capital and capture the setups that matter.</b><br><br>It doesn't need 20 years of screen time to learn discipline. It was <em>built</em> disciplined. Born that way. Came out of the womb knowing what a stop loss is."</td></tr></table>
 
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Experience is a harsh teacher, baby — she gives the test first and the lesson after. The bot skipped the test. It was born knowing the answers. And it didn't have to pay $15,000 in tuition."</td></tr></table>
+
+
+> [!NOTE]
+> **APRIL 2026 UI & VITALS UPDATE:**  
+> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

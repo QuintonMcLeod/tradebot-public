@@ -205,6 +205,14 @@ class WebSocketServer:
         }
         self.broadcast_sync(msg)
 
+    def broadcast_health_sync(self, health_data: dict[str, Any]) -> None:
+        """Thread-safe health vitals broadcast for the Vitals dashboard."""
+        msg: dict[str, Any] = {
+            "type": "health",
+            "data": health_data
+        }
+        self.broadcast_sync(msg)
+
     def set_on_subscribe_callback(self, cb: Callable[[str, str], Any]) -> None:
         """Register a callback for when a client subscribes to a symbol."""
         self._on_subscribe_cb = cb

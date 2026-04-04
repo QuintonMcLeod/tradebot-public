@@ -77,3 +77,8 @@ The legacy "Auto-Schedule" and "Session Gate" features have been formally deprec
 If you previously relied on auto-schedule to swap between `asian_session` and `london_session` profiles, the recommended approach is now to run a single hybrid profile and use the AI Optimization feature, or use the Global Scheduler to define exact trading windows.
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The old system was a caveman's club. The Global Scheduler is a surgical scalpel. Try not to cut your own finger off with it."</td></tr></table>
+
+
+> [!NOTE]
+> **APRIL 2026 UI & VITALS UPDATE:**  
+> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

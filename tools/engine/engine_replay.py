@@ -347,13 +347,35 @@ def _load_candles_for_range(
                     oanda_sym = provider._normalize_symbol(sym)
                     
                     def _fetch_paginated_candles(granularity: str, start: datetime, end: datetime) -> list:
+                        import json, os, hashlib
+                        cache_dir = _paths.DATA_DIR / "api_cache"
+                        cache_dir.mkdir(parents=True, exist_ok=True)
+                        cache_key = f"{sym}_{granularity}_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}.json"
+                        cache_file = cache_dir / cache_key
+                        
+                        if cache_file.exists():
+                            try:
+                                with open(cache_file, "r") as f:
+                                    _log.info(f"[API-FALLBACK] Loaded {granularity} from cache: {cache_key}")
+                                    return json.load(f)
+                            except Exception:
+                                pass
+
                         all_candles = []
                         current_start = start
+                        # Cap end to current time — never request future data.
+                        # This prevents an infinite loop when backtesting "today"
+                        # because OANDA has no candles past the current moment,
+                        # so the pagination would spin forever trying to reach
+                        # the requested end (23:59:59).
+                        _now_utc = datetime.now(tz=timezone.utc)
+                        effective_end = min(end, _now_utc)
+                        _prev_last_ts = None  # staleness guard
                         # OANDA allows max 5000 candles per request.
                         # For M5, 5000 candles is ~17.3 days.
                         # For H4, 5000 candles is ~833 days.
-                        while current_start < end:
-                            duration_seconds = (end - current_start).total_seconds()
+                        while current_start < effective_end:
+                            duration_seconds = (effective_end - current_start).total_seconds()
                             if granularity == "M5":
                                 needed = int(duration_seconds / 300) + 10
                             elif granularity == "H4":
@@ -389,8 +411,15 @@ def _load_candles_for_range(
                                     
                                 last_ts = datetime.fromisoformat(last_time_str).replace(tzinfo=timezone.utc)
                                 
-                                if last_ts >= end:
+                                if last_ts >= effective_end:
                                     break
+                                
+                                # Staleness guard: if API keeps returning the same
+                                # last timestamp, we've exhausted available data.
+                                if _prev_last_ts is not None and last_ts <= _prev_last_ts:
+                                    _log.info(f"[API-FALLBACK] Staleness detected at {last_ts} — no new data, stopping pagination")
+                                    break
+                                _prev_last_ts = last_ts
                                     
                                 current_start = last_ts + timedelta(seconds=1)
                                 
@@ -398,7 +427,18 @@ def _load_candles_for_range(
                                 _log.error(f"[API-FALLBACK] Pagination fail for {granularity} at {current_start}: {e}")
                                 break
                                 
-                        return [c for c in all_candles if datetime.fromisoformat(c["time"].split(".")[0].replace("Z", "+00:00")).replace(tzinfo=timezone.utc) <= end]
+                        result = [c for c in all_candles if datetime.fromisoformat(c["time"].split(".")[0].replace("Z", "+00:00")).replace(tzinfo=timezone.utc) <= end]
+                        # Only cache completed days — never cache today's
+                        # partial data or it would be stale on the next run.
+                        _is_complete_day = end.date() < datetime.now(tz=timezone.utc).date()
+                        if _is_complete_day:
+                            try:
+                                with open(cache_file, "w") as f:
+                                    json.dump(result, f)
+                            except Exception as e:
+                                _log.error(f"[API-FALLBACK] Cache write fail: {e}")
+                            
+                        return result
 
                     # ── Resolve Timeframes from active profile ─────────────────
                     from tradebot_sci.config.loader import get_settings
@@ -592,14 +632,18 @@ def _write_temp_json(candles_dict: dict) -> tuple[dict[str, str], list[str]]:
 def _run_single_day_worker(args: tuple) -> dict:
     """Run one day of backtesting in an isolated process.
 
-    Args is a tuple: (day_str, balance, symbols_filter, api_fallback, strategy_override)
+    Args is a tuple: (day_str, balance, symbols_filter, api_fallback, strategy_override, risk_rate)
     Returns a dict: {day, trades, pnl, return_pct, initial, final, stats}
     """
-    if len(args) == 5:
+    if len(args) == 6:
+        day_str, balance, symbols_filter, api_fallback, strategy_override, risk_rate = args
+    elif len(args) == 5:
         day_str, balance, symbols_filter, api_fallback, strategy_override = args
+        risk_rate = None
     else:
         day_str, balance, symbols_filter, api_fallback = args
         strategy_override = None
+        risk_rate = None
 
     # Suppress noisy loggers in worker processes
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -615,12 +659,30 @@ def _run_single_day_worker(args: tuple) -> dict:
         from tradebot_sci.simulation.backtester import Backtester
 
         settings = get_settings()
+        act_prof = settings.get_active_profile()
+        changed_prof = False
         if strategy_override:
-            act_prof = settings.get_active_profile()
             if hasattr(act_prof, "strategy_variant"):
                 act_prof.strategy_variant = strategy_override
                 act_prof.strategies = None
+                changed_prof = True
+        if risk_rate is not None:
+            act_prof.risk_per_trade_pct = risk_rate / 100.0  # GUI sends %, internal uses fraction
+            changed_prof = True
+            logger.info(f"[RISK-OVERRIDE] risk_rate={risk_rate} → profile.risk_per_trade_pct={act_prof.risk_per_trade_pct}")
+            
+        if changed_prof:
             settings.profiles[settings.app.profile_name] = act_prof
+            logger.info(f"[RISK-OVERRIDE] Verified: get_active_profile().risk_per_trade_pct={settings.get_active_profile().risk_per_trade_pct}")
+
+        # DEBUG: write to /tmp so we can verify the value regardless of log buffering
+        import json as _djson
+        with open("/tmp/risk_debug.txt", "a") as _df:
+            _df.write(_djson.dumps({
+                "worker_day": day_str,
+                "risk_rate_arg": risk_rate,
+                "profile_risk_after": float(settings.get_active_profile().risk_per_trade_pct),
+            }) + "\n")
 
         candle_dir = _get_candle_dir()
         symbols = _discover_symbols(candle_dir, symbols_filter)
@@ -649,6 +711,8 @@ def _run_single_day_worker(args: tuple) -> dict:
 
         backtester = Backtester(ib=None, settings=settings, ai_client=None)
         backtester._is_market_hours_utc = lambda ts: True
+        if risk_rate is not None:
+            backtester.risk_override_pct = risk_rate / 100.0  # GUI sends %, Backtester uses fraction
 
         # ── Auto-detect actual candle resolution from data ────────
         # Local .jsonl files may contain 5m candles even if the profile
@@ -732,11 +796,12 @@ def _run_single_day_worker(args: tuple) -> dict:
 def run_candle_history_mode(
     days: int,
     balance: float,
-    symbols_filter=None,
+    symbols_filter: list[str] | None = None,
     start_date_str: str | None = None,
     end_date_str: str | None = None,
     api_fallback: bool = False,
     strategy_override: str | None = None,
+    risk_rate: float | None = None,
 ):
     """Run engine using recorded candle_history data (non-cartridge mode).
 
@@ -777,7 +842,7 @@ def run_candle_history_mode(
     # ── Single day: run directly (no multiprocessing overhead) ──
     if num_days <= 1:
         _run_single_day_sequential(
-            candle_dir, symbols, start_date, end_date, balance, api_fallback, strategy_override
+            candle_dir, symbols, start_date, end_date, balance, api_fallback, strategy_override, risk_rate
         )
         return
 
@@ -797,7 +862,7 @@ def run_candle_history_mode(
 
     t0 = time.perf_counter()
 
-    worker_args = [(day_str, balance, symbols_filter, api_fallback, strategy_override) for day_str in day_list]
+    worker_args = [(day_str, balance, symbols_filter, api_fallback, strategy_override, risk_rate) for day_str in day_list]
 
     import sys
     import json as _json
@@ -834,17 +899,25 @@ def _run_single_day_sequential(
     balance: float,
     api_fallback: bool = False,
     strategy_override: str | None = None,
+    risk_rate: float | None = None,
 ):
     """Run a single-day backtest sequentially (no multiprocessing overhead)."""
     from tradebot_sci.config.loader import get_settings
     from tradebot_sci.simulation.backtester import Backtester
 
     settings = get_settings()
+    act_prof = settings.get_active_profile()
+    changed_prof = False
     if strategy_override:
-        act_prof = settings.get_active_profile()
         if hasattr(act_prof, "strategy_variant"):
             act_prof.strategy_variant = strategy_override
             act_prof.strategies = None
+            changed_prof = True
+    if risk_rate is not None:
+        act_prof.risk_per_trade_pct = risk_rate / 100.0  # GUI sends %, internal uses fraction
+        changed_prof = True
+        
+    if changed_prof:
         settings.profiles[settings.app.profile_name] = act_prof
 
     # Load candles with warmup (50 days)
@@ -872,6 +945,8 @@ def _run_single_day_sequential(
 
     backtester = Backtester(ib=None, settings=settings, ai_client=None)
     backtester._is_market_hours_utc = lambda ts: True
+    if risk_rate is not None:
+        backtester.risk_override_pct = risk_rate / 100.0  # GUI sends %, Backtester uses fraction
 
     # ── Auto-detect actual candle resolution from data ────────
     _first_sym_candles = next(iter(all_ltf.values()), [])
@@ -1070,7 +1145,19 @@ def main():
         "--api-fallback", action="store_true",
         help="Fetch missing historical data from OANDA API if local data is unavailable"
     )
+    parser.add_argument(
+        "--risk-rate", type=float, default=None,
+        help="Risk rate percentage override (e.g. 1.5)"
+    )
     args = parser.parse_args()
+
+    import sys as _sys
+    logger.info(f"[ENGINE] Parsed CLI args: risk_rate={args.risk_rate}, balance={args.balance}, strategy={args.strategy}")
+    logger.info(f"[ENGINE] Raw sys.argv: {_sys.argv}")
+    # DEBUG: persist to file so we can verify GUI invocation
+    with open("/tmp/risk_debug.txt", "a") as _df:
+        import json as _dj
+        _df.write(_dj.dumps({"main_argv": _sys.argv, "parsed_risk_rate": args.risk_rate}) + "\n")
 
     syms = (
         [s.strip().upper() for s in args.symbols.split(",")]
@@ -1102,6 +1189,7 @@ def main():
             end_date_str=args.end_date,
             api_fallback=args.api_fallback,
             strategy_override=args.strategy,
+            risk_rate=args.risk_rate,
         )
 
 

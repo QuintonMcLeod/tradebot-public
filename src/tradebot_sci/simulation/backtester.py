@@ -107,7 +107,7 @@ def _apply_leverage_cap(size: float, symbol: str, capital_base: float, price: fl
     import os
     asset_class = classify_symbol(symbol)
     lev_cap = {
-        AssetClass.FOREX: 10.0,
+        AssetClass.FOREX: 50.0,
         AssetClass.CRYPTO: 3.0,
         AssetClass.STOCKS: 4.0,
         AssetClass.ETF: 4.0,
@@ -613,6 +613,7 @@ class Backtester:
         self.settings = settings
         self.ai_client = ai_client
         self._cache: Dict[str, Any] = {}
+        self.risk_override_pct: float | None = None  # CLI/GUI risk override (fraction, e.g. 0.045 = 4.5%)
         
         # Use HistoricalMarketDataProvider for local files + IB
         # It now handles the file_path override natively.
@@ -708,6 +709,10 @@ class Backtester:
 
         # Get active profile
         profile = self.settings.get_active_profile()
+        # Apply risk override if set (from CLI --risk-rate or GUI input)
+        if self.risk_override_pct is not None:
+            profile.risk_per_trade_pct = self.risk_override_pct
+            logger.info(f"[BACKTEST] Risk override active: {self.risk_override_pct*100:.2f}%")
 
         # Per-symbol SAR chain counter — tracks how many consecutive SAR-on-SAR
         # stop-outs happened without a winning exit in between.  Prevents the
@@ -2483,12 +2488,15 @@ class Backtester:
                                 del self._symbol_cooldown[symbol]
 
                         if can_enter:
-                            # Use strategy-defined risk, but profile risk acts as CAP
-                            profile_risk = float(getattr(profile, "risk_per_trade_pct", 0.001))
-                            if hasattr(decision, "risk_per_trade_pct") and decision.risk_per_trade_pct is not None:
-                                risk_pct = min(float(decision.risk_per_trade_pct), profile_risk)
+                            # Use risk override if set, otherwise use strategy-defined risk capped by profile
+                            if self.risk_override_pct is not None:
+                                risk_pct = self.risk_override_pct
                             else:
-                                risk_pct = profile_risk
+                                profile_risk = float(getattr(profile, "risk_per_trade_pct", 0.001))
+                                if hasattr(decision, "risk_per_trade_pct") and decision.risk_per_trade_pct is not None:
+                                    risk_pct = min(float(decision.risk_per_trade_pct), profile_risk)
+                                else:
+                                    risk_pct = profile_risk
 
                             # ── Per-Symbol Risk Caps ──────────────────────────
                             # Read from profile `symbol_risk_overrides` dict.
@@ -2607,6 +2615,20 @@ class Backtester:
                             
                             # Safety 2: Cap total notional to REALISTIC broker leverage
                             size = _apply_leverage_cap(raw_size, symbol, per_symbol_capital, entry_price, logger, current_position_size=0.0)
+
+                            # DEBUG: dump sizing values
+                            import json as _szj
+                            with open("/tmp/risk_debug.txt", "a") as _szf:
+                                _szf.write(_szj.dumps({
+                                    "SIZING": symbol,
+                                    "profile_risk_per_trade_pct": float(getattr(profile, 'risk_per_trade_pct', -1)),
+                                    "decision_risk_per_trade_pct": float(decision.risk_per_trade_pct) if decision.risk_per_trade_pct else None,
+                                    "computed_risk_pct": risk_pct,
+                                    "max_risk": max_risk,
+                                    "per_symbol_capital": per_symbol_capital,
+                                    "raw_size": raw_size,
+                                    "final_size": size,
+                                }) + "\n")
 
                             if size > 0:
                                 # Build position key: compound for multi-position, simple otherwise
@@ -2786,11 +2808,14 @@ class Backtester:
                             continue
 
                         # ── Risk sizing (mirrors the standard entry path) ──
-                        profile_risk = float(getattr(profile, "risk_per_trade_pct", 0.001))
-                        if hasattr(_r_dec, "risk_per_trade_pct") and _r_dec.risk_per_trade_pct is not None:
-                            _r_risk_pct = min(float(_r_dec.risk_per_trade_pct), profile_risk)
+                        if self.risk_override_pct is not None:
+                            _r_risk_pct = self.risk_override_pct
                         else:
-                            _r_risk_pct = profile_risk
+                            profile_risk = float(getattr(profile, "risk_per_trade_pct", 0.001))
+                            if hasattr(_r_dec, "risk_per_trade_pct") and _r_dec.risk_per_trade_pct is not None:
+                                _r_risk_pct = min(float(_r_dec.risk_per_trade_pct), profile_risk)
+                            else:
+                                _r_risk_pct = profile_risk
 
                         # Per-symbol risk overrides
                         sym_overrides = getattr(profile, 'symbol_risk_overrides', None) or {}
@@ -2833,6 +2858,20 @@ class Backtester:
 
                         raw_size = max_risk / _jpy_adjust_risk(risk_per_share, _r_sym, entry_price) if risk_per_share > 0 else 0
                         size = _apply_leverage_cap(raw_size, _r_sym, per_symbol_capital, entry_price, logger, current_position_size=0.0)
+
+                        # DEBUG: dump sizing values (ranking path)
+                        import json as _szj2
+                        with open("/tmp/risk_debug.txt", "a") as _szf2:
+                            _szf2.write(_szj2.dumps({
+                                "RANKING_SIZING": _r_sym,
+                                "profile_risk_per_trade_pct": float(getattr(profile, 'risk_per_trade_pct', -1)),
+                                "decision_risk_per_trade_pct": float(_r_dec.risk_per_trade_pct) if _r_dec.risk_per_trade_pct else None,
+                                "computed_risk_pct": _r_risk_pct,
+                                "max_risk": max_risk,
+                                "per_symbol_capital": per_symbol_capital,
+                                "raw_size": raw_size,
+                                "final_size": size,
+                            }) + "\n")
 
                         if size > 0:
                             meta_src = (getattr(_r_dec, 'gates', None) or {}).get('meta_source')

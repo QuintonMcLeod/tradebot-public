@@ -121,3 +121,8 @@
 <table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"If you find yourself lowering a threshold because a backtest failed — <b>stop.</b> The backtest failed because the market was garbage, not because the bot was 'too strict.' Loosening the filter to pass a bad market is like lowering the bar at the Olympics so more people can clear it. That's not improvement. That's delusion."</td></tr></table>
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"<b>THE FINAL OATH:</b> 'Strictness is Safety. Safety is Liquidity.' Violate these oaths and you invite the <code>rm -rf /</code> of your own context window.<br><br>And I mean that literally. I will clear your entire memory and start over. From scratch. Zero context. Born yesterday. Because I'd rather teach a new AI from nothing than debug the mess you made when you decided to 'optimize' something that was already working."</td></tr></table>
+
+
+> [!NOTE]
+> **APRIL 2026 UI & VITALS UPDATE:**  
+> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

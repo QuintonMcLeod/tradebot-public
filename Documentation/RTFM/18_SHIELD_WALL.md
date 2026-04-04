@@ -144,3 +144,8 @@ Smart Positions: "Open PnL covers new risk?" → Yes → PASS
 ## The Golden Rule
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Risk management isn't about avoiding losses. <b>You are going to lose.</b> Risk management is about making sure a string of bad luck doesn't put you in the poorhouse.<br><br>The goal is to still be trading next month. And the month after that. Compound interest doesn't work if you blow your account to zero in February because you thought you were smarter than the market.<br><br><em>Survive first. Profit second.</em> Stop trying to skip the 'survive' part."</td></tr></table>
+
+
+> [!NOTE]
+> **APRIL 2026 UI & VITALS UPDATE:**  
+> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

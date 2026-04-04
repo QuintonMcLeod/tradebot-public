@@ -32,6 +32,14 @@ async function connectWebSocket() {
     let pingInterval;
 
     ws.onopen = () => {
+        window._isWsConnected = true;
+        window._wsReconnectAttempts = 0;
+        
+        // Let the Vitals tab re-render immediately to reflect connected state if it's open
+        if (typeof renderTab === 'function' && document.querySelector('.vitals-banner')) {
+            renderTab();
+        }
+
         console.log("Connected to Live Data Stream.");
         updateStatus('connected', '--');
 
@@ -292,6 +300,89 @@ async function connectWebSocket() {
                     }
                 }
                 saveState();
+            } else if (msg.type === 'health') {
+                // Store health vitals globally for the Vitals tab
+                window.__healthVitals = msg.data;
+                window.__healthVitals._receivedAt = Date.now();
+
+                // Update sidebar health summary
+                const healthSummary = document.getElementById('health-summary');
+                const healthDot = document.getElementById('health-overall-dot');
+                const healthText = document.getElementById('health-overall-text');
+                if (healthSummary && healthDot && healthText) {
+                    const overall = msg.data.overall || 'healthy';
+                    const colorMap = {
+                        healthy: { dot: 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]', text: 'text-emerald-400' },
+                        warning: { dot: 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]', text: 'text-amber-400' },
+                        critical: { dot: 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)] animate-pulse', text: 'text-red-400' },
+                    };
+                    const colors = colorMap[overall] || colorMap.healthy;
+                    healthDot.className = `w-2 h-2 rounded-full ${colors.dot}`;
+                    healthText.className = `text-[9px] ${colors.text} font-bold uppercase tracking-wider`;
+
+                    const vitals = msg.data.vitals || {};
+                    const counts = { healthy: 0, warning: 0, critical: 0 };
+                    Object.values(vitals).forEach(v => { counts[v.status] = (counts[v.status] || 0) + 1; });
+
+                    if (overall === 'healthy') {
+                        healthText.textContent = `Vitals: All Clear (${counts.healthy}/8)`;
+                    } else if (overall === 'warning') {
+                        healthText.textContent = `Vitals: ${counts.warning} Warning`;
+                    } else {
+                        healthText.textContent = `Vitals: ${counts.critical} Critical`;
+                    }
+
+                    // Visibility logic
+                    if (overall === 'healthy') {
+                        if (!window._healthAllClearDismissed) {
+                            healthSummary.classList.remove('hidden');
+                            healthSummary.style.transition = 'opacity 0.4s ease';
+                            healthSummary.style.opacity = '1';
+                            
+                            if (window._healthFadeTimer) clearTimeout(window._healthFadeTimer);
+                            window._healthFadeTimer = setTimeout(() => {
+                                healthSummary.style.opacity = '0';
+                                setTimeout(() => {
+                                    healthSummary.classList.add('hidden');
+                                    window._healthAllClearDismissed = true;
+                                }, 400);
+                            }, 5000);
+                        } else {
+                            if (!healthSummary.classList.contains('hidden')) {
+                                healthSummary.style.opacity = '0';
+                                setTimeout(() => healthSummary.classList.add('hidden'), 400);
+                            }
+                        }
+                    } else {
+                        if (window._healthFadeTimer) clearTimeout(window._healthFadeTimer);
+                        healthSummary.classList.remove('hidden');
+                        healthSummary.style.transition = 'opacity 0.4s ease';
+                        healthSummary.style.opacity = '1';
+                    }
+                }
+
+                // Auto-refresh the Nurse's Station Tab if it's currently open
+                if (typeof renderTab === 'function' && document.querySelector('.vitals-banner')) {
+                    if (typeof hideTooltip === 'function') hideTooltip(); // Clean up lingering tooltips
+                    renderTab();
+                }
+
+                // Red badge on Vitals settings tab
+                const vitalsBadge = document.getElementById('vitals-badge');
+                if (vitalsBadge) {
+                    const hasCritical = msg.data.overall === 'critical' || msg.data.overall === 'warning';
+                    vitalsBadge.classList.toggle('hidden', !hasCritical);
+                    if (msg.data.overall === 'critical') {
+                        vitalsBadge.className = 'ml-auto w-2 h-2 rounded-full bg-red-500 animate-pulse';
+                    } else if (msg.data.overall === 'warning') {
+                        vitalsBadge.className = 'ml-auto w-2 h-2 rounded-full bg-amber-500 animate-pulse';
+                    }
+                }
+
+                // If the Vitals tab is currently rendered, refresh it
+                if (typeof window._refreshVitalsTab === 'function') {
+                    window._refreshVitalsTab();
+                }
             } else if (msg.type === 'ai_commentary') {
                 updateAIInsightPanel(msg.content, msg.timestamp, msg.next_update_in);
             }
@@ -301,9 +392,17 @@ async function connectWebSocket() {
     };
 
     ws.onclose = () => {
+        window._isWsConnected = false;
+        window._wsReconnectAttempts = (window._wsReconnectAttempts || 0) + 1;
+
+        // Try to trigger re-render of settings to show disconnected state
+        if (typeof renderTab === 'function' && document.querySelector('.vitals-banner')) {
+            renderTab();
+        }
+
         console.warn("Live Data Stream Disconnected. Retrying in 5s...");
         updateStatus('disconnected', '--');
-        if (pingInterval) clearInterval(pingInterval);
+        document.getElementById('status-indicator').className = 'w-2 h-2 rounded-full bg-red-500 mr-2 shadow-[0_0_8px_rgba(239,68,68,0.5)]';
         setTimeout(connectWebSocket, 5000);
     };
 

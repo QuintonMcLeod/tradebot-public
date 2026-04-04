@@ -1111,7 +1111,7 @@ class AppSettings(BaseModel):
 
 class ScheduleSession(BaseModel):
     profile_name: str
-    mode: Literal["24/7", "business_hours", "custom", "one_time"] = Field(default="business_hours")
+    mode: Literal["24/7", "business_hours", "custom", "one_time", "continuous"] = Field(default="business_hours")
     days_of_week: list[str] = Field(default_factory=lambda: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
     weeks_of_month: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5])
     specific_date: Optional[str] = Field(default=None, description="YYYY-MM-DD for one-time execution")

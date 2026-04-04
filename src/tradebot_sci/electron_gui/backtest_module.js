@@ -248,6 +248,7 @@
         const startDate = $('bt-start-date')?.value;
         const endDate = $('bt-end-date')?.value;
         const startCapital = parseFloat($('bt-start-capital')?.value || 100);
+        const riskRate = parseFloat($('bt-risk-rate')?.value) || null;
         const strategyOverride = $('bt-strategy-select')?.value || null;
 
         // Get selected symbols
@@ -281,6 +282,7 @@
                 end_date: endDate,
                 symbols: symbols,
                 balance: startCapital,
+                risk_rate: riskRate,
                 strategy: strategyOverride,
                 use_api_fallback: useApiFallback,
             });
@@ -465,22 +467,31 @@
             }
         }
 
-        // Risk Rate — from selected profile config
+        // Risk Rate — prefer user override from GUI input, then profile config
         const riskEl = $('bt-metric-risk');
         if (riskEl) {
+            const userRiskOverride = parseFloat($('bt-risk-rate')?.value);
             const selProfile = $('bt-profile-select')?.value;
             const profCfg = selProfile ? _profileData[selProfile] : null;
-            const isDynamic = profCfg?.risk_dynamic_auto === true || profCfg?.risk_dynamic_auto === 'true';
-            const riskPct = parseFloat(profCfg?.risk_per_trade_pct || 0);
+            const isDynamic = !userRiskOverride && (profCfg?.risk_dynamic_auto === true || profCfg?.risk_dynamic_auto === 'true');
+
             if (isDynamic) {
                 riskEl.textContent = 'Dynamic';
                 riskEl.style.color = '#a78bfa';  // purple for AI-driven
-            } else if (riskPct > 0) {
-                riskEl.textContent = `${riskPct}%`;
-                riskEl.style.color = riskPct >= 3 ? 'var(--error)' : '#fbbf24';
+            } else if (userRiskOverride > 0) {
+                riskEl.textContent = `${userRiskOverride}%`;
+                riskEl.style.color = userRiskOverride >= 3 ? 'var(--error)' : '#fbbf24';
             } else {
-                riskEl.textContent = '1%';
-                riskEl.style.color = '#fbbf24';
+                // Read from global config — stored as fraction (0.01 = 1%)
+                const globalRiskFrac = data.risk_per_trade_pct || parseFloat(profCfg?.risk_per_trade_pct || 0);
+                if (globalRiskFrac > 0) {
+                    const displayPct = globalRiskFrac < 1 ? (globalRiskFrac * 100) : globalRiskFrac;
+                    riskEl.textContent = `${parseFloat(displayPct.toFixed(2))}%`;
+                    riskEl.style.color = displayPct >= 3 ? 'var(--error)' : '#fbbf24';
+                } else {
+                    riskEl.textContent = '1%';
+                    riskEl.style.color = '#fbbf24';
+                }
             }
         }
 

@@ -1194,6 +1194,12 @@ def run_bot(
 
     _update_paper_settings()
 
+    # ── Health Monitor: Boot events ──
+    controller.health_monitor.add_event(f"Bot started — profile: {profile_name}", "info")
+    controller.health_monitor.record_config(True, profile_name)
+    if executor:
+        controller.health_monitor.record_broker(True, broker_name=getattr(executor, 'name', 'OANDA'))
+
     try:
         for _ in loop_iter:
 
@@ -1204,6 +1210,7 @@ def run_bot(
                     if current_mtime > last_config_mtime:
                         last_config_mtime = current_mtime
                         logger.info("[HOT-RELOAD] Detected configuration change. Reloading...")
+                        controller.health_monitor.add_event("Config hot-reloaded", "info")
                         
                         # 1. Reload Settings
                         settings = reload_settings()
@@ -1356,6 +1363,10 @@ def run_bot(
             sabbath_active, _, _ = sabbath_context.evaluate(now)
             true_sabbath_active = sabbath_active
 
+            # ── Health Monitor: Record heartbeat at cycle start ──
+            controller.health_monitor.record_heartbeat()
+            controller.health_monitor.set_market_hours(not sabbath_active)
+
             # If not scheduled but off-hours paper trading is allowed, force swap to paper broker
             force_paper_broker = False
             if not is_scheduled and paper_trade_off_hours:
@@ -1443,9 +1454,10 @@ def run_bot(
                 last_holdings_log_ts=last_holdings_log_ts,
                 last_capital_check_ts=last_capital_check_ts,
             )
-            # Push holdings + state to GUI via dedicated WS messages (not log parsing)
+            # Push holdings + state + health to GUI via dedicated WS messages (not log parsing)
             controller.broadcast_holdings(executor)
             controller.broadcast_state(executor, executor_real=executor_real)
+            controller.broadcast_health()
             
             # Sabbath Paper Trading: Allow scanning and trading 
             # if we have successfully swapped to the local PaperBroker.
@@ -1523,6 +1535,7 @@ def run_bot(
                     # Only increment error counter for case 1 (actual connection failures)
                     if not data_fetch_succeeded:
                         consecutive_error_iterations += 1
+                        controller.health_monitor.record_data_feed('__all__', success=False)
                         if consecutive_error_iterations >= 3:
                             logger.warning(
                                 "[AUTO_RESTART] Persistent connection errors detected (%d consecutive iterations)",
@@ -1531,11 +1544,15 @@ def run_bot(
                     else:
                         # Data fetched successfully, just no qualified setups - reset counter
                         consecutive_error_iterations = 0
+                        controller.health_monitor.record_pipeline(0)
                     next_decision_in = decision_interval
                     time.sleep(poll_interval)
                     continue
                 # Reset error counter when we successfully fetch at least one symbol
                 consecutive_error_iterations = 0
+                controller.health_monitor.record_pipeline(len(candidates))
+                for _sym in active_symbols:
+                    controller.health_monitor.record_data_feed(_sym, success=True)
                 
                 # Strictly honor Sabbath: 
                 # Block BOTH entries and exits (Zero Action) if NO PaperBroker is active.
@@ -1916,6 +1933,14 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         last_auto_mode: str | None = None
         last_holdings_log_ts = 0.0
         consecutive_error_iterations = 0
+
+        # ── Health Monitor: Boot events ──
+        controller.health_monitor.add_event(f"Scheduled bot started — profile: {profile_name}", "info")
+        controller.health_monitor.record_config(True, profile_name)
+        if executor:
+            controller.health_monitor.record_broker(True, broker_name=getattr(executor, 'name', 'OANDA'))
+        controller.broadcast_health(force=True)
+
         while True:
             # Check for Halt Signal
             if controller.is_halted():
@@ -1966,8 +1991,13 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
             next_decision_in = 0
             while datetime.now(tz) < end_ts:
                 loop_now = datetime.now(tz)
+
                 # Evaluate Sabbath Status FIRST
                 sabbath_active, _, _ = sabbath_context.evaluate(loop_now)
+
+                # ── Health Monitor: Record heartbeat at cycle start ──
+                controller.health_monitor.record_heartbeat()
+                controller.health_monitor.set_market_hours(not sabbath_active)
                 
                 # Sabbath Paper Trading Swap
                 if sabbath_active and executor_paper and executor != executor_paper:
@@ -2094,6 +2124,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                     if not candidates:
                         # No candidates means all symbols failed to fetch (connection errors)
                         consecutive_error_iterations += 1
+                        controller.health_monitor.record_data_feed('__all__', success=False)
                         if consecutive_error_iterations >= 3:
                             logger.warning(
                                 "[AUTO_RESTART] Persistent connection errors detected (%d consecutive iterations)",
@@ -2104,6 +2135,9 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         continue
                     # Reset error counter when we successfully fetch at least one symbol
                     consecutive_error_iterations = 0
+                    controller.health_monitor.record_pipeline(len(candidates))
+                    for _sym in active_symbols:
+                        controller.health_monitor.record_data_feed(_sym, success=True)
                     # Replay mode: limit to 1 new-entry candidate per cycle
                     if replay_provider is not None and candidates:
                         manage_cands = [(s, snap, sc, r) for s, snap, sc, r in candidates if r == "existing position"]
@@ -2127,6 +2161,8 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                     next_decision_in = decision_interval
                 else:
                     next_decision_in -= poll_interval
+                # ── Health Monitor: Broadcast vitals to GUI ──
+                controller.broadcast_health()
                 time.sleep(poll_interval)
 
             if executor:

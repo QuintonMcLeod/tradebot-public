@@ -177,3 +177,8 @@ See Chapter 8 (**API Setup**) for step-by-step broker setup.
 | Won't start | No broker configured? See Preflight Check above |
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you've gone through this entire chapter and you're STILL confused, check the logs again. The answer is always in the logs. Always. I didn't write 500 different highly specific log messages just so you could ignore them and text me 'bot broke.' Read the damn screen. Stop playing with me."</td></tr></table>
+
+
+> [!NOTE]
+> **APRIL 2026 UI & VITALS UPDATE:**  
+> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

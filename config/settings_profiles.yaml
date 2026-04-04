@@ -108,19 +108,19 @@ profiles:
     symbols: 
     - EURUSD 
     - GBPUSD 
-    - USDJPY 
     - AUDUSD 
     - NZDUSD 
-    - USDCAD 
     - USDCHF 
+    - USDJPY 
+    - USDCAD 
     - GBPJPY 
     - EURJPY 
     - AUDJPY 
     candle_timeframe: 1m 
     mtf_timeframe: 1h 
-    ltf_timeframe: 5m 
+    ltf_timeframe: 1m 
     htf_timeframe: 4h 
-    risk_dynamic_auto: true 
+    risk_dynamic_auto: false 
     continuous_mode: true 
     session_gate_enabled: false 
   forex_crypto_hybrid: 
