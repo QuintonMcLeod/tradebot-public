@@ -1378,7 +1378,7 @@ def run_bot(
 
             # Activate replay mode for paper trading based on UI configuration.
             _want_replay = False
-            if not execute_trades and paper_sim_enabled:
+            if executor == executor_paper and paper_sim_enabled:
                 if paper_replay_mode:
                     _want_replay = True
                 elif true_sabbath_active and sabbath_replay_mode:
