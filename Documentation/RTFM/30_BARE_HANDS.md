@@ -1,3 +1,16 @@
+---
+title: STOP! Don't Trade With Your Bare Hands!
+category: rtfm
+icon: front_hand
+description: "\"You're showing up to a sword fight with a pool noodle.\" 80-95% of\
+  \ manual traders lose money. Not break even \u2014 LOSE money. This humorous but\
+  \ dead-serious guide covers the five ways humans self-destruct in the markets: revenge\
+  \ trades, fatigue, analysis paralysis, overconfidence, and life happening at the\
+  \ worst possible moment. Plus the math of what bare-handed trading actually costs\
+  \ the average person."
+featured: true
+---
+
 # STOP! Don't Trade With Your Bare Hands
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I just opened a brokerage account! I watched like four YouTube videos and I feel like I'm ready. I got my own strategy — I'm gonna buy when it goes up and sell when it goes down!"</td></tr></table>

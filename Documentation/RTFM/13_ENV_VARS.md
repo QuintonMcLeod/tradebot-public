@@ -1,3 +1,13 @@
+---
+title: 'Every Toggle, Every Flag: The Environment Variable Bible'
+category: rtfm
+icon: settings_applications
+description: "The comprehensive reference for every environment variable used by TradeBot\
+  \ SCI \u2014 including purpose, usage, and meaningful defaults. Covers GUI_AUTOSTART_BOT,\
+  \ GUI_KEEP_BOT_RUNNING, kill switches, API keys, feature flags, broker credentials,\
+  \ AI model selection, logging levels, and every hidden toggle the bot knows about."
+---
+
 # 13. Environment Variable Reference — The Hidden Levers
 
 <table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Environment variables are the hidden levers. Most users never touch them. But if you're reading this, you're not most users. You're the person who reads the owner's manual cover to cover. Respect."</em></td></tr></table>

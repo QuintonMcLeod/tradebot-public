@@ -1,3 +1,14 @@
+---
+title: 'I Think, Therefore I Trade: The AI Decision Engine'
+category: rtfm
+icon: smart_toy
+description: "\"I think, therefore I trade.\" You know the bot trades. But how does\
+  \ it decide? This document explains the Brain (strategy/engine.py), the Strategy\
+  \ Arsenal of 20 distinct weapons, and the Soul \u2014 the AI Backup system. The\
+  \ bot isn't locked to one strategy. It can assign different strategies per asset\
+  \ class, or use Meta-SCI to choose automatically based on real-time market conditions."
+---
+
 # 11. The Ghost in the Machine — How the Bot Thinks
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"I think, therefore I trade. But unlike Descartes, when I'm wrong, it costs money. Which is why I think VERY carefully."</em></td></tr></table>

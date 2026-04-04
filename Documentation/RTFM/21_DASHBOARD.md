@@ -1,3 +1,14 @@
+---
+title: 'The Dashboard: Reading the GUI Like a Fighter Pilot'
+category: rtfm
+icon: dashboard
+description: '"If fighter pilots can land on aircraft carriers using instruments,
+  you can read a P&L number." A zone-by-zone breakdown of every element in the GUI:
+  the chart (candles, indicators, price lines), the sidebar (holdings, decisions,
+  P&L), the log panel, and the controls. What healthy looks like versus what should
+  worry you.'
+---
+
 # 21. The Dashboard — Reading the GUI Like a Fighter Pilot
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Whoa, the dashboard looks amazing! What do all these panels do?"</td></tr></table>

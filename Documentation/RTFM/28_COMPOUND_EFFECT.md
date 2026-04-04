@@ -1,3 +1,16 @@
+---
+title: 'The Compound Effect: Why Small Accounts Don''t Stay Small'
+category: rtfm
+icon: trending_up
+description: "\"Three good days a month. That's all the math needs.\" Take a $50k\
+  \ account with 4% risk per trade. Each winner pays $4,000. Three solid days and\
+  \ you're looking at $10,000 in a single month. This article walks through the real\
+  \ math \u2014 not fantasy projections \u2014 of how compounding turns $7,000 into\
+  \ $16,000 in six months, and why the bot's discipline is the engine that makes it\
+  \ work."
+featured: true
+---
+
 # The Compound Effect: Why Small Accounts Don't Stay Small
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I only have $2,000 to start. Is that even worth it? My friend says you need at least $25K to make real money trading."</td></tr></table>

@@ -1,3 +1,14 @@
+---
+title: What Does This Button Do? The Complete Cockpit Guide
+category: rtfm
+icon: tune
+description: "\"What does this button do?\" \u2014 Last words of a former trader.\
+  \ The bot is configured through the Settings GUI, config.json, or config/settings_profiles.yaml.\
+  \ This guide covers every control in the cockpit: trading profiles, risk sliders,\
+  \ strategy selectors, broker toggles, safety shields, and the hidden power-user\
+  \ settings most people never find."
+---
+
 # 7. The Cockpit Controls — Configuration Guide
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"What does this button do?"</td></tr></table>

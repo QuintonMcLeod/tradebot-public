@@ -1,3 +1,14 @@
+---
+title: 'The Sabbath Protocol: When the Bot Takes a Day Off'
+category: rtfm
+icon: synagogue
+description: "\"Even God rested on the seventh day. The bot just switches to paper\
+  \ trading.\" Some of us observe the Sabbath. The markets don't. This guide explains\
+  \ how the bot automatically swaps to the Paper Broker during Sabbath, keeps scanning\
+  \ and analyzing in paper mode, and seamlessly resumes live trading when Sabbath\
+  \ ends \u2014 all calculated astronomically based on your location."
+---
+
 # 17. The Sabbath Protocol — When the Bot Takes a Day Off
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The Sabbath Protocol is not optional! Rest is not a weakness, it's a strategy. Even the Most High took a day off. You think you're better than Him? You think your little forex account is more important than the literal creation of the universe? Sit down!"</td></tr></table>

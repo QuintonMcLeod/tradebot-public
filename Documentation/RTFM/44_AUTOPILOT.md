@@ -1,3 +1,14 @@
+---
+title: 'The Autopilot (Or: Why You Should Stop Touching Things)'
+category: rtfm
+icon: smart_toy
+description: '"You, a guy who learned trading from a TikTok video with subway surfers
+  gameplay at the bottom, want to override a machine that is evaluating the entire
+  global macroeconomic landscape in milliseconds?" A brutal breakdown of why the Autopilot
+  exists.'
+featured: true
+---
+
 # 44. The Autopilot (Or: Why You Should Stop Touching Things)
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Let me ask you a very serious question. Why do you hate yourself?<br><br>No, I'm serious. You have a machine sitting in front of you that can process 500 indicators a second, read the news, check the weather in Tokyo, and calculate Fibonacci retracements faster than you can blink. And yet... you are sitting there at 3 AM, staring at a 5-minute chart, sweating through your t-shirt because Elon Musk tweeted an emoji of a rocket ship.<br><br>Why. Are. You. Touching. It."</td></tr></table>

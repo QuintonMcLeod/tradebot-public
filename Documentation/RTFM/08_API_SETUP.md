@@ -1,3 +1,15 @@
+---
+title: 'Connecting to the World: Every Broker, Every API Key'
+category: rtfm
+icon: key
+description: '"The bot is only as smart as its connection." This guide explains specifically
+  how to connect the bot to the outside world. Step-by-step configuration for every
+  supported integration: the AI Brain (TradeSci, OpenAI, Gemini, Claude), Interactive
+  Brokers for stocks and futures, OANDA for forex, and CCXT for crypto exchanges like
+  Gemini and Coinbase.'
+size: md
+---
+
 # 08. Connecting the Wires — API Setup Guide
 
 <table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"API keys are your weapons. Handle them with care. Store them in .env.secrets. Never commit them to git. Never paste them in Discord. Never email them. If someone asks for your API key, they are not your friend."</em></td></tr></table>

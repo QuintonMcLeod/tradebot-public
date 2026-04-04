@@ -1,3 +1,14 @@
+---
+title: 'The Shield Wall: Risk Management Deep Dive'
+category: rtfm
+icon: shield
+description: '"The fastest way to go broke is to be right 90% of the time and blow
+  up on the other 10%." Every layer of risk management explained: position sizing
+  formulas, the Leverage Sentry, Daily Loss Limit circuit breaker, ICC Gatekeeper,
+  Position Lock, and ATR Armor. With the actual math behind each one. Because the
+  best trade is the catastrophic trade you never took.'
+---
+
 # 18. The Shield Wall — Risk Management Deep Dive
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"The Shield Wall is your defense. Every guard exists because someone, somewhere, blew up an account without it. I'm not being dramatic — I'm being historical."</td></tr></table>

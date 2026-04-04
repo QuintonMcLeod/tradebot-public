@@ -1,3 +1,12 @@
+---
+title: The 1-Minute Forex Reality Check
+category: rtfm
+icon: speed
+description: '"You want a lambo by Tuesday? You''re gonna be taking the bus by Wednesday."
+  A brutal breakdown of the mathematical armor required to survive 1-minute execution.'
+featured: true
+---
+
 # The 1-Minute Forex Reality Check
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Hey, I want the bot to trade on the 1-minute chart so I can get like, 50 trades a day and buy a lambo by Tuesday. What settings do I press?"</td></tr></table>

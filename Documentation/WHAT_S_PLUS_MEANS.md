@@ -1,3 +1,15 @@
+---
+title: What Does S+ Grade Mean For You?
+category: guide
+icon: workspace_premium
+description: '"Your bot went from bleeding $52/day with every safety guard off, to
+  an S+-rated system with typed interfaces, failure contracts, and a CI pipeline that
+  blocks broken code at the gate." A plain-English guide for humans who trade, not
+  humans who type-check.'
+featured: true
+size: md
+---
+
 # What Does "S+ Grade" Mean?
 
 *A plain-English guide for humans who trade, not humans who type-check.*

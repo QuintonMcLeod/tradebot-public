@@ -1,3 +1,16 @@
+---
+title: '28 Weapons of War: The Complete Strategy Arsenal'
+category: rtfm
+icon: strategy
+description: "\"One strategy doesn't fit all markets. Choose your weapon wisely \u2014\
+  \ or let Meta-SCI choose for you.\" TradeBot SCI supports 28 distinct trading strategies\
+  \ \u2014 including the new Forex Conductor with regime-based routing and per-symbol\
+  \ cooldowns. You can assign different strategies to different asset classes, or\
+  \ use Meta-SCI to let the bot pick the best one automatically via tournament-style\
+  \ scoring."
+featured: true
+---
+
 # 09. 28 Weapons of War: The Complete Strategy Arsenal
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I want to understand the strategies! There's like... twenty-eight of them? Which one do I pick? This is like being at a buffet where everything is labeled in a language I don't speak."</td></tr></table>

@@ -1,3 +1,14 @@
+---
+title: 'The War Room: Decoding the Log Output'
+category: rtfm
+icon: terminal
+description: "\"I see the Matrix now. It's mostly INFO lines.\" You opened the log\
+  \ panel. You saw a wall of text scrolling at the speed of anxiety. This guide teaches\
+  \ you every log tag \u2014 [STATE], [GUARD], [DECISION], [ENTRY], [EXIT] \u2014\
+  \ what they mean, how to read a trade's lifecycle, and when red lines are actually\
+  \ scary versus when they're just the bot talking to itself."
+---
+
 # 16. The War Room — Decoding the Log Output
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"Welcome to the War Room. This is where we review the carnage and plan the next assault."</td></tr></table>

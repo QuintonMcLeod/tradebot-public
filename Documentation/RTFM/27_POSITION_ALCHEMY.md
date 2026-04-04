@@ -1,3 +1,14 @@
+---
+title: 'Position Alchemy: The Art and Science of SL, TP, and Trailing Stops'
+category: rtfm
+icon: auto_graph
+description: '"The entry is science. The exit is art. The stop-loss is religion."
+  Deep dive into every exit mechanism: ATR-based stop-losses, risk/reward take-profits,
+  trailing stops with activation thresholds, breakeven trails, and the exit priority
+  stack. With actual formulas, examples, and the philosophy of why exits matter more
+  than entries.'
+---
+
 # 27. Position Alchemy — SL, TP, Trailing Stops & Breakeven Mechanics
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The entry is science. The exit is art. The stop-loss is religion."</td></tr></table>

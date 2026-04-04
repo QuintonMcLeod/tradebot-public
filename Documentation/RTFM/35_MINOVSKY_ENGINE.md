@@ -1,3 +1,14 @@
+---
+title: 'The Minovsky Engine: Death of the Phoenix, Birth of the Reactor'
+category: rtfm
+icon: precision_manufacturing
+description: "\"Why are you making your own bread when there's a perfectly good bakery\
+  \ next door?\" The Minovsky Engine replaced the Phoenix Engine \u2014 a 1,423-line\
+  \ disaster that reimplemented the backtester and lost $5,370 in 14 days. 240 lines\
+  \ of wrapper around the proven backtester. Named after the Gundam Minovsky Reactor:\
+  \ the core power source ALL systems connect to."
+---
+
 # 35. The Minovsky Engine — Death of the Phoenix, Birth of the Reactor
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Alright. Sit down. We're having a funeral today. The Phoenix Engine is dead. I killed it. Put my hands right around its neck and squeezed. And I'd do it again! It was supposed to be our replay engine. Smart idea, right? No! It was like ordering a pizza and then building a new oven to cook it when you already have one right there! Complete waste of time!"</td></tr></table>

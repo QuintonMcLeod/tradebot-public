@@ -1,3 +1,14 @@
+---
+title: 'The Hybrid Engine: Multi-Broker Orchestration'
+category: rtfm
+icon: hub
+description: '"One broker is a dependency. Two brokers is a strategy. Three brokers
+  is an empire." How the bot routes trades to different brokers based on asset class:
+  OANDA for forex, CCXT for crypto, IBKR for stocks. Simple mode, primary mode, and
+  full hybrid mode explained. Architecture diagrams, routing logic, and when to add
+  complexity versus when to keep it simple.'
+---
+
 # 19. The Hybrid Engine — Multi-Broker Orchestration
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The Hybrid Engine lets you use one broker for data and another for execution. One broker is a dependency. Two brokers is a strategy. Three brokers is an empire."</td></tr></table>

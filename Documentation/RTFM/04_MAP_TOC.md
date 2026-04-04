@@ -1,3 +1,14 @@
+---
+title: Lost in the Codebase? The Complete Navigation Map
+category: rtfm
+icon: map
+description: "\"Where is main.py again?\" The project structure is classic Python\
+  \ with an Electron GUI layer on top. This is the complete navigational map of the\
+  \ entire repository \u2014 every directory, every module, every source file \u2014\
+  \ organized as a tree with annotations explaining what each piece does and how it\
+  \ relates to the whole."
+---
+
 # 4. The Map — Complete Project Navigation
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Lost? Good. That means you're looking for the map. This IS the map. The complete directory structure, every file's purpose, and quick navigation to wherever you need to go.<br><br>Think of this as the airport terminal map. You don't need to visit every gate — just find the one that gets you where you're going."</td></tr></table>

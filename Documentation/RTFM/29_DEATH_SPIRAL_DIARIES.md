@@ -1,3 +1,14 @@
+---
+title: 'The Death Spiral Diaries: 188 Trades, 3 Wins, and $17 of Pain'
+category: rtfm
+icon: local_fire_department
+description: A true (and tragically hilarious) account of how a stop-loss shorter
+  than a tweet, a breakeven floor that didn't understand spreads, and a Python cache
+  with commitment issues conspired to turn $135 into $118 over one Sunday night. 188
+  trades. 3 wins. 1.4% win rate. Lessons learned the expensive way, so you don't have
+  to.
+---
+
 # 💀 The Death Spiral Diaries: 188 Trades, 3 Wins, and $17 of Pain
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I'm gonna tell you a story that I'm deeply ashamed of. A profoundly embarrassing story about how my highly engineered trading bot chewed through $17 in 9 hours, one thirty-second trade at a time. It's pathetic. And I'm telling you so you don't do the same stupid thing I did."</td></tr></table>

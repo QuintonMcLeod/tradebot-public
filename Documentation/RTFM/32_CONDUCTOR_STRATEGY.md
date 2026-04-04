@@ -1,3 +1,16 @@
+---
+title: 'The Forex Conductor: The Strategy That Refuses to Lose Gracefully'
+category: rtfm
+icon: music_note
+description: '"Take profit? At 2.5R? My dear boy, we don''t DO fixed take profits
+  here." The Conductor enters trend pullbacks, cuts 95% of losers at -0.3R ($8 instead
+  of $75), pyramids up to 50 times on winners, and flips direction when stopped out.
+  With cost-aware TP, dynamic ATR trail, and a 100% hit rate across 6 backtesting
+  windows. Includes the complete settings map, the math behind every number, and a
+  very stern warning not to change any of them.'
+featured: true
+---
+
 # 🎭 The Forex Conductor Strategy — The Strategy That Refuses to Lose Gracefully
 
 **Status:** 14-day backtest +$25.03 | PF=1.0 | Win Rate: 51.0% | R:R=1:1

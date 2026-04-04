@@ -1,3 +1,15 @@
+---
+title: 'Recipes for Traders: A Cookbook of Common Tasks'
+category: rtfm
+icon: menu_book
+description: '"Give a man a fish, he trades for a day. Teach a man to configure the
+  bot, he loses money automatically." Here are the common tasks you might want to
+  perform: adding a new symbol, switching strategies, tweaking risk parameters, customizing
+  scan intervals, configuring multi-broker setups. Each recipe includes both GUI and
+  config file methods.'
+size: md
+---
+
 # 5. The Cookbook — Step-by-Step Recipes
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Give a man a fish, he trades for a day. Teach a man to configure the bot, he destroys his own account <em>automatically.</em><br><br>I'm kidding. Mostly. These are the recipes. Step by step. Menu options. Buttons. Do exactly what I say. And if you screw this up after reading the cookbook? That's on you. I gave you the ingredients, you still managed to burn the water."</td></tr></table>

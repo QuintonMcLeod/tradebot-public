@@ -1,3 +1,12 @@
+---
+title: 'Remote Setup: Run the Core on One PC, the GUI on Another'
+category: rtfm
+icon: lan
+description: "\"The bot has two halves \u2014 a brain and a face.\" How to run the\
+  \ Python engine on one computer and connect the Electron GUI from a different one.\
+  \ Any OS, any two machines. Kitchen-and-dining-room style."
+---
+
 # 41. Remote Setup — Running the Core on One Machine and the GUI on Another
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wait — I can run the bot on one computer and watch it from a completely different one?"</td></tr></table>

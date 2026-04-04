@@ -1,3 +1,16 @@
+---
+title: The Bot Is a 20-Year Seasoned Trader
+category: rtfm
+icon: military_tech
+description: "\"You spent 20 years learning to read price action. The bot learned\
+  \ it in 200 milliseconds.\" This bot doesn't trade like a beginner. It trades like\
+  \ a grizzled veteran who's seen three market crashes and didn't develop a drinking\
+  \ problem from any of them. 20 strategies, 12 safety guards, zero ego, millisecond\
+  \ execution, and the discipline that takes humans two decades to learn \u2014 baked\
+  \ in from Day 1."
+featured: true
+---
+
 # 31. The Bot Is a 20-Year Seasoned Trader
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"So this bot... how much experience does it actually have? Because I've been watching YouTube for three months and I feel like I'm getting pretty good—"</td></tr></table>

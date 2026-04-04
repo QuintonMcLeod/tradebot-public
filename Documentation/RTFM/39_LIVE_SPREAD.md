@@ -1,3 +1,12 @@
+---
+title: 'Live Spread Integration: Why Your Bot Was Trading Blindfolded'
+category: rtfm
+icon: visibility
+description: '"The bot thought the highway toll was $1.50 but sometimes it was $15."
+  How OANDA''s dynamic spreads were silently eating your profits, and how the bot
+  now fetches real-time bid/ask data every 30 seconds instead of guessing.'
+---
+
 # 39. Live Spread Integration: Why Your Bot Was Trading Blindfolded (And Didn't Tell You)
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"What's a spread?"</td></tr></table>

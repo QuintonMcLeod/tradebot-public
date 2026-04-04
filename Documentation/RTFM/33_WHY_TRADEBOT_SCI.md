@@ -1,3 +1,12 @@
+---
+title: Why TradeBot SCI? (A Totally Unbiased Comparison)
+category: rtfm
+icon: emoji_events
+description: Chad and Karen from Accounting review the competition. 3Commas, Cryptohopper,
+  Pionex, and TradingView Pine Script walk into a bar. They all leave poorer.
+size: sm
+---
+
 # Why TradeBot SCI? (A Totally Unbiased Comparison)
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"Yo. So you're thinking about using a trading bot. That's cute. You're probably on Google right now comparing features, reading reviews written by people who got paid to write them, and trying to figure out which $100/month subscription will lose your money the slowest.<br><br>Let me save you six months of 'education' and about $2,000 in subscription fees."</td></tr></table>

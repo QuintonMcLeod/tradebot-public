@@ -1,3 +1,14 @@
+---
+title: 'Under the Hood: Every Function, Every Data Packet'
+category: rtfm
+icon: data_object
+description: "\"The devil is in the details. And the bugs.\" If you are debugging\
+  \ this thing, you need to know what the data actually looks like. These are the\
+  \ core data objects \u2014 MarketSnapshot, TradeDecision, PositionState \u2014 the\
+  \ packets passed around like hot potatoes through every layer of the system. Every\
+  \ field, every type, every edge case documented."
+---
+
 # 3. Functions & Datasets — The Technical Guts
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"Every function has a purpose. Every data structure has a reason. If you are debugging this machine, you need to know what the data actually looks like. Let me catalog them for you — organ by organ, nerve by nerve."</em></td></tr></table>

@@ -1,3 +1,14 @@
+---
+title: 'The Crypto Frontier: The Wild West of 24/7 Markets'
+category: rtfm
+icon: currency_bitcoin
+description: "\"Crypto: where stability means it only moved 8% today.\" How crypto\
+  \ trading differs from forex \u2014 24/7 hours, extreme volatility, variable spreads,\
+  \ whale manipulation, and flash crashes. Crypto-optimized strategies, quantity steps,\
+  \ fee awareness, and why the bot uses wider stops and smaller positions for crypto.\
+  \ Plus the pairs you should actually trade versus the ones from Reddit."
+---
+
 # 25. The Crypto Frontier — The Wild West of 24/7 Markets
 
 <table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"Crypto! The wild seas! 24/7 markets, no rules, maximum chaos! 🏴‍☠️"</td></tr></table>

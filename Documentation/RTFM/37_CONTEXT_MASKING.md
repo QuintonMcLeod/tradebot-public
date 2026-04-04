@@ -1,3 +1,12 @@
+---
+title: Context Masking for Dummies
+category: rtfm
+icon: theater_comedy
+description: '"Wait... so if I tell the bot to risk 1% globally, how the hell do I
+  tell RoboCop to risk 3% without screwing up my entire profile?" A brutal breakdown
+  of the Context Masking feature.'
+---
+
 # 37. Context Masking: How to Stop Your Strategies From Wearing Each Other's Underwear
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Yo, I changed my risk to 3% in the settings and now <em>every</em> strategy is using 3%. I only wanted RoboCop to use it! Why is Rubberband Reaper out here swinging 3% like he owns the place?!"</td></tr></table>

@@ -1,3 +1,14 @@
+---
+title: 'I Have to Go Back: The Trinity of Backtesting'
+category: rtfm
+icon: history
+description: '"I have to go back." You have discovered that there are actually three
+  ways to time-travel in this repository. This document explains the Trinity of Backtesting:
+  the Easy Way (GUI Benchmark for normal humans), the Intermediate Way (CLI scripts
+  for power users), and the Hard Way (raw engine calls for developers who want full
+  control over every parameter).'
+---
+
 # 12. The Time Machine — Backtester Trinity
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"The backtester is a window into the past. Use it wisely — the future never looks exactly like history. But it rhymes. Oh, it rhymes."</em></td></tr></table>

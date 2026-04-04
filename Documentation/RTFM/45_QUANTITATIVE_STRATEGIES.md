@@ -1,3 +1,13 @@
+---
+title: 7 Advanced Quantitative Strategies
+category: rtfm
+icon: functions
+description: '"You don''t even know how to balance your own checkbook, but suddenly
+  you''re Jim Simons..." The 7 aggressive quantitative mathematically-driven algorithms
+  translated into terms your grandma would understand.'
+featured: true
+---
+
 # 45. 7 Advanced Quantitative Strategies
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Hey guys! I just found a bunch of complex statistical papers online that say I can make 1,000% a month using pure math! Where are the quantitative algorithms?! Give me the math!"</td></tr></table>

@@ -1,3 +1,15 @@
+---
+title: "Something Is Wrong \u2014 The Emergency Panic Protocol"
+category: rtfm
+icon: emergency
+description: "\"Something is wrong. Make it stop.\" So the bot is screaming in red\
+  \ text, or worse \u2014 it's doing nothing at all. Don't panic. Read this. Covers\
+  \ every emergency scenario: Kill Switch activation, insufficient funds, broker disconnects,\
+  \ stuck positions, API rate limits, and the nuclear option \u2014 how to flatten\
+  \ everything and shut down safely."
+size: md
+---
+
 # 6. The Panic Button — Troubleshooting Guide
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Something is wrong. Make it stop. MAKE IT STOP."</td></tr></table>

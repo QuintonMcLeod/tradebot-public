@@ -1,3 +1,14 @@
+---
+title: 'Paper Tigers: Simulation & Paper Trading'
+category: rtfm
+icon: science
+description: '"Would you test a parachute by jumping off a cliff? Then don''t test
+  a trading strategy with real money." Everything about paper trading: what it simulates,
+  what it doesn''t, how the Paper Broker works, the difference between paper mode
+  and backtesting, and the graduation checklist for going live. Plus the harsh truth
+  about what paper trading can''t teach you.'
+---
+
 # 22. Paper Tigers — Simulation & Paper Trading
 
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br><em>"Would you test a parachute by jumping off a cliff? Then don't test a trading strategy with real money."</em></td></tr></table>

@@ -1,3 +1,13 @@
+---
+title: 'Engine Audit: The Minovsky Engine''s 14-Day Stress Test'
+category: rtfm
+icon: verified
+description: '"Show me what you can do in two weeks." 2,278 trades. +$3,974 PnL. Profit
+  Factor 2.10. SAR, Counter-Reversal, and Guillotine in full action. The complete
+  14-day audit with per-symbol breakdown, big winners, worst losses, and system activity
+  counts.'
+---
+
 # 36. Engine Audit — The Minovsky Engine's 14-Day Stress Test
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Look, every new engine takes the same test I give any human. Show me what you got in two weeks. Not 24 hours. Two weeks. That's enough time to figure out if you're actually good or if you just got lucky on the first date."</td></tr></table>

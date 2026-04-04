@@ -1,3 +1,13 @@
+---
+title: First Time? Here's How to Set Up the Bot & Launch Your First Trade
+category: guide
+icon: rocket_launch
+description: "Brand new? This walks you through everything \u2014 connecting your\
+  \ broker, picking a profile, setting your risk, and pressing the start button for\
+  \ the very first time. Step by step. No experience needed."
+featured: true
+---
+
 # First Time? Read This Or Stay Poor
 
 <table><tr><td width="170"><img src="RTFM/img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Okay, I downloaded the bot. Now what? Do I just... press 'Go'? Where's the 'Make Money' button?"</td></tr></table>

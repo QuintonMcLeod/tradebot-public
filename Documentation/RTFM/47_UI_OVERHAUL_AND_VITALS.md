@@ -1,3 +1,12 @@
+---
+title: UI Overhauls & Nurse's Station Vitals
+category: rtfm
+icon: medical_services
+description: Listen to me, you dumb motherfuckers. We just spent the last two weeks
+  overhauling the UI and the Nurse's Station. A complete guide on reading the vitals,
+  the universal exit router, and why your bot says Retrying.
+---
+
 # 47. UI OVERHAULS & NURSE'S STATION VITALS
 
 Listen to me, you dumb motherfuckers. I'm gonna break this down real slow so even the slowest guy in the room can understand it. We just spent the last two weeks overhauling the UI and the Nurse's Station because you idiots kept crying about "where do I click?" and "why is my bot dead?" 

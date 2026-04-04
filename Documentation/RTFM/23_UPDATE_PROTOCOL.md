@@ -1,3 +1,14 @@
+---
+title: 'The Update Protocol: How the Bot Updates Itself'
+category: rtfm
+icon: system_update
+description: '"In the future, software updates itself. We''re living in the future.
+  It''s terrifying." How the self-update mechanism works: git fetch, version comparison,
+  one-click apply. What gets updated (code), what doesn''t (your config), and why
+  your open positions are completely safe during updates. Plus how to roll back if
+  you don''t like the new version.'
+---
+
 # 23. The Update Protocol — How the Bot Updates Itself
 
 <table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Update with precision. One wrong move during an update can take the whole system down. Fortunately, we automated the whole thing."</em></td></tr></table>
