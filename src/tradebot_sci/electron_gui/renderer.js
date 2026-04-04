@@ -911,7 +911,22 @@ window.api?.on('fromMain', (payload) => {
     } else if (payload.type === 'gui-notice') {
         const level = payload.color === 'red' ? 'ERROR' : (payload.color === 'teal' ? 'GUI' : 'SYSTEM');
         let msg = payload.message;
-        if (payload.detail) msg += `: ${payload.detail}`;
+        if (payload.detail) {
+            // Fallback guard: if the backend sent raw JSON (due to no hard restart), parse it here
+            const parsedDetails = payload.detail.split('\n').map(line => {
+                let l = line.trim();
+                if (l.startsWith('{')) {
+                    try {
+                        const obj = JSON.parse(l);
+                        if (obj.message) return obj.level ? `[${obj.level}] ${obj.message}` : obj.message;
+                    } catch(e) {}
+                }
+                return l;
+            }).join('<br>');
+            msg += `:<br><span class="text-slate-400 mt-1 block">${parsedDetails}</span>`;
+        } else {
+            // If it's just a message like "Bot Started Successfully", no detail to append
+        }
         appendLog(level, msg);
     } else if (payload.type === 'navigate') {
         // Programmatic navigation from main process (e.g. "Open Broker Settings" popup)
