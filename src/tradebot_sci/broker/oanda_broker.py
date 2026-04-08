@@ -1054,6 +1054,19 @@ class OandaExchangeBroker(IExchangeBroker):
                         ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, f"capital too low: ${self._liquid_capital:.2f}")
                     )
 
+            # ── Prop Firm Auto-Sizer ──
+            prop_tier = float(getattr(self.profile, "prop_challenge_tier_usd", 0.0))
+            prop_loss = float(getattr(self.profile, "prop_challenge_max_loss_pct", 0.0))
+            
+            if prop_tier > 0 and prop_loss <= 0:
+                prop_loss = 0.04 if prop_tier <= 50000 else 0.03
+                
+            if prop_tier > 0 and prop_loss > 0:
+                sizing_capital = prop_tier * prop_loss
+                logger.info(f"[OANDA] [PROP FIRM SIZER] True Equity scaling active: ${sizing_capital:,.2f}")
+            else:
+                sizing_capital = self._liquid_capital
+
             # 1. Prioritize explicit dollar risk from the strategy (if provided)
             risk_amount = decision.risk_per_trade_dollars or 0.0
 
@@ -1063,7 +1076,7 @@ class OandaExchangeBroker(IExchangeBroker):
             if action in {"scale_in", "add_to_position"} and risk_amount <= 0:
                 original_risk = self.profile.risk_per_trade_dollars
                 if original_risk <= 0:
-                    original_risk = self._liquid_capital * self.profile.risk_per_trade_pct
+                    original_risk = sizing_capital * self.profile.risk_per_trade_pct
                 
                 scale_fraction = float(decision.risk_per_trade_pct) if decision.risk_per_trade_pct else 0.5
                 risk_amount = original_risk * scale_fraction
@@ -1071,13 +1084,13 @@ class OandaExchangeBroker(IExchangeBroker):
 
             # 3. Prioritize explicit percentage from the strategy for regular trades
             elif risk_amount <= 0 and decision.risk_per_trade_pct:
-                risk_amount = self._liquid_capital * float(decision.risk_per_trade_pct)
+                risk_amount = sizing_capital * float(decision.risk_per_trade_pct)
 
             # 4. Fallback to global profile settings
             if risk_amount <= 0:
                 risk_amount = self.profile.risk_per_trade_dollars
                 if risk_amount <= 0:
-                    risk_amount = self._liquid_capital * self.profile.risk_per_trade_pct
+                    risk_amount = sizing_capital * self.profile.risk_per_trade_pct
 
             # ── CURRENCY CONVERSION: Target Risk to Quote Currency ──
             # The stop_dist is represented in the Quote currency (e.g., JPY, CAD, USD)

@@ -64,6 +64,21 @@ class StrategyEngine:
         
         logger.info(f" [ENGINE] === ENGINE LOADED === Symbol: {symbol} | Variant: {self._strategy.name.upper()} ")
 
+    def sync_profile(self, profile: BaseProfile, settings: Optional[Any] = None) -> None:
+        """Update internal profile and dynamically reload strategy variant (Hot-Reload)."""
+        self.profile = profile
+        if settings is not None:
+            self.settings = settings
+            
+        self._variant_key = self._resolve_variant_key()
+        self._strategy = self._load_strategy_variant()
+        
+        risk_pct = getattr(self.profile, 'risk_per_trade_pct', None)
+        if risk_pct and hasattr(self._strategy, 'profile_risk_pct'):
+            self._strategy.profile_risk_pct = float(risk_pct)
+            
+        logger.info(f"[ENGINE {self.symbol}] Hot-reloaded profile settings into {self._strategy.name.upper()}")
+
     # ── SAR (Stop-and-Reverse) — Engine-Level ────────────────────────
     # Aggregator is excluded (it has no own-position semantic).
     # ForexConductor previously had a duplicate SAR path; it now receives
@@ -132,6 +147,7 @@ class StrategyEngine:
         "qs_tqqq_btal":         ("tradebot_sci.strategy.variants.qs_tqqq_btal",         "QS_TqqqBtalStrategy"),
         "qs_choppiness":        ("tradebot_sci.strategy.variants.qs_choppiness",        "QS_ChoppinessStrategy"),
         "qs_first_day_month":   ("tradebot_sci.strategy.variants.qs_first_day_month",   "QS_FirstDayOfMonthStrategy"),
+        "silver_vwap":          ("tradebot_sci.strategy.variants.silver_vwap",          "SilverVwapStrategy"),
     }
 
     def _instantiate_variant(self, variant: str):
@@ -384,6 +400,19 @@ class StrategyEngine:
                 "ema_ribbon": consensus_ema_ribbon,
             }
             logger.info(f"[TREND-DATA] {json.dumps(trend_payload)}")
+            
+            # Record Indicators for Nurse's Station
+            from tradebot_sci.runtime.health_monitor import health_monitor
+            ind_to_record = {}
+            if getattr(self.profile, 'trend_rsi_enabled', False):
+                ind_to_record["rsi"] = float(consensus_rsi) if consensus_rsi else 0.0
+            if getattr(self.profile, 'trend_adx_enabled', True):
+                ind_to_record["adx"] = float(htf_adx) if htf_adx else 0.0
+            if getattr(self.profile, 'trend_macd_enabled', False):
+                ind_to_record["macd"] = float(consensus_macd.get("histogram", 0.0)) if isinstance(consensus_macd, dict) else 1.0
+            
+            if ind_to_record:
+                health_monitor.record_indicators(ind_to_record)
         except Exception:
             pass
 
@@ -656,6 +685,42 @@ class StrategyEngine:
         if total_equity <= 0:
             # Fallback for legacy callers that don't pass total_equity
             total_equity = current_capital_val + caps.get("total_unrealized_pnl", 0.0)
+            
+        # [WAIT FOR BAR CLOSE GUARD]
+        wait_for_close = getattr(self.profile, "wait_for_bar_close_enabled", False)
+        if wait_for_close and snapshot.candles:
+            _now = current_bar_time or datetime.now(timezone.utc)
+            if _now.tzinfo is None:
+                _now = _now.replace(tzinfo=timezone.utc)
+            
+            # The backtester uses _timeframe_to_seconds, but engine.py can just map it
+            # Or use a simple mapping since timeframe is passed as a string like "5m"
+            tf_seconds = 0
+            tf = timeframe.lower()
+            if tf.endswith("m"): tf_seconds = int(tf[:-1]) * 60
+            elif tf.endswith("h"): tf_seconds = int(tf[:-1]) * 3600
+            elif tf.endswith("d"): tf_seconds = int(tf[:-1]) * 86400
+            
+            if tf_seconds > 0:
+                candle_start = snapshot.candles[-1].timestamp
+                if candle_start.tzinfo is None:
+                    candle_start = candle_start.replace(tzinfo=timezone.utc)
+                
+                # To account for slight API delays (getting the candle 1-2s late),
+                # we add a small 5-second buffer grace period.
+                candle_end = candle_start + timedelta(seconds=tf_seconds)
+                
+                # If current time is strictly less than candle_end (minus 5s buffer),
+                # the candle is still actively forming. Block entries.
+                if _now < (candle_end - timedelta(seconds=5)):
+                    from tradebot_sci.strategy.decisions import stand_aside_decision
+                    wait_notes = f"Waiting for {timeframe} bar close. {candle_end.strftime('%H:%M:%S')} > {_now.strftime('%H:%M:%S')}"
+                    logger.debug(f"[ENGINE] {self.symbol} {wait_notes}")
+                    
+                    wait_dec = stand_aside_decision(self.symbol, timeframe, wait_notes)
+                    wait_dec.score = score
+                    wait_dec.grade = grade
+                    return wait_dec
         
         # (Conductor _reversal_pending pre-population removed — conductor now
         # reads gates["sar_dir"] set by engine SAR below.)
@@ -1047,7 +1112,7 @@ class StrategyEngine:
 
         # 5. Default: Stand Aside
         from tradebot_sci.strategy.decisions import stand_aside_decision
-        decision = stand_aside_decision(snapshot.symbol, timeframe, "No strategy signal detected.")
+        decision = stand_aside_decision(snapshot.symbol, timeframe, "Haven't found a safe spot to enter the market yet.")
         decision.score = strat_score / 100.0  # Normalize to 0-1 (cycle.py × 100 for display)
         decision.grade = strat_grade
 

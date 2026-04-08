@@ -4,8 +4,45 @@ import os
 from functools import lru_cache
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, NonNegativeInt, PositiveInt, field_validator
+from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, HttpUrl, NonNegativeInt, PositiveInt, field_validator, model_validator
 from tradebot_sci.config.broker import BrokerSettings, OandaSettings, PaxosSettings, KrakenSettings
+
+
+class BaseModel(PydanticBaseModel):
+    """
+    Universal base model that automatically normalizes config percentage
+    values that users mistakenly enter as whole numbers (e.g., 50 -> 0.50).
+    """
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_fractions(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+            
+        fractional_names = [
+            "icc_auto_entry_min_htf_strength",
+            "trend_strength_floor", 
+            "structure_score_threshold", 
+            "reversal_risk_per_trade"
+        ]
+        
+        # Valid > 1.0 things that might end up matched
+        exclude_keys = [
+            "target_r", "guillotine_r_threshold", "tier1_r_threshold", 
+            "tier2_r_threshold", "reversal_tp_r", "conductor_pyramid_start_r", 
+            "target_risk_multiplier", "risk_reward_ratio", "stop_atr_multiplier", 
+            "chandelier_atr_mult", "icc_entry_score_threshold", "icc_high_score_override_threshold", 
+            "icc_score_continuation_points", "icc_score_sweep_points", 
+            "icc_score_htf_ltf_align_points", "icc_score_strong_htf_points", 
+            "icc_score_phase_points", "icc_score_indication_points"
+        ]
+        
+        for k, v in data.items():
+            if isinstance(v, (int, float)) and v > 1.0:
+                if k.endswith("_pct") or k.endswith("_fraction") or k.endswith("_risk_per_trade") or k in fractional_names:
+                    if k not in exclude_keys:
+                        data[k] = float(v) / 100.0
+        return data
 
 
 class LoggingSettings(BaseModel):
@@ -155,6 +192,16 @@ class TradingProfileSettings(BaseModel):
     name: Optional[str] = Field(
         default=None,
         description="Internal name for the profile.",
+    )
+    
+    # ── Prop Firm Auto-Sizer ──
+    prop_challenge_tier_usd: float = Field(
+        default=0.0,
+        description="The gross buying power of the chosen Prop Firm challenge (0.0 to disable)."
+    )
+    prop_challenge_max_loss_pct: float = Field(
+        default=0.0,
+        description="The maximum allowed loss fraction (e.g. 0.04 for 4%)."
     )
     
     # ── Universal Exit Router Settings ──
@@ -1215,6 +1262,10 @@ class SafetySettings(BaseModel):
     safety_sentiment_shield_enabled: bool = Field(
         default_factory=lambda: os.getenv("SAFETY_SENTIMENT_SHIELD_ENABLED", "False").lower() == "true"
     )
+    wait_for_bar_close_enabled: bool = Field(
+        default_factory=lambda: os.getenv("WAIT_FOR_BAR_CLOSE_ENABLED", "False").lower() == "true",
+        description="Block entries until the 1m/5m candle perfectly finalizes (closes)."
+    )
     safety_volatility_veto_enabled: bool = Field(
         default_factory=lambda: os.getenv("SAFETY_VOLATILITY_VETO_ENABLED", "False").lower() == "true"
     )
@@ -1421,6 +1472,29 @@ class RiskSettings(BaseModel):
     icc_score_phase_points: float = Field(default=5.0, ge=0.0, le=100.0)
     icc_score_indication_points: float = Field(default=10.0, ge=0.0, le=100.0)
     icc_score_htf_strength_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+
+    # ── Prop Firm Settings (FTMO, Topstep, FundedNext) ─────────
+    prop_ftmo_api_key: str = Field(default_factory=lambda: os.getenv("PROP_FTMO_API_KEY", ""))
+    prop_ftmo_account_id: str = Field(default="")
+    prop_ftmo_environment: str = Field(default="evaluation")
+    prop_ftmo_max_daily_loss: float = Field(default=5.0)
+    prop_ftmo_max_total_loss: float = Field(default=10.0)
+    prop_ftmo_target_leverage: float = Field(default=5.0)
+    prop_ftmo_commission_bps: float = Field(default=3.0)
+
+    prop_apex_user: str = Field(default="")
+    prop_apex_pass: str = Field(default_factory=lambda: os.getenv("PROP_APEX_PASS", ""))
+    prop_apex_app_id: str = Field(default_factory=lambda: os.getenv("PROP_APEX_APP_ID", ""))
+    prop_apex_max_drawdown_usd: float = Field(default=1500.0)
+    prop_apex_target_leverage: float = Field(default=3.0)
+    prop_apex_fee_usd: float = Field(default=4.5)
+
+    prop_fn_execution: str = Field(default="ctrader")
+    prop_fn_api_key: str = Field(default_factory=lambda: os.getenv("PROP_FN_API_KEY", ""))
+    prop_fn_max_daily_loss: float = Field(default=5.0)
+    prop_fn_max_total_loss: float = Field(default=10.0)
+    prop_fn_target_leverage: float = Field(default=5.0)
+    prop_fn_commission_bps: float = Field(default=3.0)
 
 
 class RuntimeSettings(BaseModel):

@@ -153,10 +153,30 @@ def _calculate_pnl(entry_price: float, exit_price: float, size: float, direction
     elif "JPY" in sym and exit_price > 0:
         raw_pnl = raw_pnl / exit_price
     
-    # Deduct round-trip fees (spread + commission)
+    # Deduct round-trip fees (spread + commission) + simulated slippage
     if symbol:
         from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+        from tradebot_sci.config.loader import load_config_json
+        
         fee_pct = get_fee_for_symbol(symbol)
+        
+        # Dynamically load UI Slippage Configuration
+        try:
+            cfg = load_config_json()
+            prof = cfg.get("active_profile", "primary")
+            p_data = cfg.get("profiles", {}).get(prof, {})
+            # Look in paper dict first, then top level fallback
+            slip_bps = float(p_data.get("paper", {}).get("slippage_bps", 0.0))
+            if slip_bps == 0:
+                slip_bps = float(p_data.get("slippage_bps", 0.0))
+        except Exception:
+            slip_bps = 0.0
+            
+        slip_pct = slip_bps / 10000.0
+        
+        # user specifies "Slippage per Leg (bps)", apply to both entry and exit
+        total_friction_pct = fee_pct + (slip_pct * 2)
+        
         notional = entry_price * abs(size)
         # For JPY pairs, notional per unit is $1 if USD-base, else price-converted
         if "JPY" in sym or sym.startswith("USD"):
@@ -164,7 +184,7 @@ def _calculate_pnl(entry_price: float, exit_price: float, size: float, direction
                 notional = abs(size)  # 1 unit = $1
             else:
                 notional = abs(size) * entry_price / entry_price  # cross-rate; approximate
-        fee_cost = notional * fee_pct
+        fee_cost = notional * total_friction_pct
         return raw_pnl - fee_cost
     return raw_pnl
 

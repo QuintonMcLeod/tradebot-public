@@ -86,6 +86,18 @@ def _tick_cooldowns(symbol: str):
         _entry_cooldown[symbol] -= 1
 
 
+def reset_module_state():
+    """Clear all module-level state for a fresh replay day.
+
+    Called by loop.py when day-chaining to prevent stale cooldowns and
+    loss streak memory from the previous day leaking into decisions.
+    """
+    _loss_streaks.clear()
+    _cooldown_bars.clear()
+    _entry_cooldown.clear()
+    logger.info("[CONDUCTOR] Module state reset for new replay day")
+
+
 class ForexConductorStrategy(BaseStrategy):
     """
     Forex Conductor — routes to strategies based on market regime.
@@ -125,6 +137,24 @@ class ForexConductorStrategy(BaseStrategy):
         self._profile_risk_pct = value
         for strat in getattr(self, '_strategies', {}).values():
             strat.profile_risk_pct = value
+
+    def reset_instance_state(self):
+        """Clear per-instance state for a fresh replay day.
+
+        Called by loop.py when day-chaining so session cooldowns,
+        position tracking, and daily PnL counters don't leak across days.
+        """
+        if hasattr(self, '_last_position_state'):
+            self._last_position_state.clear()
+        if hasattr(self, '_session_losses'):
+            self._session_losses.clear()
+        if hasattr(self, '_session_blocked'):
+            self._session_blocked.clear()
+        if hasattr(self, '_daily_total_pnl'):
+            self._daily_total_pnl = 0.0
+            self._daily_cb_date = None
+        self._bar_index = 0
+        logger.info("[CONDUCTOR] Instance state reset for new replay day")
 
 
     def check_entry_signal(

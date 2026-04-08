@@ -560,7 +560,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
  * @param {{ trades: Array, capital: Array, capitalByBroker: Object }} data
  * @returns {Object} summary with all metrics the analytics panel needs
  */
-function calculateAnalyticsSummary(data) {
+function calculateAnalyticsSummary(data, paperMode = false) {
     const { trades = [], capital = [], capitalByBroker = {}, ledgerBySymbol = {}, ledgerByStrategy = {} } = data;
     const closed = trades.filter(t => !t._active);
 
@@ -622,46 +622,51 @@ function calculateAnalyticsSummary(data) {
     const capitalChangePct = capitalStart > 0 ? ((capitalChange / capitalStart) * 100).toFixed(1) : 0;
 
     // ── Cashout & Active PnL Detection ──
-    // Merge trades and capital snapshots chronologically to detect cash-outs (unexplained capital drops)
-    const events = [];
-    for (const t of closed) {
-        if (t.closed_at || t.timestamp) {
-            events.push({ time: new Date(t.closed_at || t.timestamp).getTime(), type: 'trade', pnl: parseFloat(t.pnl) || 0 });
-        }
-    }
-    for (const c of sortedCapital) {
-        if (c.timestamp && (c.nav || c.balance)) {
-            events.push({ time: new Date(c.timestamp).getTime(), type: 'cap', nav: (c.nav || c.balance) });
-        }
-    }
-    events.sort((a, b) => a.time - b.time);
-
+    // In paper mode, there are no real cashouts/deposits — capital drops are
+    // entirely from trade losses.  The cashout heuristic (diff > $100) was
+    // incorrectly rebasing activePnl to $0, which is why the "TOTAL PNL"
+    // hero card showed $0.00 despite thousands in losses.
     let activeCapitalStart = capitalStart; 
-    let activePnl = 0;
-    let lastKnownNav = capitalStart;
+    let activePnl = totalPnl;  // Default: just use the raw sum
     let totalWithdrawn = 0;
 
-    for (const ev of events) {
-        if (ev.type === 'trade') {
-            activePnl += ev.pnl;
-            lastKnownNav += ev.pnl;
-        } else if (ev.type === 'cap') {
-            const actualNav = ev.nav;
-            const diff = lastKnownNav - actualNav; // positive diff means capital dropped
-            
-            if (diff > 100) { 
-                // Large unexplained drop => Cashout event
-                totalWithdrawn += diff;
-                activeCapitalStart = actualNav; // Re-base capital to the remaining nav
-                activePnl = Math.max(0, activePnl - diff); // Proportionally deduct, don't wipe to 0
-                lastKnownNav = actualNav;
-            } else if (diff < -100) {
-                // Large unexplained increase => Deposit event
-                activeCapitalStart += (-diff);
-                lastKnownNav = actualNav;
-            } else {
-                // Small discrepancy (e.g. spread/commission sync), align it silently
-                lastKnownNav = actualNav;
+    if (!paperMode) {
+        // Live mode: Merge trades and capital snapshots to detect real cash-outs
+        const events = [];
+        for (const t of closed) {
+            if (t.closed_at || t.timestamp) {
+                events.push({ time: new Date(t.closed_at || t.timestamp).getTime(), type: 'trade', pnl: parseFloat(t.pnl) || 0 });
+            }
+        }
+        for (const c of sortedCapital) {
+            if (c.timestamp && (c.nav || c.balance)) {
+                events.push({ time: new Date(c.timestamp).getTime(), type: 'cap', nav: (c.nav || c.balance) });
+            }
+        }
+        events.sort((a, b) => a.time - b.time);
+
+        activePnl = 0;
+        let lastKnownNav = capitalStart;
+
+        for (const ev of events) {
+            if (ev.type === 'trade') {
+                activePnl += ev.pnl;
+                lastKnownNav += ev.pnl;
+            } else if (ev.type === 'cap') {
+                const actualNav = ev.nav;
+                const diff = lastKnownNav - actualNav;
+                
+                if (diff > 100) { 
+                    totalWithdrawn += diff;
+                    activeCapitalStart = actualNav;
+                    activePnl = Math.max(0, activePnl - diff);
+                    lastKnownNav = actualNav;
+                } else if (diff < -100) {
+                    activeCapitalStart += (-diff);
+                    lastKnownNav = actualNav;
+                } else {
+                    lastKnownNav = actualNav;
+                }
             }
         }
     }

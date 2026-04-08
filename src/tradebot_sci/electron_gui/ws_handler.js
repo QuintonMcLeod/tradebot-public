@@ -240,6 +240,35 @@ async function connectWebSocket() {
             } else if (msg.type === 'log') {
                 parseLogLine(msg.data);
                 appendLog(msg.level || "INFO", msg.data);
+                
+                // Intercept Eval logs for Modal
+                if (msg.data.includes("PROP FIRM EVALUATION FAILED") || msg.data.includes("PROP FIRM EVALUATION PASSED")) {
+                    const isPass = msg.data.includes("PASSED");
+                    const modal = document.getElementById('eval-popup-modal');
+                    const icon = document.getElementById('eval-popup-icon');
+                    const title = document.getElementById('eval-popup-title');
+                    const message = document.getElementById('eval-popup-message');
+                    
+                    if (modal && icon && title && message) {
+                        const innerBox = modal.querySelector('.max-w-md');
+                        if (isPass) {
+                            icon.textContent = "stars";
+                            icon.className = "material-symbols-outlined text-6xl text-yellow-400 mb-4 animate-bounce drop-shadow-[0_0_15px_rgba(250,204,21,0.5)]";
+                            title.textContent = "EVALUATION PASSED!";
+                            title.className = "text-2xl font-black text-yellow-400 uppercase tracking-widest mb-2";
+                            message.textContent = "Congratulations! You successfully reached the profit target. You are now ready for a funded account!";
+                            if (innerBox) innerBox.className = "bg-[#0f172a] border-2 border-yellow-500/50 rounded-2xl p-8 max-w-md w-full shadow-[0_0_50px_rgba(250,204,21,0.3)] flex flex-col items-center text-center transform scale-100 transition-transform duration-300 relative";
+                        } else {
+                            icon.textContent = "cancel";
+                            icon.className = "material-symbols-outlined text-6xl text-red-500 mb-4 animate-bounce drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]";
+                            title.textContent = "EVALUATION FAILED";
+                            title.className = "text-2xl font-black text-red-500 uppercase tracking-widest mb-2";
+                            message.textContent = msg.data.includes("DAILY LOSS") ? "You breached the Daily Drawdown limit. Your account has been liquidated." : "You breached the Overall Max Drawdown limit. Your account has been liquidated.";
+                            if (innerBox) innerBox.className = "bg-[#0f172a] border-2 border-red-500/50 rounded-2xl p-8 max-w-md w-full shadow-[0_0_50px_rgba(239,68,68,0.3)] flex flex-col items-center text-center transform scale-100 transition-transform duration-300 relative";
+                        }
+                        modal.classList.remove('hidden');
+                    }
+                }
             } else if (msg.type === 'state') {
                 const data = msg.data;
                 if (data.pnl_stats && data.pnl_stats[pnlTimeframe] !== undefined) {
@@ -285,6 +314,13 @@ async function connectWebSocket() {
                     if (sabbathEl) {
                         if (data.is_sabbath) sabbathEl.classList.remove('hidden');
                         else sabbathEl.classList.add('hidden');
+                    }
+                }
+                if (data.is_eval !== undefined) {
+                    const evalEl = document.getElementById('status-eval');
+                    if (evalEl) {
+                        if (data.is_eval && (data.is_paper || window.isPaper)) evalEl.classList.remove('hidden');
+                        else evalEl.classList.add('hidden');
                     }
                 }
                 // Track paper mode globally so analytics uses the right data source
@@ -416,7 +452,9 @@ async function connectWebSocket() {
 
         console.warn("Live Data Stream Disconnected. Retrying in 5s...");
         updateStatus('disconnected', '--');
-        document.getElementById('status-indicator').className = 'w-2 h-2 rounded-full bg-red-500 mr-2 shadow-[0_0_8px_rgba(239,68,68,0.5)]';
+        if (document.getElementById('status-dot')) {
+            document.getElementById('status-dot').className = 'w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]';
+        }
         setTimeout(connectWebSocket, 5000);
     };
 

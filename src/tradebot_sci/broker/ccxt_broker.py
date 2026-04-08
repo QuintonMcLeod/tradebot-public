@@ -1024,6 +1024,18 @@ class CCXTExchangeBroker:
         Returns (pos_size_usd, qty_base, send_amount, entry_price, min_amount_limit)
         or an error tuple when entry cannot proceed.
         """
+        # ── Prop Firm Auto-Sizer ──
+        prop_tier = float(getattr(self.profile, "prop_challenge_tier_usd", 0.0))
+        prop_loss = float(getattr(self.profile, "prop_challenge_max_loss_pct", 0.0))
+        
+        if prop_tier > 0 and prop_loss <= 0:
+            prop_loss = 0.04 if prop_tier <= 50000 else 0.03
+            
+        if prop_tier > 0 and prop_loss > 0:
+            sizing_capital = prop_tier * prop_loss
+            logger.info(f"[CCXT] [PROP FIRM SIZER] True Equity scaling active: ${sizing_capital:,.2f} Max Loss Limit")
+            liq_cap = sizing_capital
+
         # Risk parameters
         profile_risk = float(getattr(self.profile, "risk_per_trade_pct", 0.015) or 0.015)
         risk_pct = getattr(decision, "risk_per_trade_pct", None) or profile_risk

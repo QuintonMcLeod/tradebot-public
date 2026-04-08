@@ -94,6 +94,17 @@ class RuntimeController:
                 for tf_code in ['24h', 'week', 'month', 'year', 'all']:
                     pnl_stats[tf_code] = store.get_stats_for_timeframe(tf_code).get('pnl_usd', 0.0)
 
+            # Extract eval mode locally since paper isn't fully nested in settings
+            is_eval = False
+            try:
+                import json
+                from tradebot_sci.paths import CONFIG_FILE
+                if CONFIG_FILE.exists():
+                    with open(CONFIG_FILE, "r") as f:
+                        is_eval = str(json.load(f).get("paper", {}).get("eval_mode", "false")).lower() == "true"
+            except Exception:
+                pass
+
             state_data = {
                 "equity": total_equity,
                 "capital": total_equity,
@@ -102,6 +113,7 @@ class RuntimeController:
                 "profile": self.profile_name,
                 "symbols": getattr(self.profile_settings, "symbols", []),
                 "is_sabbath": sabbath_active,
+                "is_eval": is_eval,
                 "is_paper": is_paper or sabbath_active,
                 "halted": self.ws_server.is_halted(),
                 "pnl_stats": pnl_stats,

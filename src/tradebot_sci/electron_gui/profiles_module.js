@@ -63,6 +63,7 @@ window.profilesModule = (function () {
         { value: 'london_breakout', label: 'London Breakout' },
         { value: 'orb_breakout', label: 'ORB' },
         { value: 'volatility_breakout', label: 'Volatility Breakout' },
+        { value: 'silver_vwap', label: 'Silver VWAP (Apex)' },
         { value: 'aggregator', label: 'Singularity Aggregator' },
         { value: 'meta_sci', label: 'Meta-SCI (AI Ensemble)' },
         { value: 'forex_conductor', label: 'Forex Conductor (Session Scheduler)' },

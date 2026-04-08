@@ -26,7 +26,7 @@ def run_universal_exit_logic(
     entry_price = float(open_position.get("entry_price", 0))
     stop_price = float(open_position.get("stop_price", 0) or open_position.get("stop_loss", 0))
     target_price = float(open_position.get("target_price", 0) or 0)
-    direction = open_position.get("direction", "long")
+    direction = open_position.get("direction") or open_position.get("side", "long")
     
     if entry_price <= 0:
         return None
@@ -48,18 +48,59 @@ def run_universal_exit_logic(
     if isinstance(active_strategies, str):
         active_strategies = [s.strip() for s in active_strategies.split(",") if s.strip()]
     
-    
-    # Ensure hard stop losses are ALWAYS respected regardless of strategy
-    if stop_price > 0:
-        if direction == "long" and current_price <= stop_price:
-            return _hard_exit(snapshot, open_position, "Hard Stop Loss Hit")
-        if direction == "short" and current_price >= stop_price:
-            return _hard_exit(snapshot, open_position, "Hard Stop Loss Hit")
+    # ════════════════════════════════════════════════════════════════════
+    # PHASE 1: EMERGENCY EXIT STRATEGIES — run BEFORE hard stop
+    # ════════════════════════════════════════════════════════════════════
+    # These strategies detect structural trend breaks and must fire BEFORE
+    # the mechanical stop deletes the position.  Without this priority,
+    # the hard stop at line ~55 always wins the race, and no invalidation
+    # is ever recorded in the ledger.
+    #
+    # This mirrors the backtester fix where the Universal Exit Router runs
+    # at the per-bar level BEFORE the hardcoded stop check.
+    _EMERGENCY_STRATEGIES = {"trend_invalidation", "structure_failure"}
+    for exit_strategy in active_strategies:
+        exit_strategy_key = str(exit_strategy).lower()
+        if exit_strategy_key not in _EMERGENCY_STRATEGIES:
+            continue
+        strat_decision = None
+        if exit_strategy_key == "trend_invalidation":
+            strat_decision = _exit_trend_invalidation(snapshot, open_position, current_price, direction, gates)
+        elif exit_strategy_key == "structure_failure":
+            strat_decision = _exit_structure_failure(snapshot, open_position, current_price, direction)
+        if strat_decision and getattr(strat_decision, "action", None) == "close_position":
+            return strat_decision
 
+    # ════════════════════════════════════════════════════════════════════
+    # PHASE 2: HARD STOP LOSS — REMOVED (2026-04-07)
+    # ════════════════════════════════════════════════════════════════════
+    # Hard stop checks are now EXCLUSIVELY handled by the broker's
+    # mechanical SL/TP evaluator (paper_broker.evaluate_synthetic_stops
+    # or oanda_broker's server-side stop orders).
+    #
+    # WHY: This check compared `current_price` (5m bar CLOSE) against
+    # `stop_price`. When a 5m candle gaps violently through the stop,
+    # the bar close can be 300%+ beyond the stop level — producing
+    # catastrophic fills ($388 losses instead of the correct $105).
+    #
+    # The broker's mechanical evaluator uses candle HIGH/LOW for
+    # intra-bar detection and exits at the EXACT stop price, which is
+    # both more protective and more realistic.
+    #
+    # Emergency exit strategies (trend_invalidation, structure_failure)
+    # remain in Phase 1 — those are strategic decisions that properly
+    # close at bar-close price. Hard stops are price-level mechanics.
+
+    # ════════════════════════════════════════════════════════════════════
+    # PHASE 3: STANDARD EXIT STRATEGIES — trailing, timing, etc.
+    # ════════════════════════════════════════════════════════════════════
     decision = None
     
     for exit_strategy in active_strategies:
         exit_strategy = str(exit_strategy).lower()
+        # Skip emergency strategies — already evaluated in Phase 1
+        if exit_strategy in _EMERGENCY_STRATEGIES:
+            continue
         strat_decision = None
         
         if exit_strategy == "chandelier":
@@ -82,10 +123,6 @@ def run_universal_exit_logic(
             strat_decision = _exit_ratchet(snapshot, open_position, current_price, direction, r_multiple, stop_price, entry_price, initial_risk)
         elif exit_strategy == "adx_death":
             strat_decision = _exit_adx_death(snapshot, open_position, current_price, direction, gates)
-        elif exit_strategy == "structure_failure":
-            strat_decision = _exit_structure_failure(snapshot, open_position, current_price, direction)
-        elif exit_strategy == "trend_invalidation":
-            strat_decision = _exit_trend_invalidation(snapshot, open_position, current_price, direction, gates)
         else:
             # Default: fixed_rr
             strat_decision = _exit_fixed_rr(snapshot, open_position, current_price, direction, target_price)
@@ -378,6 +415,20 @@ _trend_inval_confirm: dict = {}
 # Tracks whether a trade has ever been profitable (high-water-mark gate).
 # Invalidation only fires AFTER the trade has been positive at least once.
 _trend_inval_was_profitable: dict = {}
+_trend_inval_trade_ids: dict = {}
+
+
+def reset_state():
+    """Clear all module-level state for a fresh replay day.
+
+    Called by loop.py when day-chaining to prevent stale trend invalidation
+    memory from the previous day leaking into the new day's decisions.
+    """
+    global _trend_inval_confirm, _trend_inval_was_profitable, _trend_inval_trade_ids
+    _trend_inval_confirm.clear()
+    _trend_inval_was_profitable.clear()
+    _trend_inval_trade_ids.clear()
+    logger.info("[EXIT-LOGIC] Module state reset for new replay day")
 
 def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates):
     """13. Trend Invalidation — 3-layer tiered cascade using gate signals.
@@ -385,65 +436,37 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates):
     Each layer reads the directional output already computed by trend_consensus
     and checks whether the timeframe has flipped against the trade.
 
-      Layer 1 (EXEC — 5m):  Fastest reaction.  Grace: 5 bars, Confirm: 3 bars.
-      Layer 2 (LTF — 15m):  Mid-tier signal.   Grace: 8 bars, Confirm: 3 bars.
+      Layer 1 (EXEC — 5m):  Fastest reaction.  Grace: 5 bars, Confirm: 2 bars.
+      Layer 2 (LTF — 15m):  Mid-tier signal.   Grace: 5 bars, Confirm: 2 bars.
       Layer 3 (MTF — 1H):   Kill shot.          Grace: 0 bars, Confirm: 2 bars.
 
     All layers fire independently — the fastest one that confirms wins.
-    Profit-gated: only fires when the trade is currently at a LOSS.
+
+    IMPORTANT: Layer 3 (MTF kill shot) fires REGARDLESS of profit gate.
+    A 1H macro trend flip is structural and must override all other checks.
+    Layers 1 & 2 remain profit-gated to filter micro-noise.
     """
     import logging
     logger = logging.getLogger("tradebot_sci")
 
-    # ── "Was meaningfully profitable" high-water-mark gate ──
-    # Invalidation is a PROFIT PROTECTION tool. It should only fire after
-    # the trade has reached meaningful profit (≥ 0.3R), not just a 1-pip
-    # wiggle into the green. Trades that never reach 0.3R profit will
-    # hit their normal stop/target instead.
-    entry_price = float(pos.get("entry_price", 0))
     sym = snapshot.symbol
+    entry_ts_str = str(pos.get("entry_time", ""))
+    
+    last_entry = _trend_inval_trade_ids.get(sym)
+    if last_entry != entry_ts_str:
+        # It's a brand new trade. Clear previous memory!
+        _clear_confirm(sym)
+        _trend_inval_trade_ids[sym] = entry_ts_str
+
+    entry_price = float(pos.get("entry_price", 0))
     _stop_price = float(pos.get("stop_loss", 0) or pos.get("stop_price", 0) or 0)
     _init_risk = abs(entry_price - _stop_price) if _stop_price > 0 else 0
     if _init_risk < (entry_price * 0.0001):
         _atr_est = calculate_atr(snapshot.candles, period=14) if snapshot.candles else None
         _init_risk = _atr_est if _atr_est and _atr_est > 0 else (entry_price * 0.002)
-    _arm_threshold = _init_risk * 0.3  # Need 0.3R profit to arm invalidation
-
-    _meaningful_profit = False
-    if entry_price > 0:
-        if direction == "long" and current_price >= (entry_price + _arm_threshold):
-            _meaningful_profit = True
-        elif direction == "short" and current_price <= (entry_price - _arm_threshold):
-            _meaningful_profit = True
-
-    if _meaningful_profit:
-        _trend_inval_was_profitable[sym] = True
-
-    if not _trend_inval_was_profitable.get(sym, False):
-        # Trade has NEVER reached 0.3R profit — skip invalidation entirely.
-        # Let the hard stop or other exit strategies handle it.
-        return None
-
-    # ── Profit gate: never kill a meaningfully profitable trade ──
-    # If the trade is currently in strong profit (>0.5R), spare it for this bar.
-    # Importantly, we DO NOT wipe the confirmation counters. If the trend 
-    # remains structurally broken and drops back into a loss, it will exit.
-    _stop_price = float(pos.get("stop_loss", 0) or pos.get("stop_price", 0) or 0)
-    _initial_risk = abs(entry_price - _stop_price) if _stop_price > 0 else 0
-    if _initial_risk < (entry_price * 0.0001):  # Less than ~1 pip for forex
-        # Fallback to ATR-based risk estimate  
-        _atr_risk = calculate_atr(snapshot.candles, period=14) if snapshot.candles else None
-        _initial_risk = _atr_risk if _atr_risk and _atr_risk > 0 else (entry_price * 0.002)
-    _profit_threshold = _initial_risk * 0.5  # Need 0.5R profit to suppress invalidation
-    if entry_price > 0:
-        if direction == "long" and current_price >= (entry_price + _profit_threshold):
-            return None
-        if direction == "short" and current_price <= (entry_price - _profit_threshold):
-            return None
 
     # ── Compute bars held ──
     bars_held = _calc_bars_held(pos, snapshot)
-    sym = snapshot.symbol
 
     # Read gate directions (populated by engine.py from trend_consensus)
     exec_dir = gates.get("exec_dir", "neutral")   # 5m execution TF
@@ -451,77 +474,14 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates):
     mtf_dir  = gates.get("mtf_dir",  "neutral")   # 1H mid TF
 
     # ═══════════════════════════════════════════════════════════════
-    # LAYER 1: EXEC (5m) — Fastest invalidation
-    # ═══════════════════════════════════════════════════════════════
-    # The execution timeframe is where the entry thesis lives.
-    # If the 5m flips against the trade, the micro-trend is broken.
-    EXEC_GRACE   = 5   # Let the trade breathe for 5 bars before checking
-    EXEC_CONFIRM = 2   # 2 consecutive bars of confirmed flip (was 3, lowered after diagnostics showed flips never sustained 3 bars before stop)
-
-    if bars_held >= EXEC_GRACE:
-        key = f"{sym}_exec"
-        if _is_flipped(direction, exec_dir):
-            _trend_inval_confirm[key] = _trend_inval_confirm.get(key, 0) + 1
-            if _trend_inval_confirm[key] >= EXEC_CONFIRM:
-                _clear_confirm(sym)
-                label = f"EXEC({exec_dir.upper()})"
-                logger.info(
-                    f"[TREND-INVAL] {sym}: EXEC INVALIDATION — 5m flipped {label} "
-                    f"(held {bars_held} bars, entry={entry_price:.5f}, now={current_price:.5f})"
-                )
-                return _hard_exit(
-                    snapshot, pos,
-                    f"Trend Invalidation: 5m flipped {exec_dir.upper()} vs {direction.upper()} trade",
-                    is_emergency=True
-                )
-            else:
-                logger.info(
-                    f"[TREND-INVAL] {sym}: EXEC flip detected ({exec_dir}) — "
-                    f"confirm {_trend_inval_confirm[key]}/{EXEC_CONFIRM}"
-                )
-        elif exec_dir == direction:
-            # Trend reassumed our thesis — reset the confirmation countdown
-            _trend_inval_confirm.pop(key, None)
-
-    # ═══════════════════════════════════════════════════════════════
-    # LAYER 2: LTF (15m) — Mid-tier invalidation
-    # ═══════════════════════════════════════════════════════════════
-    # A 15m flip is a stronger structural signal.  Slightly longer grace
-    # than exec because the 15m smooths noise, but once it confirms,
-    # the trade thesis is clearly broken.
-    LTF_GRACE   = 5   # Match EXEC_GRACE — 5 bars before checking (was 8)
-    LTF_CONFIRM = 2   # 2 consecutive bars (was 3)
-
-    if bars_held >= LTF_GRACE:
-        key = f"{sym}_ltf"
-        if _is_flipped(direction, ltf_dir):
-            _trend_inval_confirm[key] = _trend_inval_confirm.get(key, 0) + 1
-            if _trend_inval_confirm[key] >= LTF_CONFIRM:
-                _clear_confirm(sym)
-                logger.info(
-                    f"[TREND-INVAL] {sym}: LTF INVALIDATION — 15m flipped {ltf_dir.upper()} "
-                    f"(held {bars_held} bars)"
-                )
-                return _hard_exit(
-                    snapshot, pos,
-                    f"Trend Invalidation: 15m flipped {ltf_dir.upper()} vs {direction.upper()} trade",
-                    is_emergency=True
-                )
-            else:
-                logger.info(
-                    f"[TREND-INVAL] {sym}: LTF flip detected ({ltf_dir}) — "
-                    f"confirm {_trend_inval_confirm[key]}/{LTF_CONFIRM}"
-                )
-        elif ltf_dir == direction:
-            # Trend reassumed our thesis
-            _trend_inval_confirm.pop(key, None)
-
-    # ═══════════════════════════════════════════════════════════════
-    # LAYER 3: MTF (1H) — Kill shot
+    # LAYER 3 (MTF — 1H): Kill shot — NO profit gate, NO grace
     # ═══════════════════════════════════════════════════════════════
     # If the 1H timeframe flips against the trade, the macro thesis
-    # is dead.  No grace period — just 2 bars of confirmation to
-    # filter a single-bar spike, then hard exit.
+    # is dead.  This fires BEFORE profit gates because a macro trend
+    # flip is structural — it doesn't matter if the trade was ever
+    # profitable.  2 bars of confirmation to filter single-bar spikes.
+    #
+    # This is checked FIRST because it's the most authoritative signal.
     MTF_CONFIRM = 2
 
     key = f"{sym}_mtf"
@@ -546,6 +506,91 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates):
     elif mtf_dir == direction:
         # Trend reassumed our thesis
         _trend_inval_confirm.pop(key, None)
+
+    # ═══════════════════════════════════════════════════════════════
+    # PROFIT GATES — only for EXEC/LTF layers (noisier signals)
+    # ═══════════════════════════════════════════════════════════════
+
+    # ── "Was meaningfully profitable" high-water-mark gate ──
+    # Layers 1 & 2 only arm after the trade reaches 0.3R profit.
+    # This prevents micro-noise from killing trades that haven't
+    # established a profit buffer yet.
+    _arm_threshold = _init_risk * 0.3  # Need 0.3R profit to arm L1/L2
+
+    _meaningful_profit = False
+    if entry_price > 0:
+        if direction == "long" and current_price >= (entry_price + _arm_threshold):
+            _meaningful_profit = True
+        elif direction == "short" and current_price <= (entry_price - _arm_threshold):
+            _meaningful_profit = True
+
+    if _meaningful_profit:
+        _trend_inval_was_profitable[sym] = True
+
+    if not _trend_inval_was_profitable.get(sym, False):
+        # Trade has NEVER reached 0.3R profit — skip L1/L2 invalidation.
+        # MTF kill shot (above) already had its chance.
+        return None
+
+
+    # ═══════════════════════════════════════════════════════════════
+    # LAYER 1: EXEC (5m) — Fastest invalidation
+    # ═══════════════════════════════════════════════════════════════
+    EXEC_GRACE   = 5   # Let the trade breathe for 5 bars before checking
+    EXEC_CONFIRM = 2   # 2 consecutive bars of confirmed flip
+
+    if bars_held >= EXEC_GRACE:
+        key = f"{sym}_exec"
+        if _is_flipped(direction, exec_dir):
+            _trend_inval_confirm[key] = _trend_inval_confirm.get(key, 0) + 1
+            if _trend_inval_confirm[key] >= EXEC_CONFIRM:
+                _clear_confirm(sym)
+                label = f"EXEC({exec_dir.upper()})"
+                logger.info(
+                    f"[TREND-INVAL] {sym}: EXEC INVALIDATION — 5m flipped {label} "
+                    f"(held {bars_held} bars, entry={entry_price:.5f}, now={current_price:.5f})"
+                )
+                return _hard_exit(
+                    snapshot, pos,
+                    f"Trend Invalidation: 5m flipped {exec_dir.upper()} vs {direction.upper()} trade",
+                    is_emergency=True
+                )
+            else:
+                logger.info(
+                    f"[TREND-INVAL] {sym}: EXEC flip detected ({exec_dir}) — "
+                    f"confirm {_trend_inval_confirm[key]}/{EXEC_CONFIRM}"
+                )
+        elif exec_dir == direction:
+            _trend_inval_confirm.pop(key, None)
+
+    # ═══════════════════════════════════════════════════════════════
+    # LAYER 2: LTF (15m) — Mid-tier invalidation
+    # ═══════════════════════════════════════════════════════════════
+    LTF_GRACE   = 5
+    LTF_CONFIRM = 2
+
+    if bars_held >= LTF_GRACE:
+        key = f"{sym}_ltf"
+        if _is_flipped(direction, ltf_dir):
+            _trend_inval_confirm[key] = _trend_inval_confirm.get(key, 0) + 1
+            if _trend_inval_confirm[key] >= LTF_CONFIRM:
+                _clear_confirm(sym)
+                logger.info(
+                    f"[TREND-INVAL] {sym}: LTF INVALIDATION — 15m flipped {ltf_dir.upper()} "
+                    f"(held {bars_held} bars)"
+                )
+                return _hard_exit(
+                    snapshot, pos,
+                    f"Trend Invalidation: 15m flipped {ltf_dir.upper()} vs {direction.upper()} trade",
+                    is_emergency=True
+                )
+            else:
+                logger.info(
+                    f"[TREND-INVAL] {sym}: LTF flip detected ({ltf_dir}) — "
+                    f"confirm {_trend_inval_confirm[key]}/{LTF_CONFIRM}"
+                )
+        elif ltf_dir == direction:
+            _trend_inval_confirm.pop(key, None)
 
     return None
 

@@ -429,7 +429,7 @@ function setupIpcHandlers() {
         try {
             const data = await logParser.getTradeHistory(filter, paperMode);
             console.log('[ANALYTICS-IPC] Raw data - trades:', data.trades?.length, 'capital:', data.capital?.length);
-            const summary = logParser.calculateAnalyticsSummary(data);
+            const summary = logParser.calculateAnalyticsSummary(data, paperMode);
             console.log('[ANALYTICS-IPC] Summary calculated - totalTrades:', summary.totalTrades);
             return { success: true, data: summary };
         } catch (error) {
@@ -454,9 +454,9 @@ function setupIpcHandlers() {
     const RTFM_DIR = path.join(DOCS_DIR, 'RTFM');
 
     // Dynamically build HELP_CATALOG from markdown frontmatter
-    let HELP_CATALOG = [];
-    try {
+    function _scanHelpCatalog() {
         const yaml = require('js-yaml');
+        const catalog = [];
         const directories = ['', 'RTFM', 'adr'];
         
         for (const dir of directories) {
@@ -496,10 +496,16 @@ function setupIpcHandlers() {
                 
                 // Only push if it has valid metadata
                 if (meta) {
-                    HELP_CATALOG.push(meta);
+                    catalog.push(meta);
                 }
             }
         }
+        return catalog;
+    }
+
+    let HELP_CATALOG = [];
+    try {
+        HELP_CATALOG = _scanHelpCatalog();
         console.log(`[MAIN] Dynamically loaded ${HELP_CATALOG.length} documents from Documentation/`);
     } catch (e) {
         console.error('[MAIN] Failed to dynamically load doc catalog:', e);
@@ -517,6 +523,9 @@ function setupIpcHandlers() {
         });
 
         ipcMain.handle('list-help-docs', async () => {
+            // Re-scan on every request so new articles are discovered
+            // without restarting the Electron app
+            HELP_CATALOG = _scanHelpCatalog();
             console.log('[MAIN] list-help-docs handler called, returning', HELP_CATALOG.length, 'docs');
             return { success: true, data: HELP_CATALOG };
         });
@@ -2249,6 +2258,7 @@ function createWindow() {
                                     title: 'No Broker Configured',
                                     message: 'The bot requires at least one broker with valid API credentials to start.',
                                     detail: 'Go to Settings → Broker Suite and configure one of the following:\n\n' +
+                                        '• Apex / FTMO / FundedNext (Prop Firms)\n' +
                                         '• OANDA (Forex) — Account ID + API Key\n' +
                                         '• Gemini (Crypto) — API Key + Secret\n' +
                                         '• CCXT (Any Exchange) — API Key + Secret\n' +
@@ -2258,7 +2268,7 @@ function createWindow() {
                                     defaultId: 0,
                                 }).then(({ response }) => {
                                     if (response === 0) {
-                                        // Navigate to settings and switch to Brokers tab
+                                        // Navigate to settings and switch to Live Brokers tab
                                         mainWindow.webContents.send('fromMain', { type: 'navigate', target: 'settings', tab: 'brokers' });
                                     }
                                 });
@@ -2294,6 +2304,31 @@ function createWindow() {
             setTimeout(() => {
                 // Re-trigger start logic
                 ipcMain.emit('start-bot');
+
+                // Poll for the bot to come back online, then notify the renderer
+                let pollAttempts = 0;
+                const pollInterval = setInterval(() => {
+                    pollAttempts++;
+                    exec('pgrep -f "[r]un_dev_bot.py"', (err, stdout) => {
+                        if (stdout && stdout.trim()) {
+                            clearInterval(pollInterval);
+                            console.log('[MAIN] Bot confirmed running after restart.');
+                            // Give the WS server a moment to bind
+                            setTimeout(() => {
+                                if (mainWindow && !mainWindow.isDestroyed()) {
+                                    mainWindow.webContents.send('bot-restarted');
+                                }
+                            }, 2000);
+                        } else if (pollAttempts >= 15) {
+                            // Timeout after ~15s — notify anyway so the UI isn't stuck
+                            clearInterval(pollInterval);
+                            console.warn('[MAIN] Bot restart poll timed out.');
+                            if (mainWindow && !mainWindow.isDestroyed()) {
+                                mainWindow.webContents.send('bot-restarted');
+                            }
+                        }
+                    });
+                }, 1000);
             }, 2000);
         });
     });

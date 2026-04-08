@@ -561,7 +561,7 @@ class SafetyGuard:
             if (direction == "long" and current_price <= sl_target) or \
                (direction == "short" and current_price >= sl_target):
                 logger.info(f"[SAFETY] SL TRIGGERED for {snapshot.symbol} at {current_price} (Target: {sl_target})")
-                return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"SL Hit @ {sl_target}")
+                return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"SL Hit @ {sl_target}", emergency_exit=True)
 
         settings = get_settings()
 
@@ -885,18 +885,9 @@ class SafetyGuard:
                  # FLOOR: Only lock to breakeven after trade proves itself (0.5R+)
                  if r_multiple >= 0.5:
                      potential_stop = max(potential_stop, entry_price)
-                 # If price is at/below entry AND trade previously reached meaningful profit,
-                 # the setup proved itself then reversed — close to protect capital.
-                 # We check the PEAK R (highest high since entry), not current R
-                 # (which is ~0 at entry). Without peak R, the gate never fires.
-                 min_greedy_age = getattr(settings.safety, 'safety_greedy_min_age_seconds', 1200) if settings else 1200
-                 relevant_candles = [c for c in snapshot.candles if entry_time and isinstance(entry_time, datetime) and c.timestamp >= entry_time]
-                 peak_price = max(c.high for c in relevant_candles) if relevant_candles else entry_price
-                 peak_r = (peak_price - entry_price) / initial_risk if initial_risk > 0 else 0
-                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.5 and current_price <= entry_price:
-                     logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} <= {entry_price:.5f}, peak was {peak_r:.1f}R). Closing at breakeven.")
-                     return close_position_decision(snapshot.symbol, snapshot.timeframe,
-                                                    reason=f"Greedy Exit: Back to entry (breakeven)")
+                 # The breakeven trailing stop logic beneath this block securely locks profits 
+                 # to `entry_price` once 0.5R is reached, purely based on market conditions,
+                 # completely eliminating the need for an arbitrary time-based timeout exit.
                  # Only move UP
                  if potential_stop > current_stop:
                       if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss < potential_stop)):
@@ -913,16 +904,7 @@ class SafetyGuard:
                  # FLOOR: Only lock to breakeven after trade proves itself (0.5R+)
                  if r_multiple >= 0.5:
                      potential_stop = min(potential_stop, entry_price)
-                 # If price is at/above entry AND trade previously reached meaningful profit,
-                 # the setup proved itself then reversed — close to protect capital.
-                 min_greedy_age = getattr(settings.safety, 'safety_greedy_min_age_seconds', 1200) if settings else 1200
-                 relevant_candles = [c for c in snapshot.candles if entry_time and isinstance(entry_time, datetime) and c.timestamp >= entry_time]
-                 trough_price = min(c.low for c in relevant_candles) if relevant_candles else entry_price
-                 peak_r = (entry_price - trough_price) / initial_risk if initial_risk > 0 else 0
-                 if hours_held * 3600 >= min_greedy_age and peak_r >= 0.5 and current_price >= entry_price:
-                     logger.info(f"[SAFETY] Greedy Exit FLOOR: {snapshot.symbol} back at entry ({current_price:.5f} >= {entry_price:.5f}, peak was {peak_r:.1f}R). Closing at breakeven.")
-                     return close_position_decision(snapshot.symbol, snapshot.timeframe,
-                                                    reason=f"Greedy Exit: Back to entry (breakeven)")
+                 # The trailing stop will lock to the exact breakeven `entry_price` floor automatically.
                  # Only move DOWN
                  if current_stop == 0 or potential_stop < current_stop:
                       if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss > potential_stop)):

@@ -58,6 +58,17 @@ _TF_CACHE: dict[tuple, "_TimeframeResult"] = {}
 _TF_CACHE_MAX = 8  # Keep small — only need current bar's HTF/LTF per symbol
 
 
+def clear_cache():
+    """Clear the trend computation cache for a fresh replay day.
+
+    Called by loop.py when day-chaining to prevent stale indicator results
+    from the previous day being returned for the new day's candle data.
+    """
+    global _TF_CACHE
+    _TF_CACHE.clear()
+    logger.info("[TREND-DETECT] Indicator cache cleared for new replay day")
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Per-timeframe result (internal)
 # ─────────────────────────────────────────────────────────────────────

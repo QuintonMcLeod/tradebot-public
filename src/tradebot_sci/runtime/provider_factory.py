@@ -356,6 +356,8 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
         "paxos":    lambda: os.getenv("PAXOS_API_KEY") or (settings.paxos and settings.paxos.api_key),
         "itbit":    lambda: os.getenv("PAXOS_API_KEY") or (settings.paxos and settings.paxos.api_key),
         "kraken":   lambda: os.getenv("KRAKEN_API_KEY"),
+        "apex":  lambda: os.getenv("PROP_APEX_APP_ID") or (profile_settings and getattr(profile_settings, "prop_apex_app_id", "")),
+        "tradovate":lambda: os.getenv("PROP_APEX_APP_ID") or (profile_settings and getattr(profile_settings, "prop_apex_app_id", "")),
     }
     cred_check = _BROKER_CREDS.get(name)
     if cred_check and not cred_check():
@@ -457,6 +459,16 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
             profile_settings,
             position_hold_store_path=settings.runtime.position_hold_store_path,
             trade_results=trade_results
+        )
+    elif name in ("tradovate", "apex"):
+        from tradebot_sci.broker.tradovate_broker import TradovateBroker
+        return TradovateBroker(
+            username=getattr(profile_settings, "prop_apex_user", ""),
+            password=getattr(profile_settings, "prop_apex_pass", ""),
+            app_id=getattr(profile_settings, "prop_apex_app_id", ""),
+            profile_settings=profile_settings,
+            environment="demo", # Apex Evaluation always executes on Demo endpoint
+            read_only=not settings.app.execute_trades
         )
     # Fallback to Mock?
     return NoOpExchangeBroker()

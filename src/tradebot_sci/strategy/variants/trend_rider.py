@@ -182,10 +182,6 @@ class TrendRiderStrategy(BaseStrategy):
         proximity_threshold = atr * 0.8  # Must be tightly pulling back to EMA(21)
 
         # ── BOUNCE CONFIRMATION ──────────────────────────────────
-        # Require EITHER:
-        #   A) Current candle closing in the trend direction, OR
-        #   B) 2 consecutive candles closing in the trend direction, OR
-        #   C) RSI divergence (price makes new extreme but RSI doesn't)
         one_bull_candle = last_close > prev_close
         one_bear_candle = last_close < prev_close
         two_bull_candles = one_bull_candle and prev_close > prev2_close
@@ -197,8 +193,10 @@ class TrendRiderStrategy(BaseStrategy):
         bullish_rsi_div = (last_close < closes[-3] and rsi > rsi_prev2) if len(closes) >= 3 else False
         bearish_rsi_div = (last_close > closes[-3] and rsi < rsi_prev2) if len(closes) >= 3 else False
 
-        confirmed_bull_bounce = one_bull_candle or bullish_rsi_div
-        confirmed_bear_bounce = one_bear_candle or bearish_rsi_div
+        # Require 2 consecutive candles in the trend direction to prove the pullback is actually over
+        # and momentum has cleanly resumed. This prevents catching 'falling knives' on 1m fakeouts.
+        confirmed_bull_bounce = two_bull_candles or bullish_rsi_div
+        confirmed_bear_bounce = two_bear_candles or bearish_rsi_div
 
         # ── DIAGNOSTIC: log why trend_rider returns None ─────────
         logger.info(
@@ -215,8 +213,11 @@ class TrendRiderStrategy(BaseStrategy):
         if htf_dir == "long" and ema_aligned_bull:
             # Price pulled back to EMA(21) and bouncing
             touched_ema = ema_dist < proximity_threshold or last_close <= ema_slow
+            # If the price has plunged violently past the EMA support line, the structure is broken.
+            # Do NOT catch a falling knife that broke the micro-trend support.
+            structure_broken = last_close < (ema_slow - atr * 0.5)
 
-            if touched_ema and confirmed_bull_bounce and last_close > ema_slow:
+            if touched_ema and not structure_broken and confirmed_bull_bounce and last_close > ema_slow:
                 # Find swing low for stop
                 recent_lows = [c.low for c in snapshot.candles[-10:]]
                 swing_low = min(recent_lows)
@@ -255,8 +256,9 @@ class TrendRiderStrategy(BaseStrategy):
         # ── BEARISH PULLBACK ─────────────────────────────────────
         if htf_dir == "short" and ema_aligned_bear:
             touched_ema = ema_dist < proximity_threshold or last_close >= ema_slow
+            structure_broken = last_close > (ema_slow + atr * 0.5)
 
-            if touched_ema and confirmed_bear_bounce and last_close < ema_slow:
+            if touched_ema and not structure_broken and confirmed_bear_bounce and last_close < ema_slow:
                 recent_highs = [c.high for c in snapshot.candles[-10:]]
                 swing_high = max(recent_highs)
                 is_jpy = "JPY" in snapshot.symbol.upper()

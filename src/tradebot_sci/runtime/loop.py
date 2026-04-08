@@ -1128,7 +1128,7 @@ def run_bot(
                     ).lower() == "true"
                 )
 
-                if enabled and (seasoned_daemon is None or not seasoned_daemon.running):
+                if enabled:
                     autopilot_cfg = {
                         "AI_MONETARY_PATH": _prof.get("ai_monetary_path",
                             _ai.get("AI_MONETARY_PATH", "balanced")),
@@ -1137,13 +1137,22 @@ def run_bot(
                         "AI_AUTOPILOT_INTERVAL_MINS": _prof.get("ai_autopilot_interval_mins",
                             _ai.get("AI_AUTOPILOT_INTERVAL_MINS", 30)),
                     }
-                    seasoned_daemon = SeasonedTraderDaemon(
-                        ai_client=ai_client,
-                        config_payload=autopilot_cfg,
-                        controller=controller,
-                    )
-                    seasoned_daemon.start()
-                    logger.info("[AUTOPILOT] 🤖 Seasoned Trader Daemon STARTED (interval=%sm)", autopilot_cfg["AI_AUTOPILOT_INTERVAL_MINS"])
+                    
+                    if seasoned_daemon and seasoned_daemon.running:
+                        # Ensure hot-reloaded parameters apply to daemon
+                        if getattr(seasoned_daemon, "cfg", {}) != autopilot_cfg:
+                            logger.info("[AUTOPILOT] Configuration changed! Restarting Seasoned Trader Daemon...")
+                            seasoned_daemon.stop()
+                            seasoned_daemon = None
+                            
+                    if seasoned_daemon is None or not seasoned_daemon.running:
+                        seasoned_daemon = SeasonedTraderDaemon(
+                            ai_client=ai_client,
+                            config_payload=autopilot_cfg,
+                            controller=controller,
+                        )
+                        seasoned_daemon.start()
+                        logger.info("[AUTOPILOT] 🤖 Seasoned Trader Daemon STARTED (interval=%sm)", autopilot_cfg["AI_AUTOPILOT_INTERVAL_MINS"])
                 elif not enabled and seasoned_daemon and seasoned_daemon.running:
                     seasoned_daemon.stop()
                     logger.info("[AUTOPILOT] Seasoned Trader Daemon STOPPED (disabled by user).")
@@ -1175,9 +1184,18 @@ def run_bot(
     paper_replay_mode = False
     paper_synthetic_mode = False
     sabbath_replay_mode = True
+    paper_eval_mode = False
+    paper_eval_target_pct = 8.0
+    paper_eval_daily_loss_pct = 5.0
+    paper_eval_max_loss_pct = 10.0
+    
+    eval_initial_balance = None
+    eval_day_start_balance = None
+    eval_last_day = None
 
     def _update_paper_settings():
         nonlocal paper_sim_enabled, paper_replay_mode, paper_synthetic_mode, sabbath_replay_mode
+        nonlocal paper_eval_mode, paper_eval_target_pct, paper_eval_daily_loss_pct, paper_eval_max_loss_pct
         import json
         try:
             if config_path.exists():
@@ -1189,6 +1207,14 @@ def run_bot(
                     paper_replay_mode = _p.get("replay_mode", False)
                     paper_synthetic_mode = _p.get("synthetic_mode", False)
                     sabbath_replay_mode = _s.get("sabbath_replay_mode", True)
+                    paper_eval_mode = str(_p.get("eval_mode", "false")).lower() == "true"
+                    paper_eval_target_pct = float(_p.get("eval_target_pct", 8.0))
+                    paper_eval_daily_loss_pct = float(_p.get("eval_daily_loss_pct", 5.0))
+                    paper_eval_max_loss_pct = float(_p.get("eval_max_loss_pct", 10.0))
+                    
+                    # Sync UI balance to os.environ so PaperBroker can read it
+                    os.environ["PAPER_BALANCE"] = str(_p.get("balance", 10000.0))
+
         except Exception as e:
             logger.warning(f"Failed to read raw config for paper settings: {e}")
 
@@ -1212,11 +1238,19 @@ def run_bot(
                         logger.info("[HOT-RELOAD] Detected configuration change. Reloading...")
                         controller.health_monitor.add_event("Config hot-reloaded", "info")
                         
+                        old_paper_eval_mode = paper_eval_mode
+                        
                         # 1. Reload Settings
                         settings = reload_settings()
                         
                         # Fetch pure UI variables that aren't in Pydantic models
                         _update_paper_settings()
+                        
+                        if old_paper_eval_mode != paper_eval_mode:
+                            logger.info(f"[EVAL] Prop Firm Mode changed to {paper_eval_mode}. Resetting anchors.")
+                            eval_initial_balance = None
+                            eval_day_start_balance = None
+                            eval_last_day = None
 
                         # Check Autopilot toggle on hot-reload
                         _maybe_start_seasoned_daemon()
@@ -1329,8 +1363,7 @@ def run_bot(
                                 )
                             else:
                                 # Sync profile to EXISTING engines
-                                engines[sym].profile = profile_settings
-                                engines[sym].settings = settings
+                                engines[sym].sync_profile(profile_settings, settings)
                         
                         # Remove dropped symbols (optional, but good for cleanup)
                         current_keys = list(engines.keys())
@@ -1383,57 +1416,78 @@ def run_bot(
                     _want_replay = True
                 elif true_sabbath_active and sabbath_replay_mode:
                     _want_replay = True
-            if _want_replay and executor == executor_paper and replay_provider is None:
-                if paper_synthetic_mode or _replay_data_dir.is_dir():
-                    try:
-                        if paper_synthetic_mode:
-                            from tradebot_sci.market.synthetic_provider import SyntheticMarketProvider
-                            replay_provider = SyntheticMarketProvider(symbols=symbols)
-                            logger.info("[REPLAY] 💥 Synthetic Fire Mode Activated!")
-                        else:
-                            replay_provider = ReplayMarketProvider(
-                                data_dir=_replay_data_dir,
-                                symbols=symbols,
-                            )
-                        provider = replay_provider
-                        # Give paper broker the replay provider for pricing
-                        executor_paper.market_provider = provider
-                        controller.replay_provider = replay_provider
-                        # Swap engine trade_results → paper store so SAR sees paper losses
-                        for eng in engines.values():
-                            eng.trade_results = paper_trade_results
-                            eng.market_provider = provider
-                        logger.info("[REPLAY] Replay provider activated (engines swapped to paper store)")
-                        # User requested a speed that doesn't feel like a broken standstill. 
-                        # 1:1 true real-time (5 mins per candle) is too slow. Setting to 1 candle per second.
-                        poll_interval = 1
-                        decision_interval = 1
-                        logger.info("[REPLAY] Replay running at 1 candle per second: poll=%ds decision=%ds", poll_interval, decision_interval)
-                    except Exception as e:
-                        logger.warning("[REPLAY] Failed to create replay provider: %s", e)
+            if _want_replay and executor == executor_paper:
+                want_synthetic = paper_synthetic_mode
+                needs_rebuild = False
+                
+                if replay_provider is None:
+                    needs_rebuild = True
+                else:
+                    is_synthetic = getattr(replay_provider, "__class__", None).__name__ == "SyntheticMarketProvider"
+                    if want_synthetic and not is_synthetic:
+                        needs_rebuild = True
+                    elif not want_synthetic and is_synthetic:
+                        needs_rebuild = True
+                        
+                if needs_rebuild:
+                    if want_synthetic or _replay_data_dir.is_dir():
+                        try:
+                            if want_synthetic:
+                                from tradebot_sci.market.synthetic_provider import SyntheticMarketProvider
+                                replay_provider = SyntheticMarketProvider(symbols=symbols)
+                                logger.info("[REPLAY] 💥 Synthetic Fire Mode Activated!")
+                            else:
+                                replay_provider = ReplayMarketProvider(
+                                    data_dir=_replay_data_dir,
+                                    symbols=symbols,
+                                )
+                            provider = replay_provider
+                            # Give paper broker the replay provider for pricing
+                            executor_paper.market_provider = provider
+                            controller.replay_provider = replay_provider
+                            # Swap engine trade_results → paper store so SAR sees paper losses
+                            for eng in engines.values():
+                                eng.trade_results = paper_trade_results
+                                eng.market_provider = provider
+                            logger.info("[REPLAY] Replay provider activated (engines swapped to paper store)")
+                            # User requested a speed that doesn't feel like a broken standstill. 
+                            poll_interval = 1
+                            decision_interval = 1
+                            logger.info("[REPLAY] Replay running at 1 candle per second: poll=%ds decision=%ds", poll_interval, decision_interval)
+                        except Exception as e:
+                            logger.warning("[REPLAY] Failed to create replay provider: %s", e)
                 # Flag for GUI: switch to paper ledger
                 try:
                     Path("data/.sabbath_active").touch()
                 except Exception:
                     pass
-            elif not _want_replay and executor_paper and executor == executor_paper:
-                if execute_trades and executor_real:
-                    logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker connection.")
-                    executor = executor_real
-                elif not execute_trades:
-                    logger.debug("[SABBATH] Sabbath ended, but Live Trading is off — staying on Paper Broker.")
-                # Restore real data provider only when returning to live trading
-                if replay_provider is not None and execute_trades:
+            elif not _want_replay:
+                # Always restore real data provider if we don't want replay anymore
+                if replay_provider is not None:
                     provider = provider_real
                     if executor_paper:
                         executor_paper.market_provider = provider_real
                     controller.replay_provider = None
                     replay_provider = None
-                    # Swap engines back to live trade_results + provider
+                    # Swap engines back to live data stream
                     for eng in engines.values():
-                        eng.trade_results = trade_results
                         eng.market_provider = provider_real
-                    logger.info("[REPLAY] Replay provider deactivated, engines restored to live store")
+                        eng.trade_results = trade_results if executor != executor_paper else paper_trade_results
+                    logger.info("[REPLAY] Replay provider deactivated, engines restored to live data stream")
+                    # Restore default poll intervals
+                    poll_interval = settings.runtime.poll_interval
+                    decision_interval = settings.runtime.decision_interval
+
+                # Check if Sabbath/Off-Hours have ended and we need to drop the Paper Broker
+                if executor_paper and executor == executor_paper and not (true_sabbath_active or force_paper_broker):
+                    if execute_trades and executor_real:
+                        logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker connection.")
+                        executor = executor_real
+                        for eng in engines.values():
+                            eng.trade_results = trade_results
+                    elif not execute_trades:
+                        logger.debug("[SABBATH] Sabbath ended, but Live Trading is off — staying on Paper Broker.")
+                    
                 # Flag for GUI: switch back to live ledger
                 try:
                     Path("data/.sabbath_active").unlink(missing_ok=True)
@@ -1459,6 +1513,57 @@ def run_bot(
             controller.broadcast_state(executor, executor_real=executor_real)
             controller.broadcast_health()
             
+            # ── Prop Firm Evaluation Monitor ──
+            if executor == executor_paper and paper_eval_mode and not controller.is_halted():
+                try:
+                    _eq = getattr(executor, "get_total_balance_value", lambda: 0.0)()
+                    
+                    if eval_initial_balance is None:
+                        eval_initial_balance = _eq
+                        eval_day_start_balance = _eq
+                        eval_last_day = datetime.now().date()
+                        
+                    today = datetime.now().date()
+                    if today != eval_last_day:
+                        if eval_day_start_balance is not None and _eq > eval_day_start_balance:
+                            # Prop firm resets only on new day
+                            pass
+                        eval_day_start_balance = _eq
+                        eval_last_day = today
+                        
+                    if eval_initial_balance > 0:
+                        current_gain_pct = ((_eq - eval_initial_balance) / eval_initial_balance) * 100.0
+                        current_drawdown_pct = ((eval_initial_balance - _eq) / eval_initial_balance) * 100.0
+                        
+                        daily_drawdown_pct = 0.0
+                        if eval_day_start_balance > 0:
+                            daily_drawdown_pct = ((eval_day_start_balance - _eq) / eval_day_start_balance) * 100.0
+                        
+                        failed = False
+                        reason = ""
+                        
+                        if current_drawdown_pct >= paper_eval_max_loss_pct:
+                            failed = True
+                            reason = f"Max Drawdown Exceeded ({current_drawdown_pct:.1f}% >= {paper_eval_max_loss_pct}%)"
+                        elif daily_drawdown_pct >= paper_eval_daily_loss_pct:
+                            failed = True
+                            reason = f"Daily Loss Exceeded ({daily_drawdown_pct:.1f}% >= {paper_eval_daily_loss_pct}%)"
+                            
+                        passed = False
+                        if current_gain_pct >= paper_eval_target_pct:
+                            passed = True
+                            
+                        if failed:
+                            logger.error(f"[EVAL] PROP FIRM EVALUATION FAILED: {reason}")
+                            controller.health_monitor.add_event(f"Eval Failed: {reason}", "critical")
+                            controller.halt("PROP FIRM EVALUATION FAILED")
+                        elif passed:
+                            logger.info(f"[EVAL] PROP FIRM EVALUATION PASSED! Target {paper_eval_target_pct}% reached.")
+                            controller.health_monitor.add_event("Eval Passed!", "healthy")
+                            controller.halt("PROP FIRM EVALUATION PASSED")
+                except Exception as e:
+                    logger.error(f"[EVAL] Error evaluating prop firm rules: {e}")
+            
             # Sabbath Paper Trading: Allow scanning and trading 
             # if we have successfully swapped to the local PaperBroker.
             allow_entries = not sabbath_active or executor == executor_paper
@@ -1482,10 +1587,44 @@ def run_bot(
                         logger.info("[REPLAY] Day complete! Chaining to next day: %s (%s)",
                                     _next.strftime('%Y-%m-%d'), _next.strftime('%A'))
                         try:
+                            # ── Close all open positions before switching days ──
+                            # Positions from day N use day N's candle data.
+                            # Carrying them into day N+1 produces nonsensical PnL.
+                            if executor_paper:
+                                executor_paper.close_all_positions("Day Chain Reset")
+
+                            # ── Reset all module-level strategy state ──
+                            # Without this, cooldowns, loss streaks, trend
+                            # invalidation memory, and indicator caches from
+                            # day N leak into day N+1, causing duplicate trades.
+                            try:
+                                from tradebot_sci.strategy.variants.forex_conductor import reset_module_state as _reset_conductor
+                                _reset_conductor()
+                            except ImportError:
+                                pass
+                            try:
+                                from tradebot_sci.strategy.exit_logic import reset_state as _reset_exit
+                                _reset_exit()
+                            except ImportError:
+                                pass
+                            try:
+                                from tradebot_sci.market.trend_consensus import clear_cache as _clear_trend
+                                _clear_trend()
+                            except ImportError:
+                                pass
+
+                            # Reset instance-level state on each engine's strategy
+                            for eng in engines.values():
+                                strat = getattr(eng, 'strategy', None)
+                                if hasattr(strat, 'reset_instance_state'):
+                                    strat.reset_instance_state()
+
+                            _old_offset = replay_provider._time_offset
                             replay_provider = ReplayMarketProvider(
                                 data_dir=_replay_data_dir,
                                 symbols=symbols,
                                 replay_date=_next,
+                                time_offset=_old_offset,
                             )
                             provider = replay_provider
                             executor_paper.market_provider = provider
@@ -1890,6 +2029,10 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
     else:
         executor = executor_real
 
+    # ── Replay provider for weekend paper trading ──
+    provider_real = provider  # keep a reference to the real provider
+    replay_provider = None    # lazily created on first Sabbath activation
+
     poll_interval = profile_settings.market_poll_interval_seconds
     decision_interval = profile_settings.ai_decision_interval_seconds
 
@@ -1911,7 +2054,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
     )
 
     schedule_windows = [
-        f"{sess.name} {sess.start}-{sess.end}" for sess in settings.schedule.sessions
+        f"{sess.profile_name} {sess.start_time}-{sess.end_time}" for sess in settings.schedule.sessions
     ]
     logger.info(
         "[STATE] Schedule (%s): %s",
@@ -1960,7 +2103,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                     continue
                 logger.info(
                     "[STATE] Next session '%s' starts at %s (%s)",
-                    next_session.name,
+                    next_session.profile_name,
                     next_start.time().isoformat(timespec="minutes"),
                     settings.schedule.timezone,
                 )
@@ -2108,11 +2251,11 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                                         settings=settings,
                                     )
                                 active_symbols.append(sym)
-                    candidates = build_candidate_list(
+                    candidates, data_fetch_succeeded = build_candidate_list(
                         executor,
                         engines,
                         provider,
-                        active_symbols,
+                        symbols,
                         profile.candle_timeframe,
                         profile_settings,
                         settings.market,
@@ -2122,10 +2265,19 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         allow_entries=allow_entries,
                     )
                     if not candidates:
-                        # No candidates means all symbols failed to fetch (connection errors)
-                        consecutive_error_iterations += 1
-                        controller.health_monitor.record_data_feed('__all__', success=False)
-                        if consecutive_error_iterations >= 3:
+                        # Empty candidates can mean either:
+                        # 1. All symbols failed to fetch (connection errors) - data_fetch_succeeded=False
+                        # 2. Symbols fetched successfully but don't meet threshold - data_fetch_succeeded=True
+                        if not data_fetch_succeeded:
+                            consecutive_error_iterations += 1
+                            controller.health_monitor.record_data_feed('__all__', success=False)
+                            if consecutive_error_iterations >= 3:
+                                logger.warning(
+                                    "[AUTO_RESTART] Persistent connection errors detected (%d consecutive iterations)",
+                                    consecutive_error_iterations,
+                                )
+                        else:
+                            consecutive_error_iterations = 0
                             logger.warning(
                                 "[AUTO_RESTART] Persistent connection errors detected (%d consecutive iterations)",
                                 consecutive_error_iterations,
@@ -2133,11 +2285,9 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         next_decision_in = decision_interval
                         time.sleep(poll_interval)
                         continue
-                    # Reset error counter when we successfully fetch at least one symbol
-                    consecutive_error_iterations = 0
                     controller.health_monitor.record_pipeline(len(candidates))
-                    for _sym in active_symbols:
-                        controller.health_monitor.record_data_feed(_sym, success=True)
+                    for _sym in symbols:
+                        controller.health_monitor.record_data_feed(_sym, success=data_fetch_succeeded)
                     # Replay mode: limit to 1 new-entry candidate per cycle
                     if replay_provider is not None and candidates:
                         manage_cands = [(s, snap, sc, r) for s, snap, sc, r in candidates if r == "existing position"]

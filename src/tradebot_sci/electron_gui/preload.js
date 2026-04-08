@@ -9,9 +9,19 @@ contextBridge.exposeInMainWorld('api', {
         }
     },
     on: (channel, func) => {
-        let validChannels = ["fromMain", "bot-status", "env-updated", "config-updated"];
+        let validChannels = ["fromMain", "bot-status", "env-updated", "config-updated", "bot-restarted"];
         if (validChannels.includes(channel)) {
-            ipcRenderer.on(channel, (event, ...args) => func(...args));
+            // Wrap func so we can map it back for removeListener
+            const wrapper = (event, ...args) => func(...args);
+            if (!func._ipcWrappers) func._ipcWrappers = {};
+            func._ipcWrappers[channel] = wrapper;
+            ipcRenderer.on(channel, wrapper);
+        }
+    },
+    removeListener: (channel, func) => {
+        if (func._ipcWrappers && func._ipcWrappers[channel]) {
+            ipcRenderer.removeListener(channel, func._ipcWrappers[channel]);
+            delete func._ipcWrappers[channel];
         }
     },
     // Analytics IPC (invoke for async responses)

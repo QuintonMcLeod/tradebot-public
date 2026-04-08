@@ -49,13 +49,21 @@ def _parse_bar_seconds(timeframe: str) -> int:
     return 300
 
 def _strip_incomplete_bar(candles: list, timeframe: str) -> list:
-    """Removes the last candle if it hasn't closed yet (still forming)."""
+    """Removes the last candle if it hasn't closed yet (still forming).
+    
+    In replay mode (candle timestamps > 24h from wall clock), all candles
+    are already closed historical bars — skip the strip entirely.
+    """
     if not _BAR_CLOSE_GATE_ENABLED or not candles:
         return candles
     bar_secs = _parse_bar_seconds(timeframe)
     last = candles[-1]
     bar_close_time = last.timestamp + timedelta(seconds=bar_secs)
     now = datetime.now(timezone.utc)
+    age = (now - bar_close_time).total_seconds()
+    # Replay mode: candles are from months ago, all already closed
+    if age > 86400:
+        return candles
     if bar_close_time > now:
         remaining = int((bar_close_time - now).total_seconds())
         logger.info(
@@ -82,6 +90,7 @@ def fetch_snapshot(
     authority on trend direction.
     """
     htf_timeframe = getattr(profile_settings, "htf_timeframe", None) or "4h"
+    mtf_timeframe = getattr(profile_settings, "mtf_timeframe", None) or "1h"
     ltf_timeframe = getattr(profile_settings, "ltf_timeframe", None) or timeframe
     max_candles = int(getattr(market_settings, "max_candles", 200) or 200)
 
@@ -89,23 +98,28 @@ def fetch_snapshot(
     if symbol not in _warmed_up_symbols:
         ltf_limit = max(max_candles, _WARMUP_LTF_CANDLES)
         htf_limit = max(max_candles, _WARMUP_HTF_CANDLES)
+        mtf_limit = max(max_candles, _WARMUP_HTF_CANDLES)  # 1h needs similar depth
         logger.info(
             f"[WARMUP] {symbol}: First-time candle preload — "
             f"fetching {ltf_limit} LTF ({ltf_timeframe}) + "
+            f"{mtf_limit} MTF ({mtf_timeframe}) + "
             f"{htf_limit} HTF ({htf_timeframe}) candles"
         )
         _warmed_up_symbols.add(symbol)
     else:
         ltf_limit = max_candles
         htf_limit = max_candles
+        mtf_limit = max_candles
 
-    key = (symbol, ltf_timeframe, htf_timeframe, max_candles)
+    key = (symbol, ltf_timeframe, mtf_timeframe, htf_timeframe, max_candles)
     if key not in cache:
         ltf_candles = provider.get_latest_candles(symbol, ltf_timeframe, limit=ltf_limit)
+        mtf_candles = provider.get_latest_candles(symbol, mtf_timeframe, limit=mtf_limit)
         htf_candles = provider.get_latest_candles(symbol, htf_timeframe, limit=htf_limit)
 
         # ── Bar-Close Gate: strip incomplete candles ──
         ltf_candles = _strip_incomplete_bar(ltf_candles, ltf_timeframe)
+        mtf_candles = _strip_incomplete_bar(mtf_candles, mtf_timeframe)
         htf_candles = _strip_incomplete_bar(htf_candles, htf_timeframe)
         
         # Update chart candle cache so on_tick always has fresh data
@@ -132,9 +146,10 @@ def fetch_snapshot(
             trend_mtf=_neutral,
             trend_ltf=trend_ltf,
             htf_candles=htf_candles,
-
+            mtf_candles=mtf_candles,
             ltf_candles=ltf_candles,
             htf_timeframe=htf_timeframe,
+            mtf_timeframe=mtf_timeframe,
             ltf_timeframe=ltf_timeframe,
         )
 
@@ -302,6 +317,13 @@ def process_candidate_cycle(
     global_pnl = 0.0
     global_open_count = 0
     global_position_notional = 0.0
+    global_equity = 0.0
+    if executor and hasattr(executor, "get_total_balance_value"):
+        try:
+            global_equity = executor.get_total_balance_value()
+        except:
+            pass
+
     if executor and hasattr(executor, "list_open_position_symbols"):
         try:
             open_syms = executor.list_open_position_symbols()
@@ -315,6 +337,38 @@ def process_candidate_cycle(
                     price = float(p.get("current_price") or p.get("avg_price") or p.get("entry_price") or 0)
                     size = abs(float(p.get("size") or 0))
                     global_position_notional += (price * size)
+                    
+                    # Record Risk Sizing Vitals
+                    if size != 0 and global_equity > 0:
+                        entry = float(p.get("entry_price") or p.get("avg_price") or price)
+                        sl = float(p.get("stop_loss") or 0.0)
+                        
+                        if sl > 0:
+                            actual_risk = abs(entry - sl) * abs(size)
+                        else:
+                            # If no mechanical stop is detected in the broker state, 
+                            # the risk is technically the entire position's notional value.
+                            actual_risk = entry * abs(size)
+                            
+                        if hasattr(executor, 'get_liquid_capital'):
+                            try:
+                                sizing_capital = executor.get_liquid_capital(s)
+                            except TypeError:
+                                sizing_capital = executor.get_liquid_capital()
+                        else:
+                            sizing_capital = global_equity
+                            
+                        cfg_risk_dollars = float(getattr(profile_settings, "risk_per_trade_dollars", 0.0))
+                        if cfg_risk_dollars > 0 and sizing_capital > 0:
+                            cfg_risk_pct = (cfg_risk_dollars / sizing_capital) * 100.0
+                        else:
+                            cfg_risk_pct = float(getattr(profile_settings, "risk_per_trade_pct", 0.01)) * 100.0
+                            
+                        try:
+                            from tradebot_sci.runtime.health_monitor import health_monitor
+                            health_monitor.record_risk_sizing(cfg_risk_pct, actual_risk, sizing_capital, s)
+                        except Exception:
+                            pass
         except Exception as e:
             logger.warning(f"[CYCLE] Global PnL fetch failed: {e}")
 
@@ -369,6 +423,13 @@ def process_candidate_cycle(
             )
             
             evaluations.append((symbol, snapshot, decision, reason))
+            
+            # Record Strategy Signal Vitals
+            try:
+                from tradebot_sci.runtime.health_monitor import health_monitor
+                health_monitor.record_signal(decision.action if decision else "HOLD", symbol)
+            except Exception:
+                pass
             
             # If it's a hold action with a stop loss update, apply it immediately
             if not decision or decision.action in ("stand_aside", "hold"):
@@ -507,14 +568,20 @@ def process_candidate_cycle(
                     bar_secs = _parse_bar_seconds(ltf_tf)
                     last_close = snapshot.ltf_candles[-1].timestamp + timedelta(seconds=bar_secs)
                     age = (datetime.now(timezone.utc) - last_close).total_seconds()
-                    if age > bar_secs:
+
+                    # In replay mode, candle timestamps are from months ago (historical)
+                    # so the age will be massive (>86400s).  Skip freshness check for
+                    # replay — all replay candles are already closed historical bars.
+                    _is_replay = age > 86400  # > 24 hours = clearly historical data
+
+                    if not _is_replay and age > bar_secs:
                         logger.info(
                             f"[BAR-CLOSE] {symbol}: blocked {decision.action} — "
                             f"last {ltf_tf} bar closed {age:.0f}s ago (stale, max={bar_secs}s)"
                         )
                         blocked += 1
                         continue
-                    else:
+                    elif not _is_replay:
                         logger.info(
                             f"[BAR-CLOSE] {symbol}: {decision.action} OK — "
                             f"last {ltf_tf} bar closed {age:.0f}s ago (fresh)"

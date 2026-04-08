@@ -52,14 +52,12 @@ class PaperBroker:
             self.balance = saved.get("balance", default_balance)
             self.positions = saved.get("positions", {})
             logger.info(f"Restored Paper Broker: ${self.balance:.2f} balance, {len(self.positions)} open positions.")
+            # Anchor should be the saved balance to prevent sizing mismatch
+            self._initial_balance = self.balance
         else:
             self.balance = default_balance
             logger.info(f"Initialized Paper Broker with ${self.balance:.2f} balance (no saved state).")
-
-        # Anchor for position sizing — prevents runaway compounding.
-        # self.balance tracks total P&L (display), but sizing always uses
-        # the ORIGINAL starting capital so positions don't snowball.
-        self._initial_balance = default_balance
+            self._initial_balance = default_balance
         
         # Immediate reporting on startup for UI visibility
         self.summarize_pnl()
@@ -193,16 +191,53 @@ class PaperBroker:
             side = "buy" if action == "enter_long" else "sell"
             
             # Dynamic Paper Sizing
-            # Use the INITIAL balance for sizing — NOT self.balance (running total).
-            # This prevents runaway compounding where a few lucky wins turn
-            # $10K into $113M because each trade sizes off the inflated balance.
-            sizing_capital = self._initial_balance
-            risk_pct = getattr(decision, "risk_per_trade_pct", None) or getattr(self.profile, "risk_per_trade_pct", 0.01)
-            risk_usd = sizing_capital * risk_pct
+            # ── Prop Firm Auto-Sizer ──
+            prop_tier = float(getattr(self.profile, "prop_challenge_tier_usd", 0.0))
+            prop_loss = float(getattr(self.profile, "prop_challenge_max_loss_pct", 0.0))
             
-            # Use SL to determine lot size if available, else use risk_usd directly as notional
+            if prop_tier > 0 and prop_loss <= 0:
+                prop_loss = 0.04 if prop_tier <= 50000 else 0.03
+            
+            if prop_tier > 0 and prop_loss > 0:
+                sizing_capital = prop_tier * prop_loss
+                logger.info(f"[PAPER] [PROP FIRM SIZER] True Equity scaling active: ${sizing_capital:,.2f} ({prop_loss*100}% max loss of ${prop_tier:,.0f} nominal tier)")
+            else:
+                sizing_capital = self._initial_balance
+                
+            risk_pct = getattr(decision, "risk_per_trade_pct", None) or getattr(self.profile, "risk_per_trade_pct", 0.01)
+            
+            # Dollar override always wins
+            risk_dollars = float(getattr(decision, "risk_per_trade_dollars", 0.0) or getattr(self.profile, "risk_per_trade_dollars", 0.0))
+            if risk_dollars > 0:
+                risk_usd = risk_dollars
+            else:
+                risk_usd = sizing_capital * float(risk_pct)
+            
+            # ── Minimum Stop Distance (parity with backtester) ──────────
+            # The backtester enforces a 0.15% minimum stop so that strategy
+            # entries with absurdly tight stops (3-7 pips on EURUSD when
+            # ATR-minimum should be ~18 pips) are widened to realistic
+            # distances.  Without this, 5m candle noise hits the stop in
+            # 1-2 bars (10 minutes), producing a 86% "Hard Stop Loss Hit"
+            # ratio.  This is the #1 parity gap between backtester and
+            # paper trading.
             if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
                 risk_per_unit = abs(price - decision.stop_loss)
+                min_stop_distance = price * 0.0015  # 0.15% of entry (matches backtester)
+                if risk_per_unit < min_stop_distance:
+                    target_r_cfg = float(getattr(self.profile, 'target_r', 2.5))
+                    logger.warning(
+                        f"[PAPER] [STOP-WIDEN] {symbol}: Stop too tight "
+                        f"(${risk_per_unit:.5f} < ${min_stop_distance:.5f}), "
+                        f"widening to minimum (rescaling TP to {target_r_cfg}R)"
+                    )
+                    risk_per_unit = min_stop_distance
+                    if action == "enter_long":
+                        decision.stop_loss = price - min_stop_distance
+                        decision.take_profit = price + (min_stop_distance * target_r_cfg)
+                    else:
+                        decision.stop_loss = price + min_stop_distance
+                        decision.take_profit = price - (min_stop_distance * target_r_cfg)
                 qty = risk_usd / risk_per_unit
             else:
                 # Fallback: Treat risk_usd as the actual notional size (very conservative for paper)
@@ -645,6 +680,72 @@ class PaperBroker:
             self._save_state()
             self.refresh_account_summary()
 
+    def close_all_positions(self, reason: str = "Day Chain Reset") -> None:
+        """Close all open positions at current market price.
+
+        Called by loop.py when day-chaining to prevent stale positions
+        from the previous replay day leaking into the next day's data.
+        Records each closure in the trade result store with proper PnL.
+        """
+        symbols_to_close = list(self.positions.keys())
+        if not symbols_to_close:
+            return
+
+        for symbol in symbols_to_close:
+            pos = self.positions.pop(symbol)
+            try:
+                price = self._get_current_price(symbol)
+            except Exception:
+                price = pos.get("current_price", pos.get("entry_price", 0))
+
+            entry_p = pos.get("entry_price", 0)
+            pnl_usd = (price - entry_p) * pos["size"]
+            fee_usd = abs(pos.get("qty", abs(pos["size"])) * price) * self._get_taker_fee(symbol)
+            pnl_usd -= fee_usd
+            self.balance += pnl_usd
+
+            pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
+            side = pos.get("side", "long")
+
+            # Compute duration
+            duration_secs = None
+            entry_time_str = pos.get("entry_time", pos.get("opened_at", ""))
+            if entry_time_str:
+                try:
+                    entry_dt = datetime.fromisoformat(entry_time_str)
+                    duration_secs = (self._now() - entry_dt).total_seconds()
+                    if duration_secs < 0:
+                        duration_secs = abs(duration_secs)
+                except Exception:
+                    pass
+
+            pnl_sign = "+" if pnl_usd >= 0 else "-"
+            logger.info(
+                f"[PAPER] [DAY-CHAIN] {symbol}: Closed {side} {pnl_sign}${abs(pnl_usd):.2f} "
+                f"({reason})"
+            )
+
+            if self.trade_results:
+                self.trade_results.add_result(TradeResult(
+                    symbol=symbol,
+                    closed_at=self._wall_clock().isoformat(),
+                    pnl_pct=pnl_pct,
+                    pnl_usd=pnl_usd,
+                    is_win=pnl_usd > 0,
+                    tier="100%",
+                    capital_at_close=self.balance,
+                    opened_at=pos.get("opened_at", ""),
+                    duration_seconds=duration_secs,
+                    strategy=pos.get("strategy", "unknown"),
+                    exit_reason=reason,
+                    side=side,
+                ))
+
+        self._exit_cooldowns.clear()  # Reset cooldowns for new day
+        self._save_state()
+        self.refresh_account_summary()
+        logger.info(f"[PAPER] [DAY-CHAIN] Closed {len(symbols_to_close)} positions for day chain")
+
     def should_block_for_hold(self, symbol, decision, open_position):
         return False, None, None
 
@@ -653,6 +754,11 @@ class PaperBroker:
         
         Uses candle HIGH/LOW for TP/SL detection (like real broker stop/limit orders)
         and exits at the exact SL/TP price, not the candle close.
+        
+        IMPORTANT: The Universal Exit Router runs BEFORE mechanical SL/TP checks.
+        This mirrors the backtester fix — giving trend_invalidation, chandelier,
+        time_decay, etc. a chance to close at bar-close price before the hard
+        stop fires and deletes the position.
         """
         results = []
         for symbol in list(self.positions.keys()):
@@ -665,16 +771,173 @@ class PaperBroker:
             # ── Get OHLC of the most recent candle for intra-bar evaluation ──
             candle_high = None
             candle_low = None
+            candles_for_router = None
             if market_provider:
                 try:
-                    candles = market_provider.get_latest_candles(symbol, timeframe, limit=1)
-                    if candles:
-                        last_candle = candles[-1]
+                    candles_for_router = market_provider.get_latest_candles(symbol, timeframe, limit=200)
+                    if candles_for_router:
+                        last_candle = candles_for_router[-1]
                         candle_high = float(last_candle.high)
                         candle_low = float(last_candle.low)
                 except Exception:
                     pass
 
+            # ════════════════════════════════════════════════════════════════
+            # UNIVERSAL EXIT ROUTER — runs BEFORE mechanical SL/TP
+            # ════════════════════════════════════════════════════════════════
+            # Gives trend_invalidation, chandelier, time_decay, etc. a chance
+            # to close at bar-close price before the hard stop fires.
+            # Without this, the SL deletes the position before engine.decide()
+            # ever evaluates the exit router (same bug the backtester fixed).
+            if candles_for_router and len(candles_for_router) >= 30:
+                side = pos.get("side", "long")
+                entry_time_str = pos.get("entry_time", "")
+                _router_held_s = 0
+                if entry_time_str:
+                    try:
+                        _entry_dt = datetime.fromisoformat(entry_time_str)
+                        _router_held_s = (self._now() - _entry_dt).total_seconds()
+                    except Exception:
+                        pass
+                # Only run after hold guard (300s = 5 minutes)
+                if _router_held_s >= 300:
+                    try:
+                        from tradebot_sci.market.trend_consensus import detect_trend_direction
+                        from tradebot_sci.strategy.exit_logic import run_universal_exit_logic
+                        from tradebot_sci.market.models import MarketSnapshot, TrendState
+
+                        # Build a snapshot for the exit router
+                        _neutral = TrendState(direction="neutral", strength=0.0)
+                        _router_snapshot = None
+                        if market_provider:
+                            try:
+                                _router_snapshot = market_provider.get_latest_snapshot(symbol, timeframe)
+                            except Exception:
+                                pass
+                        if not _router_snapshot:
+                            _router_snapshot = MarketSnapshot(
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                candles=candles_for_router,
+                                trend_htf=_neutral,
+                                trend_ltf=_neutral,
+                            )
+
+                        # Build gates via trend_consensus (same path as engine.decide)
+                        _consensus = detect_trend_direction(
+                            _router_snapshot.candles, self.profile,
+                            htf_candles=getattr(_router_snapshot, 'htf_candles', None),
+                            mtf_candles=getattr(_router_snapshot, 'mtf_candles', None),
+                            ltf_candles=getattr(_router_snapshot, 'ltf_candles', None),
+                        )
+                        _router_gates = {
+                            "exec_dir": _consensus.exec_dir,
+                            "ltf_dir": _consensus.ltf_dir,
+                            "mtf_dir": _consensus.mtf_dir,
+                            "htf_dir": _consensus.htf_dir,
+                        }
+                        _router_pos = {
+                            'symbol': symbol,
+                            'direction': side,
+                            'entry_price': pos.get("entry_price", 0),
+                            'size': pos.get("size", 0),
+                            'stop_price': pos.get("stop_loss"),
+                            'stop_loss': pos.get("stop_loss"),
+                        'take_profit': pos.get("take_profit"),
+                            'entry_time': entry_time_str,
+                            'initial_risk': pos.get("initial_risk"),
+                        }
+                        _router_decision = run_universal_exit_logic(
+                            snapshot=_router_snapshot,
+                            open_position=_router_pos,
+                            gates=_router_gates,
+                            profile=self.profile,
+                            strategy_name=pos.get("strategy", "unknown"),
+                        )
+                        if _router_decision and getattr(_router_decision, 'action', '') == 'close_position':
+                            _router_reason = getattr(_router_decision, 'notes', None) or 'invalidation'
+                            
+                            if _router_reason == "Hard Stop Loss Hit":
+                                # Delegate precise execution to the mechanical SL/TP block below 
+                                # instead of exiting at the inaccurate 5m candle close price.
+                                pass
+                            else:
+                                # Exit router wants to close via strategy — do it at bar close price
+                                _exit_price = candles_for_router[-1].close if candles_for_router else price
+                                entry_p = pos.get("entry_price", 0)
+                                pnl_usd = (_exit_price - entry_p) * pos["size"]
+                                fee_usd = abs(pos.get("qty", abs(pos["size"])) * _exit_price) * self._get_taker_fee(symbol)
+                                pnl_usd -= fee_usd
+                                self.balance += pnl_usd
+                                
+                                # Duration
+                                duration_secs = _router_held_s
+                                duration_str = "N/A"
+                                if duration_secs is not None:
+                                    _m = int(duration_secs // 60)
+                                    _s = int(duration_secs % 60)
+                                    if _m >= 60:
+                                        _h = _m // 60
+                                        _m = _m % 60
+                                        duration_str = f"{_h}h {_m}m {_s}s"
+                                    else:
+                                        duration_str = f"{_m}m {_s}s"
+                                
+                                pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
+                                pnl_sign = "+" if pnl_usd >= 0 else "-"
+                                pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
+                                
+                                entry_fee = abs(pos.get("entry_fee", 0))
+                                spread_cost = entry_fee + fee_usd
+    
+                                logger.info(
+                                    f"[PAPER] [EXIT] Paper INVALIDATION: {symbol} {pnl_str} "
+                                    f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
+                                    f"Entry={entry_p:.5f} Exit={_exit_price:.5f} | "
+                                    f"Duration={duration_str} | "
+                                    f"Est. Spread Cost: ${spread_cost:.2f} | {_router_reason}"
+                                )
+    
+                                if self.trade_results:
+                                    self.trade_results.add_result(TradeResult(
+                                        symbol=symbol,
+                                        closed_at=self._wall_clock().isoformat(),
+                                        pnl_pct=pnl_pct,
+                                        pnl_usd=pnl_usd,
+                                        is_win=pnl_usd > 0,
+                                        tier="100%",
+                                        capital_at_close=self.balance,
+                                        opened_at=pos.get("opened_at", ""),
+                                        duration_seconds=duration_secs,
+                                        strategy=pos.get("strategy", "unknown"),
+                                        exit_reason=_router_reason,
+                                        side=side,
+                                    ))
+    
+                                del self.positions[symbol]
+                                self._exit_cooldowns[symbol] = time.time()
+                                self._save_state()
+                                self.refresh_account_summary()
+                                results.append(ExecutionResult(
+                                    ExecutionStatus.EXIT_SIGNAL, symbol,
+                                    f"Paper INVALIDATION exit PnL={pnl_usd:.2f}"
+                                ))
+                                continue  # Skip SL/TP check — position already closed
+
+                        elif _router_decision and getattr(_router_decision, 'action', '') == 'hold' and _router_decision.stop_loss is not None:
+                            # Trailing stop update from router (chandelier, ratchet)
+                            old_sl = pos.get("stop_loss")
+                            new_sl = _router_decision.stop_loss
+                            if old_sl != new_sl:
+                                pos["stop_loss"] = new_sl
+                                logger.info(f"[PAPER] {symbol} Router trail: stop {old_sl} → {new_sl}")
+
+                    except Exception as _router_err:
+                        logger.debug(f"[PAPER] Universal exit router error for {symbol}: {_router_err}")
+
+            # ════════════════════════════════════════════════════════════════
+            # MECHANICAL SL/TP CHECK — only if exit router didn't close
+            # ════════════════════════════════════════════════════════════════
             sl = pos.get("stop_loss")
             tp = pos.get("take_profit")
             side = pos.get("side", "long")

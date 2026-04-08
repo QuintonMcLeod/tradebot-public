@@ -37,6 +37,7 @@ class ReplayMarketProvider:
         data_dir: str | Path,
         symbols: List[str],
         replay_date: datetime | None = None,
+        time_offset: timedelta | None = None,
     ):
         self.data_dir = Path(data_dir)
         self.symbols = [s.upper() for s in symbols]
@@ -61,11 +62,11 @@ class ReplayMarketProvider:
         self._entries_this_cycle: int = 0
         self._max_entries_per_cycle: int = 1
 
-        self._load_data(replay_date)
+        self._load_data(replay_date, time_offset)
 
     # ── Data Loading ──────────────────────────────────────────────────
 
-    def _load_data(self, requested_date: datetime | None = None) -> None:
+    def _load_data(self, requested_date: datetime | None = None, time_offset: timedelta | None = None) -> None:
         """Load candle data from JSON files and select a replay day."""
         available: Dict[str, Path] = {}
         for sym in self.symbols:
@@ -243,11 +244,17 @@ class ReplayMarketProvider:
         # confusing in the UI chart and make trades appear "weeks old".
         # Shift all timestamps forward so the replay day maps to today,
         # preserving the time-of-day.
-        now = datetime.now(timezone.utc)
-        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        self._time_offset = today - self.replay_date
+        if time_offset is not None:
+            self._time_offset = time_offset
+            now = datetime.now(timezone.utc)
+            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            now = datetime.now(timezone.utc)
+            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            self._time_offset = today - self.replay_date
+        
         self.original_replay_date = self.replay_date  # preserve for day chaining
-        logger.info("[REPLAY] Time shift: %s → %s (offset %s)",
+        logger.info("[REPLAY] Time shift: %s (offset %s)",
                    self.replay_date.strftime("%Y-%m-%d"),
                    today.strftime("%Y-%m-%d"),
                    self._time_offset)
@@ -350,12 +357,18 @@ class ReplayMarketProvider:
         sym = symbol.upper()
         sym_data = self._candles.get(sym, {})
         candles = sym_data.get(tf)
+        fell_back_to_5m = False
         if not candles:
             candles = sym_data.get("5m", [])
+            fell_back_to_5m = True
             if not candles:
                 return []
 
-        if tf == "5m":
+        if tf == "5m" or fell_back_to_5m:
+            # If the requested TF fell back to 5m data (e.g. 1m requested but
+            # only 5m exists), use cursor-based slicing.  This ensures the
+            # stop evaluator sees the same candle revelation rate as native 5m,
+            # preventing 5m H/L ranges from causing premature stop hits.
             end_idx = self._warmup_count + self._cursor
             return candles[:end_idx]
 
@@ -410,15 +423,20 @@ class ReplayMarketProvider:
         )
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
-        """Build a snapshot from replayed candles with proper HTF/LTF data."""
+        """Build a snapshot from replayed candles with proper HTF/LTF/MTF data."""
         candles = self.get_latest_candles(symbol, timeframe, limit=200)
         _neutral = TrendState(direction="neutral", strength=0.0)
 
-        # Try native HTF/LTF data first, else resample from 5m (mirrors backtester)
-        htf_candles = self._get_visible_candles(symbol, "1h")
+        # Try native HTF/LTF/MTF data first, else resample from 5m (mirrors backtester)
+        htf_candles = self._get_visible_candles(symbol, "4h")
         if not htf_candles:
+            # Resample 5m -> 4h (48 bars per 4h candle)
+            htf_candles = self._resample(candles, 48)
+
+        mtf_candles = self._get_visible_candles(symbol, "1h")
+        if not mtf_candles:
             # Resample 5m -> 1h (12 bars per 1h candle)
-            htf_candles = self._resample(candles, 12)
+            mtf_candles = self._resample(candles, 12)
 
         ltf_candles = self._get_visible_candles(symbol, "15m")
         if not ltf_candles:
@@ -433,8 +451,10 @@ class ReplayMarketProvider:
             trend_htf=_neutral,
             trend_ltf=_neutral,
             htf_candles=htf_candles[-INDICATOR_MIN:] if len(htf_candles) >= INDICATOR_MIN else htf_candles,
+            mtf_candles=mtf_candles[-INDICATOR_MIN:] if len(mtf_candles) >= INDICATOR_MIN else mtf_candles,
             ltf_candles=ltf_candles[-INDICATOR_MIN:] if len(ltf_candles) >= INDICATOR_MIN else ltf_candles,
-            htf_timeframe="1h",
+            htf_timeframe="4h",
+            mtf_timeframe="1h",
             ltf_timeframe="15m",
         )
 

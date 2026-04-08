@@ -54,6 +54,10 @@ const CONFIG_MAP = {
     'PAPER_SIM_ENABLED': ['paper', 'enabled'],
     'PAPER_REPLAY_MODE': ['paper', 'replay_mode'],
     'PAPER_SYNTHETIC_MODE': ['paper', 'synthetic_mode'],
+    'PAPER_EVAL_MODE': ['paper', 'eval_mode'],
+    'PAPER_EVAL_TARGET_PCT': ['paper', 'eval_target_pct'],
+    'PAPER_EVAL_DAILY_LOSS_PCT': ['paper', 'eval_daily_loss_pct'],
+    'PAPER_EVAL_MAX_LOSS_PCT': ['paper', 'eval_max_loss_pct'],
     'SABBATH_REPLAY_MODE': ['safety', 'sabbath_replay_mode'],
     'PAPER_FEE_BPS': ['paper', 'fee_bps'],
     'PAPER_SLIPPAGE_BPS': ['paper', 'slippage_bps'],
@@ -148,6 +152,7 @@ const CONFIG_MAP = {
     'TREND_VWAP_ENABLED': ['global', 'trend_vwap_enabled'],
     'TREND_HULL_MA_ENABLED': ['global', 'trend_hull_ma_enabled'],
     // ── Risk & ICC (Global — not per-profile) ──────────────────
+    'TARGET_LEVERAGE': ['risk', 'target_leverage'],
     'RISK_PER_TRADE_PCT': ['risk', 'risk_per_trade_pct'],
     'RISK_DYNAMIC_AUTO': ['risk', 'risk_dynamic_auto'],
     'RISK_PER_TRADE_DOLLARS': ['risk', 'risk_per_trade_dollars'],
@@ -217,6 +222,12 @@ const SECRETS_MAP = {
     'KRAKEN_API_SECRET': 'KRAKEN_API_SECRET',
     'TRADE_SCI_API_KEY': 'TRADE_SCI_API_KEY',
     'CHATGPT_KEY': 'CHATGPT_KEY',
+    
+    // Prop Firm Secrets
+    'PROP_FTMO_API_KEY': 'PROP_FTMO_API_KEY',
+    'PROP_APEX_PASS': 'PROP_APEX_PASS',
+    'PROP_APEX_APP_ID': 'PROP_APEX_APP_ID',
+    'PROP_FN_API_KEY': 'PROP_FN_API_KEY',
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -226,6 +237,10 @@ const SECRETS_MAP = {
 const TOOLTIPS = {
     // Engine Settings
     PAPER_SIM_ENABLED: "Practice Mode. Lets you test the bot with fake 'Monopoly money' so you can see how it performs without risking a real dime.",
+    PAPER_EVAL_MODE: "Prop Firm Challenge. Treats the simulator like a real evaluation. Activates strict daily and overall drawdown tracking and halts the bot immediately if rules are broken to protect your practice account.",
+    PAPER_EVAL_TARGET_PCT: "The Profit Goal. Usually 8.0%. If the bot hits this number, it stops trading and congratulates you on passing the challenge.",
+    PAPER_EVAL_DAILY_LOSS_PCT: "Daily Max Loss. Usually 5.0%. The absolute maximum you are allowed to lose in a single day. If you hit this, you fail the challenge instantly.",
+    PAPER_EVAL_MAX_LOSS_PCT: "Overall Max Loss. Usually 8.0% or 10.0%. The absolute maximum you can lose across the entire lifetime of the challenge before failing.",
     PAPER_REPLAY_MODE: "Time Machine. Replays past market days so you can instantly see how your strategy would have performed yesterday.",
     PAPER_SYNTHETIC_MODE: "Stress Test. Throws the bot into a wild, endless roller-coaster simulation to see if it can survive the absolute worst market conditions.",
     SABBATH_REPLAY_MODE: "Weekend Practice. During the real-world weekend when markets are closed, switch to the Time Machine mode so you can keep testing.",
@@ -421,6 +436,10 @@ const TOOLTIPS = {
     SAFETY_SESSION_LOCKOUT_ENABLED: "The Afternoon Siesta. Automatically stops taking new trades after lunch (12:00 PM EST) when the market gets messy and unpredictable.",
     SAFETY_ROLLOVER_DEADZONE_ENABLED: "The 5 O'clock Shadow. Blocks taking trades exactly at 5 PM EST when banks close out their books for the day, which causes nasty, unpredictable price spikes.",
 
+    // Risk Parameters
+    TARGET_LEVERAGE: "<strong>The Max Borrow Limit</strong><br><span style='color:#818cf8;font-size:10px'>Type: Critical Guardrail</span><br><br>Even if your broker allows 50x or 100x max leverage (like Oanda), this slider forces the bot to mathematically cap its own borrowing power. If you set this to 5x, the bot will absolutely refuse to take a position larger than 5 times your account equity, no matter what.<br><br><span style='color:#22c55e'>✓ Crucial for:</span> Prop Firm Evaluations. Prop firms fail you instantly if your equity drops 5%. If you let the bot use the broker's massive 50x leverage, a tiny 0.1% wiggle in the market will equate to a 5% account crash, failing your eval instantly. Always keep this clamped low (e.g. 5x) during an evaluation to give the trades enough room to breathe.",
+
+
     // Safety Suite 2.0 (New Additions)
     SAFETY_GREED_GUARD_ENABLED: "The 'Quit While You're Ahead' Switch. Once you make your daily profit goal, the bot stops trading so you don't instantly give the money back to the market.",
     SAFETY_CHURN_BURNER_ENABLED: "The Anti-Spam Filter. Stops the bot from taking too many trades in a single hour if the market is just wiggling back and forth.",
@@ -477,6 +496,35 @@ const TOOLTIPS = {
     REVERSAL_COST_AWARE_TP: "<strong>The Tax Accountant.</strong> Automatically makes the profit target just a tiny bit larger to completely cover the broker's hidden 'spread' taxes.",
     REVERSAL_RISK_PER_TRADE: "<strong>The Uno Bet Size.</strong> How much of your account to risk on the Uno Reverse swing. Usually larger than a normal trade because vengeance is expensive.",
     SCALE_OUT_FRACTION: "<strong>The De-Risk Slice.</strong> When the bot decides it's time to 'take some chips off the table', what percentage of your bet should it cash out? (e.g., 0.95 means cash out 95% and let 5% ride on luck).",
+
+    // ═══════════════════════════════════════════════════════════
+    // PROP FIRM TOOLTIPS
+    // ═══════════════════════════════════════════════════════════
+
+    // Prop Firms (FTMO)
+    PROP_FTMO_API_KEY: "<strong>The Magic Key.</strong> Your secret cTrader API token from FTMO. Keep this extremely private.",
+    PROP_FTMO_ACCOUNT_ID: "<strong>The ID Badge.</strong> Your FTMO cTID or account number so the bot knows who is trading.",
+    PROP_FTMO_ENVIRONMENT: "<strong>The Arena.</strong> 'Evaluation' is the Challenge phase where you are proving yourself. 'Funded' is when they actually give you the live money.",
+    PROP_FTMO_MAX_DAILY_LOSS: "<strong>The Daily Kill Switch.</strong> FTMO's hard rule for max daily loss. If the bot gets close to this, it will slam the brakes instantly to save your evaluation.",
+    PROP_FTMO_MAX_TOTAL_LOSS: "<strong>The Final Kill Switch.</strong> The absolute maximum you can lose in the entire challenge before FTMO fails your account.",
+    PROP_FTMO_TARGET_LEVERAGE: "<strong>The Gas Pedal.</strong> How big your trades are relative to your account size. Keep this low (like 3x to 5x) during evaluations to avoid blowing up.",
+    PROP_FTMO_COMMISSION_BPS: "<strong>The Toll Bridge.</strong> The tiny fee FTMO charges on every trade. The bot needs to know this so it can calculate exactly when a trade is truly profitable.",
+
+    // Prop Firms (Apex)
+    PROP_APEX_USER: "<strong>The Username.</strong> Your Tradovate or Rithmic username for Apex.",
+    PROP_APEX_PASS: "<strong>The Password.</strong> Your Tradovate or Rithmic password.",
+    PROP_APEX_APP_ID: "<strong>The Developer Badge.</strong> The special Application ID you generate inside Tradovate so the bot can securely connect.",
+    PROP_APEX_MAX_DRAWDOWN_USD: "<strong>The Dollar Kill Switch.</strong> Apex's strict End of Day (EOD) or Trailing drawdown limit in pure dollars ($). Cross this, and you fail the evaluation.",
+    PROP_APEX_TARGET_LEVERAGE: "<strong>The Contract Multiplier.</strong> How many futures contracts the bot is allowed to trade at once. Futures are heavy; a small number goes a long way.",
+    PROP_APEX_FEE_USD: "<strong>The Round Trip Fee.</strong> The exact dollar amount charged to you to enter and exit one single contract. Usually around $4.50 to $5.00.",
+
+    // Prop Firms (FundedNext)
+    PROP_FN_EXECUTION: "<strong>The Delivery Boy.</strong> The bridge used to send trades to FundedNext. cTrader API is incredibly fast, while the MetaTrader 5 Bridge is the standard.",
+    PROP_FN_API_KEY: "<strong>The Bridge Key.</strong> Your secure connection token for the chosen Execution bridge.",
+    PROP_FN_MAX_DAILY_LOSS: "<strong>The Daily Kill Switch.</strong> FundedNext's hard daily loss barrier. The bot watches this closely.",
+    PROP_FN_MAX_TOTAL_LOSS: "<strong>The Final Kill Switch.</strong> The total permitted drawdown before you lose the FundedNext account.",
+    PROP_FN_TARGET_LEVERAGE: "<strong>The Gas Pedal.</strong> Your global multiplier for trade sizing. Keep it reasonable.",
+    PROP_FN_COMMISSION_BPS: "<strong>The Slippage Tax.</strong> A buffer to account for the spread and slip that FundedNext throws at your trades."
 };
 
 function getValue(key, strategyNamespace = null) {
@@ -774,6 +822,16 @@ function isOverridden(key) {
 // ═══════════════════════════════════════════════════════════
 
 const STRATEGIES = {
+    silver_vwap: {
+        name: "Apex Silver-VWAP",
+        shortDesc: "CME Futures: Opening Range / VWAP Reversion",
+        assetClass: "futures",
+        description: "Built for evaluations. Trades the elite 09:50-11:10 AM EST Silver Bullet window on NQ/ES. Evaluates the Opening Range trend and takes safe entries specifically on VWAP pullbacks to protect your daily limits.",
+        style: "Breakout / Mean Reversion",
+        risk: "Low-Risk Controlled",
+        bestFor: "Apex / Futures Evaluations",
+        stats: { verified: "Apex Setup", winRate: "High Probability", riskReward: "1:2" }
+    },
     orb_breakout: {
         name: "ORB (Opening Range Breakout)",
         shortDesc: "NY Opening Range Breakout",
@@ -1093,16 +1151,16 @@ const STRATEGIES = {
 // NEVER includes: API keys, secrets, broker configs, theme, schedule, symbols.
 const TRADING_DEFAULTS = {
     // ── Risk ──
-    RISK_PER_TRADE_PCT: '1.0',
+    RISK_PER_TRADE_PCT: '0.01',
     RISK_DYNAMIC_AUTO: 'false',
-    MAX_EXPOSURE_PCT: '25',
-    LIMIT_LOSS_DAILY_PCT: '5',
-    AGGRESSIVE_RISK_PER_TRADE_PCT: '2.0',
+    MAX_EXPOSURE_PCT: '0.25',
+    LIMIT_LOSS_DAILY_PCT: '0.05',
+    AGGRESSIVE_RISK_PER_TRADE_PCT: '0.02',
     // ── Exit Logic ──
     TARGET_R: '2.0',
     RISK_REWARD_RATIO: '3.0',
     TRAILING_STOP_ENABLED: 'false',
-    TRAILING_STOP_MIN_PROFIT_PCT: '0',
+    TRAILING_STOP_MIN_PROFIT_PCT: '0.0',
     MIN_HOLD_HOURS: '0',
     MAX_HOLD_HOURS: '0',
     HTF_NEUTRAL_EXIT_BARS: '0',
@@ -1123,7 +1181,7 @@ const TRADING_DEFAULTS = {
     MAX_PYRAMID_ENTRIES: '0',
     CONDUCTOR_PYRAMID_ENABLED: 'false',
     CONDUCTOR_PYRAMID_START_R: '0.2',
-    CONDUCTOR_PYRAMID_FIRST_PCT: '30',
+    CONDUCTOR_PYRAMID_FIRST_PCT: '0.3',
     BREAKEVEN_TRAIL_AFTER_PYRAMIDS: 'false',
     EVICTION_MIN_HOLD_ENABLED: 'false',
     EVICTION_MIN_HOLD_MINUTES: '30',
@@ -1134,10 +1192,10 @@ const TRADING_DEFAULTS = {
     QUICK_RANGING_TP_ENABLED: 'false',
     TICK_SCALPING_ENABLED: 'false',
     TICK_SCALPING_MIN_USD: '0',
-    SPREAD_GATE_MAX_PCT: '30',
-    TARGET_PROFIT_DAILY_PCT: '0',
+    SPREAD_GATE_MAX_PCT: '0.3',
+    TARGET_PROFIT_DAILY_PCT: '0.0',
     STOP_ATR_MULTIPLIER: '2.0',
-    BREAKEVEN_TRAIL_PCT: '0',
+    BREAKEVEN_TRAIL_PCT: '0.0',
     MAX_RISK_CAP_OVERRIDE: '0',
     // ── Safety Guards ──
     SAFETY_GREED_GUARD_ENABLED: 'false',
@@ -1155,8 +1213,8 @@ const TRADING_DEFAULTS = {
     SAFETY_ATR_SHIELD_ENABLED: 'false',
     SAFETY_SENTIMENT_SHIELD_ENABLED: 'false',
     SAFETY_VOLATILITY_VETO_ENABLED: 'false',
-    SAFETY_VOLATILITY_MIN_PCT: '0',
-    SAFETY_VOLATILITY_MAX_PCT: '0',
+    SAFETY_VOLATILITY_MIN_PCT: '0.0',
+    SAFETY_VOLATILITY_MAX_PCT: '0.0',
     SAFETY_SESSION_LOCKOUT_ENABLED: 'false',
     SAFETY_OPENING_SENTRY_ENABLED: 'false',
     BLOCK_COUNTER_TREND_ENTRIES: 'false',
@@ -1183,7 +1241,7 @@ const TRADING_DEFAULTS = {
     ICC_AGGRESSIVE_MODE: 'false',
     ICC_ENTRY_SCORE_THRESHOLD: '80',
     ICC_AUTO_ENTRY_REQUIRE_SWEEP: 'false',
-    ICC_AUTO_ENTRY_MIN_HTF_STRENGTH: '50',
+    ICC_AUTO_ENTRY_MIN_HTF_STRENGTH: '0.50',
     ICC_TWO_SIGNAL_OVERRIDE_ENABLED: 'false',
     ICC_AUTO_ENTRY_COOLDOWN_MINUTES: '15',
     // ── Performance ──
@@ -1197,7 +1255,7 @@ const TRADING_DEFAULTS = {
 const STRATEGY_PRESETS = {
     // --- Universal Strategies ---
     rubberband_reaper: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
         MAX_PYRAMID_ENTRIES: '6',
@@ -1205,7 +1263,7 @@ const STRATEGY_PRESETS = {
         SCALE_OUT_FRACTION: '0.50',
     },
     mean_reversion: {
-        RISK_PER_TRADE_PCT: '2.0',  // Backtested optimal: +$881 at 2.0% (was +$535 at 1%)
+        RISK_PER_TRADE_PCT: '0.02',  // Backtested optimal: +$881 at 2.0% (was +$535 at 1%)
         STOP_AND_REVERSE_ENABLED: 'false', // SAR hurts MR (-$589)
         TRAILING_STOP_ENABLED: 'false',
         MAX_PYRAMID_ENTRIES: '6',
@@ -1213,7 +1271,7 @@ const STRATEGY_PRESETS = {
         SCALE_OUT_FRACTION: '0.95',
     },
     supply_demand: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
         MAX_PYRAMID_ENTRIES: '50',
@@ -1221,7 +1279,7 @@ const STRATEGY_PRESETS = {
         SCALE_OUT_FRACTION: '0.95',
     },
     bearish_engulfing: {
-        RISK_PER_TRADE_PCT: '2.5',  // Backtested optimal: +$11 at 2.5% (only profitable level)
+        RISK_PER_TRADE_PCT: '0.025',  // Backtested optimal: +$11 at 2.5% (only profitable level)
         STOP_AND_REVERSE_ENABLED: 'false', // SAR hurts BE
         TRAILING_STOP_ENABLED: 'true',
         MAX_PYRAMID_ENTRIES: '3',
@@ -1230,7 +1288,7 @@ const STRATEGY_PRESETS = {
     },
     // --- Forex Strategies ---
     london_breakout: {
-        RISK_PER_TRADE_PCT: '0.5',  // Backtested optimal: -$55 at 0.5% (1.17 R:R, best loss level)
+        RISK_PER_TRADE_PCT: '0.005',  // Backtested optimal: -$55 at 0.5% (1.17 R:R, best loss level)
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
         MAX_PYRAMID_ENTRIES: '1',
@@ -1238,7 +1296,7 @@ const STRATEGY_PRESETS = {
         SCALE_OUT_FRACTION: '0.95',
     },
     forex_conductor: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'true',   // SAR is the Conductor's cornerstone
         REVERSAL_TP_R: '0.2',
         REVERSAL_COST_AWARE_TP: 'true',
@@ -1247,6 +1305,12 @@ const STRATEGY_PRESETS = {
         MAX_PYRAMID_ENTRIES: '50',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
+        
+        // Logical Trend Detection 
+        TREND_EMA_RIBBON_ENABLED: 'true',
+        TREND_ADX_ENABLED: 'true',
+        TREND_ADX_THRESHOLD: '20',
+        
         // Conductor-specific settings (previously hardcoded)
         MTF_STRENGTH_FLOOR: '0.50',
         MIN_PIP_FLOOR: '25',
@@ -1258,7 +1322,7 @@ const STRATEGY_PRESETS = {
         SAFETY_LEVERAGE_SENTRY_ENABLED: 'false',
     },
     trend_rider: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
         MAX_PYRAMID_ENTRIES: '3',
@@ -1266,7 +1330,7 @@ const STRATEGY_PRESETS = {
         SCALE_OUT_FRACTION: '0.95',
     },
     session_momentum: {
-        RISK_PER_TRADE_PCT: '1.5',
+        RISK_PER_TRADE_PCT: '0.015',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
         MAX_PYRAMID_ENTRIES: '1',
@@ -1275,7 +1339,7 @@ const STRATEGY_PRESETS = {
     },
     // --- RoboCop: ICC Core + SAR + Guillotine + higher risk ---
     robocop: {
-        RISK_PER_TRADE_PCT: '2.0',
+        RISK_PER_TRADE_PCT: '0.02',
         STOP_AND_REVERSE_ENABLED: 'true',
         REVERSAL_TP_R: '0.2',
         REVERSAL_COST_AWARE_TP: 'true',
@@ -1287,7 +1351,7 @@ const STRATEGY_PRESETS = {
     },
     // --- Yo-Yo: SAR reversal engine ---
     yoyo: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'true',
         REVERSAL_TP_R: '0.2',
         REVERSAL_COST_AWARE_TP: 'true',
@@ -1299,7 +1363,7 @@ const STRATEGY_PRESETS = {
     },
     // --- ICC Core variants ---
     icc_core: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
         MAX_PYRAMID_ENTRIES: '50',
@@ -1307,7 +1371,7 @@ const STRATEGY_PRESETS = {
         SCALE_OUT_FRACTION: '0.95',
     },
     icc_core_standalone: {
-        RISK_PER_TRADE_PCT: '1.6',  // Backtested optimal: +$3,564 at 1.6% with SAR
+        RISK_PER_TRADE_PCT: '0.016',  // Backtested optimal: +$3,564 at 1.6% with SAR
         STOP_AND_REVERSE_ENABLED: 'true', // SAR critical for ICC Core
         REVERSAL_TP_R: '0.2',
         REVERSAL_COST_AWARE_TP: 'true',
@@ -1319,7 +1383,7 @@ const STRATEGY_PRESETS = {
     },
     // --- Evolution and Quantum ---
     evolution: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
         MAX_PYRAMID_ENTRIES: '50',
@@ -1327,7 +1391,7 @@ const STRATEGY_PRESETS = {
         SCALE_OUT_FRACTION: '0.95',
     },
     quantum: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
         MAX_PYRAMID_ENTRIES: '3',
@@ -1336,7 +1400,7 @@ const STRATEGY_PRESETS = {
     },
     // --- Crypto Strategies ---
     hyper_scalper: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'false',
         MAX_PYRAMID_ENTRIES: '1',
@@ -1344,7 +1408,7 @@ const STRATEGY_PRESETS = {
         SCALE_OUT_FRACTION: '0.50',
     },
     crypto_rsi_macd: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
         MAX_PYRAMID_ENTRIES: '3',
@@ -1352,7 +1416,7 @@ const STRATEGY_PRESETS = {
         SCALE_OUT_FRACTION: '0.50',
     },
     crypto_vwap_reversion: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'false',
         MAX_PYRAMID_ENTRIES: '3',
@@ -1361,7 +1425,7 @@ const STRATEGY_PRESETS = {
     },
     // --- Multi/Meta ---
     meta_sci: {
-        RISK_PER_TRADE_PCT: '1.0',
+        RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'true',
         REVERSAL_TP_R: '0.2',
         REVERSAL_COST_AWARE_TP: 'true',
@@ -1417,7 +1481,14 @@ function isStrategyCustomized(strategyKey) {
     for (const [key, expectedValue] of Object.entries(expectedState)) {
         const current = getValue(key);
         if (current !== undefined && String(current) !== String(expectedValue)) {
-            changedKeys.push(key);
+            // Config parser strips trailing zeros (e.g. '0.50' -> 0.5 -> '0.5'), so we check numeric equivalence
+            const isNumericEq = !isNaN(current) && !isNaN(expectedValue) && 
+                                String(current).trim() !== "" && String(expectedValue).trim() !== "" && 
+                                Number(current) === Number(expectedValue);
+            
+            if (!isNumericEq) {
+                changedKeys.push(key);
+            }
         }
     }
     return { customized: changedKeys.length > 0, changedKeys };
@@ -1450,7 +1521,7 @@ const TABS = {
     safety: { icon: 'shield', label: 'Safety', render: renderSafetyTab },
     performance: { icon: 'trending_up', label: 'Performance', render: renderPerformanceTab },
     exit_logic: { icon: 'logout', label: 'Exit Logic', render: renderExitLogicTab },
-    brokers: { icon: 'lan', label: 'Brokers', render: renderBrokersTab },
+    brokers: { icon: 'lan', label: 'Broker Suite', render: renderBrokersTab },
     ai: { icon: 'auto_awesome', label: 'Intelligence', render: renderAITab },
     schedule: { icon: 'event_repeat', label: 'Schedule', render: renderScheduleTab },
     appearance: { icon: 'palette', label: 'Appearance', render: renderAppearanceTab },
@@ -1568,7 +1639,7 @@ async function loadSettings() {
  */
 function checkAllConflicts() {
     let changed = false;
-    const active = configData.active_profile;
+    const active = configData.active_profile || 'auto_schedule';
     const profile = configData.profiles?.[active];
     if (!profile) return false;
 
@@ -1922,7 +1993,16 @@ function createSliderCard(title, desc, key, min, max, step, unit = '%', options 
     // The slider displays human-friendly percentages (4.5%).
     // Convert stored fraction → display % on load, and display % → fraction on save.
     const isPct = (unit === '%');
-    const displayValue = isPct && rawValue < 1 ? (rawValue * 100).toFixed(1) : rawValue;
+    let displayValue = rawValue;
+    if (isPct) {
+        // If rawValue is exactly 1.0 (or less), it's a fraction (1.0 = 100%).
+        // If > 1.0, it's a legacy saved value (e.g. 5.0 = 5%).
+        if (rawValue <= 1.0) {
+            displayValue = (rawValue * 100).toFixed(1);
+        } else {
+            displayValue = rawValue;
+        }
+    }
 
     let toggleHtml = '';
     let isToggledOn = false;
@@ -2472,10 +2552,27 @@ function renderSystemTab(container) {
     });
     const btnRestart = createControlButton('Restart', 'refresh', 'purple', () => {
         window.api.restartBot();
-        showNotice('Bot & UI restart sequence initiated', 'purple');
-        setTimeout(() => {
-            window.location.reload();
-        }, 500);
+        showNotice('Bot restarting — UI will refresh when ready...', 'purple');
+
+        // Listen for the main process to confirm the bot has restarted,
+        // THEN reload so the WebSocket connects to an already-running backend.
+        const onRestarted = () => {
+            window.api.removeListener('bot-restarted', onRestarted);
+            // Small grace period for WS server to bind
+            setTimeout(() => window.location.reload(), 1500);
+        };
+        // If main process supports the event, use it. Otherwise fall back to a generous timeout.
+        if (window.api && window.api.on) {
+            window.api.on('bot-restarted', onRestarted);
+            // Safety net: if the event never fires (e.g. bot failed to start), reload anyway after 15s
+            setTimeout(() => {
+                window.api.removeListener('bot-restarted', onRestarted);
+                window.location.reload();
+            }, 15000);
+        } else {
+            // Fallback: wait long enough for the bot to fully start (~8s kill + spawn + verify)
+            setTimeout(() => window.location.reload(), 8000);
+        }
     });
 
     controlGrid.appendChild(btnStart);
@@ -2695,6 +2792,27 @@ function renderPaperTab(container) {
 
     section.appendChild(createDivider());
 
+    section.appendChild(createSectionHeader('Prop Firm Evaluation', 'verified_user',
+        "<strong>Challenge Simulator</strong><br><br>Practice trading under the strict scrutiny of a Prop Firm evaluation. The bot will automatically track your daily and overall drawdown, and halt all trading immediately if a rule is violated or if the target is secured."
+    ));
+
+    section.appendChild(createCard('Enable Prop Firm Eval', 'Enforce strict max drawdown and target rules', 'PAPER_EVAL_MODE', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('Challenge Tier Auto-Sizer', 'Scales risk math dynamically against True Equity (Max Loss)', 'PROP_CHALLENGE_TIER_USD', 'dropdown', {
+        items: [
+            { value: '0.0', label: 'Disabled / Custom Profile Risk' },
+            { value: '50000.0', label: '50K Buying Power (4% Max Loss Limit)' },
+            { value: '100000.0', label: '100K Buying Power (3% Max Loss Limit)' },
+            { value: '150000.0', label: '150K Buying Power (3% Max Loss Limit)' }
+        ],
+        default: '0.0',
+        tooltip: "<strong>Prop Firm Risk Scale</strong><br><br>If selected, the bot will completely ignore Nominal Buying Power when placing trades. Instead, it will look at your Maximum Loss Limit (your True Equity) and perfectly scale its normal percentage risk constraints against it to keep you from blowing up immediately."
+    }));
+    section.appendChild(createCard('Target Profit (%)', 'Profit required to pass the test (e.g. 8.0)', 'PAPER_EVAL_TARGET_PCT', 'input', { number: true, step: '0.1', default: '8.0' }));
+    section.appendChild(createCard('Max Daily Loss (%)', 'Maximum allowed drawdown in a single 24h period', 'PAPER_EVAL_DAILY_LOSS_PCT', 'input', { number: true, step: '0.1', default: '5.0' }));
+    section.appendChild(createCard('Overall Max Loss (%)', 'Absolute maximum lifetime drawdown', 'PAPER_EVAL_MAX_LOSS_PCT', 'input', { number: true, step: '0.1', default: '10.0' }));
+
+    section.appendChild(createDivider());
+
     section.appendChild(createSectionHeader('Execution Friction', 'money_off',
         "<strong>Friction Simulation</strong><br><br>Set the artificial spread, slippage, and round-trip fees the Paper Broker will experience. Use Broker Presets to autofill realistic values."
     ));
@@ -2746,7 +2864,8 @@ function renderPaperTab(container) {
         const isLive = String(getValue('EXECUTE_TRADES')) === 'true';
         if (isLive) {
             const paperKeys = [
-                'PAPER_SIM_ENABLED', 'PAPER_REPLAY_MODE', 'PAPER_SYNTHETIC_MODE',
+                'PAPER_SIM_ENABLED', 'PAPER_REPLAY_MODE', 'PAPER_SYNTHETIC_MODE', 'PAPER_EVAL_MODE',
+                'PAPER_EVAL_TARGET_PCT', 'PAPER_EVAL_DAILY_LOSS_PCT', 'PAPER_EVAL_MAX_LOSS_PCT',
                 'SABBATH_REPLAY_MODE', 'PAPER_FEE_BPS', 'PAPER_SLIPPAGE_BPS', 'PAPER_SPREAD_BPS'
             ];
             paperKeys.forEach(k => {
@@ -2917,6 +3036,7 @@ function renderStrategyTab(container) {
         // Slider Grid
         const grid = document.createElement('div');
         grid.className = 'card-grid';
+        grid.appendChild(createSliderCard('Target Leverage', 'Max position sizing constraint', 'TARGET_LEVERAGE', 1, 100, 1, 'x'));
         grid.appendChild(createSliderCard('Default Risk %', 'Fallback equity risk', 'RISK_PER_TRADE_PCT', 0.1, 20.0, 0.1, '%', { toggleKey: 'RISK_DYNAMIC_AUTO', toggleLabel: 'Auto', toggleDisables: true }));
         grid.appendChild(createSliderCard('Max Exposure', 'Total open risk limit', 'MAX_EXPOSURE_PCT', 5, 100, 5, '%'));
         grid.appendChild(createSliderCard('Daily Loss Limit', 'Circuit breaker — stops trading for the day 🍞', 'LIMIT_LOSS_DAILY_PCT', 1, 20, 1, '%'));
@@ -2964,7 +3084,7 @@ function renderStrategyTab(container) {
         // Conductor controls (saves to global config, promoted to active profile)
         section.appendChild(createCard('Pyramid on Winners', 'Add to winning trades at profit milestones', 'CONDUCTOR_PYRAMID_ENABLED', 'toggle'));
         section.appendChild(createSliderCard('Pyramid Trigger Level', 'R-multiple distance before first add', 'CONDUCTOR_PYRAMID_START_R', 0.1, 2.0, 0.1, 'R', { default: '0.2' }));
-        section.appendChild(createSliderCard('First Pyramid Size', 'Risk % of initial position size', 'CONDUCTOR_PYRAMID_FIRST_PCT', 5, 100, 5, '%', { default: '30' }));
+        section.appendChild(createSliderCard('First Pyramid Size', 'Risk % of initial position size', 'CONDUCTOR_PYRAMID_FIRST_PCT', 5, 100, 5, '%', { default: '0.30' }));
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('Breakeven Trail', 'shield',
@@ -3192,21 +3312,47 @@ function renderExitLogicTab(container) {
 }
 
 function renderBrokersTab(container) {
-    // Sub-navigation
+    if (!subTabs.brokers_category) subTabs.brokers_category = 'live';
+
+    // Tier 1 Sub-navigation
     container.appendChild(createSubNav([
-        { id: 'ibkr', label: 'Interactive Brokers' },
-        { id: 'oanda', label: 'OANDA Forex' },
-        { id: 'gemini', label: 'Gemini.com' },
-        { id: 'kraken', label: 'Kraken' },
-        { id: 'paxos', label: 'Paxos (Crypto)' },
-        { id: 'ccxt', label: 'Coinbase / CCXT' },
-        { id: 'routing', label: 'Data Routing' }
-    ], 'brokers'));
+        { id: 'live', label: 'Live Brokers (IBKR, CCXT)' },
+        { id: 'prop', label: 'Prop Firms (Evaluations)' }
+    ], 'brokers_category'));
 
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    if (subTabs.brokers === 'ibkr') {
+    if (subTabs.brokers_category === 'live') {
+        if (!subTabs.live_brokers) subTabs.live_brokers = 'ibkr';
+        container.appendChild(createSubNav([
+            { id: 'ibkr', label: 'Interactive Brokers' },
+            { id: 'oanda', label: 'OANDA Forex' },
+            { id: 'gemini', label: 'Gemini.com' },
+            { id: 'kraken', label: 'Kraken' },
+            { id: 'paxos', label: 'Paxos (Crypto)' },
+            { id: 'ccxt', label: 'Coinbase / CCXT' },
+            { id: 'routing', label: 'Data Routing' }
+        ], 'live_brokers'));
+
+        renderLiveBrokersContent(section);
+    } else {
+        if (!subTabs.prop_firms) subTabs.prop_firms = 'apex';
+        container.appendChild(createSubNav([
+            { id: 'apex', label: 'Apex (Tradovate)' },
+            { id: 'ftmo', label: 'FTMO' },
+            { id: 'fundednext', label: 'FundedNext' }
+        ], 'prop_firms'));
+
+        renderPropFirmsContent(section);
+    }
+
+    container.appendChild(section);
+}
+
+function renderLiveBrokersContent(section) {
+
+    if (subTabs.live_brokers === 'ibkr') {
         section.appendChild(createSectionHeader('IBKR Connection', 'lan',
             "<strong>IBKR Connection</strong><br><br>Connect to Interactive Brokers (IBKR) for executing stock, ETF, futures, and forex trades. You need TWS or IB Gateway running on the same machine or network."
         ));
@@ -3219,7 +3365,7 @@ function renderBrokersTab(container) {
         section.appendChild(createCard('Read Only', 'Monitor mode only (no orders)', 'IBKR_READ_ONLY', 'toggle'));
         section.appendChild(createCard('Default Currency', 'Base currency for positions', 'IBKR_DEFAULT_CCY', 'dropdown', { items: [{ value: 'USD', label: 'USD' }, { value: 'EUR', label: 'EUR' }, { value: 'GBP', label: 'GBP' }, { value: 'CHF', label: 'CHF' }, { value: 'JPY', label: 'JPY' }, { value: 'CAD', label: 'CAD' }, { value: 'AUD', label: 'AUD' }, { value: 'NZD', label: 'NZD' }], default: 'USD' }));
 
-    } else if (subTabs.brokers === 'oanda') {
+    } else if (subTabs.live_brokers === 'oanda') {
         section.appendChild(createSectionHeader('OANDA Forex Connection', 'currency_exchange',
             "<strong>OANDA Forex Connection</strong><br><br>Connect to OANDA for forex (currency pair) trading. OANDA provides tight spreads and fractional position sizing. Enter your API key and account ID from your OANDA account dashboard."
         ));
@@ -3242,7 +3388,7 @@ function renderBrokersTab(container) {
         ));
 
         // OANDA controls that seamlessly read/write from active profile via our updateValue interceptor
-        section.appendChild(createSliderCard('Max Spread (% of SL)', 'Blocks entries if spread is too wide', 'SPREAD_GATE_MAX_PCT', 10, 50, 5, '%', { default: '30', tooltip: "During major news events (like NFP), spreads open up dramatically. If the broker is quoting you a spread that eats up 30% of your intended stop-loss distance, it's essentially a trap. This blocks the trade to prevent you from starting deep in the red." }));
+        section.appendChild(createSliderCard('Max Spread (% of SL)', 'Blocks entries if spread is too wide', 'SPREAD_GATE_MAX_PCT', 10, 50, 5, '%', { default: '0.30', tooltip: "During major news events (like NFP), spreads open up dramatically. If the broker is quoting you a spread that eats up 30% of your intended stop-loss distance, it's essentially a trap. This blocks the trade to prevent you from starting deep in the red." }));
         section.appendChild(createCard('Wed Swap Avoidance', 'Closes marginal trades before 5PM Wed swap charge', 'SWAP_AVOIDANCE_ENABLED', 'toggle', { tooltip: "Brokers apply a massive triple-rollover fee for holding Forex trades over Wednesday 5PM EST. When enabled, this actively closes out marginal or 'boring' trades right before 5PM Wednesday so you don't pay high fees for a trade that isn't doing anything anyway." }));
 
         section.appendChild(createDivider());
@@ -3266,7 +3412,7 @@ function renderBrokersTab(container) {
         `;
         section.appendChild(infoBox);
 
-    } else if (subTabs.brokers === 'gemini') {
+    } else if (subTabs.live_brokers === 'gemini') {
         section.appendChild(createSectionHeader('Gemini.com Connection', 'security',
             "<strong>Gemini Connection</strong><br><br>Connect to the Gemini crypto exchange for trading Bitcoin, Ethereum, and other cryptocurrencies. You'll need an API key and secret from your Gemini account settings."
         ));
@@ -3296,7 +3442,7 @@ function renderBrokersTab(container) {
         `;
         section.appendChild(geminiInfo);
 
-    } else if (subTabs.brokers === 'kraken') {
+    } else if (subTabs.live_brokers === 'kraken') {
         section.appendChild(createSectionHeader('Kraken Connection', 'account_balance_wallet',
             "<strong>Kraken Connection</strong><br><br>Connect to the Kraken crypto exchange. Kraken supports advanced order types and a wide range of crypto pairs."
         ));
@@ -3331,7 +3477,7 @@ function renderBrokersTab(container) {
         `;
         section.appendChild(krakenInfo);
 
-    } else if (subTabs.brokers === 'paxos') {
+    } else if (subTabs.live_brokers === 'paxos') {
         section.appendChild(createSectionHeader('Paxos / itBit Connection', 'token',
             "<strong>Paxos / itBit Connection</strong><br><br>Connect to the Paxos (itBit) crypto exchange. This is a regulated US exchange often used for institutional-grade trading."
         ));
@@ -3353,7 +3499,7 @@ function renderBrokersTab(container) {
         ));
         section.appendChild(createWarningBox('<strong>Note:</strong> Used for direct Crypto Spot trading. Ensure "Data Routing" is set to use Paxos for Crypto.'));
 
-    } else if (subTabs.brokers === 'ccxt') {
+    } else if (subTabs.live_brokers === 'ccxt') {
         section.appendChild(createSectionHeader('Coinbase / CCXT Engine', 'currency_bitcoin',
             "<strong>Coinbase / CCXT Engine</strong><br><br>Connect to Coinbase (or any CCXT-supported exchange) for crypto trading. CCXT is a universal adapter that supports 100+ crypto exchanges with a single configuration."
         ));
@@ -3386,7 +3532,7 @@ function renderBrokersTab(container) {
             ]
         }));
 
-    } else if (subTabs.brokers === 'routing') {
+    } else if (subTabs.live_brokers === 'routing') {
         section.appendChild(createSectionHeader('Data & Execution Routing', 'route',
             "<strong>Data & Execution Routing</strong><br><br>Choose which broker provides market data and which one executes trades. In hybrid mode, you can get data from one source and execute on another."
         ));
@@ -3428,19 +3574,82 @@ function renderBrokersTab(container) {
             tooltip: "Tells the bot exactly which exchange to send trades to whenever it encounters a traditional fiat currency pair."
         }));
 
-        section.appendChild(createCard('Equities Broker', 'spy, aapl', 'BROKER_EQUITIES', 'dropdown', {
-            items: [
-                { value: 'ibkr', label: 'Interactive Brokers Only' }
+        section.appendChild(createCard('Equities Data Provider', 'Which source to grab default equities data from', 'BROKER_EQUITIES', 'select', {
+            options: [
+                { value: 'primary', label: 'Use Global Fallback (IBKR)' },
+                { value: 'ibkr', label: 'Interactive Brokers' },
+                { value: 'disabled', label: 'Disable Equities Data' }
             ],
-            default: 'ibkr',
-            tooltip: "Tells the bot exactly which exchange to send trades to whenever it encounters a stock or ETF."
+            default: 'primary'
+        }));
+    }
+}
+
+function renderPropFirmsContent(section) {
+    if (subTabs.prop_firms === 'ftmo') {
+        section.appendChild(createSectionHeader('FTMO Evaluation & Funded', 'business_center',
+            "<strong>FTMO Settings</strong><br><br>The industry standard for prop firms. Configure your cTrader connection here and verify your maximum loss rules. Target Leverage is extremely important for passing evaluations."
+        ));
+
+        section.appendChild(createCard('cTrader API Key', 'Your FTMO cTrader API Token', 'PROP_FTMO_API_KEY', 'input', { password: true }));
+        section.appendChild(createCard('Account ID', 'cTrader cTID / Account number', 'PROP_FTMO_ACCOUNT_ID', 'input'));
+        section.appendChild(createCard('Environment', 'Evaluation or Live', 'PROP_FTMO_ENVIRONMENT', 'dropdown', {
+            items: [
+                { value: 'evaluation', label: 'Evaluation Phase (Demo)' },
+                { value: 'funded', label: 'Funded (Live)' }
+            ],
+            default: 'evaluation'
         }));
 
-        // Hidden master mode (implicitly Hybrid)
-        // We will handle the BROKER_MODE env var on the backend or implicitly set it.
-    }
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('FTMO Risk Rules', 'gavel',
+            "Configure FTMO's hard risk rules to allow the Safety Guard to intervene before you breach an evaluation account."
+        ));
+        section.appendChild(createSliderCard('Max Daily Loss %', 'Daily drawdown limit', 'PROP_FTMO_MAX_DAILY_LOSS', 1, 10, 0.5, '%', {default: '5'}));
+        section.appendChild(createSliderCard('Max Total Loss %', 'Overall drawdown limit', 'PROP_FTMO_MAX_TOTAL_LOSS', 1, 15, 0.5, '%', {default: '10'}));
+        section.appendChild(createSliderCard('Target Leverage', 'Global Risk Multiplier', 'PROP_FTMO_TARGET_LEVERAGE', 0.5, 30.0, 0.5, 'x', {default: '5.0'}));
+        section.appendChild(createSliderCard('Maker/Taker Rate (Bps)', 'Commission cost per side', 'PROP_FTMO_COMMISSION_BPS', 0, 50, 0.5, 'bps', {default: '3.0'}));
 
-    container.appendChild(section);
+    } else if (subTabs.prop_firms === 'apex') {
+        section.appendChild(createSectionHeader('Apex Trader Funding', 'trending_up',
+            "<strong>Apex Settings</strong><br><br>King of the futures prop firm space. Connects via Tradovate/Rithmic. Set your evaluation parameters here."
+        ));
+
+        section.appendChild(createCard('Tradovate Username', 'Tradovate Username', 'PROP_APEX_USER', 'input'));
+        section.appendChild(createCard('Tradovate Password', 'Tradovate Password', 'PROP_APEX_PASS', 'input', { password: true }));
+        section.appendChild(createCard('Application ID', 'Tradovate API Application ID', 'PROP_APEX_APP_ID', 'input', { password: true }));
+        
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Apex Risk Rules', 'gavel',
+            "Avoid hitting the Trailing Drawdown."
+        ));
+        section.appendChild(createSliderCard('Max EOD Drawdown', 'Trailing or EOD Drawdown limit ($)', 'PROP_APEX_MAX_DRAWDOWN_USD', 500, 5000, 100, '$', {default: '1500'}));
+        section.appendChild(createSliderCard('Target Leverage', 'Global Risk Multiplier (Contracts)', 'PROP_APEX_TARGET_LEVERAGE', 1, 15, 1, 'x', {default: '3.0'}));
+        section.appendChild(createSliderCard('Round Trip Fee ($)', 'Total cost per contract', 'PROP_APEX_FEE_USD', 0, 10, 0.1, '$', {default: '4.5'}));
+
+    } else if (subTabs.prop_firms === 'fundednext') {
+        section.appendChild(createSectionHeader('FundedNext', 'rocket_launch',
+            "<strong>FundedNext Settings</strong><br><br>Relaxed rules, fast payouts. Uses MT5 or cTrader to execute trades."
+        ));
+
+        section.appendChild(createCard('Execution Method', 'How to bridge the trades', 'PROP_FN_EXECUTION', 'dropdown', {
+            items: [
+                { value: 'ctrader', label: 'cTrader API' },
+                { value: 'mt5', label: 'MetaTrader 5 Bridge' }
+            ],
+            default: 'ctrader'
+        }));
+        section.appendChild(createCard('API / Bridge Key', 'Your API Token or MQ ID', 'PROP_FN_API_KEY', 'input', { password: true }));
+        
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('FundedNext Risk Rules', 'gavel',
+            "Configure max loss to protect the account."
+        ));
+        section.appendChild(createSliderCard('Max Daily Loss %', 'Daily drawdown limit', 'PROP_FN_MAX_DAILY_LOSS', 1, 10, 0.5, '%', {default: '5'}));
+        section.appendChild(createSliderCard('Max Total Loss %', 'Overall drawdown limit', 'PROP_FN_MAX_TOTAL_LOSS', 1, 15, 0.5, '%', {default: '10'}));
+        section.appendChild(createSliderCard('Target Leverage', 'Global Risk Multiplier', 'PROP_FN_TARGET_LEVERAGE', 0.5, 30.0, 0.5, 'x', {default: '5.0'}));
+        section.appendChild(createSliderCard('Commission / Slippage (Bps)', 'Cost per side', 'PROP_FN_COMMISSION_BPS', 0, 50, 0.5, 'bps', {default: '3.0'}));
+    }
 }
 
 function renderAITab(container) {
@@ -4256,6 +4465,7 @@ function renderSafetyTab(container) {
     section.appendChild(createCard('Stop After Single Loss', 'After a win, one loss halts ALL trading until midnight', 'STOP_AFTER_SINGLE_LOSS_ENABLED', 'toggle', { default: 'false' }));
     section.appendChild(createCard('Opening Range Sentry', 'Avoid first 15 mins (9:30-9:45 ET)', 'SAFETY_OPENING_SENTRY_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('AI Sentiment Shield', 'Smart Veto. AI blocks "Dangerous" setups.', 'SAFETY_SENTIMENT_SHIELD_ENABLED', 'toggle'));
+    section.appendChild(createCard('Wait for Bar Close', 'Block entries until 1m/5m signals perfectly finalize', 'WAIT_FOR_BAR_CLOSE_ENABLED', 'toggle', { default: 'false', tooltip: "Mimics the Backtester by absolutely refusing to take trades on mid-candle wicks. It forces the bot to patiently wait for the clock to hit the exact minute the candle closes before validating a setup." }));
 
     section.appendChild(createDivider());
     section.appendChild(createSectionHeader('Advanced Exit Shields', 'cancel_schedule',
@@ -4563,8 +4773,9 @@ function updateValue(key, value, strategyNamespace = null) {
         const stratKeyMatch = key.match(/^STRATEGY_(CRYPTO|FOREX|STOCKS|ETF|METALS|FUTURES)$/);
         if (stratKeyMatch) {
             const assetClass = stratKeyMatch[1].toLowerCase();
-            const active = configData.active_profile;
-            if (active && configData.profiles && configData.profiles[active]) {
+            const active = configData.active_profile || 'auto_schedule';
+            if (configData.profiles) {
+                if (!configData.profiles[active]) configData.profiles[active] = {};
                 if (!configData.profiles[active].strategies) configData.profiles[active].strategies = {};
                 configData.profiles[active].strategies[assetClass] = val;
             }
@@ -4602,8 +4813,9 @@ function updateValue(key, value, strategyNamespace = null) {
         envData['PERFORMANCE_MODE'] = newValue;
         localChanges['PERFORMANCE_MODE'] = true;
 
-        const active = configData.active_profile;
-        if (active && configData.profiles && configData.profiles[active]) {
+        const active = configData.active_profile || 'auto_schedule';
+        if (configData.profiles) {
+            if (!configData.profiles[active]) configData.profiles[active] = {};
             configData.profiles[active]['performance_mode'] = newValue;
         }
     }
