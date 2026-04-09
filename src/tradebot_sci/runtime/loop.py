@@ -1690,6 +1690,7 @@ def run_bot(
                 # Reset error counter when we successfully fetch at least one symbol
                 consecutive_error_iterations = 0
                 controller.health_monitor.record_pipeline(len(candidates))
+                controller.health_monitor.set_active_symbols(active_symbols)
                 for _sym in active_symbols:
                     controller.health_monitor.record_data_feed(_sym, success=True)
                 

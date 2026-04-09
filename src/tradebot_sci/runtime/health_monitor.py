@@ -197,10 +197,16 @@ class HealthMonitor:
 
     # ──────────────────────────────────────────────────────
     # Vital #3: Data Feed
-    # ──────────────────────────────────────────────────────
+    def set_active_symbols(self, symbols: list[str]) -> None:
+        """Prune outdated symbols from trackers when profile changes."""
+        old_keys = list(self._data_feed_ts.keys())
+        for k in old_keys:
+            if k not in symbols:
+                del self._data_feed_ts[k]
+
     def record_data_feed(self, symbol: str, success: bool = True) -> None:
         """Called after each candle fetch attempt."""
-        if success:
+        if success and symbol != "__all__":
             self._data_feed_ts[symbol] = time.time()
         self._evaluate_data_feed()
 

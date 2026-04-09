@@ -1307,7 +1307,6 @@ const STRATEGY_PRESETS = {
         SCALE_OUT_FRACTION: '0.95',
         
         // Logical Trend Detection 
-        TREND_EMA_RIBBON_ENABLED: 'true',
         TREND_ADX_ENABLED: 'true',
         TREND_ADX_THRESHOLD: '20',
         

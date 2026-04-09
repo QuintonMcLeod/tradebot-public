@@ -265,9 +265,11 @@ def _compute_timeframe(
     # ── Count ENABLED directional indicators ────────────────────────
     # Used as the denominator for strength: prevents inflation when
     # indicators can't vote due to insufficient candle data.
+    # EMA Ribbon is treated as an optional enhancement that can confirm a trend
+    # but does NOT add to the baseline enabled_count, so it won't penalize 
+    # the signal strength if it's misaligned/absent.
     _enabled_flags = [
         getattr(profile, 'trend_adx_enabled', True),
-        getattr(profile, 'trend_ema_ribbon_enabled', False),
         getattr(profile, 'trend_supertrend_enabled', False),
         getattr(profile, 'trend_macd_enabled', False),
         getattr(profile, 'trend_rsi_enabled', False),

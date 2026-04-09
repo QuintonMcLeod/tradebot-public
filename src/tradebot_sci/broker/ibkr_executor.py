@@ -1779,6 +1779,7 @@ class IbkrExecutor:
         return val if val is not None else 0.0
 
     def get_total_equity(self) -> float:
+        """Returns the total account equity in base currency."""
         """IBKR net liquidation already IS total equity."""
         return self.get_liquid_capital()
 
