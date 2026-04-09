@@ -134,7 +134,8 @@ class PaxosExchangeBroker(IExchangeBroker):
         except Exception as e:
             logger.error(f"[PAXOS] Failed to refresh account: {e}")
 
-    def get_liquid_capital(self) -> float:
+    def get_liquid_capital(self, symbol: str | None = None) -> float:
+        """Paxos doesn't distinguish — liquid capital is total equity."""
         return self._liquid_capital
 
     def get_total_equity(self) -> float:

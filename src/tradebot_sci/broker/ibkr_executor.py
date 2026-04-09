@@ -1773,7 +1773,7 @@ class IbkrExecutor:
             return None
         return (datetime.now(timezone.utc) - self._last_account_summary).total_seconds()
 
-    def get_liquid_capital(self) -> float:
+    def get_liquid_capital(self, symbol: str | None = None) -> float:
         """Alias for get_net_liquidation to satisfy runtime interface."""
         val = self.get_net_liquidation()
         return val if val is not None else 0.0
