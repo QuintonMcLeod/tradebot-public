@@ -168,7 +168,9 @@ class StrategyEngine:
             kwargs.update(self.profile.__dict__)
 
         # MetaSCIStrategy and ForexConductor require profile_settings kwarg
-        if variant in ("meta_sci", "forex_conductor"):
+        if variant == "meta_sci":
+            return cls(profile_settings=self.profile)
+        if variant == "forex_conductor":
             kwargs["profile_settings"] = self.profile
             return cls(**kwargs)
             
