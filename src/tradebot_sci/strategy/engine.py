@@ -909,8 +909,7 @@ class StrategyEngine:
 
             if decision is None or decision.action in ("stand_aside", "hold"):
                 # Strategy (e.g. conductor) didn't produce a valid entry.
-                # Fall back to engine-level forced SAR with no SL/TP;
-                # executor/broker will set these from ATR at fill time.
+                # Fall back to engine-level forced SAR, calculating ATR for SL.
                 _explicit_sar_risk = float(getattr(self.profile, "reversal_risk_per_trade", 0) or 0)
                 if _explicit_sar_risk > 0:
                     rev_risk = _explicit_sar_risk
@@ -922,9 +921,39 @@ class StrategyEngine:
                         rev_risk = 0.01
 
                 rev_action = "enter_long" if sar_dir == "long" else "enter_short"
+                
+                # Calculate SL/TP using ATR
+                price = snapshot.candles[-1].close if snapshot.candles else 0.0
+                sl = None
+                tp = None
+                if price > 0 and snapshot.candles and len(snapshot.candles) >= 15:
+                    try:
+                        from tradebot_sci.strategy.icc_signals import calculate_atr
+                        atr = calculate_atr(snapshot.candles[-30:], period=14)
+                        if atr and atr > 0:
+                            is_jpy = "JPY" in self.symbol.upper()
+                            min_sl_dist = 15 * (0.01 if is_jpy else 0.0001)
+                            stop_dist = max(atr * 1.5, min_sl_dist)
+                            tp_r = float(getattr(self.profile, "reversal_tp_r", 1.0))
+                            tp_dist = stop_dist * tp_r
+                            
+                            if sar_dir == "long":
+                                sl = price - stop_dist
+                                tp = price + tp_dist
+                            else:
+                                sl = price + stop_dist
+                                tp = price - tp_dist
+                    except Exception as e:
+                        logger.warning(f"[ENGINE SAR] failed to calculate ATR for SL/TP: {e}")
+
+                if sl is None:
+                    # Fallback if ATR fails (1% / 2%) so safety checking doesn't crash
+                    sl = price * 0.99 if sar_dir == "long" else price * 1.01
+                    tp = price * 1.02 if sar_dir == "long" else price * 0.98
+
                 logger.info(
                     f"[ENGINE SAR] {self.symbol}: Forcing {rev_action} "
-                    f"(risk={rev_risk*100:.1f}%) — strategy produced no SAR entry"
+                    f"(risk={rev_risk*100:.1f}%, sl={sl:.5f}, tp={tp:.5f}) — strategy produced no SAR entry"
                 )
                 decision = AITradeDecision(
                     symbol=self.symbol,
@@ -932,9 +961,9 @@ class StrategyEngine:
                     bias=sar_dir,
                     phase="correction",
                     action=rev_action,
-                    entry_price=None,
-                    stop_loss=None,
-                    take_profit=None,
+                    entry_price=price,
+                    stop_loss=sl,
+                    take_profit=tp,
                     risk_per_trade_pct=rev_risk,
                     urgency="high",
                     structure_summary=f"[SAR] Stop-and-Reverse: forced {sar_dir} after stop exit",

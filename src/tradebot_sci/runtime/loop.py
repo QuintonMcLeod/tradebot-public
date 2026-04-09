@@ -1475,8 +1475,8 @@ def run_bot(
                         eng.trade_results = trade_results if executor != executor_paper else paper_trade_results
                     logger.info("[REPLAY] Replay provider deactivated, engines restored to live data stream")
                     # Restore default poll intervals
-                    poll_interval = settings.runtime.poll_interval
-                    decision_interval = settings.runtime.decision_interval
+                    poll_interval = profile_settings.market_poll_interval_seconds
+                    decision_interval = profile_settings.ai_decision_interval_seconds
 
                 # Check if Sabbath/Off-Hours have ended and we need to drop the Paper Broker
                 if executor_paper and executor == executor_paper and not (true_sabbath_active or force_paper_broker):

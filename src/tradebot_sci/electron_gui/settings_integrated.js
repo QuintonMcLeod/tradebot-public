@@ -4445,12 +4445,7 @@ function renderSafetyTab(container) {
     section.appendChild(createCard('Greed Guard', 'Daily Profit Target Lock - Quit while ahead', 'SAFETY_GREED_GUARD_ENABLED', 'toggle', { default: 'true' }));
 
     // Greed Guard Target Input (Conditional visibility logic handled via CSS/JS later, or just always show for now)
-    section.appendChild(createCard('Greed Guard Target USD', 'Daily profit amount to trigger lockout', 'SAFETY_GREED_GUARD_TARGET', 'input', {
-        number: true,
-        placeholder: '100.00',
-        default: '100.00',
-        tooltip: "If the bot makes this exact amount of profit in a single day, it will instantly shut down and refuse to take any more trades until midnight. This prevents 'giving it all back' to the market when you already hit a home run."
-    }));
+    section.appendChild(createSliderCard('Greed Guard Target %', 'Daily profit to trigger lockout', 'SAFETY_GREED_GUARD_TARGET', 0.5, 20.0, 0.5, '%'));
 
     section.appendChild(createCard('Churn Burner', 'Rate Limit (Max trades/hour)', 'SAFETY_CHURN_BURNER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createSliderCard('Churn Burner Max', 'Maximum trades allowed per hour', 'SAFETY_CHURN_BURNER_MAX', 1, 20, 1, 'trades/hr'));

@@ -1317,7 +1317,7 @@ class SafetySettings(BaseModel):
         default_factory=lambda: os.getenv("SAFETY_GREED_GUARD_ENABLED", "True").lower() == "true"
     )
     safety_greed_guard_target: float = Field(
-        default_factory=lambda: float(os.getenv("SAFETY_GREED_GUARD_TARGET", "100.0"))
+        default_factory=lambda: float(os.getenv("SAFETY_GREED_GUARD_TARGET", "5.0"))
     )
     safety_streak_breaker_enabled: bool = Field(
         default_factory=lambda: os.getenv("SAFETY_STREAK_BREAKER_ENABLED", "False").lower() == "true"

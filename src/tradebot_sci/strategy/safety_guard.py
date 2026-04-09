@@ -339,10 +339,11 @@ class SafetyGuard:
         # 4. [NEW] GREED GUARD (Profit Lock)
         # -------------------------------------------------------------
         if safety and safety.safety_greed_guard_enabled:
-            target = safety.safety_greed_guard_target
+            target_pct = safety.safety_greed_guard_target
+            target_dollars = (target_pct / 100.0) * current_capital
             daily_pnl = cls._state.daily_pnl.get(asset_class, 0.0)
-            if daily_pnl >= target:
-                return cls._reject(symbol, timeframe, "Greed Guard", f"Greed Guard Active for {asset_class.value} (Daily Goal ${target:.2f} Met)")
+            if target_dollars > 0 and daily_pnl >= target_dollars:
+                return cls._reject(symbol, timeframe, "Greed Guard", f"Greed Guard Active for {asset_class.value} (Daily Goal {target_pct}% / ${target_dollars:.2f} Met)")
 
         # -------------------------------------------------------------
         # 5. [NEW] STREAK BREAKER (Symbol Cooldown)

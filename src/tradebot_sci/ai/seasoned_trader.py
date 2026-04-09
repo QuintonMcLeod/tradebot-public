@@ -480,6 +480,13 @@ class SeasonedTraderDaemon:
         # ── Determine trading mode and strategy ──
         execute_trades = config.get("runtime", {}).get("execute_trades", False)
         trading_mode = "LIVE" if execute_trades else "PAPER TRADING"
+        
+        paper_cfg = config.get("paper", {})
+        if trading_mode == "PAPER TRADING" and str(paper_cfg.get("eval_mode", "false")).lower() == "true":
+            target = float(paper_cfg.get("eval_target_pct", 8.0))
+            daily = float(paper_cfg.get("eval_daily_loss_pct", 5.0))
+            maxx = float(paper_cfg.get("eval_max_loss_pct", 10.0))
+            trading_mode = f"PAPER TRADING (PROP FIRM EVALUATION) | Target: +{target}% | Daily Loss Limit: -{daily}% | Max Loss Limit: -{maxx}%"
 
         # Strategy: read from profile (lowercase keys)
         strategy_variant = prof_settings.get("strategy_variant", "unknown")

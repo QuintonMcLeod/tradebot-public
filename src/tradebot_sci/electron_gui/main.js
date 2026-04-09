@@ -967,11 +967,31 @@ function setupIpcHandlers() {
     ipcMain.handle('ai-recommend', async (_event, profileName, goal = 'balanced') => {
         console.log(`[MAIN] AI Recommend requested for profile: ${profileName} with goal: ${goal}`);
         try {
-            // 1. Read profile data
-            const yaml = require('js-yaml');
-            const profilesRaw = fs.readFileSync(PROFILES_PATH, 'utf8');
-            const profilesData = yaml.load(profilesRaw);
-            const profile = profilesData?.profiles?.[profileName];
+            // 1. Read config.json and profile data
+            let configJson = {};
+            const cfgPath = fs.existsSync(CONFIG_JSON_PATH) ? CONFIG_JSON_PATH : LEGACY_CONFIG_JSON_PATH;
+            if (fs.existsSync(cfgPath)) {
+                try {
+                    configJson = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+                } catch (e) {
+                    console.warn('[MAIN] Failed to parse config.json:', e);
+                }
+            }
+            
+            let profile = configJson?.profiles?.[profileName];
+            
+            // Fallback to YAML
+            if (!profile) {
+                try {
+                    const yaml = require('js-yaml');
+                    const profilesRaw = fs.readFileSync(PROFILES_PATH, 'utf8');
+                    const profilesData = yaml.load(profilesRaw);
+                    profile = profilesData?.profiles?.[profileName];
+                } catch (e) {
+                    console.warn('[MAIN] Fallback YAML profile read failed:', e);
+                }
+            }
+
             if (!profile) {
                 return { success: false, error: `Profile '${profileName}' not found` };
             }
@@ -991,12 +1011,6 @@ function setupIpcHandlers() {
                     const match = line.match(/^([^#=]+)=(.*)$/);
                     if (match) envData[match[1].trim()] = match[2].trim();
                 });
-            }
-            // Also read config.json
-            let configJson = {};
-            const cfgPath = fs.existsSync(CONFIG_JSON_PATH) ? CONFIG_JSON_PATH : LEGACY_CONFIG_JSON_PATH;
-            if (fs.existsSync(cfgPath)) {
-                configJson = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
             }
 
             // Merge: env data + config.json ai section
