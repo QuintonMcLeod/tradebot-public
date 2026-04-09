@@ -443,6 +443,9 @@ class SafetyGuard:
                        
              except Exception as e:
                  logger.warning(f"[SAFETY] AI Shield failed request: {e}")
+                 # Cache a default 'SAFE' response to back off and prevent API spam loop
+                 class_cache[asset_class] = (now, "SAFE")
+                 cls._state.sentiment_cache[asset_class] = class_cache
 
         # -------------------------------------------------------------
         # 9. [NEW] SEGMENTED LEVERAGE SENTRY (Max Account Leverage)

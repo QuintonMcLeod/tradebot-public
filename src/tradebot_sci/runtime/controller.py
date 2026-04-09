@@ -224,7 +224,8 @@ class RuntimeController:
                     _raw = _json.load(f)
                 _active = _raw.get("active_profile", "")
                 _prof = _raw.get("profiles", {}).get(_active, {}) if _active else {}
-                if str(_prof.get("ai_seasoned_trader_enabled", False)).lower() == "true" or _prof.get("ai_seasoned_trader_enabled") is True:
+                _is_enabled = _prof.get("ai_seasoned_trader_enabled") or _prof.get("ai", {}).get("ai_seasoned_trader_enabled")
+                if str(_is_enabled).lower() == "true" or _is_enabled is True:
                     logger.debug("[COMMENTARY] Suppressed — Seasoned Trader Autopilot is active")
                     return False
         except Exception:
@@ -296,6 +297,9 @@ class RuntimeController:
             from tradebot_sci.ai.client import TradeSciAIClient
             from tradebot_sci.config.loader import load_settings
             
+            # Immediately update the timestamp to prevent API spamming if this call throws an exception
+            self._last_commentary_ts = time.time()
+            
             # Build the rich prompt with log context
             prompt = build_commentary_prompt_with_logs(state_context, recent_logs, recent_errors)
             
@@ -307,7 +311,6 @@ class RuntimeController:
             
             if commentary and commentary.strip():
                 self._last_commentary_content = commentary.strip()
-                self._last_commentary_ts = time.time()
                 self._commentary_call_count_today += 1
                 
                 timestamp = datetime.now().strftime("%I:%M %p")
