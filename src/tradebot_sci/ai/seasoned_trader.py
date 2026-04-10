@@ -106,6 +106,8 @@ SENTINEL_TOOLTIP_REFERENCE = {
     "SAFETY_ROLLOVER_DEADZONE_ENABLED": "Blocks trades at 5 PM EST when banks close books and spreads spike.",
     "SAFETY_SENTIMENT_SHIELD_ENABLED": "Asks the AI to review a chart before entering. Cancels if AI says 'dangerous'.",
     "SAFETY_ATR_SHIELD_ENABLED": "Auto-moves stop-loss to breakeven once trade is safely in profit.",
+    "SAFETY_FEE_SHIELD_ENABLED": "Blocks trades where the potential reward isn't large enough to cover broker spreads/commissions.",
+    "SAFETY_FEE_RT_PCT": "The minimum profit buffer in % required by the Fee Shield to clear broker fees.",
     "BLOCK_COUNTER_TREND_ENTRIES": "Blocks the bot from trading against the big-picture trend direction.",
 
     # ── Position & Pyramiding ──
@@ -419,49 +421,51 @@ class SeasonedTraderDaemon:
         active_prof = config.get("active_profile", "default")
         prof_settings = config.get("profiles", {}).get(active_prof, {})
         
-        # ── Read capital from paper_state.json or ledger ──
-        paper = {}
-        paper_file = DATA_DIR / "paper_state.json"
-        if paper_file.exists():
+        execute_trades = config.get("global", {}).get("execute_trades", config.get("runtime", {}).get("execute_trades", False))
+        trading_mode = "LIVE" if execute_trades else "PAPER TRADING"
+
+        # ── Read capital from correct runtime state store ──
+        state_file = DATA_DIR / "state.json" if execute_trades else DATA_DIR / "paper_state.json"
+        state_data = {}
+        if state_file.exists():
             try:
-                with open(paper_file, 'r') as f:
-                    paper = json.load(f)
+                with open(state_file, 'r') as f:
+                    state_data = json.load(f)
             except Exception: pass
 
-        # paper_state uses "balance" key, not "capital"
-        current_capital = paper.get("balance", paper.get("capital", None))
+        current_capital = state_data.get("balance", state_data.get("capital", None))
 
-        # Fallback: try reading from ledger
-        if current_capital is None:
-            ledger_file = DATA_DIR / "ledger.json"
-            if ledger_file.exists():
-                try:
-                    with open(ledger_file, 'r') as f:
-                        ledger_data = json.load(f)
-                    if isinstance(ledger_data, dict):
-                        current_capital = ledger_data.get("balance", ledger_data.get("equity", None))
-                except Exception: pass
-
-        if current_capital is None:
-            current_capital = 0.0  # Unknown — don't lie about $5,000
-
-        # ── Read trade history from paper ledger ──
-        paper_ledger_file = DATA_DIR / "paper_ledger.json"
-        ledger_file = DATA_DIR / "ledger.json"
-        history = []
-        for lf in [paper_ledger_file, ledger_file]:
-            if lf.exists():
-                try:
-                    with open(lf, 'r') as f:
-                        ldata = json.load(f)
-                    if isinstance(ldata, dict):
-                        history = ldata.get("trades", ldata.get("history", []))
-                    elif isinstance(ldata, list):
-                        history = ldata
-                    if history:
-                        break
-                except Exception: pass
+        # ── Read trade history from correct ledger ──
+        ledger_file = DATA_DIR / "ledger.json" if execute_trades else DATA_DIR / "paper_ledger.json"
         
+        # Fallback to secondary check if state file lacked balance
+        if current_capital is None and ledger_file.exists():
+            try:
+                with open(ledger_file, 'r') as f:
+                    ledger_data = json.load(f)
+                if isinstance(ledger_data, dict):
+                    current_capital = ledger_data.get("balance", ledger_data.get("equity", None))
+                    # Check new SCI 2.0 ledger schema
+                    if current_capital is None:
+                        c_day = ledger_data.get("current_day", {})
+                        if isinstance(c_day, dict):
+                            current_capital = c_day.get("capital_now", c_day.get("capital_at_start", None))
+            except Exception: pass
+
+        if current_capital is None:
+            current_capital = 0.0
+
+        history = []
+        if ledger_file.exists():
+            try:
+                with open(ledger_file, 'r') as f:
+                    ldata = json.load(f)
+                if isinstance(ldata, dict):
+                    history = ldata.get("trades", ldata.get("history", []))
+                elif isinstance(ldata, list):
+                    history = ldata
+            except Exception: pass
+
         now = datetime.now()
         wins, losses, pnl_24h = 0, 0, 0.0
         for trade in history:
@@ -476,17 +480,15 @@ class SeasonedTraderDaemon:
                         else: losses += 1
                 except ValueError:
                     continue
-
-        # ── Determine trading mode and strategy ──
-        execute_trades = config.get("runtime", {}).get("execute_trades", False)
-        trading_mode = "LIVE" if execute_trades else "PAPER TRADING"
         
-        paper_cfg = config.get("paper", {})
-        if trading_mode == "PAPER TRADING" and str(paper_cfg.get("eval_mode", "false")).lower() == "true":
-            target = float(paper_cfg.get("eval_target_pct", 8.0))
-            daily = float(paper_cfg.get("eval_daily_loss_pct", 5.0))
-            maxx = float(paper_cfg.get("eval_max_loss_pct", 10.0))
-            trading_mode = f"PAPER TRADING (PROP FIRM EVALUATION) | Target: +{target}% | Daily Loss Limit: -{daily}% | Max Loss Limit: -{maxx}%"
+        prop_tier = getattr(prof_settings, "prop_challenge_tier_usd", 0.0)
+        prop_max_loss = getattr(prof_settings, "prop_challenge_max_loss_pct", 0.0)
+        
+        if trading_mode == "PAPER TRADING" and prop_tier > 0:
+            target = 8.0  # Generic default target, prop-specific if available
+            daily = 5.0
+            maxx = prop_max_loss * 100 if prop_max_loss > 0 else 10.0
+            trading_mode = f"PAPER TRADING (PROP FIRM EVALUATION) | Tier: ${prop_tier:,.2f} | Target: +{target}% | Limit: -{maxx}%"
 
         # Strategy: read from profile (lowercase keys)
         strategy_variant = prof_settings.get("strategy_variant", "unknown")
@@ -1028,7 +1030,7 @@ class SeasonedTraderDaemon:
         sabbath = self._get_sabbath_status(config)
         sabbath_active = sabbath.get("active", False)
         
-        execute_trades = config.get("runtime", {}).get("execute_trades", False)
+        execute_trades = config.get("global", {}).get("execute_trades", config.get("runtime", {}).get("execute_trades", False))
         is_paper = not execute_trades
 
         sabbath_instruction = ""
@@ -1104,6 +1106,11 @@ class SeasonedTraderDaemon:
             '- If you already adjusted a setting, do NOT adjust it again unless conditions have MATERIALLY changed.\n'
             '- Check your memory_note_for_next_cycle for recent changes you made — do not redo them.\n'
             '- Making the SAME adjustment repeatedly is a serious error.\n'
+            '\n'
+            'ZERO TRADE PROTOCOL (CRITICAL):\n'
+            '- If you observe 0 trades over recent days, this is a FAILURE. Do not passively accept zero trades and say "preserving capital".\n'
+            '- A normal veteran trader would check the Rejection Journal. If a safety guard (like the Fee Shield, Volatility Veto, etc.) is consistently blocking setups, you MUST adjust it via "adjust_settings" or disable it entirely to work around the issue and force market participation.\n'
+            '- Never sit idle when a specific gate is causing 100% rejection. Take autonomous action to fix the settings and unlock trading!\n'
             '\n'
             'EXCHANGE / BROKER CONSTRAINTS:\n'
             '- Check the "Connected Exchanges" and "Crypto Trading Available" fields in the status report.\n'
@@ -1298,46 +1305,26 @@ class SeasonedTraderDaemon:
 
     def _apply_settings_adjustments(self, adjustments: dict):
         """Apply settings adjustments to config.json, mapping to the correct sections."""
-        CONFIG_SECTION_MAP = {
-            "RISK_PER_TRADE_PCT": ("risk", "risk_per_trade_pct"),
-            "RISK_PER_TRADE_DOLLARS": ("risk", "risk_per_trade_dollars"),
-            "MAX_EXPOSURE_PCT": ("risk", "max_exposure_pct"),
-            "LIMIT_LOSS_DAILY_PCT": ("risk", "limit_loss_daily_pct"),
-            "MAX_LOSS_PER_TRADE_DOLLARS": ("risk", "max_loss_per_trade_dollars"),
-            "TARGET_PROFIT_DAILY_PCT": ("global", "target_profit_daily_pct"),
-            "SAFETY_STABILITY_MODE_ENABLED": ("safety", "safety_stability_mode_enabled"),
-            "SAFETY_DRAWDOWN_BREAKER_ENABLED": ("safety", "safety_drawdown_breaker_enabled"),
-            "SAFETY_DRAWDOWN_MAX_PCT": ("safety", "safety_drawdown_max_pct"),
-            "SAFETY_GREED_GUARD_ENABLED": ("safety", "safety_greed_guard_enabled"),
-            "SAFETY_GREED_GUARD_TARGET": ("safety", "safety_greed_guard_target"),
-            "SAFETY_STREAK_BREAKER_ENABLED": ("safety", "safety_streak_breaker_enabled"),
-            "SAFETY_CHURN_BURNER_ENABLED": ("safety", "safety_churn_burner_enabled"),
-            "SAFETY_LEVERAGE_SENTRY_ENABLED": ("safety", "safety_leverage_sentry_enabled"),
-            "SAFETY_MAX_TOTAL_LEVERAGE": ("safety", "safety_max_total_leverage"),
-            "SAFETY_VOLATILITY_VETO_ENABLED": ("safety", "safety_volatility_veto_enabled"),
-            "SAFETY_OPENING_SENTRY_ENABLED": ("safety", "safety_opening_sentry_enabled"),
-            "SAFETY_SESSION_LOCKOUT_ENABLED": ("safety", "safety_session_lockout_enabled"),
-            "SAFETY_ROLLOVER_DEADZONE_ENABLED": ("safety", "safety_rollover_deadzone_enabled"),
-            "SAFETY_SENTIMENT_SHIELD_ENABLED": ("safety", "safety_sentiment_shield_enabled"),
-            "SAFETY_ATR_SHIELD_ENABLED": ("safety", "safety_atr_shield_enabled"),
-            "BLOCK_COUNTER_TREND_ENTRIES": ("safety", "block_counter_trend_entries"),
-            "RISK_REWARD_RATIO": ("safety", "risk_reward_ratio"),
-            "STOP_ATR_MULTIPLIER": ("safety", "stop_atr_multiplier"),
-            "BREAKEVEN_TRAIL_PCT": ("safety", "breakeven_trail_pct"),
-            "MULTI_POSITION_ENABLED": ("global", "multi_position_enabled"),
-            "MAX_CONCURRENT_POSITIONS": ("global", "max_concurrent_positions"),
-            "CONDUCTOR_PYRAMID_ENABLED": ("global", "conductor_pyramid_enabled"),
-            "CONDUCTOR_PYRAMID_START_R": ("global", "conductor_pyramid_start_r"),
-            "MAX_PYRAMID_ENTRIES": ("global", "max_pyramid_entries"),
-            "TRAILING_STOP_ENABLED": ("performance", "trailing_stop_enabled"),
-            "TRAILING_STOP_MIN_PROFIT_PCT": ("global", "trailing_stop_min_profit_pct"),
-            "MIN_HOLD_HOURS": ("global", "min_hold_hours"),
-            "MAX_HOLD_HOURS": ("global", "max_hold_hours"),
-            "AUTO_FLATTEN_ON_CLOSE": ("global", "flatten_on_exit"),
-            "STRATEGY_CRYPTO": ("global", "strategy_crypto"),
-            "STRATEGY_FOREX": ("global", "strategy_forex"),
-            "STRATEGY_STOCKS": ("global", "strategy_stocks"),
-        }
+        from tradebot_sci.config.models import (
+            Settings, RiskSettings, SafetySettings, 
+            PerformanceSettings, TradingProfileSettings, 
+            RuntimeSettings, AppSettings
+        )
+        
+        CONFIG_SECTION_MAP = {}
+        # We order these from most general to most specific, 
+        # so specific section mappings overwrite global ones if duplicated.
+        for cls, section_name in [
+            (Settings, "global"),
+            (TradingProfileSettings, "global"),
+            (AppSettings, "global"),
+            (RuntimeSettings, "runtime"),
+            (PerformanceSettings, "performance"),
+            (SafetySettings, "safety"),
+            (RiskSettings, "risk")
+        ]:
+            for field_name in cls.model_fields.keys():
+                CONFIG_SECTION_MAP[field_name.upper()] = (section_name, field_name)
 
         cfg = self._read_config()
         for key, val in adjustments.items():

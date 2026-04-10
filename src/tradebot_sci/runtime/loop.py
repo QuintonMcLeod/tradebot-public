@@ -1033,7 +1033,7 @@ def run_bot(
             if replay_provider is not None:
                 chart_prov = replay_provider
             elif asset_key == "forex":
-                chart_prov = _forex_chart_provider or provider
+                chart_prov = _forex_chart_provider or _chart_provider or provider
             else:
                 chart_prov = _chart_provider or provider
             hist = chart_prov.get_latest_candles(symbol, tf, limit=500)
@@ -1069,7 +1069,7 @@ def run_bot(
         if replay_provider is not None:
             chart_prov = replay_provider
         elif _get_asset_key(symbol) == "forex":
-            chart_prov = _forex_chart_provider or provider
+            chart_prov = _forex_chart_provider or _chart_provider or provider
         else:
             chart_prov = _chart_provider or provider
         try:

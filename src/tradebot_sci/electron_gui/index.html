@@ -1121,6 +1121,11 @@
                             <option value="aggregator">Aggregator</option>
                             <option value="bearish_engulfing">Bearish Engulfing</option>
                             <option value="volatility_breakout">Breakout</option>
+                            <option value="london_sweep">London Sweep</option>
+                            <option value="new_york_drive">New York Drive</option>
+                            <option value="wind_down_truffle">Wind-Down Truffle</option>
+                            <option value="yoyo">Yo-Yo</option>
+                            <option value="golden_pocket">Golden Pocket</option>
                             <option value="silver_vwap">Silver-VWAP (Apex)</option>
                             <option value="crypto_double_macd">Crypto Double MACD</option>
                             <option value="crypto_grid">Crypto Grid</option>
@@ -1450,22 +1455,13 @@
 
             <!-- Settings Content Area -->
             <div class="flex-1 flex flex-col min-w-0">
-                <!-- Search Bar (for Advanced tab) -->
-                <div id="search-container" class="absolute top-20 right-8 z-50 hidden">
-                    <div class="relative">
-                        <span
-                            class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">search</span>
-                        <input type="text" id="setting-search" placeholder="Filter variables..."
-                            class="bg-black/60 border border-white/10 rounded-full py-2 pl-10 pr-6 text-xs text-white focus:outline-none focus:border-teal-500/50 w-64 shadow-2xl">
-                    </div>
-                </div>
-
                 <div id="tab-content" class="flex-1 overflow-y-auto p-12 scrollbar-thin">
                     <!-- Tab content will be rendered here -->
                 </div>
 
-                <!-- Auto-Save Status Footer -->
+                <!-- Auto-Save Status Footer & Search -->
                 <div class="h-14 border-t border-white/5 bg-black/60 flex items-center px-12 justify-between">
+                    <!-- Left: Sync Status -->
                     <div class="flex items-center gap-3">
                         <span class="material-symbols-outlined text-emerald-400/50 text-base">sync</span>
                         <div class="flex flex-col">
@@ -1475,6 +1471,12 @@
                                 synced
                                 to disk</div>
                         </div>
+                    </div>
+                    
+                    <!-- Right: Search Bar -->
+                    <div id="search-container" class="relative transition-opacity duration-200" style="margin-right: 1.5rem;">
+                        <span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" style="font-size:14px;">search</span>
+                        <input type="text" id="setting-search" placeholder="Search Settings" class="settings-input" style="border-radius: 4px; padding: 0 10px 0 32px; width: 180px; font-size: 11px; height: 28px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08);">
                     </div>
                 </div>
             </div>

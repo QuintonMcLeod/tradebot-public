@@ -222,6 +222,10 @@ const SECRETS_MAP = {
     'KRAKEN_API_SECRET': 'KRAKEN_API_SECRET',
     'TRADE_SCI_API_KEY': 'TRADE_SCI_API_KEY',
     'CHATGPT_KEY': 'CHATGPT_KEY',
+    'TRADE_SCI_GEMINI_KEY': 'TRADE_SCI_GEMINI_KEY',
+    'TRADE_SCI_CLAUDE_KEY': 'TRADE_SCI_CLAUDE_KEY',
+    'TRADE_SCI_DEEPSEEK_KEY': 'TRADE_SCI_DEEPSEEK_KEY',
+    'TRADE_SCI_OPENROUTER_KEY': 'TRADE_SCI_OPENROUTER_KEY',
     
     // Prop Firm Secrets
     'PROP_FTMO_API_KEY': 'PROP_FTMO_API_KEY',
@@ -1004,6 +1008,46 @@ const STRATEGIES = {
         bestFor: "Universal: reversal zones, supply/demand levels",
         stats: { pattern: "Engulfing", target: "2.0R", bonus: "RSI Divergence" }
     },
+    london_sweep: {
+        name: 'London Sweep',
+        shortDesc: 'The Banker\'s Trap',
+        assetClass: "forex",
+        description: "Operates during the London Session. Identifies the Asian Session High/Low. If price sweeps these levels but immediately closes back inside, we enter a reversal with an ultra-tight stop right above/below the wick.",
+        style: "Reversal / Sweep",
+        risk: "Medium",
+        bestFor: "Forex: London Session (07:00 - 12:00 UTC)",
+        stats: { winRate: "Variable", target: "Variable", riskReward: "High" }
+    },
+    wind_down_truffle: {
+        name: 'Wind Down Truffle',
+        shortDesc: 'Friday Afternoon Fade',
+        assetClass: "universal",
+        description: "Captures the Friday wind-down drift where liquidity thins and prices tend to fade toward weekly close. Active window: Friday 12:00 PM – 4:30 PM ET.",
+        style: "Fade / Mean Reversion",
+        risk: "Medium",
+        bestFor: "Universal: Fridays 12PM-4:30PM ET",
+        stats: { bias: "Short", target: "2:1 R:R", indicator: "VWAP+EMA" }
+    },
+    new_york_drive: {
+        name: 'New York Drive',
+        shortDesc: 'Momentum Continuation',
+        assetClass: "universal",
+        description: "Operates during the highest volume hours of the day (13:00 - 16:00 UTC). If price violently breaches the highest/lowest price established during the London session, we enter with a dynamic momentum stop.",
+        style: "Breakout / Momentum",
+        risk: "High",
+        bestFor: "Universal: NY Session (13:00-16:00 UTC)",
+        stats: { winRate: "Medium", target: "Trailing Stop", riskReward: "Variable" }
+    },
+    golden_pocket: {
+        name: 'Golden Pocket',
+        shortDesc: 'Dynamic Value Pullback',
+        assetClass: "universal",
+        description: "Waits for the price to pull back deep into the 55 EMA 'pocket' during a strong macro trend, then enters on the first rejection bounce out of that pocket.",
+        style: "Trend Pullback",
+        risk: "Medium",
+        bestFor: "Universal: trending markets",
+        stats: { indicator: "EMA 21/55", winRate: "Variable", riskReward: "Variable" }
+    },
     // ──────────────────────────────────────────────────────────────
     // 🪙 CRYPTO-SPECIFIC STRATEGIES
     // HOW TO ADD A NEW STRATEGY:
@@ -1514,18 +1558,18 @@ function formatStatKey(key) {
 
 const TABS = {
     system: { icon: 'dashboard', label: 'System', render: renderSystemTab },
-    vitals: { icon: 'monitor_heart', label: 'Vitals', render: renderVitalsTab },
-    strategy: { icon: 'precision_manufacturing', label: 'Strategy', render: renderStrategyTab },
+    vitals: { icon: 'monitor_heart', label: 'Nurse\'s Station', render: renderVitalsTab },
+    strategy: { icon: 'precision_manufacturing', label: 'Strategy Workshop', render: renderStrategyTab },
     paper: { icon: 'history', label: 'Paper & Replay', render: renderPaperTab },
-    safety: { icon: 'shield', label: 'Safety', render: renderSafetyTab },
-    performance: { icon: 'trending_up', label: 'Performance', render: renderPerformanceTab },
+    safety: { icon: 'shield', label: 'Safety & Shields', render: renderSafetyTab },
+    performance: { icon: 'trending_up', label: 'Performance & Profits', render: renderPerformanceTab },
     exit_logic: { icon: 'logout', label: 'Exit Logic', render: renderExitLogicTab },
     brokers: { icon: 'lan', label: 'Broker Suite', render: renderBrokersTab },
     ai: { icon: 'auto_awesome', label: 'Intelligence', render: renderAITab },
-    schedule: { icon: 'event_repeat', label: 'Schedule', render: renderScheduleTab },
+    schedule: { icon: 'event_repeat', label: 'Hours & Schedules', render: renderScheduleTab },
     appearance: { icon: 'palette', label: 'Appearance', render: renderAppearanceTab },
     advanced: { icon: 'terminal', label: 'Advanced', render: renderAdvancedTab },
-    trends: { icon: 'analytics', label: 'Trends', render: renderTrendsTab },
+    trends: { icon: 'analytics', label: 'Trend Detection', render: renderTrendsTab },
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -1715,7 +1759,109 @@ function setupGlobalEvents() {
 
     if (searchInput) {
         searchInput.addEventListener('input', (e) => {
-            if (currentTab === 'advanced') renderAdvancedTab(document.getElementById('tab-content'), e.target.value);
+            const query = e.target.value.toLowerCase().trim();
+            const container = document.getElementById('tab-content');
+            if (!container) return;
+
+            // Advanced tab uses its own special renderer
+            if (currentTab === 'advanced') {
+                renderAdvancedTab(container, query);
+                return;
+            }
+
+            // Normal operation (If search is cleared, restore standard view)
+            if (!query) {
+                renderTab();
+                return;
+            }
+
+            // --- CROSS-TAB SEARCH MODE ---
+            container.innerHTML = '';
+            
+            const resultsSection = document.createElement('div');
+            resultsSection.className = 'settings-section';
+            resultsSection.innerHTML = `
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:12px;">
+                    <span class="material-symbols-outlined" style="color:var(--accent);">search</span>
+                    <h2 style="font-size:14px; font-weight:800; text-transform:uppercase; letter-spacing:0.1em; margin:0;">Search Results</h2>
+                </div>
+            `;
+            
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display: flex; flex-direction: column; gap: 12px;';
+            
+            // Render all standard tabs silently into dummy containers and extract matching cards
+            const searchTabs = ['system', 'strategy', 'safety', 'exit_logic', 'paper', 'performance', 'brokers', 'ai', 'schedule', 'trends', 'appearance'];
+            
+            searchTabs.forEach(tabKey => {
+                if (TABS[tabKey] && TABS[tabKey].render) {
+                    const dummy = document.createElement('div');
+                    try {
+                        if (tabKey === 'strategy') {
+                            const original = subTabs.strategy;
+                            ['assets', 'toolbox', 'risk', 'pyramid'].forEach(sub => {
+                                subTabs.strategy = sub;
+                                TABS[tabKey].render(dummy);
+                            });
+                            subTabs.strategy = original;
+                        } else if (tabKey === 'brokers') {
+                            const original = subTabs.brokers;
+                            ['ibkr', 'ccxt', 'gemini', 'oanda'].forEach(sub => {
+                                subTabs.brokers = sub;
+                                TABS[tabKey].render(dummy);
+                            });
+                            subTabs.brokers = original;
+                        } else {
+                            TABS[tabKey].render(dummy);
+                        }
+                        
+                        // First pass: label every card with its parent Section Header name using document order traversal
+                        let currentSectionName = '';
+                        dummy.querySelectorAll('*').forEach(el => {
+                            if (el.classList && el.classList.contains('settings-label')) {
+                                const clone = el.cloneNode(true);
+                                clone.querySelectorAll('span').forEach(s => s.remove());
+                                currentSectionName = clone.textContent.trim();
+                            } else if (el.classList && (el.classList.contains('control-card') || el.classList.contains('slider-card'))) {
+                                el.dataset.sectionName = currentSectionName;
+                            }
+                        });
+
+
+                        dummy.querySelectorAll('.control-card, .slider-card').forEach(card => {
+                            const key = (card.dataset.key || '').toLowerCase();
+                            const label = card.querySelector('.card-title, .slider-title')?.textContent.toLowerCase() || '';
+                            const desc = card.querySelector('.card-desc, .slider-desc')?.textContent.toLowerCase() || '';
+                            
+                            if (key.includes(query) || label.includes(query) || desc.includes(query)) {
+                                // Inject visual badge showing which tab and section this setting came from
+                                const badge = document.createElement('div');
+                                badge.style.cssText = 'position:absolute; top:8px; right:8px; font-size:9px; font-weight:800; text-transform:uppercase; padding:3px 8px; border-radius:4px; background:rgba(0,0,0,0.4); border: 1px solid var(--accent-dim); color:var(--accent); letter-spacing:0.05em; pointer-events:none; z-index:10; display:flex; align-items:center; gap:6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);';
+                                
+                                let badgeHtml = `<span class="material-symbols-outlined" style="font-size:12px; opacity:0.8;">${TABS[tabKey].icon}</span>${TABS[tabKey].label}`;
+                                if (card.dataset.sectionName) {
+                                    badgeHtml += ` <span style="color:var(--text-dim); opacity:0.5; font-size:10px;">›</span> <span style="color:var(--text-secondary);">${card.dataset.sectionName}</span>`;
+                                }
+                                badge.innerHTML = badgeHtml;
+                                
+                                card.style.position = 'relative';
+                                card.style.display = 'flex'; // Ensure visible
+                                card.appendChild(badge);
+                                grid.appendChild(card);
+                            }
+                        });
+                    } catch (err) {
+                        console.warn(`[Search] Skipped non-standard tab: ${tabKey}`);
+                    }
+                }
+            });
+
+            if (grid.children.length === 0) {
+                grid.innerHTML = `<div style="color:var(--text-dim); padding:20px; font-size:12px; font-style:italic;">No matching settings found across any tabs...</div>`;
+            }
+
+            resultsSection.appendChild(grid);
+            container.appendChild(resultsSection);
         });
     }
 }
@@ -1785,9 +1931,18 @@ function switchTab(tabId) {
     });
 
     const searchContainer = document.getElementById('search-container');
+    const searchInput = document.getElementById('setting-search');
+    
     if (searchContainer) {
-        searchContainer.classList.toggle('hidden', tabId !== 'advanced');
+        // Hide search entirely on vitals since it has no physical settings
+        searchContainer.classList.toggle('hidden', tabId === 'vitals');
     }
+    
+    // Clear search filter when switching tabs
+    if (searchInput) {
+        searchInput.value = '';
+    }
+
     renderTab();
 }
 
@@ -3751,7 +3906,21 @@ function renderAITab(container) {
         manualInput.addEventListener('input', () => {
             syncModelValue();
         });
-        const autoApiKey = envData['CHATGPT_KEY'] || envData['TRADE_SCI_API_KEY'] || '';
+        const providerKeyMap = {
+            'openai': 'CHATGPT_KEY',
+            'gemini': 'TRADE_SCI_GEMINI_KEY',
+            'claude': 'TRADE_SCI_CLAUDE_KEY',
+            'deepseek': 'TRADE_SCI_DEEPSEEK_KEY',
+            'openrouter': 'TRADE_SCI_OPENROUTER_KEY'
+        };
+        const activeKeyConfigInner = providerKeyMap[provider];
+        let autoApiKey = '';
+        if (activeKeyConfigInner) {
+            autoApiKey = envData[activeKeyConfigInner] || envData['TRADE_SCI_API_KEY'] || envData['CHATGPT_KEY'] || '';
+        } else {
+            autoApiKey = envData['TRADE_SCI_API_KEY'] || envData['CHATGPT_KEY'] || '';
+        }
+        
         const autoBaseUrl = envData['TRADE_SCI_API_BASE_URL'] || '';
         
         if (window.api && window.api.invoke && autoApiKey) {
@@ -3787,7 +3956,27 @@ function renderAITab(container) {
             statusMsg.style.display = 'block';
         }
     }, 50);
-    section.appendChild(createCard('API Key', 'Provider authentication', 'CHATGPT_KEY', 'input', { password: true }));
+
+    const providerKeyMapUI = {
+        'openai': 'CHATGPT_KEY',
+        'gemini': 'TRADE_SCI_GEMINI_KEY',
+        'claude': 'TRADE_SCI_CLAUDE_KEY',
+        'deepseek': 'TRADE_SCI_DEEPSEEK_KEY',
+        'openrouter': 'TRADE_SCI_OPENROUTER_KEY'
+    };
+    const currentProviderUI = envData['TRADE_SCI_PROVIDER'] || 'openai';
+    const activeKeyConfigUI = providerKeyMapUI[currentProviderUI];
+    
+    if (activeKeyConfigUI) {
+        let labelNameLine = currentProviderUI.charAt(0).toUpperCase() + currentProviderUI.slice(1);
+        if (currentProviderUI === 'openai') labelNameLine = 'OpenAI';
+        else if (currentProviderUI === 'deepseek') labelNameLine = 'DeepSeek';
+        else if (currentProviderUI === 'openrouter') labelNameLine = 'OpenRouter';
+        
+        section.appendChild(createCard(`${labelNameLine} API Key`, 'Provider authentication', activeKeyConfigUI, 'input', { password: true }));
+    } else if (currentProviderUI !== 'local') {
+        section.appendChild(createCard('API Key', 'Provider authentication', 'TRADE_SCI_API_KEY', 'input', { password: true }));
+    }
     section.appendChild(createSliderCard('Temperature', 'AI creativity (0 = precise, 2 = wild)', 'AI_TEMPERATURE', 0, 2, 0.1, ''));
     section.appendChild(createCard('Max Tokens', 'Response length limit', 'AI_MAX_TOKENS', 'input', { number: true, default: '2048' }));
 
@@ -4437,6 +4626,13 @@ function renderSafetyTab(container) {
     section.appendChild(createCard('ATR Armor', 'Profit Protection via Break-even & Trailing stops', 'SAFETY_ATR_SHIELD_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createSliderCard('Stop ATR Multiplier', 'Standard stop distance (× ATR)', 'STOP_ATR_MULTIPLIER', 0.5, 5, 0.1, '×'));
     section.appendChild(createSliderCard('The "Lock-In"', 'Lock Risk-Free at this profit level', 'BREAKEVEN_TRAIL_PCT', 0, 5, 0.1, '%'));
+    section.appendChild(createCard('Fee Shield', 'Buffer exits to absorb spread & commissions', 'SAFETY_FEE_SHIELD_ENABLED', 'toggle', { 
+        default: 'true',
+        tooltip: "<strong>Keep Everything You Earn.</strong> Brokers secretly tax your trades through spreads and commissions. If the bot aims to make $100, the broker might silently take $5, leaving you with $95.<br><br>The Fee Shield literally forces the bot to push your profit targets slightly further away. It intentionally makes the trade run longer just to guarantee that after the broker takes their hidden cut, your <em>actual net cash in pocket</em> exactly matches your true target."
+    }));
+    section.appendChild(createSliderCard('Fee Shield Buffer', 'Estimated round-trip cost', 'SAFETY_FEE_RT_PCT', 0.05, 1.0, 0.05, '%', {
+        tooltip: "What percentage is the broker charging you for the 'round-trip' (both buying and selling)?<br><br>Set this slightly higher than what they actually charge just to be extremely safe against unpredictable spikes during wild market moments."
+    }));
     section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker — Adaptive (25% small → 5% large accounts)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Session Lockout', 'Stops new entries after cutoff time', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Lockout Time (EST)', 'No new entries after this time', 'SAFETY_SESSION_LOCKOUT_HOUR', 'time', { default: '16', tooltip: "Forces the bot to totally stop looking for new trades at this hour. If you set it to 16 (4:00 PM EST), the bot goes to sleep before the wild end-of-day volatility and spread widening kicks in." }));
@@ -4987,6 +5183,12 @@ function renderStrategyToolbox(container) {
         { id: 'trend_rider', label: 'Trend Rider', icon: 'trending_up', color: '#10b981' },
         { id: 'session_momentum', label: 'Session Momentum', icon: 'schedule_send', color: '#f43f5e' },
         { id: 'bearish_engulfing', label: 'Engulfing Reversal', icon: 'candlestick_chart', color: '#d946ef' },
+        { id: 'golden_pocket', label: 'Golden Pocket', icon: 'account_balance_wallet', color: '#fbbf24' },
+        { id: 'london_sweep', label: 'London Sweep', icon: 'sweep', color: '#10b981' },
+        { id: 'new_york_drive', label: 'New York Drive', icon: 'local_taxi', color: '#ef4444' },
+        { id: 'wind_down_truffle', label: 'Wind-Down Truffle', icon: 'forest', color: '#8b5cf6' },
+        { id: 'silver_vwap', label: 'Apex Silver-VWAP', icon: 'my_location', color: '#f97316' },
+        { id: 'yoyo', label: 'Yo-Yo', icon: 'loop', color: '#3b82f6' },
         // 🪙 Crypto-Specific Strategies
         { id: 'crypto_rsi_macd', label: 'RSI + MACD', icon: 'currency_bitcoin', color: '#f59e0b' },
         { id: 'crypto_vwap_reversion', label: 'VWAP Reversion', icon: 'swap_horiz', color: '#84cc16' },

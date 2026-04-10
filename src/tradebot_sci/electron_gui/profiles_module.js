@@ -72,7 +72,13 @@ window.profilesModule = (function () {
         { value: 'trend_rider', label: 'Trend Rider (EMA Pullback)' },
         { value: 'session_momentum', label: 'Session Momentum (VWAP)' },
         { value: 'bearish_engulfing', label: 'Engulfing Reversal' },
+        { value: 'london_sweep', label: 'London Sweep (Banker\'s Trap)' },
+        { value: 'new_york_drive', label: 'New York Drive (Momentum Continuation)' },
+        { value: 'wind_down_truffle', label: 'Wind-Down Truffle (Friday Fade)' },
+        { value: 'silver_vwap', label: 'Apex Silver-VWAP' },
         { value: 'yoyo', label: 'Yo-Yo (Momentum Reversal)' },
+        { value: 'golden_pocket', label: 'Golden Pocket (Value Pullback)' },
+        { value: 'volatility_breakout', label: 'Volatility Breakout' },
         // 🪙 Crypto-Specific Strategies
         { value: 'crypto_rsi_macd', label: '🪙 RSI + MACD (Crypto)' },
         { value: 'crypto_vwap_reversion', label: '🪙 VWAP Reversion (Crypto)' },

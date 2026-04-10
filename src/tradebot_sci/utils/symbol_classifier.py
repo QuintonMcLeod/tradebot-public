@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import Optional, Callable
 
 class AssetClass(Enum):
     CRYPTO = "crypto"
@@ -38,7 +38,7 @@ def classify_symbol(symbol: str) -> AssetClass:
     if not symbol:
         return AssetClass.UNKNOWN
 
-    symbol_upper = symbol.upper().replace("/", "").replace("-", "").replace(":", "")
+    symbol_upper = symbol.upper().replace("/", "").replace("-", "").replace(":", "").replace("_", "")
 
     # Check for futures expiry format (e.g., "ETH/USD:USD-260130")
     if ":" in symbol and "-" in symbol.split(":")[-1]:

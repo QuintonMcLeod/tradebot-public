@@ -325,7 +325,7 @@
                     else score = raw;
                 }
 
-                const reasonMatch = body.match(/reason=([^|]+)/i) || body.match(/\(([^)]+)\)$/);
+                const reasonMatch = body.match(/reason=(.*)/i) || body.match(/\(([^)]+)\)$/);
                 if (reasonMatch) reason = reasonMatch[1].trim();
 
                 const gradeMatch = body.match(/grade=([A-F][+-]?)/i);

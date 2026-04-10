@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, Any
 
@@ -14,6 +14,12 @@ from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.market.providers import MarketDataProvider
 from tradebot_sci.runtime.safety import validate_decision
 from tradebot_sci.strategy.decisions import AITradeDecision
+from tradebot_sci.strategy.icc_signals import (
+    detect_liquidity_sweep,
+    detect_indication,
+    detect_correction,
+    detect_continuation
+)
 from tradebot_sci.strategy.profiles import BaseProfile
 from tradebot_sci.broker.trade_result_store import TradeResultStore
 
@@ -1124,7 +1130,11 @@ class StrategyEngine:
                     potential_reward_pct = abs(tp - entry) / entry
                     from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
                     import os
-                    env_override = float(os.environ["SAFETY_FEE_RT_PCT"]) if "SAFETY_FEE_RT_PCT" in os.environ else None
+                    safety_pct = getattr(safety, 'safety_fee_rt_pct', None)
+                    if safety_pct is not None:
+                        env_override = float(safety_pct) / 100.0
+                    else:
+                        env_override = float(os.environ["SAFETY_FEE_RT_PCT"]) / 100.0 if "SAFETY_FEE_RT_PCT" in os.environ else None
                     est_fee_rt = get_fee_for_symbol(self.symbol, override=env_override)
                     min_edge_pct = est_fee_rt * 1.5
                     if potential_reward_pct < min_edge_pct:

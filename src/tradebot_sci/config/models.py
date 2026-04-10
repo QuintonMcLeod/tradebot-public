@@ -1,5 +1,8 @@
 from __future__ import annotations
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 from functools import lru_cache
 from typing import Any, Dict, Literal, Optional
@@ -76,6 +79,11 @@ class AISettings(BaseModel):
         default_factory=lambda: os.getenv("TRADE_SCI_API_KEY") or os.getenv("CHATGPT_KEY"),
         description="API key for authentication"
     )
+    openai_key: Optional[str] = Field(default_factory=lambda: os.getenv("CHATGPT_KEY"))
+    gemini_key: Optional[str] = Field(default_factory=lambda: os.getenv("TRADE_SCI_GEMINI_KEY"))
+    claude_key: Optional[str] = Field(default_factory=lambda: os.getenv("TRADE_SCI_CLAUDE_KEY"))
+    deepseek_key: Optional[str] = Field(default_factory=lambda: os.getenv("TRADE_SCI_DEEPSEEK_KEY"))
+    openrouter_key: Optional[str] = Field(default_factory=lambda: os.getenv("TRADE_SCI_OPENROUTER_KEY"))
     model_name: str = Field(
         default_factory=lambda: os.getenv("TRADE_SCI_MODEL_NAME", "trade-sci-max-icc"),
         description="Model identifier"
@@ -89,6 +97,21 @@ class AISettings(BaseModel):
         default_factory=lambda: int(os.getenv("TRADE_SCI_MAX_TOKENS", "4096"))
     )
     timeout_seconds: PositiveInt = Field(default=30)
+
+    @model_validator(mode="after")
+    def resolve_api_key(self) -> 'AISettings':
+        provider = self.provider.lower()
+        if provider == "openai" and getattr(self, "openai_key", None):
+            self.api_key = self.openai_key
+        elif provider == "gemini" and getattr(self, "gemini_key", None):
+            self.api_key = self.gemini_key
+        elif provider == "claude" and getattr(self, "claude_key", None):
+            self.api_key = self.claude_key
+        elif provider == "deepseek" and getattr(self, "deepseek_key", None):
+            self.api_key = self.deepseek_key
+        elif provider == "openrouter" and getattr(self, "openrouter_key", None):
+            self.api_key = self.openrouter_key
+        return self
 
     @field_validator("provider", mode="before")
     @classmethod
