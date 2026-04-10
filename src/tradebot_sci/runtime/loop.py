@@ -1017,10 +1017,10 @@ def run_bot(
     except Exception as e:
         logger.warning(f"[WS] Dedicated OANDA chart provider failed: {e}")
 
-    def on_subscribe(symbol, tf):
+    def on_subscribe(symbol, tf, since=None):
         from tradebot_sci.runtime.provider_factory import _get_asset_key
         asset_key = _get_asset_key(symbol)
-        logger.info(f"[WS-DEBUG] Subscription for {symbol} ({tf}) | AssetKey: {asset_key}")
+        logger.info(f"[WS-DEBUG] Subscription for {symbol} ({tf}) | AssetKey: {asset_key}{f' | since={since}' if since else ''}")
         
         # Sync current state
         try:
@@ -1036,7 +1036,102 @@ def run_bot(
                 chart_prov = _forex_chart_provider or _chart_provider or provider
             else:
                 chart_prov = _chart_provider or provider
-            hist = chart_prov.get_latest_candles(symbol, tf, limit=500)
+
+            if since:
+                # ── Historical date navigation (calendar pick) ──
+                # Calculate how many candles we need from 'since' epoch to now
+                import re as _re
+                tf_seconds = 300  # default 5m
+                _m = _re.match(r"(\d+)([smhd])", tf.lower())
+                if _m:
+                    _v, _u = int(_m.group(1)), _m.group(2)
+                    tf_seconds = _v * {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(_u, 60)
+                
+                now_epoch = int(datetime.now(ZoneInfo("UTC")).timestamp())
+                candles_needed = max(100, min(5000, (now_epoch - int(since)) // max(tf_seconds, 1)))
+                logger.info(f"[WS-CHART] Calendar navigation: {symbol} {tf} from epoch {since} ({candles_needed} candles)")
+                
+                # Try to use 'since' parameter for providers that support it
+                hist = None
+                since_ms = int(since) * 1000  # CCXT uses milliseconds
+                
+                # OANDA: use 'from' parameter
+                if hasattr(chart_prov, '_normalize_symbol') and hasattr(chart_prov, '_map_timeframe'):
+                    try:
+                        import oandapyV20.endpoints.instruments as oanda_instruments
+                        oanda_sym = chart_prov._normalize_symbol(symbol)
+                        oanda_tf = chart_prov._map_timeframe(tf)
+                        from_time = datetime.fromtimestamp(int(since), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                        params = {
+                            "from": from_time,
+                            "count": candles_needed,
+                            "granularity": oanda_tf,
+                            "price": "M",
+                            "alignmentTimezone": "UTC"
+                        }
+                        r = oanda_instruments.InstrumentsCandles(instrument=oanda_sym, params=params)
+                        chart_prov.client.request(r)
+                        raw_candles = r.response.get("candles", [])
+                        from tradebot_sci.market.models import Candle as _Candle
+                        hist = []
+                        for c in raw_candles:
+                            mid = c.get("mid")
+                            if not mid:
+                                continue
+                            raw_time = c["time"]
+                            if "." in raw_time:
+                                base, rest = raw_time.split(".", 1)
+                                suffix = ""
+                                if "Z" in rest:
+                                    suffix = "Z"
+                                    rest = rest.replace("Z", "")
+                                raw_time = f"{base}.{rest[:6]}{suffix}"
+                            if raw_time.endswith("Z"):
+                                ts = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+                            else:
+                                ts = datetime.fromisoformat(raw_time)
+                            if ts.tzinfo is None:
+                                ts = ts.replace(tzinfo=timezone.utc)
+                            hist.append(_Candle(
+                                timestamp=ts,
+                                open=float(mid["o"]),
+                                high=float(mid["h"]),
+                                low=float(mid["l"]),
+                                close=float(mid["c"]),
+                                volume=float(c.get("volume", 0))
+                            ))
+                        logger.info(f"[WS-CHART] OANDA historical fetch: {len(hist)} candles from {from_time}")
+                    except Exception as e:
+                        logger.warning(f"[WS-CHART] OANDA historical fetch failed, falling back to standard: {e}")
+                        hist = None
+                
+                # CCXT fallback: use 'since' parameter  
+                if hist is None and hasattr(chart_prov, '_exchange'):
+                    try:
+                        sym_norm = chart_prov._normalize_ccxt_symbol(symbol) if hasattr(chart_prov, '_normalize_ccxt_symbol') else symbol
+                        ohlcv = chart_prov._exchange.fetch_ohlcv(sym_norm, tf, since=since_ms, limit=candles_needed)
+                        from tradebot_sci.market.models import Candle as _Candle
+                        hist = []
+                        for row in ohlcv:
+                            ts = datetime.fromtimestamp(row[0] / 1000.0, tz=timezone.utc)
+                            hist.append(_Candle(
+                                timestamp=ts,
+                                open=float(row[1]), high=float(row[2]),
+                                low=float(row[3]), close=float(row[4]),
+                                volume=float(row[5])
+                            ))
+                        logger.info(f"[WS-CHART] CCXT historical fetch: {len(hist)} candles since {since}")
+                    except Exception as e:
+                        logger.warning(f"[WS-CHART] CCXT historical fetch failed, falling back to standard: {e}")
+                        hist = None
+                
+                # Final fallback: just get latest candles with a large limit
+                if hist is None:
+                    hist = chart_prov.get_latest_candles(symbol, tf, limit=candles_needed)
+            else:
+                # ── Standard subscription (latest data) ──
+                hist = chart_prov.get_latest_candles(symbol, tf, limit=500)
+
             logger.info(f"[WS-DEBUG] Received {len(hist) if hist else 0} candles for {symbol}")
             if hist:
                 logger.info(f"[WS-DEBUG] {symbol} First: {hist[0].timestamp.isoformat()} | Last: {hist[-1].timestamp.isoformat()}")

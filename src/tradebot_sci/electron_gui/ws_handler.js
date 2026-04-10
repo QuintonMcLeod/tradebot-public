@@ -1,8 +1,10 @@
-function subscribeToAsset(symbol, tf) {
-    console.log(`[SUBSCRIBE] Attempting to subscribe to ${symbol} (${tf}). WS state: ${ws ? ws.readyState : 'null'}`);
+function subscribeToAsset(symbol, tf, since) {
+    console.log(`[SUBSCRIBE] Attempting to subscribe to ${symbol} (${tf})${since ? ` since=${since}` : ''}. WS state: ${ws ? ws.readyState : 'null'}`);
     if (ws && ws.readyState === WebSocket.OPEN) {
         console.log(`[SUBSCRIBE] Sending subscription request for ${symbol} (${tf})...`);
-        ws.send(JSON.stringify({ type: 'subscribe', symbol, tf }));
+        const msg = { type: 'subscribe', symbol, tf };
+        if (since) msg.since = since;
+        ws.send(JSON.stringify(msg));
     } else {
         console.warn(`[SUBSCRIBE] WebSocket not open. Cannot subscribe to ${symbol}`);
     }

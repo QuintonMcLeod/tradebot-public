@@ -30,7 +30,7 @@ class WebSocketServer:
         self.subscriptions: dict[web.WebSocketResponse, dict[str, str]] = {}
         self.loop: asyncio.AbstractEventLoop | None = None
         self._halted = False
-        self._on_subscribe_cb: Callable[[str, str], Any] | None = None
+        self._on_subscribe_cb: Callable[[str, str, int | None], Any] | None = None
         self._on_tick_cb: Callable[[str, str], Any] | None = None
 
     async def start(self) -> None:
@@ -66,14 +66,15 @@ class WebSocketServer:
                         elif data.get('type') == 'subscribe':
                             symbol = data.get('symbol')
                             tf = data.get('tf')
+                            since = data.get('since')  # epoch seconds, optional
                             if symbol:
                                 self.subscriptions[ws] = {"symbol": symbol, "tf": tf or "15m"}
-                                logger.info(f"[WS] Client subscribed to {symbol} ({tf})")
+                                logger.info(f"[WS] Client subscribed to {symbol} ({tf}){f' since={since}' if since else ''}")
                                 if self._on_subscribe_cb:
                                     # Run in thread pool — callback makes blocking HTTP calls
                                     loop = asyncio.get_event_loop()
                                     await loop.run_in_executor(
-                                        None, self._on_subscribe_cb, symbol, tf or "15m"
+                                        None, self._on_subscribe_cb, symbol, tf or "15m", since
                                     )
                         elif data.get('type') == 'tick':
                             symbol = data.get('symbol')
@@ -213,7 +214,7 @@ class WebSocketServer:
         }
         self.broadcast_sync(msg)
 
-    def set_on_subscribe_callback(self, cb: Callable[[str, str], Any]) -> None:
+    def set_on_subscribe_callback(self, cb: Callable[[str, str, int | None], Any]) -> None:
         """Register a callback for when a client subscribes to a symbol."""
         self._on_subscribe_cb = cb
 

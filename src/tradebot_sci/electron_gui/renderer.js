@@ -1170,11 +1170,31 @@ function setupCalendar() {
     const btn = document.getElementById('btn-calendar');
     const input = document.getElementById('date-picker-input');
     if (btn && input) {
+        // Set max date to today so users can't pick future dates
+        const today = new Date().toISOString().split('T')[0];
+        input.setAttribute('max', today);
+
         btn.addEventListener('click', () => {
             try { input.showPicker(); } catch (e) { input.click(); }
         });
         input.addEventListener('change', (e) => {
-            appendLog("INFO", `[UI] Date selected: ${e.target.value}`, "GUI");
+            const dateStr = e.target.value; // YYYY-MM-DD
+            if (!dateStr) return;
+
+            // Convert to epoch seconds (start of the selected day in UTC)
+            const sinceEpoch = Math.floor(new Date(dateStr + 'T00:00:00Z').getTime() / 1000);
+            appendLog("INFO", `[UI] Calendar: navigating chart to ${dateStr}`, "GUI");
+
+            // Clear current chart and request historical data from selected date
+            if (candleSeries) candleSeries.setData([]);
+            if (indicatorSeries) indicatorSeries.setData([]);
+            candleData = [];
+            clearTradeMarkers();
+            clearPositionLines();
+
+            const sym = (document.getElementById('chart-symbol-label')?.innerText || '').trim();
+            const tf = (document.getElementById('chart-tf-label')?.innerText || '15m').trim();
+            if (sym) subscribeToAsset(sym, tf, sinceEpoch);
         });
     }
 }
