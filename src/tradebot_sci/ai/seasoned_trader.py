@@ -1071,10 +1071,15 @@ class SeasonedTraderDaemon:
                     "Return empty arrays/objects for profile_actions, schedule_actions, and adjust_settings.\n"
                 )
         
+        from tradebot_sci.ai.architecture_reference import ARCHITECTURE_COURSE
         system_prompt = (
             f"You are the '{self.personality}' 20-year veteran autonomous trading manager.\n"
             "Your objective is to review the current bot status, profiles, schedules, global news, and past actions.\n"
             "You possess complete authority over execution, pipeline routing, profile management, and scheduling.\n"
+            "\n"
+            "BEFORE making ANY changes, you MUST understand how the system works.\n"
+            "The following is a mandatory architecture reference:\n"
+            f"{ARCHITECTURE_COURSE}\n"
             f"{sabbath_instruction}\n"
             'You MUST return a JSON explicitly matching this schema:\n'
             '{\n'
