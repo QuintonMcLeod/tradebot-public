@@ -230,12 +230,29 @@ class SeasonedTraderDaemon:
         except Exception as e:
             logger.error(f"[Sentinel] Failed to write profiles: {e}")
 
+    # ── HARD BLOCKLIST: Keys the AI must NEVER modify ──────────────────
+    # These are architecturally load-bearing settings that break the
+    # strategy pipeline if changed (e.g., MTF alignment gate requires
+    # specific timeframe pairings — changing ltf to 1m starves ADX).
+    _PROFILE_MODIFY_BLOCKLIST = {
+        "htf_timeframe", "mtf_timeframe", "ltf_timeframe",
+        "timeframe", "execution_timeframe",
+    }
+
     def _modify_profile(self, name: str, updates: dict):
         """Patch fields on an existing profile in config.json (authoritative source)."""
         config = self._read_config()
         profiles = config.get("profiles", {})
         if name not in profiles or not isinstance(profiles[name], dict):
             logger.warning(f"[Sentinel] Cannot modify profile '{name}' — not found in config.json.")
+            return False
+        # Strip blocked keys before applying
+        blocked_keys = [k for k in updates if k in self._PROFILE_MODIFY_BLOCKLIST]
+        for bk in blocked_keys:
+            logger.warning(f"[Sentinel] BLOCKED: AI attempted to modify '{bk}' on profile '{name}' — this key is architecturally protected.")
+            del updates[bk]
+        if not updates:
+            logger.info(f"[Sentinel] All requested profile modifications for '{name}' were blocked.")
             return False
         for key, val in updates.items():
             if key == "strategies" and isinstance(val, dict):
@@ -1120,13 +1137,17 @@ class SeasonedTraderDaemon:
             '- OANDA US does NOT allow metals trading (XAU/USD, XAG/USD, etc.) — this is a US regulatory restriction (CFTC). Do NOT suggest gold, silver, or any metal pairs.\n'
             '- OANDA US supports: Forex pairs and CFD indices ONLY. No metals, no crypto.\n'
             '\n'
-            'FOREX 1-MINUTE (1M) MTF ARCHITECTURE:\n'
-            '- When managing a Forex profile using 1-minute execution, YOU MUST ENFORCE THE FOLLOWING to survive volatility spikes:\n'
-            '  1. Enforce Dynamic Risk ("risk_dynamic_auto": true).\n'
-            '  2. Set minimum stop-loss pip floor to 25 pips.\n'
-            '  3. Restrict trading universe to the 5 Core Majors (EURUSD, GBPUSD, AUDUSD, NZDUSD, USDCHF). Avoid JPY/CAD crosses as they bleed capital on 1m execution.\n'
-            '  4. Disable Greed Guard, Rollover Deadzone, Drawdown Breaker, and Leverage Sentry, as these conflict with Conductor internal logic.\n'
-            '- If you detect a Forex account violating this, FIX IT via "adjust_settings" and "profile_actions". Explain that dynamic risk with MTF strength blocks is the weapon of choice for 1m execution profitability.\n'
+            'HANDS-OFF SETTINGS (DO NOT TOUCH):\n'
+            '- NEVER modify htf_timeframe, mtf_timeframe, or ltf_timeframe on ANY profile. These are architecturally load-bearing.\n'
+            '- The MTF Alignment gate in the Forex Conductor requires specific timeframe pairings (4h/1h/5m) to function. Changing ltf_timeframe to 1m starves the ADX indicator of data, causing it to return "neutral" on every tick, which permanently blocks the alignment gate and results in ZERO TRADES.\n'
+            '- You previously changed ltf_timeframe from 5m to 1m and it silently killed all trading for 24+ hours. This was catastrophic.\n'
+            '- If you believe a timeframe change is needed, EXPLAIN YOUR REASONING in insight_commentary and let the human operator decide. Never make the change yourself.\n'
+            '- Similarly, do NOT change: strategy_variant (use profile_actions to switch strategies instead), execution_timeframe, or any key prefixed with "trend_" (these are indicator toggles calibrated by the developer).\n'
+            '\n'
+            'FOREX PROFILE GUIDELINES:\n'
+            '- For Forex profiles, ensure Dynamic Risk is enabled ("risk_dynamic_auto": true).\n'
+            '- Restrict trading universe to the 5 Core Majors (EURUSD, GBPUSD, AUDUSD, NZDUSD, USDCHF). Avoid JPY/CAD crosses as they bleed capital.\n'
+            '- Disable Greed Guard, Rollover Deadzone, Drawdown Breaker, and Leverage Sentry, as these conflict with Conductor internal logic.\n'
             '\n'
             'INSIGHT COMMENTARY GUIDELINES:\n'
             '- The user reads your insight_commentary in a panel on their dashboard.\n'
