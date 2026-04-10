@@ -779,7 +779,30 @@ class StrategyEngine:
                         _exit_key = str(t.get("exit_time", ""))
                         if _exit_key and _exit_key == self._sar_last_processed.get(self.symbol):
                             break  # Same trade as last scan — nothing new
-                        # SAR/CR fires on ANY losing trade — no time window.
+
+                        # ── STALENESS CHECK ──────────────────────────────
+                        # SAR only makes sense for RECENT exits. On every bot restart
+                        # _sar_last_processed is empty, so without this check the
+                        # scanner re-processes weeks-old SAR losses and immediately
+                        # triggers a cooldown that perma-blocks the symbol.
+                        # Ignore trades older than 24 hours — by then the market has
+                        # moved on and a reversal entry would be stale.
+                        import datetime as _dt_sar
+                        _exit_ts_str = t.get("exit_time") or t.get("closed_at") or ""
+                        try:
+                            if _exit_ts_str:
+                                _exit_ts = _dt_sar.datetime.fromisoformat(str(_exit_ts_str).replace("Z", "+00:00"))
+                                _sar_now = candle_now or _dt_sar.datetime.now(_dt_sar.timezone.utc)
+                                if _sar_now.tzinfo is None:
+                                    _sar_now = _sar_now.replace(tzinfo=_dt_sar.timezone.utc)
+                                _age_hours = (_sar_now - _exit_ts).total_seconds() / 3600
+                                if _age_hours > 24:
+                                    # This trade is stale — mark as processed and skip
+                                    self._sar_last_processed[self.symbol] = _exit_key
+                                    break
+                        except (ValueError, TypeError):
+                            pass  # If we can't parse the time, proceed normally
+
                         is_loss = (not t.get("is_win", True)) or (t.get("pnl_usd", 0) < 0)
                         if not is_loss:
                             break  # last trade was a win — no reversal needed
