@@ -395,7 +395,7 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
             api_key=settings.oanda.api_key,
             profile_settings=profile_settings,
             environment=settings.oanda.environment,
-            read_only=settings.oanda.read_only,
+            read_only=not settings.runtime.execute_trades,
             trade_results=trade_results,
             position_hold_store_path=settings.runtime.position_hold_store_path
         )
@@ -468,7 +468,7 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
             app_id=getattr(profile_settings, "prop_apex_app_id", ""),
             profile_settings=profile_settings,
             environment="demo", # Apex Evaluation always executes on Demo endpoint
-            read_only=not settings.app.execute_trades
+            read_only=not settings.runtime.execute_trades
         )
     # Fallback to Mock?
     return NoOpExchangeBroker()

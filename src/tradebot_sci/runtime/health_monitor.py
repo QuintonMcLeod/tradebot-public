@@ -394,9 +394,13 @@ class HealthMonitor:
                 msg += " — minimum lot sizing may be rounding down."
             v.set(WARNING, msg, detail)
         else:
-            v.set(CRITICAL,
-                  "Trade sizes are very different from your risk settings — risk configuration might be broken!",
-                  detail)
+            msg = "Trade sizes are very different from your expected risk."
+            if leverage_capped or "[LEVERAGE CAPPED]" in detail:
+                msg += " Your leverage cap severely limited this position size because you have too many open trades."
+            else:
+                msg += " Risk configuration might be broken or spread/margin limits blocked the full size!"
+                
+            v.set(CRITICAL, msg, detail)
             self.add_event(f"Risk deviation: {deviation:.0%} on {symbol}", "warn")
 
     # ──────────────────────────────────────────────────────

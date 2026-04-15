@@ -188,6 +188,11 @@
         if (!line) return;
 
         // If the log line is structured JSON, extract the message field cleanly
+        // Prevent Paper logs from bleeding into the Live UI! (Unless we are intentionally in Paper Mode)
+        if (typeof window !== 'undefined' && !window.isPaper && line.includes('[PAPER]')) {
+            return;
+        }
+
         if (line.trimStart().startsWith('{')) {
             try {
                 const parsed = JSON.parse(line);

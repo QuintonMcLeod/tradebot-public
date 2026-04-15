@@ -1011,8 +1011,8 @@ class StrategyEngine:
                 )
 
         if decision:
-            decision.score = score
-            decision.grade = grade
+            decision.score = strat_score
+            decision.grade = strat_grade
 
             # [META-SCI] Propagate the winning sub-strategy name (e.g. "bullish_trending")
             # so the GUI shows the actual strategy instead of the conglomerate "meta_sci".

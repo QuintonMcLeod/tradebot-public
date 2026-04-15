@@ -15,7 +15,7 @@ window.profilesModule = (function () {
      */
     async function updateRealizedPnL() {
         try {
-            const result = await window.api.invoke('get-analytics-summary', pnlTimeframe);
+            const result = await window.api.invoke('get-analytics-summary', pnlTimeframe, !!(window.isPaper || window.isSabbath));
             if (result && result.success) {
                 const summary = result.data;
                 if (summary) {

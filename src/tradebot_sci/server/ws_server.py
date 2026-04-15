@@ -32,6 +32,7 @@ class WebSocketServer:
         self._halted = False
         self._on_subscribe_cb: Callable[[str, str, int | None], Any] | None = None
         self._on_tick_cb: Callable[[str, str], Any] | None = None
+        self._on_flatten_cb: Callable[[str], Any] | None = None
 
     async def start(self) -> None:
         """Starts the WebSocket server."""
@@ -85,6 +86,48 @@ class WebSocketServer:
                                 await loop.run_in_executor(
                                     None, self._on_tick_cb, symbol, tf
                                 )
+                        elif data.get('type') == 'flatten_symbol':
+                            symbol = data.get('symbol')
+                            if symbol and self._on_flatten_cb:
+                                logger.info(f"[WS] Manual Cash-Out request received for {symbol}")
+                                try:
+                                    loop = asyncio.get_event_loop()
+                                    await loop.run_in_executor(
+                                        None, self._on_flatten_cb, symbol
+                                    )
+                                    # Broadcast success to ALL clients
+                                    ack = json.dumps({
+                                        'type': 'flatten_ack',
+                                        'symbol': symbol,
+                                        'status': 'ok'
+                                    })
+                                    for client in list(self.clients):
+                                        try:
+                                            await client.send_str(ack)
+                                        except Exception:
+                                            pass
+                                except Exception as e:
+                                    logger.error(f"[WS] Flatten failed for {symbol}: {e}")
+                                    # Broadcast error to ALL clients
+                                    ack = json.dumps({
+                                        'type': 'flatten_ack',
+                                        'symbol': symbol,
+                                        'status': 'error',
+                                        'reason': str(e)
+                                    })
+                                    for client in list(self.clients):
+                                        try:
+                                            await client.send_str(ack)
+                                        except Exception:
+                                            pass
+                            elif symbol:
+                                logger.warning(f"[WS] Flatten request for {symbol} but no callback registered")
+                                await ws.send_str(json.dumps({
+                                    'type': 'flatten_ack',
+                                    'symbol': symbol,
+                                    'status': 'error',
+                                    'reason': 'No executor available'
+                                }))
                         elif data.get('type') == 'log':
                             # Bridge frontend logs to backend for easier debugging
                             lvl = data.get('level', 'INFO').upper()
@@ -221,6 +264,10 @@ class WebSocketServer:
     def set_on_tick_callback(self, cb: Callable[[str, str], Any]) -> None:
         """Register a callback for lightweight candle tick refresh."""
         self._on_tick_cb = cb
+
+    def set_on_flatten_callback(self, cb: Callable[[str], Any]) -> None:
+        """Register a callback for manual position cash-out from the GUI."""
+        self._on_flatten_cb = cb
 
     def get_subscriptions(self) -> list[tuple[str, str]]:
         """Returns a list of (symbol, timeframe) currently subscribed to by clients."""

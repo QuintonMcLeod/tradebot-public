@@ -10,6 +10,128 @@ function subscribeToAsset(symbol, tf, since) {
     }
 }
 
+/**
+ * Global Set tracking symbols currently being flattened.
+ * Survives DOM rebuilds so table renderers can show "Closing..." state.
+ */
+window._pendingFlattens = window._pendingFlattens || new Set();
+
+/**
+ * Send a manual Cash-Out (flatten) request for a symbol.
+ * Called by Holdings panel and Analytics active positions.
+ * @param {string} symbol - The symbol to close (e.g. 'EURUSD')
+ * @returns {boolean} true if the message was sent
+ */
+function sendFlattenSymbol(symbol) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        console.log(`[CASH-OUT] Sending flatten request for ${symbol}`);
+        ws.send(JSON.stringify({ type: 'flatten_symbol', symbol }));
+        window._pendingFlattens.add(symbol);
+        // Update ALL matching buttons across all panels immediately
+        _syncAllCashOutButtons(symbol, 'closing');
+        // Safety timeout: if no flatten_ack within 15s, reset the button
+        // (the position likely closed but the ack was lost in transit)
+        setTimeout(() => {
+            if (window._pendingFlattens.has(symbol)) {
+                console.warn(`[CASH-OUT] No flatten_ack for ${symbol} after 15s — resetting button`);
+                window._pendingFlattens.delete(symbol);
+                _syncAllCashOutButtons(symbol, 'reset');
+            }
+        }, 15000);
+        return true;
+    } else if (ws && ws.readyState === WebSocket.CONNECTING) {
+        // WS is reconnecting — retry after 1s
+        console.warn(`[CASH-OUT] WebSocket reconnecting. Will retry flatten for ${symbol} in 1s...`);
+        window._pendingFlattens.add(symbol);
+        _syncAllCashOutButtons(symbol, 'closing');
+        setTimeout(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                console.log(`[CASH-OUT] Retry: Sending flatten request for ${symbol}`);
+                ws.send(JSON.stringify({ type: 'flatten_symbol', symbol }));
+            } else {
+                console.error(`[CASH-OUT] Retry failed: WS still not open for ${symbol}`);
+                window._pendingFlattens.delete(symbol);
+                _syncAllCashOutButtons(symbol, 'error');
+            }
+        }, 1500);
+        return true; // Tell caller it's in-progress (don't show NO WS)
+    } else {
+        console.warn(`[CASH-OUT] WebSocket not open (state: ${ws ? ws.readyState : 'null'}). Cannot flatten ${symbol}`);
+        return false;
+    }
+}
+
+/**
+ * Sync all Cash Out buttons for a symbol across Holdings + Analytics panels.
+ * @param {string} symbol
+ * @param {'closing'|'ok'|'error'|'reset'} state
+ * @param {string} [reason]
+ */
+function _syncAllCashOutButtons(symbol, state, reason) {
+    const safeSym = symbol.replace(/[^a-zA-Z0-9]/g, '');
+    const holdingsBtn = document.getElementById(`cashout-${safeSym}`);
+    const analyticsBtn = document.getElementById(`analytics-cashout-${safeSym}`);
+    const allBtns = [holdingsBtn, analyticsBtn].filter(Boolean);
+
+    allBtns.forEach(btn => {
+        if (state === 'closing') {
+            btn._sending = true;
+            btn._confirmed = true;
+            const hasIcons = btn.querySelector && btn.closest('.cashout-btn, [class*="cashout"]');
+            btn.innerHTML = hasIcons
+                ? '<span class="flex items-center gap-1 justify-center"><span class="material-symbols-outlined" style="font-size:12px;">sync</span>Closing...</span>'
+                : '⏳ Closing...';
+            btn.style.background = 'linear-gradient(135deg, rgba(20,184,166,0.2), rgba(16,185,129,0.2))';
+            btn.style.borderColor = 'rgba(20,184,166,0.4)';
+            btn.style.color = '#2dd4bf';
+            btn.style.boxShadow = '0 0 20px rgba(20,184,166,0.2)';
+            btn.style.animation = '';
+            btn.style.pointerEvents = 'none';
+        } else if (state === 'ok') {
+            btn._sending = false;
+            const hasIcons = btn.querySelector && btn.closest('.cashout-btn, [class*="cashout"]');
+            btn.innerHTML = hasIcons
+                ? '<span class="flex items-center gap-1 justify-center"><span class="material-symbols-outlined" style="font-size:12px;">check_circle</span>Closed!</span>'
+                : '✅ Closed!';
+            btn.style.background = 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(52,211,153,0.2))';
+            btn.style.borderColor = 'rgba(16,185,129,0.5)';
+            btn.style.color = '#34d399';
+            btn.style.boxShadow = '0 0 20px rgba(16,185,129,0.2)';
+            btn.style.animation = '';
+            btn.style.pointerEvents = 'none';
+        } else if (state === 'error') {
+            btn._sending = false;
+            btn._confirmed = false;
+            const hasIcons = btn.querySelector && btn.closest('.cashout-btn, [class*="cashout"]');
+            btn.innerHTML = hasIcons
+                ? '<span class="flex items-center gap-1 justify-center"><span class="material-symbols-outlined" style="font-size:12px;">error</span>Failed</span>'
+                : '❌ Failed';
+            btn.style.background = 'linear-gradient(135deg, rgba(239,68,68,0.2), rgba(248,113,113,0.2))';
+            btn.style.borderColor = 'rgba(239,68,68,0.5)';
+            btn.style.color = '#f87171';
+            btn.style.boxShadow = '0 0 20px rgba(239,68,68,0.2)';
+            btn.style.animation = '';
+            btn.style.pointerEvents = '';
+        } else if (state === 'reset') {
+            btn._sending = false;
+            btn._confirmed = false;
+            const hasIcons = btn.querySelector && btn.closest('.cashout-btn, [class*="cashout"]');
+            btn.innerHTML = hasIcons
+                ? '<span class="flex items-center gap-1 justify-center"><span class="material-symbols-outlined" style="font-size:12px;">payments</span>Cash Out</span>'
+                : '💰 Cash Out';
+            btn.style.background = 'linear-gradient(135deg, rgba(249,115,22,0.12), rgba(239,68,68,0.12))';
+            btn.style.borderColor = 'rgba(249,115,22,0.3)';
+            btn.style.color = '#fb923c';
+            btn.style.boxShadow = '0 0 10px rgba(249,115,22,0.08)';
+            btn.style.animation = '';
+            btn.style.pointerEvents = '';
+        }
+    });
+}
+// Expose globally for cross-module access
+window.sendFlattenSymbol = sendFlattenSymbol;
+window._syncAllCashOutButtons = _syncAllCashOutButtons;
+
 // [WEBSOCKET] Connect to Python Backend
 const DEFAULT_WS_URL = 'ws://localhost:8080/ws';
 let ws;
@@ -327,6 +449,7 @@ async function connectWebSocket() {
                 }
                 // Track paper mode globally so analytics uses the right data source
                 if (data.is_paper !== undefined) {
+                    const wasPaper = !!window.isPaper;
                     window.isPaper = !!data.is_paper;
                     const resetBtn = document.getElementById('btn-reset-paper');
                     if (resetBtn) {
@@ -336,6 +459,15 @@ async function connectWebSocket() {
                         } else {
                             resetBtn.classList.add('hidden');
                             resetBtn.classList.remove('flex');
+                        }
+                    }
+                    // When paper mode state arrives (especially on first WS connect),
+                    // re-trigger the analytics panel so it queries with the correct paperMode flag.
+                    // This fixes the startup race where analytics loads before WS sends is_paper.
+                    if (wasPaper !== !!data.is_paper) {
+                        console.log(`[WS] Paper mode changed: ${wasPaper} -> ${!!data.is_paper}, refreshing analytics`);
+                        if (window.analyticsModule && typeof window.analyticsModule.refresh === 'function') {
+                            window.analyticsModule.refresh();
                         }
                     }
                 }
@@ -437,6 +569,31 @@ async function connectWebSocket() {
                 }
             } else if (msg.type === 'ai_commentary') {
                 updateAIInsightPanel(msg.content, msg.timestamp, msg.next_update_in);
+            } else if (msg.type === 'flatten_ack') {
+                // Backend acknowledged a Cash-Out request
+                const sym = msg.symbol || '??';
+
+                if (msg.status === 'ok') {
+                    console.log(`[CASH-OUT] ✅ ${sym} flatten acknowledged by backend`);
+                    if (typeof appendLog === 'function') {
+                        appendLog('INFO', `[MANUAL EXIT] ⚡ ${sym} position closed successfully.`);
+                    }
+                    // Remove from pending set and sync all buttons
+                    window._pendingFlattens.delete(sym);
+                    _syncAllCashOutButtons(sym, 'ok');
+                } else {
+                    console.warn(`[CASH-OUT] ❌ ${sym} flatten failed: ${msg.reason || 'unknown'}`);
+                    if (typeof appendLog === 'function') {
+                        appendLog('ERROR', `[MANUAL EXIT] Failed to close ${sym}: ${msg.reason || 'unknown'}`);
+                    }
+                    // Remove from pending set and show error state
+                    window._pendingFlattens.delete(sym);
+                    _syncAllCashOutButtons(sym, 'error');
+                    // Auto-reset error state after 4s
+                    setTimeout(() => {
+                        _syncAllCashOutButtons(sym, 'reset');
+                    }, 4000);
+                }
             }
         } catch (e) {
             console.error("WS Parse Error", e);

@@ -574,9 +574,20 @@ class MetaSCIStrategy(BaseStrategy):
                     signals.append(sig)
                     logger.info(f"[META-DEBUG] {snapshot.symbol} {name.upper()}: WIN -> {sig.action} (Score: {sig.score})")
                 else:
-                    score = float(sig.score or 0) if sig else 0
-                    grade = (sig.grade or "F") if sig else "F"
-                    reason = sig.notes if sig else "No decision"
+                    if sig and getattr(sig, 'score', None) is not None and getattr(sig, 'grade', None) is not None:
+                        score = float(sig.score)
+                        grade = sig.grade
+                    else:
+                        # Grab the real evaluation from the strategy instead of defaulting to 0 / F
+                        try:
+                            s_score, s_grade, _ = strat.score_signal(strat_snap, gates)
+                            score = float(s_score)
+                            grade = s_grade
+                        except Exception:
+                            score = 0.0
+                            grade = "F-"
+                            
+                    reason = sig.notes if sig else "Blocked by internal guard"
                     rejects.append((name, score, grade, reason))
                     logger.info(f"[META-DEBUG] {snapshot.symbol} {name.upper()}: REJECT -> {reason} (Score: {score})")
             except Exception as e:

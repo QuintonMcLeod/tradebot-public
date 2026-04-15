@@ -1046,6 +1046,9 @@ function updateHoldingsTable(payload) {
         if (pos.age_seconds > 3600) ageClass = 'text-red-400';
         else if (pos.age_seconds > 900) ageClass = 'text-yellow-400';
 
+        // Unique button ID for this symbol
+        const btnId = `cashout-${pos.symbol.replace(/[^a-zA-Z0-9]/g, '')}`;
+
         row.innerHTML = `
             <td class="p-2 font-mono font-bold text-slate-200">${pos.symbol}</td>
             <td class="p-2 text-center ${sideClass} font-bold text-xs">${pos.side ? pos.side.toUpperCase() : 'LONG'}</td>
@@ -1053,13 +1056,100 @@ function updateHoldingsTable(payload) {
             <td class="p-2 text-center font-mono text-xs font-bold ${ageClass}">${displayAge}</td>
             <td class="p-2 text-right font-mono text-slate-400">${displaySize}</td>
             <td class="p-2 text-right font-mono font-bold ${pnlClass}">${pnlSign}$${displayPnl}</td>
+            <td class="p-2 text-center">
+                <button id="${btnId}" data-symbol="${pos.symbol}"
+                    class="cashout-btn px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all duration-200 border select-none"
+                    style="background: linear-gradient(135deg, rgba(249,115,22,0.12), rgba(239,68,68,0.12));
+                           border-color: rgba(249,115,22,0.3);
+                           color: #fb923c;
+                           backdrop-filter: blur(8px);
+                           box-shadow: 0 0 10px rgba(249,115,22,0.08);"
+                    onmouseenter="this.style.background='linear-gradient(135deg, rgba(249,115,22,0.25), rgba(239,68,68,0.25))'; this.style.boxShadow='0 0 18px rgba(249,115,22,0.2)'; this.style.borderColor='rgba(249,115,22,0.5)'"
+                    onmouseleave="if(!this._confirmed){this.style.background='linear-gradient(135deg, rgba(249,115,22,0.12), rgba(239,68,68,0.12))'; this.style.boxShadow='0 0 10px rgba(249,115,22,0.08)'; this.style.borderColor='rgba(249,115,22,0.3)'}"
+                    title="Manually close this position">
+                    <span class="flex items-center gap-1 justify-center">
+                        <span class="material-symbols-outlined" style="font-size:12px;">payments</span>
+                        Cash Out
+                    </span>
+                </button>
+            </td>
         `;
         tbody.appendChild(row);
+
+        // Two-step confirm flow
+        const btn = row.querySelector(`#${btnId}`);
+        if (btn) {
+            // If a flatten is already pending for this symbol, show "Closing..." immediately
+            if (window._pendingFlattens && window._pendingFlattens.has(pos.symbol)) {
+                btn._sending = true;
+                btn._confirmed = true;
+                btn.innerHTML = '<span class="flex items-center gap-1 justify-center"><span class="material-symbols-outlined" style="font-size:12px;">sync</span>Closing...</span>';
+                btn.style.background = 'linear-gradient(135deg, rgba(20,184,166,0.2), rgba(16,185,129,0.2))';
+                btn.style.borderColor = 'rgba(20,184,166,0.4)';
+                btn.style.color = '#2dd4bf';
+                btn.style.boxShadow = '0 0 20px rgba(20,184,166,0.2)';
+                btn.style.animation = '';
+                btn.style.pointerEvents = 'none';
+            }
+            let confirmTimer = null;
+            btn.addEventListener('click', () => {
+                if (btn._sending) return;
+
+                if (!btn._confirmed) {
+                    // Step 1: Confirm
+                    btn._confirmed = true;
+                    btn.innerHTML = '<span class="flex items-center gap-1 justify-center"><span class="material-symbols-outlined" style="font-size:12px;">warning</span>Confirm?</span>';
+                    btn.style.background = 'linear-gradient(135deg, rgba(245,158,11,0.3), rgba(249,115,22,0.3))';
+                    btn.style.borderColor = 'rgba(245,158,11,0.6)';
+                    btn.style.color = '#fbbf24';
+                    btn.style.boxShadow = '0 0 20px rgba(245,158,11,0.25)';
+                    btn.style.animation = 'pulse 1.5s ease-in-out infinite';
+
+                    confirmTimer = setTimeout(() => {
+                        btn._confirmed = false;
+                        btn.innerHTML = '<span class="flex items-center gap-1 justify-center"><span class="material-symbols-outlined" style="font-size:12px;">payments</span>Cash Out</span>';
+                        btn.style.background = 'linear-gradient(135deg, rgba(249,115,22,0.12), rgba(239,68,68,0.12))';
+                        btn.style.borderColor = 'rgba(249,115,22,0.3)';
+                        btn.style.color = '#fb923c';
+                        btn.style.boxShadow = '0 0 10px rgba(249,115,22,0.08)';
+                        btn.style.animation = '';
+                    }, 3000);
+                    return;
+                }
+
+                // Step 2: Execute
+                clearTimeout(confirmTimer);
+                const sym = btn.dataset.symbol;
+                const sent = (typeof sendFlattenSymbol === 'function') ? sendFlattenSymbol(sym)
+                           : (window.sendFlattenSymbol ? window.sendFlattenSymbol(sym) : false);
+                if (sent) {
+                    if (typeof appendLog === 'function') {
+                        appendLog('INFO', `[USER] ⚡ Manual Cash-Out triggered for ${sym}`);
+                    }
+                    // sendFlattenSymbol already handled _pendingFlattens + cross-panel sync
+                } else {
+                    // Truly no WS — show user-friendly message
+                    btn._sending = true;
+                    btn.innerHTML = '<span class="flex items-center gap-1 justify-center"><span class="material-symbols-outlined" style="font-size:12px;">wifi_off</span>Disconnected</span>';
+                    btn.style.background = 'linear-gradient(135deg, rgba(239,68,68,0.2), rgba(248,113,113,0.2))';
+                    btn.style.borderColor = 'rgba(239,68,68,0.5)';
+                    btn.style.color = '#f87171';
+                    btn.style.boxShadow = '0 0 20px rgba(239,68,68,0.2)';
+                    btn.style.animation = '';
+                    // Auto-reset after 4s
+                    setTimeout(() => {
+                        btn._confirmed = false;
+                        btn._sending = false;
+                        btn.style.pointerEvents = '';
+                    }, 4000);
+                }
+            });
+        }
     });
 
     // Handle empty state
     if (payload.positions.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500 italic text-xs">No active positions</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-500 italic text-xs">No active positions</td></tr>`;
     }
 
     // Update sidebar PNL

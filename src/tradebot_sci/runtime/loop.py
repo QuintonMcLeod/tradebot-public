@@ -1189,6 +1189,22 @@ def run_bot(
     controller.start_ws_server()
     controller.ws_server.set_on_subscribe_callback(on_subscribe)
     controller.ws_server.set_on_tick_callback(on_tick)
+
+    # ── Manual Cash-Out from GUI ─────────────────────────────────────
+    def on_flatten(symbol: str):
+        """Handle manual position close from the GUI Cash Out button."""
+        _exec = executor  # closure captures the live/paper executor reference
+        if not _exec:
+            logger.warning(f"[MANUAL EXIT] Cannot flatten {symbol} — no executor available")
+            return
+        try:
+            logger.info(f"[MANUAL EXIT] ⚡ User cashed out {symbol} via GUI")
+            _exec.flatten_symbol(symbol)
+        except Exception as e:
+            logger.error(f"[MANUAL EXIT] Failed to flatten {symbol}: {e}", exc_info=True)
+
+    controller.ws_server.set_on_flatten_callback(on_flatten)
+
     # Expose cache updater so the trading cycle can refresh the chart cache
     controller.update_candle_cache = update_candle_cache
 

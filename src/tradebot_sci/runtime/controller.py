@@ -49,6 +49,11 @@ class RuntimeController:
             
         now = time.time()
         is_paper = not getattr(self.settings.runtime, "execute_trades", True)
+        # Detect paper mode from executor mismatch: if the loop passed a real
+        # executor reference AND the active executor differs, the loop has swapped
+        # to the paper broker (covers Sabbath, off-hours, and hot-reload paths).
+        if executor_real is not None and executor is not executor_real:
+            is_paper = True
         # Paper/replay mode: 5s throttle for fast turbo updates; Live: 30s
         throttle = 5.0 if is_paper else 30.0
         if not force and (now - self.last_capital_sync_ts < throttle):

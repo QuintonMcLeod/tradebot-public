@@ -46,8 +46,27 @@ async function loadAnalyticsData(filter) {
             return;
         }
 
-        const result = await window.api.getAnalyticsSummary(filter, !!(window.isPaper || window.isSabbath));
-        console.log('[ANALYTICS] Result:', result?.success, 'source:', result?.data?._source);
+        const paperMode = !!(window.isPaper || window.isSabbath);
+        let result = await window.api.getAnalyticsSummary(filter, paperMode);
+        console.log('[ANALYTICS] Result:', result?.success, 'source:', result?.data?._source, 'paperMode:', paperMode);
+
+        // Auto-fallback: if live mode returned zero closed trades, check the
+        // paper ledger — the bot may spend most of its time paper trading
+        // (off-hours / sabbath) while execute_trades=True in config.
+        if (result?.success && !paperMode) {
+            const closedCount = (result.data?.trades || []).filter(t => !t._active).length;
+            if (closedCount === 0) {
+                console.log('[ANALYTICS] Live ledger empty, checking paper ledger...');
+                const paperResult = await window.api.getAnalyticsSummary(filter, true);
+                if (paperResult?.success) {
+                    const paperClosed = (paperResult.data?.trades || []).filter(t => !t._active).length;
+                    if (paperClosed > 0) {
+                        console.log(`[ANALYTICS] Paper ledger has ${paperClosed} trades — using paper data`);
+                        result = paperResult;
+                    }
+                }
+            }
+        }
 
         if (result && result.success) {
             const d = result.data;
@@ -1123,6 +1142,10 @@ function updateTradeHistory(trades) {
             const pnlPct = parseFloat(trade.pct || trade.pnlPct) || 0;
             const spread = parseFloat(trade.spread) || 0;
 
+            // Unique button ID
+            const sym = trade.symbol || 'UNK';
+            const aBtnId = `analytics-cashout-${sym.replace(/[^a-zA-Z0-9]/g, '')}`;
+
             row.innerHTML = `
                 <td style="color:#64748b; font-size:11px;">${time}</td>
                 <td style="font-weight:700; color:#e2e8f0;">${trade.symbol || '--'} <span style="font-size:8px;padding:1px 5px;border-radius:4px;background:rgba(16,185,129,0.15);color:#34d399;font-weight:800;letter-spacing:0.05em;">LIVE</span></td>
@@ -1133,9 +1156,82 @@ function updateTradeHistory(trades) {
                 <td style="text-align:right; font-size:11px; color:#475569;">--</td>
                 <td style="color:#34d399; font-size:11px; font-weight:600;">⏱ ${duration}</td>
                 <td style="color:#94a3b8; font-size:11px;">${strategy}</td>
-                <td style="color:#34d399; font-size:11px; font-weight:600;">● Active Position</td>
+                <td style="text-align:center;">
+                    <button id="${aBtnId}" data-symbol="${sym}"
+                        style="padding:3px 10px; border-radius:6px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:0.05em; cursor:pointer;
+                               transition:all 0.2s; border:1px solid rgba(249,115,22,0.3);
+                               background:linear-gradient(135deg, rgba(249,115,22,0.12), rgba(239,68,68,0.12));
+                               color:#fb923c; backdrop-filter:blur(8px); box-shadow:0 0 10px rgba(249,115,22,0.08); user-select:none;"
+                        onmouseenter="this.style.background='linear-gradient(135deg, rgba(249,115,22,0.25), rgba(239,68,68,0.25))'; this.style.boxShadow='0 0 18px rgba(249,115,22,0.2)'; this.style.borderColor='rgba(249,115,22,0.5)'"
+                        onmouseleave="if(!this._confirmed){this.style.background='linear-gradient(135deg, rgba(249,115,22,0.12), rgba(239,68,68,0.12))'; this.style.boxShadow='0 0 10px rgba(249,115,22,0.08)'; this.style.borderColor='rgba(249,115,22,0.3)'}"
+                        title="Manually close this position">💰 Cash Out</button>
+                </td>
             `;
             tbody.appendChild(row);
+
+            // Two-step confirm flow (same pattern as Holdings panel)
+            const aBtn = row.querySelector(`#${aBtnId}`);
+            if (aBtn) {
+                // If a flatten is already pending for this symbol, show "Closing..." immediately
+                if (window._pendingFlattens && window._pendingFlattens.has(sym)) {
+                    aBtn._sending = true;
+                    aBtn._confirmed = true;
+                    aBtn.textContent = '⏳ Closing...';
+                    aBtn.style.background = 'linear-gradient(135deg, rgba(20,184,166,0.2), rgba(16,185,129,0.2))';
+                    aBtn.style.borderColor = 'rgba(20,184,166,0.4)';
+                    aBtn.style.color = '#2dd4bf';
+                    aBtn.style.boxShadow = '0 0 20px rgba(20,184,166,0.2)';
+                    aBtn.style.animation = '';
+                    aBtn.style.pointerEvents = 'none';
+                }
+                let aConfirmTimer = null;
+                aBtn.addEventListener('click', () => {
+                    if (aBtn._sending) return;
+
+                    if (!aBtn._confirmed) {
+                        aBtn._confirmed = true;
+                        aBtn.textContent = '⚠️ Confirm?';
+                        aBtn.style.background = 'linear-gradient(135deg, rgba(245,158,11,0.3), rgba(249,115,22,0.3))';
+                        aBtn.style.borderColor = 'rgba(245,158,11,0.6)';
+                        aBtn.style.color = '#fbbf24';
+                        aBtn.style.boxShadow = '0 0 20px rgba(245,158,11,0.25)';
+                        aBtn.style.animation = 'pulse 1.5s ease-in-out infinite';
+
+                        aConfirmTimer = setTimeout(() => {
+                            aBtn._confirmed = false;
+                            aBtn.textContent = '💰 Cash Out';
+                            aBtn.style.background = 'linear-gradient(135deg, rgba(249,115,22,0.12), rgba(239,68,68,0.12))';
+                            aBtn.style.borderColor = 'rgba(249,115,22,0.3)';
+                            aBtn.style.color = '#fb923c';
+                            aBtn.style.boxShadow = '0 0 10px rgba(249,115,22,0.08)';
+                            aBtn.style.animation = '';
+                        }, 3000);
+                        return;
+                    }
+
+                    clearTimeout(aConfirmTimer);
+                    const symName = aBtn.dataset.symbol;
+                    const sent = window.sendFlattenSymbol ? window.sendFlattenSymbol(symName) : false;
+                    if (sent) {
+                        // sendFlattenSymbol already handled _pendingFlattens + cross-panel sync
+                    } else {
+                        // Truly no WS — show user-friendly message
+                        aBtn._sending = true;
+                        aBtn.textContent = '📡 Disconnected';
+                        aBtn.style.background = 'linear-gradient(135deg, rgba(239,68,68,0.2), rgba(248,113,113,0.2))';
+                        aBtn.style.borderColor = 'rgba(239,68,68,0.5)';
+                        aBtn.style.color = '#f87171';
+                        aBtn.style.boxShadow = '0 0 20px rgba(239,68,68,0.2)';
+                        aBtn.style.animation = '';
+                        // Auto-reset after 4s
+                        setTimeout(() => {
+                            aBtn._confirmed = false;
+                            aBtn._sending = false;
+                            aBtn.style.pointerEvents = '';
+                        }, 4000);
+                    }
+                });
+            }
         });
     }
 

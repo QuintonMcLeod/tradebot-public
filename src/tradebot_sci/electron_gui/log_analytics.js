@@ -285,6 +285,11 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                     } catch (_) { /* not valid JSON, use as-is */ }
                 }
 
+                // Prevent off-hours paper trading data from corrupting live analytics
+                if (!paperMode && line.includes('[PAPER]')) {
+                    continue;
+                }
+
                 // Track strategy from META-SCI tournament lines
                 const stratMatch = line.match(RE_STRATEGY);
                 if (stratMatch) lastStrategy = stratMatch[1];
@@ -336,9 +341,9 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                     if (ts && ts >= fallbackGlobalCutoff) {
                         const m = RE_EXIT.exec(line);
                         if (m) {
-                            // m[3] is the sign block (+/-), m[4] is the actual sign character, m[5] is the PnL amount string (e.g. 1,947.00)
-                            const pnlStr = (m[5] || '0').replace(/,/g, '');
-                            const pnlVal = parseFloat(pnlStr) * (m[4] === '-' ? -1 : 1);
+                            // m[3] is the sign block (+/-), m[4] is the actual dollar amount, m[5] is the Pct value
+                            const pnlStr = (m[4] || '0').replace(/,/g, '');
+                            const pnlVal = parseFloat(pnlStr) * (m[3] === '-' ? -1 : 1);
                             const symbol = m[2];
                             const closedAt = ts.toISOString();
 

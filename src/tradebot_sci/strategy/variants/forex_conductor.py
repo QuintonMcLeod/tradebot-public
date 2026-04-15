@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from typing import Optional
 
 from tradebot_sci.market.models import MarketSnapshot
-from tradebot_sci.strategy.decisions import AITradeDecision
+from tradebot_sci.strategy.decisions import AITradeDecision, stand_aside_decision
 from tradebot_sci.strategy.variants.base import BaseStrategy
 
 from tradebot_sci.strategy.variants.london_sweep import LondonSweepStrategy
@@ -221,7 +221,7 @@ class ForexConductorStrategy(BaseStrategy):
         # ── Loss streak cooldown ─────────────────────────────────
         if _check_loss_cooldown(snapshot.symbol) and not sar_dir:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by loss streak cooldown")
-            return None
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Forex Conductor: Blocked by loss streak cooldown")
 
         # ── Entry cooldown (2h between entries per symbol) ───────
         # SAR is a blunt force instrument that causes a whipsaw death spiral
@@ -231,8 +231,9 @@ class ForexConductorStrategy(BaseStrategy):
         sar_dir = None
         
         if _entry_cooldown.get(snapshot.symbol, 0) > 0:
-            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by entry cooldown ({_entry_cooldown.get(snapshot.symbol, 0)} bars remaining)")
-            return None
+            rem = _entry_cooldown.get(snapshot.symbol, 0)
+            logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by entry cooldown ({rem} bars remaining)")
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by entry cooldown ({rem} bars)")
 
         # ── Get regime from trend detection ──────────────────────
         regime = gates.get("market_regime", "unknown")
@@ -248,7 +249,7 @@ class ForexConductorStrategy(BaseStrategy):
             
         if regime in blocked_regimes and not has_reversal:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by regime={regime}")
-            return None
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by market regime ({regime})")
 
         # ── CANDLE CHOP DETECTOR (independent of classifier) ─────
         # Count direction changes in last 10 candles. If the market
@@ -262,7 +263,7 @@ class ForexConductorStrategy(BaseStrategy):
             )
             if _reversals > 8:
                 logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by chop detector ({_reversals} reversals in 10 bars)")
-                return None
+                return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by candle chop detector ({_reversals} reversals)")
 
         # ── A+ ENTRY FILTER: Strict Multi-Timeframe Alignment ────
         # User explicitly requested: "monitor 4h, 1hr and 5m all match - and then enter into ther 1m."
@@ -282,7 +283,7 @@ class ForexConductorStrategy(BaseStrategy):
                 f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by MTF Alignment "
                 f"(HTF: {htf_dir}, MTF: {mtf_dir}@{mtf_strength:.2f}, LTF: {ltf_dir})"
             )
-            return None
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by MTF Alignment conflict (HTF:{htf_dir}, MTF:{mtf_dir}, LTF:{ltf_dir})")
 
         # Pass the unified direction down into the sub-strategies.
         gates["htf_dir"] = htf_dir

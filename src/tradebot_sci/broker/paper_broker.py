@@ -673,10 +673,77 @@ class PaperBroker:
     def flatten_symbol(self, symbol: str) -> None:
         if symbol in self.positions:
             pos = self.positions.pop(symbol)
+            entry_p = pos["entry_price"]
+            pos_side = pos.get("side", "long")
             price = self._get_current_price(symbol)
-            pnl_usd = (price - pos["entry_price"]) * pos["size"]
+
+            # Compute fees (same logic as close_position)
+            import json
+            try:
+                with open(_paths.CONFIG_FILE, "r") as f:
+                    _p_conf = json.load(f).get("paper", {})
+            except Exception:
+                _p_conf = {}
+
+            fee_bps = float(_p_conf.get("fee_bps", 0.0))
+            spread_bps = float(_p_conf.get("spread_bps", 0.0))
+            slip_bps = float(_p_conf.get("slippage_bps", 0.0))
+
+            if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
+                exit_p = price
+                fee_usd = abs(pos["qty"] * exit_p) * self._get_taker_fee(symbol)
+            else:
+                fee_pct = fee_bps / 10000.0
+                spread_pct = spread_bps / 10000.0
+                slip_pct = slip_bps / 10000.0
+                friction = (spread_pct / 2.0) + slip_pct
+                exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
+                fee_usd = abs(pos["qty"] * exit_p) * (fee_pct / 2.0)
+
+            pnl_usd = (exit_p - entry_p) * pos["size"]
+            pnl_usd -= fee_usd
             self.balance += pnl_usd
-            logger.info(f"[PAPER] Flattened {symbol} (Paper Mode)")
+
+            # Duration
+            duration_secs = 0.0
+            entry_time_str = pos.get("entry_time", "")
+            try:
+                if entry_time_str:
+                    entry_dt = datetime.fromisoformat(entry_time_str)
+                    duration_secs = (self._now() - entry_dt).total_seconds()
+            except Exception:
+                pass
+
+            pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 and pos["size"] != 0 else 0.0
+            pnl_sign = "+" if pnl_usd >= 0 else "-"
+            entry_fee = abs(pos.get("entry_fee", 0))
+            spread_cost = entry_fee + fee_usd
+
+            logger.info(
+                f"[PAPER] [EXIT] Manual Cash-Out: {symbol} {pnl_sign}${abs(pnl_usd):.2f} "
+                f"(Pct={pnl_pct:.2f}%) position={pos_side.upper()} | "
+                f"Entry={entry_p:.5f} Exit={exit_p:.5f} | "
+                f"Est. Spread Cost: ${spread_cost:.2f}"
+            )
+
+            # Record in trade results
+            if self.trade_results:
+                self.trade_results.add_result(TradeResult(
+                    symbol=symbol,
+                    closed_at=self._wall_clock().isoformat(),
+                    pnl_pct=pnl_pct,
+                    pnl_usd=pnl_usd,
+                    is_win=pnl_usd > 0,
+                    tier="100%",
+                    capital_at_close=self.balance,
+                    opened_at=pos.get("opened_at", ""),
+                    duration_seconds=duration_secs,
+                    strategy=pos.get("strategy", "unknown"),
+                    exit_reason="manual_cash_out",
+                    side=pos_side,
+                ))
+
+            self._exit_cooldowns[symbol] = time.time()
             self._save_state()
             self.refresh_account_summary()
 
