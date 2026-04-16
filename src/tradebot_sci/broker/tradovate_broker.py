@@ -69,6 +69,14 @@ class TradovateBroker(IExchangeBroker):
     def sync_profile(self, profile: TradingProfileSettings) -> None:
         self.profile = profile
 
+    def _fetch_symbol_state(self, symbol: str) -> dict:
+        pos = self.get_open_position_snapshot(symbol)
+        return {"position": pos} if pos else {}
+
+    def _has_active_orders_or_position(self, symbol: str, state: dict | None = None) -> bool:
+        pos = self.get_open_position_snapshot(symbol)
+        return pos is not None
+
     def _normalize_symbol(self, symbol: str) -> str:
         """Just passthrough for Futures. If AI decides ES, it should send ES."""
         # TODO: Advanced contract rolling mapping (e.g., 'ES' -> 'ESM4')

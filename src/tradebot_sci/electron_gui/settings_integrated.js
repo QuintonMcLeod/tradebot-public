@@ -50,6 +50,11 @@ const CONFIG_MAP = {
     'BROKER_CRYPTO': ['brokers', 'primary_crypto'],
     'BROKER_FOREX': ['brokers', 'primary_forex'],
     'BROKER_EQUITIES': ['brokers', 'primary_equities'],
+    'BROKER_METALS': ['brokers', 'primary_metals'],
+    'BROKER_FUTURES': ['brokers', 'primary_futures'],
+    'PROP_FTMO_ENABLED': ['risk', 'prop_ftmo_enabled'],
+    'PROP_APEX_ENABLED': ['risk', 'prop_apex_enabled'],
+    'PROP_FN_ENABLED': ['risk', 'prop_fn_enabled'],
     'MARKET_DATA_MODE': ['market', 'market_data_mode'],
     'PAPER_SIM_ENABLED': ['paper', 'enabled'],
     'PAPER_REPLAY_MODE': ['paper', 'replay_mode'],
@@ -3466,10 +3471,11 @@ function renderExitLogicTab(container) {
 }
 
 function renderBrokersTab(container) {
-    if (!subTabs.brokers_category) subTabs.brokers_category = 'live';
+    if (!subTabs.brokers_category) subTabs.brokers_category = 'routing';
 
     // Tier 1 Sub-navigation
     container.appendChild(createSubNav([
+        { id: 'routing', label: 'Data & Asset Routing' },
         { id: 'live', label: 'Live Brokers (IBKR, CCXT)' },
         { id: 'prop', label: 'Prop Firms (Evaluations)' }
     ], 'brokers_category'));
@@ -3477,7 +3483,9 @@ function renderBrokersTab(container) {
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    if (subTabs.brokers_category === 'live') {
+    if (subTabs.brokers_category === 'routing') {
+        renderRoutingContent(section);
+    } else if (subTabs.brokers_category === 'live') {
         if (!subTabs.live_brokers) subTabs.live_brokers = 'ibkr';
         container.appendChild(createSubNav([
             { id: 'ibkr', label: 'Interactive Brokers' },
@@ -3485,8 +3493,7 @@ function renderBrokersTab(container) {
             { id: 'gemini', label: 'Gemini.com' },
             { id: 'kraken', label: 'Kraken' },
             { id: 'paxos', label: 'Paxos (Crypto)' },
-            { id: 'ccxt', label: 'Coinbase / CCXT' },
-            { id: 'routing', label: 'Data Routing' }
+            { id: 'ccxt', label: 'Coinbase / CCXT' }
         ], 'live_brokers'));
 
         renderLiveBrokersContent(section);
@@ -3686,67 +3693,103 @@ function renderLiveBrokersContent(section) {
             ]
         }));
 
-    } else if (subTabs.live_brokers === 'routing') {
-        section.appendChild(createSectionHeader('Data & Execution Routing', 'route',
-            "<strong>Data & Execution Routing</strong><br><br>Choose which broker provides market data and which one executes trades. In hybrid mode, you can get data from one source and execute on another."
-        ));
-
-        section.appendChild(createSectionHeader('Asset-Based Routing', 'route',
-            "<strong>Asset-Based Routing</strong><br><br>Route different asset classes to different brokers automatically. For example, send forex orders to OANDA but crypto orders to Gemini — all from the same bot."
-        ));
-
-        const infoBox = document.createElement('div');
-        infoBox.className = 'warning-box';
-        infoBox.style.borderColor = 'rgba(20, 184, 166, 0.3)';
-        infoBox.innerHTML = `
-            <div class="warning-box-content">
-                <strong>Smart Routing Active:</strong><br>
-                The execution engine will automatically route orders to the correct broker based on the asset class (Crypto vs Forex vs Stocks).
-            </div>
-        `;
-        section.appendChild(infoBox);
-
-        section.appendChild(createCard('Crypto Broker', 'btc, eth, sol', 'BROKER_CRYPTO', 'dropdown', {
-            items: [
-                { value: 'ccxt', label: 'Coinbase / CCXT' },
-                { value: 'gemini', label: 'Gemini.com' },
-                { value: 'kraken', label: 'Kraken' },
-                { value: 'paxos', label: 'Paxos - Native API' },
-                { value: 'oanda', label: 'OANDA - Spot via Paxos' },
-                { value: 'ibkr', label: 'Interactive Brokers' }
-            ],
-            default: 'ccxt',
-            tooltip: "Tells the bot exactly which exchange to send trades to whenever it encounters a cryptocurrency pair."
-        }));
-
-        section.appendChild(createCard('Forex Broker', 'eur/usd, jpy', 'BROKER_FOREX', 'dropdown', {
-            items: [
-                { value: 'ibkr', label: 'Interactive Brokers - Primary' },
-                { value: 'oanda', label: 'OANDA' }
-            ],
-            default: 'ibkr',
-            tooltip: "Tells the bot exactly which exchange to send trades to whenever it encounters a traditional fiat currency pair."
-        }));
-
-        section.appendChild(createCard('Equities Data Provider', 'Which source to grab default equities data from', 'BROKER_EQUITIES', 'select', {
-            options: [
-                { value: 'primary', label: 'Use Global Fallback (IBKR)' },
-                { value: 'ibkr', label: 'Interactive Brokers' },
-                { value: 'disabled', label: 'Disable Equities Data' }
-            ],
-            default: 'primary'
-        }));
     }
+}
+
+function renderRoutingContent(section) {
+    section.appendChild(createSectionHeader('Data & Execution Routing', 'route',
+        "<strong>Data & Execution Routing</strong><br><br>Choose which broker provides market data and which one executes trades. In hybrid mode, you can get data from one source and execute on another."
+    ));
+
+    section.appendChild(createSectionHeader('Asset-Based Routing', 'route',
+        "<strong>Asset-Based Routing</strong><br><br>Route different asset classes to different brokers automatically. For example, send forex orders to OANDA but crypto orders to Gemini — all from the same bot."
+    ));
+
+    const infoBox = document.createElement('div');
+    infoBox.className = 'warning-box';
+    infoBox.style.borderColor = 'rgba(20, 184, 166, 0.3)';
+    infoBox.innerHTML = `
+        <div class="warning-box-content">
+            <strong>Smart Routing Active:</strong><br>
+            The execution engine will automatically route orders to the correct broker based on the asset class (Crypto vs Forex vs Stocks).
+        </div>
+    `;
+    section.appendChild(infoBox);
+
+    section.appendChild(createCard('Crypto Broker', 'btc, eth, sol', 'BROKER_CRYPTO', 'dropdown', {
+        items: [
+            { value: 'ccxt', label: 'Coinbase / CCXT' },
+            { value: 'gemini', label: 'Gemini.com' },
+            { value: 'kraken', label: 'Kraken' },
+            { value: 'paxos', label: 'Paxos - Native API' },
+            { value: 'mt5', label: 'MetaTrader 5 Bridge' },
+            { value: 'oanda', label: 'OANDA - Spot via Paxos' },
+            { value: 'ibkr', label: 'Interactive Brokers' }
+        ],
+        default: 'ccxt',
+        tooltip: "Tells the bot exactly which exchange to send trades to whenever it encounters a cryptocurrency pair."
+    }));
+
+    section.appendChild(createCard('Forex Broker', 'eur/usd, jpy', 'BROKER_FOREX', 'dropdown', {
+        items: [
+            { value: 'oanda', label: 'OANDA' },
+            { value: 'ibkr', label: 'Interactive Brokers - Primary' },
+            { value: 'mt5', label: 'MetaTrader 5 Bridge' }
+        ],
+        default: 'ibkr',
+        tooltip: "Tells the bot exactly which exchange to send trades to whenever it encounters a traditional fiat currency pair."
+    }));
+
+    section.appendChild(createCard('Stocks / Equities', 'aapl, tsla, spy', 'BROKER_EQUITIES', 'dropdown', {
+        items: [
+            { value: 'primary', label: 'Use Global Fallback' },
+            { value: 'ibkr', label: 'Interactive Brokers' },
+            { value: 'alpaca', label: 'Alpaca' },
+            { value: 'disabled', label: 'Disabled' }
+        ],
+        default: 'ibkr',
+        tooltip: "The execution engine for standard stock market instruments."
+    }));
+
+    section.appendChild(createCard('Precious Metals', 'xauusd, xagusd', 'BROKER_METALS', 'dropdown', {
+        items: [
+            { value: 'ibkr', label: 'Interactive Brokers' },
+            { value: 'mt5', label: 'MetaTrader 5 Bridge' },
+            { value: 'bullion', label: 'Specialized API (Coming Soon)' },
+            { value: 'disabled', label: 'Disabled' }
+        ],
+        default: 'ibkr',
+        tooltip: "Execution engine for metals. NOTE: OANDA US prohibits metals, so specialized bridging or IBKR permissions are required."
+    }));
+
+    section.appendChild(createCard('Futures Contracts', 'nq, es, cl', 'BROKER_FUTURES', 'dropdown', {
+        items: [
+            { value: 'ibkr', label: 'Interactive Brokers' },
+            { value: 'tradovate', label: 'Tradovate (Apex)' },
+            { value: 'disabled', label: 'Disabled' }
+        ],
+        default: 'ibkr',
+        tooltip: "The execution engine for CME/NYMEX futures contracts."
+    }));
+
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Prop Firm Overrides', 'warning',
+        "<strong>Prop Firm Status</strong><br><br>Activating a prop firm strictly forces active evaluation orders through its designated bridge, hijacking the Live routing rules above for relevant assets."
+    ));
+
+    section.appendChild(createCard('Force Apex / Tradovate', 'Overrides Equities/Futures to execute strictly via Tradovate connection.', 'PROP_APEX_ENABLED', 'toggle'));
+    section.appendChild(createCard('Force FundedNext', 'Overrides Forex & Equities to execute via cTrader API.', 'PROP_FN_ENABLED', 'toggle'));
 }
 
 function renderPropFirmsContent(section) {
     if (subTabs.prop_firms === 'ftmo') {
         section.appendChild(createSectionHeader('FTMO Evaluation & Funded', 'business_center',
-            "<strong>FTMO Settings</strong><br><br>The industry standard for prop firms. Configure your cTrader connection here and verify your maximum loss rules. Target Leverage is extremely important for passing evaluations."
+            "<strong>FTMO Settings</strong><br><br>The industry standard for prop firms. FTMO explicitly requires MetaTrader 5 execution via the Tradebot ZMQ Bridge. Configure your bridge connection here and verify your maximum loss rules."
         ));
 
-        section.appendChild(createCard('cTrader API Key', 'Your FTMO cTrader API Token', 'PROP_FTMO_API_KEY', 'input', { password: true }));
-        section.appendChild(createCard('Account ID', 'cTrader cTID / Account number', 'PROP_FTMO_ACCOUNT_ID', 'input'));
+        section.appendChild(createCard('Enable FTMO Integration', 'Forces order execution exclusively through the local MetaTrader 5 Bridge.', 'PROP_FTMO_ENABLED', 'toggle'));
+
+        section.appendChild(createCard('ZMQ Request Port', 'Which port the MT5 bridge listens on', 'MT5_ZMQ_REQ_PORT', 'input', { number: true, default: '5555' }));
         section.appendChild(createCard('Environment', 'Evaluation or Live', 'PROP_FTMO_ENVIRONMENT', 'dropdown', {
             items: [
                 { value: 'evaluation', label: 'Evaluation Phase (Demo)' },
@@ -3754,6 +3797,61 @@ function renderPropFirmsContent(section) {
             ],
             default: 'evaluation'
         }));
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Operating System Tasks', 'memory',
+            "Tradebot SCI can execute native OS commands directly from the dashboard."
+        ));
+
+        const launchCard = document.createElement('div');
+        launchCard.className = 'control-card mt-2 mb-2 transition-all';
+        launchCard.innerHTML = `
+            <div class="card-info">
+                <span class="card-title" style="display:flex; align-items:center;">Launch MT5 Daemon <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px;">rocket_launch</span></span>
+                <span class="card-desc text-slate-400" id="mt5-launch-desc">Click toggle to silently execute the MT5 Bridge background process.</span>
+            </div>
+            <div class="card-control no-drag">
+                <div class="toggle" id="mt5-launch-toggle"></div>
+            </div>
+        `;
+        
+        const launchToggle = launchCard.querySelector('#mt5-launch-toggle');
+        const launchDesc = launchCard.querySelector('#mt5-launch-desc');
+        
+        launchToggle.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (launchToggle.classList.contains('toggle-active') || launchToggle.classList.contains('opacity-50')) return; 
+            
+            launchToggle.classList.add('opacity-50');
+            launchDesc.innerHTML = '<span class="text-blue-400 animate-pulse tracking-wide">Spawning native background process...</span>';
+            
+            try {
+                const res = await window.electronAPI.invoke('launch-mt5');
+                if (res.success) {
+                    launchToggle.classList.remove('opacity-50');
+                    launchToggle.classList.add('toggle-active', 'shadow-[0_0_15px_rgba(16,185,129,0.3)]');
+                    launchDesc.innerHTML = '<span class="text-emerald-400 font-medium">Daemon online. Restarting connection link... ♻️</span>';
+                    setTimeout(() => { window.electronAPI.restartBot(); }, 1200);
+                } else {
+                    launchToggle.classList.remove('toggle-active');
+                    launchDesc.innerHTML = `<span class="text-red-400 font-bold">Failed:</span> ${res.error || 'Unknown spawn error'}`;
+                    setTimeout(() => {
+                        launchToggle.classList.remove('opacity-50');
+                        launchDesc.innerHTML = 'Click toggle to silently execute the MT5 Bridge background process.';
+                    }, 5000);
+                }
+            } catch (err) {
+                console.error("MT5 Launch Error", err);
+                launchToggle.classList.remove('toggle-active');
+                launchDesc.innerHTML = `<span class="text-red-400 font-bold">Exception:</span> ${err.message}`;
+                setTimeout(() => {
+                    launchToggle.classList.remove('opacity-50');
+                    launchDesc.innerHTML = 'Click toggle to silently execute the MT5 Bridge background process.';
+                }, 5000);
+            }
+        });
+
+        section.appendChild(launchCard);
 
         section.appendChild(createDivider());
         section.appendChild(createSectionHeader('FTMO Risk Rules', 'gavel',
@@ -5068,9 +5166,24 @@ async function saveAll() {
 
             if (res1.success && res2.success) {
                 console.log("[SETTINGS] Save successful.");
+                
+                // Check if Prop Firm routing toggles were modified
+                const needsRestart = localChanges['PROP_FTMO_ENABLED'] || localChanges['PROP_APEX_ENABLED'] || localChanges['PROP_FN_ENABLED'];
+                
                 showNotice("Settings Saved", "teal");
                 localChanges = {};
                 updateChangeCounter();
+                
+                if (needsRestart) {
+                    showNotice("Routing Changed. Restarting Bot...", "amber");
+                    setTimeout(() => {
+                        if (window.api && window.api.restartBot) {
+                            window.api.restartBot();
+                        }
+                        // Then reload UI to fetch fresh state after standard 1.5s delay
+                        setTimeout(() => window.location.reload(), 1500);
+                    }, 500);
+                }
             } else {
                 showNotice("Save Failed", "red");
             }

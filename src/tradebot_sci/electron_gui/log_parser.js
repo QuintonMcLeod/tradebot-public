@@ -44,6 +44,7 @@
     }
 
     let _logTerminal = null;
+    let _lastLoggerName = null;
     function appendLog(level, rawMessage) {
         if (!_logTerminal) {
             _logTerminal = document.getElementById('log-terminal');
@@ -126,6 +127,17 @@
 
             div.className = `log-line py-1.5 px-3 transition-colors ${bgClass}`;
             
+            const isNewLogger = pLogger !== _lastLoggerName;
+            
+            // Only update history if this was a valid structured log with a defined logger
+            // This prevents a random print() statement from breaking the grouping
+            if (pLogger && pLogger.trim() !== '') {
+                _lastLoggerName = pLogger;
+            } else if (isNewLogger) {
+                // If it's a completely empty logger, clear the state so the next valid one prints its header
+                _lastLoggerName = null;
+            }
+
             if (isMotd) {
                 // Special MOTD styling (Hero banner text)
                 div.innerHTML = `
@@ -142,8 +154,8 @@
                     <div class="flex items-start gap-3">
                         <span class="text-slate-500/70 font-mono text-[10px] whitespace-nowrap pt-0.5 shrink-0">[${displayTs}]</span>
                         <span class="${levelColor} font-mono text-[10px] whitespace-nowrap pt-0.5 w-[60px] shrink-0 text-right">[${pLevel}]</span>
-                        <div class="flex-1 min-w-0 border-l border-slate-700/30 pl-3">
-                            ${pLogger ? `<span class="text-slate-500 font-mono text-[9px] uppercase tracking-wider block mb-0.5">${pLogger}</span>` : ''}
+                        <div class="flex-1 min-w-0 border-l border-slate-700/30 pl-3 ${isNewLogger ? 'pt-0.5' : ''}">
+                            ${isNewLogger && pLogger ? `<span class="text-slate-400 font-mono text-[10px] uppercase tracking-wider block mb-1 font-bold bg-slate-800/50 inline-block px-1.5 py-0.5 border border-slate-700/50 rounded">${pLogger}</span>` : ''}
                             <div class="text-slate-300 text-[11px] leading-relaxed break-words font-sans">${formattedMsg}</div>
                             ${excHtml}
                         </div>

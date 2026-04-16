@@ -1,0 +1,875 @@
+
+> tradebot-sci-gui@1.0.0 start
+> electron . --no-sandbox
+
+
+DevTools listening on ws://127.0.0.1:9223/devtools/browser/6c95c0f7-e64e-4cd9-889f-6c432063994e
+[MAIN] Dynamically loaded 54 documents from Documentation/
+[MAIN] Help IPC handlers registered successfully
+[MAIN] Bot Status changed: STOPPED (Process: false)
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 26
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 26
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 32
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 26
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 32
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[MAIN] Bot Status changed: RUNNING (Process: true)
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 14
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 20
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 26
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 32
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 34
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 40
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 34
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 40
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 42
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 48
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 42
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 48
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 50
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 56
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 50
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 56
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 61
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 65
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 58
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 64
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 69
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 73
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 66
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 72
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 74
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 80
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 84
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 90
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 86
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 92
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 92
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 98
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 94
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 100
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 100
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 106
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 102
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 108
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 108
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 114
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 110
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 116
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 116
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 122
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 118
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 124
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 124
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 130
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 126
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 132
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 142
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 148
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 144
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 150
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 150
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 156
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 150
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 156
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 158
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 164
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 158
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 164
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 166
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 172
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 166
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 172
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 174
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 180
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 174
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 180
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 182
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 188
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 182
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 188
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 200
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 206
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 200
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 206
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 208
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 214
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 208
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 214
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 216
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 222
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 216
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 222
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 224
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 230
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 224
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 230
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 232
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 238
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 232
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 238
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 240
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 246
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 240
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 246
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 260
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 265
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 258
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 264
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 269
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 273
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 266
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 272
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 268
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 274
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 274
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 280
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 276
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 282
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 282
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 288
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 284
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 290
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 290
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 296
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 292
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 298
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 298
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 304
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 300
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 306
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 316
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 322
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 318
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 324
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 324
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 330
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 324
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 330
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 332
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 338
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 332
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 338
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 340
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 346
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 340
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 346
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 348
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 354
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 348
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 354
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 356
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 362
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 356
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 362
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 374
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 380
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 374
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 380
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 382
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 388
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 382
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 388
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 390
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 396
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 390
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 396
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 398
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 404
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 398
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 404
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 406
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 412
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 406
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 412
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 414
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 420
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 414
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 420
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 433
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 439
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 432
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 438
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 443
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 447
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 440
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 446
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 449
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 455
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 448
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 454
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 459
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 465
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 456
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 462
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 467
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 473
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 464
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 470
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 466
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 472
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 472
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[MAIN] Bot Status changed: RUNNING (Process: true)
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 478
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[1739381:0416/165148.045906:ERROR:gl_surface_presentation_helper.cc(260)] GetVSyncParametersIfAvailable() failed for 1 times!
+[1739381:0416/165155.788974:ERROR:gl_surface_presentation_helper.cc(260)] GetVSyncParametersIfAvailable() failed for 2 times!
+[1739381:0416/165157.027774:ERROR:gl_surface_presentation_helper.cc(260)] GetVSyncParametersIfAvailable() failed for 3 times!
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 474
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 480
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 490
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 496
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 492
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 498
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 498
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 504
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 500
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 506
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 506
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 512
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 508
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 514
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 514
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 520
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 516
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 522
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 522
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 528
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 522
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 528
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 530
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 536
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 530
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 536
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 548
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 554
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 548
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 554
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 556
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 562
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 556
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 562
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 564
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 570
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 564
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 570
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 572
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 578
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 572
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 578
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 580
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 586
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 580
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 586
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 588
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 594
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 588
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 594
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 606
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 612
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 606
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 612
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 614
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 620
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 614
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 620
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 622
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 628
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 622
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 628
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 630
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 636
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 630
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 636
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 638
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 644
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 638
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 644
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 646
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 652
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 646
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 652
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 654
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 660
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 664
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 670
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 666
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 672
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 5 capital: 2
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 10 capital: 8
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 5 capital: 4
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 10 capital: 10
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8
+[ANALYTICS-IPC] get-analytics-summary called with filter: 24h paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 4 capital: 10
+[ANALYTICS-IPC] Summary calculated - totalTrades: 3
+[ANALYTICS-IPC] get-analytics-summary called with filter: week paperMode: false
+[ANALYTICS-IPC] Raw data - trades: 9 capital: 16
+[ANALYTICS-IPC] Summary calculated - totalTrades: 8

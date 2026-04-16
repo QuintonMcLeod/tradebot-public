@@ -34,7 +34,8 @@ def _get_asset_key(symbol: str) -> str:
         if meta.asset_class == AssetClass.CRYPTO: return "crypto"
         if meta.asset_class == AssetClass.FOREX: return "forex"
         if meta.asset_class == AssetClass.EQUITY: return "equity"
-        if meta.asset_class == AssetClass.FUTURE: return "equity" # Treat futures as equity/primary for now unless specific logic
+        if meta.asset_class == AssetClass.FUTURE: return "future"
+        if meta.asset_class == AssetClass.METAL: return "metal"
 
     # 2. Heuristics
     if is_crypto(symbol): return "crypto"
@@ -470,6 +471,9 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
             environment="demo", # Apex Evaluation always executes on Demo endpoint
             read_only=not settings.runtime.execute_trades
         )
+    elif name in ("mt5", "ftmo"):
+        from tradebot_sci.broker.mt5_zmq_broker import MT5ZMQBroker
+        return MT5ZMQBroker(profile_settings)
     # Fallback to Mock?
     return NoOpExchangeBroker()
 
@@ -542,6 +546,10 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
         os.environ["CCXT_EXCHANGE"] = "kraken"
         temp_broker = CCXTExchangeBroker(profile_settings)
         return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data)
+    elif name in ("mt5", "ftmo"):
+        from tradebot_sci.broker.mt5_zmq_broker import MT5ZMQMarketProvider
+        logger.info(f"[ROUTED-DATA] MT5 Market Data Provider engaged via ZMQ (Mode: {name}).")
+        return MT5ZMQMarketProvider()
     return NoOpMarketDataProvider()
 
 
@@ -554,12 +562,16 @@ def build_market_provider(
 ) -> MarketDataProvider:
     """Builds a market data provider with per-asset routing support."""
     
+    # FTMO / Prop Firm Force Override
+    use_ftmo = getattr(settings.risk, "prop_ftmo_enabled", False) or (profile_settings and getattr(profile_settings, "prop_ftmo_enabled", False))
+    use_apex = getattr(settings.risk, "prop_apex_enabled", False) or (profile_settings and getattr(profile_settings, "prop_apex_enabled", False))
+
     # ── OANDA-only short-circuit ──
     # If OANDA credentials exist but no CCXT/Gemini keys, skip ALL config-driven
     # routing (which may reference gemini/ccxt) and return OANDA+Kraken directly.
     _has_oanda = bool(os.getenv("OANDA_API_KEY"))
     _has_ccxt = bool(os.getenv("CCXT_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("CCXT_SECRET") or os.getenv("GEMINI_API_SECRET"))
-    if _has_oanda and not _has_ccxt:
+    if _has_oanda and not _has_ccxt and not use_ftmo and not use_apex:
         logger.info("[ROUTED-DATA] OANDA-only detected (no CCXT/Gemini keys) → Forex=OANDA, Crypto=Kraken (public)")
         p_forex = _create_single_provider("oanda", settings, profile_settings, shared_ib)
         p_crypto = _create_single_provider("kraken", settings, profile_settings, shared_ib)
@@ -573,18 +585,21 @@ def build_market_provider(
     crypto_md_mode = os.getenv("BROKER_CRYPTO", "").lower()
     forex_md_mode = os.getenv("BROKER_FOREX", "").lower() 
     equity_md_mode = os.getenv("BROKER_EQUITIES", "").lower() # Or Default
+    future_md_mode = os.getenv("BROKER_FUTURES", "").lower()
+    metal_md_mode = os.getenv("BROKER_METALS", "").lower()
+
+
 
     # Logic: If ANY granular override is present, use Routed Mode.
-    # Otherwise check global BROKER_MODE / MARKET_DATA_MODE.
-    
-    is_routed = bool(crypto_md_mode or forex_md_mode or equity_md_mode)
+    is_routed = bool(crypto_md_mode or forex_md_mode or equity_md_mode or future_md_mode or metal_md_mode)
     
     if is_routed:
         # Default defaults
-        # Default defaults
-        if not crypto_md_mode: crypto_md_mode = "ccxt" # Default crypto
-        if not forex_md_mode: forex_md_mode = "oanda" # Default forex
+        if not crypto_md_mode: crypto_md_mode = "ccxt" if _has_ccxt else "kraken"
+        if not forex_md_mode: forex_md_mode = "oanda" if _has_oanda else "kraken"
         if not equity_md_mode: equity_md_mode = "ibkr" # Default equity
+        if not future_md_mode: future_md_mode = "ibkr"
+        if not metal_md_mode: metal_md_mode = "ibkr"
         
         providers = {}
         cache = {} # Deduplication cache
@@ -608,12 +623,16 @@ def build_market_provider(
         p_crypto = get_p(crypto_md_mode, "crypto")
         p_forex = get_p(forex_md_mode, "forex")
         p_equity = get_p(equity_md_mode, "equity")
+        p_future = get_p(future_md_mode, "future")
+        p_metal = get_p(metal_md_mode, "metal")
         
         if p_crypto: providers["crypto"] = p_crypto
         if p_forex: providers["forex"] = p_forex
         if p_equity: providers["equity"] = p_equity
+        if p_future: providers["future"] = p_future
+        if p_metal: providers["metal"] = p_metal
         
-        logger.info(f"[ROUTED-DATA] Crypto={crypto_md_mode} Forex={forex_md_mode} Equity={equity_md_mode}")
+        logger.info(f"[ROUTED-DATA] 5-Lane Active: Crypto={crypto_md_mode} Forex={forex_md_mode} Equity={equity_md_mode} Future={future_md_mode} Metal={metal_md_mode}")
         return RoutedMarketDataProvider(providers)
     
     # --- LEGACY / GLOBAL MODE FALLBACK ---
@@ -639,11 +658,15 @@ def build_market_provider(
         p_forex = _create_single_provider(settings.market.primary_forex, settings, profile_settings, shared_ib)
         p_crypto = _create_single_provider(settings.market.primary_crypto, settings, profile_settings, shared_ib)
         p_equity = _create_single_provider(settings.market.primary_equities, settings, profile_settings, shared_ib)
+        p_future = _create_single_provider(settings.market.primary_futures, settings, profile_settings, shared_ib)
+        p_metal = _create_single_provider(settings.market.primary_metals, settings, profile_settings, shared_ib)
         
         return RoutedMarketDataProvider({
             "crypto": p_crypto,
             "forex": p_forex,
-            "equity": p_equity
+            "equity": p_equity,
+            "future": p_future,
+            "metal": p_metal
         })
 
     p = _create_single_provider(mode, settings, profile_settings, shared_ib)
@@ -671,12 +694,16 @@ def build_exchange_broker(
 ) -> IExchangeBroker:
     """Builds an exchange broker with per-asset routing support."""
     
+    # FTMO / Prop Firm Force Override
+    use_ftmo = getattr(settings.risk, "prop_ftmo_enabled", False) or (profile_settings and getattr(profile_settings, "prop_ftmo_enabled", False))
+    use_apex = getattr(settings.risk, "prop_apex_enabled", False) or (profile_settings and getattr(profile_settings, "prop_apex_enabled", False))
+
     # ── OANDA-only short-circuit ──
     # If OANDA credentials exist but no CCXT/Gemini keys, skip ALL config-driven
     # routing (which may reference gemini/ccxt) and return OANDA+NoOp directly.
     _has_oanda = bool(os.getenv("OANDA_API_KEY"))
     _has_ccxt = bool(os.getenv("CCXT_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("CCXT_SECRET") or os.getenv("GEMINI_API_SECRET"))
-    if _has_oanda and not _has_ccxt:
+    if _has_oanda and not _has_ccxt and not use_ftmo and not use_apex:
         logger.info("[ROUTED-EXEC] OANDA-only detected (no CCXT/Gemini keys) → Forex=OANDA, Crypto/Equity=NoOp")
         b_forex = _create_single_broker("oanda", settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
         return RoutedExchangeBroker({
@@ -688,13 +715,27 @@ def build_exchange_broker(
     crypto_mode = os.getenv("BROKER_CRYPTO", "").lower()
     forex_mode = os.getenv("BROKER_FOREX", "").lower()
     equity_mode = os.getenv("BROKER_EQUITIES", "").lower()
+    future_mode = os.getenv("BROKER_FUTURES", "").lower()
+    metal_mode = os.getenv("BROKER_METALS", "").lower()
 
-    is_routed = bool(crypto_mode or forex_mode or equity_mode)
+    if use_ftmo:
+        forex_mode = "mt5"
+        equity_mode = "mt5"
+        future_mode = "mt5"
+        metal_mode = "mt5"
+        
+    if use_apex:
+        equity_mode = "tradovate"
+        future_mode = "tradovate"
+
+    is_routed = bool(crypto_mode or forex_mode or equity_mode or future_mode or metal_mode)
     
     if is_routed:
         if not crypto_mode: crypto_mode = "ccxt"
         if not forex_mode: forex_mode = "ibkr"
         if not equity_mode: equity_mode = "ibkr"
+        if not future_mode: future_mode = "ibkr"
+        if not metal_mode: metal_mode = "ibkr"
         
         brokers = {}
         cache = {}
@@ -711,12 +752,16 @@ def build_exchange_broker(
         b_crypto = get_b(crypto_mode, "crypto")
         b_forex = get_b(forex_mode, "forex")
         b_equity = get_b(equity_mode, "equity")
+        b_future = get_b(future_mode, "future")
+        b_metal = get_b(metal_mode, "metal")
         
         if b_crypto: brokers["crypto"] = b_crypto
         if b_forex: brokers["forex"] = b_forex
         if b_equity: brokers["equity"] = b_equity
+        if b_future: brokers["future"] = b_future
+        if b_metal: brokers["metal"] = b_metal
         
-        logger.info(f"[ROUTED-EXEC] Crypto={crypto_mode} Forex={forex_mode} Equity={equity_mode}")
+        logger.info(f"[ROUTED-EXEC] 5-Lane Active: Crypto={crypto_mode} Forex={forex_mode} Equity={equity_mode} Future={future_mode} Metal={metal_mode}")
         return RoutedExchangeBroker(brokers)
 
     # --- LEGACY / GLOBAL MODE FALLBACK ---
@@ -740,11 +785,15 @@ def build_exchange_broker(
         b_forex = _create_single_broker(settings.market.primary_forex, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
         b_crypto = _create_single_broker(settings.market.primary_crypto, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
         b_equity = _create_single_broker(settings.market.primary_equities, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
+        b_future = _create_single_broker(settings.market.primary_futures, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
+        b_metal = _create_single_broker(settings.market.primary_metals, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
         
         return RoutedExchangeBroker({
             "crypto": b_crypto,
             "forex": b_forex,
-            "equity": b_equity
+            "equity": b_equity,
+            "future": b_future,
+            "metal": b_metal
         })
 
     p = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)

@@ -194,6 +194,14 @@ class MarketSettings(BaseModel):
         default_factory=lambda: os.getenv("PRIMARY_EQUITIES", "disabled"),
         description="The provider/broker to use for Equities in routed/hybrid modes."
     )
+    primary_metals: str = Field(
+        default_factory=lambda: os.getenv("PRIMARY_METALS", "ibkr"),
+        description="The provider/broker to use for Precious Metals in routed/hybrid modes."
+    )
+    primary_futures: str = Field(
+        default_factory=lambda: os.getenv("PRIMARY_FUTURES", "disabled"),
+        description="The provider/broker to use for Futures Contacts in routed/hybrid modes."
+    )
     trading_confirmation: Optional[str] = Field(
         default=None,
         description="User confirmation for live trading. Set to 'YES' to bypass interactive confirmation."
@@ -1343,7 +1351,7 @@ class SafetySettings(BaseModel):
         default_factory=lambda: float(os.getenv("SAFETY_GREED_GUARD_TARGET", "5.0"))
     )
     safety_streak_breaker_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_STREAK_BREAKER_ENABLED", "False").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_STREAK_BREAKER_ENABLED", "True").lower() == "true"
     )
     safety_churn_burner_enabled: bool = Field(
         default_factory=lambda: os.getenv("SAFETY_CHURN_BURNER_ENABLED", "True").lower() == "true"
@@ -1379,8 +1387,8 @@ class SafetySettings(BaseModel):
         description="Minimum position age (seconds) before Greedy Exit floor can trigger.",
     )
     safety_fee_rt_pct: float = Field(
-        default_factory=lambda: float(os.getenv("SAFETY_FEE_RT_PCT", "0.003")),
-        description="Estimated round-trip fee as decimal (0.003 = 0.3% OANDA spread). "
+        default_factory=lambda: float(os.getenv("SAFETY_FEE_RT_PCT", "0.0004")),
+        description="Estimated round-trip fee as decimal (0.0004 = 0.04% OANDA spread). "
                     "Override via env: Gemini ~0.008, IBKR ~0.002.",
     )
 
@@ -1497,6 +1505,10 @@ class RiskSettings(BaseModel):
     icc_score_htf_strength_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
     # ── Prop Firm Settings (FTMO, Topstep, FundedNext) ─────────
+    prop_ftmo_enabled: bool = Field(
+        default_factory=lambda: os.getenv("PROP_FTMO_ENABLED", "False").lower() == "true",
+        description="Master toggle to force MT5 execution routing for FTMO accounts."
+    )
     prop_ftmo_api_key: str = Field(default_factory=lambda: os.getenv("PROP_FTMO_API_KEY", ""))
     prop_ftmo_account_id: str = Field(default="")
     prop_ftmo_environment: str = Field(default="evaluation")
@@ -1505,6 +1517,10 @@ class RiskSettings(BaseModel):
     prop_ftmo_target_leverage: float = Field(default=5.0)
     prop_ftmo_commission_bps: float = Field(default=3.0)
 
+    prop_apex_enabled: bool = Field(
+        default_factory=lambda: os.getenv("PROP_APEX_ENABLED", "False").lower() == "true",
+        description="Master toggle to force Tradovate/Apex execution routing."
+    )
     prop_apex_user: str = Field(default="")
     prop_apex_pass: str = Field(default_factory=lambda: os.getenv("PROP_APEX_PASS", ""))
     prop_apex_app_id: str = Field(default_factory=lambda: os.getenv("PROP_APEX_APP_ID", ""))
@@ -1512,6 +1528,10 @@ class RiskSettings(BaseModel):
     prop_apex_target_leverage: float = Field(default=3.0)
     prop_apex_fee_usd: float = Field(default=4.5)
 
+    prop_fn_enabled: bool = Field(
+        default_factory=lambda: os.getenv("PROP_FN_ENABLED", "False").lower() == "true",
+        description="Master toggle to force FundedNext execution routing."
+    )
     prop_fn_execution: str = Field(default="ctrader")
     prop_fn_api_key: str = Field(default_factory=lambda: os.getenv("PROP_FN_API_KEY", ""))
     prop_fn_max_daily_loss: float = Field(default=5.0)

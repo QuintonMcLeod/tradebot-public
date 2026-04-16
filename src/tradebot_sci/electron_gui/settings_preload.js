@@ -34,4 +34,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // AI Optimize
     aiRecommend: (profileName) => ipcRenderer.invoke('ai-recommend', profileName),
+
+    // Generic Invoke Pipeline
+    invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
 });

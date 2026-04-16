@@ -14,7 +14,11 @@ except ImportError as e:
     _OANDA_IMPORT_ERROR = str(e)
 from tradebot_sci.market.models import Candle, MarketSnapshot, Ticker, TrendState
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("Market_Data")
+
+# Silence noisy OANDA internal HTTP request logs
+logging.getLogger("oandapyV20").setLevel(logging.WARNING)
+logging.getLogger("oandapyV20.oandapyV20").setLevel(logging.WARNING)
 
 class OandaMarketDataProvider:
     """Market data provider for OANDA v20 API."""
@@ -64,7 +68,7 @@ class OandaMarketDataProvider:
         return mapping.get(tf, "M5")
 
     def get_latest_candles(self, symbol: str, timeframe: str, limit: int) -> List[Candle]:
-        logger.info(f"[OANDA-DEBUG] Fetching {limit} candles for {symbol} ({timeframe})")
+        logger.info(f"[MARKET-DATA] Fetching {limit} candles for {symbol} ({timeframe})")
         oanda_sym = self._normalize_symbol(symbol)
         oanda_tf = self._map_timeframe(timeframe)
         
@@ -80,7 +84,7 @@ class OandaMarketDataProvider:
             self.client.request(r)
             
             raw_candles = r.response.get("candles", [])
-            logger.info(f"[OANDA-DEBUG] Received {len(raw_candles)} candles from API")
+            logger.info(f"[MARKET-DATA] Received {len(raw_candles)} candles from API")
             
             candles = []
             for c in raw_candles:
@@ -123,7 +127,7 @@ class OandaMarketDataProvider:
                 
                 # [DEBUG] Log the first candle time to verify 12h issue
                 if not candles:
-                    logger.info(f"[OANDA-DEBUG] Raw: {c['time']} | Normalized: {raw_time} | Parsed: {ts.isoformat()} | Epoch: {int(ts.timestamp())}")
+                    logger.info(f"[MARKET-DATA] Raw: {c['time']} | Normalized: {raw_time} | Parsed: {ts.isoformat()} | Epoch: {int(ts.timestamp())}")
 
                 candles.append(Candle(
                     timestamp=ts,
@@ -135,7 +139,7 @@ class OandaMarketDataProvider:
                 ))
             return candles
         except Exception as e:
-            logger.error(f"[OANDA-DATA] Failed to fetch candles for {symbol}: {e}")
+            logger.error(f"[MARKET-DATA] Failed to fetch candles for {symbol}: {e}")
             return []
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
@@ -188,7 +192,7 @@ class OandaMarketDataProvider:
                     volume_24h_quote_usd=None
                 )
         except Exception as e:
-            logger.warning(f"[OANDA-DATA] get_ticker failed for {symbol}: {e}")
+            logger.warning(f"[MARKET-DATA] get_ticker failed for {symbol}: {e}")
         return None
 
     def get_order_book(self, symbol: str, depth: int = 10):

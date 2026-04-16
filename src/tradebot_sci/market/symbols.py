@@ -10,6 +10,7 @@ class AssetClass(Enum):
     CRYPTO = "crypto"
     FOREX = "forex"
     FUTURE = "future"
+    METAL = "metal"
 
 
 class MarketType(Enum):
@@ -400,8 +401,8 @@ for meta_sym in ["XAUUSD", "XAGUSD", "XPTUSD", "XPDUSD"]:
     SYMBOL_METADATA[meta_sym] = SymbolMetadata(
         symbol=meta_sym,
         contract_symbol=meta_sym,
-        asset_class=AssetClass.FOREX,
-        market_type=MarketType.FOREX,
+        asset_class=AssetClass.METAL,
+        market_type=MarketType.COMMODITY,
         exchange="SMART",
         currency="USD",
         enabled=True,

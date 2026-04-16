@@ -2386,6 +2386,30 @@ function createWindow() {
             win.webContents.send('fromMain', { type: 'gui-notice', message, color, timestamp });
         });
     });
+
+    ipcMain.handle('launch-mt5', async () => {
+        return new Promise((resolve) => {
+            const os = require('os');
+            const isWin = os.platform() === 'win32';
+            
+            let spawnCmd = isWin
+                ? `"${path.join(__dirname, '../../../scripts/start_mt5.bat')}"`
+                : `bash "${path.join(__dirname, '../../../scripts/start_mt5.sh')}"`;
+
+            console.log(`[MAIN] Launching MT5 Bridge via: ${spawnCmd}`);
+            
+            // We use exec to kick it off. MT5 runs asynchronously in the background.
+            exec(spawnCmd, (error, stdout, stderr) => {
+                if (error) {
+                    console.error(`[MAIN] MT5 Launch Error: ${error.message}`);
+                    return resolve({ success: false, error: error.message, output: stderr });
+                }
+                console.log(`[MAIN] MT5 Launched: ${stdout}`);
+                resolve({ success: true, output: stdout });
+            });
+        });
+    });
+
     ipcMain.handle('fetch-ai-models', async (event, provider, baseUrl, apiKey) => {
         return new Promise((resolve) => {
             const defaultM = {
