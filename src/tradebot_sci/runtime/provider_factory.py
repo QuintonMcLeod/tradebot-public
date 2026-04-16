@@ -507,10 +507,11 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
         prime = settings.market.primary_market_provider
         if prime and prime not in ("primary", "hybrid"):
             return _create_single_provider(prime, settings, profile_settings, shared_ib)
-        name = "ibkr" # Final fallback
+        name = "kraken" # Changed from ibkr to kraken per user request to avoid F- grades
 
     if name == "ibkr":
-         if shared_ib: return IbkrMarketDataProvider(shared_ib)
+        logger.info("[ROUTED-DATA] IBKR market data redirected to Kraken to prevent sparse F- grades.")
+        return _create_single_provider("kraken", settings, profile_settings, shared_ib)
     elif name == "oanda":
         if not settings.oanda:
             from tradebot_sci.config.broker import load_oanda_broker_options
