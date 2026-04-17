@@ -32,7 +32,7 @@ _WARMUP_HTF_CANDLES = 200  # 200 four-hour candles ≈ 33 days
 # When enabled, strips incomplete (still-forming) candles before strategy
 # evaluation — ensuring the live bot signals on closed bars only, matching
 # the backtester's behavior.
-_BAR_CLOSE_GATE_ENABLED = os.environ.get("BAR_CLOSE_GATE_ENABLED", "true").lower() in ("true", "1", "yes")
+_BAR_CLOSE_GATE_ENABLED = os.environ.get("BAR_CLOSE_GATE_ENABLED", "false").lower() in ("true", "1", "yes")
 
 def _parse_bar_seconds(timeframe: str) -> int:
     """Converts a timeframe string (e.g. '5m', '1h', '4h') to seconds."""
@@ -117,14 +117,15 @@ def fetch_snapshot(
         mtf_candles = provider.get_latest_candles(symbol, mtf_timeframe, limit=mtf_limit)
         htf_candles = provider.get_latest_candles(symbol, htf_timeframe, limit=htf_limit)
 
+        # Update chart candle cache so on_tick always has fresh data
+        # We must pass the raw unstripped candle so the GUI chart isn't frozen!
+        if ws_controller and ltf_candles and hasattr(ws_controller, 'update_candle_cache'):
+            ws_controller.update_candle_cache(symbol, ltf_timeframe, ltf_candles[-1])
+
         # ── Bar-Close Gate: strip incomplete candles ──
         ltf_candles = _strip_incomplete_bar(ltf_candles, ltf_timeframe)
         mtf_candles = _strip_incomplete_bar(mtf_candles, mtf_timeframe)
         htf_candles = _strip_incomplete_bar(htf_candles, htf_timeframe)
-        
-        # Update chart candle cache so on_tick always has fresh data
-        if ws_controller and ltf_candles and hasattr(ws_controller, 'update_candle_cache'):
-            ws_controller.update_candle_cache(symbol, ltf_timeframe, ltf_candles[-1])
 
         # Neutral defaults — engine.py's Trend Detection sets direction
         _neutral = TrendState(direction="neutral", strength=0.0)
