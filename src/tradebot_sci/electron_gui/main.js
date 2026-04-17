@@ -2166,8 +2166,20 @@ function createWindow() {
         setInterval(() => checkBotStatus(win), 2000);
     });
 
-    ipcMain.on('start-bot', async () => {
-        console.log('[MAIN] Start signal received.');
+    ipcMain.handle('get-motd', async (event) => {
+        const motdPath = path.join(__dirname, '../../../Documentation/motd.txt');
+        try {
+            if (fs.existsSync(motdPath)) {
+                return fs.readFileSync(motdPath, 'utf-8');
+            }
+        } catch (e) {
+            console.error('[MAIN] Failed to read motd.txt', e);
+        }
+        return "MOTD not found.";
+    });
+
+    ipcMain.on('start-bot', async (event, opts = {}) => {
+        console.log('[MAIN] Start signal received. Options:', opts);
         const debugLogPath = path.join(USER_DATA_DIR, 'logs', 'gui_start_debug.log');
         const timestamp = new Date().toISOString();
         fs.appendFileSync(debugLogPath, `[${timestamp}] START SIGNAL RECEIVED\n`);
@@ -2189,17 +2201,96 @@ function createWindow() {
         const stdoutPath = path.join(USER_DATA_DIR, 'logs', 'bot_stdout.log');
         try { if (fs.existsSync(stdoutPath)) fs.truncateSync(stdoutPath); } catch (e) { }
 
-        // 3. Command construction
-        // The GUI user clicking "Start" IS their trading confirmation — inject it
-        // so the daemon doesn't die waiting for interactive stdin confirmation.
+        // 3. Determine if MOTD confirmation is needed
+        let isConfirmed = opts && opts.confirmed === true;
+        if (!isConfirmed) {
+            try {
+                const cfgPath = path.join(USER_DATA_DIR, 'config.json');
+                if (fs.existsSync(cfgPath)) {
+                    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+                    const val = cfg.market?.trading_confirmation;
+                    if (val === 'YES' || val === true || String(val).toLowerCase() === 'true') {
+                        isConfirmed = true;
+                    }
+                }
+            } catch(e) { console.error('[MAIN] Failed to parse config for MOTD check:', e); }
+        }
+
+        // 4. Spawn MOTD Modal if Not Confirmed
+        if (!isConfirmed) {
+            const decision = await new Promise((resolve) => {
+                const motdWin = new BrowserWindow({
+                    width: 700,
+                    height: 520,
+                    frame: false,
+                    transparent: true,
+                    resizable: false,
+                    center: true,
+                    alwaysOnTop: true,
+                    webPreferences: {
+                        nodeIntegration: true,
+                        contextIsolation: false
+                    }
+                });
+
+                motdWin.loadFile(path.join(__dirname, 'motd.html'));
+
+                const handler = (e, decisionObj) => {
+                    ipcMain.removeListener('motd-decision', handler);
+                    motdWin.close();
+                    resolve(decisionObj);
+                };
+                
+                ipcMain.on('motd-decision', handler);
+                
+                motdWin.on('closed', () => {
+                    ipcMain.removeListener('motd-decision', handler);
+                    resolve({ accepted: false });
+                });
+            });
+
+            if (!decision.accepted) {
+                console.log('[MAIN] MOTD Cancelled by user.');
+                if (mainWindow) {
+                    mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Startup Cancelled by User", color: 'yellow' });
+                }
+                return;
+            }
+
+            // User accepted
+            isConfirmed = true;
+
+            // Handle "Don't show again" directly in backend
+            if (decision.dontShowAgain) {
+                try {
+                    const cfgPath = path.join(USER_DATA_DIR, 'config.json');
+                    let cfg = {};
+                    if (fs.existsSync(cfgPath)) {
+                        cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+                    }
+                    if (!cfg.market) cfg.market = {};
+                    cfg.market.trading_confirmation = "true";
+                    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf8');
+                    console.log('[MAIN] Saved TRADING_CONFIRMATION bypass to config.');
+                } catch (e) {
+                    console.error('[MAIN] Failed to save MOTD confirmation preference:', e);
+                }
+            }
+        }
+
+        let extraArgs = isWindows() ? '' : ' --env TRADING_CONFIRMATION=YES';
+
         let spawnCmd = isWindows()
             ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" scripts/run_dev_bot.py --daemon`
-            : `bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon`;
+            : `bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon${extraArgs}`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);
         fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
 
-        const envOpts = { ...process.env, TRADING_CONFIRMATION: 'YES', PYTHONPATH: 'src' };
+        const envOpts = { ...process.env, PYTHONPATH: 'src' };
+        if (isConfirmed) {
+            envOpts.TRADING_CONFIRMATION = 'YES';
+        }
         exec(spawnCmd, { env: envOpts }, (error, stdout, stderr) => {
             if (error) {
                 console.error(`[MAIN] Exec Error: ${error}`);

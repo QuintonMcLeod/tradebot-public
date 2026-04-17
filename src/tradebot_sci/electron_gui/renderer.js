@@ -1429,18 +1429,9 @@ function setupInteractiveElements() {
     });
     */
 
-    document.getElementById('btn-panic')?.addEventListener('click', (e) => {
+    document.getElementById('btn-panic')?.addEventListener('click', async (e) => {
         if (!botIsRunning) {
-            // "Start Bot" mode
-            window.api.send('start-bot');
-            appendLog("INFO", "[USER] START BOT SIGNAL SENT TO SYSTEM.");
-
-            // Visual feedback for starting
-            const btn = document.getElementById('btn-panic');
-            const text = document.getElementById('panic-text');
-            if (btn && text) {
-                text.innerText = "Starting...";
-            }
+            executeStartBot();
             return;
         }
 
@@ -1850,6 +1841,17 @@ function loadState() {
             setPanicState(true);  // Bot was halted → show "Start Bot"
         }
     } catch (e) { console.error("Load State Error:", e); }
+}
+
+function executeStartBot() {
+    window.api.startBot();
+    appendLog("INFO", "[USER] START BOT SIGNAL SENT TO SYSTEM.");
+
+    const btn = document.getElementById('btn-panic');
+    const text = document.getElementById('panic-text');
+    if (btn && text) {
+        text.innerText = "Starting...";
+    }
 }
 
 function init() {

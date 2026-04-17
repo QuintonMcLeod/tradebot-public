@@ -56,6 +56,7 @@ const CONFIG_MAP = {
     'PROP_APEX_ENABLED': ['risk', 'prop_apex_enabled'],
     'PROP_FN_ENABLED': ['risk', 'prop_fn_enabled'],
     'MARKET_DATA_MODE': ['market', 'market_data_mode'],
+    'TRADING_CONFIRMATION': ['market', 'trading_confirmation'],
     'PAPER_SIM_ENABLED': ['paper', 'enabled'],
     'PAPER_REPLAY_MODE': ['paper', 'replay_mode'],
     'PAPER_SYNTHETIC_MODE': ['paper', 'synthetic_mode'],
@@ -4717,6 +4718,10 @@ function renderSafetyTab(container) {
     section.appendChild(createSectionHeader('Account Safety & Shields', 'shield',
         "<strong>Account Safety & Shields</strong><br><br>Master safety switches that protect your entire account. These include maximum drawdown limits, equity circuit breakers, and loss caps that automatically shut down trading if things go wrong."
     ));
+
+    section.appendChild(createCard('Bypass Startup Prompts', 'Auto-confirm live trading without the MOTD window', 'TRADING_CONFIRMATION', 'toggle', { 
+        tooltip: "<strong>Live Trading Consent.</strong> If enabled, the bot automatically assumes you consent to start trading when you press Start, completely bypassing the Message of the Day confirmation window." 
+    }));
 
     section.appendChild(createCard('Stability Mode', 'Ultra-safe risk management & quality filters (1% Cap)', 'SAFETY_STABILITY_MODE_ENABLED', 'toggle', {
         tooltip: "<strong>Survival First.</strong> This is your emergency brake. It forces 1% max risk and a 75+ quality score floor. Perfect for preventing account 'bleeding' during choppy or unpredictable market regimes."

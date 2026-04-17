@@ -50,13 +50,14 @@ contextBridge.exposeInMainWorld('api', {
     resolveCity: (cityName) => ipcRenderer.invoke('resolve-city', cityName),
     readProfileStrategies: (profileName) => ipcRenderer.invoke('read-profile-strategies', profileName),
     saveProfileStrategies: (profileName, strategies) => ipcRenderer.invoke('save-profile-strategies', profileName, strategies),
-    startBot: () => ipcRenderer.send('start-bot'),
+    startBot: (opts) => ipcRenderer.send('start-bot', opts),
     stopBot: () => ipcRenderer.send('stop-bot'),
     restartBot: () => ipcRenderer.send('restart-bot'),
     getBotStatus: () => ipcRenderer.send('get-bot-status'),
     onBotStatus: (callback) => ipcRenderer.on('bot-status', (event, data) => callback(data)),
     logNotice: (message, color) => ipcRenderer.send('log-notice', { message, color }),
 
+    getMOTD: () => ipcRenderer.invoke('get-motd'),
     // Generic invoke for flexibility
     invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
 
