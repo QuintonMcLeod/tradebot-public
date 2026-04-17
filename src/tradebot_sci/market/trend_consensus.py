@@ -55,7 +55,7 @@ _STRENGTH_FLOOR = 0.25
 # Keyed on (last_candle_ts, candle_count, label) to avoid recomputing
 # 10+ expensive indicators when the same candle set is seen again.
 _TF_CACHE: dict[tuple, "_TimeframeResult"] = {}
-_TF_CACHE_MAX = 8  # Keep small — only need current bar's HTF/LTF per symbol
+_TF_CACHE_MAX = 64  # Increased to prevent thrashing with multi-symbol + multi-timeframe computations
 
 
 def clear_cache():
@@ -145,7 +145,7 @@ def _compute_timeframe(
     global _TF_CACHE
     _cache_key = None
     if candles:
-        _cache_key = (candles[-1].timestamp, len(candles), label, candles[0].close)
+        _cache_key = (candles[-1].timestamp, len(candles), label, candles[0].close, candles[-1].close)
         cached = _TF_CACHE.get(_cache_key)
         if cached is not None:
             return cached
