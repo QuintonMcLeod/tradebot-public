@@ -56,7 +56,7 @@ const CONFIG_MAP = {
     'PROP_APEX_ENABLED': ['risk', 'prop_apex_enabled'],
     'PROP_FN_ENABLED': ['risk', 'prop_fn_enabled'],
     'MARKET_DATA_MODE': ['market', 'market_data_mode'],
-    'TRADING_CONFIRMATION': ['market', 'trading_confirmation'],
+    'TRADING_CONFIRMATION': ['global', 'trading_confirmation'],
     'PAPER_SIM_ENABLED': ['paper', 'enabled'],
     'PAPER_REPLAY_MODE': ['paper', 'replay_mode'],
     'PAPER_SYNTHETIC_MODE': ['paper', 'synthetic_mode'],
@@ -2045,7 +2045,7 @@ function createCard(title, desc, key, controlType, options = {}) {
 
     if (controlType === 'toggle') {
         const toggle = document.createElement('div');
-        toggle.className = `toggle ${value === 'true' ? 'toggle-active' : ''}`;
+        toggle.className = `toggle ${(value === 'true' || value === 'YES' || value === true) ? 'toggle-active' : ''}`;
         toggle.addEventListener('click', (e) => {
             e.stopPropagation();
             const isNowActive = !toggle.classList.contains('toggle-active');

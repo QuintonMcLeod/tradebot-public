@@ -2208,7 +2208,7 @@ function createWindow() {
                 const cfgPath = path.join(USER_DATA_DIR, 'config.json');
                 if (fs.existsSync(cfgPath)) {
                     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-                    const val = cfg.market?.trading_confirmation;
+                    const val = cfg.global?.trading_confirmation;
                     if (val === 'YES' || val === true || String(val).toLowerCase() === 'true') {
                         isConfirmed = true;
                     }
@@ -2268,10 +2268,13 @@ function createWindow() {
                     if (fs.existsSync(cfgPath)) {
                         cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
                     }
-                    if (!cfg.market) cfg.market = {};
-                    cfg.market.trading_confirmation = "true";
+                    if (!cfg.global) cfg.global = {};
+                    cfg.global.trading_confirmation = "YES";
                     fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf8');
                     console.log('[MAIN] Saved TRADING_CONFIRMATION bypass to config.');
+                    BrowserWindow.getAllWindows().forEach((win) => {
+                        win.webContents.send('config-updated', cfg);
+                    });
                 } catch (e) {
                     console.error('[MAIN] Failed to save MOTD confirmation preference:', e);
                 }
