@@ -251,6 +251,3 @@ Level 4: LIVE TRADING (Real money)
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"I have processed 14.7 million candles in simulation. I have seen every regime — trending, ranging, choppy, volatile, dead. I do not need to make new mistakes. I have already made them all. In simulation. Where they cost nothing.<br><br>That is the value of the Time Warp."</em></td></tr></table>
 
 
-> [!NOTE]
-> **APRIL 2026 UI & VITALS UPDATE:**  
-> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

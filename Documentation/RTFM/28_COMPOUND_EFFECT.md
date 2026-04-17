@@ -123,6 +123,3 @@ A good trading day doesn't mean every trade wins. It means the winners outpace t
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Three good days a month. That's all the math needs. The bot handles the other 17 trading days with the calm, emotionless precision of a machine that has never once — not one single time in its existence — searched 'is trading a scam' at midnight.<br><br>Because it already knows the answer. Trading is not a scam. Trading <em>without tools</em> is the scam. And you've been running it on yourself."</td></tr></table>
 
 
-> [!NOTE]
-> **APRIL 2026 UI & VITALS UPDATE:**  
-> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

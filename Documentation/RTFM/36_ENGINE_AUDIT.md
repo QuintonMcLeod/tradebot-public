@@ -212,6 +212,3 @@ The Minovsky Engine uses **indicator warmup** to ensure no trade is ever taken w
 <table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"The temple was always there. We just had to stop building a second one next to it."</em></td></tr></table>
 
 
-> [!NOTE]
-> **APRIL 2026 UI & VITALS UPDATE:**  
-> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

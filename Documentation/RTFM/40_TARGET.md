@@ -82,6 +82,3 @@ description: "\"Profit doesn't count until it's in your bank account.\" The Payo
 > 📺 The Payout Mentor lives on the **Analytics** page, in the row below the Win/Loss chart.
 
 
-> [!NOTE]
-> **APRIL 2026 UI & VITALS UPDATE:**  
-> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

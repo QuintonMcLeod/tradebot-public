@@ -136,6 +136,3 @@ breakeven_trail:
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Most of you spend 90% of your energy trying to find the perfect entry and 10% on your exits. It's completely backwards. A mediocre entry with a ruthless exit system completely destroys a brilliant entry with sloppy exits. Every single time.<br><br>Losses are small. Wins are meaningful. Capital is protected. <br><br><em>You don't need to be right all the time. You just need to stop bleeding like a stuck pig when you're wrong!</em>"</td></tr></table>
 
 
-> [!NOTE]
-> **APRIL 2026 UI & VITALS UPDATE:**  
-> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.

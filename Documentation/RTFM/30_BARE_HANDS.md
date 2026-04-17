@@ -142,6 +142,3 @@ A trading bot is not a magic money printer. Let's kill that myth right now with 
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Baby, do you want to spend 2 years and $15,000 learning to be disciplined the hard way? Or would you rather let a machine that was <em>born</em> disciplined do it for you while you go live your life?<br><br>Both paths lead to the same destination. One of them costs you years of stress, sleep, and money. The other costs you the willingness to trust math over instinct.<br><br>Put down the pool noodle, sweetheart. Pick up a proper tool. Your account — and your blood pressure — will thank you."</td></tr></table>
 
 
-> [!NOTE]
-> **APRIL 2026 UI & VITALS UPDATE:**  
-> Listen up, you degenerates. We just dropped a massive update to the UI and Nurse's Station. The tooltips now trigger when you hover over the *entire goddamn card*, so your fat thumbs can't miss them anymore. The Exit Logic tab is now a clean, idiot-proof single column. We also fixed the Nurse's Station connection tracker—no more lying to you that the bot is dead when it's actively retrying to connect. Read **47_UI_OVERHAUL_AND_VITALS.md** for the full breakdown before you touch the controls and blow your account.
