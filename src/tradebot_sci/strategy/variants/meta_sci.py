@@ -13,9 +13,9 @@ class MetaSCIStrategy(BaseStrategy):
     
     Logic:
     1. "Stickiness": If a specific strategy won the last trade for this symbol, 
-       it is the "Champion". We check it first.
+       it is the "Champion". I check it first.
     2. "Challenge": If the Champion is silent or on a losing streak, 
-       we run a full Tournament of all strategies.
+       I run a full Tournament of all strategies.
     3. "Consensus": Winner of the tournament becomes the new temporary driver.
     
     ╔══════════════════════════════════════════════════════════════════╗
@@ -47,7 +47,7 @@ class MetaSCIStrategy(BaseStrategy):
         super().__init__("meta_sci")
         self.profile = profile_settings or {}
         # Lazy loading registry to avoid circular imports on init if possible,
-        # but we'll load them on first need or cache them.
+        # but I'll load them on first need or cache them.
         self.strategies: Dict[str, BaseStrategy] = {}
         self._initialized = False
         # [JUDGE] Track consecutive losses per strategy per symbol
@@ -518,15 +518,17 @@ class MetaSCIStrategy(BaseStrategy):
                 if name in ("robocop", "hyper_scalper", "orb_breakout"):
                     # These WANT the fast timeframe (LTF)
                     # The main loop snapshot IS ltf_candles by default (since we set candle_tf=5m)
-                    # So we use it as is.
+                    # So I use it as is.
                     pass
                     
                 elif name in ("supply_demand", "mean_reversion"):
                     # These WANT the slow timeframe (HTF - 15m)
-                    # We must verify we have HTF candles
+                    # I must verify I have HTF candles
+                    from tradebot_sci.market.trend_consensus import detect_trend_directions
                     if snapshot.htf_candles and len(snapshot.htf_candles) > 10:
                         # Construct a proxy snapshot for the definition of "candles"
-                        # We keep trend_htf/ltf as is for context
+                        # I keep trend_htf/ltf as is for context
+                        from dataclasses import replace as dc_replace
                         strat_snap = MarketSnapshot(
                             symbol=snapshot.symbol,
                             timeframe=snapshot.htf_timeframe, # 15m
@@ -542,7 +544,7 @@ class MetaSCIStrategy(BaseStrategy):
 
                 # Safe Dispatch using Introspection
                 # Some strategies (RoboCop) take extra args, some (LondonBreakout) do not.
-                # We inspect the signature to pass only what is accepted.
+                # Inspect signature to pass only what is accepted
                 import inspect
                 sig_obj = inspect.signature(strat.check_entry_signal)
                 params = sig_obj.parameters

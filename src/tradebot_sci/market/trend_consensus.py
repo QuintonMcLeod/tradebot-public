@@ -431,7 +431,7 @@ def _classify_regime(htf: _TimeframeResult, ltf: _TimeframeResult) -> str:
     ltf_dir = ltf.direction
     if (htf_dir == "long" and ltf_dir == "short") or \
        (htf_dir == "short" and ltf_dir == "long"):
-        if htf.adx < 25:
+        if htf.adx < 20:
             logger.debug(
                 f"[REGIME] CHOPPY — HTF/LTF disagree ({htf_dir} vs {ltf_dir}), "
                 f"blocking entries (was incorrectly returning 'ranging' → MeanReversion)"

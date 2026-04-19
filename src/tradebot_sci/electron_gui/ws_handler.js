@@ -442,9 +442,89 @@ async function connectWebSocket() {
                 }
                 if (data.is_eval !== undefined) {
                     const evalEl = document.getElementById('status-eval');
+                    const trackerWidget = document.getElementById('eval-tracker-widget');
+                    
                     if (evalEl) {
-                        if (data.is_eval && (data.is_paper || window.isPaper)) evalEl.classList.remove('hidden');
-                        else evalEl.classList.add('hidden');
+                        if (data.is_eval && (data.is_paper || window.isPaper)) {
+                            evalEl.classList.remove('hidden');
+                            if (trackerWidget) trackerWidget.classList.remove('hidden');
+                        } else {
+                            evalEl.classList.add('hidden');
+                            if (trackerWidget) trackerWidget.classList.add('hidden');
+                        }
+                    }
+                }
+                
+                // Route Eval Metrics to the UI Widget
+                if (data.eval_metrics) {
+                    const m = data.eval_metrics;
+                    
+                    // Target labels
+                    const trEl = document.getElementById('eval-target-req');
+                    if (trEl) trEl.innerText = m.target_pct;
+                    const drEl = document.getElementById('eval-dl-req');
+                    if (drEl) drEl.innerText = m.daily_loss_pct;
+                    const mdrEl = document.getElementById('eval-dd-req');
+                    if (mdrEl) mdrEl.innerText = m.max_loss_pct;
+                    
+                    // Profit Target — teal accent, gold when target reached
+                    const gainPct = document.getElementById('eval-gain-pct');
+                    const gainBar = document.getElementById('eval-gain-bar');
+                    if (gainPct && gainBar) {
+                        const v = m.gain_pct;
+                        gainPct.innerText = (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+                        gainPct.className = v >= 0
+                            ? 'text-sm font-black text-teal-400'
+                            : 'text-sm font-black text-white/40';
+                        const fill = Math.max(0, Math.min(100, (v / m.target_pct) * 100));
+                        gainBar.style.width = fill + '%';
+                        if (fill >= 100) {
+                            gainBar.className = 'h-full rounded-full bg-yellow-400 transition-all duration-500 ease-out shadow-[0_0_8px_rgba(250,204,21,0.5)]';
+                        } else {
+                            gainBar.className = 'h-full rounded-full bg-teal-500 transition-all duration-500 ease-out shadow-[0_0_6px_rgba(20,184,166,0.4)]';
+                        }
+                    }
+                    
+                    // Daily Drawdown — amber normally, red when >70% of limit
+                    const dlPct = document.getElementById('eval-dl-pct');
+                    const dlBar = document.getElementById('eval-dl-bar');
+                    if (dlPct && dlBar) {
+                        const v = m.daily_drawdown_pct;
+                        dlPct.innerText = v.toFixed(2) + '%';
+                        const ratio = m.daily_loss_pct > 0 ? (v / m.daily_loss_pct) * 100 : 0;
+                        const fill = Math.max(0, Math.min(100, ratio));
+                        dlBar.style.width = fill + '%';
+                        if (ratio >= 85) {
+                            dlPct.className = 'text-sm font-black text-red-400';
+                            dlBar.className = 'h-full rounded-full bg-red-500 transition-all duration-500 ease-out shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse';
+                        } else if (ratio >= 50) {
+                            dlPct.className = 'text-sm font-black text-amber-400';
+                            dlBar.className = 'h-full rounded-full bg-amber-500 transition-all duration-500 ease-out shadow-[0_0_6px_rgba(245,158,11,0.5)]';
+                        } else {
+                            dlPct.className = v > 0 ? 'text-sm font-black text-white/60' : 'text-sm font-black text-white/40';
+                            dlBar.className = 'h-full rounded-full bg-amber-500/60 transition-all duration-500 ease-out shadow-[0_0_4px_rgba(245,158,11,0.3)]';
+                        }
+                    }
+                    
+                    // Overall Drawdown — same escalation
+                    const ddPct = document.getElementById('eval-dd-pct');
+                    const ddBar = document.getElementById('eval-dd-bar');
+                    if (ddPct && ddBar) {
+                        const v = m.current_drawdown_pct;
+                        ddPct.innerText = v.toFixed(2) + '%';
+                        const ratio = m.max_loss_pct > 0 ? (v / m.max_loss_pct) * 100 : 0;
+                        const fill = Math.max(0, Math.min(100, ratio));
+                        ddBar.style.width = fill + '%';
+                        if (ratio >= 85) {
+                            ddPct.className = 'text-sm font-black text-red-500';
+                            ddBar.className = 'h-full rounded-full bg-red-600 transition-all duration-500 ease-out shadow-[0_0_8px_rgba(220,38,38,0.6)] animate-pulse';
+                        } else if (ratio >= 50) {
+                            ddPct.className = 'text-sm font-black text-amber-400';
+                            ddBar.className = 'h-full rounded-full bg-amber-500 transition-all duration-500 ease-out shadow-[0_0_6px_rgba(245,158,11,0.5)]';
+                        } else {
+                            ddPct.className = v > 0 ? 'text-sm font-black text-white/60' : 'text-sm font-black text-white/40';
+                            ddBar.className = 'h-full rounded-full bg-amber-500/60 transition-all duration-500 ease-out shadow-[0_0_4px_rgba(245,158,11,0.3)]';
+                        }
                     }
                 }
                 // Track paper mode globally so analytics uses the right data source

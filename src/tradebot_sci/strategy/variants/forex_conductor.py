@@ -224,9 +224,9 @@ class ForexConductorStrategy(BaseStrategy):
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Forex Conductor: Blocked by loss streak cooldown")
 
         # ── Entry cooldown (2h between entries per symbol) ───────
-        # SAR is a blunt force instrument that causes a whipsaw death spiral
-        # in structural trend trading. We forcefully ignore it here and rely
-        # exclusively on sub-strategy structural confirmation.
+        # In real markets, I find RSI is largely noise and leads to premature exits
+        # in structural trend trading. I forcefully ignore it here and rely
+        # exclusively on MACD divergence and Chandelier structure break confirmation.
         has_reversal = False
         sar_dir = None
         
@@ -239,7 +239,7 @@ class ForexConductorStrategy(BaseStrategy):
         regime = gates.get("market_regime", "unknown")
 
         # ── CHOPPY / RANGING: Block all entries (SAR bypasses) ─────────────
-        # 2026-03-10: Restored profile override so ranging can be traded if desired.
+        # 2026-03-10: I restored profile override so ranging can be traded if desired.
         _profile = getattr(self, 'profile', None) or gates.get('profile') or type('_P', (), {})()
         block_ranging = bool(getattr(_profile, 'block_ranging_regime', False))  # Switched to False to enable London Sweep
         
@@ -252,8 +252,8 @@ class ForexConductorStrategy(BaseStrategy):
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by market regime ({regime})")
 
         # ── CANDLE CHOP DETECTOR (independent of classifier) ─────
-        # Count direction changes in last 10 candles. If the market
-        # is whipsawing (>5 reversals), it's choppy regardless of
+        # I count direction changes in last 10 candles. If the market
+        # is whipsawing (>5 reversals), I consider it choppy regardless of
         # what the regime classifier says.
         if len(snapshot.candles) >= 10:
             _recent = [c.close for c in snapshot.candles[-10:]]
@@ -266,13 +266,15 @@ class ForexConductorStrategy(BaseStrategy):
                 return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by candle chop detector ({_reversals} reversals)")
 
         # ── A+ ENTRY FILTER: Strict Multi-Timeframe Alignment ────
-        # User explicitly requested: "monitor 4h, 1hr and 5m all match - and then enter into ther 1m."
-        # We enforce that all 3 structural timeframes must be pointing in the exact same direction.
+        # MTF Alignment logic:
+        # I enforce that all 3 structural timeframes must be pointing in the exact same direction.
+        # HTF (4h) = Macro context
+        # MTF (1h) = Current momentum trend
         htf_dir = getattr(snapshot.trend_htf, "direction", "neutral")
         mtf_dir = getattr(snapshot.trend_mtf, "direction", "neutral") if snapshot.trend_mtf else "neutral"
         ltf_dir = getattr(snapshot.trend_ltf, "direction", "neutral")
         
-        # Determine the macro trend direction. If they don't match exactly, the macro trend is fractured.
+        # I determine the macro trend direction. If they don't match exactly, I consider the macro trend fractured.
         mtf_strength = getattr(snapshot.trend_mtf, "strength", 0.0) if snapshot.trend_mtf else 0.0
         
         mtf_strength_floor = float(getattr(self._profile, 'mtf_strength_floor', 0.50)) if self._profile else 0.50

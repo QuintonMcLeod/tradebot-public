@@ -79,6 +79,9 @@ const CONFIG_MAP = {
     'SABBATH_ASTRONOMICAL': ['safety', 'sabbath_astronomical'],
     // Safety & Shields
     'SAFETY_ATR_SHIELD_ENABLED': ['safety', 'safety_atr_shield_enabled'],
+    'STOP_ATR_MULTIPLIER': ['global', 'stop_atr_multiplier'],
+    'SAFETY_FEE_SHIELD_ENABLED': ['safety', 'safety_fee_shield_enabled'],
+    'SAFETY_FEE_RT_PCT': ['safety', 'safety_fee_rt_pct'],
     'SAFETY_SENTIMENT_SHIELD_ENABLED': ['safety', 'safety_sentiment_shield_enabled'],
     'SAFETY_VOLATILITY_VETO_ENABLED': ['safety', 'safety_volatility_veto_enabled'],
     'WEALTH_EXIT_GAMMA_ENABLED': ['safety', 'wealth_exit_gamma_enabled'],

@@ -1504,6 +1504,13 @@ def run_bot(
             now = datetime.now(ZoneInfo("UTC"))
             
             is_scheduled, paper_trade_off_hours = get_schedule_status(profile_name, now, settings)
+            
+            # [FIX] Overrule schedule if Replay Mode is active, because Replay Engine 
+            # exclusively plays back active historical market days. We must not let 
+            # the real-world Saturday clock drop our symbol universe.
+            if replay_provider is not None:
+                is_scheduled = True
+                
             sabbath_active, _, _ = sabbath_context.evaluate(now)
             true_sabbath_active = sabbath_active
 
@@ -1515,6 +1522,29 @@ def run_bot(
             force_paper_broker = False
             if not is_scheduled and paper_trade_off_hours:
                 force_paper_broker = True
+
+            if (sabbath_active or force_paper_broker) and not executor_paper:
+                logger.info("[PAPER] Initializing Paper Broker dynamically for Sabbath/Off-Hours.")
+                paper_trade_results = TradeResultStore(str(_paths.DATA_DIR / "paper_trade_results.json"))
+                executor_paper = PaperBroker(
+                    profile_settings,
+                    market_provider=provider,
+                    trade_results=paper_trade_results
+                )
+                if not paper_ledger:
+                    paper_ledger = LedgerDaemon(
+                        log_path=_ledger_log_path,
+                        ledger_path=str(_paths.DATA_DIR / "paper_ledger.json"),
+                        interval=60,
+                        lat=getattr(profile_settings, "sabbath_lat", 33.764),
+                        lon=getattr(profile_settings, "sabbath_lon", -84.386),
+                        tz_name=getattr(profile_settings, "sabbath_timezone", "America/New_York"),
+                        default_strategy=getattr(profile_settings, "strategy_variant", ""),
+                    )
+                    paper_ledger._paper_mode = True
+                    paper_ledger.start()
+                    if hasattr(controller, 'paper_ledger'):
+                        controller.paper_ledger = paper_ledger
 
             if (sabbath_active or force_paper_broker) and executor_paper and executor != executor_paper:
                 logger.info("[PAPER] Sabbath/Off-Hours active! Swapping to local Paper Trading for total silence.")
@@ -1649,6 +1679,19 @@ def run_bot(
                         daily_drawdown_pct = 0.0
                         if eval_day_start_balance > 0:
                             daily_drawdown_pct = ((eval_day_start_balance - _eq) / eval_day_start_balance) * 100.0
+                        
+                        # Store metrics globally for GUI rendering
+                        controller.eval_metrics = {
+                            "gain_pct": current_gain_pct,
+                            "target_pct": paper_eval_target_pct,
+                            "daily_drawdown_pct": daily_drawdown_pct,
+                            "daily_loss_pct": paper_eval_daily_loss_pct,
+                            "current_drawdown_pct": current_drawdown_pct,
+                            "max_loss_pct": paper_eval_max_loss_pct,
+                            "initial_balance": eval_initial_balance,
+                            "day_start_balance": eval_day_start_balance,
+                            "current_balance": _eq
+                        }
                         
                         failed = False
                         reason = ""
@@ -2254,6 +2297,17 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                 controller.health_monitor.record_heartbeat()
                 controller.health_monitor.set_market_hours(not sabbath_active)
                 
+                if sabbath_active and not executor_paper:
+                    logger.info("[PAPER] Initializing Paper Broker dynamically for Sabbath mode.")
+                    # Use existing paper_trade_results initialized near top of run_scheduled_bot
+                    # wait, let me check if paper_trade_results was created! I will just use a generic TradeResultStore creation
+                    local_paper_results = TradeResultStore(str(_paths.DATA_DIR / "paper_trade_results.json"))
+                    executor_paper = PaperBroker(
+                        profile_settings,
+                        market_provider=provider,
+                        trade_results=local_paper_results
+                    )
+
                 # Sabbath Paper Trading Swap
                 if sabbath_active and executor_paper and executor != executor_paper:
                     logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading Mode.")
@@ -2268,7 +2322,12 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                             provider = replay_provider
                             executor_paper.market_provider = provider
                             controller.replay_provider = replay_provider
-                            logger.info("[REPLAY] Weekend replay provider activated")
+                            
+                            for eng in engines.values():
+                                eng.trade_results = paper_trade_results
+                                eng.market_provider = provider
+                                
+                            logger.info("[REPLAY] Weekend replay provider activated & Analytics Isolated")
                         except Exception as e:
                             logger.warning("[REPLAY] Failed to create replay provider: %s", e)
                 elif not sabbath_active and executor_paper and executor == executor_paper:
@@ -2284,7 +2343,12 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                             executor_paper.market_provider = provider_real
                         controller.replay_provider = None
                         replay_provider = None
-                        logger.info("[REPLAY] Replay provider deactivated, real provider restored")
+                        
+                        for eng in engines.values():
+                            eng.trade_results = trade_results
+                            eng.market_provider = provider_real
+                            
+                        logger.info("[REPLAY] Replay provider deactivated, LIVE provider and Analytics restored")
 
                 if executor:
                     executor.refresh_account_summary()

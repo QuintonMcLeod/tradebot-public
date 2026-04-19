@@ -538,7 +538,7 @@ class PaperBroker:
                 side = "buy" if pos["side"] == "long" else "sell"
                 
                 # Dynamic Paper Sizing
-                # BUGFIX: decision.risk_per_trade_pct for pyramids is a multiplier of the BASE RISK,
+                # BUGFIX: my decision.risk_per_trade_pct for pyramids is a multiplier of the BASE RISK,
                 # NOT a percentage of the entire account capital!
                 base_risk_pct = getattr(self.profile, "risk_per_trade_pct", 0.01)
                 base_risk_usd = self._initial_balance * base_risk_pct

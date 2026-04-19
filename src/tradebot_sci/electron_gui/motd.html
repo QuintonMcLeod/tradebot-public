@@ -75,10 +75,10 @@
 
         <!-- Footer: Actions -->
         <div class="p-5 flex flex-col gap-4 no-drag theme-footer">
-            <label class="flex items-center gap-2 cursor-pointer w-fit group">
+            <label for="motd-dont-show-cb" id="motd-dont-show-label" class="flex items-center gap-2 cursor-pointer w-fit group">
                 <input type="checkbox" id="motd-dont-show-cb" class="hidden">
                 <div class="w-4 h-4 rounded border flex items-center justify-center transition-colors" style="border-color: var(--text-dim, #475569); background: var(--bg-dark, #0f172a);">
-                    <span id="motd-cb-icon" class="material-symbols-outlined text-[12px] opacity-0 transition-opacity theme-accent">check</span>
+                    <span id="motd-cb-icon" class="material-symbols-outlined text-[12px] transition-opacity theme-accent" style="opacity: 0;">check</span>
                 </div>
                 <span class="text-xs font-semibold uppercase tracking-wider transition-colors" style="color: var(--text-muted, #94a3b8);">Do not show this safety prompt again</span>
             </label>
@@ -102,10 +102,26 @@
 
         document.addEventListener('DOMContentLoaded', async () => {
             const cb = document.getElementById('motd-dont-show-cb');
+            const cbLabel = document.getElementById('motd-dont-show-label');
             const cbIcon = document.getElementById('motd-cb-icon');
             const content = document.getElementById('motd-content-area');
 
-            cb.addEventListener('change', () => {
+            // Sync initial state with global config
+            try {
+                const cfg = await ipcRenderer.invoke('read-config');
+                const bypass = cfg?.global?.trading_confirmation;
+                const isBypass = (bypass === 'YES' || bypass === true || String(bypass).toLowerCase() === 'true');
+                cb.checked = isBypass;
+                cbIcon.style.opacity = isBypass ? '1' : '0';
+            } catch (err) {
+                console.error("Failed to read config", err);
+                cb.checked = false;
+                cbIcon.style.opacity = '0';
+            }
+
+            cbLabel.addEventListener('click', (e) => {
+                e.preventDefault();
+                cb.checked = !cb.checked;
                 cbIcon.style.opacity = cb.checked ? '1' : '0';
             });
 

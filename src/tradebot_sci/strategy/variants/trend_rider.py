@@ -139,11 +139,11 @@ class TrendRiderStrategy(BaseStrategy):
 
         # ── TRENDING MARKET FILTER ───────────────────────────────
         # When used standalone (not via Conductor), ADX>20 ensures
-        # we only enter in trending markets. When Conductor routes us,
-        # market_regime already handles this (this acts as fallback).
+        # I only enter in trending markets. When Conductor routes me,
+        # market_regime already handles this (this acts as my fallback).
         adx = gates.get("adx", 25)
         if gates.get("market_regime") is None:
-            # Standalone mode — apply our own regime filter
+            # Standalone mode — apply my own regime filter
             if adx is not None and adx < 20:
                 return None  # Market not trending — skip
 
@@ -154,15 +154,20 @@ class TrendRiderStrategy(BaseStrategy):
         if htf_dir == "neutral" or htf_strength < 0.50:
             return None
 
+        # ── MTF ALIGNMENT CHECK ─────────────────────────────────
+        # If Conductor provides MTF alignment, I can bypass strict 
+        # pullback requirements to allow momentum entries.
+        mtf_dir = str(gates.get("mtf_dir", "neutral")).lower()
+        ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
+        perfect_mtf_alignment = (htf_dir == mtf_dir == ltf_dir) and htf_dir in ("long", "short")
+
         # ── MICRO-MOMENTUM ──────────────────────────────────────
         # On 1m charts, require the last close to show net
         # directional movement aligned with the macro trend.
         if len(closes) >= 2:
             recent_move = closes[-1] - closes[-2]
-            if htf_dir == "long" and recent_move <= 0:
-                return None  # No bullish micro-momentum
-            if htf_dir == "short" and recent_move >= 0:
-                return None  # No bearish micro-momentum
+            # Relaxed micro-momentum: I don't strictly enforce a forward tick on 1m
+            # to allow catching the bottom of micro-pullbacks before the bounce.
 
         # ── EMA CROSSOVER CONFIRMATION ───────────────────────────
         # Require that EMA(8) is on the correct side of EMA(21)
@@ -170,11 +175,12 @@ class TrendRiderStrategy(BaseStrategy):
         ema_aligned_bull = ema_fast > ema_slow
         ema_aligned_bear = ema_fast < ema_slow
 
-        # RSI must show an actual pullback (not entering at the absolute top/bottom)
-        # For 1m execution, requires price to breathe before continuing the macro trend.
-        if htf_dir == "long" and (rsi > 60 or rsi < 25):
+        # RSI pullback constraints relaxed to allow entry on strong momentum
+        # Since my Forex Conductor mandates all 3 timeframes (4H, 1H, 5M) align,
+        # the 1M chart RSI will frequently be > 60. I expand the ceiling to 75.
+        if htf_dir == "long" and (rsi > 75 or rsi < 25):
             return None
-        if htf_dir == "short" and (rsi < 40 or rsi > 75):
+        if htf_dir == "short" and (rsi < 25 or rsi > 75):
             return None
 
         # Distance from slow EMA
@@ -197,6 +203,13 @@ class TrendRiderStrategy(BaseStrategy):
         # and momentum has cleanly resumed. This prevents catching 'falling knives' on 1m fakeouts.
         confirmed_bull_bounce = two_bull_candles or bullish_rsi_div
         confirmed_bear_bounce = two_bear_candles or bearish_rsi_div
+        
+        # Momentum Bypass: If all 3 macro timeframes perfectly align, I enter with the trend
+        # without demanding a fresh deep pullback and bounce.
+        if perfect_mtf_alignment:
+            touched_ema = True
+            confirmed_bull_bounce = True
+            confirmed_bear_bounce = True
 
         # ── DIAGNOSTIC: log why trend_rider returns None ─────────
         logger.info(
@@ -319,7 +332,7 @@ class TrendRiderStrategy(BaseStrategy):
 
         # ── 1. EMA CROSSOVER REVERSAL ────────────────────────────
         # EMA(8) crossing EMA(21) against the trade = trend is over.
-        # This is the core invalidation: we entered on a pullback TO
+        # This is my core invalidation: I entered on a pullback TO
         # EMA21 with EMA8 > EMA21. If EMA8 drops below EMA21, the
         # trend structure that justified the entry is gone.
         if direction == "long" and ema_fast < ema_slow:

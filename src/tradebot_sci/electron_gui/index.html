@@ -290,6 +290,47 @@
                         <span class="material-symbols-outlined text-sm text-yellow-500">verified_user</span>
                         <span class="text-[10px] font-black text-yellow-500 uppercase tracking-widest">Eval Mode</span>
                     </div>
+
+                    <!-- Prop Firm Eval Tracker (inside status box) -->
+                    <div id="eval-tracker-widget" class="hidden space-y-3 pt-3 mt-1 border-t border-teal-500/10">
+                        <div class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Challenge Progress</div>
+
+                        <!-- Profit Target -->
+                        <div class="space-y-1.5">
+                            <div class="flex justify-between items-baseline">
+                                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Profit Target</span>
+                                <span id="eval-gain-pct" class="text-sm font-black text-teal-400">--%</span>
+                            </div>
+                            <div class="w-full h-1 bg-black/40 rounded-full overflow-hidden">
+                                <div id="eval-gain-bar" class="h-full rounded-full bg-teal-500 transition-all duration-500 ease-out shadow-[0_0_6px_rgba(20,184,166,0.4)]" style="width: 0%"></div>
+                            </div>
+                            <div class="text-[9px] text-slate-600 font-medium text-right">Target: <span id="eval-target-req" class="text-slate-400">--</span>%</div>
+                        </div>
+
+                        <!-- Daily Loss -->
+                        <div class="space-y-1.5">
+                            <div class="flex justify-between items-baseline">
+                                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Daily Drawdown</span>
+                                <span id="eval-dl-pct" class="text-sm font-black text-white/60">--%</span>
+                            </div>
+                            <div class="w-full h-1 bg-black/40 rounded-full overflow-hidden">
+                                <div id="eval-dl-bar" class="h-full rounded-full bg-amber-500 transition-all duration-500 ease-out shadow-[0_0_6px_rgba(245,158,11,0.4)]" style="width: 0%"></div>
+                            </div>
+                            <div class="text-[9px] text-slate-600 font-medium text-right">Limit: <span id="eval-dl-req" class="text-slate-400">--</span>%</div>
+                        </div>
+
+                        <!-- Overall Loss -->
+                        <div class="space-y-1.5">
+                            <div class="flex justify-between items-baseline">
+                                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Overall Drawdown</span>
+                                <span id="eval-dd-pct" class="text-sm font-black text-white/60">--%</span>
+                            </div>
+                            <div class="w-full h-1 bg-black/40 rounded-full overflow-hidden">
+                                <div id="eval-dd-bar" class="h-full rounded-full bg-amber-500 transition-all duration-500 ease-out shadow-[0_0_6px_rgba(245,158,11,0.4)]" style="width: 0%"></div>
+                            </div>
+                            <div class="text-[9px] text-slate-600 font-medium text-right">Limit: <span id="eval-dd-req" class="text-slate-400">--</span>%</div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Update Button (hidden until updates detected) -->

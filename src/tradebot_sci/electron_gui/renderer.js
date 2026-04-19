@@ -1843,7 +1843,14 @@ function loadState() {
     } catch (e) { console.error("Load State Error:", e); }
 }
 
-function executeStartBot() {
+async function executeStartBot() {
+    // Force save any pending profile/setting changes before starting the daemon!
+    if (typeof saveAll === 'function' && typeof localChanges !== 'undefined' && Object.keys(localChanges).length > 0) {
+        if (typeof autoSaveTimeout !== 'undefined') clearTimeout(autoSaveTimeout);
+        console.log("[DASHBOARD] Flushing pending settings to disk before starting bot...");
+        await saveAll();
+    }
+
     window.api.startBot();
     appendLog("INFO", "[USER] START BOT SIGNAL SENT TO SYSTEM.");
 

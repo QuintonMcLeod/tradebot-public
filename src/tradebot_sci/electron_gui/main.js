@@ -2285,7 +2285,7 @@ function createWindow() {
 
         let spawnCmd = isWindows()
             ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" scripts/run_dev_bot.py --daemon`
-            : `bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon${extraArgs}`;
+            : `TRADING_CONFIRMATION=${isConfirmed ? 'YES' : 'NO'} bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon${extraArgs}`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);
         fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
@@ -2410,8 +2410,8 @@ function createWindow() {
 
         exec(killCmd, () => {
             setTimeout(() => {
-                // Re-trigger start logic
-                ipcMain.emit('start-bot');
+                // Re-trigger start logic natively bypassing MOTD
+                ipcMain.emit('start-bot', null, { confirmed: true });
 
                 // Poll for the bot to come back online, then notify the renderer
                 let pollAttempts = 0;

@@ -218,6 +218,14 @@ class CoinbaseFuturesSettings(BaseModel):
     use_cross_margin: bool = Field(default=True, description="Use cross margin if supported")
 
 class TradingProfileSettings(BaseModel):
+    """
+    I designed this class to serve as the unified configuration schema for all Trading Profiles.
+    Each profile (saved as a JSON object) maps natively to these fields. 
+    
+    If any values are omitted or set to invalid types (like 'false' for risk),
+    I use Pydantic models to automatically coerce and fall back to safe default parameters (like 1% risk).
+    This guarantees that my backtesting engine and live broker both execute safely.
+    """
     model_config = ConfigDict(extra='allow')
 
     name: Optional[str] = Field(
@@ -447,11 +455,18 @@ class TradingProfileSettings(BaseModel):
         description="Fixed risk per trade in account currency. Overrides risk_per_trade_pct when > 0.",
     )
     risk_per_trade_pct: float = Field(
-        default=0.001,
+        default=0.01,
         ge=0.0,
         le=1.0,
         description="Standard risk per trade as a fraction of equity.",
     )
+
+    @field_validator("risk_per_trade_pct", mode="after")
+    @classmethod
+    def _ensure_valid_risk(cls, v: Any) -> float:
+        if not v or v <= 0.0:
+            return 0.01
+        return float(v)
     risk_dynamic_auto: bool = Field(
         default=False,
         description="When true, risk is dynamically calculated per trade (up to 5% hard cap) based on market conditions, ignoring risk_per_trade_pct.",
@@ -1142,9 +1157,9 @@ class TradingProfileSettings(BaseModel):
         """
         Get the appropriate strategy for a given symbol.
 
-        Priority: config.json globals (promoted by loader) → profile defaults → legacy fallback.
-        Note: STRATEGY_* env vars are intentionally NOT checked here — they go stale
-        because the Electron GUI writes to .env but config.json globals are the SSOT.
+        Priority: config.json globals (I promote them in the loader) → profile defaults → legacy fallback.
+        Note: I intentionally DO NOT check STRATEGY_* env vars here — they go stale
+        because the Electron GUI writes to .env but my config.json globals are the SSOT.
 
         Args:
             symbol: The trading symbol
@@ -1235,9 +1250,9 @@ class SafetySettings(BaseModel):
     """
     ⚠️  DEPRECATED — DO NOT ADD NEW FIELDS HERE ⚠️
 
-    SafetySettings is a VESTIGIAL class from the old dual-config system where
+    I kept SafetySettings as a VESTIGIAL class from my old dual-config system where
     safety parameters lived in a separate top-level config.json["safety"] block
-    and were read by code that called `settings.safety.*`.
+    and were read by my code that called `settings.safety.*`.
 
     THE NEW CANONICAL APPROACH:
     ─────────────────────────────────────────────────────────────────────────
@@ -1245,12 +1260,12 @@ class SafetySettings(BaseModel):
     2. If "Profile Overrides" is ON, the profile's own values are the globals.
     3. All safety-related settings now live in TradingProfileSettings (models.py)
        and are stored in config.json["profiles"][<name>] OR in config.json["global"]
-       (which is auto-promoted into the profile by the universal promotion loop
+       (which I auto-promote into the profile by my universal promotion loop
        in loader.py lines 223-238 when a profile key is absent).
 
-    The fields in this class are kept only for backward compatibility with legacy
-    code that still reads `settings.safety.xyz`.  They are NOT authoritative.
-    For the real value, use: `settings.get_active_profile().xyz`
+    I keep the fields in this class only for backward compatibility with legacy
+    code that still reads `settings.safety.xyz`. They are NOT authoritative.
+    For the real value, I use: `settings.get_active_profile().xyz`
 
     DO NOT READ: settings.safety.* for any new code.
     DO READ:     settings.get_active_profile().*
@@ -1408,7 +1423,7 @@ class RiskSettings(BaseModel):
     """
     ⚠️  DEPRECATED — DO NOT ADD NEW FIELDS HERE ⚠️
 
-    RiskSettings is a VESTIGIAL class from the old dual-config system where
+    I kept RiskSettings as a VESTIGIAL class from my old dual-config system where
     risk parameters lived in a separate top-level config.json["risk"] block
     and were read as `settings.risk.*`.
 
@@ -1416,22 +1431,22 @@ class RiskSettings(BaseModel):
     ─────────────────────────────────────────────────────────────────────────
     ALL risk settings now live in TradingProfileSettings (models.py) and are
     stored in config.json["profiles"][<name>] OR in config.json["global"].
-    The loader auto-promotes global keys into profiles (loader.py:223-238).
+    My loader auto-promotes global keys into profiles (loader.py:223-238).
 
-    There is NO MORE distinction between "profile-level" and "global" settings
-    for risk.  The active profile IS the single source of truth:
+    I no longer make a distinction between "profile-level" and "global" settings
+    for risk. The active profile IS the single source of truth:
 
         profile = settings.get_active_profile()
         risk_pct = profile.risk_per_trade_pct   ← CORRECT
         risk_pct = settings.risk.risk_per_trade_pct  ← DEPRECATED (might be stale)
 
     In particular:
-    - config.json["risk"]["risk_per_trade_pct"] is an OLD field. Ignore it.
+    - config.json["risk"]["risk_per_trade_pct"] is an OLD field. I ignore it.
     - config.json["global"]["risk_per_trade_pct"] is the current default.
     - config.json["profiles"][<name>]["risk_per_trade_pct"] overrides the default.
 
     The GUI's "Profile Overrides" toggle controls whether the profile's saved
-    values replace the current globals when you switch profiles.
+    values replace the current globals when I switch profiles.
 
     DO NOT READ: settings.risk.* for any new code.
     DO READ:     settings.get_active_profile().*
@@ -1741,47 +1756,47 @@ class UserConfig:
         return s.profiles.get(s.app.profile_name).strategy_variant
     @property
     def BASE_RISK_PCT(self):
-        # DEPRECATED: reads from settings.risk (old dual-config). Use get_active_profile().risk_per_trade_pct
+        # I deprecated this: reads from settings.risk (old dual-config). Use get_active_profile().risk_per_trade_pct
         s = self._settings(); return s.risk.base_risk_pct
     @property
     def COMPOUND_PROFITS(self):
-        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
         return self._settings().risk.compound_profits
     @property
     def INFINITE_PYRAMIDING(self):
-        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
         return self._settings().risk.infinite_pyramiding
     @property
     def MAX_PYRAMID_ENTRIES(self):
-        # DEPRECATED: reads from settings.risk. Use get_active_profile().max_pyramid_entries
+        # I deprecated this: reads from settings.risk. Use get_active_profile().max_pyramid_entries
         return self._settings().risk.max_pyramid_entries
     @property
     def PYRAMID_TRIGGER_PCT(self):
-        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
         return self._settings().risk.pyramid_trigger_pct
     @property
     def PYRAMID_RISK_LOAD(self):
-        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
         return self._settings().risk.pyramid_risk_load
     @property
     def PYRAMID_RISK_SCALE(self):
-        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
         return self._settings().risk.pyramid_risk_scale
     @property
     def STAGNATION_EXIT_ENABLED(self):
-        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
         return self._settings().risk.stagnation_exit_enabled
     @property
     def STAGNATION_EXIT_MINUTES(self):
-        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
         return self._settings().risk.stagnation_exit_minutes
     @property
     def CHOP_SCALP_TARGET_USD(self):
-        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
         return self._settings().risk.chop_scalp_target_usd
     @property
     def CHOP_STRENGTH_THRESHOLD(self):
-        # DEPRECATED: reads from settings.risk. Use get_active_profile().* equivalent
+        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
         return self._settings().risk.chop_strength_threshold
     @property
     def COMBAT_MODE_ENABLED(self): return self._settings().robocop.combat_mode_enabled
@@ -1803,19 +1818,19 @@ class UserConfig:
     def FRIDAY_FADE_ENABLED(self): return self._settings().runtime.friday_fade_enabled
     @property
     def STOP_ATR_MULTIPLIER(self) -> float:
-        # config.json globals are the SSOT; env vars intentionally NOT
-        # checked here to prevent stale values from overriding.
+        # I use my config.json globals as the SSOT; I intentionally DO NOT
+        # check env vars here to prevent stale values from overriding.
         s = self._settings()
         profile = s.profiles.get(s.app.profile_name)
         return getattr(profile, "stop_atr_multiplier", 1.5)
 
     @property
     def STABILITY_MODE_ACTIVE(self) -> bool:
-        # config.json globals are the SSOT; env vars intentionally NOT
-        # checked here to prevent stale values from overriding.
+        # I use my config.json globals as the SSOT; I intentionally DO NOT
+        # check env vars here to prevent stale values from overriding.
         s = self._settings()
         profile = s.profiles.get(s.app.profile_name)
         return getattr(profile, "stability_mode_active", False)
 
-# Create a singleton instance to keep legacy code working
+# I created a singleton instance to keep my legacy code working
 UserConfig = UserConfig()

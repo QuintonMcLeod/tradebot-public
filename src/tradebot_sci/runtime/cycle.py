@@ -122,10 +122,12 @@ def fetch_snapshot(
         if ws_controller and ltf_candles and hasattr(ws_controller, 'update_candle_cache'):
             ws_controller.update_candle_cache(symbol, ltf_timeframe, ltf_candles[-1])
 
-        # ── Bar-Close Gate: strip incomplete candles ──
-        ltf_candles = _strip_incomplete_bar(ltf_candles, ltf_timeframe)
-        mtf_candles = _strip_incomplete_bar(mtf_candles, mtf_timeframe)
-        htf_candles = _strip_incomplete_bar(htf_candles, htf_timeframe)
+        # ── Retain Live Bar for Analysis, Strip for History ──
+        # We preserve the fully forming currently-active candle for MarketSnapshot
+        # so that the engine's internal cache reflects tick-by-tick MTF alignment changes.
+        stripped_ltf = _strip_incomplete_bar(ltf_candles, ltf_timeframe)
+        stripped_mtf = _strip_incomplete_bar(mtf_candles, mtf_timeframe)
+        stripped_htf = _strip_incomplete_bar(htf_candles, htf_timeframe)
 
         # Neutral defaults — engine.py's Trend Detection sets direction
         _neutral = TrendState(direction="neutral", strength=0.0)
@@ -164,7 +166,21 @@ def fetch_snapshot(
         if _is_live_data:
             try:
                 from tradebot_sci.runtime.candle_recorder import get_recorder
-                get_recorder().record(cache[key])
+                record_snap = MarketSnapshot(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    candles=stripped_ltf,
+                    trend_htf=trend_htf,
+                    trend_mtf=_neutral,
+                    trend_ltf=trend_ltf,
+                    htf_candles=stripped_htf,
+                    mtf_candles=stripped_mtf,
+                    ltf_candles=stripped_ltf,
+                    htf_timeframe=htf_timeframe,
+                    mtf_timeframe=mtf_timeframe,
+                    ltf_timeframe=ltf_timeframe,
+                )
+                get_recorder().record(record_snap)
             except Exception as e:
                 import logging as _log
                 _log.getLogger(__name__).debug(f"[RECORDER] Recording failed: {e}")

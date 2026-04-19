@@ -24,12 +24,13 @@ class ORBStrategy(BaseStrategy):
         super().__init__("ORB Breakout")
         self.range_start = time.fromisoformat(range_start)
         self.duration_minutes = int(duration_minutes)
-        # We store state implicitly by scanning the day's candles
+        # I store state implicitly by scanning the day's candles
+        # each time to find the ORB range and look for breakout ticks.
 
     def _get_ny_time(self, dt: datetime) -> datetime:
         # Convert to NY time for session logic
         if dt.tzinfo is None:
-            # Assume UTC if naive (or system time) - ideally we rely on snapshot timestamps being aware
+            # Assume UTC if naive (or system time) - ideally I rely on snapshot timestamps being aware
             dt = dt.replace(tzinfo=ZoneInfo("UTC"))
         return dt.astimezone(ZoneInfo("America/New_York"))
 
@@ -72,7 +73,7 @@ class ORBStrategy(BaseStrategy):
             
         low_lvl, high_lvl, range_candles = orb_data
         
-        # We need to analyze candles *after* the range to find the pattern
+        # I need to analyze candles *after* the range to find the pattern
         # Sequence: Break -> Retest -> Flag -> Trigger
         
         # 1. Isolate post-range candles
@@ -91,7 +92,7 @@ class ORBStrategy(BaseStrategy):
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
 
         # STATE MACHINE SIMULATION
-        # We simulate the state by iterating through post-candles
+        # I simulate the state by iterating through post-candles
         
         state = "RANGE" # Start state
         bias = None # 'bull' or 'bear'
@@ -150,12 +151,12 @@ class ORBStrategy(BaseStrategy):
                 if is_small_body and is_near:
                     state = "FLAGGED"
                     flag_candle = c
-                    # We only care about the *latest* valid flag if we haven't triggered yet
+                    # I only care about the *latest* valid flag if I haven't triggered yet
                     # Actually, if we find a flag, the NEXT candle is our trigger opportunity
                     # So we break loop? No, we need to see if we already missed the trigger.
                     # Let's assume the CURRENT candle is the one potentially breaking the flag.
                     if c == post_candles[-1]:
-                        # The LAST candle IS the flag. We are waiting for the NEXT tick to break it.
+                        # The LAST candle IS the flag. I wait for the NEXT tick to break it.
                         return None # Signal requires BREAK of flag.
                 
             elif state == "FLAGGED":

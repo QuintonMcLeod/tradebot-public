@@ -229,8 +229,8 @@ def _load_candles_for_range(
 ):
     """Load LTF and HTF candles from .jsonl files for the given date range.
 
-    Uses threading to load multiple symbols concurrently (disk I/O releases
-    the GIL, so threads provide real parallelism for file reading).
+    I use threading to load multiple symbols concurrently (disk I/O releases
+    the GIL, so threads provide real parallelism for my file reading).
 
     Returns (all_ltf, all_htf) dicts mapping symbol -> list of Candle.
     """
@@ -301,7 +301,7 @@ def _load_candles_for_range(
         if api_fallback and ltf_candles:
             first_loaded = ltf_candles[0].timestamp
             target_start = parse_cli_date(date_start).replace(tzinfo=timezone.utc)
-            # If our first local candle is more than 5 days after the requested start
+            # If my first local candle is more than 5 days after the requested start
             if (first_loaded - target_start).total_seconds() > 5 * 86400:
                 needs_fallback = True
 
@@ -670,6 +670,10 @@ def _run_single_day_worker(args: tuple) -> dict:
             act_prof.risk_per_trade_pct = risk_rate / 100.0  # GUI sends %, internal uses fraction
             changed_prof = True
             logger.info(f"[RISK-OVERRIDE] risk_rate={risk_rate} → profile.risk_per_trade_pct={act_prof.risk_per_trade_pct}")
+        elif not getattr(act_prof, "risk_per_trade_pct", None):
+            act_prof.risk_per_trade_pct = 0.01
+            changed_prof = True
+            logger.info("[RISK-OVERRIDE] profile.risk_per_trade_pct was 0/False, defaulting to 1% (0.01)")
             
         if changed_prof:
             settings.profiles[settings.app.profile_name] = act_prof
@@ -713,6 +717,8 @@ def _run_single_day_worker(args: tuple) -> dict:
         backtester._is_market_hours_utc = lambda ts: True
         if risk_rate is not None:
             backtester.risk_override_pct = risk_rate / 100.0  # GUI sends %, Backtester uses fraction
+        elif not getattr(Backtester, "risk_override_pct", None) and not getattr(act_prof, "risk_per_trade_pct", None):
+            backtester.risk_override_pct = 0.01
 
         # ── Auto-detect actual candle resolution from data ────────
         # Local .jsonl files may contain 5m candles even if the profile
@@ -916,6 +922,11 @@ def _run_single_day_sequential(
     if risk_rate is not None:
         act_prof.risk_per_trade_pct = risk_rate / 100.0  # GUI sends %, internal uses fraction
         changed_prof = True
+        logger.info(f"[RISK-OVERRIDE] risk_rate={risk_rate} → profile.risk_per_trade_pct={act_prof.risk_per_trade_pct}")
+    elif not getattr(act_prof, "risk_per_trade_pct", None):
+        act_prof.risk_per_trade_pct = 0.01
+        changed_prof = True
+        logger.info("[RISK-OVERRIDE] profile.risk_per_trade_pct was 0/False, defaulting to 1% (0.01)")
         
     if changed_prof:
         settings.profiles[settings.app.profile_name] = act_prof
@@ -947,6 +958,8 @@ def _run_single_day_sequential(
     backtester._is_market_hours_utc = lambda ts: True
     if risk_rate is not None:
         backtester.risk_override_pct = risk_rate / 100.0  # GUI sends %, Backtester uses fraction
+    elif not getattr(Backtester, "risk_override_pct", None) and not getattr(act_prof, "risk_per_trade_pct", None):
+        backtester.risk_override_pct = 0.01
 
     # ── Auto-detect actual candle resolution from data ────────
     _first_sym_candles = next(iter(all_ltf.values()), [])

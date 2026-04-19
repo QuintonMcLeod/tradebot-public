@@ -63,10 +63,8 @@ class RuntimeController:
             sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
 
             # For GUI display, use actual tracked balance (not sizing-capped value).
-            # If we are in live mode but Sabbath swapped the executor to paper,
-            # we should source our display cash/equity from the REAL executor so the UI
-            # accurately reflects the live brokerage account's health.
-            display_source = executor_real if executor_real else executor
+            # The user requested that during Sabbath (when executor is paper), we SHOULD show the paper capital.
+            display_source = executor
 
             if display_source and hasattr(display_source, 'get_display_cash'):
                 cash = display_source.get_display_cash()
@@ -127,6 +125,11 @@ class RuntimeController:
             # Include replay info if weekend replay is active
             if self.replay_provider and hasattr(self.replay_provider, 'get_replay_info'):
                 state_data.update(self.replay_provider.get_replay_info())
+                
+            # Include eval metrics if Prop Firm Eval mode is active
+            if is_eval and hasattr(self, 'eval_metrics') and self.eval_metrics:
+                state_data["eval_metrics"] = self.eval_metrics
+                
             logger.info(f"[PRODB-STATE] Broadcasting state: profile={self.profile_name} equity=${total_equity:.2f} cash=${cash:.2f} paper={is_paper}")
             self.ws_server.broadcast_state_sync(state_data)
             self.last_capital_sync_ts = now

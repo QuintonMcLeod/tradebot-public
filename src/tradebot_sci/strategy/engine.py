@@ -322,10 +322,10 @@ class StrategyEngine:
         # Calculate grade for the current snapshot
         score, grade = self.score_icc_grade(snapshot)
         
-        # ── Trend Detection (sole authority on direction) ─────────────────
-        # In Synthetic Mode, the provider forces trend states directly on the snapshot.
+        # ── Trend Detection (my sole authority on direction) ─────────────────
+        # In Synthetic Mode, the provider forces trend states directly on my snapshot.
         # If the snapshot arrives with a synthetic override (e.g. strength > 0 and direction),
-        # we bypass the lagging indicators in trend_consensus which would zero it out.
+        # I bypass the lagging indicators in trend_consensus which would zero it out.
         is_synthetic_override = snapshot.trend_htf and snapshot.trend_htf.direction != "neutral" and snapshot.trend_htf.strength > 0.0
 
         candles = snapshot.candles or []
@@ -386,10 +386,14 @@ class StrategyEngine:
             snapshot.trend_htf = dc_replace(
                 snapshot.trend_htf, direction=htf_dir, strength=htf_strength
             )
-            if hasattr(snapshot, "trend_mtf") and snapshot.trend_mtf is not None:
-                snapshot.trend_mtf = dc_replace(
-                    snapshot.trend_mtf, direction=mtf_dir, strength=mtf_strength
-                )
+            if hasattr(snapshot, "trend_mtf"):
+                if snapshot.trend_mtf is not None:
+                    snapshot.trend_mtf = dc_replace(
+                        snapshot.trend_mtf, direction=mtf_dir, strength=mtf_strength
+                    )
+                else:
+                    from tradebot_sci.market.models import TrendState
+                    snapshot.trend_mtf = TrendState(direction=mtf_dir, strength=mtf_strength)
             snapshot.trend_ltf = dc_replace(
                 snapshot.trend_ltf, direction=ltf_dir, strength=ltf_strength
             )
@@ -682,11 +686,11 @@ class StrategyEngine:
 
             return hold
 
-        # 4. ACCOUNT SAFETY GUARDS (Centralized Entry Veto)
-        # [CONSOLIDATED] Run all pre-entry checks (Breaker, Lockout, Greed, Churn, Veto, Streak, Sentry)
-        # We run this AFTER exit checks so that TP/SL logic (SafetyGuard.augment_exit_decision)
+        # 4. ACCOUNT SAFETY GUARDS (My Centralized Entry Veto)
+        # [CONSOLIDATED] I run all pre-entry checks (Breaker, Lockout, Greed, Churn, Veto, Streak, Sentry)
+        # I run this AFTER my exit checks so that my TP/SL logic (SafetyGuard.augment_exit_decision)
         # takes priority over account-level blocks like Leverage Sentry.
-        # Use the authoritative total equity from the broker layer.
+        # I use the authoritative total equity from the broker layer.
         # This is cash + position value, consistent across all brokers.
         # Replaces the old ad-hoc calculation that caused capital semantics mismatch.
         total_equity = caps.get("total_equity", 0.0)
@@ -715,10 +719,10 @@ class StrategyEngine:
                     candle_start = candle_start.replace(tzinfo=timezone.utc)
                 
                 # To account for slight API delays (getting the candle 1-2s late),
-                # we add a small 5-second buffer grace period.
+                # I add a small 5-second buffer grace period.
                 candle_end = candle_start + timedelta(seconds=tf_seconds)
                 
-                # If current time is strictly less than candle_end (minus 5s buffer),
+                # If my current time is strictly less than candle_end (minus 5s buffer),
                 # the candle is still actively forming. Block entries.
                 if _now < (candle_end - timedelta(seconds=5)):
                     from tradebot_sci.strategy.decisions import stand_aside_decision
@@ -782,10 +786,10 @@ class StrategyEngine:
 
                         # ── STALENESS CHECK ──────────────────────────────
                         # SAR only makes sense for RECENT exits. On every bot restart
-                        # _sar_last_processed is empty, so without this check the
+                        # _sar_last_processed is empty, so without this check my
                         # scanner re-processes weeks-old SAR losses and immediately
                         # triggers a cooldown that perma-blocks the symbol.
-                        # Ignore trades older than 24 hours — by then the market has
+                        # I ignore trades older than 24 hours — by then the market has
                         # moved on and a reversal entry would be stale.
                         import datetime as _dt_sar
                         _exit_ts_str = t.get("exit_time") or t.get("closed_at") or ""

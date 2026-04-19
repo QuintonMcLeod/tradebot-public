@@ -572,12 +572,12 @@ def _create_default_config() -> None:
         "performance": {},
         "risk": {
             "max_daily_loss_pct": 0.05,
+            "risk_per_trade_pct": 0.01,
         },
         "profiles": {
             "default": {
                 "symbols": ["EURUSD", "BTCUSD"],
                 "strategies": {"forex": "meta_sci", "crypto": "meta_sci"},
-                "risk_per_trade_pct": 0.01,
             }
         },
     }
