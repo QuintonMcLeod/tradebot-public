@@ -837,6 +837,8 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
     if (gatesData) {
         // Inject the strategyName into gates data so the drawer knows what logic branch to use
         gatesData.strategyName = strategyName;
+        // Inject reason so Meta-SCI tournaments can be parsed
+        gatesData.decisionReason = reason;
         // Store gatesData stringified in a dataset attribute so the onclick handler can read it
         const encodedGates = encodeURIComponent(JSON.stringify(gatesData));
         detailsButton = ` <span class="ml-2 px-1.5 py-0.5 text-[10px] uppercase font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 rounded cursor-pointer hover:bg-cyan-500/20 transition-colors" onclick="showDecisionDetails(this, '${symbol}', '${encodedGates}')">Details</span>`;
@@ -1017,10 +1019,12 @@ window.showDecisionDetails = function(button, symbol, encodedGates) {
 
     // Determine strategy profile
     const strategyName = gatesData.strategyName || 'Unknown';
-    const sNameLower = strategyName.toLowerCase();
+    const decisionReason = gatesData.decisionReason || '';
+    const fullContext = (strategyName + " " + decisionReason).toLowerCase();
+    
     let activeProfileKey = 'DEFAULT_TREND';
-    if (sNameLower.includes('reaper')) activeProfileKey = 'REAPER';
-    else if (sNameLower.includes('range') || sNameLower.includes('mean')) activeProfileKey = 'MEAN_REVERSION';
+    if (fullContext.includes('reaper')) activeProfileKey = 'REAPER';
+    else if (fullContext.includes('range') || fullContext.includes('mean')) activeProfileKey = 'MEAN_REVERSION';
     // Fall back to DEFAULT_TREND for TrendRider, ForexConductor, RoboCop etc.
 
     const profile = STRATEGY_PROFILES[activeProfileKey];
@@ -1059,7 +1063,7 @@ window.showDecisionDetails = function(button, symbol, encodedGates) {
     let indicatorsHtml = '';
     let indicatorExplanation = '';
 
-    if (profile.explanationMode === 'reaper' || (gatesData.bollinger && gatesData.macd)) {
+    if (profile.explanationMode === 'reaper') {
         const bw = gatesData.bollinger ? (gatesData.bollinger.bandwidth * 100).toFixed(1) : '--';
         indicatorsHtml = `
             ${_buildMiniStat('B-BAND WIDTH', bw + '%', gatesData.bollinger?.squeeze ? warning : textSec, 'Bollinger Bands relative width. Indicates volatility compression.', bgCard, cardBorder, textDim)}
