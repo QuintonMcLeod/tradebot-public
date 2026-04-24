@@ -151,7 +151,13 @@ class WebSocketServer:
         if not self.clients:
             return
         
-        payload = json.dumps(message)
+        try:
+            payload = json.dumps(message)
+        except Exception as e:
+            logger.error(f"[WS-BROADCAST] JSON Serialization Error for message type '{message.get('type')}': {e}")
+            logger.error(f"[WS-BROADCAST] Offending payload type: {type(message)}")
+            return
+
         for ws in list(self.clients):
             if ws.closed:
                 self.clients.discard(ws)

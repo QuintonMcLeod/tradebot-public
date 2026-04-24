@@ -190,77 +190,114 @@ def _compute_timeframe(
     # ── Indicator Direction Votes ─────────────────────────────────────
     direction_votes: list[str] = []
     vote_trail: list[str] = []
+    
+    is_macro = label in ("HTF", "MTF")
 
-    # ADX + DI: direction from DI+/DI- crossover, only if ADX ≥ threshold
-    if getattr(profile, 'trend_adx_enabled', True):
-        adx_dir = adx_data.get("direction", "neutral")
-        if adx_val >= adx_threshold and adx_dir in ("long", "short"):
-            direction_votes.append(adx_dir)
-            vote_trail.append(
-                f"{label}:ADX={adx_val:.0f} DI+={adx_data['plus_di']:.1f} "
-                f"DI-={adx_data['minus_di']:.1f}→{adx_dir}"
-            )
+    if not is_macro:
+        # ── EXECUTION TRIGGER MATRIX (Zero-Lag Structural Logic) ──
+        # 1. Live Break of Structure (BOS)
+        from tradebot_sci.market.trend import infer_trend_from_swings
+        bos_state = infer_trend_from_swings(candles)
+        if bos_state.direction in ("long", "short"):
+            direction_votes.append(bos_state.direction)
+            vote_trail.append(f"{label}:STRUCT→{bos_state.direction}")
 
-    # EMA Ribbon: aligned ribbon is a strong structural signal
-    if getattr(profile, 'trend_ema_ribbon_enabled', False):
-        ema_dir = ema_data.get("direction", "neutral")
-        if ema_data.get("aligned", False) and ema_dir in ("long", "short"):
-            direction_votes.append(ema_dir)
-            vote_trail.append(f"{label}:EMA={ema_dir}")
+        closes = [c.close for c in candles]
+        if len(closes) > 0:
+            current_close = closes[-1]
+            
+            # 2. Price proximity to EMA55
+            if ema_data.get("ema55", 0) > 0:
+                ema55 = ema_data["ema55"]
+                if current_close > ema55:
+                    direction_votes.append("long")
+                    vote_trail.append(f"{label}:PRICE>EMA55→long")
+                else:
+                    direction_votes.append("short")
+                    vote_trail.append(f"{label}:PRICE<EMA55→short")
+                    
+            # 3. Price proximity to VWAP
+            if vwap_data.get("vwap", 0) > 0:
+                vwap = vwap_data["vwap"]
+                if current_close > vwap:
+                    direction_votes.append("long")
+                    vote_trail.append(f"{label}:PRICE>VWAP→long")
+                else:
+                    direction_votes.append("short")
+                    vote_trail.append(f"{label}:PRICE<VWAP→short")
 
-    # Supertrend: direct direction signal
-    if getattr(profile, 'trend_supertrend_enabled', False):
-        st_dir = st_data.get("direction", "neutral")
-        if st_dir in ("long", "short"):
-            direction_votes.append(st_dir)
-            vote_trail.append(f"{label}:ST={st_dir}")
-
-    # MACD: histogram direction
-    if getattr(profile, 'trend_macd_enabled', False):
-        hist = macd_data.get("histogram", 0)
-        if hist > 0:
-            direction_votes.append("long")
-            vote_trail.append(f"{label}:MACD=long(h={hist:.4f})")
-        elif hist < 0:
-            direction_votes.append("short")
-            vote_trail.append(f"{label}:MACD=short(h={hist:.4f})")
-
-    # RSI: above 55 = bullish lean, below 45 = bearish lean
-    if getattr(profile, 'trend_rsi_enabled', False):
-        if rsi_val > 55:
-            direction_votes.append("long")
-            vote_trail.append(f"{label}:RSI={rsi_val:.0f}→long")
-        elif rsi_val < 45:
-            direction_votes.append("short")
-            vote_trail.append(f"{label}:RSI={rsi_val:.0f}→short")
-
-    # Ichimoku Cloud: price vs cloud position
-    if getattr(profile, 'trend_ichimoku_enabled', False):
-        ichi_dir = ichi_data.get("direction", "neutral")
-        if ichi_dir in ("long", "short"):
-            direction_votes.append(ichi_dir)
-            vote_trail.append(f"{label}:ICHI={ichi_dir}")
-
-    # Parabolic SAR: dot position = direction
-    if getattr(profile, 'trend_parabolic_sar_enabled', False):
-        psar_dir = psar_data.get("direction", "neutral")
-        if psar_dir in ("long", "short"):
-            direction_votes.append(psar_dir)
-            vote_trail.append(f"{label}:PSAR={psar_dir}")
-
-    # VWAP: price above/below volume-weighted average
-    if getattr(profile, 'trend_vwap_enabled', False):
-        vwap_dir = vwap_data.get("direction", "neutral")
-        if vwap_dir in ("long", "short"):
-            direction_votes.append(vwap_dir)
-            vote_trail.append(f"{label}:VWAP={vwap_dir}")
-
-    # Hull MA: slope direction
-    if getattr(profile, 'trend_hull_ma_enabled', False):
-        hma_dir = hma_data.get("direction", "neutral")
-        if hma_dir in ("long", "short"):
-            direction_votes.append(hma_dir)
-            vote_trail.append(f"{label}:HMA={hma_dir}")
+    else:
+        # ── MACRO TREND MATRIX (Smoothed Lagging Logic) ──
+        # ADX + DI: direction from DI+/DI- crossover, only if ADX ≥ threshold
+        if getattr(profile, 'trend_adx_enabled', True):
+            adx_dir = adx_data.get("direction", "neutral")
+            if adx_val >= adx_threshold and adx_dir in ("long", "short"):
+                direction_votes.append(adx_dir)
+                vote_trail.append(
+                    f"{label}:ADX={adx_val:.0f} DI+={adx_data['plus_di']:.1f} "
+                    f"DI-={adx_data['minus_di']:.1f}→{adx_dir}"
+                )
+    
+        # EMA Ribbon: aligned ribbon is a strong structural signal
+        if getattr(profile, 'trend_ema_ribbon_enabled', False):
+            ema_dir = ema_data.get("direction", "neutral")
+            if ema_data.get("aligned", False) and ema_dir in ("long", "short"):
+                direction_votes.append(ema_dir)
+                vote_trail.append(f"{label}:EMA={ema_dir}")
+    
+        # Supertrend: direct direction signal
+        if getattr(profile, 'trend_supertrend_enabled', False):
+            st_dir = st_data.get("direction", "neutral")
+            if st_dir in ("long", "short"):
+                direction_votes.append(st_dir)
+                vote_trail.append(f"{label}:ST={st_dir}")
+    
+        # MACD: histogram direction
+        if getattr(profile, 'trend_macd_enabled', False):
+            hist = macd_data.get("histogram", 0)
+            if hist > 0:
+                direction_votes.append("long")
+                vote_trail.append(f"{label}:MACD=long(h={hist:.4f})")
+            elif hist < 0:
+                direction_votes.append("short")
+                vote_trail.append(f"{label}:MACD=short(h={hist:.4f})")
+    
+        # RSI: above 55 = bullish lean, below 45 = bearish lean
+        if getattr(profile, 'trend_rsi_enabled', False):
+            if rsi_val > 55:
+                direction_votes.append("long")
+                vote_trail.append(f"{label}:RSI={rsi_val:.0f}→long")
+            elif rsi_val < 45:
+                direction_votes.append("short")
+                vote_trail.append(f"{label}:RSI={rsi_val:.0f}→short")
+    
+        # Ichimoku Cloud: price vs cloud position
+        if getattr(profile, 'trend_ichimoku_enabled', False):
+            ichi_dir = ichi_data.get("direction", "neutral")
+            if ichi_dir in ("long", "short"):
+                direction_votes.append(ichi_dir)
+                vote_trail.append(f"{label}:ICHI={ichi_dir}")
+    
+        # Parabolic SAR: dot position = direction
+        if getattr(profile, 'trend_parabolic_sar_enabled', False):
+            psar_dir = psar_data.get("direction", "neutral")
+            if psar_dir in ("long", "short"):
+                direction_votes.append(psar_dir)
+                vote_trail.append(f"{label}:PSAR={psar_dir}")
+    
+        # VWAP: price above/below volume-weighted average
+        if getattr(profile, 'trend_vwap_enabled', False):
+            vwap_dir = vwap_data.get("direction", "neutral")
+            if vwap_dir in ("long", "short"):
+                direction_votes.append(vwap_dir)
+                vote_trail.append(f"{label}:VWAP={vwap_dir}")
+    
+        # Hull MA: slope direction
+        if getattr(profile, 'trend_hull_ma_enabled', False):
+            hma_dir = hma_data.get("direction", "neutral")
+            if hma_dir in ("long", "short"):
+                direction_votes.append(hma_dir)
+                vote_trail.append(f"{label}:HMA={hma_dir}")
 
     # ── Count ENABLED directional indicators ────────────────────────
     # Used as the denominator for strength: prevents inflation when

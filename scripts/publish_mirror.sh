@@ -4,11 +4,21 @@ set -e
 # Usage: ./scripts/publish_mirror.sh <REMOTE_URL> [BRANCH]
 
 # 1. Config
-# GitLab token should be set via env var or .env — NEVER hardcode it here.
+# Try to extract the GitLab token from environment, .env, or the local git config
 GITLAB_TOKEN="${GITLAB_TOKEN:-}"
 if [ -z "$GITLAB_TOKEN" ] && [ -f "$(dirname "$0")/../.env" ]; then
     GITLAB_TOKEN=$(grep -oP 'GITLAB_TOKEN=\K.*' "$(dirname "$0")/../.env" 2>/dev/null || true)
 fi
+
+# Fallback: Extract from the current origin remote (e.g. oauth2:glpat-...)
+if [ -z "$GITLAB_TOKEN" ]; then
+    ORIGIN_URL=$(cd "$(dirname "$0")/.." && git config --get remote.origin.url || true)
+    if [[ "$ORIGIN_URL" =~ oauth2:(glpat-[^@]+)@ ]]; then
+        GITLAB_TOKEN="${BASH_REMATCH[1]}"
+        echo "💡 Auto-detected existing GitLab token from 'origin' remote."
+    fi
+fi
+
 if [ -z "$GITLAB_TOKEN" ]; then
     echo "⚠️  GITLAB_TOKEN not set. Set it via: export GITLAB_TOKEN=glpat-xxx"
     echo "   Or add GITLAB_TOKEN=glpat-xxx to your .env file."

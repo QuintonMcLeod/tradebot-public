@@ -345,6 +345,16 @@
                 const reasonMatch = body.match(/reason=(.*)/i) || body.match(/\(([^)]+)\)$/);
                 if (reasonMatch) reason = reasonMatch[1].trim();
 
+                let gatesData = null;
+                const gatesMatch = body.match(/\|\s*gates=(\{.*\})/i);
+                if (gatesMatch) {
+                    try {
+                        gatesData = JSON.parse(gatesMatch[1]);
+                        // Remove the gates payload from the reason display
+                        reason = reason.replace(/\s*\|\s*gates=.*$/i, '').trim();
+                    } catch(e) {}
+                }
+
                 const gradeMatch = body.match(/grade=([A-F][+-]?)/i);
                 const forcedGrade = gradeMatch ? gradeMatch[1] : null;
 
@@ -353,7 +363,7 @@
                 const stratName = stratMatch ? stratMatch[1] : null;
                 const displayGrade = stratGradeMatch ? stratGradeMatch[1] : forcedGrade;
 
-                addDecisionRow(symbol, action, score, reason, displayGrade, stratName);
+                addDecisionRow(symbol, action, score, reason, displayGrade, stratName, gatesData);
 
                 // Chart Indicator
                 const headerSym = document.getElementById('chart-symbol-label')?.innerText;

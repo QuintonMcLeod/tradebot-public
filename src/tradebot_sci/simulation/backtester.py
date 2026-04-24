@@ -1089,97 +1089,6 @@ class Backtester:
                             logger.info(f"[BACKTEST] {symbol} Tick Scalping exit: PnL=${pnl:.2f}")
                             continue
 
-                # ── UNIVERSAL EXIT ROUTER (runs BEFORE hardcoded stop) ────────
-                # Gives trend_invalidation, structure_failure, and other exit
-                # strategies a chance to close at bar-close price before the
-                # mechanical stop fires on the next bar's low/high breach.
-                # Without this, the hardcoded stop deletes the position before
-                # engine.decide() ever evaluates the exit router.
-                if pos_key in positions and len(current_candles) >= 30:
-                    _router_held_s = (current_time - pos.entry_time).total_seconds()
-                    # Only run after 5-minute hold guard (same as engine.py)
-                    if _router_held_s >= 300:
-                        try:
-                            _router_engine = _engine_cache.get(symbol)
-                            if _router_engine:
-                                _router_snapshot = self.market_provider.get_latest_snapshot(symbol, timeframe)
-                                if _router_snapshot and _router_snapshot.candles:
-                                    # Build gates via trend_consensus (same path as engine.decide)
-                                    from tradebot_sci.market.trend_consensus import detect_trend_direction
-                                    _consensus = detect_trend_direction(
-                                        _router_snapshot.candles, profile,
-                                        htf_candles=getattr(_router_snapshot, 'htf_candles', None),
-                                        mtf_candles=getattr(_router_snapshot, 'mtf_candles', None),
-                                        ltf_candles=getattr(_router_snapshot, 'ltf_candles', None),
-                                    )
-                                    _router_gates = {
-                                        "exec_dir": _consensus.exec_dir,
-                                        "ltf_dir": _consensus.ltf_dir,
-                                        "mtf_dir": _consensus.mtf_dir,
-                                        "htf_dir": _consensus.htf_dir,
-                                    }
-                                    _router_pos = {
-                                        'symbol': pos.symbol,
-                                        'direction': pos.direction,
-                                        'entry_price': pos.entry_price,
-                                        'size': pos.size,
-                                        'stop_price': pos.stop_price,
-                                        'stop_loss': pos.stop_price,
-                                        'target_price': pos.target_price,
-                                        'entry_time': pos.entry_time.isoformat() if pos.entry_time else None,
-                                        'initial_risk': getattr(pos, 'initial_risk', None),
-                                    }
-                                    from tradebot_sci.strategy.exit_logic import run_universal_exit_logic
-                                    _router_decision = run_universal_exit_logic(
-                                        snapshot=_router_snapshot,
-                                        open_position=_router_pos,
-                                        gates=_router_gates,
-                                        profile=profile,
-                                        strategy_name=getattr(pos, 'strategy_name', 'unknown'),
-                                    )
-                                    if _router_decision and getattr(_router_decision, 'action', '') == 'close_position':
-                                        _exit_price = current_bar.close
-                                        _pnl = _calculate_pnl(pos.entry_price, _exit_price, pos.size, pos.direction, symbol=symbol)
-                                        capital += _pnl
-                                        _router_reason = getattr(_router_decision, 'notes', None) or 'invalidation'
-                                        completed_trades.append(SimulatedTrade(
-                                            symbol=symbol,
-                                            direction=pos.direction,
-                                            entry_price=pos.entry_price,
-                                            exit_price=_exit_price,
-                                            size=pos.size,
-                                            entry_time=pos.entry_time,
-                                            exit_time=current_time,
-                                            pnl=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
-                                            exit_reason=_router_reason,
-                                            entry_gates=getattr(pos, "entry_gates", None),
-                                            strategy_name=getattr(pos, 'strategy_name', 'unknown'),
-                                        ))
-                                        trade_results_store.add_result(TradeResult(
-                                            symbol=symbol,
-                                            closed_at=current_time.isoformat(),
-                                            pnl_pct=(_pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
-                                            pnl_usd=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
-                                            is_win=(_pnl + getattr(pos, "cumulative_partial_pnl", 0.0)) > 0,
-                                            tier="backtest",
-                                            capital_at_close=capital,
-                                            strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
-                                            exit_reason=_router_reason,
-                                            side=pos.direction,
-                                        ))
-                                        del positions[pos_key]
-                                        logger.info(f"[BACKTEST] {symbol} UNIVERSAL EXIT: {_router_reason} | PnL=${_pnl:.2f}")
-                                        continue
-                                    elif _router_decision and getattr(_router_decision, 'action', '') == 'hold' and _router_decision.stop_loss is not None:
-                                        # Trailing stop update from router (e.g., chandelier, ratchet)
-                                        if _router_decision.stop_loss != pos.stop_price:
-                                            old_stop = pos.stop_price
-                                            pos.stop_price = _router_decision.stop_loss
-                                            pos.stop_was_trailed = True
-                                            logger.info(f"[BACKTEST] {symbol} Router trail: stop {old_stop:.5f} → {pos.stop_price:.5f}")
-                        except Exception as _router_err:
-                            logger.debug(f"[BACKTEST] Universal exit router error for {symbol}: {_router_err}")
-
                 # Check stop loss
                 if pos.stop_price is not None and not disable_stops:
 
@@ -1534,6 +1443,97 @@ class Backtester:
                         del positions[pos_key]
                         logger.info(f"[BACKTEST] {symbol} target hit: PnL=${pnl:.2f}")
                         continue
+
+                # ── UNIVERSAL EXIT ROUTER (runs AFTER hardcoded stop) ────────
+                # Gives trend_invalidation, structure_failure, and other exit
+                # strategies a chance to close at bar-close price before the
+                # mechanical stop fires on the next bar's low/high breach.
+                # Without this, the hardcoded stop deletes the position before
+                # engine.decide() ever evaluates the exit router.
+                if pos_key in positions and len(current_candles) >= 30:
+                    _router_held_s = (current_time - pos.entry_time).total_seconds()
+                    # Only run after 5-minute hold guard (same as engine.py)
+                    if _router_held_s >= 300:
+                        try:
+                            _router_engine = _engine_cache.get(symbol)
+                            if _router_engine:
+                                _router_snapshot = self.market_provider.get_latest_snapshot(symbol, timeframe)
+                                if _router_snapshot and _router_snapshot.candles:
+                                    # Build gates via trend_consensus (same path as engine.decide)
+                                    from tradebot_sci.market.trend_consensus import detect_trend_direction
+                                    _consensus = detect_trend_direction(
+                                        _router_snapshot.candles, profile,
+                                        htf_candles=getattr(_router_snapshot, 'htf_candles', None),
+                                        mtf_candles=getattr(_router_snapshot, 'mtf_candles', None),
+                                        ltf_candles=getattr(_router_snapshot, 'ltf_candles', None),
+                                    )
+                                    _router_gates = {
+                                        "exec_dir": _consensus.exec_dir,
+                                        "ltf_dir": _consensus.ltf_dir,
+                                        "mtf_dir": _consensus.mtf_dir,
+                                        "htf_dir": _consensus.htf_dir,
+                                    }
+                                    _router_pos = {
+                                        'symbol': pos.symbol,
+                                        'direction': pos.direction,
+                                        'entry_price': pos.entry_price,
+                                        'size': pos.size,
+                                        'stop_price': pos.stop_price,
+                                        'stop_loss': pos.stop_price,
+                                        'target_price': pos.target_price,
+                                        'entry_time': pos.entry_time.isoformat() if pos.entry_time else None,
+                                        'initial_risk': getattr(pos, 'initial_risk', None),
+                                    }
+                                    from tradebot_sci.strategy.exit_logic import run_universal_exit_logic
+                                    _router_decision = run_universal_exit_logic(
+                                        snapshot=_router_snapshot,
+                                        open_position=_router_pos,
+                                        gates=_router_gates,
+                                        profile=profile,
+                                        strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                                    )
+                                    if _router_decision and getattr(_router_decision, 'action', '') == 'close_position':
+                                        _exit_price = current_bar.close
+                                        _pnl = _calculate_pnl(pos.entry_price, _exit_price, pos.size, pos.direction, symbol=symbol)
+                                        capital += _pnl
+                                        _router_reason = getattr(_router_decision, 'notes', None) or 'invalidation'
+                                        completed_trades.append(SimulatedTrade(
+                                            symbol=symbol,
+                                            direction=pos.direction,
+                                            entry_price=pos.entry_price,
+                                            exit_price=_exit_price,
+                                            size=pos.size,
+                                            entry_time=pos.entry_time,
+                                            exit_time=current_time,
+                                            pnl=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
+                                            exit_reason=_router_reason,
+                                            entry_gates=getattr(pos, "entry_gates", None),
+                                            strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                                        ))
+                                        trade_results_store.add_result(TradeResult(
+                                            symbol=symbol,
+                                            closed_at=current_time.isoformat(),
+                                            pnl_pct=(_pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                                            pnl_usd=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
+                                            is_win=(_pnl + getattr(pos, "cumulative_partial_pnl", 0.0)) > 0,
+                                            tier="backtest",
+                                            capital_at_close=capital,
+                                            strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                                            exit_reason=_router_reason,
+                                            side=pos.direction,
+                                        ))
+                                        del positions[pos_key]
+                                        logger.info(f"[BACKTEST] {symbol} UNIVERSAL EXIT: {_router_reason} | PnL=${_pnl:.2f}")
+                                        continue
+                                    elif _router_decision and getattr(_router_decision, 'action', '') == 'hold' and _router_decision.stop_loss is not None:
+                                        # Trailing stop update from router (e.g., chandelier, ratchet)
+                                        if _router_decision.stop_loss != pos.stop_price:
+                                            old_stop = pos.stop_price
+                                            pos.stop_price = _router_decision.stop_loss
+                                            pos.stop_was_trailed = True
+                                            logger.info(f"[BACKTEST] {symbol} Router trail: stop {old_stop:.5f} → {pos.stop_price:.5f}")
+                        except Exception as _router_err:
+                            logger.debug(f"[BACKTEST] Universal exit router error for {symbol}: {_router_err}")
 
                 # Update unrealized P&L
                 pos.unrealized_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction, symbol=symbol)

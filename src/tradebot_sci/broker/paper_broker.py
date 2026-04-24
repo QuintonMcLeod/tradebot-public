@@ -850,7 +850,7 @@ class PaperBroker:
                     pass
 
             # ════════════════════════════════════════════════════════════════
-            # UNIVERSAL EXIT ROUTER — runs BEFORE mechanical SL/TP
+            # UNIVERSAL EXIT ROUTER — runs AFTER mechanical SL/TP
             # ════════════════════════════════════════════════════════════════
             # Gives trend_invalidation, chandelier, time_decay, etc. a chance
             # to close at bar-close price before the hard stop fires.

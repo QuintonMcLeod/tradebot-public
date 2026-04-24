@@ -54,6 +54,7 @@ class StrategyEngine:
         self.last_strat_name: str = "Unknown"
         self.last_strat_score: float = 0.0
         self.last_strat_grade: str = "N/A"
+        self.last_gates: dict[str, Any] = {}
         
         # Determine which strategy this engine instance will run
         self._variant_key = self._resolve_variant_key()  # For SAR exclusion and masking
@@ -146,6 +147,7 @@ class StrategyEngine:
         "crypto_grid":          ("tradebot_sci.strategy.variants.crypto_grid",          "CryptoGridStrategy"),
         "aggregator":           ("tradebot_sci.strategy.variants.aggregator",           "AggregatorStrategy"),
         "forex_conductor":      ("tradebot_sci.strategy.variants.forex_conductor",      "ForexConductorStrategy"),
+        "forex_hybrid_reaper":  ("tradebot_sci.strategy.variants.forex_hybrid_reaper",  "ForexHybridReaperStrategy"),
         "qs_sma_filter":        ("tradebot_sci.strategy.variants.qs_sma_filter",        "QS_SMAFilterStrategy"),
         "qs_golden_cross":      ("tradebot_sci.strategy.variants.qs_golden_cross",      "QS_GoldenCrossStrategy"),
         "qs_rsi_mean_reversion":("tradebot_sci.strategy.variants.qs_rsi_mean_reversion","QS_RSIMeanReversionStrategy"),
@@ -397,6 +399,14 @@ class StrategyEngine:
             snapshot.trend_ltf = dc_replace(
                 snapshot.trend_ltf, direction=ltf_dir, strength=ltf_strength
             )
+            
+            if getattr(snapshot, 'trend_exec', None):
+                snapshot.trend_exec = dc_replace(
+                    snapshot.trend_exec, direction=exec_dir, strength=exec_strength
+                )
+            else:
+                from tradebot_sci.market.models import TrendState
+                snapshot.trend_exec = TrendState(direction=exec_dir, strength=exec_strength)
 
         trend_dir = ltf_dir if ltf_dir in ("long", "short") else htf_dir
 
@@ -524,6 +534,7 @@ class StrategyEngine:
         self.last_strat_name = strat_name
         self.last_strat_score = strat_score
         self.last_strat_grade = strat_grade
+        self.last_gates = gates
 
         # Pre-compute candle_now since both exit, entry, and SAR cooldown checks need it
         candle_now = None

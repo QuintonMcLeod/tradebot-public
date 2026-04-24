@@ -150,6 +150,7 @@ const CONFIG_MAP = {
     'SCALE_OUT_FRACTION': ['runtime', 'scale_out_fraction'],
     // Trend Detection (under global in config.json)
     'TREND_ADX_ENABLED': ['global', 'trend_adx_enabled'],
+    'TREND_ADX_THRESHOLD': ['global', 'adx_gate_threshold'],
     'TREND_CORRELATION_STACKING_ENABLED': ['global', 'trend_correlation_stacking_enabled'],
     'TREND_RSI_ENABLED': ['global', 'trend_rsi_enabled'],
     'TREND_MACD_ENABLED': ['global', 'trend_macd_enabled'],
@@ -160,6 +161,12 @@ const CONFIG_MAP = {
     'TREND_PARABOLIC_SAR_ENABLED': ['global', 'trend_parabolic_sar_enabled'],
     'TREND_VWAP_ENABLED': ['global', 'trend_vwap_enabled'],
     'TREND_HULL_MA_ENABLED': ['global', 'trend_hull_ma_enabled'],
+    'TREND_EMA': ['global', 'trend_ema'],
+    'BB_PERIOD': ['global', 'bb_period'],
+    'BB_STD': ['global', 'bb_std'],
+    'RSI_PERIOD': ['global', 'rsi_period'],
+    'RSI_OVERBOUGHT': ['global', 'rsi_overbought'],
+    'RSI_OVERSOLD': ['global', 'rsi_oversold'],
     // ── Risk & ICC (Global — not per-profile) ──────────────────
     'TARGET_LEVERAGE': ['risk', 'target_leverage'],
     'RISK_PER_TRADE_PCT': ['risk', 'risk_per_trade_pct'],
@@ -987,6 +994,18 @@ const STRATEGIES = {
         bestFor: "Forex: adapts to market conditions automatically",
         stats: { regimes: "4 (trend/range/transition/choppy)", cooldown: "2h", gate: "HTF/LTF align" }
     },
+    forex_hybrid_reaper: {
+        name: 'Forex Hybrid Scalper',
+        icon: 'ssid_chart',
+        shortDesc: 'Trend filtered kinetic entries',
+        assetClass: "forex",
+        description: "A highly specific 5m architecture that only allows Rubberband Reaper entries (BB Touches + RSI extremes) when completely supported by a long-term EMA trend. Uses algorithmic ATR filters to dodge Asian chop. Executes strictly between 8 AM and 12 PM EST.",
+        style: "Restricted Scalper",
+        risk: "Low",
+        bestFor: "Majors: EURUSD / GBPUSD",
+        stats: { timeframe: "5m", sessions: "London/NY Overlap", indicators: "EMA200, BB(20,2.5), RSI(7)"}
+    },
+
     trend_rider: {
         name: 'Trend Rider',
         shortDesc: 'EMA Pullback in Strong Trend',
@@ -1299,6 +1318,13 @@ const TRADING_DEFAULTS = {
     ICC_AUTO_ENTRY_COOLDOWN_MINUTES: '15',
     // ── Performance ──
     PERFORMANCE_MODE: 'none',
+    // ── Reaper Kinetics ──
+    TREND_EMA: '200',
+    BB_PERIOD: '20',
+    BB_STD: '1.5',
+    RSI_PERIOD: '7',
+    RSI_OVERBOUGHT: '60',
+    RSI_OVERSOLD: '40',
 };
 
 // ── Strategy presets: only values that DIFFER from TRADING_DEFAULTS ──────────
@@ -1372,6 +1398,21 @@ const STRATEGY_PRESETS = {
         SAFETY_ROLLOVER_DEADZONE_ENABLED: 'false',
         SAFETY_DRAWDOWN_BREAKER_ENABLED: 'false',
         SAFETY_LEVERAGE_SENTRY_ENABLED: 'false',
+    },
+    forex_hybrid_reaper: {
+        RISK_PER_TRADE_PCT: '0.01',
+        STOP_AND_REVERSE_ENABLED: 'false',
+        TRAILING_STOP_ENABLED: 'true',
+        MAX_PYRAMID_ENTRIES: '1',
+        RISK_REWARD_RATIO: '2.5',
+        SCALE_OUT_FRACTION: '0.90',
+        
+        // Logical Trend Detection 
+        TREND_ADX_ENABLED: 'true',
+        TREND_ADX_THRESHOLD: '12',
+        
+        // Allow it to trade localized chop/ranging
+        BLOCK_RANGING_REGIME: 'false',
     },
     trend_rider: {
         RISK_PER_TRADE_PCT: '0.01',
@@ -5301,6 +5342,7 @@ function renderStrategyToolbox(container) {
         { id: 'orb_breakout', label: 'ORB (Break & Retest)', icon: 'rule', color: '#6366f1' },
         { id: 'meta_sci', label: 'Meta-SCI Alpha', icon: 'hub', color: '#14b8a6' },
         { id: 'forex_conductor', label: 'Forex Conductor', icon: 'route', color: '#f59e0b' },
+        { id: 'forex_hybrid_reaper', label: 'Forex Hybrid Scalper', icon: 'ssid_chart', color: '#f97316' },
         { id: 'trend_rider', label: 'Trend Rider', icon: 'trending_up', color: '#10b981' },
         { id: 'session_momentum', label: 'Session Momentum', icon: 'schedule_send', color: '#f43f5e' },
         { id: 'bearish_engulfing', label: 'Engulfing Reversal', icon: 'candlestick_chart', color: '#d946ef' },
@@ -5661,6 +5703,55 @@ function renderStrategyToolbox(container) {
             default: '1.6',
             tooltip: "Since Quantum is trading very large moves, a smaller target like 1.6 still brings in good money while keeping the win rate high."
         }));
+
+    } else if (toolboxTab === 'forex_hybrid_reaper') {
+        const stratInfo = STRATEGIES.forex_hybrid_reaper;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'ssid_chart',
+            "<strong>Forex Hybrid Scalper</strong><br><br>The Hybrid Scalper routes trades safely by requiring the 200 EMA to align with Rubberband Reaper kinetic extremes. It automatically calculates rolling ATR to prevent trading in flatlines and chops."
+        ));
+
+        const gridA = document.createElement('div');
+        gridA.className = 'card-grid';
+        gridA.appendChild(createSliderCard('Target R:R', 'Reward multiplier', 'TARGET_R', 0.5, 5.0, 0.1, 'R', { 
+            default: '2.5',
+            tooltip: "How much profit you want compared to what you're risking. 2.5 means you win two and a half dollars for every dollar you risk."
+        }));
+        gridA.appendChild(createSliderCard('Trend EMA', 'Period for Macro Trend', 'TREND_EMA', 50, 500, 10, 'bars', { 
+            default: '200',
+            tooltip: "The big picture trend! The bot refuses to buy if the price is dropping below this line, keeping you out of trouble."
+        }));
+        section.appendChild(gridA);
+
+        section.appendChild(createDivider());
+        section.appendChild(createSectionHeader('Reaper Kinetics', 'bolt', "Configuration for the Bollinger Band + RSI kinetic logic natively triggering the pullback entries."));
+
+        const gridB = document.createElement('div');
+        gridB.className = 'card-grid';
+        gridB.appendChild(createSliderCard('BB Period', 'Moving average length', 'BB_PERIOD', 10, 50, 1, 'bars', { 
+            default: '20',
+            tooltip: "How many past candles to look at when calculating the 'walls' of the market range."
+        }));
+        gridB.appendChild(createSliderCard('BB StdDev', 'Band width deviation', 'BB_STD', 1.0, 4.0, 0.1, 'x', { 
+            default: '1.5',
+            tooltip: "How thick the walls are. 1.0 means tight walls (the bot trades constantly). 2.5 means huge, distant walls (the bot almost never trades)."
+        }));
+        gridB.appendChild(createSliderCard('RSI Period', 'Momentum length', 'RSI_PERIOD', 3, 21, 1, 'bars', { 
+            default: '7',
+            tooltip: "How quickly the bot reacts to sudden bursts of speed. A small number like 7 makes it hyper-sensitive to quick dips."
+        }));
+        section.appendChild(gridB);
+
+        const gridC = document.createElement('div');
+        gridC.className = 'card-grid';
+        gridC.appendChild(createSliderCard('RSI Overbought', 'Short trigger', 'RSI_OVERBOUGHT', 60, 95, 1, '', { 
+            default: '60',
+            tooltip: "The 'Too Hot' limit. When the speed gets this high, the bot assumes everyone is exhausted and prepares to sell."
+        }));
+        gridC.appendChild(createSliderCard('RSI Oversold', 'Long trigger', 'RSI_OVERSOLD', 5, 40, 1, '', { 
+            default: '40',
+            tooltip: "The 'Too Cold' limit. When the speed crashes this low, the bot assumes panic is over and it's time to safely buy the dip."
+        }));
+        section.appendChild(gridC);
 
     } else if (toolboxTab === 'forex_conductor') {
         const stratInfo = STRATEGIES.forex_conductor;

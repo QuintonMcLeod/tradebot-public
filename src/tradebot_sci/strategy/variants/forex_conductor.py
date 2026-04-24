@@ -267,34 +267,36 @@ class ForexConductorStrategy(BaseStrategy):
 
         # ── A+ ENTRY FILTER: Strict Multi-Timeframe Alignment ────
         # MTF Alignment logic:
-        # I enforce that all 3 structural timeframes must be pointing in the exact same direction.
         # HTF (4h) = Macro context
         # MTF (1h) = Current momentum trend
         htf_dir = getattr(snapshot.trend_htf, "direction", "neutral")
         mtf_dir = getattr(snapshot.trend_mtf, "direction", "neutral") if snapshot.trend_mtf else "neutral"
         ltf_dir = getattr(snapshot.trend_ltf, "direction", "neutral")
+        exec_dir = getattr(snapshot.trend_exec, "direction", "neutral") if getattr(snapshot, "trend_exec", None) else ltf_dir
         
         # I determine the macro trend direction. If they don't match exactly, I consider the macro trend fractured.
         mtf_strength = getattr(snapshot.trend_mtf, "strength", 0.0) if snapshot.trend_mtf else 0.0
         
         mtf_strength_floor = float(getattr(self._profile, 'mtf_strength_floor', 0.50)) if self._profile else 0.50
-        macro_aligned = (htf_dir == mtf_dir == ltf_dir) and (htf_dir in ("long", "short")) and mtf_strength >= mtf_strength_floor
+        macro_conflict = (htf_dir == "long" and mtf_dir == "short") or (htf_dir == "short" and mtf_dir == "long")
         
-        if regime == "trending" and not macro_aligned and not has_reversal:
+        if regime == "trending" and macro_conflict and not has_reversal:
             logger.info(
-                f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by MTF Alignment "
-                f"(HTF: {htf_dir}, MTF: {mtf_dir}@{mtf_strength:.2f}, LTF: {ltf_dir})"
+                f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by Macro Alignment conflict "
+                f"(HTF: {htf_dir}, MTF: {mtf_dir}@{mtf_strength:.2f})"
             )
-            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by MTF Alignment conflict (HTF:{htf_dir}, MTF:{mtf_dir}, LTF:{ltf_dir})")
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by Macro Alignment conflict (HTF:{htf_dir}, MTF:{mtf_dir})")
 
         # Pass the unified direction down into the sub-strategies.
+        # Sub-strategies use exec_dir and ltf_dir as instantaneous execution triggers.
         gates["htf_dir"] = htf_dir
         gates["mtf_dir"] = mtf_dir
         gates["ltf_dir"] = ltf_dir
+        gates["exec_dir"] = exec_dir
                 
         if regime == "transitional" and not has_reversal:
-            if htf_dir in ("long", "short") and ltf_dir in ("long", "short") and htf_dir != ltf_dir:
-                logger.info(f"[CONDUCTOR] {snapshot.symbol}: HTF/LTF conflict in transitional (htf={htf_dir}, ltf={ltf_dir}) — soft flag")
+            if htf_dir in ("long", "short") and exec_dir in ("long", "short") and htf_dir != exec_dir:
+                logger.info(f"[CONDUCTOR] {snapshot.symbol}: HTF/EXEC conflict in transitional (htf={htf_dir}, exec={exec_dir}) — soft flag")
                 gates["htf_ltf_conflict"] = True
 
         # ── NOTE: Macro trend filters tested and reverted ─────────
@@ -448,6 +450,24 @@ class ForexConductorStrategy(BaseStrategy):
                 # Set entry cooldown for this symbol
                 _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
 
+                # ── BROKER MINIMUM STOP GUARD ──
+                _ep = float(signal.entry_price or 0.0)
+                _sl = float(signal.stop_loss or 0.0)
+                if _ep > 0 and _sl > 0:
+                    is_jpy = "JPY" in snapshot.symbol.upper()
+                    # Minimum 8 pips for prop firms/Oanda minimum stop levels
+                    min_sl_dist = 8.0 * (0.01 if is_jpy else 0.0001)
+                    
+                    _current_ir = abs(_ep - _sl)
+                    if _current_ir < min_sl_dist:
+                        _ir = min_sl_dist
+                        _sl = (_ep - _ir) if signal.bias == "long" else (_ep + _ir)
+                        signal.stop_loss = _sl
+                        logger.info(f"[CONDUCTOR] {snapshot.symbol}: Widened SL from {_current_ir*10000:.1f} to {min_sl_dist*10000:.1f} pips to meet broker limits. New SL: {_sl:.5f}")
+                        signal.notes = (signal.notes or "") + " [SL Widened]"
+                    else:
+                        _ir = _current_ir
+                
                 # ── GLOBAL TARGET_R OVERRIDE ──
                 # Force the base strategy to respect the config target_r but enforce a minimum mathematical viability floor
                 tr = float(getattr(self._profile, 'target_r', 0) or 0)
@@ -455,19 +475,13 @@ class ForexConductorStrategy(BaseStrategy):
                     if tr < 0.2:
                         tr = 0.2
                         
-                    _ep = float(signal.entry_price or 0.0)
-                    _sl = float(signal.stop_loss or 0.0)
                     if _ep > 0 and _sl > 0:
-                        _ir = abs(_ep - _sl)
                         if signal.bias == "long":
                             signal.take_profit = _ep + (_ir * tr)
                         else:
                             signal.take_profit = _ep - (_ir * tr)
                 else:
-                    _ep = float(signal.entry_price or 0.0)
-                    _sl = float(signal.stop_loss or 0.0)
                     if _ep > 0 and _sl > 0:
-                        _ir = abs(_ep - _sl)
                         # Use a distant 100R target to safely bypass safety validators while keeping trades open
                         if signal.bias == "long":
                             signal.take_profit = _ep + (_ir * 100.0)

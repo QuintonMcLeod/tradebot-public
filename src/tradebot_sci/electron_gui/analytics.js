@@ -50,9 +50,11 @@ async function loadAnalyticsData(filter) {
         let result = await window.api.getAnalyticsSummary(filter, paperMode);
         console.log('[ANALYTICS] Result:', result?.success, 'source:', result?.data?._source, 'paperMode:', paperMode);
 
-        // Auto-fallback: if live mode returned zero closed trades, check the
-        // paper ledger — the bot may spend most of its time paper trading
-        // (off-hours / sabbath) while execute_trades=True in config.
+        // Auto-fallback removed (2026-04-20) to enforce strict data isolation.
+        // If the user flips the routing toggle to Live, they intend to see 
+        // the Live ledger. If it's empty, they should see an empty state 
+        // rather than paper data bleeding through and causing confusion.
+        /*
         if (result?.success && !paperMode) {
             const closedCount = (result.data?.trades || []).filter(t => !t._active).length;
             if (closedCount === 0) {
@@ -67,6 +69,7 @@ async function loadAnalyticsData(filter) {
                 }
             }
         }
+        */
 
         if (result && result.success) {
             const d = result.data;

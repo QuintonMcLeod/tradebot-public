@@ -1300,9 +1300,22 @@ def run_bot(
     paper_eval_daily_loss_pct = 5.0
     paper_eval_max_loss_pct = 10.0
     
+    eval_state_path = _paths.DATA_DIR / "eval_state.json"
     eval_initial_balance = None
     eval_day_start_balance = None
     eval_last_day = None
+    try:
+        if eval_state_path.exists():
+            import json
+            with open(eval_state_path, "r") as f:
+                _es = json.load(f)
+                eval_initial_balance = _es.get("eval_initial_balance")
+                eval_day_start_balance = _es.get("eval_day_start_balance")
+                eval_last_day_str = _es.get("eval_last_day")
+                if eval_last_day_str:
+                    eval_last_day = datetime.fromisoformat(eval_last_day_str).date()
+    except Exception as e:
+        logger.warning(f"[EVAL] Failed to load eval state: {e}")
 
     def _update_paper_settings():
         nonlocal paper_sim_enabled, paper_replay_mode, paper_synthetic_mode, sabbath_replay_mode
@@ -1362,6 +1375,10 @@ def run_bot(
                             eval_initial_balance = None
                             eval_day_start_balance = None
                             eval_last_day = None
+                            try:
+                                eval_state_path.unlink(missing_ok=True)
+                            except:
+                                pass
 
                         # Check Autopilot toggle on hot-reload
                         _maybe_start_seasoned_daemon()
@@ -1649,20 +1666,18 @@ def run_bot(
                 last_holdings_log_ts=last_holdings_log_ts,
                 last_capital_check_ts=last_capital_check_ts,
             )
-            # Push holdings + state + health to GUI via dedicated WS messages (not log parsing)
-            controller.broadcast_holdings(executor)
-            controller.broadcast_state(executor, executor_real=executor_real)
-            controller.broadcast_health()
-            
             # ── Prop Firm Evaluation Monitor ──
+            # (Execute BEFORE broadcast so UI receives populated state dictionary immediately)
             if executor == executor_paper and paper_eval_mode and not controller.is_halted():
                 try:
                     _eq = getattr(executor, "get_total_balance_value", lambda: 0.0)()
+                    _changed = False
                     
                     if eval_initial_balance is None:
                         eval_initial_balance = _eq
                         eval_day_start_balance = _eq
                         eval_last_day = datetime.now().date()
+                        _changed = True
                         
                     today = datetime.now().date()
                     if today != eval_last_day:
@@ -1671,14 +1686,27 @@ def run_bot(
                             pass
                         eval_day_start_balance = _eq
                         eval_last_day = today
+                        _changed = True
+
+                    if _changed:
+                        import json
+                        try:
+                            with open(eval_state_path, "w") as f:
+                                json.dump({
+                                    "eval_initial_balance": eval_initial_balance,
+                                    "eval_day_start_balance": eval_day_start_balance,
+                                    "eval_last_day": eval_last_day.isoformat() if eval_last_day else None
+                                }, f)
+                        except Exception as e:
+                            logger.error(f"[EVAL] Failed to save state to disk: {e}")
                         
                     if eval_initial_balance > 0:
-                        current_gain_pct = ((_eq - eval_initial_balance) / eval_initial_balance) * 100.0
-                        current_drawdown_pct = ((eval_initial_balance - _eq) / eval_initial_balance) * 100.0
+                        current_gain_pct = max(0.0, ((_eq - eval_initial_balance) / eval_initial_balance) * 100.0)
+                        current_drawdown_pct = max(0.0, ((eval_initial_balance - _eq) / eval_initial_balance) * 100.0)
                         
                         daily_drawdown_pct = 0.0
                         if eval_day_start_balance > 0:
-                            daily_drawdown_pct = ((eval_day_start_balance - _eq) / eval_day_start_balance) * 100.0
+                            daily_drawdown_pct = max(0.0, ((eval_day_start_balance - _eq) / eval_day_start_balance) * 100.0)
                         
                         # Store metrics globally for GUI rendering
                         controller.eval_metrics = {
@@ -1692,6 +1720,17 @@ def run_bot(
                             "day_start_balance": eval_day_start_balance,
                             "current_balance": _eq
                         }
+                except Exception as e:
+                    logger.error(f"[EVAL] Error evaluating prop firm rules: {e}")
+
+            # Push holdings + state + health to GUI via dedicated WS messages (not log parsing)
+            controller.broadcast_holdings(executor)
+            controller.broadcast_state(executor, executor_real=executor_real)
+            controller.broadcast_health()
+            
+            if executor == executor_paper and paper_eval_mode and not controller.is_halted():
+                try:
+                    if eval_initial_balance is not None and eval_initial_balance > 0:
                         
                         failed = False
                         reason = ""

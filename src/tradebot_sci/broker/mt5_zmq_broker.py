@@ -138,6 +138,21 @@ class MT5ZMQBroker(IExchangeBroker):
         # Implementation depends on hold guards. Can be skipped or basic check.
         return False, None, None
 
+    @property
+    def position_hold_store(self):
+        return None
+
+    def list_open_position_symbols(self) -> list[str]:
+        # The DUMMY MT5 ZMQ Bridge currently lacks a GET_POSITIONS command.
+        # Natively, we ask the MT5 Terminal to return all open position symbol strings.
+        # Since it's a DUMMY, it will return an empty array.
+        payload = {"action": "GET_ALL_POSITIONS"}
+        resp = self._send_request(payload)
+        open_syms = []
+        if resp.get("status") == "success" and "positions" in resp:
+            open_syms = [p.get("symbol") for p in resp["positions"] if "symbol" in p]
+        return open_syms
+
     def refresh_account_summary(self) -> None:
         payload = {"action": "GET_ACCOUNT"}
         resp = self._send_request(payload)

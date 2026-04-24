@@ -439,6 +439,9 @@ def process_candidate_cycle(
                 }
             )
             
+            if decision and hasattr(engines[symbol], "last_gates"):
+                decision.gates = engines[symbol].last_gates
+            
             evaluations.append((symbol, snapshot, decision, reason))
             
             # Record Strategy Signal Vitals
@@ -456,7 +459,15 @@ def process_candidate_cycle(
                 d_strat_name = engines[symbol].last_strat_name
                 d_strat_grade = engines[symbol].last_strat_grade
                 d_strat_score = engines[symbol].last_strat_score
-                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} strategy={d_strat_name} strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} reason={reason_log}")
+                import json
+                gates_str = "{}"
+                if decision and getattr(decision, "gates", None):
+                    _safe = {k: v for k, v in decision.gates.items() if k != "profile"}
+                    try:
+                        gates_str = json.dumps(_safe, default=str)
+                    except Exception:
+                        pass
+                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} strategy={d_strat_name} strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} reason={reason_log} | gates={gates_str}")
                 
                 # ── Propagate stop modifications from hold decisions ──
                 _d_sl = getattr(decision, "stop_loss", None) if decision else None
@@ -613,12 +624,20 @@ def process_candidate_cycle(
                     fill_strat_name = engines[symbol].last_strat_name if symbol in engines else "unknown"
                     fill_strat_grade = engines[symbol].last_strat_grade if symbol in engines else "N/A"
                     fill_strat_score = engines[symbol].last_strat_score if symbol in engines else 0.0
+                    import json
+                    gates_str = "{}"
+                    if decision and getattr(decision, "gates", None):
+                        _safe = {k: v for k, v in decision.gates.items() if k != "profile"}
+                        try:
+                            gates_str = json.dumps(_safe, default=str)
+                        except Exception:
+                            pass
                     logger.info(
                         f"[DECISION] symbol={symbol} action={decision.action.upper()} "
                         f"score={fill_score:.1f} grade={fill_grade} "
                         f"strategy={fill_strat_name} strat_score={fill_strat_score:.1f} "
                         f"strat_grade={fill_strat_grade} "
-                        f"reason=FILL executed @ {decision.entry_price or 'market'}"
+                        f"reason=FILL executed @ {decision.entry_price or 'market'} | gates={gates_str}"
                     )
                     from tradebot_sci.strategy.safety_guard import SafetyGuard
                     SafetyGuard.notify_entry(symbol)

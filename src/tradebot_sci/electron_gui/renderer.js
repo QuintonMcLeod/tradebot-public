@@ -771,7 +771,7 @@ function _gradeTooltip(grade) {
     return base || `Grade ${grade} — Setup quality score. High grade = favorable, but entry requires ICC sweep + continuation to fire.`;
 }
 
-function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, strategyName = null) {
+function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, strategyName = null, gatesData = null) {
 
     const table = document.getElementById('decisions-table');
     if (!table) return;
@@ -833,6 +833,15 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
         displayReason = displayReason.replace(/^Meta-SCI\s*(Tournament)?:\s*/i, '');
     }
 
+    let detailsButton = "";
+    if (gatesData) {
+        // Inject the strategyName into gates data so the drawer knows what logic branch to use
+        gatesData.strategyName = strategyName;
+        // Store gatesData stringified in a dataset attribute so the onclick handler can read it
+        const encodedGates = encodeURIComponent(JSON.stringify(gatesData));
+        detailsButton = ` <span class="ml-2 px-1.5 py-0.5 text-[10px] uppercase font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 rounded cursor-pointer hover:bg-cyan-500/20 transition-colors" onclick="showDecisionDetails(this, '${symbol}', '${encodedGates}')">Details</span>`;
+    }
+
     // Much larger font (text-lg / 18px), bunched rows (py-1.5)
     row.innerHTML = `
         <td class="px-4 py-1.5 text-slate-500 text-left font-mono text-sm">${time}</td>
@@ -840,7 +849,7 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
         <td class="px-4 py-1.5 ${scoreClass} text-left font-black text-lg cursor-help" title="${_gradeTooltip(grade)}">${grade}</td>
         <td class="px-4 py-1.5 text-center">${stratBadge || '<span class="text-slate-600 text-[10px]">—</span>'}</td>
         <td class="px-4 py-1.5 text-left text-sm uppercase tracking-wider">${actionHtml}</td>
-        <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${displayReason}</td>
+        <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${displayReason}${detailsButton}</td>
     `;
 
     if (!existingRow) {
@@ -855,6 +864,380 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
         return sb - sa;
     });
     rows.forEach(r => table.appendChild(r));
+}
+
+// Concept 1: The Sliding Screen Drawer (Glassmorphism + Theme-Aware)
+window.showDecisionDetails = function(button, symbol, encodedGates) {
+    let gatesData = {};
+    try {
+        gatesData = JSON.parse(decodeURIComponent(encodedGates));
+    } catch(e) {}
+
+    // Clean up any existing drawer
+    const existing = document.getElementById('decision-drawer');
+    if (existing) existing.remove();
+    const existingOverlay = document.getElementById('decision-drawer-overlay');
+    if (existingOverlay) existingOverlay.remove();
+    const existingTooltip = document.getElementById('decision-drawer-tooltip');
+    if (existingTooltip) existingTooltip.remove();
+
+    // ─── Read current theme CSS variables ─────────────────────────
+    const cs = getComputedStyle(document.documentElement);
+    const tv = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
+    const accent     = tv('--accent', '#14b8a6');
+    const accentDim  = tv('--accent-dim', 'rgba(20,184,166,0.15)');
+    const accentGlow = tv('--accent-glow', 'rgba(20,184,166,0.25)');
+    const bgCard     = tv('--bg-card', 'rgba(15,23,42,0.4)');
+    const cardBorder = tv('--card-border', 'rgba(255,255,255,0.06)');
+    const textMain   = tv('--text-main', '#f1f5f9');
+    const textSec    = tv('--text-secondary', '#94a3b8');
+    const textMuted  = tv('--text-muted', '#64748b');
+    const textDim    = tv('--text-dim', '#475569');
+    const success    = tv('--success', '#10b981');
+    const warning    = tv('--warning', '#f59e0b');
+    const error      = tv('--error', '#ef4444');
+
+    // Drawer Tooltip implementation to bypass any Electron tooltip issues
+    const customTT = document.createElement('div');
+    customTT.id = 'decision-drawer-tooltip';
+    customTT.style.cssText = `position:fixed; z-index:10000; opacity:0; pointer-events:none; background:rgba(2,6,23,0.95); border:1px solid ${accentGlow}; border-radius:8px; padding:10px 14px; font-size:11.5px; line-height:1.5; color:${textSec}; font-family:Inter, sans-serif; box-shadow:0 10px 30px rgba(0,0,0,0.5); max-width:280px; transition:opacity 0.2s ease; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); transform:translate(-50%, -100%); margin-top:-10px;`;
+    document.body.appendChild(customTT);
+
+    const bindTooltip = (html) => {
+        return html.replace(/title="([^"]+)"/g, (match, text) => {
+            return `data-drawer-tt="${text.replace(/"/g, '&quot;')}"`;
+        });
+    };
+
+    // 1. Dark scrim overlay (only cover the left side so the drawer blurs the main UI)
+    const overlay = document.createElement('div');
+    overlay.id = 'decision-drawer-overlay';
+    Object.assign(overlay.style, {
+        position: 'fixed', left: '0', top: '0', bottom: '0',
+        width: 'calc(100% - 460px)', // Exclude drawer width
+        zIndex: '9998',
+        background: 'rgba(0, 0, 0, 0.4)',
+        opacity: '0',
+        transition: 'opacity 0.3s ease',
+    });
+    document.body.appendChild(overlay);
+
+    // 2. Glassmorphism Drawer — semi-transparent padding right side
+    const drawer = document.createElement('div');
+    drawer.id = 'decision-drawer';
+    Object.assign(drawer.style, {
+        position: 'fixed', top: '0', right: '0',
+        width: '460px', height: '100vh',
+        zIndex: '9999',
+        background: `linear-gradient(180deg, ${bgCard} 0%, rgba(0,0,0,0.2) 100%)`, 
+        backdropFilter: 'blur(40px) saturate(1.4)',
+        WebkitBackdropFilter: 'blur(40px) saturate(1.4)',
+        borderLeft: `1px solid ${cardBorder}`,
+        boxShadow: `0 0 80px rgba(0,0,0,0.5), -20px 0 60px rgba(0,0,0,0.25), inset 0 0 0 1px rgba(255,255,255,0.03)`,
+        display: 'flex', flexDirection: 'column',
+        transform: 'translateX(100%)',
+        transition: 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+        fontFamily: 'inherit',
+        overflow: 'hidden',
+    });
+    
+    const htfStr = (gatesData.htf_strength !== undefined) ? Math.round(gatesData.htf_strength * 100) : 0;
+    const phaseLabel = gatesData.phase ? gatesData.phase.toUpperCase() : 'UNKNOWN';
+    const regimeLabel = gatesData.market_regime ? gatesData.market_regime.toUpperCase() : 'TRANSITIONAL';
+    const scoreVal = gatesData.score !== undefined ? (gatesData.score > 1 ? gatesData.score.toFixed(1) : (gatesData.score * 100).toFixed(1)) : '?';
+    const gradeVal = gatesData.grade || '?';
+    const gradeColor = gradeVal.startsWith('A') ? success : gradeVal.startsWith('B') ? accent : gradeVal.startsWith('C') ? warning : error;
+
+    const phaseDescriptions = {
+        'TREND':        'The market is moving steadily in one direction — like a river flowing downstream. The bot is waiting for the right moment to hop in and ride the current.',
+        'INDICATION':   'Early signs of a possible move are showing up, but it\'s not confirmed yet — like seeing dark clouds before rain. The bot is watching closely for a stronger signal.',
+        'CORRECTION':   'The market temporarily pulled back against the main trend — like a rubber band stretching before snapping back. The bot is waiting to see if the original trend resumes.',
+        'CONTINUATION': 'The market paused briefly and is now continuing its original move. The bot considers this a strong entry opportunity.',
+        'CHOP':         'The market is bouncing up and down with no clear direction. The bot is staying on the sidelines until things settle down.',
+        'UNKNOWN':      'The bot is still gathering data to determine what the market is doing.',
+    };
+
+    const regimeDescriptions = {
+        'TRENDING':     'Prices are moving with conviction in a single direction.',
+        'TRANSITIONAL': 'The market is shifting between states — direction unclear.',
+        'CHOPPY':       'Prices are erratic with no reliable pattern to follow.',
+        'RANGING':      'Prices are oscillating between predictable support and resistance.',
+    };
+
+    // ─── Core Strategy Diagnostics Dictionary ─────────────────────────
+    const STRATEGY_PROFILES = {
+        'REAPER': {
+            checks: [
+                { id: 'bollinger_squeeze', label: 'Bollinger Squeeze', desc: 'Checks if the market price is compressing like a spring ready to pop out of its bounds.' },
+                { id: 'rsi_extreme', label: 'RSI Over-Extension', desc: 'Is the price stretched too far like a rubber band? We wait for extremes before assuming a reversal.' },
+                { id: 'momentum', label: 'Momentum Confirmed', desc: 'Is there enough fuel behind the move to sustain a reversion back to the mean?' },
+                { id: 'trend_independence', label: 'Trend Independence', desc: 'Reaper does not rely heavily on the big-picture trend. Is the market choppy and range-bound enough to bounce?' }
+            ],
+            indicators: ['B-BAND WIDTH', 'RSI', 'MACD'],
+            explanationMode: 'reaper'
+        },
+        'MEAN_REVERSION': {
+            checks: [
+                { id: 'rsi_extreme', label: 'RSI Extremes', desc: 'Market is at an extreme point of overbought or oversold.' },
+                { id: 'htf_trend', label: 'Trend Check', desc: 'Ensure we aren\'t stepping in front of a massive freight train.' }
+            ],
+            indicators: ['RSI', 'ADX', 'MACD'],
+            explanationMode: 'reaper' // shares similar logic for now
+        },
+        'DEFAULT_TREND': {
+            checks: [
+                { id: 'htf_trend', label: 'Long-Term (HTF) Trend Base', desc: 'Is the "big picture" pointing clearly up or down? Think of it like checking if the tide is coming in or going out.' },
+                { id: 'ltf_align', label: 'Short-Term (LTF) Alignment', desc: 'Is the short-term movement agreeing with the big-picture trend?' },
+                { id: 'volatility', label: 'Volatility Threshold', desc: 'Is the market moving enough to be worth trading? If prices are barely budging, we stay out.' },
+                { id: 'sweep', label: 'Liquidity Sweep', desc: 'Did prices briefly dip below a key level to "sweep" out weak traders before reversing?' },
+                { id: 'continuation', label: 'Structural Continuation', desc: 'After a pause in the trend, is the market showing signs of continuing in the same direction?' }
+            ],
+            indicators: ['ADX', 'RSI', 'HTF STR'],
+            explanationMode: 'trend'
+        }
+    };
+
+    function evaluateStrategyCheck(id, gates) {
+        switch(id) {
+            case 'bollinger_squeeze': return { pass: gates.bollinger?.squeeze, val: gates.bollinger?.squeeze ? "Yes" : "No" };
+            case 'rsi_extreme': return { pass: (gates.rsi && (gates.rsi > 60 || gates.rsi < 40)), val: gates.rsi ? gates.rsi.toFixed(1) : "—" };
+            case 'momentum': return { pass: gates.indicator_strength && gates.indicator_strength > 0.4, val: gates.indicator_strength ? (gates.indicator_strength*100).toFixed(0)+"%" : "—" };
+            case 'trend_independence': return { pass: gates.market_regime !== 'trending', val: gates.market_regime || "—" };
+            case 'htf_trend': return { pass: gates.htf_dir && gates.htf_dir !== 'neutral', val: gates.htf_dir || '—' };
+            case 'ltf_align': return { pass: gates.ltf_dir === gates.htf_dir && gates.ltf_dir && gates.ltf_dir !== 'neutral', val: gates.ltf_dir || '—' };
+            case 'volatility': 
+                const htf = Math.round((gates.htf_strength||0)*100); 
+                const ltf = Math.round((gates.ltf_strength||0)*100);
+                return { pass: htf > 15 || ltf > 15, val: htf + "%" };
+            case 'sweep': return { pass: !!gates.sweep, val: gates.sweep ? "Yes" : "No" };
+            case 'continuation': return { pass: !!gates.continuation, val: gates.continuation ? "Live" : "No" };
+            default: return { pass: false, val: "—" };
+        }
+    }
+
+    // Determine strategy profile
+    const strategyName = gatesData.strategyName || 'Unknown';
+    const sNameLower = strategyName.toLowerCase();
+    let activeProfileKey = 'DEFAULT_TREND';
+    if (sNameLower.includes('reaper')) activeProfileKey = 'REAPER';
+    else if (sNameLower.includes('range') || sNameLower.includes('mean')) activeProfileKey = 'MEAN_REVERSION';
+    // Fall back to DEFAULT_TREND for TrendRider, ForexConductor, RoboCop etc.
+
+    const profile = STRATEGY_PROFILES[activeProfileKey];
+    
+    let structureChecks = profile.checks.map(chk => {
+        const result = evaluateStrategyCheck(chk.id, gatesData);
+        return { label: chk.label, pass: result.pass, val: result.val, desc: chk.desc };
+    });
+
+    let passedCount = structureChecks.filter(c => c.pass).length;
+    let checksHtml = '';
+    structureChecks.forEach(c => {
+        const iconStr = c.pass
+            ? `<span class="material-symbols-outlined" style="font-size:16px; color:${success};">check_circle</span>`
+            : `<span class="material-symbols-outlined" style="font-size:16px; color:${textDim};">radio_button_unchecked</span>`;
+        const labelColor = c.pass ? textMain : textDim;
+        const labelDecoration = c.pass ? 'none' : 'line-through';
+        const valColor = c.pass ? accent : textDim;
+        checksHtml += `
+            <div data-drawer-tt="${c.desc}" style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid ${cardBorder}; cursor:help;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    ${iconStr}
+                    <span style="font-size:13px; font-weight:500; color:${labelColor}; text-decoration:${labelDecoration}; text-decoration-color:${textDim};">${c.label}</span>
+                </div>
+                <span style="font-family:monospace; font-size:11px; text-transform:uppercase; padding:2px 8px; border-radius:4px; background:rgba(0,0,0,0.25); border:1px solid ${cardBorder}; color:${valColor};">${c.val}</span>
+            </div>
+        `;
+    });
+
+    const gradeTooltip = 'The bot\'s overall confidence grade for entering a trade right now.';
+    const scoreTooltip = 'This is the bot\'s overall confidence number (0–100). Think of it like a test score — the higher the number, the more confident the bot is.';
+    
+    // Indicators Map
+    const adxVal = gatesData.htf_adx || gatesData.adx || null;
+    const rsiVal = gatesData.rsi || null;
+    let indicatorsHtml = '';
+    let indicatorExplanation = '';
+
+    if (profile.explanationMode === 'reaper' || (gatesData.bollinger && gatesData.macd)) {
+        const bw = gatesData.bollinger ? (gatesData.bollinger.bandwidth * 100).toFixed(1) : '--';
+        indicatorsHtml = `
+            ${_buildMiniStat('B-BAND WIDTH', bw + '%', gatesData.bollinger?.squeeze ? warning : textSec, 'Bollinger Bands relative width. Indicates volatility compression.', bgCard, cardBorder, textDim)}
+            ${_buildMiniStat('RSI', rsiVal ? rsiVal.toFixed(1) : '--', (rsiVal > 70 || rsiVal < 30) ? warning : textSec, 'Relative Strength Index. Tells us if prices are overbought or oversold.', bgCard, cardBorder, textDim)}
+            ${_buildMiniStat('MACD', gatesData.macd ? gatesData.macd.histogram.toFixed(4) : '--', gatesData.macd?.histogram > 0 ? success : error, 'MACD Histogram. Shows short term momentum acceleration.', bgCard, cardBorder, textDim)}
+        `;
+        const rsiZone = rsiVal > 65 ? "an overbought zone" : rsiVal < 35 ? "an oversold zone" : "a neutral zone";
+        indicatorExplanation = `The market is currently in ${rsiZone} with an RSI of ${rsiVal?.toFixed(1)}. Bollinger Bandwidth is at ${bw}%${gatesData.bollinger?.squeeze ? " (Squeeze Active)" : ""}. The bot is actively looking for a structural mean-reversion opportunity.`;
+    } else {
+        indicatorsHtml = `
+            ${_buildMiniStat('ADX', adxVal ? adxVal.toFixed(1) : '--', adxVal > 25 ? success : warning, 'Average Directional Index — measures how strong the current trend is. Think of it like a speedometer for the trend.', bgCard, cardBorder, textDim)}
+            ${_buildMiniStat('RSI', rsiVal ? rsiVal.toFixed(1) : '--', (rsiVal > 70 || rsiVal < 30) ? warning : textSec, 'Relative Strength Index — tells us if prices have moved too far, too fast.', bgCard, cardBorder, textDim)}
+            ${_buildMiniStat('HTF STR', htfStr + '%', htfStr > 50 ? success : textDim, 'Higher Timeframe Strength — how decisively the big-picture trend is moving.', bgCard, cardBorder, textDim)}
+        `;
+        let adxExplain = adxVal !== null ? (adxVal > 25 ? `ADX is ${adxVal.toFixed(1)} (strong trend).` : `ADX is ${adxVal.toFixed(1)} (weak trend).`) : '';
+        let strExplain = htfStr > 50 ? "Long-term strength is pushing hard." : "Long-term strength is flat.";
+        indicatorExplanation = `${adxExplain} ${strExplain} The bot prefers to ride strong momentum waves and avoids flat chop.`;
+    }
+
+    const phaseTooltip = phaseDescriptions[phaseLabel] || phaseDescriptions['UNKNOWN'];
+    const regimeTooltip = regimeDescriptions[regimeLabel] || 'Current volatility classification of the market.';
+
+    let rawHtml = `
+        <!-- Header -->
+        <div style="padding:24px 28px; border-bottom:1px solid ${cardBorder}; display:flex; align-items:center; justify-content:space-between; background:linear-gradient(90deg, transparent 0%, ${accentDim} 100%); flex-shrink:0;">
+            <div style="display:flex; align-items:center; gap:14px;">
+                <div style="width:42px; height:42px; border-radius:12px; background:${accentDim}; border:1px solid ${accentGlow}; display:flex; align-items:center; justify-content:center;">
+                    <span class="material-symbols-outlined" style="font-size:22px; color:${accent};">analytics</span>
+                </div>
+                <div>
+                    <h2 style="margin:0; font-size:20px; font-weight:900; color:${textMain}; letter-spacing:-0.01em;">${symbol} Analysis</h2>
+                    <span style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:${textMuted};">Decision Diagnostic</span>
+                </div>
+            </div>
+            <button id="close-drawer-btn" data-drawer-tt="Close this panel" style="width:36px; height:36px; border-radius:50%; background:rgba(255,255,255,0.05); border:1px solid ${cardBorder}; color:${textMuted}; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s;">
+                <span class="material-symbols-outlined" style="font-size:18px;">close</span>
+            </button>
+        </div>
+
+        <!-- Scrollable Content -->
+        <div style="flex:1; overflow-y:auto; padding:28px; display:flex; flex-direction:column; gap:28px;" class="scrollbar-thin">
+            
+            <!-- Market Phase Section -->
+            <div>
+                <div style="font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.2em; color:${textMuted}; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                    <span class="material-symbols-outlined" style="font-size:14px; color:${accent};">timeline</span>
+                    Market Phase
+                </div>
+                <div style="background:${bgCard}; border:1px solid ${cardBorder}; border-radius:12px; padding:20px; backdrop-filter:blur(12px);" data-drawer-tt="${phaseTooltip}">
+                    <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:10px; cursor:help;">
+                        <span style="font-size:24px; font-weight:900; color:${accent}; text-transform:capitalize;">${phaseLabel}</span>
+                        <span data-drawer-tt="${regimeTooltip}" style="font-size:12px; font-weight:700; font-family:monospace; color:${regimeLabel === 'TRENDING' ? success : regimeLabel === 'CHOPPY' ? error : warning}; padding:2px 8px; border-radius:6px; background:rgba(0,0,0,0.3); border:1px solid ${cardBorder}; cursor:help;">${regimeLabel}</span>
+                    </div>
+                    <p style="font-size:12px; color:${textSec}; line-height:1.7; margin:0;">
+                        ${phaseTooltip}
+                    </p>
+                </div>
+            </div>
+
+            <!-- Structure Conditions -->
+            <div>
+                <div style="font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.2em; color:${textMuted}; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
+                    <span style="display:flex; align-items:center; gap:8px;" data-drawer-tt="These are the conditions the bot checks before entering a trade. Think of them as a safety checklist.">
+                        <span class="material-symbols-outlined" style="font-size:14px; color:${accent};">checklist</span>
+                        Entry Requirements
+                    </span>
+                    <span data-drawer-tt="Count of requirements met vs needed." style="font-size:11px; font-weight:800; color:${passedCount >= 4 ? success : passedCount >= 2 ? warning : error}; cursor:help;">${passedCount}/${structureChecks.length} MET</span>
+                </div>
+                <div style="background:${bgCard}; border-radius:12px; padding:4px 16px; border:1px solid ${cardBorder}; backdrop-filter:blur(8px);">
+                    ${checksHtml}
+                </div>
+            </div>
+
+            <!-- Score/Grade Cards -->
+            <div>
+                <div style="font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.2em; color:${textMuted}; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                    <span class="material-symbols-outlined" style="font-size:14px; color:${accent};">speed</span>
+                    Real-Time Grading
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div data-drawer-tt="${scoreTooltip}" style="background:${bgCard}; border-radius:12px; padding:16px 20px; border:1px solid ${cardBorder}; cursor:help; backdrop-filter:blur(8px);">
+                        <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:${textMuted}; margin-bottom:6px;">Composite Score</div>
+                        <div style="font-size:28px; font-weight:900; font-family:monospace; color:${accent};">${scoreVal}<span style="font-size:14px; color:${textDim};">/100</span></div>
+                    </div>
+                    <div data-drawer-tt="${gradeTooltip}" style="background:${bgCard}; border-radius:12px; padding:16px 20px; border:1px solid ${cardBorder}; cursor:help; backdrop-filter:blur(8px);">
+                        <div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:${textMuted}; margin-bottom:6px;">Final Grade</div>
+                        <div style="font-size:28px; font-weight:900; color:${gradeColor};">${gradeVal}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Indicator Snapshot -->
+            <div>
+                <div style="font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.2em; color:${textMuted}; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                    <span class="material-symbols-outlined" style="font-size:14px; color:${accent};">monitoring</span>
+                    Indicator Snapshot
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+                    ${indicatorsHtml}
+                </div>
+                <div style="margin-top:14px; padding:14px 16px; background:${bgCard}; border:1px solid ${cardBorder}; border-radius:10px; backdrop-filter:blur(8px);">
+                    <div style="display:flex; align-items:start; gap:10px;">
+                        <span class="material-symbols-outlined" style="font-size:16px; color:${accent}; margin-top:1px; flex-shrink:0;">auto_awesome</span>
+                        <p style="font-size:12px; color:${textSec}; line-height:1.7; margin:0;">${indicatorExplanation}</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div style="padding:16px 28px; border-top:1px solid ${cardBorder}; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; background:rgba(0,0,0,0.15); backdrop-filter:blur(8px);">
+            <span style="font-size:10px; color:${textDim}; font-weight:600; text-transform:uppercase; letter-spacing:0.1em;">Live Engine Diagnostic</span>
+            <span style="font-size:10px; color:${textDim}; font-family:monospace;">Updated ${new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', hour12:true})}</span>
+        </div>
+    `;
+
+    drawer.innerHTML = bindTooltip(rawHtml);
+    document.body.appendChild(drawer);
+
+    // Tooltip event bindings
+    const triggerElements = drawer.querySelectorAll('[data-drawer-tt]');
+    triggerElements.forEach(el => {
+        el.addEventListener('mouseenter', (ev) => {
+            const tipText = el.getAttribute('data-drawer-tt');
+            if(!tipText) return;
+            customTT.innerHTML = tipText;
+            customTT.style.opacity = '1';
+            const br = el.getBoundingClientRect();
+            // Position above the element
+            customTT.style.left = (br.left + br.width / 2) + 'px';
+            customTT.style.top = (br.top - 5) + 'px';
+        });
+        el.addEventListener('mouseleave', () => { customTT.style.opacity = '0'; });
+    });
+
+    // Hover effect on close button
+    const closeBtn = document.getElementById('close-drawer-btn');
+    closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'rgba(239,68,68,0.15)'; closeBtn.style.borderColor = 'rgba(239,68,68,0.3)'; closeBtn.style.color = '#f87171'; });
+    closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'rgba(255,255,255,0.05)'; closeBtn.style.borderColor = cardBorder; closeBtn.style.color = textMuted; });
+
+    // Trigger open animations
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            overlay.style.opacity = '1';
+            drawer.style.transform = 'translateX(0)';
+        });
+    });
+
+    const closeDrawer = () => {
+        overlay.style.opacity = '0';
+        drawer.style.transform = 'translateX(100%)';
+        customTT.style.opacity = '0';
+        setTimeout(() => {
+            if (drawer.parentElement) drawer.remove();
+            if (overlay.parentElement) overlay.remove();
+            if (customTT.parentElement) customTT.remove();
+        }, 350);
+    };
+
+    closeBtn.addEventListener('click', closeDrawer);
+    overlay.addEventListener('click', closeDrawer);
+
+    const escHandler = (e) => { if (e.key === 'Escape') { closeDrawer(); document.removeEventListener('keydown', escHandler); } };
+    document.addEventListener('keydown', escHandler);
+}
+
+// Helper for indicator mini-stat cards inside the drawer
+function _buildMiniStat(label, value, color, tooltip, bgCard, cardBorder, textDim) {
+    const displayVal = (value !== null && value !== undefined) ? (typeof value === 'number' ? value.toFixed(1) : value) : '—';
+    const bg = bgCard || 'rgba(0,0,0,0.3)';
+    const border = cardBorder || 'rgba(255,255,255,0.04)';
+    const dimColor = textDim || '#475569';
+    const tt = tooltip ? ` title="${tooltip}"` : '';
+    return `<div${tt} style="background:${bg}; border-radius:8px; padding:12px; border:1px solid ${border}; text-align:center; cursor:help; backdrop-filter:blur(8px);">
+        <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:${dimColor}; margin-bottom:4px;">${label}</div>
+        <div style="font-size:16px; font-weight:800; font-family:monospace; color:${color};">${displayVal}</div>
+    </div>`;
 }
 
 // --- IPC / Socket Logic ---

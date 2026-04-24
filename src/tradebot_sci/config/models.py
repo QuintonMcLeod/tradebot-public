@@ -603,6 +603,14 @@ class TradingProfileSettings(BaseModel):
         default=-0.80,
         description="R-multiple that triggers Tier-1 Guillotine cut.",
     )
+    # ── Reaper Kinetics (Hybrid Scalper) ──
+    trend_ema: int = Field(default=200, description="Macro trend filter period")
+    bb_period: int = Field(default=20, description="Bollinger Band period")
+    bb_std: float = Field(default=1.5, description="Bollinger Band standard deviation multiplier")
+    rsi_period: int = Field(default=7, description="RSI period")
+    rsi_overbought: int = Field(default=60, description="RSI overbought threshold")
+    rsi_oversold: int = Field(default=40, description="RSI oversold threshold")
+    # ──────────────────────────────────────
     tier1_cut_fraction: float = Field(
         default=0.80,
         ge=0.0,

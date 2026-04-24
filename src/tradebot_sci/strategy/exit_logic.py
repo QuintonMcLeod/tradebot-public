@@ -65,7 +65,7 @@ def run_universal_exit_logic(
             continue
         strat_decision = None
         if exit_strategy_key == "trend_invalidation":
-            strat_decision = _exit_trend_invalidation(snapshot, open_position, current_price, direction, gates)
+            strat_decision = _exit_trend_invalidation(snapshot, open_position, current_price, direction, gates, strategy_name)
         elif exit_strategy_key == "structure_failure":
             strat_decision = _exit_structure_failure(snapshot, open_position, current_price, direction)
         if strat_decision and getattr(strat_decision, "action", None) == "close_position":
@@ -430,7 +430,7 @@ def reset_state():
     _trend_inval_trade_ids.clear()
     logger.info("[EXIT-LOGIC] Module state reset for new replay day")
 
-def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates):
+def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates, strategy_name=""):
     """13. Trend Invalidation — 3-layer tiered cascade using gate signals.
 
     Each layer reads the directional output already computed by trend_consensus
@@ -448,6 +448,9 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates):
     """
     import logging
     logger = logging.getLogger("tradebot_sci")
+
+    if strategy_name.lower() in {"reversal", "counter_reversal"}:
+        return None  # Reversal strategies are inherently counter-trend and exempt from this kill-shot.
 
     sym = snapshot.symbol
     entry_ts_str = str(pos.get("entry_time", ""))

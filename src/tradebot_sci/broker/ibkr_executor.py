@@ -308,7 +308,12 @@ class IbkrExecutor:
     def execute_decision(self, decision: AITradeDecision) -> tuple[ExecutionResult, ExecutionOutcome]:
         """Places or simulates orders based on AITradeDecision, while double-checking sanity."""
         if self.settings.read_only or self.settings.execution_mode == "simulate":
-            logger.info("Read-only or simulate mode: would execute %s", decision.summary())
+            logger.info(
+                "BLOCKED (Simulate Mode Fallback): read_only=%s, execution_mode=%s. Would execute %s", 
+                self.settings.read_only, 
+                self.settings.execution_mode, 
+                decision.summary()
+            )
             return (
                 ExecutionResult(ExecutionStatus.STAND_ASIDE, decision.symbol, "simulation mode"),
                 self._make_outcome(

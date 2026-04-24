@@ -67,11 +67,17 @@ def _log_once(level: int, msg: str, *args: Any) -> None:
 
 
 def _load_json(path: Path) -> Dict[str, Any]:
-    """Load a JSON file, return empty dict if missing."""
+    """Load a JSON file, return empty dict if missing or invalid."""
     if not path.exists():
         return {}
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except json.JSONDecodeError as err:
+        logger.error(f"\n[CONFIG ERROR] Failed to parse JSON in {path.name}: {err}")
+        logger.error("[CONFIG ERROR] This is usually caused by a syntax error (like trailing commas, missing quotes, or pasting markdown backticks).")
+        logger.error("[CONFIG ERROR] Bypassing corrupted config. The bot will use default settings until the file is fixed.\n")
+        return {}
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
@@ -335,7 +341,32 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         oanda_data["api_key"] = os.getenv("OANDA_API_KEY", "")
     
     ibkr_data = brokers_cfg.get("ibkr", {})
-    
+    if not ibkr_data:
+        # Auto-migrate flat broker properties into the ibkr block if nested block is missing
+        for k in ["port", "paper", "read_only", "host", "client_id"]:
+            if k in brokers_cfg:
+                ibkr_data[k] = brokers_cfg[k]
+                
+    # Map 'paper' to 'use_paper_trading' if provided
+    if "paper" in ibkr_data and "use_paper_trading" not in ibkr_data:
+        ibkr_data["use_paper_trading"] = ibkr_data.pop("paper")
+        
+    # Honor global execute_trades stringently
+    global_exec = app_cfg.get("execute_trades", False)
+    if global_exec:
+        # If the user sets execute_trades: true, assume they want a live session 
+        # and disable read_only and paper unless they explicitly opted in.
+        if ibkr_data.get("use_paper_trading", None) is None:
+            ibkr_data["use_paper_trading"] = False
+        
+        ibkr_data["execution_mode"] = "paper" if ibkr_data["use_paper_trading"] else "live"
+        
+        # Ensure read_only is False when doing live execution!
+        if ibkr_data.get("read_only", None) is None and ibkr_data["execution_mode"] == "live":
+            ibkr_data["read_only"] = False
+    else:
+        ibkr_data["execution_mode"] = "simulate"
+
     gemini_data = brokers_cfg.get("gemini", {})
     if not gemini_data.get("api_key"):
         gemini_data["api_key"] = os.getenv("GEMINI_API_KEY", "")

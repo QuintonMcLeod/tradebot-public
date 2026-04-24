@@ -159,8 +159,8 @@ async function connectWebSocket() {
         window._isWsConnected = true;
         window._wsReconnectAttempts = 0;
         
-        // Give the backend a 20s grace period on startup before enforcing health heartbeat
-        window._lastHealthUpdate = Date.now() + 20000;
+        // Give the backend a 60s grace period on startup before enforcing health heartbeat
+        window._lastHealthUpdate = Date.now() + 60000;
         
         // Let the Vitals tab re-render immediately to reflect connected state if it's open
         if (typeof renderTab === 'function' && document.querySelector('.vitals-banner')) {
@@ -187,9 +187,9 @@ async function connectWebSocket() {
                 }
                 
                 // Guard against Zombie backend: verify actual health data is flowing
-                // Backend broadcasts health every 30s, so give it up to 45s before assuming a zombie crash
-                if (window._lastHealthUpdate && (now - window._lastHealthUpdate > 45000)) {
-                    console.warn("[WS] Health Vitals timeout (No loop data in 45s). Bot loop stalled. Forcing reconnect...");
+                // Backend broadcasts health every 30s, so give it up to 90s before assuming a zombie crash
+                if (window._lastHealthUpdate && (now - window._lastHealthUpdate > 90000)) {
+                    console.warn("[WS] Health Vitals timeout (No loop data in 90s). Bot loop stalled. Forcing reconnect...");
                     ws.close();
                     return;
                 }
@@ -471,17 +471,23 @@ async function connectWebSocket() {
                     const gainPct = document.getElementById('eval-gain-pct');
                     const gainBar = document.getElementById('eval-gain-bar');
                     if (gainPct && gainBar) {
-                        const v = m.gain_pct;
+                        const v = Math.max(0, m.gain_pct);
                         gainPct.innerText = (v > 0 ? '+' : '') + v.toFixed(2) + '%';
                         gainPct.className = v >= 0
-                            ? 'text-sm font-black text-teal-400'
+                            ? 'text-sm font-black theme-accent'
                             : 'text-sm font-black text-white/40';
+                        if (v >= 0) gainPct.style.color = 'var(--accent, #2dd4bf)';
+
                         const fill = Math.max(0, Math.min(100, (v / m.target_pct) * 100));
                         gainBar.style.width = fill + '%';
+                        
+                        gainBar.style.transition = 'none'; // Prevent rapid WS updates from freezing width at 0
                         if (fill >= 100) {
-                            gainBar.className = 'h-full rounded-full bg-yellow-400 transition-all duration-500 ease-out shadow-[0_0_8px_rgba(250,204,21,0.5)]';
+                            gainBar.style.backgroundColor = '#facc15';
+                            gainBar.style.boxShadow = '0 0 8px rgba(250,204,21,0.5)';
                         } else {
-                            gainBar.className = 'h-full rounded-full bg-teal-500 transition-all duration-500 ease-out shadow-[0_0_6px_rgba(20,184,166,0.4)]';
+                            gainBar.style.backgroundColor = 'var(--accent, #14b8a6)';
+                            gainBar.style.boxShadow = '0 0 6px var(--accent-glow, rgba(20,184,166,0.4))';
                         }
                     }
                     
@@ -489,20 +495,30 @@ async function connectWebSocket() {
                     const dlPct = document.getElementById('eval-dl-pct');
                     const dlBar = document.getElementById('eval-dl-bar');
                     if (dlPct && dlBar) {
-                        const v = m.daily_drawdown_pct;
+                        const v = Math.max(0, m.daily_drawdown_pct);
                         dlPct.innerText = v.toFixed(2) + '%';
                         const ratio = m.daily_loss_pct > 0 ? (v / m.daily_loss_pct) * 100 : 0;
                         const fill = Math.max(0, Math.min(100, ratio));
                         dlBar.style.width = fill + '%';
+                        dlBar.style.transition = 'none';
+
                         if (ratio >= 85) {
                             dlPct.className = 'text-sm font-black text-red-400';
-                            dlBar.className = 'h-full rounded-full bg-red-500 transition-all duration-500 ease-out shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse';
+                            dlBar.style.backgroundColor = '#ef4444';
+                            dlBar.style.boxShadow = '0 0 8px rgba(239,68,68,0.6)';
+                            dlBar.classList.add('animate-pulse');
                         } else if (ratio >= 50) {
-                            dlPct.className = 'text-sm font-black text-amber-400';
-                            dlBar.className = 'h-full rounded-full bg-amber-500 transition-all duration-500 ease-out shadow-[0_0_6px_rgba(245,158,11,0.5)]';
+                            dlPct.className = 'text-sm font-black';
+                            dlPct.style.color = 'var(--accent, #f59e0b)';
+                            dlBar.style.backgroundColor = 'var(--accent, #f59e0b)';
+                            dlBar.style.boxShadow = '0 0 6px var(--accent-glow, rgba(245,158,11,0.5))';
+                            dlBar.classList.remove('animate-pulse');
                         } else {
                             dlPct.className = v > 0 ? 'text-sm font-black text-white/60' : 'text-sm font-black text-white/40';
-                            dlBar.className = 'h-full rounded-full bg-amber-500/60 transition-all duration-500 ease-out shadow-[0_0_4px_rgba(245,158,11,0.3)]';
+                            dlBar.style.backgroundColor = 'var(--accent, #f59e0b)';
+                            dlBar.style.opacity = '0.6';
+                            dlBar.style.boxShadow = '0 0 4px var(--accent-glow, rgba(245,158,11,0.3))';
+                            dlBar.classList.remove('animate-pulse');
                         }
                     }
                     
@@ -510,20 +526,30 @@ async function connectWebSocket() {
                     const ddPct = document.getElementById('eval-dd-pct');
                     const ddBar = document.getElementById('eval-dd-bar');
                     if (ddPct && ddBar) {
-                        const v = m.current_drawdown_pct;
+                        const v = Math.max(0, m.current_drawdown_pct);
                         ddPct.innerText = v.toFixed(2) + '%';
                         const ratio = m.max_loss_pct > 0 ? (v / m.max_loss_pct) * 100 : 0;
                         const fill = Math.max(0, Math.min(100, ratio));
                         ddBar.style.width = fill + '%';
+                        ddBar.style.transition = 'none';
+
                         if (ratio >= 85) {
                             ddPct.className = 'text-sm font-black text-red-500';
-                            ddBar.className = 'h-full rounded-full bg-red-600 transition-all duration-500 ease-out shadow-[0_0_8px_rgba(220,38,38,0.6)] animate-pulse';
+                            ddBar.style.backgroundColor = '#ef4444';
+                            ddBar.style.boxShadow = '0 0 8px rgba(220,38,38,0.6)';
+                            ddBar.classList.add('animate-pulse');
                         } else if (ratio >= 50) {
-                            ddPct.className = 'text-sm font-black text-amber-400';
-                            ddBar.className = 'h-full rounded-full bg-amber-500 transition-all duration-500 ease-out shadow-[0_0_6px_rgba(245,158,11,0.5)]';
+                            ddPct.className = 'text-sm font-black';
+                            ddPct.style.color = 'var(--accent, #f59e0b)';
+                            ddBar.style.backgroundColor = 'var(--accent, #f59e0b)';
+                            ddBar.style.boxShadow = '0 0 6px var(--accent-glow, rgba(245,158,11,0.5))';
+                            ddBar.classList.remove('animate-pulse');
                         } else {
                             ddPct.className = v > 0 ? 'text-sm font-black text-white/60' : 'text-sm font-black text-white/40';
-                            ddBar.className = 'h-full rounded-full bg-amber-500/60 transition-all duration-500 ease-out shadow-[0_0_4px_rgba(245,158,11,0.3)]';
+                            ddBar.style.backgroundColor = 'var(--accent, #f59e0b)';
+                            ddBar.style.opacity = '0.6';
+                            ddBar.style.boxShadow = '0 0 4px var(--accent-glow, rgba(245,158,11,0.3))';
+                            ddBar.classList.remove('animate-pulse');
                         }
                     }
                 }
