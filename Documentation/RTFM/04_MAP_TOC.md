@@ -55,7 +55,7 @@ description: "\"Where is main.py again?\" The project structure is classic Pytho
 │       │   ├── profiles.py     # Profile-specific overrides
 │       │   ├── icc_signals.py  # ICC signal detection
 │       │   ├── scoring.py      # ICC scoring system
-│       │   └── variants/       # 20 Individual strategy implementations
+│       │   └── variants/       # 36 Individual strategy implementations
 │       │       ├── base.py                 # Base class for all strategies
 │       │       ├── meta_sci.py             # ⭐ Meta-SCI Ensemble
 │       │       ├── rubberband_reaper.py    # Mean Reversion + Anti-Martingale
@@ -138,12 +138,15 @@ description: "\"Where is main.py again?\" The project structure is classic Pytho
 │       ├── 06_PANIC_BUTTON.md      # Troubleshooting
 │       ├── 07_COCKPIT_CONTROLS.md  # Configuration Guide
 │       ├── 08_API_SETUP.md         # API Connection Guide
-│       ├── 09_FEET_WET_STRATEGY.md # All 20 Strategies Explained
+│       ├── 09_FEET_WET_STRATEGY.md # All 36 Strategies Explained
 │       ├── 10_THE_ANCIENT_OATHS.md # AI Guidelines
 │       ├── 11_GHOST_IN_MACHINE.md  # AI & Strategy Logic
-│       ├── 12_TIME_MACHINE.md      # Backtesting
+│       ├── 12_TIME_MACHINE.md      # Backtesting Methods
 │       ├── 13_ENV_VARS.md          # Environment Variables Reference
-│       └── 45_QUANTITATIVE_STRATEGIES.md # 📈 7 Advanced Algorithms Explained
+│       ├── 45_QUANTITATIVE_STRATEGIES.md # 📈 7 Advanced Algorithms Explained
+│       ├── 51_MINOVSKY_PARITY.md   # Temporal Parity & Minovsky Engine
+│       ├── 52_EXIT_ROUTER.md       # Universal Exit Router & Shields
+│       └── 53_ACCOUNTING_PHYSICS.md # PnL Integrity & Cost Basis Physics
 │
 ├── logs/                       # Where the bot screams into the void
 │   └── tradebot.log            # The main log file

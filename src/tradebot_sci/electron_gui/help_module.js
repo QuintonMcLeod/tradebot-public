@@ -5,7 +5,7 @@ window.helpModule = (() => {
     let initialized = false;
     let docCatalog = [];
     let activeDoc = null;
-    let helpSortOption = 'newest';
+    let helpSortOption = 'newbie';
 
     // ── Markdown → HTML Renderer ─────────────────────────────
     function renderMarkdown(md) {
@@ -1046,6 +1046,7 @@ window.helpModule = (() => {
             <div class="help-sort-control" style="display: flex; gap: 8px; align-items: center;">
                 <label style="font-size: 0.7rem; color: var(--text-muted); font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;">Sort By:</label>
                 <select id="help-sort-select" style="background: var(--bg-primary, #0f172a); border: 1px solid var(--border-color, rgba(255,255,255,0.1)); color: var(--text-primary); padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; outline: none;">
+                    <option style="background: var(--bg-primary, #0f172a); color: var(--text-primary, #e2e8f0);" value="newbie" ${helpSortOption === 'newbie' ? 'selected' : ''}>Newbie (By Order)</option>
                     <option style="background: var(--bg-primary, #0f172a); color: var(--text-primary, #e2e8f0);" value="newest" ${helpSortOption === 'newest' ? 'selected' : ''}>Newest First</option>
                     <option style="background: var(--bg-primary, #0f172a); color: var(--text-primary, #e2e8f0);" value="oldest" ${helpSortOption === 'oldest' ? 'selected' : ''}>Oldest First</option>
                     <option style="background: var(--bg-primary, #0f172a); color: var(--text-primary, #e2e8f0);" value="featured" ${helpSortOption === 'featured' ? 'selected' : ''}>Featured First</option>
@@ -1066,16 +1067,21 @@ window.helpModule = (() => {
             const aUnread = !readDocs.includes(a.filename) ? 1 : 0;
             const bUnread = !readDocs.includes(b.filename) ? 1 : 0;
 
-            if (helpSortOption === 'newest') {
+            const aName = a.filename || '';
+            const bName = b.filename || '';
+
+            if (helpSortOption === 'newbie') {
+                return aName.localeCompare(bName);
+            } else if (helpSortOption === 'newest') {
                 if (aUnread !== bUnread) return bUnread - aUnread; // Float unread to top
-                return b.filename.localeCompare(a.filename);
+                return bName.localeCompare(aName);
             } else if (helpSortOption === 'oldest') {
-                return a.filename.localeCompare(b.filename);
+                return aName.localeCompare(bName);
             } else if (helpSortOption === 'featured') {
                 if (a.featured && !b.featured) return -1;
                 if (!a.featured && b.featured) return 1;
                 if (aUnread !== bUnread) return bUnread - aUnread;
-                return b.filename.localeCompare(a.filename);
+                return bName.localeCompare(aName);
             }
             return 0;
         });

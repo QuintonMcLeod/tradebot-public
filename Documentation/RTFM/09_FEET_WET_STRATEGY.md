@@ -1,9 +1,9 @@
 ---
-title: '28 Weapons of War: The Complete Strategy Arsenal'
+title: '36 Weapons of War: The Complete Strategy Arsenal'
 category: rtfm
 icon: strategy
 description: "\"One strategy doesn't fit all markets. Choose your weapon wisely \u2014\
-  \ or let Meta-SCI choose for you.\" TradeBot SCI supports 28 distinct trading strategies\
+  \ or let Meta-SCI choose for you.\" TradeBot SCI supports 36 distinct trading strategies\
   \ \u2014 including the new Forex Conductor with regime-based routing and per-symbol\
   \ cooldowns. You can assign different strategies to different asset classes, or\
   \ use Meta-SCI to let the bot pick the best one automatically via tournament-style\
@@ -11,9 +11,9 @@ description: "\"One strategy doesn't fit all markets. Choose your weapon wisely 
 featured: true
 ---
 
-# 09. 28 Weapons of War: The Complete Strategy Arsenal
+# 09. 36 Weapons of War: The Complete Strategy Arsenal
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I want to understand the strategies! There's like... twenty-eight of them? Which one do I pick? This is like being at a buffet where everything is labeled in a language I don't speak."</td></tr></table>
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I want to understand the strategies! There's like... thirty-six of them? Which one do I pick? This is like being at a buffet where everything is labeled in a language I don't speak."</td></tr></table>
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You don't pick! Why would you pick? I spent months building Meta-SCI so you don't have to make decisions that you are completely unqualified to make! But fine, since you want to look at the shiny toys, let me walk you through the catalog. You don't need to touch them, just look at them and appreciate the engineering!"</td></tr></table>
 
@@ -42,6 +42,10 @@ featured: true
 | **Engulfing Reversal** | `bearish_engulfing` | Candlestick Pattern Recognition | Key reversal levels |
 | **ICC Core** | `icc_core` | Pure ICC Structure Trading | Structure-first patience |
 | **ORB Breakout** | `orb_breakout` | Opening Range Breakout | First-hour range breaks |
+| **Golden Pocket** | `golden_pocket` | Dynamic Value Pullback | Strong trending macro markets |
+| **ICC Core Standalone** | `icc_core_standalone` | Vanilla ICC Entry Model | Strictly pure ICT structure |
+| **Wind Down Truffle** | `wind_down_truffle` | Friday Afternoon Fade | Assets with Friday PM weekend closes |
+| **Yo-Yo** | `yoyo` | SAR Trend-Follower | Accelerating sustained trends |
 
 ### Crypto-Specific Strategies
 
@@ -68,6 +72,15 @@ featured: true
 | Strategy | Key | Style | Best For |
 |----------|-----|-------|----------|
 | 📈 **Forex Conductor** | `forex_conductor` | Regime-Based Router (SAR + Pyramiding) | Forex trending — per-symbol cooldowns, cost-aware TP |
+| 📈 **Forex Hybrid Reaper** | `forex_hybrid_reaper` | Spaced Mean Reversion | Forex ranging markets |
+| 🕰️ **London Sweep** | `london_sweep` | European Open Sweep | Trading GBP/EUR liquidity hunts |
+| 🕰️ **New York Drive** | `new_york_drive` | US Session Momentum | High-volatility USD dollar moves |
+
+### Futures-Specific Strategies
+
+| Strategy | Key | Style | Best For |
+|----------|-----|-------|----------|
+| 🏛️ **Silver VWAP** | `silver_vwap` | 10AM VWAP Breakout | CME Futures (NQ/ES) morning trends |
 
 ### Advanced Quantitative Strategies
 
@@ -85,7 +98,7 @@ featured: true
 
 ## 1. Meta-SCI — The Adaptive Ensemble ⭐
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Why would you commit to one strategy? That's insane! The bot can run twenty-eight options in the time it takes you to blink! It's literally putting 28 traders in a cage match and only paying the one who wins. It's brutal, it's efficient, and it doesn't complain about the air conditioning!"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Why would you commit to one strategy? That's insane! The bot can run thirty-six options in the time it takes you to blink! It's literally putting 36 traders in a cage match and only paying the one who wins. It's brutal, it's efficient, and it doesn't complain about the air conditioning!"</td></tr></table>
 
 ### How the Tournament Works
 
@@ -261,11 +274,67 @@ Tournament:
 
 ---
 
+---
+
+## 11. Golden Pocket
+
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"Price seeks equilibrium. When an established trend corrects into the golden mathematical ratios — it is merely gathering breath for the next leap."</em></td></tr></table>
+
+**How It Works:**
+1. **Macro Trend Filter:** Requires structural EMA 21 to sit cleanly above EMA 55.
+2. **Value Identification:** Waits for a meaningful pullback into the value pocket.
+3. **Execution:** Buys the dip at the "golden" discount without trying to catch a falling knife.
+
+**Best For:** Strong macro trends offering brief retracements.
+
+---
+
+## 12. ICC Core Standalone
+
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"For those who think Meta-SCI is too wild. This is the pure, unadulterated Trade By SCI doctrine. Nothing extra."</td></tr></table>
+
+**How It Works:**
+1. **Direction Bias:** Locks onto purely the High Timeframe structural direction.
+2. **Sweep Detection:** Requires a liquidity sweep of a major swing level.
+3. **Displacement:** Requires 3+ momentum candles confirming the reversal.
+4. **OTE Alignment:** Only enters if the market pulls back precisely into the Optimal Trade Entry zone.
+
+**Best For:** Structural purists trading the true ICT Entry Model.
+
+---
+
+## 13. Yo-Yo
+
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Do not guess when the trend ends. Ride it until you are thrown off."</em></td></tr></table>
+
+**How It Works:**
+1. **Trend Filter:** Uses the 50 SMA as a strict "no-fly zone."
+2. **Candle Check:** Entry candles must close strongly in their directional top/bottom 30%.
+3. **SAR Stop:** Employs Parabolic SAR moving stops.
+4. **Risk Escalator:** Automatically increases position size after winners, pressing the advantage.
+
+**Best For:** Markets experiencing prolonged, low-pullback trends.
+
+---
+
+## 14. Wind Down Truffle
+
+<table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"Everyone goes home on Friday at 2 PM. Volume disappears. Price drifts lazily. It is the easiest money of the entire week."</em></td></tr></table>
+
+**How It Works:**
+1. **Time Lock:** Only active between Friday 12:00 PM and 4:30 PM ET.
+2. **VWAP Fade:** Shorts markets drifting below session VWAP with declining EMA momentum.
+3. **Volume Check:** Rejects entries if volume spikes (thin liquidity fading only).
+
+**Best For:** Boring, dead Friday afternoons across any major asset.
+
+---
+
 ## Crypto-Specific Strategies
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"These four are designed specifically for the crypto wild west. They're automatically included in Meta-SCI tournaments when scanning crypto symbols. You don't need to manually enable them — the bot knows when it's looking at Bitcoin versus EURUSD."</td></tr></table>
 
-### 11. RSI + MACD (Crypto)
+### 15. RSI + MACD (Crypto)
 
 The classic combo, optimized for crypto volatility.
 
@@ -275,7 +344,7 @@ The classic combo, optimized for crypto volatility.
 
 **Best For:** Trending crypto markets (BTC, ETH during strong moves).
 
-### 12. VWAP Reversion (Crypto)
+### 16. VWAP Reversion (Crypto)
 
 <table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"Price always visits VWAP. Always. It may wander, but it returns. Like a cat that pretends it doesn't live at your house."</em></td></tr></table>
 
@@ -285,7 +354,7 @@ The classic combo, optimized for crypto volatility.
 
 **Best For:** Ranging crypto. Works well during low-volatility periods.
 
-### 13. Double MACD (Crypto)
+### 17. Double MACD (Crypto)
 
 Two timeframes, one signal. Like having bifocals for the market.
 
@@ -295,7 +364,7 @@ Two timeframes, one signal. Like having bifocals for the market.
 
 **Best For:** Crypto scalping. Short-duration trades in trending conditions.
 
-### 14. Virtual Grid (Crypto)
+### 18. Virtual Grid (Crypto)
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Grid trading without the grid. Instead of placing 50 limit orders and praying, this strategy places virtual buy/sell levels and only triggers when price actually reaches them. Much cleaner. Much less terrifying."</td></tr></table>
 
@@ -304,6 +373,62 @@ Two timeframes, one signal. Like having bifocals for the market.
 3. **Mean Reversion:** Buys at lower levels, sells at upper levels
 
 **Best For:** Crypto sideways markets. Accumulation during consolidation.
+
+---
+
+## Forex-Specific Strategies
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"These are ruthlessly optimized for fiat currencies. You don't bring a crypto grid-trading bot to a Eurozone central bank rate hike. You bring these."</td></tr></table>
+
+### 19. Forex Conductor
+
+The flagship regime-based router handling the most complex of forex currents.
+
+1. **Trend Analysis:** Analyzes High Timeframe ADX to verify strong, tradable trends.
+2. **Cooldown Control:** Implements per-symbol cooldowns to stop churn when a pair stalls.
+3. **Execution:** Manages entries using cost-aware TP tracking to overcome forex spread drag.
+
+**Best For:** Majors and minors that follow central bank trajectories.
+
+### 20. Forex Hybrid Reaper
+
+The classic Reaper framework slightly reconfigured for currency speed.
+
+1. **Mean Reversion:** Targets bollinger explosions on M5/M15 standard pairs.
+2. **Spread Considerations:** Widens validation checks to prevent getting chopped by broker swaps.
+
+**Best For:** EURUSD, USDJPY traversing tight daily ranges.
+
+### 21. London Sweep
+
+<table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"FRANKFURT WAKES UP AND HUNTS LIQUIDITY! WE HUNT WITH THEM!"</td></tr></table>
+
+1. **Session Anchor:** Tracks overnight Asian ranges.
+2. **London Open:** Trades the aggressive whipsaw commonly found at 3:00 AM EST.
+3. **Target:** Hunts the opposite end of the Asian session block.
+
+**Best For:** GBP and EUR crosses during EU morning.
+
+### 22. New York Drive
+
+1. **US Open Anchor:** Capitalizes on the 8:00 AM - 10:00 AM EST volume glut.
+2. **Alignment:** Looks for alignment between the London high and NY opening momentum.
+
+**Best For:** USD crosses during Wall Street hours.
+
+---
+
+## Futures-Specific Strategies
+
+### 23. Silver VWAP
+
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"TEN AM! TEN AM! IT'S THE SILVER BULLET WINDOW! BUY THE NQ AND DON'T LOOK BACK!"</td></tr></table>
+
+1. **Time Lock:** Only operates in the notoriously volatile 09:50 AM to 11:10 AM EST window.
+2. **Filters:** Uses the 15M opening range and Anchored VWAP as anchors.
+3. **Entries:** Executes primarily on VWAP pullbacks within established morning trends.
+
+**Best For:** CME Index Futures (NQ/ES/YM).
 
 ---
 
@@ -476,7 +601,7 @@ risk_per_trade_pct: 0.01  # 1% risk only
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Usually? No. More often, the market is garbage and the bot is protecting you from yourself. A day with zero trades can be the <em>best</em> outcome. Standing aside IS a position. The most profitable position of all."</td></tr></table>
 
-29. **"One strategy should work everywhere"** — Wrong. That's why there are 28. Use Meta-SCI.
+29. **"One strategy should work everywhere"** — Wrong. That's why there are 36. Use Meta-SCI.
 
 30. **"Meta-SCI is slower because it runs multiple strategies"** — Wrong. Tournament runs in milliseconds.
 
@@ -572,6 +697,6 @@ risk_per_trade_pct: 0.01  # 1% risk only
 
 ---
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"There you go. 28 weapons and 62 myths destroyed. The market doesn't care about your feelings. It only respects your edge. Pick the right strategy for the right market — or let Meta-SCI pick for you — and let math do the rest.<br><br>And if you're still not sure which strategy to use after reading all of this? <b>Meta-SCI.</b> I can't say it enough times. <em>Meta-SCI.</em>"</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"There you go. 36 weapons and 62 myths destroyed. The market doesn't care about your feelings. It only respects your edge. Pick the right strategy for the right market — or let Meta-SCI pick for you — and let math do the rest.<br><br>And if you're still not sure which strategy to use after reading all of this? <b>Meta-SCI.</b> I can't say it enough times. <em>Meta-SCI.</em>"</td></tr></table>
 
 

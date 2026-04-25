@@ -44,6 +44,17 @@ featured: true
 
 <table><tr><td width="170"><img src="RTFM/img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"IBKR is for the big dogs. It's the most powerful broker out there, but setting it up is like assembling IKEA furniture — technically possible, emotionally draining, and you'll question your life choices halfway through.<br><br>You need their TWS (Trader Workstation) software running on your computer at the same time as the bot. It's like having a clingy ex — it always has to be there or nothing works.<br><br>Host: <code>127.0.0.1</code>, Port: <code>7497</code> for paper, <code>7496</code> for live. Full walkthrough is in <code>RTFM/08_API_SETUP.md</code> if you're about that life."</td></tr></table>
 
+### 🏢 Prop Firms (Apex, FTMO, FundedNext, TradeDay)
+
+<table><tr><td width="170"><img src="RTFM/img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Trading other people's money is the ultimate leverage. You keep the profits; they take the risk. If you are funded, the bot can route directly to them."</em></td></tr></table>
+
+If you trade for a prop firm, you are not connecting to a traditional retail broker.
+
+1. In the bot: Go to **Settings** → **Brokers** tab.
+2. Scroll past the standard brokers to the **Prop Firm Routing (MT5 / NinjaTrader)** section.
+3. Toggle your firm's router to **ON** (e.g., Enable FTMO Routing, Enable Apex Routing). 
+4. The bot will automatically handle the specific bridging software requirements (MT5 copiers or NinjaTrader IPCs), bypassing standard broker settings and directly executing trades into your evaluation or funded account.
+
 ---
 
 ## 🧠 Step 2: The AI Brain (Optional But Worth It)
@@ -122,6 +133,10 @@ Go to **Settings** (gear icon) → **Strategy** tab → scroll to **Global Risk 
 - **Leverage Sentry**: If you try to open too many huge trades at once, this guard physically blocks the door. It doesn't care about your feelings. It cares about your account not getting margin called.
 
 - **Daily Loss Limit**: If you're having a BAD day and losses pile up, the bot shuts down ALL trading for the rest of the day. It stops you from doing what every losing trader does — doubling down in a panic. The bot goes, "Nope. We're done. Go watch TV. Come back tomorrow."
+
+- **PDT Guard (US Stock Accounts)**: For US traders stuck under the $25k Pattern Day Trader rule. The bot counts your execution roundtrips. When you hit your customized daily cap, the bot physically blocks all further equity executions. No margin calls, no 90-day frozen accounts.
+
+- **The Rejection Journal**: The bot doesn't just block bad trades; it ruthlessly records exactly *why* it blocked them. A dedicated journal lists the specific rejection codes (e.g., HTF Neutral, Structure Break, Volatility Spike) so you can audit its paranoia.
 
 - **Sabbath Mode**: Weekend markets are a ghost town run by bots and manipulation. The bot automatically pauses real trading and switches to simulation from Friday sunset to Sunday. Even the bot observes a day of rest.
 

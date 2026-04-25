@@ -772,106 +772,113 @@ function _gradeTooltip(grade) {
 }
 
 function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, strategyName = null, gatesData = null) {
+    try {
+        const table = document.getElementById('decisions-table');
+        if (!table) return;
 
-    const table = document.getElementById('decisions-table');
-    if (!table) return;
+        // DE-DUPLICATE: Find existing row for this symbol
+        let existingRow = null;
+        for (let row of table.rows) {
+            if (row.cells[1].innerText === symbol) {
+                existingRow = row;
+                break;
+            }
+        }
 
-    // DE-DUPLICATE: Find existing row for this symbol
-    let existingRow = null;
-    for (let row of table.rows) {
-        if (row.cells[1].innerText === symbol) {
-            existingRow = row;
-            break;
+        const row = existingRow || document.createElement('tr');
+        row.className = "hover:bg-cyan-500/5 transition-colors border-b border-slate-700/20";
+        row.setAttribute('data-score', scoreNum !== null && scoreNum !== undefined ? scoreNum : -1);
+
+        // Time AM/PM
+        const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+
+        // Grade
+        const grade = forcedGrade || getScoreGrade(scoreNum);
+        const scoreClass = getScoreColor(grade);
+
+        // Strategy Badge
+        let stratBadge = '';
+        if (strategyName && strategyName !== 'Unknown' && strategyName !== 'N/A') {
+            const sName = strategyName.toUpperCase().replace(/\s+/g, '');
+            const badgeColors = {
+                'ROBOCOP': 'bg-blue-500/20 text-blue-400 border-blue-500/40',
+                'RUBBERBANDREAPER': 'bg-purple-500/20 text-purple-400 border-purple-500/40',
+                'ROBOTEVOLUTION': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
+                'EVOLUTION': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
+                'META-SCI': 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+                'META_SCI': 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+                'METASCI': 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+            };
+            const badgeColor = badgeColors[sName] || 'bg-slate-500/20 text-slate-400 border-slate-500/40';
+            stratBadge = `<span class="inline-block px-1.5 py-0.5 text-[10px] font-bold rounded border ${badgeColor} mr-1">${strategyName.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()}</span>`;
+        }
+
+        // Action Styling
+        let actionHtml = `<span class="text-slate-500">${action}</span>`;
+        const actUpper = action.toUpperCase();
+        if (actUpper === "ENTER_LONG" || actUpper === "BUY" || actUpper === "ENTRY" || actUpper === "FILL") {
+            actionHtml = `<span class="text-green-400 font-bold text-glow-sm">${actUpper}</span>`;
+        } else if (actUpper === "ENTER_SHORT" || actUpper === "SELL" || actUpper === "EXIT") {
+            actionHtml = `<span class="text-red-500 font-bold text-glow-sm">${actUpper}</span>`;
+        } else if (actUpper === "HOLD" || actUpper === "WAIT" || actUpper === "CONTINUATION") {
+            actionHtml = `<span class="text-slate-400 font-bold text-glow-sm">${actUpper}</span>`;
+        } else {
+            actionHtml = `<span class="text-cyan-400 font-bold text-glow-sm">${actUpper}</span>`;
+        }
+
+        // Clean reason text: strip redundant strategy name prefix when badge already shows it
+        let displayReason = reason || '';
+        if (stratBadge) {
+            // Remove "Meta-SCI Tournament: " or "Meta-SCI: " prefix since badge already identifies the strategy
+            displayReason = displayReason.replace(/^Meta-SCI\s*(Tournament)?:\s*/i, '');
+        }
+
+        let detailsButton = "";
+        if (gatesData) {
+            // Inject the strategyName into gates data so the drawer knows what logic branch to use
+            gatesData.strategyName = strategyName;
+            // Inject reason so Meta-SCI tournaments can be parsed
+            gatesData.decisionReason = reason;
+            // Store gatesData stringified in a dataset attribute so the onclick handler can read it
+            const encodedGates = encodeURIComponent(JSON.stringify(gatesData));
+            detailsButton = ` <span class="ml-2 px-1.5 py-0.5 text-[10px] uppercase font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 rounded cursor-pointer hover:bg-cyan-500/20 transition-colors" data-gates="${encodedGates}" onclick="showDecisionDetails(this, '${symbol}')">Details</span>`;
+        }
+
+        // Much larger font (text-lg / 18px), bunched rows (py-1.5)
+        row.innerHTML = `
+            <td class="px-4 py-1.5 text-slate-500 text-left font-mono text-sm">${time}</td>
+            <td class="px-4 py-1.5 font-bold text-slate-200 text-left text-lg">${symbol}</td>
+            <td class="px-4 py-1.5 ${scoreClass} text-left font-black text-lg cursor-help" title="${_gradeTooltip(grade)}">${grade}</td>
+            <td class="px-4 py-1.5 text-center">${stratBadge || '<span class="text-slate-600 text-[10px]">—</span>'}</td>
+            <td class="px-4 py-1.5 text-left text-sm uppercase tracking-wider">${actionHtml}</td>
+            <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${displayReason}${detailsButton}</td>
+        `;
+
+        if (!existingRow) {
+            table.appendChild(row);
+        }
+
+        // Re-sort all rows: highest score at top
+        const rows = Array.from(table.rows);
+        rows.sort((a, b) => {
+            const sa = parseFloat(a.getAttribute('data-score') || -1);
+            const sb = parseFloat(b.getAttribute('data-score') || -1);
+            return sb - sa;
+        });
+        rows.forEach(r => table.appendChild(r));
+    } catch (e) {
+        console.error("addDecisionRow exploded:", e);
+        if (window.api && window.api.logSystem) {
+            window.api.logSystem("ERROR", "UI Crash (addDecisionRow): " + e.message);
         }
     }
-
-    const row = existingRow || document.createElement('tr');
-    row.className = "hover:bg-cyan-500/5 transition-colors border-b border-slate-700/20";
-    row.setAttribute('data-score', scoreNum !== null && scoreNum !== undefined ? scoreNum : -1);
-
-    // Time AM/PM
-    const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
-
-    // Grade
-    const grade = forcedGrade || getScoreGrade(scoreNum);
-    const scoreClass = getScoreColor(grade);
-
-    // Strategy Badge
-    let stratBadge = '';
-    if (strategyName && strategyName !== 'Unknown' && strategyName !== 'N/A') {
-        const sName = strategyName.toUpperCase().replace(/\s+/g, '');
-        const badgeColors = {
-            'ROBOCOP': 'bg-blue-500/20 text-blue-400 border-blue-500/40',
-            'RUBBERBANDREAPER': 'bg-purple-500/20 text-purple-400 border-purple-500/40',
-            'ROBOTEVOLUTION': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
-            'EVOLUTION': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
-            'META-SCI': 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-            'META_SCI': 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-            'METASCI': 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-        };
-        const badgeColor = badgeColors[sName] || 'bg-slate-500/20 text-slate-400 border-slate-500/40';
-        stratBadge = `<span class="inline-block px-1.5 py-0.5 text-[10px] font-bold rounded border ${badgeColor} mr-1">${strategyName.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase()}</span>`;
-    }
-
-    // Action Styling
-    let actionHtml = `<span class="text-slate-500">${action}</span>`;
-    const actUpper = action.toUpperCase();
-    if (actUpper === "ENTER_LONG" || actUpper === "BUY" || actUpper === "ENTRY" || actUpper === "FILL") {
-        actionHtml = `<span class="text-green-400 font-bold text-glow-sm">${actUpper}</span>`;
-    } else if (actUpper === "ENTER_SHORT" || actUpper === "SELL" || actUpper === "EXIT") {
-        actionHtml = `<span class="text-red-500 font-bold text-glow-sm">${actUpper}</span>`;
-    } else if (actUpper === "HOLD" || actUpper === "WAIT" || actUpper === "CONTINUATION") {
-        actionHtml = `<span class="text-slate-400 font-bold text-glow-sm">${actUpper}</span>`;
-    } else {
-        actionHtml = `<span class="text-cyan-400 font-bold text-glow-sm">${actUpper}</span>`;
-    }
-
-    // Clean reason text: strip redundant strategy name prefix when badge already shows it
-    let displayReason = reason || '';
-    if (stratBadge) {
-        // Remove "Meta-SCI Tournament: " or "Meta-SCI: " prefix since badge already identifies the strategy
-        displayReason = displayReason.replace(/^Meta-SCI\s*(Tournament)?:\s*/i, '');
-    }
-
-    let detailsButton = "";
-    if (gatesData) {
-        // Inject the strategyName into gates data so the drawer knows what logic branch to use
-        gatesData.strategyName = strategyName;
-        // Inject reason so Meta-SCI tournaments can be parsed
-        gatesData.decisionReason = reason;
-        // Store gatesData stringified in a dataset attribute so the onclick handler can read it
-        const encodedGates = encodeURIComponent(JSON.stringify(gatesData));
-        detailsButton = ` <span class="ml-2 px-1.5 py-0.5 text-[10px] uppercase font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 rounded cursor-pointer hover:bg-cyan-500/20 transition-colors" onclick="showDecisionDetails(this, '${symbol}', '${encodedGates}')">Details</span>`;
-    }
-
-    // Much larger font (text-lg / 18px), bunched rows (py-1.5)
-    row.innerHTML = `
-        <td class="px-4 py-1.5 text-slate-500 text-left font-mono text-sm">${time}</td>
-        <td class="px-4 py-1.5 font-bold text-slate-200 text-left text-lg">${symbol}</td>
-        <td class="px-4 py-1.5 ${scoreClass} text-left font-black text-lg cursor-help" title="${_gradeTooltip(grade)}">${grade}</td>
-        <td class="px-4 py-1.5 text-center">${stratBadge || '<span class="text-slate-600 text-[10px]">—</span>'}</td>
-        <td class="px-4 py-1.5 text-left text-sm uppercase tracking-wider">${actionHtml}</td>
-        <td class="px-4 py-1.5 text-slate-400 text-sm italic text-left">${displayReason}${detailsButton}</td>
-    `;
-
-    if (!existingRow) {
-        table.appendChild(row);
-    }
-
-    // Re-sort all rows: highest score at top
-    const rows = Array.from(table.rows);
-    rows.sort((a, b) => {
-        const sa = parseFloat(a.getAttribute('data-score') || -1);
-        const sb = parseFloat(b.getAttribute('data-score') || -1);
-        return sb - sa;
-    });
-    rows.forEach(r => table.appendChild(r));
 }
 
 // Concept 1: The Sliding Screen Drawer (Glassmorphism + Theme-Aware)
-window.showDecisionDetails = function(button, symbol, encodedGates) {
+window.showDecisionDetails = function(button, symbol) {
     let gatesData = {};
     try {
+        const encodedGates = button.getAttribute('data-gates') || '%7B%7D';
         gatesData = JSON.parse(decodeURIComponent(encodedGates));
     } catch(e) {}
 
@@ -902,7 +909,7 @@ window.showDecisionDetails = function(button, symbol, encodedGates) {
     // Drawer Tooltip implementation to bypass any Electron tooltip issues
     const customTT = document.createElement('div');
     customTT.id = 'decision-drawer-tooltip';
-    customTT.style.cssText = `position:fixed; z-index:10000; opacity:0; pointer-events:none; background:rgba(2,6,23,0.95); border:1px solid ${accentGlow}; border-radius:8px; padding:10px 14px; font-size:11.5px; line-height:1.5; color:${textSec}; font-family:Inter, sans-serif; box-shadow:0 10px 30px rgba(0,0,0,0.5); max-width:280px; transition:opacity 0.2s ease; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); transform:translate(-50%, -100%); margin-top:-10px;`;
+    customTT.style.cssText = `position:fixed; z-index:10000; opacity:0; pointer-events:none; background:rgba(2,6,23,0.98); border:1px solid ${accentGlow}; border-radius:8px; padding:10px 14px; font-size:11.5px; line-height:1.5; color:${textSec}; font-family:Inter, sans-serif; box-shadow:0 10px 30px rgba(0,0,0,0.5); max-width:280px; transition:opacity 0.2s ease; transform:translateZ(0); -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; margin-top:-10px;`;
     document.body.appendChild(customTT);
 
     const bindTooltip = (html) => {
@@ -915,7 +922,7 @@ window.showDecisionDetails = function(button, symbol, encodedGates) {
     const overlay = document.createElement('div');
     overlay.id = 'decision-drawer-overlay';
     Object.assign(overlay.style, {
-        position: 'fixed', left: '0', top: '0', bottom: '0',
+        position: 'fixed', left: '0', top: '40px', bottom: '0',
         width: 'calc(100% - 460px)', // Exclude drawer width
         zIndex: '9998',
         background: 'rgba(0, 0, 0, 0.4)',
@@ -928,8 +935,8 @@ window.showDecisionDetails = function(button, symbol, encodedGates) {
     const drawer = document.createElement('div');
     drawer.id = 'decision-drawer';
     Object.assign(drawer.style, {
-        position: 'fixed', top: '0', right: '0',
-        width: '460px', height: '100vh',
+        position: 'fixed', top: '40px', right: '0',
+        width: '460px', height: 'calc(100vh - 40px)',
         zIndex: '9999',
         background: `linear-gradient(180deg, ${bgCard} 0%, rgba(0,0,0,0.2) 100%)`, 
         backdropFilter: 'blur(40px) saturate(1.4)',
@@ -1193,9 +1200,10 @@ window.showDecisionDetails = function(button, symbol, encodedGates) {
             customTT.innerHTML = tipText;
             customTT.style.opacity = '1';
             const br = el.getBoundingClientRect();
-            // Position above the element
-            customTT.style.left = (br.left + br.width / 2) + 'px';
-            customTT.style.top = (br.top - 5) + 'px';
+            const ttRect = customTT.getBoundingClientRect();
+            // Position above the element and centered using absolute integer pixels to prevent fractional text rendering bugs
+            customTT.style.left = Math.round(br.left + (br.width / 2) - (ttRect.width / 2)) + 'px';
+            customTT.style.top = Math.round(br.top - ttRect.height - 5) + 'px';
         });
         el.addEventListener('mouseleave', () => { customTT.style.opacity = '0'; });
     });
@@ -2508,3 +2516,5 @@ if (document.readyState === 'loading') {
         setup();
     }
 })();
+
+

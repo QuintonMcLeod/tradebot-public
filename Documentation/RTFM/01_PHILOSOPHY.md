@@ -62,9 +62,9 @@ This bot will not work for everyone. It is a high-maintenance employee. Think of
 *   **ETFs?** Yes. SPY, QQQ, sector funds. For those who like diversification but hate choosing.
 *   **Metals?** Yes. Gold, Silver, Platinum. Because sometimes the answer to "what should I buy?" is "a shiny rock."
 
-<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"21 strategies?! <em>TWENTY-ONE?!</em> That's not a bot, that's a whole <em>department!</em> LET ME AT 'EM!"</td></tr></table>
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"36 strategies?! <em>THIRTY-SIX?!</em> That's not a bot, that's a whole <em>department!</em> LET ME AT 'EM!"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Or, if you'd rather not choose — and honestly, most people shouldn't be choosing — use <b>Meta-SCI</b>. It's the recommended default. It runs a tournament of all eligible strategies and automatically picks the best one for the current conditions.<br><br>Think of it as hiring 20 expert traders, making them compete for your money, and only paying the winner. It's like <em>The Bachelor</em> but instead of roses, there are limit orders."</td></tr></table>
+<table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Or, if you'd rather not choose — and honestly, most people shouldn't be choosing — use <b>Meta-SCI</b>. It's the recommended default. It runs a tournament of all eligible strategies and automatically picks the best one for the current conditions.<br><br>Think of it as hiring 35 expert traders, making them compete for your money, and only paying the winner. It's like <em>The Bachelor</em> but instead of roses, there are limit orders."</td></tr></table>
 
 It supports:
 - **IBKR** (Interactive Brokers) for stocks, options, futures

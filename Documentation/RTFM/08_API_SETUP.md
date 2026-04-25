@@ -152,7 +152,24 @@ Any exchange supported by [CCXT](https://github.com/ccxt/ccxt): Coinbase, Binanc
 
 ---
 
-## 5. Hybrid Mode (Data + Execution Split)
+## 5. Prop Firms (Apex, FTMO, FundedNext)
+
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Trading someone else's money is the ultimate leverage. But remember — they have rules. The bot can handle the execution, but you must configure the routing."</em></td></tr></table>
+
+### How to Configure
+
+**GUI (Recommended):**
+1. Settings → **Brokers** tab.
+2. Scroll down to the **Prop Firm Routing (MT5 / NinjaTrader)** section.
+3. Toggle on your chosen firm (e.g., **Enable FTMO Routing**, **Enable Apex Routing**).
+4. Enter any corresponding API keys or account identifiers explicitly required by the prop firm.
+5. Click **Save**. The bot will automatically restart its execution bridges to sync with the target firm's API protocols.
+
+**Note:** Prop firm toggles natively override your `BROKER_MODE` and route all eligible trades directly to their respective bridges (e.g., MT5 copiers or NinjaTrader IPCs) while ignoring standard broker connections.
+
+---
+
+## 6. Hybrid Mode (Data + Execution Split)
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"You can use different brokers for data vs. execution. Data from OANDA, execution via IBKR. Data from CCXT, execution via IBKR. Like having one person read the map and another drive the car."</td></tr></table>
 
@@ -169,7 +186,7 @@ BROKER_MODE=primary
 
 ---
 
-## 6. Verification — How Do You Know It's Working?
+## 7. Verification — How Do You Know It's Working?
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"If you see prices, you are live. That's it. That's the whole test."</td></tr></table>
 
