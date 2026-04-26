@@ -411,6 +411,31 @@ function setupIpcHandlers() {
         return { success: true };
     });
 
+    // --- Symbol Analysis UI Layouts ---
+    const UI_LAYOUTS_PATH = path.join(USER_DATA_DIR, 'ui_layouts.json');
+    
+    ipcMain.handle('read-ui-layouts', async () => {
+        try {
+            if (fs.existsSync(UI_LAYOUTS_PATH)) {
+                return JSON.parse(fs.readFileSync(UI_LAYOUTS_PATH, 'utf8'));
+            }
+            return {};
+        } catch (e) {
+            console.error("[MAIN] Error reading UI layouts:", e);
+            return {};
+        }
+    });
+
+    ipcMain.handle('save-ui-layouts', async (event, layouts) => {
+        try {
+            fs.writeFileSync(UI_LAYOUTS_PATH, JSON.stringify(layouts, null, 2));
+            return { success: true };
+        } catch (e) {
+            console.error("[MAIN] Error saving UI layouts:", e);
+            return { success: false, error: e.message };
+        }
+    });
+
     // Analytics IPC Handlers
     ipcMain.handle('get-trade-history', async (event, filter = '24h', paperMode = false) => {
         console.log('[ANALYTICS-IPC] get-trade-history called with filter:', filter, 'paperMode:', paperMode);
@@ -722,10 +747,14 @@ function setupIpcHandlers() {
             fs.writeFileSync(path.join(DATA_DIR, 'paper_trade_results.json'), '[]');
 
             // Truncate ghost logs so log_analytics.js doesn't pull old trades into the UI
-            const stdoutLog = path.join(USER_DATA_DIR, 'logs', 'bot_stdout.log');
-            const tradebotLog = path.join(USER_DATA_DIR, 'logs', 'tradebot.log');
-            if (fs.existsSync(stdoutLog)) fs.writeFileSync(stdoutLog, '');
-            if (fs.existsSync(tradebotLog)) fs.writeFileSync(tradebotLog, '');
+            const stdoutLog1 = path.join(USER_DATA_DIR, 'logs', 'bot_stdout.log');
+            const tradebotLog1 = path.join(USER_DATA_DIR, 'logs', 'tradebot.log');
+            const stdoutLog2 = path.join(__dirname, '../../../logs/bot_stdout.log');
+            const tradebotLog2 = path.join(__dirname, '../../../logs/tradebot.log');
+            if (fs.existsSync(stdoutLog1)) fs.writeFileSync(stdoutLog1, '');
+            if (fs.existsSync(tradebotLog1)) fs.writeFileSync(tradebotLog1, '');
+            if (fs.existsSync(stdoutLog2)) fs.writeFileSync(stdoutLog2, '');
+            if (fs.existsSync(tradebotLog2)) fs.writeFileSync(tradebotLog2, '');
 
             console.log(`[MAIN] Paper trading files reset to $${initialBalance.toFixed(2)}, ghost logs truncated`);
         } catch (err) {

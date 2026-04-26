@@ -395,10 +395,7 @@ async function connectWebSocket() {
                 }
             } else if (msg.type === 'state') {
                 const data = msg.data;
-                if (data.pnl_stats && data.pnl_stats[pnlTimeframe] !== undefined) {
-                    currentRealizedPnL = parseFloat(data.pnl_stats[pnlTimeframe]);
-                    refreshMainPnlDisplay();
-                }
+                // Remove pnl_stats override to let get-analytics-summary be the sole source of truth
                 if (data.capital !== undefined) {
                     const capitalEl = document.getElementById('account-capital');
                     if (capitalEl) capitalEl.innerText = data.capital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -587,6 +584,12 @@ async function connectWebSocket() {
                         updateSymbolDisplay();
                     }
                 }
+                
+                // Keep Sidebar perfectly locked to Analytics logic at heartbeats
+                if (typeof window.updateRealizedPnL === 'function') {
+                    window.updateRealizedPnL();
+                }
+                
                 saveState();
             } else if (msg.type === 'health') {
                 // Store health vitals globally for the Vitals tab

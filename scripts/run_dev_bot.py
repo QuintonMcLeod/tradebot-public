@@ -57,6 +57,11 @@ def main() -> None:
         action="store_true",
         help="Run continuously, respecting per-symbol market hours even when sessions would pause",
     )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Run in daemon mode (used by Electron GUI)",
+    )
     sabbath_group = parser.add_mutually_exclusive_group()
     sabbath_group.add_argument(
         "--sabbath",

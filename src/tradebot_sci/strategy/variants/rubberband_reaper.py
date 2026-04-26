@@ -5,7 +5,6 @@ from typing import Optional
 from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.strategy.decisions import AITradeDecision, close_position_decision
 from tradebot_sci.strategy.variants.base import BaseStrategy
-from tradebot_sci.market.indicators import calculate_bollinger_bands, calculate_rsi
 from tradebot_sci.strategy.icc_signals import calculate_atr, detect_structure_invalidation
 
 logger = logging.getLogger(__name__)
@@ -37,9 +36,15 @@ class RubberbandReaperStrategy(BaseStrategy):
         if len(closes) < self.bb_period:
             return 0.0, "F-", "Reaper: Insufficient data"
 
-        lower, mid, upper = calculate_bollinger_bands(closes, self.bb_period, self.bb_std)
-        rsi = calculate_rsi(closes, self.rsi_period)
         last_close = closes[-1]
+        
+        # Sourced securely from dual-purpose consensus extraction (Decoupled execution timeframe).
+        exec_bollinger = gates.get("exec_bollinger", {})
+        lower = exec_bollinger.get("lower", float('-inf'))
+        mid = exec_bollinger.get("middle", last_close)
+        upper = exec_bollinger.get("upper", float('inf'))
+        
+        rsi = gates.get("exec_rsi", 50.0)
 
         score = 0.0
         breakdown = []
@@ -75,11 +80,9 @@ class RubberbandReaperStrategy(BaseStrategy):
                 score += pts
                 breakdown.append(f"RSI-Near({rsi:.0f}=+{pts:.0f})")
 
-        # 3. HTF Alignment (20 pts)
-        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
-        if htf_dir != "neutral":
-            score += 20.0
-            breakdown.append(f"HTF({htf_dir}=+20)")
+        # 3. HTF Alignment (20 pts) [REMOVED]
+        # Trades purely off extremes regardless of macro trend.
+        score += 20.0
 
         # 4. BB Width / Volatility (15 pts) — wider = better for mean-reversion
         bb_width = (upper - lower) / mid if mid > 0 else 0
@@ -91,11 +94,9 @@ class RubberbandReaperStrategy(BaseStrategy):
             score += pts
             breakdown.append(f"Width({bb_width:.3f}=+{pts:.0f})")
 
-        # 5. LTF/HTF Agreement (15 pts)
-        ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
-        if htf_dir != "neutral" and ltf_dir != "neutral" and htf_dir == ltf_dir:
-            score += 15.0
-            breakdown.append("Agree(+15)")
+        # 5. LTF/HTF Agreement (15 pts) [REMOVED]
+        # Pure rubberband
+        score += 15.0
 
         score = min(100.0, score)
         grade = self.grade_from_score_100(score)
@@ -108,12 +109,15 @@ class RubberbandReaperStrategy(BaseStrategy):
         final_risk_pct = self.get_risk_pct()
 
         closes = [c.close for c in snapshot.candles]
-        if len(closes) < self.bb_period:
-            return None
-            
-        lower, mid, upper = calculate_bollinger_bands(closes, self.bb_period, self.bb_std)
-        rsi = calculate_rsi(closes, self.rsi_period)
         last_close = closes[-1]
+        
+        # Sourced securely from dual-purpose consensus extraction (Decoupled execution timeframe).
+        exec_bollinger = gates.get("exec_bollinger", {})
+        lower = exec_bollinger.get("lower", float('-inf'))
+        mid = exec_bollinger.get("middle", last_close)
+        upper = exec_bollinger.get("upper", float('inf'))
+        
+        rsi = gates.get("exec_rsi", 50.0)
         atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
 
         # [HARDENED] BB Squeeze Guard: If bands are very narrow, skip.
@@ -123,11 +127,9 @@ class RubberbandReaperStrategy(BaseStrategy):
             logger.debug(f"[REAPER] BB Squeeze detected for {snapshot.symbol} (width={bb_width:.4f}). Skipping.")
             return None
 
-        # [HARDENED] HTF Trend Alignment Gate
-        # Don't go long against a bearish HTF (catching a falling knife).
-        # Don't go short against a bullish HTF (fighting the trend).
-        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
-        # Derive bias for gating (will be checked per-signal below)
+        # [HARDENED] HTF Trend Alignment Gate [REMOVED]
+        # Pure rubberband: We NO LONGER check the HTF trend so we can properly trade
+        # exhaustion reversals against a strong trend.
 
         # 1. THE HAMMER (Scale-In / Pyramid)
         if open_position:
@@ -157,8 +159,8 @@ class RubberbandReaperStrategy(BaseStrategy):
             return None
 
         # 2. THE SCOUT (Initial Entry)
-        # Long: Only when trend says long or neutral
-        if htf_dir in ("long", "neutral") and last_close < lower and rsi < self.rsi_oversold:
+        # Long: Trade the rubberband bounce purely on exhaustion
+        if last_close < lower and rsi < self.rsi_oversold:
             # [ARMOR] 2x ATR Dynamic Stops
             stop_loss = last_close - (atr * 2.0)
             take_profit = max(mid, last_close + (atr * 2.0) * 2.0)  # Middle band or 2:1 R:R floor
@@ -175,8 +177,8 @@ class RubberbandReaperStrategy(BaseStrategy):
                 management_instructions="Net-Zero at 1xATR."
             )
 
-        # Short: Only when trend says short or neutral
-        if htf_dir in ("short", "neutral") and last_close > upper and rsi > self.rsi_overbought:
+        # Short: Trade the rubberband bounce purely on exhaustion
+        if last_close > upper and rsi > self.rsi_overbought:
             # [ARMOR] 2x ATR Dynamic Stops
             stop_loss = last_close + (atr * 2.0)
             take_profit = min(mid, last_close - (atr * 2.0) * 2.0)  # Middle band or 2:1 R:R floor

@@ -57,6 +57,15 @@ profiles:
     - M2K 
     - MGC 
     - CL 
+  topstep_futures: 
+    symbols: 
+    - MNQ 
+    - MES 
+    strategies: 
+      futures: silver_vwap 
+    candle_timeframe: 1m 
+    continuous_mode: false 
+    session_gate_enabled: true 
   auto_schedule: 
     symbols: 
     - BTCUSD 
@@ -99,8 +108,8 @@ profiles:
   forex_continuous: 
     strategies: 
       etf: meta_sci 
-      forex: forex_conductor 
-      futures: forex_conductor 
+      forex: meta_sci 
+      futures: silver_vwap 
       metals: forex_conductor 
       stocks: robocop 
       crypto: forex_conductor 
@@ -118,7 +127,7 @@ profiles:
     - AUDJPY 
     candle_timeframe: 1m 
     mtf_timeframe: 1h 
-    ltf_timeframe: 1m 
+    ltf_timeframe: 5m 
     htf_timeframe: 4h 
     risk_dynamic_auto: false 
     continuous_mode: true 
@@ -175,3 +184,15 @@ profiles:
   oanda_multi_asset: 
   scalp: 
   swing: 
+  hybrid_scalper_ny: 
+    symbols: 
+    - EURUSD 
+    - GBPUSD 
+    strategies: 
+      forex: forex_hybrid_reaper 
+    strategy_variant: forex_hybrid_reaper 
+    candle_timeframe: 5m 
+    mtf_timeframe: 1h 
+    htf_timeframe: 4h 
+    continuous_mode: true 
+    session_gate_enabled: false 

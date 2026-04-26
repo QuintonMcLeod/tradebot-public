@@ -875,6 +875,261 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
 }
 
 // Concept 1: The Sliding Screen Drawer (Glassmorphism + Theme-Aware)
+// --- Modular Symbol Analysis Widget Registry ---
+const WIDGET_REGISTRY = {
+    // 1. Context & Regime
+    'phase_badge': {
+        category: 'Context', label: 'Market Phase Badge',
+        desc: 'Identifies the current market phase (Trend, Correction, Chop).',
+        render: (g, t) => {
+            const lbl = g.phase ? g.phase.toUpperCase() : 'UNKNOWN';
+            return _drawerCard(t, 'timeline', 'Market Phase', `
+                <div style="font-size:24px; font-weight:900; color:${t.accent};">${lbl}</div>
+            `);
+        }
+    },
+    'regime_badge': {
+        category: 'Context', label: 'Volatility Regime',
+        desc: 'Displays current structural regime.',
+        render: (g, t) => {
+            const r = g.market_regime ? g.market_regime.toUpperCase() : 'TRANSITIONAL';
+            const textC = r === 'TRENDING' ? t.success : r === 'CHOPPY' ? t.error : t.warning;
+            return _drawerCard(t, 'water_drop', 'Volatility Regime', `
+                <span style="font-size:18px; font-weight:700; font-family:monospace; color:${textC}; border:1px solid ${t.cardBorder}; padding:4px 10px; border-radius:6px; background:rgba(0,0,0,0.3);">${r}</span>
+            `);
+        }
+    },
+    'session_filter': {
+        category: 'Context', label: 'Session Matrix',
+        desc: 'Current time-of-day viability.',
+        render: (g, t) => {
+            const h = new Date().getHours();
+            const isGood = h >= 8 && h <= 12; // NY Morning
+            return _drawerCard(t, 'schedule', 'Session Filter', `
+                <span style="color:${isGood ? t.success : t.warning}; font-weight:bold;">${isGood ? 'OPTIMAL' : 'SUB-OPTIMAL'}</span>
+            `);
+        }
+    },
+
+    // 2. Trend & Alignment
+    'htf_trend': {
+        category: 'Alignment', label: 'Macro (HTF) TrendBase',
+        desc: 'Primary 1Hr Trend direction.',
+        render: (g, t) => {
+            const dir = g.htf_dir || 'neutral';
+            const color = dir === 'long' ? t.success : dir === 'short' ? t.error : t.textDim;
+            const icon = dir === 'long' ? 'trending_up' : dir === 'short' ? 'trending_down' : 'trending_flat';
+            return _drawerCard(t, 'public', 'Macro Trend', `
+                <span class="material-symbols-outlined" style="font-size:32px; color:${color};">${icon}</span>
+                <span style="font-size:16px; font-weight:bold; color:${color}; margin-left:8px;">${dir.toUpperCase()}</span>
+            `);
+        }
+    },
+    'ltf_trend': {
+        category: 'Alignment', label: 'Micro (LTF) Alignment',
+        desc: 'Execution 5m Trend direction.',
+        render: (g, t) => {
+            const dir = g.ltf_dir || 'neutral';
+            const color = dir === 'long' ? t.success : dir === 'short' ? t.error : t.textDim;
+            const icon = dir === 'long' ? 'swipe_up' : dir === 'short' ? 'swipe_down' : 'swap_horiz';
+            return _drawerCard(t, 'my_location', 'Micro Alignment', `
+                <span class="material-symbols-outlined" style="font-size:32px; color:${color};">${icon}</span>
+                <span style="font-size:16px; font-weight:bold; color:${color}; margin-left:8px;">${dir.toUpperCase()}</span>
+            `);
+        }
+    },
+    'mtf_matrix': {
+        category: 'Alignment', label: 'Multi-Timeframe Matrix',
+        desc: 'Visual boxes showing alignment crossover.',
+        render: (g, t) => {
+            const c1 = g.htf_dir === 'long' ? t.success : g.htf_dir === 'short' ? t.error : t.textDim;
+            const c2 = g.ltf_dir === 'long' ? t.success : g.ltf_dir === 'short' ? t.error : t.textDim;
+            return _drawerCard(t, 'grid_view', 'MTF Matrix', `
+                <div style="display:flex; gap:4px;">
+                    <div style="width:30px;height:30px;background:${c1};opacity:0.8;border-radius:4px;" title="HTF"></div>
+                    <div style="width:30px;height:30px;background:${c2};opacity:0.8;border-radius:4px;" title="LTF"></div>
+                </div>
+            `);
+        }
+    },
+    'ema_ribbon': {
+        category: 'Alignment', label: 'EMA Ribbon Fan',
+        desc: 'Confirms if EMAs are structurally cascading in trend alignment.',
+        render: (g, t) => {
+            const isFanned = g.ema_ribbon ? "FANNED" : "TANGLED";
+            const col = g.ema_ribbon ? t.success : t.warning;
+            return _drawerCard(t, 'waves', 'EMA Ribbon', `
+                <span style="font-weight:bold; color:${col};">${isFanned}</span>
+            `);
+        }
+    },
+    'supertrend_guard': {
+        category: 'Alignment', label: 'Supertrend Guard',
+        desc: 'Is price operating on the correct side?',
+        render: (g, t) => {
+            const ok = g.supertrend_align !== false;
+            return _drawerCard(t, 'security', 'Supertrend', `
+                <span style="font-weight:bold; color:${ok ? t.success : t.error};">${ok ? 'ALIGNED' : 'BLOCKED'}</span>
+            `);
+        }
+    },
+
+    // 3. Momentum & Kinetics
+    'adx_speedometer': {
+        category: 'Momentum', label: 'ADX Speedometer',
+        desc: 'Linear gauge mapping ADX strength.',
+        render: (g, t) => {
+            const a = g.htf_adx || g.adx || 0;
+            const pct = Math.min((a / 50) * 100, 100);
+            return _drawerCard(t, 'speed', 'ADX Speedometer', `
+                <div style="width:100%; height:8px; background:rgba(0,0,0,0.5); border-radius:4px; overflow:hidden; margin-bottom:4px;">
+                    <div style="width:${pct}%; height:100%; background:${a > 25 ? t.success : t.warning};"></div>
+                </div>
+                <div style="font-size:12px; font-family:monospace; color:${t.textDim};">${a.toFixed(1)}</div>
+            `);
+        }
+    },
+    'rsi_oscillator': {
+        category: 'Momentum', label: 'RSI Exhaustion Oscillator',
+        desc: 'Heat-Bar highlighting extremes.',
+        render: (g, t) => {
+            const r = g.rsi || 50;
+            const clamp = Math.max(0, Math.min(100, r));
+            let c = t.accent; if (r > 70) c = t.warning; if (r < 30) c = t.success;
+            return _drawerCard(t, 'compress', 'RSI Oscillator', `
+                <div style="position:relative; width:100%; height:12px; background:linear-gradient(90deg, ${t.success} 0%, ${t.accent} 50%, ${t.warning} 100%); border-radius:6px; opacity:0.6; margin-bottom:6px;">
+                    <div style="position:absolute; left:${clamp}%; top:-2px; width:4px; height:16px; background:#fff; border-radius:2px; transform:translateX(-50%); box-shadow:0 0 4px #000;"></div>
+                </div>
+                <div style="text-align:center; font-family:monospace; font-size:12px; font-weight:bold; color:${c};">${clamp.toFixed(1)}</div>
+            `);
+        }
+    },
+    'macd_histogram': {
+        category: 'Momentum', label: 'MACD Momentum Bar',
+        desc: 'Mini-histogram bar showing divergence and slope.',
+        render: (g, t) => {
+            const m = g.macd ? g.macd.histogram : 0;
+            const c = m > 0 ? t.success : t.error;
+            return _drawerCard(t, 'bar_chart', 'MACD Hist', `
+                <span style="font-family:monospace; color:${c}; font-weight:bold; font-size:18px;">${m.toFixed(4)}</span>
+            `);
+        }
+    },
+    'bollinger_squeeze': {
+        category: 'Momentum', label: 'Bollinger Band Squeeze',
+        desc: 'Boolean warning if bands are coiling.',
+        render: (g, t) => {
+            const sq = g.bollinger ? g.bollinger.squeeze : false;
+            return _drawerCard(t, 'animation', 'BB Squeeze', `
+                <span style="font-weight:bold; color:${sq ? t.warning : t.textDim};">${sq ? 'ACTIVE' : 'EXPANDED'}</span>
+            `);
+        }
+    },
+    'bollinger_width': {
+        category: 'Momentum', label: 'Bollinger Band Width',
+        desc: 'Compression ratio of the bands.',
+        render: (g, t) => {
+            const bw = g.bollinger ? (g.bollinger.bandwidth * 100).toFixed(1) : '--';
+            return _drawerCard(t, 'straighten', 'BB Width', `
+                <span style="font-family:monospace; font-size:18px; color:${t.textSec};">${bw}%</span>
+            `);
+        }
+    },
+    'kinetic_surge': {
+        category: 'Momentum', label: 'Kinetic Momentum Surge',
+        desc: 'General composite directional velocity calculation.',
+        render: (g, t) => {
+            const s = g.indicator_strength || 0;
+            return _drawerCard(t, 'bolt', 'Kinetic Surge', `
+                <span style="font-family:monospace; font-size:18px; color:${s > 0.4 ? t.accent : t.textDim};">${Math.round(s*100)}%</span>
+            `);
+        }
+    },
+
+    // 4. Structure
+    'sweep_detection': {
+        category: 'Structure', label: 'Liquidity Sweep',
+        desc: 'Did price recently sweep a structure limit?',
+        render: (g, t) => {
+            const s = !!g.sweep;
+            return _drawerCard(t, 'cleaning_services', 'Sweep', `
+                <span style="font-weight:bold; color:${s ? t.success : t.textDim};">${s ? 'DETECTED' : 'NONE'}</span>
+            `);
+        }
+    },
+    'continuation_live': {
+        category: 'Structure', label: 'Continuation Breakout',
+        desc: 'Is price confirming structural resumption?',
+        render: (g, t) => {
+            const s = !!g.continuation;
+            return _drawerCard(t, 'line_end_arrow', 'Continuation', `
+                <span style="font-weight:bold; color:${s ? t.success : t.textDim};">${s ? 'LIVE' : 'WAITING'}</span>
+            `);
+        }
+    },
+    'trend_independence': {
+        category: 'Structure', label: 'Trend Independence',
+        desc: 'Is the market flat enough to snap back?',
+        render: (g, t) => {
+            const isFlat = g.market_regime !== 'trending';
+            return _drawerCard(t, 'balance', 'Independence', `
+                <span style="font-weight:bold; color:${isFlat ? t.success : t.error};">${isFlat ? 'YES' : 'TRENDING'}</span>
+            `);
+        }
+    },
+
+    // 5. Grading
+    'score_meter': {
+        category: 'Grading', label: 'Composite Score Meter',
+        desc: 'Raw 0-100 calculated probability score.',
+        render: (g, t) => {
+            const s = g.score !== undefined ? (g.score > 1 ? g.score.toFixed(1) : (g.score * 100).toFixed(1)) : '?';
+            return _drawerCard(t, 'score', 'Composite Score', `
+                <span style="font-size:28px; font-weight:900; font-family:monospace; color:${t.accent};">${s}</span>
+            `);
+        }
+    },
+    'grade_plaque': {
+        category: 'Grading', label: 'Final Grade Plaque',
+        desc: 'The resulting Letter Grade (A+ through F).',
+        render: (g, t) => {
+            const gr = g.grade || '?';
+            const grC = gr.startsWith('A') ? t.success : gr.startsWith('B') ? t.accent : gr.startsWith('C') ? t.warning : t.error;
+            return _drawerCard(t, 'workspace_premium', 'Final Grade', `
+                <span style="font-size:28px; font-weight:900; color:${grC};">${gr}</span>
+            `);
+        }
+    },
+    'risk_profile': {
+        category: 'Grading', label: 'Capital/Volatility Risk',
+        desc: 'High, Medium, or Low risk assignment.',
+        render: (g, t) => {
+            const isHigh = (g.htf_adx && g.htf_adx > 30) || (g.bollinger && g.bollinger.bandwidth > 0.05);
+            return _drawerCard(t, 'warning', 'Vol/Risk Profile', `
+                <span style="font-weight:bold; color:${isHigh ? t.error : t.success};">${isHigh ? 'ELEVATED' : 'STABLE'}</span>
+            `);
+        }
+    }
+};
+
+function _drawerCard(t, icon, title, htmlContent) {
+    return `
+        <div style="background:${t.bgCard}; border:1px solid ${t.cardBorder}; border-radius:12px; padding:12px; backdrop-filter:blur(8px);">
+            <div style="font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:0.1em; color:${t.textMuted}; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                <span class="material-symbols-outlined" style="font-size:12px;">${icon}</span>
+                ${title}
+            </div>
+            ${htmlContent}
+        </div>
+    `;
+}
+
+
+
+// Global layout states loaded from IPC
+let customUiLayouts = {};
+window.api?.readUiLayouts().then(lays => customUiLayouts = lays || {});
+
 window.showDecisionDetails = function(button, symbol) {
     let gatesData = {};
     try {
@@ -1093,6 +1348,36 @@ window.showDecisionDetails = function(button, symbol) {
     const phaseTooltip = phaseDescriptions[phaseLabel] || phaseDescriptions['UNKNOWN'];
     const regimeTooltip = regimeDescriptions[regimeLabel] || 'Current volatility classification of the market.';
 
+    
+    const themeVars = {
+        accent: accent, accentDim: accentDim, accentGlow: accentGlow,
+        bgCard: bgCard, cardBorder: cardBorder, textMain: textMain,
+        textSec: textSec, textMuted: textMuted, textDim: textDim,
+        success: success, warning: warning, error: error
+    };
+
+    let sKey = 'DEFAULT';
+    if (fullContext.includes('reaper')) sKey = 'REAPER';
+    else if (fullContext.includes('robocop')) sKey = 'ROBOCOP';
+    else if (fullContext.includes('conductor')) sKey = 'CONDUCTOR';
+    
+    const DEFAULT_LAYOUTS = {
+        'REAPER': ['bollinger_squeeze', 'bollinger_width', 'rsi_oscillator', 'trend_independence'],
+        'ROBOCOP': ['adx_speedometer', 'sweep_detection'],
+        'CONDUCTOR': ['ema_ribbon', 'continuation_live'],
+        'DEFAULT': ['adx_speedometer', 'rsi_oscillator']
+    };
+
+    const activeLayout = customUiLayouts[sKey] || DEFAULT_LAYOUTS[sKey] || DEFAULT_LAYOUTS['DEFAULT'];
+
+    let widgetsHtml = '';
+    activeLayout.forEach(wId => {
+        const widget = WIDGET_REGISTRY[wId];
+        if (widget) {
+            widgetsHtml += `<div data-drawer-tt="${widget.desc}">${widget.render(gatesData, themeVars)}</div>`;
+        }
+    });
+
     let rawHtml = `
         <!-- Header -->
         <div style="padding:24px 28px; border-bottom:1px solid ${cardBorder}; display:flex; align-items:center; justify-content:space-between; background:linear-gradient(90deg, transparent 0%, ${accentDim} 100%); flex-shrink:0;">
@@ -1162,30 +1447,27 @@ window.showDecisionDetails = function(button, symbol) {
                 </div>
             </div>
 
-            <!-- Indicator Snapshot -->
+            
+            <!-- Modular Custom Indicators Grid -->
             <div>
-                <div style="font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.2em; color:${textMuted}; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
-                    <span class="material-symbols-outlined" style="font-size:14px; color:${accent};">monitoring</span>
-                    Indicator Snapshot
+                <div style="font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.2em; color:${themeVars.textMuted}; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                    <span class="material-symbols-outlined" style="font-size:14px; color:${themeVars.accent};">dashboard_customize</span>
+                    Custom Indicator Matrix
                 </div>
-                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
-                    ${indicatorsHtml}
-                </div>
-                <div style="margin-top:14px; padding:14px 16px; background:${bgCard}; border:1px solid ${cardBorder}; border-radius:10px; backdrop-filter:blur(8px);">
-                    <div style="display:flex; align-items:start; gap:10px;">
-                        <span class="material-symbols-outlined" style="font-size:16px; color:${accent}; margin-top:1px; flex-shrink:0;">auto_awesome</span>
-                        <p style="font-size:12px; color:${textSec}; line-height:1.7; margin:0;">${indicatorExplanation}</p>
-                    </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    ${widgetsHtml}
                 </div>
             </div>
 
-        </div>
+        </div></div>
 
         <!-- Footer -->
         <div style="padding:16px 28px; border-top:1px solid ${cardBorder}; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; background:rgba(0,0,0,0.15); backdrop-filter:blur(8px);">
-            <span style="font-size:10px; color:${textDim}; font-weight:600; text-transform:uppercase; letter-spacing:0.1em;">Live Engine Diagnostic</span>
+            <button id="btn-customize-layout" class="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 transition-colors border border-slate-700">
+                <span class="material-symbols-outlined text-[14px]">dashboard_customize</span> Customize Layout
+            </button>
             <span style="font-size:10px; color:${textDim}; font-family:monospace;">Updated ${new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', hour12:true})}</span>
-        </div>
+        </div></div>
     `;
 
     drawer.innerHTML = bindTooltip(rawHtml);
@@ -1237,7 +1519,70 @@ window.showDecisionDetails = function(button, symbol) {
 
     const escHandler = (e) => { if (e.key === 'Escape') { closeDrawer(); document.removeEventListener('keydown', escHandler); } };
     document.addEventListener('keydown', escHandler);
+
+    // Customization Modal Logic
+    document.getElementById('btn-customize-layout').addEventListener('click', () => {
+        if (document.getElementById('widget-manager-modal')) return;
+
+        const wMgr = document.createElement('div');
+        wMgr.id = 'widget-manager-modal';
+        wMgr.style.cssText = `position:absolute; bottom:60px; left:28px; right:28px; background:${themeVars.bgCard}; border:1px solid ${themeVars.cardBorder}; border-radius:12px; padding:16px; backdrop-filter:blur(20px); box-shadow:0 10px 40px rgba(0,0,0,0.5); z-index:10001; max-height:400px; display:flex; flex-direction:column;`;
+        
+        let allHtml = '<div style="font-weight:bold; color:#fff; margin-bottom:12px; font-size:14px;">Select Widgets for ' + sKey + '</div>';
+        allHtml += '<div style="flex:1; overflow-y:auto; display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;" class="scrollbar-thin">';
+        
+        for (const [wId, wDef] of Object.entries(WIDGET_REGISTRY)) {
+            const isSel = activeLayout.includes(wId);
+            allHtml += `
+                <label style="display:flex; align-items:center; gap:8px; background:rgba(0,0,0,0.3); padding:8px; border-radius:6px; cursor:pointer; border:1px solid ${isSel ? themeVars.accent : 'transparent'};">
+                    <input type="checkbox" value="${wId}" class="widget-chk" style="accent-color:${themeVars.accent};" ${isSel ? 'checked' : ''}>
+                    <div style="display:flex; flex-direction:column;">
+                        <span style="font-size:11px; font-weight:bold; color:${themeVars.textMain};">${wDef.label}</span>
+                        <span style="font-size:9px; color:${themeVars.textMuted};">${wDef.category}</span>
+                    </div>
+                </label>
+            `;
+        }
+        allHtml += '</div>';
+        allHtml += `
+            <div style="display:flex; justify-content:flex-end; gap:8px;">
+                <button id="btn-cancel-wm" style="padding:6px 12px; border-radius:4px; font-size:12px; background:transparent; color:${themeVars.textMuted}; border:1px solid ${themeVars.textMuted}; cursor:pointer;">Cancel</button>
+                <button id="btn-save-wm" style="padding:6px 12px; border-radius:4px; font-size:12px; font-weight:bold; background:${themeVars.accentDim}; color:${themeVars.accent}; border:1px solid ${themeVars.accent}; cursor:pointer;">Save</button>
+            </div>
+        `;
+
+        wMgr.innerHTML = allHtml;
+        drawer.appendChild(wMgr);
+
+        document.getElementById('btn-cancel-wm').addEventListener('click', () => wMgr.remove());
+        document.getElementById('btn-save-wm').addEventListener('click', () => {
+            const checkboxes = wMgr.querySelectorAll('.widget-chk');
+            const newLayout = [];
+            checkboxes.forEach(chk => { if (chk.checked) newLayout.push(chk.value); });
+            
+            customUiLayouts[sKey] = newLayout;
+            if (!window.api || !window.api.saveUiLayouts) {
+                alert("Core UI Engine out of sync! Please restart the Tradebot application to load the new widget persistence backend.");
+                return;
+            }
+            
+            window.api.saveUiLayouts(customUiLayouts).then(res => {
+                if(res.success) {
+                    if (window.api && window.api.logNotice) window.api.logNotice(`Saved Layout for ${sKey}`, 'teal');
+                    const savedGatesDataStr = encodeURIComponent(JSON.stringify(gatesData));
+                    button.setAttribute('data-gates', savedGatesDataStr);
+                    closeDrawer();
+                    setTimeout(() => window.showDecisionDetails(button, symbol), 350);
+                } else {
+                    alert('Error saving layout: ' + res.error);
+                }
+            }).catch(err => {
+                alert('CRITICAL: IPC connection failed. ' + err.message);
+            });
+        });
+    });
 }
+
 
 // Helper for indicator mini-stat cards inside the drawer
 function _buildMiniStat(label, value, color, tooltip, bgCard, cardBorder, textDim) {

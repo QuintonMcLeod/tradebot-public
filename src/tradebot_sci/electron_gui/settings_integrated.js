@@ -18,7 +18,7 @@ let changeCount = 0;
 let autoSaveTimeout;
 let profilesContent = "";
 let currentTab = 'system';
-let subTabs = { brokers: 'ibkr', strategy: 'assets' };
+let subTabs = { brokers: 'ibkr', strategy: 'assets', advanced: 'env' };
 
 // Property Mapping (Legacy Key -> JSON Path)
 const CONFIG_MAP = {
@@ -57,6 +57,7 @@ const CONFIG_MAP = {
     'PROP_FN_ENABLED': ['risk', 'prop_fn_enabled'],
     'MARKET_DATA_MODE': ['market', 'market_data_mode'],
     'TRADING_CONFIRMATION': ['global', 'trading_confirmation'],
+    'PAPER_BALANCE': ['global', 'paper_balance'],
     'PAPER_SIM_ENABLED': ['paper', 'enabled'],
     'PAPER_REPLAY_MODE': ['paper', 'replay_mode'],
     'PAPER_SYNTHETIC_MODE': ['paper', 'synthetic_mode'],
@@ -154,6 +155,9 @@ const CONFIG_MAP = {
     'TREND_CORRELATION_STACKING_ENABLED': ['global', 'trend_correlation_stacking_enabled'],
     'TREND_RSI_ENABLED': ['global', 'trend_rsi_enabled'],
     'TREND_MACD_ENABLED': ['global', 'trend_macd_enabled'],
+    'TREND_MACD_FAST': ['global', 'trend_macd_fast'],
+    'TREND_MACD_SLOW': ['global', 'trend_macd_slow'],
+    'TREND_MACD_SIGNAL': ['global', 'trend_macd_signal'],
     'TREND_BOLLINGER_ENABLED': ['global', 'trend_bollinger_enabled'],
     'TREND_SUPERTREND_ENABLED': ['global', 'trend_supertrend_enabled'],
     'TREND_EMA_RIBBON_ENABLED': ['global', 'trend_ema_ribbon_enabled'],
@@ -997,9 +1001,9 @@ const STRATEGIES = {
     forex_hybrid_reaper: {
         name: 'Forex Hybrid Scalper',
         icon: 'ssid_chart',
-        shortDesc: 'Trend filtered kinetic entries',
+        shortDesc: 'Macro-aligned kinetic scalper',
         assetClass: "forex",
-        description: "A highly specific 5m architecture that only allows Rubberband Reaper entries (BB Touches + RSI extremes) when completely supported by a long-term EMA trend. Uses algorithmic ATR filters to dodge Asian chop. Executes strictly between 8 AM and 12 PM EST.",
+        description: "A highly specific 5m architecture that extracts dual-purpose Micro-Indicators (RSI Exhaustion & BB Touches) natively from the Global Consensus Engine, ensuring your Dashboard settings are strictly enforced. Only allows trades when completely supported by a long-term EMA macro-trend. Uses algorithmic ATR filters to dodge Asian chop. Executes strictly between 8 AM and 12 PM EST.",
         style: "Restricted Scalper",
         risk: "Low",
         bestFor: "Majors: EURUSD / GBPUSD",
@@ -1340,6 +1344,9 @@ const STRATEGY_PRESETS = {
         MAX_PYRAMID_ENTRIES: '6',
         RISK_REWARD_RATIO: '3.0',
         SCALE_OUT_FRACTION: '0.50',
+        TREND_RSI_ENABLED: 'true',
+        TREND_BOLLINGER_ENABLED: 'true',
+        TREND_MACD_ENABLED: 'true',
     },
     mean_reversion: {
         RISK_PER_TRADE_PCT: '0.02',  // Backtested optimal: +$881 at 2.0% (was +$535 at 1%)
@@ -1410,6 +1417,9 @@ const STRATEGY_PRESETS = {
         // Logical Trend Detection 
         TREND_ADX_ENABLED: 'true',
         TREND_ADX_THRESHOLD: '12',
+        TREND_RSI_ENABLED: 'true',
+        TREND_BOLLINGER_ENABLED: 'true',
+        TREND_MACD_ENABLED: 'true',
         
         // Allow it to trade localized chop/ranging
         BLOCK_RANGING_REGIME: 'false',
@@ -3111,8 +3121,7 @@ function renderStrategyTab(container) {
         { id: 'assets', label: 'Asset Strategies' },
         { id: 'toolbox', label: 'Strategy Toolbox' },
         { id: 'risk', label: 'Global Risk' },
-        { id: 'pyramid', label: 'Pyramiding' },
-        { id: 'yaml', label: 'JSON Editor' }
+        { id: 'pyramid', label: 'Pyramiding' }
     ], 'strategy'));
 
     const section = document.createElement('div');
@@ -3297,24 +3306,6 @@ function renderStrategyTab(container) {
 
         section.appendChild(createCard('Trail After N Pyramids', '0 = disabled', 'BREAKEVEN_TRAIL_AFTER_PYRAMIDS', 'input', { number: true, default: '1', min: 0, max: 10 }));
         // REMOVED: 'Trail Percentage' (BREAKEVEN_TRAIL_PCT) duplicate — canonical in Safety tab (Audit P2)
-
-    } else if (subTabs.strategy === 'yaml') {
-        section.appendChild(createSectionHeader('Config JSON Editor', 'code',
-            "<strong>Config JSON Editor</strong><br><br>Advanced: directly view and edit the raw JSON configuration file. All the settings you see in the GUI ultimately live in this file. Power users can make bulk changes here."
-        ));
-        section.appendChild(createWarningBox('<strong>Warning:</strong> Direct JSON editing. Invalid syntax will break the bot.'));
-
-        const editor = document.createElement('textarea');
-        editor.id = 'profiles-editor';
-        editor.value = profilesContent;
-        editor.style.height = '500px';
-        editor.style.fontFamily = 'monospace';
-        editor.addEventListener('input', (e) => {
-            profilesContent = e.target.value;
-            localChanges['_config_'] = true;
-            updateChangeCounter();
-        });
-        section.appendChild(editor);
     }
 
     container.appendChild(section);
@@ -4675,8 +4666,12 @@ function renderTrendsTab(container) {
     section.appendChild(createSectionHeader('Momentum', 'speed',
         "<strong>What are Momentum Indicators?</strong><br><br>Momentum indicators measure how fast the price is moving and in which direction. Think of it like the engine under a trend — even if the 'direction' is unclear, momentum tells you which side has more energy right now.<br><br><span style='color:#818cf8'>💡 Tip:</span> You can enable both RSI and MACD — when they agree, the signal is stronger. When they disagree, the bot stays cautious."
     ));
-    section.appendChild(createCard('RSI — Relative Strength Index', 'Detects overbought/oversold conditions (14-period)', 'TREND_RSI_ENABLED', 'toggle', { default: 'false' }));
-    section.appendChild(createCard('MACD — Momentum Crossover', 'Catches momentum shifts via EMA crossovers (12/26/9)', 'TREND_MACD_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('RSI — Relative Strength Index', 'Detects overbought/oversold exhaustion reversals (default 7-period)', 'TREND_RSI_ENABLED', 'toggle', { default: 'false', tooltip: "If enabled, RSI will vote LONG when the market is extremely oversold, and SHORT when overbought (Mean-Reversion)." }));
+    
+    section.appendChild(createCard('MACD — Momentum Crossover', 'Catches momentum shifts via EMA crossovers', 'TREND_MACD_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createSliderCard('MACD Fast Period', 'Fast EMA length', 'TREND_MACD_FAST', 1, 50, 1, 'bars', { default: 12 }));
+    section.appendChild(createSliderCard('MACD Slow Period', 'Slow EMA length', 'TREND_MACD_SLOW', 10, 100, 1, 'bars', { default: 26 }));
+    section.appendChild(createSliderCard('MACD Signal Period', 'Signal EMA length', 'TREND_MACD_SIGNAL', 1, 50, 1, 'bars', { default: 9 }));
 
     section.appendChild(createDivider());
 
@@ -4684,7 +4679,7 @@ function renderTrendsTab(container) {
     section.appendChild(createSectionHeader('Volatility', 'expand',
         "<strong>What are Volatility Indicators?</strong><br><br>Volatility measures how wildly the price is swinging. High volatility means big moves (up or down). Low volatility (a 'squeeze') means the market is quiet — but a big move is usually about to happen.<br><br>The bot uses volatility to adjust its confidence. During a squeeze, nobody knows which way the breakout will go, so the bot lowers its conviction."
     ));
-    section.appendChild(createCard('Bollinger Bands — Squeeze Detection', 'Identifies low-volatility squeezes before breakouts (20-period, 2σ)', 'TREND_BOLLINGER_ENABLED', 'toggle', { default: 'false' }));
+    section.appendChild(createCard('Bollinger Bands — Squeeze Detection', 'Identifies low-volatility squeezes before breakouts', 'TREND_BOLLINGER_ENABLED', 'toggle', { default: 'false' }));
 
     section.appendChild(createDivider());
 
@@ -4710,34 +4705,188 @@ function renderTrendsTab(container) {
 }
 
 function renderAdvancedTab(container, filter = "") {
+    // Sub-navigation for Advanced
+    container.appendChild(createSubNav([
+        { id: 'env', label: 'Raw Variables' },
+        { id: 'json', label: 'JSON Editor' }
+    ], 'advanced'));
+
     const section = document.createElement('div');
     section.className = 'settings-section';
 
-    section.appendChild(createSectionHeader('All Environment Variables', 'terminal',
-        "<strong>All Environment Variables</strong><br><br>Advanced: a raw view of every environment variable the bot reads. These are the underlying settings that power everything. Most users won't need to touch these directly."
-    ));
+    if (subTabs.advanced === 'env') {
+        section.appendChild(createSectionHeader('All Environment Variables', 'terminal',
+            "<strong>All Environment Variables</strong><br><br>Advanced: a raw view of every environment variable the bot reads. These are the underlying settings that power everything. Most users won't need to touch these."
+        ));
 
-    const filteredKeys = Object.keys(envData).filter(key =>
-        key.toLowerCase().includes(filter.toLowerCase()) ||
-        (envData[key] && envData[key].toLowerCase().includes(filter.toLowerCase()))
-    ).sort();
+        const filteredKeys = Object.keys(envData).filter(key =>
+            key.toLowerCase().includes(filter.toLowerCase()) ||
+            (envData[key] && envData[key].toLowerCase().includes(filter.toLowerCase()))
+        ).sort();
 
-    filteredKeys.forEach(key => {
-        const row = document.createElement('div');
-        row.className = 'advanced-row';
-        row.innerHTML = `
-            <div style="width: 280px; flex-shrink: 0; font-size: 10px; font-weight: 700; font-family: 'SF Mono', monospace; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis;">${key}</div>
-            <input type="text" class="flex-1" style="background: transparent; border: none; font-size: 13px; color: var(--text-secondary); outline: none; font-family: 'SF Mono', monospace;" value="${envData[key] || ''}">
-        `;
-        row.querySelector('input').addEventListener('change', (e) => updateValue(key, e.target.value));
-        section.appendChild(row);
-    });
+        filteredKeys.forEach(key => {
+            const row = document.createElement('div');
+            row.className = 'advanced-row';
+            row.innerHTML = `
+                <div style="width: 280px; flex-shrink: 0; font-size: 10px; font-weight: 700; font-family: 'SF Mono', monospace; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis;">${key}</div>
+                <input type="text" class="flex-1" style="background: transparent; border: none; font-size: 13px; color: var(--text-secondary); outline: none; font-family: 'SF Mono', monospace;" value="${envData[key] || ''}">
+            `;
+            row.querySelector('input').addEventListener('change', (e) => updateValue(key, e.target.value));
+            section.appendChild(row);
+        });
 
-    if (filteredKeys.length === 0) {
-        const empty = document.createElement('div');
-        empty.style.cssText = 'padding: 40px; text-align: center; color: var(--text-dim); font-style: italic;';
-        empty.textContent = 'No variables match your search.';
-        section.appendChild(empty);
+        if (filteredKeys.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'padding: 40px; text-align: center; color: var(--text-dim); font-style: italic;';
+            empty.textContent = 'No variables match your search.';
+            section.appendChild(empty);
+        }
+    } else if (subTabs.advanced === 'json') {
+        section.appendChild(createSectionHeader('Intuitive JSON Editor', 'data_object',
+            "<strong>JSON Configuration</strong><br><br>Directly modify the config.json. Use the Read-Only lock to prevent the GUI from auto-saving standard widget clicks, forcing manual control."
+        ));
+        
+        let syntaxValid = true;
+        
+        // Header Controls Box
+        const controls = document.createElement('div');
+        controls.className = 'analytics-card min-w-0';
+        controls.style.padding = '16px';
+        controls.style.display = 'flex';
+        controls.style.justifyContent = 'space-between';
+        controls.style.alignItems = 'center';
+        controls.style.marginBottom = '20px';
+        controls.style.background = 'rgba(0,0,0,0.2)';
+        
+        // Read-Only Toggle
+        const lockWrap = document.createElement('label');
+        lockWrap.style.display = 'flex';
+        lockWrap.style.alignItems = 'center';
+        lockWrap.style.gap = '12px';
+        lockWrap.style.cursor = 'pointer';
+        
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = window.configJsonLocked || false;
+        chk.className = 'hidden';
+        
+        const swUI = document.createElement('div');
+        swUI.className = 'bt-toggle-track';
+        swUI.innerHTML = '<span class="bt-toggle-thumb"></span>';
+        if(chk.checked) swUI.style.background = 'var(--accent)';
+        
+        const lockLabel = document.createElement('span');
+        lockLabel.style.fontSize = '12px';
+        lockLabel.style.fontWeight = '700';
+        lockLabel.style.color = 'var(--text-secondary)';
+        lockLabel.textContent = 'Lock GUI Auto-Save (Read Only)';
+        
+        chk.onchange = (e) => {
+            window.configJsonLocked = e.target.checked;
+            swUI.style.background = window.configJsonLocked ? 'var(--accent)' : 'rgba(255,255,255,0.1)';
+            swUI.querySelector('.bt-toggle-thumb').style.transform = window.configJsonLocked ? 'translateX(18px)' : 'translateX(0)';
+            if (window.configJsonLocked) {
+                showNotice("GUI Auto-Save Locked. Manual JSON rules.", "gray");
+            } else {
+                showNotice("GUI Auto-Save Unlocked.", "gray");
+            }
+        };
+        
+        lockWrap.appendChild(chk);
+        lockWrap.appendChild(swUI);
+        lockWrap.appendChild(lockLabel);
+        
+        // Syntax Badge & Save Button
+        const rightWrap = document.createElement('div');
+        rightWrap.style.display = 'flex';
+        rightWrap.style.alignItems = 'center';
+        rightWrap.style.gap = '16px';
+        
+        const badge = document.createElement('div');
+        badge.style.padding = '6px 12px';
+        badge.style.borderRadius = '8px';
+        badge.style.fontSize = '11px';
+        badge.style.fontWeight = '800';
+        badge.style.textTransform = 'uppercase';
+        badge.style.display = 'flex';
+        badge.style.alignItems = 'center';
+        badge.style.gap = '6px';
+        badge.style.background = 'rgba(16, 185, 129, 0.1)';
+        badge.style.color = '#10b981';
+        badge.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px;">check_circle</span> Valid Syntax';
+        
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn-primary';
+        saveBtn.innerHTML = '<span class="material-symbols-outlined">save</span> Save JSON';
+        saveBtn.onclick = () => {
+            if (!syntaxValid) {
+                showNotice("Cannot save: Invalid JSON Syntax", "red");
+                return;
+            }
+            localChanges['_config_'] = true;
+            localChanges['_config_force_'] = true; // bypass lock indicator
+            updateChangeCounter();
+            saveAll().then(() => { delete localChanges['_config_force_']; });
+        };
+        
+        rightWrap.appendChild(badge);
+        rightWrap.appendChild(saveBtn);
+        
+        controls.appendChild(lockWrap);
+        controls.appendChild(rightWrap);
+        section.appendChild(controls);
+
+        // Editor
+        const editorWrap = document.createElement('div');
+        editorWrap.className = 'analytics-card';
+        editorWrap.style.padding = '0';
+        editorWrap.style.border = '1px solid rgba(255,255,255,0.08)';
+        
+        const editor = document.createElement('textarea');
+        editor.id = 'profiles-editor';
+        editor.value = profilesContent;
+        editor.style.width = '100%';
+        editor.style.height = '600px';
+        editor.style.padding = '20px';
+        editor.style.fontFamily = "'SF Mono', monospace";
+        editor.style.fontSize = '12px';
+        editor.style.background = 'transparent';
+        editor.style.border = 'none';
+        editor.style.color = 'var(--text-main)';
+        editor.style.outline = 'none';
+        editor.style.resize = 'vertical';
+        editor.spellcheck = false;
+        
+        editor.addEventListener('input', (e) => {
+            profilesContent = e.target.value;
+            try {
+                JSON.parse(profilesContent);
+                syntaxValid = true;
+                badge.style.background = 'rgba(16, 185, 129, 0.1)';
+                badge.style.color = '#10b981';
+                badge.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px;">check_circle</span> Valid Syntax';
+            } catch (err) {
+                syntaxValid = false;
+                badge.style.background = 'rgba(239, 68, 68, 0.1)';
+                badge.style.color = '#ef4444';
+                badge.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px;">error</span> Invalid JSON';
+            }
+        });
+        
+        // Handle tab indent
+        editor.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = e.target.selectionStart;
+                const end = e.target.selectionEnd;
+                e.target.value = e.target.value.substring(0, start) + "    " + e.target.value.substring(end);
+                e.target.selectionStart = e.target.selectionEnd = start + 4;
+                editor.dispatchEvent(new Event('input'));
+            }
+        });
+        
+        editorWrap.appendChild(editor);
+        section.appendChild(editorWrap);
     }
 
     container.appendChild(section);
@@ -5188,6 +5337,19 @@ function updateChangeCounter() {
 async function saveAll() {
     if (Object.keys(localChanges).length === 0) {
         showNotice("No changes to save");
+        return;
+    }
+
+    // [LOCK] Check if Read-Only Mode is active
+    if (window.configJsonLocked && !localChanges['_config_force_']) {
+        console.warn("[SETTINGS] Save blocked. GUI Auto-Save is locked by JSON Editor.");
+        localChanges = {}; // discard pending GUI changes
+        updateChangeCounter();
+        const el = document.getElementById('change-counter');
+        if (el) {
+            el.textContent = 'Save blocked (Read-Only Mode On)';
+            el.className = 'text-xs text-amber-400 font-bold';
+        }
         return;
     }
 

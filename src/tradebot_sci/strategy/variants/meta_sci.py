@@ -80,13 +80,14 @@ class MetaSCIStrategy(BaseStrategy):
             try:
                 s_score, s_grade, s_summary = strat.score_signal(snapshot, gates)
                 weights = self._get_weights(snapshot.symbol)
-                weight_bonus = weights.get(name, 0)
-                effective = s_score + weight_bonus
+                weight_val = weights.get(name, 5.0)
+                weight_multiplier = max(1.0, float(weight_val) / 5.0)
+                effective = s_score * weight_multiplier
                 results.append((name, s_score, s_grade, effective))
                 logger.info(
                     f"[META-DEBUG] {snapshot.symbol} {name.upper()}: "
                     f"score={s_score:.1f} grade={s_grade} "
-                    f"(+{weight_bonus} weight = {effective:.1f})"
+                    f"(×{weight_multiplier:.1f} weight = {effective:.1f})"
                 )
                 if effective > best_score:
                     best_score = s_score  # Report raw score, not weighted
@@ -127,12 +128,30 @@ class MetaSCIStrategy(BaseStrategy):
         # [PHASE 7] Previously missing — these are proven forex winners
         from tradebot_sci.strategy.variants.breakout import VolatilityBreakoutStrategy
         from tradebot_sci.strategy.variants.evolution import RobotEvolutionStrategy
-        from tradebot_sci.strategy.variants.forex_conductor import ForexConductorStrategy
+        from tradebot_sci.strategy.variants.forex_hybrid_reaper import ForexHybridReaperStrategy
         # [CRYPTO SUITE] Crypto-specific strategies
         from tradebot_sci.strategy.variants.crypto_rsi_macd import CryptoRSIMACDStrategy
         from tradebot_sci.strategy.variants.crypto_vwap_reversion import CryptoVWAPReversionStrategy
         from tradebot_sci.strategy.variants.crypto_double_macd import CryptoDoubleMACDStrategy
         from tradebot_sci.strategy.variants.crypto_grid import CryptoGridStrategy
+
+        # [EN MASSE ADDITIONS]
+        from tradebot_sci.strategy.variants.forex_conductor import ForexConductorStrategy
+        from tradebot_sci.strategy.variants.qs_3_10_trend import QS_3_10_TrendStrategy
+        from tradebot_sci.strategy.variants.qs_choppiness import QS_ChoppinessStrategy
+        from tradebot_sci.strategy.variants.qs_first_day_month import QS_FirstDayOfMonthStrategy
+        from tradebot_sci.strategy.variants.qs_golden_cross import QS_GoldenCrossStrategy
+        from tradebot_sci.strategy.variants.qs_rsi_mean_reversion import QS_RSIMeanReversionStrategy
+        from tradebot_sci.strategy.variants.qs_sma_filter import QS_SMAFilterStrategy
+        from tradebot_sci.strategy.variants.qs_tqqq_btal import QS_TqqqBtalStrategy
+        from tradebot_sci.strategy.variants.silver_vwap import SilverVwapStrategy
+        from tradebot_sci.strategy.variants.london_sweep import LondonSweepStrategy
+        from tradebot_sci.strategy.variants.new_york_drive import NewYorkDriveStrategy
+        from tradebot_sci.strategy.variants.golden_pocket import GoldenPocketStrategy
+        from tradebot_sci.strategy.variants.wind_down_truffle import WindDownTruffleStrategy
+        from tradebot_sci.strategy.variants.yoyo import YoYoStrategy
+        from tradebot_sci.strategy.variants.icc_core_standalone import ICCCoreStandaloneStrategy
+        from tradebot_sci.strategy.variants.aggregator import AggregatorStrategy
 
         self.strategies = {
             # --- Trending Market ---
@@ -142,7 +161,7 @@ class MetaSCIStrategy(BaseStrategy):
             "trend_rider": TrendRiderStrategy(),
             "quantum": QuantumStrategy(),
             "volatility_breakout": VolatilityBreakoutStrategy(),  # [PHASE 7] Was missing!
-            "forex_conductor": ForexConductorStrategy(profile_settings=getattr(self, 'profile', None)),
+            "forex_hybrid_reaper": ForexHybridReaperStrategy(),
             # --- Ranging / Reversal Market ---
             "rubberband_reaper": RubberbandReaperStrategy(),
             "icc_core": ICCCoreStrategy(),
@@ -158,6 +177,23 @@ class MetaSCIStrategy(BaseStrategy):
             "crypto_vwap_reversion": CryptoVWAPReversionStrategy(),
             "crypto_double_macd": CryptoDoubleMACDStrategy(),
             "crypto_grid": CryptoGridStrategy(),
+            # --- En Masse Additions ---
+            "forex_conductor": ForexConductorStrategy(),
+            "qs_3_10_trend": QS_3_10_TrendStrategy(),
+            "qs_choppiness": QS_ChoppinessStrategy(),
+            "qs_first_day_month": QS_FirstDayOfMonthStrategy(),
+            "qs_golden_cross": QS_GoldenCrossStrategy(),
+            "qs_rsi_mean_reversion": QS_RSIMeanReversionStrategy(),
+            "qs_sma_filter": QS_SMAFilterStrategy(),
+            "qs_tqqq_btal": QS_TqqqBtalStrategy(),
+            "silver_vwap": SilverVwapStrategy(),
+            "london_sweep": LondonSweepStrategy(),
+            "new_york_drive": NewYorkDriveStrategy(),
+            "golden_pocket": GoldenPocketStrategy(),
+            "wind_down_truffle": WindDownTruffleStrategy(),
+            "yoyo": YoYoStrategy(),
+            "icc_core_standalone": ICCCoreStandaloneStrategy(),
+            "aggregator": AggregatorStrategy(),
         }
 
         # [CRYPTO SUITE] Strategies restricted to crypto symbols only
@@ -179,49 +215,117 @@ class MetaSCIStrategy(BaseStrategy):
         # REMOVED from forex: supply_demand (-$16K), bearish_engulfing (-$5K),
         #   robocop (-$4K), quantum (-$3K), evolution (-$3K),
         #   volatility_breakout (0 trades), trend_rider (0 trades)
+        # Defines the block of strategies dumped en masse into all non-session regimes
+        en_masse = [
+            "forex_conductor", "qs_3_10_trend", "qs_choppiness", "qs_first_day_month",
+            "qs_golden_cross", "qs_rsi_mean_reversion", "qs_sma_filter", "qs_tqqq_btal",
+            "silver_vwap", "golden_pocket", "wind_down_truffle", "yoyo",
+            "icc_core_standalone", "aggregator"
+        ]
+        
         self.REGIME_GROUPS = {
             "bearish_trending": [
                 "icc_core",             # ✅ +$1,237 solo (ATR*2.0, 2.0R, profit guard)
                 "mean_reversion",       # Near-break (R:R 0.82, best of losers)
-                "forex_conductor",
-            ],
+                "forex_hybrid_reaper",
+            ] + en_masse,
             "bullish_trending": [
                 "icc_core",             # ✅ +$1,237 solo
                 "mean_reversion",
-                "forex_conductor",
-            ],
+                "forex_hybrid_reaper",
+            ] + en_masse,
             "ranging": [
                 "icc_core",             # ✅ Works in all regimes
                 "mean_reversion",       # Mean reversion natural in ranging
-                "forex_conductor",
-            ],
+                "forex_hybrid_reaper",
+            ] + en_masse,
             "session_open": [
                 "london_breakout",      # Session-specific (London open)
                 "orb_breakout",         # ✅ +$1,718 solo (Opening Range Breakout)
                 "session_momentum",     # Session-specific
-                "forex_conductor",
+                "forex_hybrid_reaper",
+                "london_sweep", "new_york_drive"
             ],
             "crypto_trending": [
                 "supply_demand", "robocop", "hyper_scalper", "trend_rider", "quantum",
                 "rubberband_reaper", "icc_core", "bearish_engulfing", "mean_reversion",
                 "crypto_rsi_macd", "crypto_vwap_reversion", "crypto_double_macd", "crypto_grid",
-            ],
+            ] + en_masse,
             "crypto_ranging": [
                 "supply_demand", "robocop", "hyper_scalper", "quantum",
                 "rubberband_reaper", "icc_core", "bearish_engulfing", "mean_reversion",
                 "crypto_rsi_macd", "crypto_vwap_reversion", "crypto_double_macd", "crypto_grid",
-            ],
+            ] + en_masse,
         }
 
         # [PHASE 7] Asset-aware tournament weights based on 14-day battle-hardening
         # FOREX weights: only boost PROVEN profitable strategies
         self.FOREX_WEIGHTS = {
-            "icc_core": 20,              # ✅ +$1,237 solo — top forex strategy
-            "orb_breakout": 20,          # ✅ +$1,718 solo — session breakout king
-            "london_breakout": 10,       # Session-only, -$116 in Meta-SCI context
-            "mean_reversion": 8,         # Best remaining R:R (0.82)
-            "session_momentum": 5,       # Low volume, session-specific
-            "forex_conductor": 20,       # Strong router
+            # --- Rubberband (High Weight) ---
+            "forex_conductor": 25,
+            "mean_reversion": 20,
+            "rubberband_reaper": 20,
+            "silver_vwap": 15,
+            
+            # --- Breakout/Session (Medium) ---
+            "orb_breakout": 15,
+            "forex_hybrid_reaper": 15,
+            "london_breakout": 10,
+            "london_sweep": 10,
+            "new_york_drive": 10,
+            "session_momentum": 10,
+
+            # --- Trend (Low Weight) ---
+            "icc_core": 5,
+            "icc_core_standalone": 5,
+            "qs_3_10_trend": 5,
+            "trend_rider": 5,
+            "qs_sma_filter": 5,
+            "qs_rsi_mean_reversion": 5,
+            "volatility_breakout": 5,
+            "bearish_engulfing": 5,
+            "yoyo": 5,
+            "golden_pocket": 5,
+            
+            # Others: 5
+            "qs_choppiness": 5, "qs_first_day_month": 5,
+            "qs_golden_cross": 5, "qs_tqqq_btal": 5,
+            "wind_down_truffle": 5, 
+            "aggregator": 5,
+        }
+        
+        self.COMMODITY_WEIGHTS = {
+            # --- Trend (High Weight) ---
+            "icc_core": 25,
+            "icc_core_standalone": 25,
+            "trend_rider": 20,
+            "qs_3_10_trend": 20,
+            "qs_rsi_mean_reversion": 15,
+            "qs_sma_filter": 15,
+            "volatility_breakout": 15,
+            "bearish_engulfing": 15,
+            "orb_breakout": 20,
+            "yoyo": 20,
+            "golden_pocket": 20,
+            
+            # --- Rubberband (Low Weight) ---
+            "forex_conductor": 5,
+            "mean_reversion": 5,
+            "rubberband_reaper": 5,
+            "silver_vwap": 5,
+            
+            # --- Breakout/Session (Medium/Low) ---
+            "forex_hybrid_reaper": 15,
+            "london_breakout": 5,
+            "london_sweep": 5,
+            "new_york_drive": 5,
+            "session_momentum": 5,
+
+            # Others: 5
+            "qs_choppiness": 5, "qs_first_day_month": 5,
+            "qs_golden_cross": 5, "qs_tqqq_btal": 5,
+            "wind_down_truffle": 5, 
+            "aggregator": 5,
         }
         # CRYPTO weights: keep old weights (legacy, for when crypto is re-enabled)
         self.CRYPTO_WEIGHTS = {
@@ -237,10 +341,14 @@ class MetaSCIStrategy(BaseStrategy):
 
     def _get_weights(self, symbol: str) -> dict:
         """Return asset-class-aware tournament weights for the given symbol."""
-        from tradebot_sci.market.symbols import is_crypto
+        from tradebot_sci.market.symbols import is_crypto, FOREX_SYMBOLS
         if is_crypto(symbol):
             return self.CRYPTO_WEIGHTS
-        return self.FOREX_WEIGHTS
+        elif symbol in FOREX_SYMBOLS:
+            return self.FOREX_WEIGHTS
+        else:
+            # Equities, Futures, Indices, Commodities
+            return self.COMMODITY_WEIGHTS
 
     # ══════════════════════════════════════════════════════════════════
     #  THE JUDGE — Asset-Aware Tournament Scoring
@@ -266,7 +374,14 @@ class MetaSCIStrategy(BaseStrategy):
         "icc_core",             # ✅ +$1,237 solo (battle-hardened)
         "orb_breakout",         # ✅ +$1,718 solo (battle-hardened)
         "london_breakout",      # Session-specific, near-profitable in ensemble
-        "forex_conductor",      # Router-based ensemble
+        "forex_hybrid_reaper",  # Router-based ensemble
+        # Forced additions:
+        "forex_conductor", "qs_3_10_trend", "qs_choppiness", "qs_first_day_month",
+        "qs_golden_cross", "qs_rsi_mean_reversion", "qs_sma_filter", "qs_tqqq_btal",
+        "silver_vwap", "london_sweep", "new_york_drive", "golden_pocket",
+        "wind_down_truffle", "yoyo", "icc_core_standalone", "aggregator",
+        "supply_demand", "robocop", "hyper_scalper", "trend_rider", "quantum", 
+        "rubberband_reaper", "bearish_engulfing", "mean_reversion", "volatility_breakout", "evolution"
     }
 
     CRYPTO_PROVEN_WINNERS = set()  # None profitable yet
@@ -278,13 +393,22 @@ class MetaSCIStrategy(BaseStrategy):
         "london_breakout": [(8, 12)],          # London session: 08:00-12:00 UTC
         "orb_breakout": [(13, 16)],             # US open: ~09:00-11:00 ET = 13:00-16:00 UTC
         "volatility_breakout": [(0, 8)],        # Asian session: 00:00-08:00 UTC
+        "london_sweep": [(8, 12)],              # London open
+        "new_york_drive": [(13, 16)],           # US open
     }
 
     # All-around hitters: can fire ANY time of day
     ALL_AROUND_HITTERS = {
         "icc_core",        # ICT methodology works in any session
         "mean_reversion",  # Mean reversion works in any session (best R:R 0.82)
-        "forex_conductor", # Conductor handles sessions internally
+        "forex_hybrid_reaper", # Universal execution
+        # Forced additions
+        "forex_conductor", "qs_3_10_trend", "qs_choppiness", "qs_first_day_month",
+        "qs_golden_cross", "qs_rsi_mean_reversion", "qs_sma_filter", "qs_tqqq_btal",
+        "silver_vwap", "golden_pocket", "wind_down_truffle", "yoyo",
+        "icc_core_standalone", "aggregator",
+        "supply_demand", "robocop", "hyper_scalper", "trend_rider", "quantum", 
+        "rubberband_reaper", "bearish_engulfing", "evolution"
     }
 
     def _is_in_session_window(self, strategy_name: str, snapshot) -> bool:
@@ -355,14 +479,14 @@ class MetaSCIStrategy(BaseStrategy):
             multiplier *= 10.0
 
         # Apply loss streak penalty
-        if multiplier > 1.0:
-            losses = self._get_loss_streak(symbol, strategy_name)
-            if losses >= 3:
-                multiplier = 1.0  # Boost fully revoked
-            elif losses == 2:
-                multiplier *= 0.25  # 75% reduction
-            elif losses == 1:
-                multiplier *= 0.50  # 50% reduction
+        # Even if not originally boosted, we must check loss streaks to ban them if >= 3
+        losses = self._get_loss_streak(symbol, strategy_name)
+        if losses >= 3:
+            multiplier = 0.0  # Bench them completely
+        elif losses == 2:
+            multiplier *= 0.25  # 75% reduction
+        elif losses == 1:
+            multiplier *= 0.50  # 50% reduction
 
         return multiplier
 
@@ -444,25 +568,31 @@ class MetaSCIStrategy(BaseStrategy):
         # Scan recent Meta-SCI trades to track consecutive losses per
         # sub-strategy. This powers the Judge's loss streak penalty.
         if trade_history:
+            self._loss_streaks.clear()  # [FIX] Calculate fresh to prevent stale 0 counts
+            processed = set()
             # Group recent trades by (symbol, meta_source)
             for t in reversed(trade_history[-50:]):  # Last 50 trades max
                 sym = t.get('symbol', '')
                 source = t.get('meta_source') or t.get('strategy_used', '')
                 if not source or source not in self.strategies:
                     continue
-                pnl = t.get('pnl_realized', 0)
+                
                 key = f"{sym}:{source}"
-                if key not in self._loss_streaks:
-                    # First time seeing this combo — count backward
-                    streak = 0
-                    for t2 in reversed(trade_history):
-                        s2 = t2.get('meta_source') or t2.get('strategy_used', '')
-                        if t2.get('symbol') == sym and s2 == source:
-                            if t2.get('pnl_realized', 0) <= 0:
-                                streak += 1
-                            else:
-                                break  # Win found, stop counting
-                    self._loss_streaks[key] = streak        # ── Trend Direction Reference ─────────────────────────────────────
+                if key in processed:
+                    continue
+                
+                processed.add(key)
+                
+                # Count backward for this specific symbol+strategy combo
+                streak = 0
+                for t2 in reversed(trade_history):
+                    s2 = t2.get('meta_source') or t2.get('strategy_used', '')
+                    if t2.get('symbol') == sym and s2 == source:
+                        if t2.get('pnl_realized', 0) <= 0:
+                            streak += 1
+                        else:
+                            break  # Win found, stop counting
+                self._loss_streaks[key] = streak        # ── Trend Direction Reference ─────────────────────────────────────
         # Strategies use gates["htf_dir"] to orient their trade direction.
         # htf_dir = str(gates.get("htf_dir", "neutral")).lower()
 
@@ -524,7 +654,6 @@ class MetaSCIStrategy(BaseStrategy):
                 elif name in ("supply_demand", "mean_reversion"):
                     # These WANT the slow timeframe (HTF - 15m)
                     # I must verify I have HTF candles
-                    from tradebot_sci.market.trend_consensus import detect_trend_directions
                     if snapshot.htf_candles and len(snapshot.htf_candles) > 10:
                         # Construct a proxy snapshot for the definition of "candles"
                         # I keep trend_htf/ltf as is for context
@@ -617,33 +746,41 @@ class MetaSCIStrategy(BaseStrategy):
             # it's 100% conviction. Conductor supplies a 0-100 scale.
             base = float(sig.score) if getattr(sig, "score", None) is not None else 100.0
             grade_bonus = 10.0 if getattr(sig, "grade", "") == 'A' else 0.0
-            
-            # Add strategy's inherent weight as a tie-breaker / edge
+            # Add strategy's inherent weight as a multiplier to dominate flat baseline scores
             weights = self._get_weights(snapshot.symbol)
             inherent_weight = float(weights.get(name, 5.0))
+            weight_multiplier = max(1.0, inherent_weight / 5.0)
             
-            raw = base + grade_bonus + inherent_weight
+            raw = (base + grade_bonus) * weight_multiplier
             
             boost = self._judge_boost(name, snapshot.symbol, snapshot)
             final = raw * boost
-            if boost > 1.0:
+            if boost > 1.0 or weight_multiplier > 1.0:
                 losses = self._get_loss_streak(snapshot.symbol, name)
                 logger.info(
                     f"[JUDGE] {snapshot.symbol} {name.upper()}: "
-                    f"base={base:.0f} wt={inherent_weight:.0f} raw={raw:.0f} × boost={boost:.0f}× = {final:.0f} "
+                    f"base={base:.0f} × wt_mult={weight_multiplier:.1f} = raw({raw:.0f}) × boost({boost:.0f}×) = {final:.0f} "
                     f"(losses={losses})"
                 )
             return final
         
-        winner = max(signals, key=_tournament_score)
+        # Filter out banned strategies or signals that don't meet the minimum tournament threshold.
+        # NATIVE Threshold ensures low-weight strategies (Base 100 * Wt 1) don't win 
+        # by default during completely dead periods when rubberbands are silent.
+        valid_signals = [s for s in signals if _tournament_score(s) >= 150.0]
+        
+        if not valid_signals:
+            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Meta-SCI: Minimum Tournament Score (150) not met")
+
+        winner = max(valid_signals, key=_tournament_score)
         
         winner_name = winner.gates['meta_source']
         winner_boost = self._judge_boost(winner_name, snapshot.symbol, snapshot)
         winner.notes = (winner.notes or "") + (
             f" | [META] 🏆 Tournament Winner: {winner_name.upper()}"
-            f" (Judge: {winner_boost:.0f}×)"
+            f" (Judge: {winner_boost:.2f}×)"
         )
-        logger.info(f"[META-SCI] Tournament Won by {winner_name.upper()} (Score: {winner.score}, Judge: {winner_boost:.0f}×)")
+        logger.info(f"[META-SCI] Tournament Won by {winner_name.upper()} (Score: {winner.score}, Judge: {winner_boost:.2f}×)")
         
         return winner
 

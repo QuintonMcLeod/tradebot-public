@@ -39,7 +39,7 @@ class QS_FirstDayOfMonthStrategy(BaseStrategy):
                 take_profit = last_close + (last_close - stop_loss) * 2.0
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="long", phase="seasonality", action="enter_long",
+                    bias="long", phase="management", action="enter_long",
                     entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
                     structure_summary=f"End of Month Calendar Entry ({current_time.strftime('%Y-%m-%d')})",
                     invalidation_conditions="End of First Trading Day",

@@ -181,7 +181,7 @@ class SilverVwapStrategy(BaseStrategy):
             
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                bias="long", phase="breakout", action="enter_long",
+                bias="long", phase="trend", action="enter_long",
                 entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
                 risk_per_trade_pct=self.get_risk_pct(),
                 structure_summary=f"Silver-VWAP Long (Price > ORH, Pullback near VWAP={vwap:.2f})",
@@ -198,7 +198,7 @@ class SilverVwapStrategy(BaseStrategy):
             
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                bias="short", phase="breakout", action="enter_short",
+                bias="short", phase="trend", action="enter_short",
                 entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
                 risk_per_trade_pct=self.get_risk_pct(),
                 structure_summary=f"Silver-VWAP Short (Price < ORL, Pullback near VWAP={vwap:.2f})",

@@ -44,6 +44,10 @@ contextBridge.exposeInMainWorld('api', {
     saveSecrets: (secrets) => ipcRenderer.invoke('save-secrets', secrets),
     onConfigUpdated: (callback) => ipcRenderer.on('config-updated', (event, data) => callback(data)),
 
+    // NEW: UI Layout API
+    readUiLayouts: () => ipcRenderer.invoke('read-ui-layouts'),
+    saveUiLayouts: (layouts) => ipcRenderer.invoke('save-ui-layouts', layouts),
+
     // Settings IPC (legacy - kept for backwards compatibility)
     readEnv: () => ipcRenderer.invoke('read-env'),
     saveEnv: (updates) => ipcRenderer.invoke('save-env', updates),

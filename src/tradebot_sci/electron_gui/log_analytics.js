@@ -626,6 +626,12 @@ function calculateAnalyticsSummary(data, paperMode = false) {
     const capitalChange = capitalEnd - capitalStart;
     const capitalChangePct = capitalStart > 0 ? ((capitalChange / capitalStart) * 100).toFixed(1) : 0;
 
+    // In paper mode, there are no cashouts/deposits. Therefore, the absolute difference in capital
+    // is the mathematically perfect Total PNL, avoiding any inaccuracies caused by trade history truncation.
+    if (paperMode) {
+        totalPnl = capitalChange;
+    }
+
     // ── Cashout & Active PnL Detection ──
     // In paper mode, there are no real cashouts/deposits — capital drops are
     // entirely from trade losses.  The cashout heuristic (diff > $100) was

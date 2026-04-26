@@ -139,7 +139,7 @@ class WebSocketServer:
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     logger.error('ws connection closed with exception %s', ws.exception())
         finally:
-            self.clients.remove(ws)
+            self.clients.discard(ws)
             if ws in self.subscriptions:
                 del self.subscriptions[ws]
             logger.info("WebSocket client disconnected.")

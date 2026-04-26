@@ -59,7 +59,7 @@ class TradeResult:
         )
 
 class TradeResultStore:
-    def __init__(self, path: str, max_results: int = 100, skip_save: bool = False):
+    def __init__(self, path: str, max_results: int = 10000, skip_save: bool = False):
         self.path = Path(path)
         self.max_results = max_results
         self.results: List[TradeResult] = []

@@ -31,7 +31,7 @@ class QS_TqqqBtalStrategy(BaseStrategy):
                 take_profit = last_close + (last_close - stop_loss) * 2.0
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="long", phase="rebalance", action="enter_long",
+                    bias="long", phase="management", action="enter_long",
                     entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
                     structure_summary=f"Monthly Rebalance Allocation for {snapshot.symbol}",
                     invalidation_conditions="End of Month",

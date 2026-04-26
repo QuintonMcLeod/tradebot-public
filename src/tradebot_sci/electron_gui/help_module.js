@@ -1071,6 +1071,9 @@ window.helpModule = (() => {
             const bName = b.filename || '';
 
             if (helpSortOption === 'newbie') {
+                const aIsAdr = a.category === 'adr' || aName.toLowerCase().includes('adr');
+                const bIsAdr = b.category === 'adr' || bName.toLowerCase().includes('adr');
+                if (aIsAdr !== bIsAdr) return aIsAdr ? 1 : -1;
                 return aName.localeCompare(bName);
             } else if (helpSortOption === 'newest') {
                 if (aUnread !== bUnread) return bUnread - aUnread; // Float unread to top

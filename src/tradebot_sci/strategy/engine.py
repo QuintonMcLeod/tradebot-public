@@ -1190,8 +1190,33 @@ class StrategyEngine:
             return validate_decision(decision, execution_capabilities=caps)
 
         # 5. Default: Stand Aside
+        # Generate dynamic reason based on market context
+        adx = gates.get("htf_adx", 0.0)
+        phase = gates.get("phase", "range")
+
+        if adx > 0 and adx < 20:
+            reason = "Volume is dead. Price is just wandering sideways."
+        elif phase == "chop":
+            reason = "Market is too choppy and unpredictable to risk capital."
+        elif phase == "range" and strat_score < 40:
+            reason = "Price is trapped in a tight range. Waiting for a breakout."
+        elif strat_score >= 75:
+            reason = "High-grade setup detected. Stalking an optimal sniper entry."
+        elif strat_score >= 65:
+            reason = "Setup is developing nicely; waiting for final confirmation trigger."
+        elif strat_score >= 55:
+            reason = "Strong structure present, waiting for a safe pullback to complete."
+        elif strat_score >= 45:
+            reason = "Mixed signals across timeframes. Waiting for clear alignment."
+        elif strat_score >= 30:
+            reason = "Mediocre setup. Missing the momentum needed for a safe entry."
+        elif strat_score >= 20:
+            reason = "Trend is present, but current price action is unconvincing."
+        else:
+            reason = "No viable setups. Market conditions are completely poor."
+
         from tradebot_sci.strategy.decisions import stand_aside_decision
-        decision = stand_aside_decision(snapshot.symbol, timeframe, "Haven't found a safe spot to enter the market yet.")
+        decision = stand_aside_decision(snapshot.symbol, timeframe, reason)
         decision.score = strat_score / 100.0  # Normalize to 0-1 (cycle.py × 100 for display)
         decision.grade = strat_grade
 

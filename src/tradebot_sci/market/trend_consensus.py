@@ -115,6 +115,9 @@ class TrendConsensus:
     supertrend: dict
     ema_ribbon: dict
     bollinger: dict
+    exec_rsi: float        # Execution TF RSI (for micro-scalping strategy extraction)
+    exec_macd: dict        # Execution TF MACD (for micro-scalping strategy extraction)
+    exec_bollinger: dict   # Execution TF Bollinger (for micro-scalping strategy extraction)
     adx_data: dict         # Full ADX+DI data
     vote_sources: list     # Merged vote trail from both timeframes
     # Regime classification for Conductor routing
@@ -160,11 +163,20 @@ def _compute_timeframe(
     }
     adx_val = round(adx_data["adx"], 1)
 
-    rsi_val = compute_rsi(candles) if len(candles) >= 15 else 50.0
-    macd_data = compute_macd(candles) if len(candles) >= 35 else {
+    rsi_val = compute_rsi(candles, period=int(getattr(profile, 'rsi_period', 7))) if len(candles) >= 15 else 50.0
+    macd_data = compute_macd(
+        candles, 
+        fast=int(getattr(profile, 'trend_macd_fast', 12)), 
+        slow=int(getattr(profile, 'trend_macd_slow', 26)), 
+        signal_period=int(getattr(profile, 'trend_macd_signal', 9))
+    ) if len(candles) >= 35 else {
         "macd": 0, "signal": 0, "histogram": 0
     }
-    boll_data = compute_bollinger(candles) if len(candles) >= 20 else {
+    boll_data = compute_bollinger(
+        candles, 
+        period=int(getattr(profile, 'bb_period', 20)), 
+        num_std=float(getattr(profile, 'bb_std', 1.5))
+    ) if len(candles) >= 20 else {
         "upper": 0, "middle": 0, "lower": 0, "bandwidth": 0, "squeeze": False
     }
     st_data = compute_supertrend(candles) if len(candles) >= 11 else {
@@ -262,14 +274,19 @@ def _compute_timeframe(
                 direction_votes.append("short")
                 vote_trail.append(f"{label}:MACD=short(h={hist:.4f})")
     
-        # RSI: above 55 = bullish lean, below 45 = bearish lean
+        # RSI: Exhaustion / Mean-Reversion Trigger (as requested by User Policy)
         if getattr(profile, 'trend_rsi_enabled', False):
-            if rsi_val > 55:
-                direction_votes.append("long")
-                vote_trail.append(f"{label}:RSI={rsi_val:.0f}→long")
-            elif rsi_val < 45:
+            overbought = float(getattr(profile, 'rsi_overbought', 60.0))
+            oversold = float(getattr(profile, 'rsi_oversold', 40.0))
+            
+            # Exhaustion Logic: High RSI means overextended, due for a pullback (SHORT).
+            if rsi_val > overbought:
                 direction_votes.append("short")
-                vote_trail.append(f"{label}:RSI={rsi_val:.0f}→short")
+                vote_trail.append(f"{label}:RSI={rsi_val:.0f} (>{overbought:.0f})→short (Exhaustion)")
+            # Exhaustion Logic: Low RSI means oversold, due for a bounce (LONG).
+            elif rsi_val < oversold:
+                direction_votes.append("long")
+                vote_trail.append(f"{label}:RSI={rsi_val:.0f} (<{oversold:.0f})→long (Exhaustion)")
     
         # Ichimoku Cloud: price vs cloud position
         if getattr(profile, 'trend_ichimoku_enabled', False):
@@ -657,6 +674,9 @@ def detect_trend_direction(
         supertrend=htf.supertrend,
         ema_ribbon=htf.ema_ribbon,
         bollinger=htf.bollinger,
+        exec_rsi=exec_tf.rsi,
+        exec_macd=exec_tf.macd,
+        exec_bollinger=exec_tf.bollinger,
         adx_data=htf.adx_data,
         vote_sources=merged_votes,
         market_regime=regime,

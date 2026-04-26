@@ -64,7 +64,7 @@ class NewYorkDriveStrategy(BaseStrategy):
             sl = last_candle.close - (atr * 1.5) # Wider logical stop to let momentum breathe
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                bias="long", phase="impulse", action="enter_long",
+                bias="long", phase="trend", action="enter_long",
                 entry_price=last_candle.close, stop_loss=sl, take_profit=None,
                 risk_per_trade_pct=self.get_risk_pct(),
                 urgency="high",
@@ -78,7 +78,7 @@ class NewYorkDriveStrategy(BaseStrategy):
             sl = last_candle.close + (atr * 1.5)
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                bias="short", phase="impulse", action="enter_short",
+                bias="short", phase="trend", action="enter_short",
                 entry_price=last_candle.close, stop_loss=sl, take_profit=None,
                 risk_per_trade_pct=self.get_risk_pct(),
                 urgency="high",

@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 from functools import lru_cache
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, HttpUrl, NonNegativeInt, PositiveInt, field_validator, model_validator
+from pydantic import BaseModel as PydanticBaseModel, ConfigDict, Field, HttpUrl, NonNegativeInt, PositiveInt, confloat, field_validator, model_validator
 from tradebot_sci.config.broker import BrokerSettings, OandaSettings, PaxosSettings, KrakenSettings
 
 
@@ -362,6 +362,22 @@ class TradingProfileSettings(BaseModel):
         default_factory=lambda: os.getenv("TREND_HULL_MA_ENABLED", "false").lower() == "true",
         description="Enable Hull Moving Average direction gate.",
     )
+    
+    # ── Trend Indicator Parameters ───────────────────────────────────
+    trend_macd_fast: PositiveInt = Field(
+        default=12,
+        description="Fast EMA period for MACD.",
+    )
+    trend_macd_slow: PositiveInt = Field(
+        default=26,
+        description="Slow EMA period for MACD.",
+    )
+    trend_macd_signal: PositiveInt = Field(
+        default=9,
+        description="Signal line EMA period for MACD.",
+    )
+    # ─────────────────────────────────────────────────────────────────
+    
     trend_min_swings: PositiveInt = Field(
         default=2,  # Lowered from 3 to allow trend detection in real markets
         description="Minimum confirmed swings required to classify trend (HH/HL or LH/LL).",
@@ -1199,7 +1215,7 @@ class TradingProfileSettings(BaseModel):
             
         # 3. Last Resort Fallback Map (Strictly Enforce Conductor for Forex)
         if asset_class == AssetClass.FOREX:
-            return "forex_conductor"
+            return "forex_hybrid_reaper"
         elif asset_class == AssetClass.CRYPTO:
             return "meta_sci"
         

@@ -24,14 +24,13 @@ from tradebot_sci.strategy.variants.base import BaseStrategy
 from tradebot_sci.strategy.variants.london_sweep import LondonSweepStrategy
 from tradebot_sci.strategy.variants.golden_pocket import GoldenPocketStrategy
 from tradebot_sci.strategy.variants.new_york_drive import NewYorkDriveStrategy
-from tradebot_sci.strategy.variants.trend_rider import TrendRiderStrategy
 from tradebot_sci.strategy.variants.mean_reversion import MeanReversionStrategy
 
 logger = logging.getLogger(__name__)
 
 # ── Regime → Strategy mapping ────────────────────────────────────────
 _REGIME_MAP = {
-    "trending":      "trend_rider",
+    "trending":      "mean_reversion",
     "ranging":       "mean_reversion",
     "transitional":  "golden_pocket",
     # "choppy" → no entry (handled explicitly)
@@ -109,7 +108,6 @@ class ForexConductorStrategy(BaseStrategy):
             "london_sweep": LondonSweepStrategy(),
             "golden_pocket": GoldenPocketStrategy(),
             "new_york_drive": NewYorkDriveStrategy(),
-            "trend_rider": TrendRiderStrategy(),
             "mean_reversion": MeanReversionStrategy(),
         }
         self._profile = kwargs.get('profile_settings', None)
@@ -266,37 +264,17 @@ class ForexConductorStrategy(BaseStrategy):
                 return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by candle chop detector ({_reversals} reversals)")
 
         # ── A+ ENTRY FILTER: Strict Multi-Timeframe Alignment ────
-        # MTF Alignment logic:
-        # HTF (4h) = Macro context
-        # MTF (1h) = Current momentum trend
-        htf_dir = getattr(snapshot.trend_htf, "direction", "neutral")
-        mtf_dir = getattr(snapshot.trend_mtf, "direction", "neutral") if snapshot.trend_mtf else "neutral"
-        ltf_dir = getattr(snapshot.trend_ltf, "direction", "neutral")
-        exec_dir = getattr(snapshot.trend_exec, "direction", "neutral") if getattr(snapshot, "trend_exec", None) else ltf_dir
-        
-        # I determine the macro trend direction. If they don't match exactly, I consider the macro trend fractured.
-        mtf_strength = getattr(snapshot.trend_mtf, "strength", 0.0) if snapshot.trend_mtf else 0.0
-        
-        mtf_strength_floor = float(getattr(self._profile, 'mtf_strength_floor', 0.50)) if self._profile else 0.50
-        macro_conflict = (htf_dir == "long" and mtf_dir == "short") or (htf_dir == "short" and mtf_dir == "long")
-        
-        if regime == "trending" and macro_conflict and not has_reversal:
-            logger.info(
-                f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by Macro Alignment conflict "
-                f"(HTF: {htf_dir}, MTF: {mtf_dir}@{mtf_strength:.2f})"
-            )
-            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by Macro Alignment conflict (HTF:{htf_dir}, MTF:{mtf_dir})")
+        # [REMOVED] Macro trend alignment conflicts no longer block entries because Forex Conductor
+        # now exclusively operates on rubberband mechanics which inherently trade counter-trend.
 
         # Pass the unified direction down into the sub-strategies.
         # Sub-strategies use exec_dir and ltf_dir as instantaneous execution triggers.
-        gates["htf_dir"] = htf_dir
-        gates["mtf_dir"] = mtf_dir
-        gates["ltf_dir"] = ltf_dir
+        ltf_dir = getattr(snapshot.trend_ltf, "direction", "neutral")
+        exec_dir = getattr(snapshot.trend_exec, "direction", "neutral") if getattr(snapshot, "trend_exec", None) else ltf_dir
         gates["exec_dir"] = exec_dir
                 
         if regime == "transitional" and not has_reversal:
-            if htf_dir in ("long", "short") and exec_dir in ("long", "short") and htf_dir != exec_dir:
-                logger.info(f"[CONDUCTOR] {snapshot.symbol}: HTF/EXEC conflict in transitional (htf={htf_dir}, exec={exec_dir}) — soft flag")
+            if exec_dir in ("long", "short"):
                 gates["htf_ltf_conflict"] = True
 
         # ── NOTE: Macro trend filters tested and reverted ─────────

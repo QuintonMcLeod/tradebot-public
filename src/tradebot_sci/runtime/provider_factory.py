@@ -514,8 +514,7 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
         name = "kraken" # Changed from ibkr to kraken per user request to avoid F- grades
 
     if name == "ibkr":
-        logger.info("[ROUTED-DATA] IBKR market data redirected to Kraken to prevent sparse F- grades.")
-        return _create_single_provider("kraken", settings, profile_settings, shared_ib)
+        return IbkrMarketDataProvider(shared_ib)
     elif name == "oanda":
         if not settings.oanda:
             from tradebot_sci.config.broker import load_oanda_broker_options
@@ -596,7 +595,7 @@ def build_market_provider(
     if is_routed:
         # Default defaults
         if not crypto_md_mode: crypto_md_mode = "ccxt" if _has_ccxt else "kraken"
-        if not forex_md_mode: forex_md_mode = "oanda" if _has_oanda else "kraken"
+        if not forex_md_mode: forex_md_mode = "oanda" if _has_oanda else "ibkr"
         if not equity_md_mode: equity_md_mode = "ibkr" # Default equity
         if not future_md_mode: future_md_mode = "ibkr"
         if not metal_md_mode: metal_md_mode = "ibkr"

@@ -106,16 +106,9 @@ class LondonBreakoutStrategy(BaseStrategy):
         else:
             details.append("no-box")
 
-        # 4. HTF trend strength
-        htf_strength = float(gates.get("htf_strength", 0))
-        if htf_strength >= 0.5:
-            score += 20
-            details.append(f"str={htf_strength:.2f}")
-        elif htf_strength >= 0.2:
-            score += 12
-            details.append(f"str={htf_strength:.2f}")
-        else:
-            details.append(f"str={htf_strength:.2f}✗")
+        # 4. HTF trend strength [REMOVED]
+        # Pure session breakout logic doesn't care about the macro trend.
+        score += 20
 
         # 5. Candle body momentum (recent candle body vs range)
         if len(closes) >= 2:
@@ -211,17 +204,13 @@ class LondonBreakoutStrategy(BaseStrategy):
         prev_close = snapshot.candles[-2].close
         atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
 
-        # [TREND GUIDANCE]
-        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
-
-        # [HARDENED] Only trade breakouts with meaningful trend strength
-        htf_strength = float(gates.get("htf_strength", 0))
-        if htf_strength < 0.2:
-            return None  # Weak trend = false breakouts
+        # [TREND GUIDANCE] [REMOVED]
+        # We no longer block breakouts based on weak or conflicting trend strength.
+        # Breakouts are determined purely by momentum escaping the Asian box.
 
         # ── BULLISH BREAKOUT ─────────────────────────────────────
         # Price was inside box AND now CLOSES above box high
-        if htf_dir in ("long", "neutral"):  # Allow neutral — confirmed profitable
+        if True:  # Pure range break
             if prev_close <= box_high and last_close > box_high:
                 # [HARDENED] Breakout candle must have significant body
                 breakout_body = abs(snapshot.candles[-1].close - snapshot.candles[-1].open)
@@ -257,7 +246,7 @@ class LondonBreakoutStrategy(BaseStrategy):
                 )
 
         # ── BEARISH BREAKOUT ─────────────────────────────────────
-        if htf_dir in ("short", "neutral"):  # Allow neutral — confirmed profitable
+        if True:  # Pure range break
             if prev_close >= box_low and last_close < box_low:
                 # [HARDENED] Breakout candle must have significant body
                 breakout_body = abs(snapshot.candles[-1].close - snapshot.candles[-1].open)

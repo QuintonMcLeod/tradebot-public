@@ -101,17 +101,9 @@ class MeanReversionStrategy(BaseStrategy):
         else:
             details.append("squeeze")
 
-        # 4. HTF direction alignment
-        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
-        if (last_close <= lower and htf_dir in ("long", "neutral")) or \
-           (last_close >= upper and htf_dir in ("short", "neutral")):
-            score += 15
-            details.append(f"HTF={htf_dir}✓")
-        elif htf_dir != "neutral":
-            score += 5
-            details.append(f"HTF={htf_dir}")
-        else:
-            details.append("HTF=neutral")
+        # 4. HTF direction alignment (REMOVED)
+        # Trades counter-trend rubberband bounces, macro alignment is irrelevant.
+        details.append("HTF=ignored")
 
         # 5. Bounce confirmation (recent candles showing reversal)
         if len(closes) >= 3:
@@ -175,23 +167,13 @@ class MeanReversionStrategy(BaseStrategy):
             if adx > 25:
                 return None  # Market is trending — skip mean reversion
 
-        # [TREND GUIDANCE] Follow the trend direction from HTF analysis.
-        # When HTF is neutral (ranging/flat market), use LTF price action
-        # alone to determine direction — BB bounce defines trade direction.
-        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
-        htf_strength = float(gates.get("htf_strength", 0.0))
-
         # ── BOUNCE CONFIRMATION ──────────────────────────────────
         # Require that the previous candle touched/pierced the BB
         # but the current candle is closing back inside = bounce started
 
         # ── LONG: Price bouncing off lower BB ────────────────────
-        # Allow when HTF is bullish, OR neutral AND genuinely flat (htf_strength<0.25).
-        # Neutral+strong = developing trend — avoid counter-trend entries.
-        is_long_allowed  = (htf_dir == "long") or (htf_dir == "neutral" and htf_strength < 0.25)
-        is_short_allowed = (htf_dir == "short") or (htf_dir == "neutral" and htf_strength < 0.25)
-
-        if is_long_allowed:
+        # Pure rubberband: Allow longs whenever exhausted regardless of macro trend.
+        if True:
             prev_touched_lower = prev_close <= lower or min(
                 c.low for c in snapshot.candles[-3:]
             ) <= lower
@@ -222,8 +204,8 @@ class MeanReversionStrategy(BaseStrategy):
                 )
 
         # ── SHORT: Price bouncing off upper BB ───────────────────
-        # Allow when HTF is bearish, OR neutral AND genuinely flat (htf_strength<0.25).
-        if is_short_allowed:
+        # Pure rubberband: Allow shorts whenever exhausted regardless of macro trend.
+        if True:
             prev_touched_upper = prev_close >= upper or max(
                 c.high for c in snapshot.candles[-3:]
             ) >= upper
