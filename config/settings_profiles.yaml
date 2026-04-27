@@ -109,6 +109,15 @@ profiles:
     strategy_variant: forex_conductor 
     symbols: 
     - GBPUSD 
+    - EURUSD 
+    - USDJPY 
+    - AUDUSD 
+    - NZDUSD 
+    - USDCAD 
+    - USDCHF 
+    - GBPJPY 
+    - EURJPY 
+    - AUDJPY 
     candle_timeframe: 1m 
     mtf_timeframe: 1h 
     ltf_timeframe: 5m 

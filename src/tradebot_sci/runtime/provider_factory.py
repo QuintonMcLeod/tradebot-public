@@ -586,6 +586,8 @@ def build_market_provider(
     if forex_md_mode in ("kraken", "ccxt", "binance"):
         logger.info(f"[PROVIDER_FACTORY] Overriding unsafe Forex data feed '{forex_md_mode}' to 'ibkr' to prevent rate limit lockouts.")
         forex_md_mode = "ibkr"
+    elif not forex_md_mode:
+        forex_md_mode = "ibkr"
     equity_md_mode = os.getenv("BROKER_EQUITIES", "").lower() # Or Default
     future_md_mode = os.getenv("BROKER_FUTURES", "").lower()
     metal_md_mode = os.getenv("BROKER_METALS", "").lower()
