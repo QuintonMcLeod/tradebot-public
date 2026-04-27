@@ -729,10 +729,20 @@ def reload_settings() -> Settings:
 
 
 def save_settings_to_json(settings_dict: Dict[str, Any]) -> None:
-    """Save settings dictionary back to config.json."""
-    with open(CONFIG_JSON_FILE, "w", encoding="utf-8") as f:
-        json.dump(settings_dict, f, indent=2, ensure_ascii=False)
-    logger.info("[CONFIG] Saved config.json")
+    """Save settings dictionary back to config.json atomically."""
+    tmp_file = CONFIG_JSON_FILE.with_suffix('.json.tmp')
+    try:
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(settings_dict, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())  # Ensure data hits the disk
+        os.replace(tmp_file, CONFIG_JSON_FILE)
+        logger.info("[CONFIG] Saved config.json atomically")
+    except Exception as e:
+        logger.error(f"[CONFIG] Failed to save config: {e}")
+        if tmp_file.exists():
+            tmp_file.unlink()
+        raise
 
 
 def load_config_json() -> Dict[str, Any]:

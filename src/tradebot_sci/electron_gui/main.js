@@ -2098,8 +2098,8 @@ function createSettingsWindow() {
     }
 
     settingsWindow = new BrowserWindow({
-        width: 1615,
-        height: 850,
+        width: 1280,
+        height: 800,
         backgroundColor: '#020617',
         frame: false,
         resizable: true,
@@ -2139,7 +2139,7 @@ function createSettingsWindow() {
 
 function createWindow() {
     const statePath = path.join(USER_DATA_DIR, 'window-state.json');
-    let state = { width: 1611, height: 1368 };
+    let state = { width: 1400, height: 900 };
     try {
         if (fs.existsSync(statePath)) state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
     } catch (e) { }
@@ -2313,7 +2313,7 @@ function createWindow() {
         let extraArgs = isWindows() ? '' : ' --env TRADING_CONFIRMATION=YES';
 
         let spawnCmd = isWindows()
-            ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" scripts/run_dev_bot.py --daemon`
+            ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" scripts/run_dev_bot.py`
             : `TRADING_CONFIRMATION=${isConfirmed ? 'YES' : 'NO'} bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon${extraArgs}`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);

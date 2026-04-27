@@ -326,7 +326,8 @@ async function connectWebSocket() {
                     // Update the chart — apply HA transform if active
                     try {
                         if (chartMode === 'heikinashi') {
-                            candleSeries.setData(calculateHeikinAshi(candleData));
+                            const haData = calculateHeikinAshi(candleData);
+                            candleSeries.update(haData[haData.length - 1]);
                         } else {
                             candleSeries.update(newBar);
                         }
@@ -364,6 +365,13 @@ async function connectWebSocket() {
             } else if (msg.type === 'log') {
                 parseLogLine(msg.data);
                 appendLog(msg.level || "INFO", msg.data);
+                
+                // Only sync Realized PnL when a trade actually closes, not every 5 seconds
+                if (msg.data.includes('[EXIT]') || msg.data.includes('RESET PNL')) {
+                    if (typeof window.updateRealizedPnL === 'function') {
+                        setTimeout(() => window.updateRealizedPnL(), 1000);
+                    }
+                }
                 
                 // Intercept Eval logs for Modal
                 if (msg.data.includes("PROP FIRM EVALUATION FAILED") || msg.data.includes("PROP FIRM EVALUATION PASSED")) {
@@ -585,10 +593,6 @@ async function connectWebSocket() {
                     }
                 }
                 
-                // Keep Sidebar perfectly locked to Analytics logic at heartbeats
-                if (typeof window.updateRealizedPnL === 'function') {
-                    window.updateRealizedPnL();
-                }
                 
                 saveState();
             } else if (msg.type === 'health') {

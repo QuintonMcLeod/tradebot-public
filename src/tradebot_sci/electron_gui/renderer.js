@@ -776,10 +776,10 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
         const table = document.getElementById('decisions-table');
         if (!table) return;
 
-        // DE-DUPLICATE: Find existing row for this symbol
+        // DE-DUPLICATE: Find existing row for this symbol using fast dataset lookup instead of slow innerText reflows
         let existingRow = null;
         for (let row of table.rows) {
-            if (row.cells[1].innerText === symbol) {
+            if (row.dataset.symbol === symbol) {
                 existingRow = row;
                 break;
             }
@@ -787,6 +787,7 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
 
         const row = existingRow || document.createElement('tr');
         row.className = "hover:bg-cyan-500/5 transition-colors border-b border-slate-700/20";
+        row.dataset.symbol = symbol;
         row.setAttribute('data-score', scoreNum !== null && scoreNum !== undefined ? scoreNum : -1);
 
         // Time AM/PM
@@ -839,9 +840,13 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
             gatesData.strategyName = strategyName;
             // Inject reason so Meta-SCI tournaments can be parsed
             gatesData.decisionReason = reason;
-            // Store gatesData stringified in a dataset attribute so the onclick handler can read it
-            const encodedGates = encodeURIComponent(JSON.stringify(gatesData));
-            detailsButton = ` <span class="ml-2 px-1.5 py-0.5 text-[10px] uppercase font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 rounded cursor-pointer hover:bg-cyan-500/20 transition-colors" data-gates="${encodedGates}" onclick="showDecisionDetails(this, '${symbol}')">Details</span>`;
+            
+            // Fix UI hanging: Store in memory instead of putting massive JSON strings in the DOM 
+            // which bloats localStorage during saveState()
+            window.__gatesCache = window.__gatesCache || {};
+            window.__gatesCache[symbol] = gatesData;
+            
+            detailsButton = ` <span class="ml-2 px-1.5 py-0.5 text-[10px] uppercase font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 rounded cursor-pointer hover:bg-cyan-500/20 transition-colors" onclick="showDecisionDetails(this, '${symbol}')">Details</span>`;
         }
 
         // Much larger font (text-lg / 18px), bunched rows (py-1.5)
@@ -858,14 +863,18 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
             table.appendChild(row);
         }
 
-        // Re-sort all rows: highest score at top
-        const rows = Array.from(table.rows);
-        rows.sort((a, b) => {
-            const sa = parseFloat(a.getAttribute('data-score') || -1);
-            const sb = parseFloat(b.getAttribute('data-score') || -1);
-            return sb - sa;
-        });
-        rows.forEach(r => table.appendChild(r));
+        // Debounce sorting to prevent UI freeze during mass Meta-SCI evaluation bursts
+        if (window._decisionSortTimeout) clearTimeout(window._decisionSortTimeout);
+        window._decisionSortTimeout = setTimeout(() => {
+            if (!table) return;
+            const rows = Array.from(table.rows);
+            rows.sort((a, b) => {
+                const sa = parseFloat(a.getAttribute('data-score') || -1);
+                const sb = parseFloat(b.getAttribute('data-score') || -1);
+                return sb - sa;
+            });
+            table.append(...rows);
+        }, 50);
     } catch (e) {
         console.error("addDecisionRow exploded:", e);
         if (window.api && window.api.logSystem) {
@@ -1131,11 +1140,7 @@ let customUiLayouts = {};
 window.api?.readUiLayouts().then(lays => customUiLayouts = lays || {});
 
 window.showDecisionDetails = function(button, symbol) {
-    let gatesData = {};
-    try {
-        const encodedGates = button.getAttribute('data-gates') || '%7B%7D';
-        gatesData = JSON.parse(decodeURIComponent(encodedGates));
-    } catch(e) {}
+    let gatesData = window.__gatesCache && window.__gatesCache[symbol] ? window.__gatesCache[symbol] : {};
 
     // Clean up any existing drawer
     const existing = document.getElementById('decision-drawer');

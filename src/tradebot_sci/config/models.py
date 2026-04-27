@@ -1399,7 +1399,7 @@ class SafetySettings(BaseModel):
         default_factory=lambda: int(os.getenv("SAFETY_CHURN_BURNER_MAX", "5"))
     )
     safety_leverage_sentry_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_LEVERAGE_SENTRY_ENABLED", "False").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_LEVERAGE_SENTRY_ENABLED", "True").lower() == "true"
     )
     safety_max_total_leverage: float = Field(
         default_factory=lambda: float(os.getenv("SAFETY_MAX_TOTAL_LEVERAGE", "3.0"))

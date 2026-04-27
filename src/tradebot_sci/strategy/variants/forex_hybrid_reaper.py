@@ -21,7 +21,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
     Optimized for major pairs (EUR/USD, GBP/USD).
     """
     def __init__(self, target_r=2.5, **kwargs):
-        super().__init__("ForexHybridReaper")
+        super().__init__("ForexHybridScalper")
         self.target_r = target_r
         
         # Rubberband Reaper default kinetics parameters
@@ -43,7 +43,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
         
         # If we don't have enough data to calculate EMA, default F
         if len(closes) < getattr(self, 'trend_ema_period', 200):
-            return 0.0, "F-", "HybridReaper: Insufficient data"
+            return 0.0, "F-", "HybridScalper: Insufficient data"
 
         last_close = closes[-1]
         
@@ -114,89 +114,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
 
         score = min(100.0, score)
         grade = self.grade_from_score_100(score)
-        summary = f"HybridReaper {score:.0f}/100: {', '.join(breakdown)}"
-        return score, grade, summary
-
-
-    def score_signal(self, snapshot: MarketSnapshot, gates: dict = None) -> tuple[float, str, str]:
-        """Hybrid Reaper specific scoring: EMA Alignment (20) + BB Position (40) + RSI Extremity (40)."""
-        gates = gates or {}
-        closes = [c.close for c in snapshot.candles]
-        
-        # If we don't have enough data to calculate EMA, default F
-        if len(closes) < getattr(self, 'trend_ema_period', 200):
-            return 0.0, "F-", "HybridReaper: Insufficient data"
-
-        last_close = closes[-1]
-        
-        exec_bollinger = gates.get("exec_bollinger", {})
-        lower_bb = exec_bollinger.get("lower", float('-inf'))
-        upper_bb = exec_bollinger.get("upper", float('inf'))
-        
-        rsi = gates.get("exec_rsi", 50.0)
-        
-        # Default Profile Fallbacks if available
-        overbought_thresh = float(getattr(self._profile, 'rsi_overbought', self.rsi_overbought)) if getattr(self, '_profile', None) else self.rsi_overbought
-        oversold_thresh = float(getattr(self._profile, 'rsi_oversold', self.rsi_oversold)) if getattr(self, '_profile', None) else self.rsi_oversold
-        trend_ema = calculate_ema(closes, self.trend_ema_period)
-        
-        score = 0.0
-        breakdown = []
-        
-        # 1. EMA Filter Alignment (20 pts)
-        is_long_bias = last_close > trend_ema
-        score += 20.0
-        breakdown.append("EMA-Align(+20)")
-
-        # 2. Bollinger Band Position (40 pts)
-        bb_range = upper_bb - lower_bb if upper_bb > lower_bb else 1e-9
-        
-        if is_long_bias:
-            if last_close <= lower_bb:
-                score += 40.0
-                breakdown.append("BB-Pierced(+40)")
-            else:
-                dist_to_edge = (last_close - lower_bb) / bb_range
-                pts = max(0, 40 * (1 - dist_to_edge * 2)) 
-                if pts > 0:
-                    score += pts
-                    breakdown.append(f"BB-Near(+{pts:.0f})")
-                    
-            # 3. RSI Extremity (40 pts)
-            if rsi <= oversold_thresh:
-                score += 40.0
-                breakdown.append(f"RSI-OS({rsi:.1f}=+40)")
-            else:
-                dist_to_thresh = rsi - oversold_thresh
-                pts = max(0, 40 * (1 - dist_to_thresh / 15)) 
-                if pts > 0:
-                    score += pts
-                    breakdown.append(f"RSI-Near({rsi:.1f}=+{pts:.0f})")
-        else:
-            if last_close >= upper_bb:
-                score += 40.0
-                breakdown.append("BB-Pierced(+40)")
-            else:
-                dist_to_edge = (upper_bb - last_close) / bb_range
-                pts = max(0, 40 * (1 - dist_to_edge * 2))
-                if pts > 0:
-                    score += pts
-                    breakdown.append(f"BB-Near(+{pts:.0f})")
-                    
-            # 3. RSI Extremity (40 pts)
-            if rsi >= overbought_thresh:
-                score += 40.0
-                breakdown.append(f"RSI-OB({rsi:.1f}=+40)")
-            else:
-                dist_to_thresh = overbought_thresh - rsi
-                pts = max(0, 40 * (1 - dist_to_thresh / 15))
-                if pts > 0:
-                    score += pts
-                    breakdown.append(f"RSI-Near({rsi:.1f}=+{pts:.0f})")
-
-        score = min(100.0, score)
-        grade = self.grade_from_score_100(score)
-        summary = f"HybridReaper {score:.0f}/100: {', '.join(breakdown)}"
+        summary = f"HybridScalper {score:.0f}/100: {', '.join(breakdown)}"
         return score, grade, summary
 
 

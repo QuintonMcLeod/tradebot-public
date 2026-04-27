@@ -173,17 +173,37 @@
             }
         }
 
-        // Smart auto-scroll with tolerance for smooth scrolling
-        const threshold = 150;
-        const distFromBottom = _logTerminal.scrollHeight - _logTerminal.scrollTop - _logTerminal.clientHeight;
-        const isNearBottom = distFromBottom < threshold;
-        
-        _logTerminal.appendChild(div);
-        while (_logTerminal.children.length > 500) _logTerminal.removeChild(_logTerminal.firstChild); // Keep up to 500 beautifully formatted logs
-        
-        if (isNearBottom) {
+        // Implement queued DOM batching to eliminate intense layout thrashing
+        if (!window._logQueue) {
+            window._logQueue = [];
+            window._logFlushRequested = false;
+        }
+        window._logQueue.push(div);
+
+        if (!window._logFlushRequested) {
+            window._logFlushRequested = true;
             requestAnimationFrame(() => {
-                _logTerminal.scrollTop = _logTerminal.scrollHeight;
+                if (!_logTerminal) return;
+                
+                // Smart auto-scroll with tolerance for smooth scrolling
+                const threshold = 150;
+                const distFromBottom = _logTerminal.scrollHeight - _logTerminal.scrollTop - _logTerminal.clientHeight;
+                const isNearBottom = distFromBottom < threshold;
+
+                const fragment = document.createDocumentFragment();
+                for (const logDiv of window._logQueue) {
+                    fragment.appendChild(logDiv);
+                }
+                _logTerminal.appendChild(fragment);
+                
+                window._logQueue = [];
+                window._logFlushRequested = false;
+
+                while (_logTerminal.children.length > 500) _logTerminal.removeChild(_logTerminal.firstChild); 
+                
+                if (isNearBottom) {
+                    _logTerminal.scrollTop = _logTerminal.scrollHeight;
+                }
             });
         }
     }
@@ -362,6 +382,12 @@
                 const stratGradeMatch = body.match(/strat_grade=([A-F][+-]?)/i);
                 const stratName = stratMatch ? stratMatch[1] : null;
                 const displayGrade = stratGradeMatch ? stratGradeMatch[1] : forcedGrade;
+
+                if (gatesData) {
+                    gatesData.score = score;
+                    gatesData.grade = displayGrade;
+                    if (stratName) gatesData.strategyName = stratName;
+                }
 
                 addDecisionRow(symbol, action, score, reason, displayGrade, stratName, gatesData);
 
