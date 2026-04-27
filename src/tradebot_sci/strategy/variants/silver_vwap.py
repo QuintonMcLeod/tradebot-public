@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 from datetime import datetime, time
-import pytz
+from zoneinfo import ZoneInfo
 
 from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.strategy.decisions import AITradeDecision, close_position_decision
@@ -29,7 +29,7 @@ class SilverVwapStrategy(BaseStrategy):
         self.max_daily_losses = int(kwargs.get('silver_vwap_max_losses', 2))
         
         # Time constraints (EST) for Opening Range calculation ONLY
-        self.est_tz = pytz.timezone('US/Eastern')
+        self.est_tz = ZoneInfo('America/New_York')
         
         # Opening Range calculation
         or_start_env = str(kwargs.get('silver_vwap_or_start', '09:30')).split(':')
@@ -64,7 +64,7 @@ class SilverVwapStrategy(BaseStrategy):
                 elif isinstance(c.timestamp, datetime):
                     c_dt = c.timestamp
                 else:
-                    c_dt = datetime.fromtimestamp(c.timestamp, tz=pytz.UTC)
+                    c_dt = datetime.fromtimestamp(c.timestamp, tz=ZoneInfo('UTC'))
                 
                 c_est = c_dt.astimezone(self.est_tz)
                 

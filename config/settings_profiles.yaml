@@ -39,8 +39,6 @@ profiles:
     - LINKUSD 
     - LTCUSD 
     - DOGEUSD 
-    - SOLUSD 
-    - XRPUSD 
     - ZECUSD 
     - BCHUSD 
     - EURUSD 
@@ -75,11 +73,8 @@ profiles:
     - LINKUSD 
     - LTCUSD 
     - DOGEUSD 
-    - LTCUSD 
     - BCHUSD 
-    - XRPUSD 
     - ZECUSD 
-    - SOLUSD 
   coinbase_futures: 
     symbols: 
     - AVAX/USD 
@@ -101,8 +96,6 @@ profiles:
     - LINKUSD 
     - LTCUSD 
     - DOGEUSD 
-    - SOLUSD 
-    - XRPUSD 
     - ZECUSD 
     - BCHUSD 
   forex_continuous: 
@@ -115,16 +108,7 @@ profiles:
       crypto: forex_conductor 
     strategy_variant: forex_conductor 
     symbols: 
-    - EURUSD 
     - GBPUSD 
-    - AUDUSD 
-    - NZDUSD 
-    - USDCHF 
-    - USDJPY 
-    - USDCAD 
-    - GBPJPY 
-    - EURJPY 
-    - AUDJPY 
     candle_timeframe: 1m 
     mtf_timeframe: 1h 
     ltf_timeframe: 5m 
@@ -179,7 +163,6 @@ profiles:
     - LINKUSD 
     - LTCUSD 
     - DOGEUSD 
-    - SOLUSD 
   intraday: 
   oanda_multi_asset: 
   scalp: 
@@ -188,6 +171,7 @@ profiles:
     symbols: 
     - EURUSD 
     - GBPUSD 
+    - USDJPY 
     strategies: 
       forex: forex_hybrid_reaper 
     strategy_variant: forex_hybrid_reaper 
