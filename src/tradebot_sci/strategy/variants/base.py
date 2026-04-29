@@ -28,8 +28,7 @@ class BaseStrategy:
         if score >= 60: return "C"
         if score >= 55: return "C-"
         if score >= 50: return "D"
-        if score >= 40: return "F+"
-        if score >= 30: return "F"
+        if score >= 40: return "D-"
         return "-"
 
     def score_signal(self, snapshot: MarketSnapshot, gates: dict) -> Tuple[float, str, str]:

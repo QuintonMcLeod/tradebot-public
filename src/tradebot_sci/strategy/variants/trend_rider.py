@@ -40,11 +40,13 @@ class TrendRiderStrategy(BaseStrategy):
         """Score how close the TrendRider entry filters are to triggering.
 
         Each filter contributes points to a 0-100 score:
-          HTF direction (not neutral)    = 20 pts
-          HTF strength ≥ 0.5             = 15 pts
+          HTF direction (not neutral)    = 15 pts
+          LTF alignment                  = 10 pts
+          HTF strength ≥ 0.25            = 10 pts
+          Liquidity Sweep present        = 10 pts
           EMA(8)/EMA(21) aligned         = 20 pts
-          RSI in 40-60 (pullback zone)   = 15 pts
-          Price near EMA(21) (≤0.3 ATR)  = 15 pts
+          RSI in 25-75 (pullback zone)   = 10 pts
+          Price near EMA(21) (≤0.3 ATR)  = 10 pts
           Bounce confirmed               = 15 pts
         """
         closes = [c.close for c in snapshot.candles]
@@ -54,21 +56,32 @@ class TrendRiderStrategy(BaseStrategy):
         score = 0.0
         details = []
 
-        # 1. HTF direction
+        # 1. HTF direction & LTF alignment
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
         if htf_dir in ("long", "short"):
-            score += 20
+            score += 15
             details.append(f"HTF={htf_dir}")
+            
+            if htf_dir == ltf_dir:
+                score += 10
+                details.append(f"LTF={ltf_dir}")
         else:
             details.append("HTF=neutral")
 
         # 2. HTF strength
         htf_strength = float(gates.get("htf_strength", 0))
         if htf_strength >= 0.25:
-            score += 15
+            score += 10
             details.append(f"str={htf_strength:.2f}")
         else:
             details.append(f"str={htf_strength:.2f}<0.25")
+            
+        # 2.5 Liquidity Sweep
+        sweep = gates.get("sweep", False)
+        if sweep:
+            score += 10
+            details.append("sweep✓")
 
         # 3. EMA alignment
         ema_fast = calculate_ema(closes, self.fast_ema)
@@ -84,7 +97,7 @@ class TrendRiderStrategy(BaseStrategy):
         # 4. RSI in pullback zone (25-75)
         rsi = calculate_rsi(closes, self.rsi_period)
         if 25 <= rsi <= 75:
-            score += 15
+            score += 10
             details.append(f"RSI={rsi:.0f}")
         else:
             details.append(f"RSI={rsi:.0f}✗")
@@ -93,7 +106,7 @@ class TrendRiderStrategy(BaseStrategy):
         atr = calculate_atr(snapshot.candles, period=14) or (closes[-1] * 0.001)
         ema_dist = abs(closes[-1] - ema_slow)
         if ema_dist < atr * 0.3:
-            score += 15
+            score += 10
             details.append("proximity✓")
         else:
             details.append("proximity✗")

@@ -1636,46 +1636,45 @@ const TABS = {
 // INITIALIZATION
 // ═══════════════════════════════════════════════════════════
 
+// ── Browser Mock Mode (Synchronous) ──────────────────────────────
+if (!window.api && !window.electronAPI) {
+    console.warn("[SETTINGS] No Electron API — running in BROWSER MOCK MODE");
+    const mockProfile = {
+        bot_mode: 'continuous',
+        TREND_ADX_ENABLED: 'true',
+        TREND_CORRELATION_STACKING_ENABLED: 'true',
+        TREND_ADX_THRESHOLD: '20',
+        TREND_RSI_ENABLED: 'false',
+        TREND_MACD_ENABLED: 'false',
+        TREND_BOLLINGER_ENABLED: 'false',
+        TREND_SUPERTREND_ENABLED: 'false',
+        TREND_EMA_RIBBON_ENABLED: 'false',
+        TREND_ICHIMOKU_ENABLED: 'false',
+        TREND_PARABOLIC_SAR_ENABLED: 'false',
+        TREND_VWAP_ENABLED: 'false',
+        TREND_HULL_MA_ENABLED: 'false',
+        SAFETY_ATR_SHIELD_ENABLED: 'true',
+        SAFETY_DRAWDOWN_BREAKER_ENABLED: 'true',
+        SAFETY_SESSION_LOCKOUT_ENABLED: 'false',
+        SAFETY_ROLLOVER_DEADZONE_ENABLED: 'true',
+        PERFORMANCE_MODE: 'balanced',
+    };
+    window.api = {
+        readConfig: async () => ({
+            global: { bot_mode: 'continuous' },
+            active_profile: 'default',
+            profiles: { default: mockProfile },
+        }),
+        readSecrets: async () => ({}),
+        setEnv: async (key, val) => { console.log(`[MOCK] setEnv ${key}=${val}`); },
+        saveConfig: async (cfg) => { console.log('[MOCK] saveConfig', cfg); },
+        getBotStatus: () => { },
+        onBotStatus: () => { },
+        onConfigUpdated: () => { },
+    };
+}
+
 async function init() {
-    // ── Browser Mock Mode ────────────────────────────────────────────
-    // When opened outside Electron (e.g. file:// in a plain browser),
-    // stub window.api so the entire settings UI renders interactively.
-    if (!window.api && !window.electronAPI) {
-        console.warn("[SETTINGS] No Electron API — running in BROWSER MOCK MODE");
-        const mockProfile = {
-            bot_mode: 'continuous',
-            TREND_ADX_ENABLED: 'true',
-            TREND_CORRELATION_STACKING_ENABLED: 'true',
-            TREND_ADX_THRESHOLD: '20',
-            TREND_RSI_ENABLED: 'false',
-            TREND_MACD_ENABLED: 'false',
-            TREND_BOLLINGER_ENABLED: 'false',
-            TREND_SUPERTREND_ENABLED: 'false',
-            TREND_EMA_RIBBON_ENABLED: 'false',
-            TREND_ICHIMOKU_ENABLED: 'false',
-            TREND_PARABOLIC_SAR_ENABLED: 'false',
-            TREND_VWAP_ENABLED: 'false',
-            TREND_HULL_MA_ENABLED: 'false',
-            SAFETY_ATR_SHIELD_ENABLED: 'true',
-            SAFETY_DRAWDOWN_BREAKER_ENABLED: 'true',
-            SAFETY_SESSION_LOCKOUT_ENABLED: 'false',
-            SAFETY_ROLLOVER_DEADZONE_ENABLED: 'true',
-            PERFORMANCE_MODE: 'balanced',
-        };
-        window.api = {
-            readConfig: async () => ({
-                global: { bot_mode: 'continuous' },
-                active_profile: 'default',
-                profiles: { default: mockProfile },
-            }),
-            readSecrets: async () => ({}),
-            setEnv: async (key, val) => { console.log(`[MOCK] setEnv ${key}=${val}`); },
-            saveConfig: async (cfg) => { console.log('[MOCK] saveConfig', cfg); },
-            getBotStatus: () => { },
-            onBotStatus: () => { },
-            onConfigUpdated: () => { },
-        };
-    }
 
     // Standardize API (support both window.api and window.electronAPI)
     if (!window.api && window.electronAPI) {

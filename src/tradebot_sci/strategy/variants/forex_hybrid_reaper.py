@@ -37,7 +37,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
         logger.debug(f"Loaded ForexHybridReaper with TargetR={self.target_r}, TrendEMA={self.trend_ema_period}")
 
     def score_signal(self, snapshot: MarketSnapshot, gates: dict = None) -> tuple[float, str, str]:
-        """Hybrid Reaper specific scoring: EMA Alignment (20) + BB Position (40) + RSI Extremity (40)."""
+        """Hybrid Reaper specific scoring: Structural Alignment (50) + BB Position (25) + RSI Extremity (25)."""
         gates = gates or {}
         closes = [c.close for c in snapshot.candles]
         
@@ -61,56 +61,78 @@ class ForexHybridReaperStrategy(BaseStrategy):
         score = 0.0
         breakdown = []
         
-        # 1. EMA Filter Alignment (20 pts)
+        # Determine internal strategy bias
         is_long_bias = last_close > trend_ema
-        score += 20.0
-        breakdown.append("EMA-Align(+20)")
+        strat_bias = "long" if is_long_bias else "short"
+        
+        # 1. Global HTF / LTF Alignment (20 pts)
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
+        
+        if htf_dir == strat_bias:
+            score += 10.0
+            breakdown.append(f"HTF-Align(+10)")
+        if ltf_dir == strat_bias:
+            score += 10.0
+            breakdown.append(f"LTF-Align(+10)")
+            
+        # 2. HTF Strength / Volatility (15 pts)
+        htf_strength = float(gates.get("htf_strength", 0))
+        if htf_strength >= 0.25:
+            score += 15.0
+            breakdown.append(f"HTF-Str(+15)")
+            
+        # 3. Liquidity Sweep (15 pts)
+        sweep = gates.get("sweep", False)
+        if sweep:
+            score += 15.0
+            breakdown.append(f"Sweep(+15)")
 
-        # 2. Bollinger Band Position (40 pts)
+        # 4. Bollinger Band Position (20 pts)
         bb_range = upper_bb - lower_bb if upper_bb > lower_bb else 1e-9
         
         if is_long_bias:
             if last_close <= lower_bb:
-                score += 40.0
-                breakdown.append("BB-Pierced(+40)")
+                score += 20.0
+                breakdown.append("BB-Pierced(+20)")
             else:
                 dist_to_edge = (last_close - lower_bb) / bb_range
-                pts = max(0, 40 * (1 - dist_to_edge * 2)) 
+                pts = max(0, 20 * (1 - dist_to_edge * 2)) 
                 if pts > 0:
                     score += pts
                     breakdown.append(f"BB-Near(+{pts:.0f})")
                     
-            # 3. RSI Extremity (40 pts)
+            # 5. RSI Extremity (20 pts)
             if rsi <= oversold_thresh:
-                score += 40.0
-                breakdown.append(f"RSI-OS({rsi:.1f}=+40)")
+                score += 20.0
+                breakdown.append(f"RSI-OS({rsi:.1f}=+20)")
             else:
                 dist_to_thresh = rsi - oversold_thresh
-                pts = max(0, 40 * (1 - dist_to_thresh / 15)) 
+                pts = max(0, 20 * (1 - dist_to_thresh / 15)) 
                 if pts > 0:
                     score += pts
-                    breakdown.append(f"RSI-Near({rsi:.1f}=+{pts:.0f})")
+                    breakdown.append(f"RSI-Near(+{pts:.0f})")
         else:
             if last_close >= upper_bb:
-                score += 40.0
-                breakdown.append("BB-Pierced(+40)")
+                score += 20.0
+                breakdown.append("BB-Pierced(+20)")
             else:
                 dist_to_edge = (upper_bb - last_close) / bb_range
-                pts = max(0, 40 * (1 - dist_to_edge * 2))
+                pts = max(0, 20 * (1 - dist_to_edge * 2))
                 if pts > 0:
                     score += pts
                     breakdown.append(f"BB-Near(+{pts:.0f})")
                     
-            # 3. RSI Extremity (40 pts)
+            # 5. RSI Extremity (20 pts)
             if rsi >= overbought_thresh:
-                score += 40.0
-                breakdown.append(f"RSI-OB({rsi:.1f}=+40)")
+                score += 20.0
+                breakdown.append(f"RSI-OB({rsi:.1f}=+20)")
             else:
                 dist_to_thresh = overbought_thresh - rsi
-                pts = max(0, 40 * (1 - dist_to_thresh / 15))
+                pts = max(0, 20 * (1 - dist_to_thresh / 15))
                 if pts > 0:
                     score += pts
-                    breakdown.append(f"RSI-Near({rsi:.1f}=+{pts:.0f})")
+                    breakdown.append(f"RSI-Near(+{pts:.0f})")
 
         score = min(100.0, score)
         grade = self.grade_from_score_100(score)

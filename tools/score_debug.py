@@ -57,7 +57,7 @@ def main() -> int:
     ai_client = TradeSciAIClient(settings.ai)
 
     try:
-        from tradebot_sci.runtime.loop import _fetch_snapshot  # type: ignore
+        from tradebot_sci.runtime.cycle import fetch_snapshot  # type: ignore
     except Exception as exc:
         print(f"Unable to import snapshot fetcher: {exc}", file=sys.stderr)
         return 3
@@ -66,7 +66,7 @@ def main() -> int:
     results: list[dict[str, Any]] = []
     for symbol in symbols:
         engine = StrategyEngine(ai_client=ai_client, market_provider=provider, profile=profile, symbol=symbol)
-        snapshot = _fetch_snapshot(provider, cache, symbol, timeframe, profile_settings, settings.market)
+        snapshot = fetch_snapshot(provider, cache, symbol, timeframe, profile_settings, settings.market)
         score, reason = engine.score_structure(snapshot)
         readiness, readiness_reason = engine.score_icc_readiness(snapshot)
         results.append(

@@ -124,18 +124,27 @@ class IbkrMarketDataProvider:
         return candles[-limit:]
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
-        candles = self.get_latest_candles(symbol, timeframe, limit=200)
+        # Resolve HTF timeframe from config
+        from tradebot_sci.config.loader import load_config_json
+        config = load_config_json()
+        active_prof = config.get("active_profile", "primary")
+        prof_data = config.get("profiles", {}).get(active_prof, {})
+        htf_setting = prof_data.get("htf_timeframe") or config.get("global", {}).get("htf_timeframe") or "4h"
+
+        ltf_candles = self.get_latest_candles(symbol, timeframe, limit=200)
+        htf_candles = self.get_latest_candles(symbol, htf_setting, limit=200)
+        
         # Neutral defaults — engine.py's Trend Detection sets direction
         _neutral = TrendState(direction="neutral", strength=0.0)
         return MarketSnapshot(
             symbol=symbol,
             timeframe=timeframe,
-            candles=candles,
+            candles=ltf_candles,
             trend_htf=_neutral,
             trend_ltf=_neutral,
-            htf_candles=candles[-100:],
-            ltf_candles=candles[-20:],
-            htf_timeframe=timeframe,
+            htf_candles=htf_candles,
+            ltf_candles=ltf_candles,
+            htf_timeframe=htf_setting,
             ltf_timeframe=timeframe,
         )
 
@@ -322,18 +331,27 @@ class CCXTMarketDataProvider:
         return candles[-limit:]
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
-        candles = self.get_latest_candles(symbol, timeframe, limit=200)
+        # Resolve HTF timeframe from config
+        from tradebot_sci.config.loader import load_config_json
+        config = load_config_json()
+        active_prof = config.get("active_profile", "primary")
+        prof_data = config.get("profiles", {}).get(active_prof, {})
+        htf_setting = prof_data.get("htf_timeframe") or config.get("global", {}).get("htf_timeframe") or "4h"
+
+        ltf_candles = self.get_latest_candles(symbol, timeframe, limit=200)
+        htf_candles = self.get_latest_candles(symbol, htf_setting, limit=200)
+
         # Neutral defaults — engine.py's Trend Detection sets direction
         _neutral = TrendState(direction="neutral", strength=0.0)
         return MarketSnapshot(
             symbol=symbol,
             timeframe=timeframe,
-            candles=candles,
+            candles=ltf_candles,
             trend_htf=_neutral,
             trend_ltf=_neutral,
-            htf_candles=candles[-100:],
-            ltf_candles=candles[-20:],
-            htf_timeframe=timeframe,
+            htf_candles=htf_candles,
+            ltf_candles=ltf_candles,
+            htf_timeframe=htf_setting,
             ltf_timeframe=timeframe,
         )
 

@@ -249,40 +249,7 @@ class StrategyEngine:
         """Dynamic helper for Meta-SCI ensemble loading."""
         return self._instantiate_variant(variant.lower())
 
-    def score_icc_grade(self, snapshot: MarketSnapshot) -> tuple[float, str]:
-        """Provides a score and grade for the current market state."""
-        from tradebot_sci.strategy.scoring import ActionScorer
-        from tradebot_sci.strategy.icc_signals import (
-            detect_liquidity_sweep,
-            detect_continuation,
-            detect_indication,
-            detect_correction,
-        )
-        
-        # 1. Gather Structure Signals
-        trend_htf = snapshot.trend_htf.direction
-        trend_ltf = snapshot.trend_ltf.direction
-        
-        # Fallback: If LTF is neutral, use HTF as the baseline direction for signals.
-        # This prevents "barriers" during local chop if the macro trend is strong.
-        signal_dir = trend_ltf if trend_ltf != "neutral" else trend_htf
-        
-        sweep = detect_liquidity_sweep(snapshot.candles, signal_dir)
-        indication = detect_indication(snapshot.candles)
-        correction = detect_correction(snapshot.candles, indication)
-        continuation = detect_continuation(snapshot.candles, signal_dir, sweep, indication, correction)
-        
-        # 2. Delegate to Scorer
-        # Note: session_ok is True for this real-time check
-        score, grade = ActionScorer.score_icc_grade(
-            snapshot, 
-            sweep=bool(sweep), 
-            continuation=bool(continuation), 
-            indication=bool(indication), 
-            correction=bool(correction), 
-            session_ok=True
-        )
-        return score, grade
+
 
     def decide(
         self,
@@ -320,9 +287,6 @@ class StrategyEngine:
         # 2. Build Gates (Metadata for Strategy)
         current_capital = current_capital if current_capital is not None else getattr(self.market_provider, "current_capital", None)
         history = [r.to_dict() for r in (self.trade_results.results if self.trade_results else [])]
-        
-        # Calculate grade for the current snapshot
-        score, grade = self.score_icc_grade(snapshot)
         
         # ── Trend Detection (my sole authority on direction) ─────────────────
         # In Synthetic Mode, the provider forces trend states directly on my snapshot.
@@ -494,6 +458,20 @@ class StrategyEngine:
             phase = "trend"
         elif htf_strength < 0.15 and ltf_strength < 0.15:
             phase = "chop"
+
+        # Calculate grade for the current snapshot using the populated trend values
+        from tradebot_sci.strategy.scoring import ActionScorer
+        score, grade = ActionScorer.score_icc_grade(
+            htf_dir=htf_dir,
+            ltf_dir=ltf_dir,
+            htf_strength=htf_strength,
+            ltf_strength=ltf_strength,
+            sweep=bool(sweep_signal),
+            continuation=bool(continuation_signal),
+            indication=bool(indication_signal),
+            correction=bool(correction_signal),
+            session_ok=True
+        )
 
         gates = {
             "htf_dir": htf_dir,  # Enriched trend direction for strategies to follow
@@ -1194,7 +1172,7 @@ class StrategyEngine:
         adx = gates.get("htf_adx", 0.0)
         phase = gates.get("phase", "range")
 
-        if adx > 0 and adx < 20:
+        if adx > 0 and adx < 20 and phase in ("chop", "range", "unknown"):
             reason = "Volume is dead. Price is just wandering sideways."
         elif phase == "chop":
             reason = "Market is too choppy and unpredictable to risk capital."

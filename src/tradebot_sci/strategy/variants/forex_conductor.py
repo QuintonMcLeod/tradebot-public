@@ -581,10 +581,10 @@ class ForexConductorStrategy(BaseStrategy):
         regime = gates.get("market_regime", "unknown")
         
         # ── RANGING/CHOPPY UI FIX ──────────────────────────────────────
-        # Display an F- in the UI to match the engine's internal block
+        # Display a '-' in the UI to match the engine's internal block
         # on ranging/choppy markets (unless forced by profile).
         _profile = getattr(self, 'profile', None) or gates.get('profile') or type('_P', (), {})()
-        block_ranging = bool(getattr(_profile, 'block_ranging_regime', True))
+        block_ranging = bool(getattr(_profile, 'block_ranging_regime', False))
         
         blocked_regimes = ["choppy", "unknown"]
         if block_ranging:

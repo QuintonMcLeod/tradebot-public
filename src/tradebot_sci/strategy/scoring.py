@@ -67,8 +67,7 @@ class ActionScorer:
         if score >= GRADE_C_THRESHOLD: return "C"
         if score >= GRADE_C_MINUS_THRESHOLD: return "C-"
         if score >= GRADE_D_THRESHOLD: return "D"
-        if score >= GRADE_F_PLUS_THRESHOLD: return "F+"
-        if score >= GRADE_F_THRESHOLD: return "F"
+        if score >= GRADE_F_PLUS_THRESHOLD: return "D-"
         return "-"
 
     @staticmethod
@@ -91,24 +90,14 @@ class ActionScorer:
         return score, ActionScorer.grade_from_score(score)
 
     @staticmethod
-    def score_icc_grade(snapshot: MarketSnapshot, sweep: Any, continuation: Any, indication: Any, correction: Any, session_ok: bool) -> Tuple[float, str]:
-        htf_strength = float(snapshot.trend_htf.strength or 0.0)
-        ltf_strength = float(snapshot.trend_ltf.strength or 0.0)
-        htf_candles = snapshot.htf_candles or snapshot.candles
-        ltf_candles = snapshot.ltf_candles or snapshot.candles
-
-        if snapshot.trend_htf.direction == "neutral":
-            htf_strength = max(htf_strength, swing_progress(htf_candles, swing_lookback=2, min_swings=3))
-        if snapshot.trend_ltf.direction == "neutral":
-            ltf_strength = max(ltf_strength, swing_progress(ltf_candles, swing_lookback=2, min_swings=3))
-
-        align = (snapshot.trend_htf.direction != "neutral" and snapshot.trend_ltf.direction != "neutral" and snapshot.trend_htf.direction == snapshot.trend_ltf.direction)
+    def score_icc_grade(htf_dir: str, ltf_dir: str, htf_strength: float, ltf_strength: float, sweep: Any, continuation: Any, indication: Any, correction: Any, session_ok: bool) -> Tuple[float, str]:
+        align = (htf_dir != "neutral" and ltf_dir != "neutral" and htf_dir == ltf_dir)
         
         score = 0.0
         score += 0.35 * htf_strength
         score += 0.25 * ltf_strength
-        if align: score += 0.15
-        if sweep: score += 0.1
+        if align: score += 0.25
+        if sweep: score += 0.15
         if continuation: score += 0.12
         if indication: score += 0.08
         if session_ok: score += 0.05

@@ -730,20 +730,22 @@ function _renderInsightBubbles(scroller, content, timestamp, animate) {
 // --- Decisions Logic ---
 function getScoreGrade(score) {
     if (score === null || score === undefined) return "N/A";
-    if (score >= 97) return "A+";
-    if (score >= 93) return "A";
-    if (score >= 90) return "A-";
-    if (score >= 87) return "B+";
-    if (score >= 83) return "B";
-    if (score >= 80) return "B-";
-    if (score >= 77) return "C+";
-    if (score >= 70) return "C";
-    if (score >= 60) return "D";
-    return "F";
+    if (score >= 95) return "A+";
+    if (score >= 90) return "A";
+    if (score >= 85) return "A-";
+    if (score >= 80) return "B+";
+    if (score >= 75) return "B";
+    if (score >= 70) return "B-";
+    if (score >= 65) return "C+";
+    if (score >= 60) return "C";
+    if (score >= 55) return "C-";
+    if (score >= 50) return "D";
+    if (score >= 40) return "D-";
+    return "-";
 }
 
 function getScoreColor(grade) {
-    if (grade === "N/A") return "text-slate-600";
+    if (grade === "N/A" || grade === "-" || grade === "?") return "text-slate-600 font-bold";
     if (grade.startsWith('A')) return "text-green-400 text-glow";
     if (grade.startsWith('B')) return "text-cyan-400 text-glow-sm";
     if (grade.startsWith('C')) return "text-yellow-400";
@@ -757,16 +759,18 @@ function getScoreColor(grade) {
 // (Sweep → Continuation) also fires in real time. B+ during chop = no trade.
 function _gradeTooltip(grade) {
     const base = {
-        'A+': 'A+ (97–100) — Exceptional confluence. HTF+LTF aligned, sweep confirmed, continuation live. Very likely to trade.',
-        'A': 'A  (93–96) — Strong setup. High HTF strength, good LTF alignment. Entry probable if price triggers.',
-        'A-': 'A- (90–92) — Favorable setup. Good structure but may lack sweep/continuation. ⚠️ Watch, not yet a trade.',
-        'B+': 'B+ (87–89) — Above-average signal. Conditions trending toward entry. Still waiting on ICC confirmation.',
-        'B': 'B  (83–86) — Moderate conditions. Trend visible but not fully aligned. May trade, may not.',
-        'B-': 'B- (80–82) — Marginal setup. Something is off — weak HTF or misaligned LTF. Likely no entry.',
-        'C+': 'C+ (77–79) — Below-average. Choppy or ranging market. Bot will usually stand aside.',
-        'C': 'C  (70–76) — Poor conditions. Mixed signals, no clear trend. No trade expected.',
-        'D': 'D  (60–69) — Bad setup. Counter-trend or high chop. Bot will not trade.',
-        'F': 'F  (<60)  — Worst conditions. No structural basis. Bot stands aside entirely.',
+        'A+': 'A+ (95–100) — Exceptional confluence. HTF+LTF aligned, sweep confirmed, continuation live. Very likely to trade.',
+        'A': 'A  (90–94) — Strong setup. High HTF strength, good LTF alignment. Entry probable if price triggers.',
+        'A-': 'A- (85–89) — Favorable setup. Good structure but may lack sweep/continuation. ⚠️ Watch, not yet a trade.',
+        'B+': 'B+ (80–84) — Above-average signal. Conditions trending toward entry. Still waiting on ICC confirmation.',
+        'B': 'B  (75–79) — Moderate conditions. Trend visible but not fully aligned. May trade, may not.',
+        'B-': 'B- (70–74) — Marginal setup. Something is off — weak HTF or misaligned LTF. Likely no entry.',
+        'C+': 'C+ (65–69) — Below-average. Choppy or ranging market. Bot will usually stand aside.',
+        'C': 'C  (60–64) — Poor conditions. Mixed signals, no clear trend. No trade expected.',
+        'C-': 'C- (55–59) — Very poor conditions. High chop.',
+        'D': 'D  (50–54) — Bad setup. Counter-trend or high chop. Bot will not trade.',
+        'D-': 'D- (40–49) — Terrible setup. Extreme chop.',
+        '-': '- (<40)  — Neutral / No setup. Market is choppy or lacking structure.'
     }[grade];
     return base || `Grade ${grade} — Setup quality score. High grade = favorable, but entry requires ICC sweep + continuation to fire.`;
 }
@@ -1103,7 +1107,7 @@ const WIDGET_REGISTRY = {
         desc: 'The resulting Letter Grade (A+ through F).',
         render: (g, t) => {
             const gr = g.grade || '?';
-            const grC = gr.startsWith('A') ? t.success : gr.startsWith('B') ? t.accent : gr.startsWith('C') ? t.warning : t.error;
+            const grC = gr.startsWith('A') ? t.success : gr.startsWith('B') ? t.accent : gr.startsWith('C') ? t.warning : (gr === '-' || gr === '?') ? t.textDim : t.error;
             return _drawerCard(t, 'workspace_premium', 'Final Grade', `
                 <span style="font-size:28px; font-weight:900; color:${grC};">${gr}</span>
             `);
@@ -1215,7 +1219,7 @@ window.showDecisionDetails = function(button, symbol) {
     const regimeLabel = gatesData.market_regime ? gatesData.market_regime.toUpperCase() : 'TRANSITIONAL';
     const scoreVal = gatesData.score !== undefined ? (gatesData.score > 1 ? gatesData.score.toFixed(1) : (gatesData.score * 100).toFixed(1)) : '?';
     const gradeVal = gatesData.grade || '?';
-    const gradeColor = gradeVal.startsWith('A') ? success : gradeVal.startsWith('B') ? accent : gradeVal.startsWith('C') ? warning : error;
+    const gradeColor = gradeVal.startsWith('A') ? success : gradeVal.startsWith('B') ? accent : gradeVal.startsWith('C') ? warning : (gradeVal === '-' || gradeVal === '?') ? textDim : error;
 
     const phaseDescriptions = {
         'TREND':        'The market is moving steadily in one direction — like a river flowing downstream. The bot is waiting for the right moment to hop in and ride the current.',
