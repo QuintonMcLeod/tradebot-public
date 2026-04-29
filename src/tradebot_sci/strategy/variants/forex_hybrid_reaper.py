@@ -43,7 +43,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
         
         # If we don't have enough data to calculate EMA, default F
         if len(closes) < getattr(self, 'trend_ema_period', 200):
-            return 0.0, "F-", "HybridScalper: Insufficient data"
+            return 0.0, "-", "HybridScalper: Insufficient data"
 
         last_close = closes[-1]
         

@@ -61,7 +61,7 @@ class LondonBreakoutStrategy(BaseStrategy):
         from typing import Tuple
         closes = [c.close for c in snapshot.candles]
         if not snapshot.candles or len(closes) < 10:
-            return 0.0, "F-", "Session Breakout: insufficient data"
+            return 0.0, "-", "Session Breakout: insufficient data"
 
         score = 0.0
         details = []

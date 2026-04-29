@@ -49,7 +49,7 @@ class TrendRiderStrategy(BaseStrategy):
         """
         closes = [c.close for c in snapshot.candles]
         if len(closes) < self.slow_ema + 10:
-            return 0.0, "F-", "Trend Rider: insufficient data"
+            return 0.0, "-", "Trend Rider: insufficient data"
 
         score = 0.0
         details = []

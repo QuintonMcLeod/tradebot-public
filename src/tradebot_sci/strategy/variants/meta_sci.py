@@ -68,7 +68,7 @@ class MetaSCIStrategy(BaseStrategy):
         exclude_list = getattr(self.profile, 'meta_sci_exclude_list', [])
 
         best_score = 0.0
-        best_grade = "F-"
+        best_grade = "-"
         best_name = "none"
         results = []
 
@@ -716,7 +716,7 @@ class MetaSCIStrategy(BaseStrategy):
                             grade = s_grade
                         except Exception:
                             score = 0.0
-                            grade = "F-"
+                            grade = "-"
                             
                     reason = sig.notes if sig else "Blocked by internal guard"
                     rejects.append((name, score, grade, reason))

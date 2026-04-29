@@ -34,7 +34,7 @@ class RubberbandReaperStrategy(BaseStrategy):
         gates = gates or {}
         closes = [c.close for c in snapshot.candles]
         if len(closes) < self.bb_period:
-            return 0.0, "F-", "Reaper: Insufficient data"
+            return 0.0, "-", "Reaper: Insufficient data"
 
         last_close = closes[-1]
         

@@ -44,7 +44,7 @@ class MeanReversionStrategy(BaseStrategy):
         """
         closes = [c.close for c in snapshot.candles]
         if len(closes) < self.bb_period + 5:
-            return 0.0, "F-", "Mean Reversion: insufficient data"
+            return 0.0, "-", "Mean Reversion: insufficient data"
 
         score = 0.0
         details = []

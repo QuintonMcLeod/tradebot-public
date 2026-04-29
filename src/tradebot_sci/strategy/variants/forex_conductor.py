@@ -591,9 +591,9 @@ class ForexConductorStrategy(BaseStrategy):
             blocked_regimes.append("ranging")
             
         if regime in blocked_regimes:
-            return 0.0, "F-", f"Regime blocked: {regime}"
+            return 0.0, "-", f"Regime blocked: {regime}"
 
         primary_key = _REGIME_MAP.get(regime)
         if primary_key and primary_key in self._strategies:
             return self._strategies[primary_key].score_signal(snapshot, gates)
-        return 0.0, "F-", f"No strategy for regime={regime}"
+        return 0.0, "-", f"No strategy for regime={regime}"

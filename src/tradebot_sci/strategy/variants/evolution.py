@@ -24,7 +24,7 @@ class RobotEvolutionStrategy(BaseStrategy):
     def score_signal(self, snapshot, gates=None):
         """Evolution-specific scoring: NTZ(30) + Sweep(25) + Indication(25) + Candle(10) + ATR(10)."""
         if not snapshot.candles or len(snapshot.candles) < 20:
-            return 0.0, "F-", "Evolution: Insufficient data"
+            return 0.0, "-", "Evolution: Insufficient data"
 
         htf_candles = snapshot.htf_candles or snapshot.candles
         ltf_candles = snapshot.ltf_candles or snapshot.candles

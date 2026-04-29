@@ -69,7 +69,7 @@ class ActionScorer:
         if score >= GRADE_D_THRESHOLD: return "D"
         if score >= GRADE_F_PLUS_THRESHOLD: return "F+"
         if score >= GRADE_F_THRESHOLD: return "F"
-        return "F-"
+        return "-"
 
     @staticmethod
     def confluence_stack_score(snapshot: MarketSnapshot, sweep: Any, continuation: Any) -> Tuple[float, str]:
