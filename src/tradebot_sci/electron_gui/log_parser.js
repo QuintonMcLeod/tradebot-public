@@ -483,7 +483,7 @@
         const displayMode = capitalDisplayMode || 'equity';
 
         if (displayMode === 'cash') {
-            labelText = "Buying Power:";
+            labelText = "Liquid Cash:";
             capVal = window.capitalCache['CASH'];
             if (capVal === undefined || capVal === null) {
                 const total = (window.capitalCache['OANDA'] || 0) +

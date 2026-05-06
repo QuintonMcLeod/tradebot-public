@@ -26,7 +26,7 @@ class OandaMarketDataProvider:
     def __init__(self, account_id: str, api_key: str, environment: str = "practice"):
         if not HAS_OANDA:
             raise ImportError(f"OANDA dependencies missing ({_OANDA_IMPORT_ERROR}). Please install oandapyV20.")
-        self.client = oandapyV20.API(access_token=api_key, environment=environment)
+        self.client = oandapyV20.API(access_token=api_key, environment=environment, request_params={"timeout": 10})
         self.account_id = account_id
         _masked_key = ('***' + api_key[-6:]) if len(api_key) > 6 else '***'
         logger.info(

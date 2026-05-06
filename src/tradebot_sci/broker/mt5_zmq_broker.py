@@ -18,9 +18,10 @@ class MT5ZMQBroker(IExchangeBroker):
     Connects to an MQL5 Expert Advisor running a ZMQ REP socket on port 5555.
     """
 
-    def __init__(self, profile_settings, req_port: int = 5555):
+    def __init__(self, profile_settings, req_port: int = 5555, trade_results=None):
         self.profile = profile_settings
         self.req_port = req_port
+        self.trade_results = trade_results
         
         # Initialize ZMQ Context and Socket
         self.context = zmq.Context()
@@ -79,7 +80,7 @@ class MT5ZMQBroker(IExchangeBroker):
         
         if resp.get("status") == "success" and "position" in resp:
             pos = resp["position"]
-            return {
+            snapshot = {
                 "symbol": pos.get("symbol", symbol),
                 "side": "long" if pos.get("type", 0) == 0 else "short",
                 "size": pos.get("volume", 0.0),
@@ -91,6 +92,26 @@ class MT5ZMQBroker(IExchangeBroker):
                 "take_profit": pos.get("tp", 0.0),
                 "ticket": pos.get("ticket", 0)
             }
+            
+            # Extract timestamp if EA provides it
+            pos_time = pos.get("time") or pos.get("time_msc") or pos.get("time_update")
+            if pos_time:
+                import datetime
+                if pos_time > 1e11: # likely milliseconds
+                    pos_time = pos_time / 1000.0
+                try:
+                    dt = datetime.datetime.fromtimestamp(pos_time, tz=datetime.timezone.utc)
+                    snapshot["opened_at"] = dt.isoformat()
+                    snapshot["entry_time"] = dt.isoformat()
+                except Exception:
+                    pass
+                    
+            # Extract strategy comment if EA provides it
+            comment = pos.get("comment", "")
+            if comment:
+                snapshot["strategy"] = comment
+                
+            return snapshot
         return None
 
     def execute_decision(self, decision: AITradeDecision) -> tuple[ExecutionResult, ExecutionOutcome]:
@@ -110,7 +131,8 @@ class MT5ZMQBroker(IExchangeBroker):
             "type": "BUY" if action == "enter_long" else "SELL" if action == "enter_short" else action.upper(),
             "sl": getattr(decision, "stop_loss", 0.0),
             "tp": getattr(decision, "take_profit", 0.0),
-            "risk_usd": risk_usd
+            "risk_usd": risk_usd,
+            "strategy": getattr(decision, "strategy_name", "manual") or "manual"
         }
         
         logger.info(f"[MT5-ZMQ] Sending {action} for {symbol} to MT5. SL:{payload['sl']} TP:{payload['tp']}")
@@ -161,19 +183,86 @@ class MT5ZMQBroker(IExchangeBroker):
             acc = resp["account"]
             self._initial_balance = acc.get("balance", self._initial_balance)
             self._total_equity = acc.get("equity", self._total_equity)
-            logger.info(f"[MT5-ZMQ] Account Update: Balance ${self._initial_balance:.2f} | Equity ${self._total_equity:.2f}")
+            self._margin_free = acc.get("margin_free", self._initial_balance)
+            logger.info(f"[MT5-ZMQ] Account Update: Balance ${self._initial_balance:.2f} | Equity ${self._total_equity:.2f} | Free Margin ${self._margin_free:.2f}")
 
     def evaluate_synthetic_stops(self, market_provider, timeframe: str) -> Iterable[ExecutionResult]:
         return []
 
     def summarize_pnl(self) -> None:
-        pass
+        if not self.trade_results:
+            return
+            
+        payload = {"action": "GET_HISTORY", "days": 30}
+        resp = self._send_request(payload)
+        
+        if resp.get("status") == "success" and "deals" in resp:
+            deals = resp["deals"]
+            if not deals:
+                return
+                
+            from tradebot_sci.broker.trade_result_store import TradeResult
+            from datetime import datetime, timezone
+            
+            # Extract existing tickets or timestamps to prevent duplicates
+            # MT5 deals don't directly map to bot tickets easily, so we use timestamp + symbol + profit as fingerprint
+            existing_fingerprints = set()
+            for r in self.trade_results.get_recent_results(limit=500):
+                # Using a rough timestamp (seconds) and pnl for uniqueness
+                try:
+                    dt = datetime.fromisoformat(r.closed_at.replace("Z", "+00:00"))
+                    ts = int(dt.timestamp())
+                    fingerprint = f"{r.symbol}_{ts}_{r.pnl_usd:.2f}"
+                    existing_fingerprints.add(fingerprint)
+                except:
+                    pass
+            
+            for deal in deals:
+                sym = deal.get("symbol")
+                if not sym: continue
+                profit = float(deal.get("profit", 0.0))
+                vol = float(deal.get("volume", 0.0))
+                time_sec = int(deal.get("time", 0))
+                comment = deal.get("comment", "")
+                
+                # Create fingerprint
+                fingerprint = f"{sym}_{time_sec}_{profit:.2f}"
+                # Allow +/- 5 seconds for timestamp mismatch
+                found = False
+                for offset in range(-5, 6):
+                    if f"{sym}_{time_sec + offset}_{profit:.2f}" in existing_fingerprints:
+                        found = True
+                        break
+                
+                if found:
+                    continue
+                
+                # New deal found! Synthesize a TradeResult
+                dt = datetime.fromtimestamp(time_sec, tz=timezone.utc)
+                cap = self.get_liquid_capital()
+                
+                # Approximate percent if capital > 0
+                pct = (profit / cap * 100.0) if cap > 0 else 0.0
+                
+                tr = TradeResult(
+                    symbol=sym,
+                    closed_at=dt.isoformat(),
+                    pnl_pct=pct,
+                    pnl_usd=profit,
+                    is_win=(profit > 0),
+                    tier="MT5_MANUAL",
+                    capital_at_close=cap,
+                    strategy=comment if comment else "manual",
+                    exit_reason="MT5 Native Close"
+                )
+                self.trade_results.add_result(tr)
+                logger.info(f"[MT5-ZMQ] Synced closed deal for {sym}: PnL ${profit:.2f}")
 
     def get_liquid_capital(self, symbol: str | None = None) -> float:
-        return self._initial_balance
+        return getattr(self, '_margin_free', self._initial_balance)
         
     def get_display_cash(self) -> float:
-        return self._initial_balance
+        return getattr(self, '_margin_free', self._initial_balance)
 
     def get_total_balance_value(self) -> float:
         return self._total_equity
@@ -207,12 +296,75 @@ class MT5ZMQMarketProvider(MarketDataProvider):
         logger.info("[MT5-ZMQ] MT5 Market Data Provider initialized on port %s", req_port)
 
     def get_latest_candles(self, symbol: str, timeframe: str, limit: int) -> List[Candle]:
-        # Implement ZeroMQ CopyRates fetch request here
+        import zmq
+        import json
+        from datetime import datetime, timezone
+        
         logger.debug(f"[MT5-ZMQ] Requesting {limit} {timeframe} candles for {symbol} via ZMQ...")
+        
+        context = zmq.Context()
+        req_socket = context.socket(zmq.REQ)
+        req_socket.connect(f"tcp://localhost:{self.req_port}")
+        req_socket.setsockopt(zmq.RCVTIMEO, 5000)
+        req_socket.setsockopt(zmq.SNDTIMEO, 5000)
+        req_socket.setsockopt(zmq.LINGER, 0)
+        
+        try:
+            payload = {"action": "GET_CANDLES", "symbol": symbol, "timeframe": timeframe, "limit": limit}
+            req_socket.send(json.dumps(payload).encode('utf-8'))
+            response = req_socket.recv()
+            data = json.loads(response.decode('utf-8'))
+            
+            if data.get("status") == "success" and "candles" in data:
+                candles = []
+                for c in data["candles"]:
+                    ts = datetime.fromtimestamp(c.get("time", 0), tz=timezone.utc)
+                    candles.append(Candle(
+                        timestamp=ts,
+                        open=float(c.get("open", 0.0)),
+                        high=float(c.get("high", 0.0)),
+                        low=float(c.get("low", 0.0)),
+                        close=float(c.get("close", 0.0)),
+                        volume=float(c.get("real_volume", c.get("tick_volume", 0.0)))
+                    ))
+                return candles
+            else:
+                logger.warning(f"[MT5-ZMQ] EA did not return candles: {data.get('message', 'Unknown error')}")
+                
+        except zmq.error.Again:
+            logger.error(f"[MT5-ZMQ] Timeout fetching candles for {symbol}")
+        except Exception as e:
+            logger.error(f"[MT5-ZMQ] Error fetching candles: {e}")
+        finally:
+            req_socket.close()
+            
         return []
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
-        return MarketSnapshot(symbol=symbol, timeframe=timeframe, candles=[])
+        # Resolve HTF timeframe from config
+        from tradebot_sci.config.loader import load_config_json
+        config = load_config_json()
+        active_prof = config.get("active_profile", "primary")
+        prof_data = config.get("profiles", {}).get(active_prof, {})
+        htf_setting = prof_data.get("htf_timeframe") or config.get("global", {}).get("htf_timeframe") or "4h"
+
+        ltf_candles = self.get_latest_candles(symbol, timeframe, limit=200)
+        htf_candles = self.get_latest_candles(symbol, htf_setting, limit=200)
+
+        # Neutral defaults — engine.py's Trend Detection sets direction
+        from tradebot_sci.market.models import TrendState
+        _neutral = TrendState(direction="neutral", strength=0.0)
+        return MarketSnapshot(
+            symbol=symbol,
+            timeframe=timeframe,
+            candles=ltf_candles,
+            trend_htf=_neutral,
+            trend_ltf=_neutral,
+            htf_candles=htf_candles,
+            ltf_candles=ltf_candles,
+            htf_timeframe=htf_setting,
+            ltf_timeframe=timeframe,
+        )
 
     def get_ticker(self, symbol: str) -> Ticker | None:
         return None

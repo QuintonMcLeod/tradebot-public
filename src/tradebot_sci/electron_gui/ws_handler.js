@@ -360,6 +360,11 @@ async function connectWebSocket() {
                 // Dedicated holdings message — updates the Holdings panel directly
                 // without needing to parse log lines (more reliable, faster)
                 if (msg.data) {
+                    if (Array.isArray(msg.data.positions)) {
+                        msg.data.positions.forEach(p => {
+                            if (p.symbol) p.symbol = p.symbol.split('.')[0];
+                        });
+                    }
                     updateHoldingsTable(msg.data);
                 }
             } else if (msg.type === 'log') {

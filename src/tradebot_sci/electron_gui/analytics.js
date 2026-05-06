@@ -155,7 +155,7 @@ function updateMetrics(data) {
     data = data || {};
 
     // Hero PnL
-    const pnl = parseFloat(data.activePnl !== undefined ? data.activePnl : data.totalPnl) || 0;
+    const pnl = parseFloat(data.totalPnl !== undefined ? data.totalPnl : data.activePnl) || 0;
     const pnlEl = document.getElementById('metric-pnl');
     if (pnlEl) {
         pnlEl.textContent = formatCurrency(pnl);

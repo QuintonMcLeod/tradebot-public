@@ -23,7 +23,7 @@ echo "    Launching MT5 ZeroMQ Bridge Background        "
 echo "=================================================="
 echo "[+] Using Configuration: $WINE_STARTUP_INI"
 
-WINEPREFIX="$WINE_PREFIX_DIR" WINEARCH=win64 wine "$MT5_EXE" /config:"$WINE_STARTUP_INI" &
+WINEPREFIX="$WINE_PREFIX_DIR" WINEARCH=win64 wine "$MT5_EXE" /config:"$WINE_STARTUP_INI" > /dev/null 2>&1 &
 
 echo "[SUCCESS] MetaTrader 5 is booting up."
 echo "The Tradebot ZMQ Bridge will automatically mount on EURUSD and bind to tcp://*:5555."

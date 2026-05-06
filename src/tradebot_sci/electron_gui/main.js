@@ -1871,19 +1871,19 @@ RULES:
 
     ipcMain.handle('check-for-updates', async () => {
         return new Promise((resolve) => {
-            exec('git fetch origin', { cwd: REPO_ROOT }, (fetchErr) => {
+            exec(`git -C "${REPO_ROOT}" fetch origin`, { cwd: REPO_ROOT }, (fetchErr) => {
                 if (fetchErr) {
                     console.error('[MAIN] git fetch failed:', fetchErr.message);
                     return resolve({ available: false, error: fetchErr.message });
                 }
 
                 // Detect the remote's default branch (main for public, master for private)
-                exec('git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo ""', { cwd: REPO_ROOT }, (brErr, brOut) => {
+                exec(`git -C "${REPO_ROOT}" symbolic-ref refs/remotes/origin/HEAD`, { cwd: REPO_ROOT }, (brErr, brOut) => {
                     let branch = brOut.trim().replace('refs/remotes/origin/', '');
                     if (!branch) {
                         // Fallback: check if origin/main exists, else origin/master
-                        exec('git rev-parse --verify origin/main 2>/dev/null && echo main || echo master', { cwd: REPO_ROOT }, (fbErr, fbOut) => {
-                            branch = fbOut.trim().split('\n').pop();
+                        exec(`git -C "${REPO_ROOT}" rev-parse --verify origin/main`, { cwd: REPO_ROOT }, (fbErr, fbOut) => {
+                            branch = fbErr ? 'master' : 'main';
                             compareWithBranch(branch, resolve);
                         });
                         return;
@@ -1894,7 +1894,7 @@ RULES:
         });
 
         function compareWithBranch(branch, resolve) {
-            exec(`git rev-list HEAD..origin/${branch} --count`, { cwd: REPO_ROOT }, (err, stdout) => {
+            exec(`git -C "${REPO_ROOT}" rev-list HEAD..origin/${branch} --count`, { cwd: REPO_ROOT }, (err, stdout) => {
                 if (err) {
                     console.error('[MAIN] git rev-list failed:', err.message);
                     return resolve({ available: false, error: err.message });
@@ -1905,7 +1905,7 @@ RULES:
                     return resolve({ available: false, behind: 0 });
                 }
 
-                exec(`git log HEAD..origin/${branch} --oneline --max-count=10`, { cwd: REPO_ROOT }, (logErr, logOut) => {
+                exec(`git -C "${REPO_ROOT}" log HEAD..origin/${branch} --oneline --max-count=10`, { cwd: REPO_ROOT }, (logErr, logOut) => {
                     const summary = logErr ? '' : logOut.trim();
                     console.log(`[MAIN] Updates available: ${behind} commits behind origin/${branch}`);
                     resolve({ available: true, behind, summary, branch });
@@ -1919,11 +1919,11 @@ RULES:
 
         // Detect the remote's default branch
         const branch = await new Promise((resolve) => {
-            exec('git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo ""', { cwd: REPO_ROOT }, (brErr, brOut) => {
+            exec(`git -C "${REPO_ROOT}" symbolic-ref refs/remotes/origin/HEAD`, { cwd: REPO_ROOT }, (brErr, brOut) => {
                 let b = brOut.trim().replace('refs/remotes/origin/', '');
                 if (!b) {
-                    exec('git rev-parse --verify origin/main 2>/dev/null && echo main || echo master', { cwd: REPO_ROOT }, (fbErr, fbOut) => {
-                        resolve(fbOut.trim().split('\n').pop());
+                    exec(`git -C "${REPO_ROOT}" rev-parse --verify origin/main`, { cwd: REPO_ROOT }, (fbErr, fbOut) => {
+                        resolve(fbErr ? 'master' : 'main');
                     });
                     return;
                 }
@@ -1943,7 +1943,7 @@ RULES:
 
         // Step 2: Force-reset to remote branch (download-only, no merge conflicts)
         const pullResult = await new Promise((resolve) => {
-            exec(`git fetch origin ${branch} && git reset --hard origin/${branch}`, { cwd: REPO_ROOT, timeout: 30000 }, (err, stdout, stderr) => {
+            exec(`git -C "${REPO_ROOT}" fetch origin ${branch} && git -C "${REPO_ROOT}" reset --hard origin/${branch}`, { cwd: REPO_ROOT, timeout: 30000 }, (err, stdout, stderr) => {
                 if (err) {
                     console.error('[MAIN] git reset failed:', err.message);
                     return resolve({ success: false, error: stderr || err.message });

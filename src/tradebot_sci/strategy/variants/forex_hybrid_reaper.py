@@ -169,8 +169,8 @@ class ForexHybridReaperStrategy(BaseStrategy):
         avg_atr_20 = sum(atr_history) / len(atr_history)
         current_atr = calculate_atr(candles, period=14)
         
-        if not current_atr or current_atr < (avg_atr_20 * 0.7):
-            logger.info(f"[ForexHybridReaper] {snapshot.symbol} BLOCKED: Volatility Guard. ATR ({current_atr:.5f}) < 70% of 20-period average ({avg_atr_20:.5f})")
+        if not current_atr or current_atr < (avg_atr_20 * 0.5):
+            logger.info(f"[ForexHybridReaper] {snapshot.symbol} BLOCKED: Volatility Guard. ATR ({current_atr:.5f}) < 50% of 20-period average ({avg_atr_20:.5f})")
             return None
 
         # ---------------------------------------------------------
@@ -200,11 +200,14 @@ class ForexHybridReaperStrategy(BaseStrategy):
         if open_position:
             return None
             
-        logger.info(f"[HybridReaper Debug {snapshot.symbol}] Close={last_close:.5f} | EMA={trend_ema:.5f} | GlobalRSI={rsi:.1f} | GlobalLBB={lower_bb:.5f} | GlobalUBB={upper_bb:.5f} | HTF={htf_dir}")
+        # Generate strategic score to evaluate holistic setup quality
+        score, grade, summary = self.score_signal(snapshot, gates)
+
+        logger.info(f"[HybridReaper Debug {snapshot.symbol}] Close={last_close:.5f} | EMA={trend_ema:.5f} | GlobalRSI={rsi:.1f} | GlobalLBB={lower_bb:.5f} | GlobalUBB={upper_bb:.5f} | HTF={htf_dir} | Score={score:.1f}")
             
-        # LONG: Price > 200 EMA + RSI < Oversold + Price <= Lower BB
+        # LONG: Price > 200 EMA + (Strict BB/RSI Touch OR High Structural Score)
         if last_close > trend_ema:
-            if rsi <= oversold_thresh and last_close <= lower_bb:
+            if (rsi <= oversold_thresh and last_close <= lower_bb) or score >= 60.0:
                 stop_dist = max(current_atr * 1.5, last_close * 0.0008)  # Safe floor distance
                 stop_loss = last_close - stop_dist
                 target = last_close + (stop_dist * self.target_r)
@@ -221,9 +224,9 @@ class ForexHybridReaperStrategy(BaseStrategy):
                     strategy_name=self.name
                 )
 
-        # SHORT: Price < 200 EMA + RSI > Overbought + Price >= Upper BB
+        # SHORT: Price < 200 EMA + (Strict BB/RSI Touch OR High Structural Score)
         if last_close < trend_ema:
-            if rsi >= overbought_thresh and last_close >= upper_bb:
+            if (rsi >= overbought_thresh and last_close >= upper_bb) or score >= 60.0:
                 stop_dist = max(current_atr * 1.5, last_close * 0.0008)
                 stop_loss = last_close + stop_dist
                 target = last_close - (stop_dist * self.target_r)

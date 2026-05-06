@@ -61,7 +61,7 @@ class OandaExchangeBroker(IExchangeBroker):
         # Suppress noisy library logging (especially the 404 spam)
         logging.getLogger("oandapyV20.oandapyV20").setLevel(logging.CRITICAL)
         
-        self.client = oandapyV20.API(access_token=api_key, environment=environment)
+        self.client = oandapyV20.API(access_token=api_key, environment=environment, request_params={"timeout": 10})
         self.account_id = account_id
         _masked_key = ('***' + api_key[-6:]) if len(api_key) > 6 else '***'
         logger.info(

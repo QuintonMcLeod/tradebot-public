@@ -17,19 +17,20 @@ class BaseStrategy:
 
     @staticmethod
     def grade_from_score_100(score: float) -> str:
-        """Convert a 0-100 score to a letter grade."""
-        if score >= 95: return "A+"
-        if score >= 90: return "A"
-        if score >= 85: return "A-"
-        if score >= 80: return "B+"
-        if score >= 75: return "B"
-        if score >= 70: return "B-"
-        if score >= 65: return "C+"
-        if score >= 60: return "C"
-        if score >= 55: return "C-"
-        if score >= 50: return "D"
-        if score >= 40: return "D-"
-        return "-"
+        """Convert a 0-100 score to a letter grade (scaled for 80=100%)."""
+        if score >= 76: return "A+"
+        if score >= 72: return "A"
+        if score >= 68: return "A-"
+        if score >= 64: return "B+"
+        if score >= 60: return "B"
+        if score >= 56: return "B-"
+        if score >= 52: return "C+"
+        if score >= 48: return "C"
+        if score >= 44: return "C-"
+        if score >= 40: return "D"
+        if score >= 32: return "F+"
+        if score >= 24: return "F"
+        return "F-"
 
     def score_signal(self, snapshot: MarketSnapshot, gates: dict) -> Tuple[float, str, str]:
         """

@@ -333,7 +333,7 @@ const TOOLTIPS = {
     ICC_AUTO_ENTRY_REQUIRE_SWEEP: "Trap Detector. Forces the bot to only trade when it sees other traders getting tricked and 'swept' out of the market. Very safe, but doesn't happen often.",
     ICC_AUTO_ENTRY_MIN_HTF_STRENGTH: "The 'No Weak Trends' Filter. Forces the bot to avoid trading unless the big-picture trend is roaring.",
     ICC_CONFIRMATION_BARS: "Patience. How many minutes the bot waits to make sure the signal wasn't a fake-out before jumping in.",
-    ICC_ENTRY_SCORE_THRESHOLD: "The Perfectionist. The bot grades every trade from 0 to 100. This sets the minimum passing grade. 75 = only takes good trades. 90 = only takes perfect trades.",
+    ICC_ENTRY_SCORE_THRESHOLD: "The Perfectionist. The bot grades every trade from 0 to 100. This sets the minimum passing grade. 60 = takes good trades. 72 = takes perfect A-grade trades.",
 
     // ICC Scoring
     ICC_SCORE_CONTINUATION_POINTS: "Bonus points given when the market proves it still wants to keep moving in the right direction.",
@@ -1315,7 +1315,7 @@ const TRADING_DEFAULTS = {
     // ── ICC ──
     ICC_AUTO_ENTRY_ENABLED: 'false',
     ICC_AGGRESSIVE_MODE: 'false',
-    ICC_ENTRY_SCORE_THRESHOLD: '80',
+    ICC_ENTRY_SCORE_THRESHOLD: '72',
     ICC_AUTO_ENTRY_REQUIRE_SWEEP: 'false',
     ICC_AUTO_ENTRY_MIN_HTF_STRENGTH: '0.50',
     ICC_TWO_SIGNAL_OVERRIDE_ENABLED: 'false',
@@ -1769,7 +1769,7 @@ function checkAllConflicts() {
         const scoreThreshold = parseFloat(getValue('ICC_ENTRY_SCORE_THRESHOLD') || 0);
         if (scoreThreshold < 75) {
             console.warn("[CONFLICT] Stability Mode active; raising score threshold to 75.");
-            updateValue('ICC_ENTRY_SCORE_THRESHOLD', '75');
+            updateValue('ICC_ENTRY_SCORE_THRESHOLD', '60');
             changed = true;
         }
     }
@@ -3861,12 +3861,12 @@ function renderPropFirmsContent(section) {
             launchDesc.innerHTML = '<span class="text-blue-400 animate-pulse tracking-wide">Spawning native background process...</span>';
             
             try {
-                const res = await window.electronAPI.invoke('launch-mt5');
+                const res = await window.api.invoke('launch-mt5');
                 if (res.success) {
                     launchToggle.classList.remove('opacity-50');
                     launchToggle.classList.add('toggle-active', 'shadow-[0_0_15px_rgba(16,185,129,0.3)]');
                     launchDesc.innerHTML = '<span class="text-emerald-400 font-medium">Daemon online. Restarting connection link... ♻️</span>';
-                    setTimeout(() => { window.electronAPI.restartBot(); }, 1200);
+                    setTimeout(() => { window.api.restartBot(); }, 1200);
                 } else {
                     launchToggle.classList.remove('toggle-active');
                     launchDesc.innerHTML = `<span class="text-red-400 font-bold">Failed:</span> ${res.error || 'Unknown spawn error'}`;
@@ -5614,7 +5614,7 @@ function renderStrategyToolbox(container) {
             "<strong>ICC Scoring Weights</strong><br><br>How many points each signal component contributes to the overall ICC score. Higher scores mean more conviction. The entry threshold determines the minimum score needed before the bot places a trade."
         ));
 
-        section.appendChild(createSliderCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 0, 100, 5, 'pts', { tooltip: 'The passing grade a trade setup must achieve before the bot will pull the trigger. 80 is usually an A+ setup.' }));
+        section.appendChild(createSliderCard('Entry Score Threshold', 'Minimum score for entry', 'ICC_ENTRY_SCORE_THRESHOLD', 0, 100, 5, 'pts', { tooltip: 'The passing grade a trade setup must achieve before the bot will pull the trigger. 72 is an A setup (since max is roughly 80).' }));
 
         const scoreGrid = document.createElement('div');
         scoreGrid.className = 'card-grid';

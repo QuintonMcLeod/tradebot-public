@@ -518,7 +518,11 @@ def _preflight_broker_check(settings) -> None:
         "║                                                            ║\n"
         "╚══════════════════════════════════════════════════════════════╝\n"
     )
-    print(banner)
+    try:
+        print(banner)
+    except UnicodeEncodeError:
+        print(banner.encode('ascii', 'ignore').decode('ascii'))
+    
     logger.critical("[PREFLIGHT] No broker configured. Exiting.")
     sys.exit(2)
 
@@ -568,6 +572,7 @@ def _run_heartbeat_cycle(
         if now_ts - last_capital_check_ts >= 15.0:
             try:
                 cap = executor.get_total_balance_value()
+                executor.summarize_pnl() # Sync closed trades
                 if executor == executor_paper:
                     logger.info(f"[PAPER] [HEARTBEAT] Capital available: ${cap:.2f}")
                 else:

@@ -316,6 +316,9 @@ class StrategyEngine:
             consensus_supertrend = {"direction": htf_dir}
             consensus_ema_ribbon = {"aligned": True, "direction": htf_dir}
             consensus_bollinger = {"bandwidth": 0.02, "squeeze": False}
+            exec_rsi = consensus_rsi
+            exec_macd = consensus_macd
+            exec_bollinger = consensus_bollinger
         else:
             from tradebot_sci.market.trend_consensus import detect_trend_direction
             consensus = detect_trend_direction(
@@ -344,6 +347,9 @@ class StrategyEngine:
             consensus_supertrend = consensus.supertrend
             consensus_ema_ribbon = consensus.ema_ribbon
             consensus_bollinger = consensus.bollinger
+            exec_rsi = consensus.exec_rsi
+            exec_macd = consensus.exec_macd
+            exec_bollinger = consensus.exec_bollinger
             vote_sources = consensus.vote_sources
 
             # Update snapshot in-place so strategies reading snapshot.trend_htf directly
@@ -490,6 +496,9 @@ class StrategyEngine:
             "supertrend": consensus_supertrend,
             "ema_ribbon": consensus_ema_ribbon,
             "bollinger": consensus_bollinger,
+            "exec_rsi": exec_rsi,
+            "exec_macd": exec_macd,
+            "exec_bollinger": exec_bollinger,
             "score": score,
             "grade": grade,
             "htf_align": htf_align,
@@ -712,16 +721,23 @@ class StrategyEngine:
                 candle_end = candle_start + timedelta(seconds=tf_seconds)
                 
                 # If my current time is strictly less than candle_end (minus 5s buffer),
-                # the candle is still actively forming. Block entries.
+                # the candle is still actively forming. Block entries unless it just started.
                 if _now < (candle_end - timedelta(seconds=5)):
-                    from tradebot_sci.strategy.decisions import stand_aside_decision
-                    wait_notes = f"Waiting for {timeframe} bar close. {candle_end.strftime('%H:%M:%S')} > {_now.strftime('%H:%M:%S')}"
-                    logger.debug(f"[ENGINE] {self.symbol} {wait_notes}")
-                    
-                    wait_dec = stand_aside_decision(self.symbol, timeframe, wait_notes)
-                    wait_dec.score = score
-                    wait_dec.grade = grade
-                    return wait_dec
+                    # Allow execution if the current forming candle just started (within 45s).
+                    # This simulates executing right after the *previous* candle closed.
+                    # We allow a negative age (-15s) to account for slight local clock drift.
+                    candle_age = (_now - candle_start).total_seconds()
+                    if -15 <= candle_age <= 45:
+                        pass # Allow execution
+                    else:
+                        from tradebot_sci.strategy.decisions import stand_aside_decision
+                        wait_notes = f"Waiting for {timeframe} bar close. {candle_end.strftime('%H:%M:%S')} > {_now.strftime('%H:%M:%S')}"
+                        logger.debug(f"[ENGINE] {self.symbol} {wait_notes}")
+                        
+                        wait_dec = stand_aside_decision(self.symbol, timeframe, wait_notes)
+                        wait_dec.score = score
+                        wait_dec.grade = grade
+                        return wait_dec
         
         # (Conductor _reversal_pending pre-population removed — conductor now
         # reads gates["sar_dir"] set by engine SAR below.)

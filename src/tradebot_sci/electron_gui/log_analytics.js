@@ -229,6 +229,10 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                             // Extract strategy from exit_reason when strategy is 'unknown'
                             // e.g. "[Conductor:trend_rider] ..." → "trend_rider"
                             let strategy = t.strategy || 'unknown';
+                            // Overwrite MT5 native auto-comments with 'manual'
+                            if (typeof strategy === 'string' && strategy.match(/^\[(tp|sl|sl\/tp|tp\/sl).*\]/i)) {
+                                strategy = 'manual';
+                            }
                             if (strategy === 'unknown' && exitReason) {
                                 const stratMatch = exitReason.match(/\[Conductor:(\w+)\]/);
                                 if (stratMatch) {
@@ -466,7 +470,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                     
                     // Create a set of authoritative live symbols (empty if no positions)
                     const liveList = Array.isArray(holdingsData.positions) ? holdingsData.positions : [];
-                    const liveSymbols = new Set(liveList.map(p => p.symbol));
+                    const liveSymbols = new Set(liveList.map(p => p.symbol ? p.symbol.split('.')[0] : null).filter(Boolean));
 
                     // Prune any trades previously marked as active from static files 
                     // that do not appear in the live authoritative payload
@@ -474,14 +478,24 @@ function getTradeHistory(filter = '24h', paperMode = false) {
 
                     for (const pos of liveList) {
                         if (!pos.symbol) continue;
+                        
+                        // Strip broker suffix (e.g., AUDUSD.sim -> AUDUSD) to match internal strategy state
+                        const cleanSymbol = pos.symbol.split('.')[0];
 
                         const _upnl = pos.unrealized_pnl || 0;
                         const _entry = pos.entry_price || pos.avg_price || 0;
                         const _size = Math.abs(pos.size || 0);
-                        const _pctCalc = (_entry && _size) ? (_upnl / (_entry * _size)) * 100 : 0;
+                        
+                        // Heuristic: If size < 1000 and entry < 200, it's likely a forex lot size, not raw units.
+                        // Calculating percentage on (Lot Size * Price) causes 1000%+ anomalies. 
+                        // It is safer to pass 0 and let the frontend or static state handle it.
+                        let _pctCalc = 0;
+                        if (_entry && _size && !(_size < 1000 && _entry < 200)) {
+                            _pctCalc = (_upnl / (_entry * _size)) * 100;
+                        }
 
                         const freshPos = {
-                            symbol: pos.symbol,
+                            symbol: cleanSymbol,
                             side: pos.side || pos.direction || 'long',
                             pnl: _upnl,
                             pct: pos.pnl_pct || _pctCalc,
@@ -495,10 +509,19 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                             _active: true
                         };
 
-                        const existingIdx = trades.findIndex(t => t._active && t.symbol === pos.symbol);
+                        const existingIdx = trades.findIndex(t => t._active && t.symbol === cleanSymbol);
                         if (existingIdx !== -1) {
+                            const old = trades[existingIdx];
                             // Overlay fresh data on top of static data (updates real-time PnL and pyramided sizes)
-                            trades[existingIdx] = { ...trades[existingIdx], ...freshPos };
+                            // If the live payload didn't provide a strategy or timestamp, preserve the internal static ones!
+                            trades[existingIdx] = { 
+                                ...old, 
+                                ...freshPos,
+                                strategy: freshPos.strategy !== '--' ? freshPos.strategy : (old.strategy || '--'),
+                                timestamp: freshPos.timestamp !== '' ? freshPos.timestamp : (old.timestamp || ''),
+                                pct: freshPos.pct !== 0 ? freshPos.pct : (old.pct || 0),
+                                duration_seconds: freshPos.duration_seconds !== undefined ? freshPos.duration_seconds : old.duration_seconds
+                            };
                         } else {
                             trades.unshift(freshPos);
                         }
@@ -524,7 +547,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                     const jsonPart = lastLine.split(/\[HOLDINGS\]/i)[1].trim();
                     const holdingsData = JSON.parse(jsonPart);
                     const liveList = Array.isArray(holdingsData.positions) ? holdingsData.positions : [];
-                    const liveSymbols = new Set(liveList.map(p => p.symbol));
+                    const liveSymbols = new Set(liveList.map(p => p.symbol ? p.symbol.split('.')[0] : null).filter(Boolean));
                     trades = trades.filter(t => !t._active || liveSymbols.has(t.symbol));
                 }
             }
@@ -670,7 +693,9 @@ function calculateAnalyticsSummary(data, paperMode = false) {
                 if (diff > 100) { 
                     totalWithdrawn += diff;
                     activeCapitalStart = actualNav;
-                    activePnl = Math.max(0, activePnl - diff);
+                    if (activePnl > 0) {
+                        activePnl = Math.max(0, activePnl - diff);
+                    }
                     lastKnownNav = actualNav;
                 } else if (diff < -100) {
                     activeCapitalStart += (-diff);

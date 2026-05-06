@@ -473,7 +473,7 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
         )
     elif name in ("mt5", "ftmo"):
         from tradebot_sci.broker.mt5_zmq_broker import MT5ZMQBroker
-        return MT5ZMQBroker(profile_settings)
+        return MT5ZMQBroker(profile_settings, trade_results=trade_results)
     # Fallback to Mock?
     return NoOpExchangeBroker()
 
