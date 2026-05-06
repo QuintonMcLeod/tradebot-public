@@ -210,7 +210,8 @@ class ForexHybridReaperStrategy(BaseStrategy):
             if (rsi <= oversold_thresh and last_close <= lower_bb) or score >= 60.0:
                 stop_dist = max(current_atr * 1.5, last_close * 0.0008)  # Safe floor distance
                 stop_loss = last_close - stop_dist
-                target = last_close + (stop_dist * self.target_r)
+                tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
+                target = last_close + (stop_dist * tr)
                 
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -229,7 +230,8 @@ class ForexHybridReaperStrategy(BaseStrategy):
             if (rsi >= overbought_thresh and last_close >= upper_bb) or score >= 60.0:
                 stop_dist = max(current_atr * 1.5, last_close * 0.0008)
                 stop_loss = last_close + stop_dist
-                target = last_close - (stop_dist * self.target_r)
+                tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
+                target = last_close - (stop_dist * tr)
                 
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,

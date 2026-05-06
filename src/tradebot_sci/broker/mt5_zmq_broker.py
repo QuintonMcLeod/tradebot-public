@@ -97,19 +97,45 @@ class MT5ZMQBroker(IExchangeBroker):
             pos_time = pos.get("time") or pos.get("time_msc") or pos.get("time_update")
             if pos_time:
                 import datetime
-                if pos_time > 1e11: # likely milliseconds
-                    pos_time = pos_time / 1000.0
                 try:
+                    pos_time = float(pos_time)
+                    if pos_time > 1e11: # likely milliseconds
+                        pos_time = pos_time / 1000.0
                     dt = datetime.datetime.fromtimestamp(pos_time, tz=datetime.timezone.utc)
                     snapshot["opened_at"] = dt.isoformat()
                     snapshot["entry_time"] = dt.isoformat()
-                except Exception:
+                except Exception as e:
+                    logger.error(f"[MT5-ZMQ] Error parsing timestamp {pos_time}: {e}")
                     pass
                     
             # Extract strategy comment if EA provides it
             comment = pos.get("comment", "")
-            if comment:
+            if comment and comment.strip().lower() != "tradebot zmq":
                 snapshot["strategy"] = comment
+            else:
+                # Fallback to the active profile's strategy for legacy trades based on asset class
+                strat = ""
+                strats = getattr(self.profile, "strategies", {})
+                if isinstance(strats, dict):
+                    sym_up = snapshot.get("symbol", "").upper().split('.')[0]
+                    if any(c in sym_up for c in ["BTC", "ETH", "SOL", "XRP", "DOGE", "LTC", "LINK", "BCH", "ZEC", "SHIB", "AVAX", "ADA"]):
+                        ac = "crypto"
+                    elif sym_up in ["XAUUSD", "XAGUSD", "GC", "SI", "MGC"]:
+                        ac = "metals"
+                    elif sym_up in ["SPY", "QQQ", "DIA", "IWM", "VTI"] or sym_up.startswith("XL"):
+                        ac = "etf"
+                    elif sym_up in ["ES", "NQ", "YM", "RTY", "MES", "MNQ", "MYM", "M2K", "CL"]:
+                        ac = "futures"
+                    elif len(sym_up) == 6 and sym_up[-3:] in ["USD", "EUR", "JPY", "GBP", "CHF", "CAD", "AUD", "NZD"]:
+                        ac = "forex"
+                    else:
+                        ac = "stocks"
+                    strat = strats.get(ac)
+                
+                if not strat:
+                    strat = getattr(self.profile, "strategy_variant", "")
+                
+                snapshot["strategy"] = strat or "Tradebot SCI"
                 
             return snapshot
         return None
@@ -150,6 +176,23 @@ class MT5ZMQBroker(IExchangeBroker):
                 ExecutionResult(ExecutionStatus.ERROR, symbol, f"MT5 Error: {resp.get('message')}"),
                 ExecutionOutcome(ExecutionOutcomeType.ERROR, symbol, f"MT5 Error: {resp.get('message')}")
             )
+
+    def modify_stop_loss(self, symbol: str, new_stop: float) -> bool:
+        """Modifies the stop loss for an open position natively on MT5."""
+        payload = {
+            "action": "MODIFY_SL",
+            "symbol": symbol,
+            "sl": str(new_stop)
+        }
+        logger.info(f"[MT5-ZMQ] Sending MODIFY_SL for {symbol} to MT5. SL:{new_stop}")
+        resp = self._send_request(payload)
+        
+        if resp.get("status") == "success":
+            logger.info(f"[MT5-ZMQ] SL modification successful for {symbol}")
+            return True
+        else:
+            logger.error(f"[MT5-ZMQ] SL modification failed for {symbol}: {resp.get('message')}")
+            return False
 
     def should_block_for_hold(
         self,
@@ -259,10 +302,14 @@ class MT5ZMQBroker(IExchangeBroker):
                 logger.info(f"[MT5-ZMQ] Synced closed deal for {sym}: PnL ${profit:.2f}")
 
     def get_liquid_capital(self, symbol: str | None = None) -> float:
-        return getattr(self, '_margin_free', self._initial_balance)
+        mf = getattr(self, '_margin_free', self._initial_balance)
+        eq = getattr(self, '_total_equity', self._initial_balance)
+        return min(mf, eq)
         
     def get_display_cash(self) -> float:
-        return getattr(self, '_margin_free', self._initial_balance)
+        mf = getattr(self, '_margin_free', self._initial_balance)
+        eq = getattr(self, '_total_equity', self._initial_balance)
+        return min(mf, eq)
 
     def get_total_balance_value(self) -> float:
         return self._total_equity

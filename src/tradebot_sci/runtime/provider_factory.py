@@ -676,16 +676,6 @@ def build_market_provider(
 
     p = _create_single_provider(mode, settings, profile_settings, shared_ib)
     
-    # Final safety check: if we are in crypto_only but ended up with Oanda/IBKR
-    if p and allowed_symbols:
-        has_crypto = any(_get_asset_key(s) == "crypto" for s in allowed_symbols)
-        has_others = any(_get_asset_key(s) != "crypto" for s in allowed_symbols)
-        if has_crypto and not has_others:
-            # Strictly crypto only, make sure we aren't using Oanda for everything
-            if "oanda" in str(p).lower() or "ibkr" in str(p).lower():
-                logger.debug("[ROUTED-DATA] Overriding global %s to NoOp (crypto_only detected)", p)
-                return NoOpMarketDataProvider()
-
     return p or NoOpMarketDataProvider()
 
 
@@ -802,15 +792,5 @@ def build_exchange_broker(
         })
 
     p = _create_single_broker(mode, settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
-
-    # Final safety check: if we are in crypto_only but ended up with Oanda/IBKR
-    if p and allowed_symbols:
-        has_crypto = any(_get_asset_key(s) == "crypto" for s in allowed_symbols)
-        has_others = any(_get_asset_key(s) != "crypto" for s in allowed_symbols)
-        if has_crypto and not has_others:
-            # Strictly crypto only, make sure we aren't using Oanda/IBKR for everything
-            if "oanda" in str(p).lower() or "ibkr" in str(p).lower():
-                logger.debug("[ROUTED-EXEC] Overriding global broker %s to NoOp (crypto_only detected)", p)
-                return NoOpExchangeBroker()
 
     return p or NoOpExchangeBroker()

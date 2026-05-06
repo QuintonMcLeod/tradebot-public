@@ -99,6 +99,18 @@ def _log_holdings_snapshot(executor, *, reason: str, tag: str = "", strategy_var
                     snap["strategy"] = record.strategy
         if strategy_variant and not snap.get("strategy"):
             snap["strategy"] = strategy_variant
+            
+        if "entry_time" in snap:
+            try:
+                from datetime import datetime as dt, timezone
+                entry_dt = dt.fromisoformat(str(snap["entry_time"]).replace("Z", "+00:00"))
+                if entry_dt.tzinfo is None:
+                    entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                now_utc = dt.now(timezone.utc)
+                snap["age_seconds"] = max(0, (now_utc - entry_dt).total_seconds())
+            except Exception:
+                pass
+                
         positions.append({"symbol": sym, **snap})
     
     total_pnl = sum(p.get("unrealized_pnl", 0.0) or 0.0 for p in positions)
