@@ -30,7 +30,7 @@ class RubberbandReaperStrategy(BaseStrategy):
         logger.debug(f"Reaper Config 20 (Staircase Ratchet) Loaded. BB={self.bb_std}, RSI={self.rsi_oversold}/{self.rsi_overbought}")
 
     def score_signal(self, snapshot, gates=None):
-        """Reaper-specific scoring: BB Pos(25) + RSI(25) + HTF Align(20) + BB Width(15) + LTF/HTF(15)."""
+        """Reaper-specific scoring: BB Pos(30) + RSI(30) + BB Width(20) + Structure(20)."""
         gates = gates or {}
         closes = [c.close for c in snapshot.candles]
         if len(closes) < self.bb_period:
@@ -49,54 +49,49 @@ class RubberbandReaperStrategy(BaseStrategy):
         score = 0.0
         breakdown = []
 
-        # 1. BB Position (25 pts) — how close to a band extreme
+        # 1. BB Position (30 pts) — MUST be at or beyond band extreme for mean-reversion
         bb_range = upper - lower if upper > lower else 1e-9
         if last_close <= lower:
-            score += 25.0
-            breakdown.append("BB-Low(+25)")
+            score += 30.0
+            breakdown.append("BB-Low(+30)")
         elif last_close >= upper:
-            score += 25.0
-            breakdown.append("BB-High(+25)")
-        else:
-            dist_to_edge = min(last_close - lower, upper - last_close) / bb_range
-            pts = max(0, 25 * (1 - dist_to_edge * 3))
-            if pts > 0:
-                score += pts
-                breakdown.append(f"BB-Near(+{pts:.0f})")
+            score += 30.0
+            breakdown.append("BB-High(+30)")
+        # NO partial credit for being "near" bands - mean reversion requires extremes
 
-        # 2. RSI Extremity (25 pts)
+        # 2. RSI Extremity (30 pts) — MUST be at true extreme
         if rsi <= self.rsi_oversold:
-            score += 25.0
-            breakdown.append(f"RSI-OS({rsi:.0f}=+25)")
+            score += 30.0
+            breakdown.append(f"RSI-OS({rsi:.0f}=+30)")
         elif rsi >= self.rsi_overbought:
-            score += 25.0
-            breakdown.append(f"RSI-OB({rsi:.0f}=+25)")
-        else:
-            # Partial credit — closer to extremes = more points
-            dist_to_extreme = min(abs(rsi - self.rsi_oversold), abs(rsi - self.rsi_overbought))
-            mid_dist = (self.rsi_overbought - self.rsi_oversold) / 2
-            pts = max(0, 25 * (1 - dist_to_extreme / mid_dist))
-            if pts > 5:
-                score += pts
-                breakdown.append(f"RSI-Near({rsi:.0f}=+{pts:.0f})")
+            score += 30.0
+            breakdown.append(f"RSI-OB({rsi:.0f}=+30)")
+        # NO partial credit - rubberband needs true exhaustion
 
-        # 3. HTF Alignment (20 pts) [REMOVED]
-        # Trades purely off extremes regardless of macro trend.
-        score += 20.0
-
-        # 4. BB Width / Volatility (15 pts) — wider = better for mean-reversion
+        # 3. BB Width / Volatility (20 pts) — wider = better for mean-reversion
         bb_width = (upper - lower) / mid if mid > 0 else 0
         if bb_width >= 0.03:
-            score += 15.0
-            breakdown.append(f"Width({bb_width:.3f}=+15)")
+            score += 20.0
+            breakdown.append(f"Width({bb_width:.3f}=+20)")
         elif bb_width >= 0.015:
-            pts = 15 * ((bb_width - 0.01) / 0.02)
+            pts = 20 * ((bb_width - 0.01) / 0.02)
             score += pts
             breakdown.append(f"Width({bb_width:.3f}=+{pts:.0f})")
 
-        # 5. LTF/HTF Agreement (15 pts) [REMOVED]
-        # Pure rubberband
-        score += 15.0
+        # 4. Structure Alignment (20 pts) — check if we're at key S/R
+        structure_score = 0.0
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
+        
+        # Counter-trend trades get bonus if HTF shows exhaustion
+        if htf_dir == "neutral" and ltf_dir != "neutral":
+            structure_score = 10.0  # Potential reversal setup
+        elif htf_dir != ltf_dir and htf_dir != "neutral":
+            structure_score = 20.0  # Strong counter-trend exhaustion
+        
+        if structure_score > 0:
+            score += structure_score
+            breakdown.append(f"Structure(+{structure_score:.0f})")
 
         score = min(100.0, score)
         grade = self.grade_from_score_100(score)
@@ -159,7 +154,7 @@ class RubberbandReaperStrategy(BaseStrategy):
             return None
 
         # 2. THE SCOUT (Initial Entry)
-        # Long: Trade the rubberband bounce purely on exhaustion
+        # Long: Trade the rubberband bounce ONLY on true exhaustion (BB pierce + RSI oversold)
         if last_close < lower and rsi < self.rsi_oversold:
             # [ARMOR] 2x ATR Dynamic Stops
             stop_loss = last_close - (atr * 2.0)
@@ -177,7 +172,7 @@ class RubberbandReaperStrategy(BaseStrategy):
                 management_instructions="Net-Zero at 1xATR."
             )
 
-        # Short: Trade the rubberband bounce purely on exhaustion
+        # Short: Trade the rubberband bounce ONLY on true exhaustion (BB pierce + RSI overbought)
         if last_close > upper and rsi > self.rsi_overbought:
             # [ARMOR] 2x ATR Dynamic Stops
             stop_loss = last_close + (atr * 2.0)

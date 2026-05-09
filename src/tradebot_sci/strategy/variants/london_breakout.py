@@ -10,8 +10,8 @@ from tradebot_sci.strategy.icc_signals import calculate_atr
 
 logger = logging.getLogger(__name__)
 
-# Per-symbol daily trade tracker (reset each day)
-_daily_trades: dict[str, date] = {}  # symbol → last trade date
+# Note: Session timing is now handled by the global scheduler.
+# This strategy focuses purely on breakout detection logic.
 
 
 class LondonBreakoutStrategy(BaseStrategy):
@@ -52,11 +52,12 @@ class LondonBreakoutStrategy(BaseStrategy):
         """Score how close current conditions are to a London Breakout entry.
 
         Each factor contributes points to a 0-100 score:
-          In London time window (07-10 UTC)   = 25 pts
-          Asian Box exists and well-formed    = 20 pts
-          Price near box edge (≤0.3× range)   = 20 pts
-          HTF trend strength ≥ 0.2            = 20 pts
+          Asian Box exists and well-formed    = 30 pts
+          Price near box edge (≤0.3× range)   = 25 pts
+          Clean breakout setup                = 30 pts
           Candle body momentum                = 15 pts
+          
+        Note: Session timing is handled by global scheduler, not here.
         """
         from typing import Tuple
         closes = [c.close for c in snapshot.candles]
@@ -66,51 +67,53 @@ class LondonBreakoutStrategy(BaseStrategy):
         score = 0.0
         details = []
 
-        # 1. Time window — are we in the London breakout window?
-        current_utc = self._to_utc(snapshot.candles[-1].timestamp).time()
-        if self.LONDON_START <= current_utc <= self.LONDON_END:
-            score += 25
-            details.append("London✓")
-        elif time(6, 0) <= current_utc < self.LONDON_START:
-            score += 10  # Pre-London — box is forming
-            details.append("pre-London")
-        else:
-            details.append("off-session")
-
-        # 2. Asian Box quality
+        # 1. Asian Box quality (30 pts)
         asian_box = self._get_asian_box(snapshot)
         if asian_box:
             box_low, box_high = asian_box
             box_range = box_high - box_low
             atr = calculate_atr(snapshot.candles, period=14) or (closes[-1] * 0.001)
             if box_range >= atr * 0.5:
-                score += 20
+                score += 30
                 details.append(f"box={box_range:.5f}")
             else:
-                score += 10
+                score += 15
                 details.append("box=narrow")
 
-            # 3. Price proximity to box edge
+            # 2. Price proximity to box edge (25 pts)
             last_close = closes[-1]
             dist_to_high = abs(last_close - box_high)
             dist_to_low = abs(last_close - box_low)
             nearest_edge = min(dist_to_high, dist_to_low)
             if nearest_edge <= box_range * 0.1:
-                score += 20
+                score += 25
                 details.append("edge✓")
             elif nearest_edge <= box_range * 0.3:
-                score += 12
+                score += 15
                 details.append("near-edge")
             else:
                 details.append("mid-box")
         else:
             details.append("no-box")
 
-        # 4. HTF trend strength [REMOVED]
-        # Pure session breakout logic doesn't care about the macro trend.
-        score += 20
+        # 3. Breakout setup quality (30 pts) - check if price is positioned for breakout
+        if asian_box and len(closes) >= 3:
+            last_close = closes[-1]
+            prev_close = closes[-2]
+            # Price approaching box boundary = potential breakout
+            if prev_close <= box_high and last_close > box_high * 0.999:
+                score += 30  # About to break high
+                details.append("break-high✓")
+            elif prev_close >= box_low and last_close < box_low * 1.001:
+                score += 30  # About to break low
+                details.append("break-low✓")
+            elif abs(last_close - box_high) <= box_range * 0.15 or abs(last_close - box_low) <= box_range * 0.15:
+                score += 20  # Near boundary
+                details.append("near-break")
+            else:
+                details.append("consolidating")
 
-        # 5. Candle body momentum (recent candle body vs range)
+        # 4. Candle body momentum (15 pts)
         if len(closes) >= 2:
             body = abs(snapshot.candles[-1].close - snapshot.candles[-1].open)
             candle_range = snapshot.candles[-1].high - snapshot.candles[-1].low
@@ -138,16 +141,16 @@ class LondonBreakoutStrategy(BaseStrategy):
         if not snapshot.candles:
             return None
 
-        latest_utc = self._to_utc(snapshot.candles[-1].timestamp)
-        today = latest_utc.date()
-
+        # Use last 24 candles to capture Asian session range
+        # (assumes scheduler handles session timing)
+        recent_candles = snapshot.candles[-24:]
+        
         asian_candles = []
-        for c in snapshot.candles:
+        for c in recent_candles:
             c_utc = self._to_utc(c.timestamp)
-            if c_utc.date() == today:
-                t = c_utc.time()
-                if self.ASIAN_START <= t < self.ASIAN_END:
-                    asian_candles.append(c)
+            t = c_utc.time()
+            if self.ASIAN_START <= t < self.ASIAN_END:
+                asian_candles.append(c)
 
         if len(asian_candles) < 3:  # Need meaningful range
             return None
@@ -162,17 +165,6 @@ class LondonBreakoutStrategy(BaseStrategy):
 
         return box_low, box_high
 
-    def _already_traded_today(self, symbol: str, snapshot: MarketSnapshot) -> bool:
-        """Check if we already traded this symbol today."""
-        latest_utc = self._to_utc(snapshot.candles[-1].timestamp)
-        today = latest_utc.date()
-        return _daily_trades.get(symbol) == today
-
-    def _mark_traded(self, symbol: str, snapshot: MarketSnapshot):
-        """Mark this symbol as traded today."""
-        latest_utc = self._to_utc(snapshot.candles[-1].timestamp)
-        _daily_trades[symbol] = latest_utc.date()
-
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict,
                            open_position: Optional[dict] = None,
                            **kwargs) -> Optional[AITradeDecision]:
@@ -182,16 +174,8 @@ class LondonBreakoutStrategy(BaseStrategy):
         if not snapshot.candles or len(snapshot.candles) < 10:
             return None
 
-        # ── TIME WINDOW CHECK ────────────────────────────────────
-        current_utc = self._to_utc(snapshot.candles[-1].timestamp).time()
-
-        # Only trade during London open window
-        if not (self.LONDON_START <= current_utc <= self.LONDON_END):
-            return None
-
-        # ── 1 TRADE PER DAY PER SYMBOL ───────────────────────────
-        if self._already_traded_today(snapshot.symbol, snapshot):
-            return None
+        # Note: Session timing is handled by global scheduler.
+        # We assume we're only called during valid trading hours.
 
         # ── GET ASIAN BOX ────────────────────────────────────────
         asian_box = self._get_asian_box(snapshot)
@@ -204,82 +188,71 @@ class LondonBreakoutStrategy(BaseStrategy):
         prev_close = snapshot.candles[-2].close
         atr = calculate_atr(snapshot.candles, period=14) or (last_close * 0.001)
 
-        # [TREND GUIDANCE] [REMOVED]
-        # We no longer block breakouts based on weak or conflicting trend strength.
-        # Breakouts are determined purely by momentum escaping the Asian box.
-
         # ── BULLISH BREAKOUT ─────────────────────────────────────
-        # Price was inside box AND now CLOSES above box high
-        if True:  # Pure range break
-            if prev_close <= box_high and last_close > box_high:
-                # [HARDENED] Breakout candle must have significant body
-                breakout_body = abs(snapshot.candles[-1].close - snapshot.candles[-1].open)
-                if breakout_body < box_range * 0.3:
-                    return None  # Weak breakout — likely fake
+        if prev_close <= box_high and last_close > box_high:
+            # [HARDENED] Breakout candle must have significant body
+            breakout_body = abs(snapshot.candles[-1].close - snapshot.candles[-1].open)
+            if breakout_body < box_range * 0.3:
+                return None  # Weak breakout — likely fake
 
-                # Tighter stop: half-box or 1.5× ATR, whichever is larger
-                stop_dist = max(box_range * self.stop_box_mult, atr * 1.5)
-                stop_loss = last_close - stop_dist
-                take_profit = last_close + (stop_dist * self.target_box_mult)  # target mult
+            # Tighter stop: half-box or 1.5× ATR, whichever is larger
+            stop_dist = max(box_range * self.stop_box_mult, atr * 1.5)
+            stop_loss = last_close - stop_dist
+            take_profit = last_close + (stop_dist * self.target_box_mult)  # target mult
 
-                self._mark_traded(snapshot.symbol, snapshot)
-
-                return AITradeDecision(
-                    symbol=snapshot.symbol,
-                    timeframe=snapshot.timeframe,
-                    bias="long", phase="trend", action="enter_long",
-                    entry_price=last_close,
-                    stop_loss=stop_loss,
-                    take_profit=take_profit,
-                    risk_per_trade_pct=self.get_risk_pct(),
-                    structure_summary=(
-                        f"Session Breakout Long: Asian box "
-                        f"[{box_low:.5f}–{box_high:.5f}]"
-                    ),
-                    invalidation_conditions="Close back inside Asian box",
-                    management_instructions=(
-                        f"Target 1.5× box range. "
-                        f"Exit by 16:00 UTC if not hit."
-                    ),
-                    notes="Asian box breakout — London open momentum",
-                    urgency="high",
-                )
+            return AITradeDecision(
+                symbol=snapshot.symbol,
+                timeframe=snapshot.timeframe,
+                bias="long", phase="trend", action="enter_long",
+                entry_price=last_close,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                risk_per_trade_pct=self.get_risk_pct(),
+                structure_summary=(
+                    f"Session Breakout Long: Asian box "
+                    f"[{box_low:.5f}–{box_high:.5f}]"
+                ),
+                invalidation_conditions="Close back inside Asian box",
+                management_instructions=(
+                    f"Target 1.5× box range. "
+                    f"Exit by 16:00 UTC if not hit."
+                ),
+                notes="Asian box breakout — London open momentum",
+                urgency="high",
+            )
 
         # ── BEARISH BREAKOUT ─────────────────────────────────────
-        if True:  # Pure range break
-            if prev_close >= box_low and last_close < box_low:
-                # [HARDENED] Breakout candle must have significant body
-                breakout_body = abs(snapshot.candles[-1].close - snapshot.candles[-1].open)
-                if breakout_body < box_range * 0.3:
-                    return None  # Weak breakout — likely fake
+        if prev_close >= box_low and last_close < box_low:
+            # [HARDENED] Breakout candle must have significant body
+            breakout_body = abs(snapshot.candles[-1].close - snapshot.candles[-1].open)
+            if breakout_body < box_range * 0.3:
+                return None  # Weak breakout — likely fake
 
-                # Tighter stop: half-box or 1.5× ATR, whichever is larger
-                stop_dist = max(box_range * self.stop_box_mult, atr * 1.5)
-                stop_loss = last_close + stop_dist
-                take_profit = last_close - (stop_dist * self.target_box_mult)  # target mult
+            # Tighter stop: half-box or 1.5× ATR, whichever is larger
+            stop_dist = max(box_range * self.stop_box_mult, atr * 1.5)
+            stop_loss = last_close + stop_dist
+            take_profit = last_close - (stop_dist * self.target_box_mult)  # target mult
 
-                self._mark_traded(snapshot.symbol, snapshot)
-
-                return AITradeDecision(
-                    symbol=snapshot.symbol,
-                    timeframe=snapshot.timeframe,
-                    bias="short", phase="trend", action="enter_short",
-                    entry_price=last_close,
-                    stop_loss=stop_loss,
-                    take_profit=take_profit,
-                    risk_per_trade_pct=self.get_risk_pct(),
-                    structure_summary=(
-                        f"Session Breakout Short: Asian box "
-                        f"[{box_low:.5f}–{box_high:.5f}]"
-                    ),
-                    invalidation_conditions="Close back inside Asian box",
-                    management_instructions=(
-                        f"Target 1.5× box range. "
-                        f"Exit by 16:00 UTC if not hit."
-                    ),
-                    notes="Asian box breakout — London open momentum",
-                    urgency="high",
-                )
+            return AITradeDecision(
+                symbol=snapshot.symbol,
+                timeframe=snapshot.timeframe,
+                bias="short", phase="trend", action="enter_short",
+                entry_price=last_close,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                risk_per_trade_pct=self.get_risk_pct(),
+                structure_summary=(
+                    f"Session Breakout Short: Asian box "
+                    f"[{box_low:.5f}–{box_high:.5f}]"
+                ),
+                invalidation_conditions="Close back inside Asian box",
+                management_instructions=(
+                    f"Target 1.5× box range. "
+                    f"Exit by 16:00 UTC if not hit."
+                ),
+                notes="Asian box breakout — London open momentum",
+                urgency="high",
+            )
 
         return None
 

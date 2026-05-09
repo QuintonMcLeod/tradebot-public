@@ -29,17 +29,12 @@ class LondonSweepStrategy(BaseStrategy):
         if open_position:
             return None
 
-        # Restrict execution to the London Session (07:00 to 12:00 UTC)
-        _ts = snapshot.candles[-1].timestamp
-        if _ts.tzinfo is None:
-            _ts = _ts.replace(tzinfo=timezone.utc)
-        utc_hour = _ts.astimezone(timezone.utc).hour
+        # NOTE: Session timing is handled by the Global Scheduler, not this strategy.
+        # This strategy focuses purely on detecting liquidity sweeps of Asian extremes.
+        # Configure your preferred trading windows in the scheduler settings.
         
-        if not (7 <= utc_hour < 12):
-            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "LondonSweep: Outside London hours")
-            
-        # Analyze today's Asian Range
-        current_date_str = _ts.strftime("%Y-%m-%d")
+        # Analyze today's Asian Range (historical data for sweep detection)
+        current_date_str = snapshot.candles[-1].timestamp.strftime("%Y-%m-%d")
         asian_candles = []
         for c in snapshot.candles:
             cts = c.timestamp

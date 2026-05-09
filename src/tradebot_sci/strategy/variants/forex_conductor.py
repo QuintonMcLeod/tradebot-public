@@ -29,21 +29,19 @@ from tradebot_sci.strategy.variants.mean_reversion import MeanReversionStrategy
 logger = logging.getLogger(__name__)
 
 # ── Regime → Strategy mapping ────────────────────────────────────────
+# FIXED: Trend-following strategies belong in trending markets, mean-reversion in ranging
 _REGIME_MAP = {
-    "trending":      "mean_reversion",
-    "ranging":       "mean_reversion",
-    "transitional":  "golden_pocket",
+    "trending":      "london_sweep",     # Trend continuation in strong trends
+    "ranging":       "mean_reversion",   # Mean reversion in sideways markets
+    "transitional":  "golden_pocket",    # Pullback entries during regime changes
     # "choppy" → no entry (handled explicitly)
 }
 
 # ── Per-symbol loss streak cooldown ──────────────────────────────────
-_loss_streaks: dict[str, int] = {}
-_cooldown_bars: dict[str, int] = {}
 _COOLDOWN_TRIGGER = 3
 _COOLDOWN_BARS = 6
 
 # ── Per-symbol entry cooldown (prevents rapid re-entry after stops) ──
-_entry_cooldown: dict[str, int] = {}
 _ENTRY_COOLDOWN_BARS = 12  # 1-hour cooldown on 5m chart to prevent clustered re-entries
 
 # ── SAR: conductor delegates to engine for detection/cooldowns. ──────
@@ -53,24 +51,27 @@ _ENTRY_COOLDOWN_BARS = 12  # 1-hour cooldown on 5m chart to prevent clustered re
 _SAR_RISK_PCT = 0.027  # ~$60 max SAR loss per trade at 5.7k balance
 
 
-def _check_loss_cooldown(symbol: str) -> bool:
-    return _cooldown_bars.get(symbol, 0) > 0
+def _check_loss_cooldown(symbol: str, instance_state: dict) -> bool:
+    return instance_state.get('_cooldown_bars', {}).get(symbol, 0) > 0
 
 
-def _update_cooldown(symbol: str, is_loss: bool):
+def _update_cooldown(symbol: str, is_loss: bool, instance_state: dict):
+    loss_streaks = instance_state.setdefault('_loss_streaks', {})
+    cooldown_bars = instance_state.setdefault('_cooldown_bars', {})
+    
     if is_loss:
-        _loss_streaks[symbol] = _loss_streaks.get(symbol, 0) + 1
-        if _loss_streaks[symbol] >= _COOLDOWN_TRIGGER:
-            _cooldown_bars[symbol] = _COOLDOWN_BARS
+        loss_streaks[symbol] = loss_streaks.get(symbol, 0) + 1
+        if loss_streaks[symbol] >= _COOLDOWN_TRIGGER:
+            cooldown_bars[symbol] = _COOLDOWN_BARS
             logger.info(
-                f"[CONDUCTOR] {symbol}: {_loss_streaks[symbol]} consecutive "
+                f"[CONDUCTOR] {symbol}: {loss_streaks[symbol]} consecutive "
                 f"losses → {_COOLDOWN_BARS}-bar cooldown"
             )
     else:
-        _loss_streaks[symbol] = 0
+        loss_streaks[symbol] = 0
 
 
-def _tick_cooldowns(symbol: str):
+def _tick_cooldowns(symbol: str, instance_state: dict):
     """Tick cooldowns for a SINGLE symbol only.
 
     This must only tick the given symbol because the function is called
@@ -79,10 +80,13 @@ def _tick_cooldowns(symbol: str):
     — a nasty coupling bug that changes behaviour depending on how many
     pairs are traded.
     """
-    if symbol in _cooldown_bars and _cooldown_bars[symbol] > 0:
-        _cooldown_bars[symbol] -= 1
-    if symbol in _entry_cooldown and _entry_cooldown[symbol] > 0:
-        _entry_cooldown[symbol] -= 1
+    cooldown_bars = instance_state.setdefault('_cooldown_bars', {})
+    entry_cooldown = instance_state.setdefault('_entry_cooldown', {})
+    
+    if symbol in cooldown_bars and cooldown_bars[symbol] > 0:
+        cooldown_bars[symbol] -= 1
+    if symbol in entry_cooldown and entry_cooldown[symbol] > 0:
+        entry_cooldown[symbol] -= 1
 
 
 def reset_module_state():
@@ -90,11 +94,12 @@ def reset_module_state():
 
     Called by loop.py when day-chaining to prevent stale cooldowns and
     loss streak memory from the previous day leaking into decisions.
+    
+    DEPRECATED: Module-level globals removed. State is now instance-based.
+    This function kept for backward compatibility but does nothing.
     """
-    _loss_streaks.clear()
-    _cooldown_bars.clear()
-    _entry_cooldown.clear()
-    logger.info("[CONDUCTOR] Module state reset for new replay day")
+    # Module-level globals removed - state is now in ForexConductorStrategy instances
+    logger.info("[CONDUCTOR] reset_module_state() deprecated - use instance.reset_instance_state()")
 
 
 class ForexConductorStrategy(BaseStrategy):
@@ -121,6 +126,11 @@ class ForexConductorStrategy(BaseStrategy):
             logger.info(f"[CONDUCTOR] Initializing with Pyramiding -> Trigger: {pyramid_r}R, First %: {pyramid_pct}")
             
         super().__init__("Forex Conductor")
+        
+        # FIXED: Move module-level globals to instance state to prevent persistence across restarts
+        self._loss_streaks: dict[str, int] = {}
+        self._cooldown_bars: dict[str, int] = {}
+        self._entry_cooldown: dict[str, int] = {}
 
     # ── Risk propagation ────────────────────────────────────────────────
     # The parent BaseStrategy stores risk in profile_risk_pct.  When the
@@ -209,7 +219,7 @@ class ForexConductorStrategy(BaseStrategy):
 
 
 
-        _tick_cooldowns(snapshot.symbol)
+        _tick_cooldowns(snapshot.symbol, self)
 
         # ── SESSION FILTER: Asian dead zone DISABLED ─────────────
         # Previously blocked EUR/GBP/CHF/CAD majors during 8PM–3AM ET.
@@ -217,7 +227,7 @@ class ForexConductorStrategy(BaseStrategy):
         sar_dir = gates.get("sar_dir")  # Set by engine SAR
 
         # ── Loss streak cooldown ─────────────────────────────────
-        if _check_loss_cooldown(snapshot.symbol) and not sar_dir:
+        if _check_loss_cooldown(snapshot.symbol, self) and not sar_dir:
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by loss streak cooldown")
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Forex Conductor: Blocked by loss streak cooldown")
 
@@ -228,8 +238,8 @@ class ForexConductorStrategy(BaseStrategy):
         has_reversal = False
         sar_dir = None
         
-        if _entry_cooldown.get(snapshot.symbol, 0) > 0:
-            rem = _entry_cooldown.get(snapshot.symbol, 0)
+        if self._entry_cooldown.get(snapshot.symbol, 0) > 0:
+            rem = self._entry_cooldown.get(snapshot.symbol, 0)
             logger.info(f"[CONDUCTOR] {snapshot.symbol}: BLOCKED by entry cooldown ({rem} bars remaining)")
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, f"Forex Conductor: Blocked by entry cooldown ({rem} bars)")
 
@@ -426,7 +436,7 @@ class ForexConductorStrategy(BaseStrategy):
                 )
                 signal.risk_per_trade_pct = getattr(self._profile, 'risk_per_trade_pct', 0.01)
                 # Set entry cooldown for this symbol
-                _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
+                self._entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
 
                 # ── BROKER MINIMUM STOP GUARD ──
                 _ep = float(signal.entry_price or 0.0)
@@ -525,7 +535,7 @@ class ForexConductorStrategy(BaseStrategy):
                     f"[CONDUCTOR] {snapshot.symbol}: FORCED SAR {sar_dir.upper()} "
                     f"via engine (ATR={atr:.5f}, sl={sl:.5f}, tp_r={tp_r})"
                 )
-                _entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
+                self._entry_cooldown[snapshot.symbol] = _ENTRY_COOLDOWN_BARS
                 logger.info("[DEBUG SAR] Returning Force SAR Decision")
                 return AITradeDecision(
                     symbol=snapshot.symbol,

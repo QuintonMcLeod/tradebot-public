@@ -53,6 +53,13 @@ class MetaSCIStrategy(BaseStrategy):
         # [JUDGE] Track consecutive losses per strategy per symbol
         # Key: (symbol, strategy_name) -> int (consecutive loss count)
         self._loss_streaks: Dict[str, int] = {}
+        # [DYNAMIC WEIGHTS] Track recent performance for adaptive weight adjustment
+        # Key: strategy_name -> list of recent PnL percentages (last 20 trades)
+        self._strategy_performance: Dict[str, list] = {}
+        # [DYNAMIC WEIGHTS] Base weights from backtesting, adjusted dynamically
+        self._base_forex_weights = None
+        self._base_commodity_weights = None
+        self._base_crypto_weights = None
 
     def score_signal(self, snapshot: MarketSnapshot, gates: dict):
         """
@@ -260,7 +267,7 @@ class MetaSCIStrategy(BaseStrategy):
 
         # [PHASE 7] Asset-aware tournament weights based on 14-day battle-hardening
         # FOREX weights: only boost PROVEN profitable strategies
-        self.FOREX_WEIGHTS = {
+        self._base_forex_weights = {
             # --- Rubberband (High Weight) ---
             "forex_conductor": 25,
             "mean_reversion": 20,
@@ -294,7 +301,7 @@ class MetaSCIStrategy(BaseStrategy):
             "aggregator": 5,
         }
         
-        self.COMMODITY_WEIGHTS = {
+        self._base_commodity_weights = {
             # --- Trend (High Weight) ---
             "icc_core": 25,
             "icc_core_standalone": 25,
@@ -328,16 +335,76 @@ class MetaSCIStrategy(BaseStrategy):
             "aggregator": 5,
         }
         # CRYPTO weights: keep old weights (legacy, for when crypto is re-enabled)
-        self.CRYPTO_WEIGHTS = {
+        self._base_crypto_weights = {
             "bearish_engulfing": 15,
             "supply_demand": 5,
             "quantum": 5,
             "mean_reversion": 10,
         }
+        
+        # Apply dynamic performance adjustments to base weights
+        self.FOREX_WEIGHTS = self._calculate_dynamic_weights("forex")
+        self.COMMODITY_WEIGHTS = self._calculate_dynamic_weights("commodity")
+        self.CRYPTO_WEIGHTS = self._calculate_dynamic_weights("crypto")
         # Default fallback
         self.STRATEGY_WEIGHTS = self.FOREX_WEIGHTS
 
         self._initialized = True
+
+    def _calculate_dynamic_weights(self, asset_class: str) -> dict:
+        """
+        Calculate dynamic weights by adjusting base weights with recent performance.
+        
+        Formula: final_weight = base_weight * (1 + performance_factor)
+        where performance_factor = avg_recent_pnl / 100 (capped at ±0.5)
+        
+        This allows strategies to gain/lose up to 50% weight based on recent results.
+        """
+        if asset_class == "forex":
+            base_weights = self._base_forex_weights or {}
+        elif asset_class == "commodity":
+            base_weights = self._base_commodity_weights or {}
+        else:  # crypto
+            base_weights = self._base_crypto_weights or {}
+        
+        dynamic_weights = {}
+        for strategy_name, base_weight in base_weights.items():
+            # Get recent performance for this strategy
+            recent_pnls = self._strategy_performance.get(strategy_name, [])
+            
+            if not recent_pnls or len(recent_pnls) < 3:
+                # Not enough data, use base weight
+                dynamic_weights[strategy_name] = base_weight
+            else:
+                # Calculate average recent PnL percentage
+                avg_pnl = sum(recent_pnls[-20:]) / len(recent_pnls[-20:])
+                
+                # Performance factor: cap at ±50% adjustment
+                performance_factor = max(-0.5, min(0.5, avg_pnl / 100))
+                
+                # Apply adjustment
+                adjusted_weight = base_weight * (1 + performance_factor)
+                
+                # Ensure minimum weight of 1.0
+                dynamic_weights[strategy_name] = max(1.0, adjusted_weight)
+        
+        return dynamic_weights
+
+    def record_strategy_result(self, strategy_name: str, pnl_pct: float):
+        """Record a trade result for dynamic weight adjustment."""
+        if strategy_name not in self._strategy_performance:
+            self._strategy_performance[strategy_name] = []
+        
+        self._strategy_performance[strategy_name].append(pnl_pct)
+        
+        # Keep only last 20 trades for rolling window
+        if len(self._strategy_performance[strategy_name]) > 20:
+            self._strategy_performance[strategy_name] = self._strategy_performance[strategy_name][-20:]
+        
+        # Recalculate all weights after new result
+        self.FOREX_WEIGHTS = self._calculate_dynamic_weights("forex")
+        self.COMMODITY_WEIGHTS = self._calculate_dynamic_weights("commodity")
+        self.CRYPTO_WEIGHTS = self._calculate_dynamic_weights("crypto")
 
     def _get_weights(self, symbol: str) -> dict:
         """Return asset-class-aware tournament weights for the given symbol."""

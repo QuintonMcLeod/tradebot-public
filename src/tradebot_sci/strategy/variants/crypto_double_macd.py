@@ -115,18 +115,46 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
         # [TREND GUIDANCE] Follow the trend direction from HTF analysis
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
 
+        # --- Scoring Components ---
+        score = 0
+        breakdown = []
+        
+        # MACD Trend Strength (40 pts)
+        if slow_hist > 0:
+            trend_score = min(40, 20 + (slow_hist / abs(slow_macd) * 20 if slow_macd != 0 else 20))
+            score += trend_score
+            breakdown.append(f"MACD-Trend(+{trend_score:.0f})")
+        elif slow_hist < 0:
+            trend_score = min(40, 20 + (abs(slow_hist) / abs(slow_macd) * 20 if slow_macd != 0 else 20))
+            score += trend_score
+            breakdown.append(f"MACD-Trend(+{trend_score:.0f})")
+        
+        # Fast MACD Crossover Quality (30 pts)
+        if fast_bull_cross or fast_bear_cross:
+            crossover_score = 30
+            score += crossover_score
+            breakdown.append(f"Fast-X(+{crossover_score})")
+        
+        # RSI Pullback Quality (30 pts)
+        if htf_dir in ("long", "neutral") and rsi < self.rsi_pullback_high:
+            rsi_score = max(0, 30 - (rsi - self.rsi_pullback_low) * 2)
+            if rsi_score > 0:
+                score += rsi_score
+                breakdown.append(f"RSI-Pullback(+{rsi_score:.0f})")
+        elif htf_dir in ("short", "neutral") and rsi > self.rsi_pullback_low:
+            rsi_score = max(0, 30 - (self.rsi_pullback_high - rsi) * 2)
+            if rsi_score > 0:
+                score += rsi_score
+                breakdown.append(f"RSI-Pullback(+{rsi_score:.0f})")
+        
+        score = min(100, score)
+        summary = f"DoubleMACD {score:.0f}/100: {', '.join(breakdown)}" if breakdown else "DoubleMACD: No signal"
+
         # --- Initial Entry ---
-        # LONG: Slow MACD histogram > 0 (uptrend) + Fast MACD bullish crossover + RSI in pullback zone (only when trend allows)
-        if htf_dir in ("long", "neutral") and slow_hist > 0 and fast_bull_cross and rsi < self.rsi_pullback_high:
+        # LONG: Slow MACD histogram > 0 (uptrend) + Fast MACD bullish crossover + RSI in pullback zone
+        if htf_dir in ("long", "neutral") and slow_hist > 0 and fast_bull_cross and rsi < self.rsi_pullback_high and score >= 60:
             stop_dist = atr * 1.0  # Tight for scalping
             stop_loss = last_close - stop_dist
-            take_profit=None  # 1.5:1 RR for quick exits
-
-            score = 60
-            if rsi < self.rsi_pullback_low:
-                score += 10  # Deep pullback = better entry
-            if slow_hist > abs(slow_macd) * 0.3:
-                score += 10  # Strong trend momentum
 
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -141,17 +169,10 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
                 score=score, grade="A" if score >= 70 else "B"
             )
 
-        # SHORT: Slow MACD histogram < 0 (downtrend) + Fast MACD bearish crossover + RSI in pullback zone (only when trend allows)
-        if htf_dir in ("short", "neutral") and slow_hist < 0 and fast_bear_cross and rsi > self.rsi_pullback_low:
+        # SHORT: Slow MACD histogram < 0 (downtrend) + Fast MACD bearish crossover + RSI in pullback zone
+        if htf_dir in ("short", "neutral") and slow_hist < 0 and fast_bear_cross and rsi > self.rsi_pullback_low and score >= 60:
             stop_dist = atr * 1.0
             stop_loss = last_close + stop_dist
-            take_profit=None
-
-            score = 60
-            if rsi > self.rsi_pullback_high:
-                score += 10
-            if abs(slow_hist) > abs(slow_macd) * 0.3:
-                score += 10
 
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,

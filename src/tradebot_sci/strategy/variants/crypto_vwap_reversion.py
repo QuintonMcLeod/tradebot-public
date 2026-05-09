@@ -98,19 +98,50 @@ class CryptoVWAPReversionStrategy(BaseStrategy):
         # [TREND GUIDANCE] Follow the trend direction from HTF analysis
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
 
-        # LONG: Price below VWAP + EMA trending up + RSI < threshold (only when trend allows)
-        if htf_dir in ("long", "neutral") and deviation < -self.vwap_deviation_pct and ema_rising and rsi < self.rsi_long_threshold:
+        # --- Scoring Components ---
+        score = 0
+        breakdown = []
+        
+        # VWAP Deviation Quality (40 pts)
+        if htf_dir in ("long", "neutral") and deviation < -self.vwap_deviation_pct:
+            dev_score = min(40, 20 + abs(deviation) / self.vwap_deviation_pct * 10)
+            score += dev_score
+            breakdown.append(f"VWAP-Dev(+{dev_score:.0f})")
+        elif htf_dir in ("short", "neutral") and deviation > self.vwap_deviation_pct:
+            dev_score = min(40, 20 + abs(deviation) / self.vwap_deviation_pct * 10)
+            score += dev_score
+            breakdown.append(f"VWAP-Dev(+{dev_score:.0f})")
+        
+        # EMA Trend Confirmation (30 pts)
+        if htf_dir in ("long", "neutral") and ema_rising:
+            score += 30
+            breakdown.append("EMA-Rising(+30)")
+        elif htf_dir in ("short", "neutral") and ema_falling:
+            score += 30
+            breakdown.append("EMA-Falling(+30)")
+        
+        # RSI Confirmation (30 pts)
+        if htf_dir in ("long", "neutral") and rsi < self.rsi_long_threshold:
+            rsi_score = max(0, 30 - (rsi - 20) * 1.5)
+            if rsi_score > 0:
+                score += rsi_score
+                breakdown.append(f"RSI-OS(+{rsi_score:.0f})")
+        elif htf_dir in ("short", "neutral") and rsi > self.rsi_short_threshold:
+            rsi_score = max(0, 30 - (80 - rsi) * 1.5)
+            if rsi_score > 0:
+                score += rsi_score
+                breakdown.append(f"RSI-OB(+{rsi_score:.0f})")
+        
+        score = min(100, score)
+        summary = f"VWAP-Revert {score:.0f}/100: {', '.join(breakdown)}" if breakdown else "VWAP-Revert: No signal"
+
+        # LONG: Price below VWAP + EMA trending up + RSI < threshold + minimum score
+        if htf_dir in ("long", "neutral") and deviation < -self.vwap_deviation_pct and ema_rising and rsi < self.rsi_long_threshold and score >= 60:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close - stop_dist
             target = vwap + (vwap - last_close) * 0.5
             min_target = last_close + (stop_dist * 2.0)
             take_profit = max(target, min_target)
-
-            score = 55
-            if deviation < -self.vwap_deviation_pct * 2:
-                score += 10
-            if rsi < 30:
-                score += 10
 
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -125,19 +156,13 @@ class CryptoVWAPReversionStrategy(BaseStrategy):
                 score=score, grade="A" if score >= 70 else "B"
             )
 
-        # SHORT: Price above VWAP + EMA trending down + RSI > threshold (only when trend allows)
-        if htf_dir in ("short", "neutral") and deviation > self.vwap_deviation_pct and ema_falling and rsi > self.rsi_short_threshold:
+        # SHORT: Price above VWAP + EMA trending down + RSI > threshold + minimum score
+        if htf_dir in ("short", "neutral") and deviation > self.vwap_deviation_pct and ema_falling and rsi > self.rsi_short_threshold and score >= 60:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close + stop_dist
             target = vwap - (last_close - vwap) * 0.5
             min_target = last_close - (stop_dist * 2.0)
             take_profit = min(target, min_target)
-
-            score = 55
-            if deviation > self.vwap_deviation_pct * 2:
-                score += 10
-            if rsi > 70:
-                score += 10
 
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,

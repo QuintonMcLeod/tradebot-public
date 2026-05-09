@@ -28,17 +28,12 @@ class NewYorkDriveStrategy(BaseStrategy):
         if open_position:
             return None
 
-        # Restrict execution to the NY/London Overlap Session (13:00 to 16:00 UTC)
-        _ts = snapshot.candles[-1].timestamp
-        if _ts.tzinfo is None:
-            _ts = _ts.replace(tzinfo=timezone.utc)
-        utc_hour = _ts.astimezone(timezone.utc).hour
-        
-        if not (13 <= utc_hour < 16):
-            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "NewYorkDrive: Outside NY overlapping hours")
+        # NOTE: Session timing is handled by the Global Scheduler, not this strategy.
+        # This strategy focuses purely on detecting momentum breakouts of London extremes.
+        # Configure your preferred trading windows in the scheduler settings.
             
-        # Analyze today's London Range
-        current_date_str = _ts.strftime("%Y-%m-%d")
+        # Analyze today's London Range (historical data for breakout detection)
+        current_date_str = snapshot.candles[-1].timestamp.strftime("%Y-%m-%d")
         london_candles = []
         for c in snapshot.candles:
             cts = c.timestamp

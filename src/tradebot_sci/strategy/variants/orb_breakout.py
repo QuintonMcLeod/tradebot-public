@@ -78,7 +78,9 @@ class ORBStrategy(BaseStrategy):
         
         # 1. Isolate post-range candles
         latest_c_ny = self._get_ny_time(snapshot.candles[-1].timestamp)
-        # Avoid trading too late (e.g., after 13:00)
+        # NOTE: Session timing is handled by the Global Scheduler, not this strategy.
+        # The late-day cutoff (13:00) is kept as a safety measure to avoid overnight risk,
+        # but primary session gating should be configured in the scheduler settings.
         if latest_c_ny.time() > time(13, 0):
             return None
             

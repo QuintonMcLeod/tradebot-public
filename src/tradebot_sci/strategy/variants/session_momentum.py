@@ -37,25 +37,13 @@ class SessionMomentumStrategy(BaseStrategy):
         self.volume_surge_mult = volume_surge_mult
 
     def _is_session_open(self, snapshot: MarketSnapshot) -> str | None:
-        """Return 'london' or 'ny' if within an active session window, else None."""
-        if not snapshot.candles:
-            return None
-
-        ts = snapshot.candles[-1].timestamp
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=ZoneInfo("UTC"))
-
-        # Check London window (UTC)
-        utc_time = ts.astimezone(ZoneInfo("UTC")).time()
-        if self.LONDON_WINDOW[0] <= utc_time < self.LONDON_WINDOW[1]:
-            return "london"
-
-        # Check NY window (Eastern)
-        et_time = ts.astimezone(ZoneInfo("America/New_York")).time()
-        if self.NY_WINDOW[0] <= et_time < self.NY_WINDOW[1]:
-            return "ny"
-
-        return None
+        """NOTE: Session timing is handled by the Global Scheduler, not this strategy.
+        
+        This method is kept for backward compatibility but returns None always.
+        Configure your preferred trading windows in the scheduler settings.
+        This strategy focuses purely on VWAP + Volume surge detection.
+        """
+        return None  # Disabled - Global Scheduler handles session timing
 
     def _calculate_vwap(self, snapshot: MarketSnapshot) -> float | None:
         """Calculate session VWAP from available candles."""
@@ -82,10 +70,10 @@ class SessionMomentumStrategy(BaseStrategy):
         if open_position:
             return None
 
-        session = self._is_session_open(snapshot)
-        if session is None:
-            return None
-
+        # NOTE: Session timing is handled by the Global Scheduler.
+        # This strategy focuses purely on VWAP break + volume surge detection.
+        # The _is_session_open() method now returns None always.
+            
         if len(snapshot.candles) < 30:
             return None
 
@@ -109,7 +97,7 @@ class SessionMomentumStrategy(BaseStrategy):
         # [TREND GUIDANCE] Follow the trend direction from HTF analysis
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
 
-        session_label = session.upper()
+        # Session label removed - timing handled by Global Scheduler
 
         # --- BULLISH: Price breaks ABOVE VWAP with volume (only when trend allows) ---
         if htf_dir in ("long", "neutral") and prev_close <= vwap and last_close > vwap:

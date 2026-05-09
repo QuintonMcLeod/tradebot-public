@@ -51,15 +51,17 @@ Volume confirmation is baked into strategies. No volume = no conviction = no tra
 
 ## Crypto-Optimized Strategies
 
-| Strategy | Why It Works for Crypto |
-|----------|----------------------|
-| **RSI + MACD** | Catches the beginning of momentum moves |
-| **VWAP Reversion** | Crypto drifts from VWAP constantly |
-| **Double MACD** | Dual timeframe scalps during ranging periods |
-| **Virtual Grid** | Predictable ranges during consolidation |
-| **Rubberband Reaper** | Extreme BB extensions create high-probability snap-backs |
+| Strategy | Backend ID | Why It Works for Crypto | Recent Fixes |
+|----------|------------|------------------------|--------------|
+| **RSI + MACD** | `crypto_rsi_macd.py` | Catches the beginning of momentum moves | ✅ Fixed scoring inflation, now requires strict RSI extremes + MACD crossover |
+| **VWAP Reversion** | `crypto_vwap_reversion.py` | Crypto drifts from VWAP constantly | ✅ Fixed score/entry alignment, added proper trend confirmation |
+| **Double MACD** | `crypto_double_macd.py` | Dual timeframe scalps during ranging periods | ✅ Removed free scoring points, now requires all conditions met |
+| **Virtual Grid** | `crypto_grid.py` | Predictable ranges during consolidation | — |
+| **Rubberband Reaper** | `rubberband_reaper.py` | Extreme BB extensions create high-probability snap-backs | ✅ Removed 35 free points, strict BB/RSI requirements enforced |
 
 When running Meta-SCI on crypto symbols, these strategies automatically enter the tournament alongside universal strategies.
+
+⚠️ **NOTE:** All crypto strategies have been refactored to eliminate scoring inflation and ensure entry logic matches score thresholds. Session timing should be configured in the **Global Scheduler**, not in individual strategies.
 
 ---
 

@@ -103,18 +103,47 @@ class CryptoRSIMACDStrategy(BaseStrategy):
         # [TREND GUIDANCE] Follow the trend direction from HTF analysis
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
 
+        # --- Scoring Components ---
+        score = 0
+        breakdown = []
+        
+        # RSI Extremity (50 pts)
+        if htf_dir in ("long", "neutral") and rsi < self.rsi_oversold:
+            rsi_score = max(0, 50 - (rsi - 20) * 1.5)
+            score += rsi_score
+            breakdown.append(f"RSI-OS(+{rsi_score:.0f})")
+        elif htf_dir in ("short", "neutral") and rsi > self.rsi_overbought:
+            rsi_score = max(0, 50 - (80 - rsi) * 1.5)
+            score += rsi_score
+            breakdown.append(f"RSI-OB(+{rsi_score:.0f})")
+        
+        # MACD Crossover Quality (30 pts)
+        if bullish_cross or bearish_cross:
+            macd_score = 30
+            if histograms[-1] > histograms[-2]:
+                macd_score += 10  # Bonus for rising histogram
+            elif histograms[-1] < histograms[-2]:
+                macd_score += 10  # Bonus for falling histogram (for shorts)
+            score += min(40, macd_score)
+            breakdown.append(f"MACD-X(+{min(40, macd_score):.0f})")
+        
+        # Trend Alignment (20 pts)
+        if htf_dir == "long" and bullish_cross:
+            score += 20
+            breakdown.append("HTF-Long(+20)")
+        elif htf_dir == "short" and bearish_cross:
+            score += 20
+            breakdown.append("HTF-Short(+20)")
+        
+        score = min(100, score)
+        summary = f"RSI+MACD {score:.0f}/100: {', '.join(breakdown)}" if breakdown else "RSI+MACD: No signal"
+
         # --- Initial Entry ---
-        # LONG: RSI was oversold (touched 30 zone) + MACD bullish crossover (only when trend allows)
-        if htf_dir in ("long", "neutral") and rsi < self.rsi_oversold and bullish_cross:
+        # LONG: RSI oversold + MACD bullish crossover + minimum score threshold
+        if htf_dir in ("long", "neutral") and rsi < self.rsi_oversold and bullish_cross and score >= 60:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close - stop_dist
-            take_profit = last_close + (stop_dist * 2.0)  # Minimum 2:1 RR
-
-            score = 60
-            if rsi < 20:
-                score += 15  # Deep oversold bonus
-            if histograms[-1] > histograms[-2]:
-                score += 10  # Rising histogram
+            take_profit = last_close + (stop_dist * 2.0)
 
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,
@@ -129,17 +158,11 @@ class CryptoRSIMACDStrategy(BaseStrategy):
                 score=score, grade="A" if score >= 70 else "B"
             )
 
-        # SHORT: RSI was overbought (touched 70 zone) + MACD bearish crossover (only when trend allows)
-        if htf_dir in ("short", "neutral") and rsi > self.rsi_overbought and bearish_cross:
+        # SHORT: RSI overbought + MACD bearish crossover + minimum score threshold
+        if htf_dir in ("short", "neutral") and rsi > self.rsi_overbought and bearish_cross and score >= 60:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close + stop_dist
             take_profit = last_close - (stop_dist * 2.0)
-
-            score = 60
-            if rsi > 80:
-                score += 15
-            if histograms[-1] < histograms[-2]:
-                score += 10
 
             return AITradeDecision(
                 symbol=snapshot.symbol, timeframe=snapshot.timeframe,

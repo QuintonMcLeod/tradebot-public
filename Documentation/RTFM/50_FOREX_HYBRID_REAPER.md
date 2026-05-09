@@ -25,17 +25,11 @@ It ignores the noise and only acts when two completely diametric forces align.
 
 ---
 
-## 2. Asian Chop Blockade (Volatility Guard)
+## 2. Volatility Guard (Chop Protection)
 
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"Baby, you can't go surfing if the ocean is completely flat! Bring your board in and wait for the real waves!"</td></tr></table>
 
 **How It Works:** 
-This strategy mathematically prevents capital bleeding during the sluggish Asian session or any dead volume period. Under the hood, the engine calculates a **rolling 20-period average of the True Range**. If the current volatility drops below 70% of that active historical baseline, the engine physically shuts down and refuses to deploy trades. You literally cannot trade the chop.
+This strategy mathematically prevents capital bleeding during low-volatility periods. Under the hood, the engine calculates a **rolling 20-period average of the ATR**. If the current ATR drops below **50%** of that active historical baseline, the engine shuts down and refuses to deploy trades. 
 
----
-
-## 3. Pure Session Targeting
-
-**Backend ID:** `forex_hybrid_reaper.py`
-
-If the Volatility guard wasn't enough, the Hybrid Scalper is locked via strict timezone gates. Regardless of your physical location, the script restricts its own execution matrix exclusively to the **8 AM - 12 PM Eastern Standard Time (EST)** overlapping window between London and New York. This is where 70% of all global forex volume transacts, providing the liquid velocity needed to make these scalps instant and lethal.
+⚠️ **NOTE:** Session timing is handled by the **Global Scheduler**, not this strategy. Configure your preferred trading windows in the scheduler settings to avoid Asian chop or other low-volume periods.

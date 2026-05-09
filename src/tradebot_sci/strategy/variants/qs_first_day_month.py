@@ -25,6 +25,10 @@ class QS_FirstDayOfMonthStrategy(BaseStrategy):
         
         current_time = snapshot.candles[-1].timestamp
         
+        # NOTE: Calendar-based timing (end-of-month entries) is inherently date-specific.
+        # This strategy only triggers on month-end/month-start dates regardless of session timing.
+        # The Global Scheduler can be used to further restrict which hours these trades execute.
+        
         # Check if we are on the very last day of the current month
         # Assuming typical trading days, if we're on the last calendar day, or the last Friday
         # A simple robust way in forex/crypto is testing if tomorrow is month 1.
@@ -32,20 +36,20 @@ class QS_FirstDayOfMonthStrategy(BaseStrategy):
         
         if tomorrow.month != current_time.month:
             # We are on the last day of the month!
-            # Enter near the end of the session (e.g., > 20:00 UTC)
-            if current_time.hour >= 20:
-                last_close = snapshot.candles[-1].close
-                stop_loss = last_close * 0.95
-                take_profit = last_close + (last_close - stop_loss) * 2.0
-                return AITradeDecision(
-                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="long", phase="management", action="enter_long",
-                    entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
-                    structure_summary=f"End of Month Calendar Entry ({current_time.strftime('%Y-%m-%d')})",
-                    invalidation_conditions="End of First Trading Day",
-                    urgency="low",
-                    risk_per_trade_pct=self.get_risk_pct()
-                )
+            # NOTE: Hour restriction removed - Global Scheduler handles session timing
+            # Entry logic now focuses purely on date-based calendar effect
+            last_close = snapshot.candles[-1].close
+            stop_loss = last_close * 0.95
+            take_profit = last_close + (last_close - stop_loss) * 2.0
+            return AITradeDecision(
+                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                bias="long", phase="management", action="enter_long",
+                entry_price=last_close, stop_loss=stop_loss, take_profit=take_profit,
+                structure_summary=f"End of Month Calendar Entry ({current_time.strftime('%Y-%m-%d')})",
+                invalidation_conditions="End of First Trading Day",
+                urgency="low",
+                risk_per_trade_pct=self.get_risk_pct()
+            )
                 
         return None
 
@@ -57,8 +61,9 @@ class QS_FirstDayOfMonthStrategy(BaseStrategy):
         
         # Determine if we are on the first trading day of the new month
         # In Crypto, day 1 is the 1st. In Forex, day 1 might be the 1st through 3rd.
-        # Check if current day is early in the month and it's late in the day
-        if current_time.day <= 3 and current_time.hour >= 20:
+        # NOTE: Hour restriction removed - Global Scheduler handles session timing
+        # Exit logic now focuses purely on date-based calendar effect
+        if current_time.day <= 3:
             return close_position_decision(snapshot.symbol, snapshot.timeframe, "First Trading Day Elapsed - Seasonal Exit")
             
         return None

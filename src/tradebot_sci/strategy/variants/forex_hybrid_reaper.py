@@ -37,7 +37,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
         logger.debug(f"Loaded ForexHybridReaper with TargetR={self.target_r}, TrendEMA={self.trend_ema_period}")
 
     def score_signal(self, snapshot: MarketSnapshot, gates: dict = None) -> tuple[float, str, str]:
-        """Hybrid Reaper specific scoring: Structural Alignment (50) + BB Position (25) + RSI Extremity (25)."""
+        """Hybrid Reaper specific scoring: HTF/LTF Alignment (40) + BB Position (30) + RSI Extremity (30)."""
         gates = gates or {}
         closes = [c.close for c in snapshot.candles]
         
@@ -65,74 +65,36 @@ class ForexHybridReaperStrategy(BaseStrategy):
         is_long_bias = last_close > trend_ema
         strat_bias = "long" if is_long_bias else "short"
         
-        # 1. Global HTF / LTF Alignment (20 pts)
+        # 1. Global HTF / LTF Alignment (40 pts)
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
         ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
         
         if htf_dir == strat_bias:
-            score += 10.0
-            breakdown.append(f"HTF-Align(+10)")
+            score += 20.0
+            breakdown.append(f"HTF-Align(+20)")
         if ltf_dir == strat_bias:
-            score += 10.0
-            breakdown.append(f"LTF-Align(+10)")
+            score += 20.0
+            breakdown.append(f"LTF-Align(+20)")
             
-        # 2. HTF Strength / Volatility (15 pts)
-        htf_strength = float(gates.get("htf_strength", 0))
-        if htf_strength >= 0.25:
-            score += 15.0
-            breakdown.append(f"HTF-Str(+15)")
-            
-        # 3. Liquidity Sweep (15 pts)
-        sweep = gates.get("sweep", False)
-        if sweep:
-            score += 15.0
-            breakdown.append(f"Sweep(+15)")
-
-        # 4. Bollinger Band Position (20 pts)
-        bb_range = upper_bb - lower_bb if upper_bb > lower_bb else 1e-9
-        
+        # 2. Bollinger Band Position (30 pts) - STRICT: only full pierce gets points
         if is_long_bias:
             if last_close <= lower_bb:
-                score += 20.0
-                breakdown.append("BB-Pierced(+20)")
-            else:
-                dist_to_edge = (last_close - lower_bb) / bb_range
-                pts = max(0, 20 * (1 - dist_to_edge * 2)) 
-                if pts > 0:
-                    score += pts
-                    breakdown.append(f"BB-Near(+{pts:.0f})")
-                    
-            # 5. RSI Extremity (20 pts)
-            if rsi <= oversold_thresh:
-                score += 20.0
-                breakdown.append(f"RSI-OS({rsi:.1f}=+20)")
-            else:
-                dist_to_thresh = rsi - oversold_thresh
-                pts = max(0, 20 * (1 - dist_to_thresh / 15)) 
-                if pts > 0:
-                    score += pts
-                    breakdown.append(f"RSI-Near(+{pts:.0f})")
+                score += 30.0
+                breakdown.append("BB-Pierced(+30)")
         else:
             if last_close >= upper_bb:
-                score += 20.0
-                breakdown.append("BB-Pierced(+20)")
-            else:
-                dist_to_edge = (upper_bb - last_close) / bb_range
-                pts = max(0, 20 * (1 - dist_to_edge * 2))
-                if pts > 0:
-                    score += pts
-                    breakdown.append(f"BB-Near(+{pts:.0f})")
+                score += 30.0
+                breakdown.append("BB-Pierced(+30)")
                     
-            # 5. RSI Extremity (20 pts)
+        # 3. RSI Extremity (30 pts) - STRICT: only extreme gets points
+        if is_long_bias:
+            if rsi <= oversold_thresh:
+                score += 30.0
+                breakdown.append(f"RSI-OS({rsi:.1f}=+30)")
+        else:
             if rsi >= overbought_thresh:
-                score += 20.0
-                breakdown.append(f"RSI-OB({rsi:.1f}=+20)")
-            else:
-                dist_to_thresh = overbought_thresh - rsi
-                pts = max(0, 20 * (1 - dist_to_thresh / 15))
-                if pts > 0:
-                    score += pts
-                    breakdown.append(f"RSI-Near(+{pts:.0f})")
+                score += 30.0
+                breakdown.append(f"RSI-OB({rsi:.1f}=+30)")
 
         score = min(100.0, score)
         grade = self.grade_from_score_100(score)
@@ -205,45 +167,43 @@ class ForexHybridReaperStrategy(BaseStrategy):
 
         logger.info(f"[HybridReaper Debug {snapshot.symbol}] Close={last_close:.5f} | EMA={trend_ema:.5f} | GlobalRSI={rsi:.1f} | GlobalLBB={lower_bb:.5f} | GlobalUBB={upper_bb:.5f} | HTF={htf_dir} | Score={score:.1f}")
             
-        # LONG: Price > 200 EMA + (Strict BB/RSI Touch OR High Structural Score)
-        if last_close > trend_ema:
-            if (rsi <= oversold_thresh and last_close <= lower_bb) or score >= 60.0:
-                stop_dist = max(current_atr * 1.5, last_close * 0.0008)  # Safe floor distance
-                stop_loss = last_close - stop_dist
-                tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
-                target = last_close + (stop_dist * tr)
-                
-                return AITradeDecision(
-                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="long", phase="correction", action="enter_long",
-                    entry_price=last_close, stop_loss=stop_loss, take_profit=target,
-                    risk_per_trade_pct=self.get_risk_pct(),
-                    structure_summary=f"HybridReaper Long (RSI={rsi:.1f}, BBTouch)",
-                    invalidation_conditions="Close below stop loss.",
-                    management_instructions=f"Target {self.target_r}R.",
-                    urgency="high",
-                    strategy_name=self.name
-                )
+        # LONG: Price > 200 EMA + Strict BB/RSI Touch + Minimum Score (no OR condition)
+        if last_close > trend_ema and rsi <= oversold_thresh and last_close <= lower_bb and score >= 60.0:
+            stop_dist = max(current_atr * 1.5, last_close * 0.0008)  # Safe floor distance
+            stop_loss = last_close - stop_dist
+            tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
+            target = last_close + (stop_dist * tr)
+            
+            return AITradeDecision(
+                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                bias="long", phase="correction", action="enter_long",
+                entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                risk_per_trade_pct=self.get_risk_pct(),
+                structure_summary=f"HybridReaper Long (RSI={rsi:.1f}, BBTouch, Score={score:.0f})",
+                invalidation_conditions="Close below stop loss.",
+                management_instructions=f"Target {self.target_r}R.",
+                urgency="high",
+                strategy_name=self.name
+            )
 
-        # SHORT: Price < 200 EMA + (Strict BB/RSI Touch OR High Structural Score)
-        if last_close < trend_ema:
-            if (rsi >= overbought_thresh and last_close >= upper_bb) or score >= 60.0:
-                stop_dist = max(current_atr * 1.5, last_close * 0.0008)
-                stop_loss = last_close + stop_dist
-                tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
-                target = last_close - (stop_dist * tr)
-                
-                return AITradeDecision(
-                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="short", phase="correction", action="enter_short",
-                    entry_price=last_close, stop_loss=stop_loss, take_profit=target,
-                    risk_per_trade_pct=self.get_risk_pct(),
-                    structure_summary=f"HybridReaper Short (RSI={rsi:.1f}, BBTouch)",
-                    invalidation_conditions="Close above stop loss.",
-                    management_instructions=f"Target {self.target_r}R.",
-                    urgency="high",
-                    strategy_name=self.name
-                )
+        # SHORT: Price < 200 EMA + Strict BB/RSI Touch + Minimum Score (no OR condition)
+        if last_close < trend_ema and rsi >= overbought_thresh and last_close >= upper_bb and score >= 60.0:
+            stop_dist = max(current_atr * 1.5, last_close * 0.0008)
+            stop_loss = last_close + stop_dist
+            tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
+            target = last_close - (stop_dist * tr)
+            
+            return AITradeDecision(
+                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                bias="short", phase="correction", action="enter_short",
+                entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                risk_per_trade_pct=self.get_risk_pct(),
+                structure_summary=f"HybridReaper Short (RSI={rsi:.1f}, BBTouch, Score={score:.0f})",
+                invalidation_conditions="Close above stop loss.",
+                management_instructions=f"Target {self.target_r}R.",
+                urgency="high",
+                strategy_name=self.name
+            )
 
         return None
 

@@ -136,12 +136,38 @@ class RobotEvolutionStrategy(BaseStrategy):
         # [TREND GUIDANCE] Follow the trend direction from HTF analysis
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
         htf_strength = float(gates.get("htf_strength", 0))
+        
+        # Handle three cases: strong trend (follow direction), weak trend (stand aside), neutral (mean reversion)
         if htf_strength < 0.2:
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Evolution: weak HTF trend")
+        
+        # When HTF is neutral but strong enough, allow mean-reversion trades within NTZ
+        is_neutral_regime = (htf_dir == "neutral" and htf_strength >= 0.2)
 
         # Long: Sweep of NTZ Low + Bullish Indication (only when trend is long)
         lowest_recent = min(c.low for c in snapshot.candles[-5:])
-        if htf_dir == "long" and indication.direction == "long":  # [HARDENED] No neutral
+        
+        # In neutral regime, allow mean-reversion longs at NTZ low without strict HTF direction match
+        if is_neutral_regime:
+            # Mean reversion: buy at NTZ low with bullish indication
+            if indication.direction == "long" and current_price <= ntz.low * 1.001:  # Within 0.1% of NTZ low
+                if last_bar.close > last_bar.open:
+                    stop_loss = lowest_recent - stop_dist
+                    target = current_price + (stop_dist * self.target_r)
+                    
+                    notes = f"Robot Evolution Long (Neutral): {self.stop_atr_mult}ATR Stop / {self.target_r}R Target (ATR: {effective_atr:.4f})"
+                    return AITradeDecision(
+                        symbol=snapshot.symbol,
+                        timeframe=snapshot.timeframe,
+                        bias="long", phase="chop", action="enter_long",
+                        entry_price=current_price, stop_loss=stop_loss, take_profit=target,
+                        risk_per_trade_pct=self.get_risk_pct(),
+                        urgency="medium", structure_summary=notes, notes=notes, gates=gates,
+                        invalidation_conditions="Close below sweep low.",
+                        management_instructions="Target 2R. Managed by Robot Engine.",
+                    )
+        
+        if htf_dir == "long" and indication.direction == "long":
             if lowest_recent < ntz.low and current_price > ntz.low:
                 if last_bar.close > last_bar.open:
                     stop_loss = lowest_recent - stop_dist
@@ -165,7 +191,28 @@ class RobotEvolutionStrategy(BaseStrategy):
 
         # Short: Sweep of NTZ High + Bearish Indication (only when trend is short)
         highest_recent = max(c.high for c in snapshot.candles[-5:])
-        if htf_dir == "short" and indication.direction == "short":  # [HARDENED] No neutral
+        
+        # In neutral regime, allow mean-reversion shorts at NTZ high without strict HTF direction match
+        if is_neutral_regime:
+            # Mean reversion: sell at NTZ high with bearish indication
+            if indication.direction == "short" and current_price >= ntz.high * 0.999:  # Within 0.1% of NTZ high
+                if last_bar.close < last_bar.open:
+                    stop_loss = highest_recent + stop_dist
+                    target = current_price - (stop_dist * self.target_r)
+                    
+                    notes = f"Robot Evolution Short (Neutral): {self.stop_atr_mult}ATR Stop / {self.target_r}R Target (ATR: {effective_atr:.4f})"
+                    return AITradeDecision(
+                        symbol=snapshot.symbol,
+                        timeframe=snapshot.timeframe,
+                        bias="short", phase="chop", action="enter_short",
+                        entry_price=current_price, stop_loss=stop_loss, take_profit=target,
+                        risk_per_trade_pct=self.get_risk_pct(),
+                        urgency="medium", structure_summary=notes, notes=notes, gates=gates,
+                        invalidation_conditions="Close above sweep high.",
+                        management_instructions="Target 2R. Managed by Robot Engine.",
+                    )
+        
+        if htf_dir == "short" and indication.direction == "short":
             if highest_recent > ntz.high and current_price < ntz.high:
                 if last_bar.close < last_bar.open:
                     stop_loss = highest_recent + stop_dist
