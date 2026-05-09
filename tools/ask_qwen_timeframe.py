@@ -7,7 +7,7 @@ import httpx
 
 # Try to get key from env, fallback to the one in the example script if needed
 # (In a real scenario, we should rely on env vars, but I'll use the one from the file for consistency with the user's "test folder" hint)
-API_KEY = os.getenv("OPENROUTER_API_KEY", "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")
+API_KEY = os.getenv("OPENROUTER_API_KEY", "REDACTED_API_KEY")
 BASE_URL = "https://openrouter.ai/api/v1"
 MODEL = "qwen/qwen-turbo"
 

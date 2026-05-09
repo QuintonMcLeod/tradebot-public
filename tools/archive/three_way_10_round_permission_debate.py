@@ -10,7 +10,7 @@ import httpx
 
 API_KEY = os.getenv(
     "OPENROUTER_API_KEY",
-    "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",
+    "REDACTED_API_KEY",
 )
 BASE_URL = "https://openrouter.ai/api/v1"
 QWEN_MODEL = "qwen/qwen-2.5-72b-instruct"
