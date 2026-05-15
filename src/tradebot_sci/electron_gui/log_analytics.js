@@ -588,6 +588,8 @@ function getTradeHistory(filter = '24h', paperMode = false) {
  * @param {{ trades: Array, capital: Array, capitalByBroker: Object }} data
  * @returns {Object} summary with all metrics the analytics panel needs
  */
+const TRADE_DISPLAY_LIMIT = 500;
+
 function calculateAnalyticsSummary(data, paperMode = false) {
     const { trades = [], capital = [], capitalByBroker = {}, ledgerBySymbol = {}, ledgerByStrategy = {} } = data;
     const closed = trades.filter(t => !t._active);
@@ -733,7 +735,9 @@ function calculateAnalyticsSummary(data, paperMode = false) {
         capitalHistory: sortedCapital,
         capitalHistoryByBroker: capitalByBroker,
         capitalByBroker: _latestByBroker(capitalByBroker),
-        trades,
+        // Truncate trades list for UI performance (shows newest first)
+        trades: trades.slice(0, TRADE_DISPLAY_LIMIT),
+        displayLimit: TRADE_DISPLAY_LIMIT,
         // Merge ledger aggregate data as fallback when trade-derived stats are empty
         symbolStats: Object.keys(symbolStats).length > 0 ? symbolStats : ledgerBySymbol,
         strategyStats: Object.keys(strategyStats).length > 0 ? strategyStats : ledgerByStrategy,

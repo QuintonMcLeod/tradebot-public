@@ -39,6 +39,7 @@ class WindDownTruffleStrategy(BaseStrategy):
     Friday Wind-Down Truffle — short-biased fade into the weekly close.
     Relies on SAR to catch occasional late-session spikes.
     """
+    SESSION_PROFILE = "wind_down_truffle:friday_wind_down"
 
     # Friday afternoon window (Eastern Time)
     WIND_DOWN_START = time(12, 0)   # 12:00 PM ET
@@ -102,10 +103,8 @@ class WindDownTruffleStrategy(BaseStrategy):
         if open_position:
             return None
 
-        # ── GATE 1: Must be Friday afternoon ─────────────────────
-        if not self._is_friday_afternoon(snapshot):
-            return None
-
+        # [GATING] Handled by Global Scheduler via SESSION_PROFILE = "wind_down_truffle:friday_wind_down"
+        
         if len(snapshot.candles) < 30:
             return None
 

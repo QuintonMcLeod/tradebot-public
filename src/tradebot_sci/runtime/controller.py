@@ -116,6 +116,7 @@ class RuntimeController:
                 "profile": self.profile_name,
                 "symbols": getattr(self.profile_settings, "symbols", []),
                 "is_sabbath": sabbath_active,
+                "sabbath_mode": sabbath_active,
                 "is_eval": is_eval,
                 "is_paper": is_paper or sabbath_active,
                 "halted": self.ws_server.is_halted(),

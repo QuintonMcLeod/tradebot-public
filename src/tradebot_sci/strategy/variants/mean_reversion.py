@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class MeanReversionStrategy(BaseStrategy):
+    SESSION_PROFILE = ["mean_reversion:london_sweep", "mean_reversion:us_open", "mean_reversion:asian_open"]
     """
     Mean Reversion Scalper — Bollinger Band + RSI.
 

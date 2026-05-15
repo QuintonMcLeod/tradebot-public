@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 class ORBStrategy(BaseStrategy):
     """
     NY Session Opening Range Breakout (ORB) Strategy.
+    
+    SESSION_PROFILE: us_open
+    """
+    SESSION_PROFILE = "orb_breakout:us_open"
+    """
     Logic:
     1. Define Range (09:30 - 09:45 ET).
     2. Wait for BREAK (Candle Close outside Range).
@@ -78,11 +83,8 @@ class ORBStrategy(BaseStrategy):
         
         # 1. Isolate post-range candles
         latest_c_ny = self._get_ny_time(snapshot.candles[-1].timestamp)
-        # NOTE: Session timing is handled by the Global Scheduler, not this strategy.
-        # The late-day cutoff (13:00) is kept as a safety measure to avoid overnight risk,
-        # but primary session gating should be configured in the scheduler settings.
-        if latest_c_ny.time() > time(13, 0):
-            return None
+        # [GATING] Session timing is handled by the Global Scheduler.
+        # We no longer need the hardcoded 13:00 cutoff here.
             
         last_range_ts = range_candles[-1].timestamp
         post_candles = [c for c in snapshot.candles if c.timestamp > last_range_ts]

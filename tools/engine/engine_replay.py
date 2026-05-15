@@ -168,6 +168,8 @@ def print_results(result, initial_balance: float, elapsed: float):
             "duration": dur,
             "reason": t.exit_reason or "",
             "strategy": getattr(t, "strategy_name", ""),
+            "mfe_usd": getattr(t, "mfe_usd", 0.0),
+            "mae_usd": getattr(t, "mae_usd", 0.0),
         })
 
     summary = {
@@ -241,8 +243,9 @@ def _load_candles_for_range(
     def _load_symbol(sym: str):
         """Load candles for a single symbol (runs in a thread)."""
         sym_dir = candle_dir / sym
-        if not sym_dir.exists():
-            return sym, [], []
+        # Don't return early if directory is missing; we might need to fetch via API fallback
+        # if not sym_dir.exists():
+        #     return sym, [], []
         ltf_candles = []
         htf_candles = []
         mtf_candles = []
@@ -297,12 +300,19 @@ def _load_candles_for_range(
                 logging.getLogger("engine_replay").warning(f"[ENGINE] Error reading {f}: {e}")
 
         # Trigger API fallback if we have NO candles, OR if we are significantly missing the warmup period
+        # OR if we are missing data for the actual day we want to trade (stale data)
         needs_fallback = not ltf_candles
         if api_fallback and ltf_candles:
             first_loaded = ltf_candles[0].timestamp
+            last_loaded = ltf_candles[-1].timestamp
             target_start = parse_cli_date(date_start).replace(tzinfo=timezone.utc)
+            target_end = parse_cli_date(date_end).replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            
             # If my first local candle is more than 5 days after the requested start
             if (first_loaded - target_start).total_seconds() > 5 * 86400:
+                needs_fallback = True
+            # If my last local candle is more than 24 hours before the requested end
+            elif (target_end - last_loaded).total_seconds() > 24 * 3600:
                 needs_fallback = True
 
         if api_fallback and needs_fallback:
@@ -319,7 +329,7 @@ def _load_candles_for_range(
                     from dotenv import dotenv_values
                     secrets = dotenv_values(secrets_path)
                     config = load_config_json()
-                    account_id = config.get("brokers", {}).get("oanda", {}).get("account_id")
+                    account_id = config.get("brokers", {}).get("oanda", {}).get("account_id") or secrets.get("OANDA_ACCOUNT_ID")
                     api_key = secrets.get("OANDA_API_KEY") or secrets.get("OANDA_API_TOKEN")
                     env = config.get("brokers", {}).get("oanda", {}).get("environment", "practice")
                 
@@ -444,8 +454,6 @@ def _load_candles_for_range(
                     from tradebot_sci.config.loader import get_settings
                     _active_prof = get_settings().get_active_profile()
                     _exec_setting = getattr(_active_prof, "candle_timeframe", None) or "5m"
-                    _htf_setting = getattr(_active_prof, "htf_timeframe", None) or "4h"
-                    _mtf_setting = getattr(_active_prof, "mtf_timeframe", None) or "1h"
                     
                     # Map common timeframes to OANDA granularity
                     _oanda_granularity_map = {
@@ -453,23 +461,16 @@ def _load_candles_for_range(
                         "1h": "H1", "4h": "H4", "1d": "D", "1w": "W"
                     }
                     oanda_exec_tf = _oanda_granularity_map.get(_exec_setting.lower(), "M5")
-                    oanda_htf_tf = _oanda_granularity_map.get(_htf_setting.lower(), "H1")
-                    oanda_mtf_tf = _oanda_granularity_map.get(_mtf_setting.lower(), "H1")
                     _log.info(f"[API-FALLBACK] Using mapped OANDA EXEC Timeframe: {oanda_exec_tf} (from profile setting: {_exec_setting})")
-                    _log.info(f"[API-FALLBACK] Using mapped OANDA HTF Timeframe: {oanda_htf_tf} (from profile setting: {_htf_setting})")
-                    _log.info(f"[API-FALLBACK] Using mapped OANDA MTF Timeframe: {oanda_mtf_tf} (from profile setting: {_mtf_setting})")
+                    _log.info(f"[API-FALLBACK] Relying on Backtester dynamic resampling for HTF/MTF synchronicity.")
+
+                    # Clear any partial local candles to prevent duplicate timestamps or gaps
+                    ltf_candles.clear()
+                    htf_candles.clear()
+                    mtf_candles.clear()
 
                     raw_ltf = _fetch_paginated_candles(oanda_exec_tf, start_dt, end_dt)
-                    raw_htf = _fetch_paginated_candles(oanda_htf_tf, start_dt, end_dt)
 
-                    # ── MTF (1H) candles: separate fetch for trend invalidation ──
-                    # Only fetch if MTF is a different granularity than HTF
-                    raw_mtf = []
-                    if oanda_mtf_tf != oanda_htf_tf:
-                        raw_mtf = _fetch_paginated_candles(oanda_mtf_tf, start_dt, end_dt)
-                    else:
-                        raw_mtf = raw_htf  # If MTF == HTF, reuse the same data
-                    
                     # Process raw_ltf into ltf_candles
                     for c in raw_ltf:
                         mid = c.get("mid")
@@ -496,34 +497,6 @@ def _load_candles_for_range(
                                 timestamp=ts, open=float(mid["o"]), high=float(mid["h"]),
                                 low=float(mid["l"]), close=float(mid["c"]), volume=float(c["volume"])
                             ))
-
-                    def _parse_raw_candles(raw_list, target_list):
-                        for c in raw_list:
-                            mid = c.get("mid")
-                            if mid and c.get("complete", True):
-                                ts_str = c["time"]
-                                if "." in ts_str:
-                                    base, rest = ts_str.split(".", 1)
-                                    suffix = ""
-                                    if "Z" in rest:
-                                        suffix = "Z"
-                                        rest = rest.replace("Z", "")
-                                    elif "+" in rest:
-                                        rest, offset = rest.split("+", 1)
-                                        suffix = "+" + offset
-                                    elif "-" in rest:
-                                        rest, offset = rest.split("-", 1)
-                                        suffix = "-" + offset
-                                    ts_str = f"{base}.{rest[:6]}{suffix}"
-                                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                                if ts.tzinfo is None: ts = ts.replace(tzinfo=timezone.utc)
-                                target_list.append(Candle(
-                                    timestamp=ts, open=float(mid["o"]), high=float(mid["h"]),
-                                    low=float(mid["l"]), close=float(mid["c"]), volume=float(c["volume"])
-                                ))
-
-                    _parse_raw_candles(raw_htf, htf_candles)
-                    _parse_raw_candles(raw_mtf, mtf_candles)
 
             except Exception as e:
                 logging.getLogger("engine_replay").warning(f"[API-FALLBACK] Failed to fetch {sym}: {e}")
@@ -775,6 +748,8 @@ def _run_single_day_worker(args: tuple) -> dict:
                 "pnl": t.pnl,
                 "exit_reason": t.exit_reason,
                 "strategy_name": getattr(t, "strategy_name", "unknown"),
+                "mfe_usd": getattr(t, "mfe_usd", 0.0),
+                "mae_usd": getattr(t, "mae_usd", 0.0),
             })
 
         return {
@@ -1062,6 +1037,8 @@ def _merge_and_print_parallel_results(
                 pnl=t["pnl"],
                 exit_reason=t["exit_reason"],
                 strategy_name=t.get("strategy_name", "unknown"),
+                mfe_usd=t.get("mfe_usd", 0.0),
+                mae_usd=t.get("mae_usd", 0.0),
             ))
 
     # Sort trades by entry time

@@ -469,6 +469,11 @@ def _preflight_broker_check(settings) -> None:
     for valid API keys. If none are configured, prints a clear error message
     and exits with code 2.
     """
+    # [RULE] If live-trading is disabled, skip preflight API validation.
+    if not getattr(settings.runtime, "execute_trades", False):
+        logger.info("[PREFLIGHT] Live trading disabled: skipping broker credential validation.")
+        return
+
     configured_brokers = []
     
     # OANDA — needs api_key + account_id
@@ -680,9 +685,9 @@ def _resolve_active_symbols(
                 and abs(pos.get("size", 0)) > 0
             ]
 
-    # Market hours filter (skip for paper Sabbath and replay mode)
+    # Market hours filter (skip for paper trading and replay mode)
     _is_replay = hasattr(provider, 'replay_date') and provider.replay_date is not None
-    if not ((sabbath_active and executor == executor_paper) or _is_replay):
+    if not (executor == executor_paper or _is_replay):
         symbols_with_positions = set()
         if executor:
             for sym in active_symbols:
@@ -996,6 +1001,25 @@ def run_bot(
     # per symbol and broadcast from cache.
     _candle_cache: dict = {}  # key: (symbol, tf) → Candle
 
+    # Dedicated OANDA provider for chart tick fetches (forex).
+    # The main OANDA provider MUST NOT be shared across threads.
+    _forex_chart_provider = None
+    try:
+        from tradebot_sci.market.oanda_provider import OandaMarketDataProvider
+        # Use Oanda for charts even if Live Trading is disabled (Paper mode needs real data)
+        # We check settings.oanda and fallback to env via factory if needed
+        oanda_id = getattr(settings.oanda, "account_id", os.getenv("OANDA_ACCOUNT_ID", ""))
+        oanda_key = getattr(settings.oanda, "api_key", os.getenv("OANDA_API_KEY", ""))
+        oanda_env = getattr(settings.oanda, "environment", "practice")
+        
+        if oanda_key:
+            _forex_chart_provider = OandaMarketDataProvider(oanda_id, oanda_key, oanda_env)
+            logger.info("[WS] Created dedicated OANDA chart provider for forex ticks")
+        else:
+            logger.info("[WS] Dedicated OANDA chart provider skipped (No API key)")
+    except Exception as e:
+        logger.warning(f"[WS] Dedicated OANDA chart provider failed: {e}")
+
     # Dedicated CCXT provider for chart history fetches.
     # Uses PUBLIC Kraken (no API key needed) — supports all standard timeframes
     # including 4h, which Gemini lacks. The main trading loop's provider
@@ -1012,26 +1036,17 @@ def run_bot(
         for m in _chart_exchange.markets:
             base_quote = m.replace("/", "")
             _kraken_symbol_map[base_quote] = m
-        _chart_provider = CCXTMarketDataProvider(_chart_exchange, _kraken_symbol_map)
-        logger.info("[WS] Created dedicated chart provider (public Kraken — supports 4h)")
+            
+        # [RESILIENCE] Use Oanda as a fallback for chart fetches too
+        _chart_provider = CCXTMarketDataProvider(
+            _chart_exchange, 
+            _kraken_symbol_map, 
+            fallback_provider=_forex_chart_provider
+        )
+        logger.info("[WS] Created dedicated chart provider (public Kraken — supports 4h) with Oanda fallback")
     except Exception as e:
         logger.warning(f"[WS] Dedicated chart provider failed, falling back to shared: {e}")
         _chart_provider = provider
-
-    # Dedicated OANDA provider for chart tick fetches (forex).
-    # The main OANDA provider MUST NOT be shared across threads.
-    _forex_chart_provider = None
-    try:
-        from tradebot_sci.market.oanda_provider import OandaMarketDataProvider
-        if settings.oanda and settings.oanda.account_id and settings.oanda.api_key:
-            oanda_id = settings.oanda.account_id
-            oanda_key = settings.oanda.api_key
-            oanda_env = settings.oanda.environment or "practice"
-            _forex_chart_provider = OandaMarketDataProvider(oanda_id, oanda_key, oanda_env)
-            logger.info("[WS] Created dedicated OANDA chart provider for forex ticks")
-        else:
-            logger.info("[WS] Skipping dedicated OANDA chart provider: missing credentials in settings.oanda")
-    except Exception as e:
         logger.warning(f"[WS] Dedicated OANDA chart provider failed: {e}")
 
     def on_subscribe(symbol, tf, since=None):
@@ -1255,6 +1270,14 @@ def run_bot(
                         _global.get("ai_seasoned_trader_enabled", "false"))))
                     ).lower() == "true"
                 )
+
+                # [RULE] Autopilot must NOT poll live data if Live Trading is disabled.
+                if not execute_trades:
+                    if seasoned_daemon and seasoned_daemon.running:
+                        seasoned_daemon.stop()
+                        logger.info("[AUTOPILOT] Seasoned Trader Daemon STOPPED (Live Trading disabled).")
+                        seasoned_daemon = None
+                    return
 
                 if enabled:
                     autopilot_cfg = {
@@ -1532,57 +1555,82 @@ def run_bot(
                 time.sleep(1.0 if poll_interval <= 0 else poll_interval)
                 continue
 
-            # Evaluate Schedule & Sabbath Status FIRST (every loop tick)
-            # This ensures we enter Sabbath mode immediately and swap executors
-            # before ANY account summary or heartbeat calls reach external brokers.
+            # ── 1. Base Schedule & Sabbath Evaluation ──
             now = datetime.now(ZoneInfo("UTC"))
-            
-            is_scheduled, paper_trade_off_hours = get_schedule_status(profile_name, now, settings)
-            
-            # [FIX] Overrule schedule if Replay Mode is active, because Replay Engine 
-            # exclusively plays back active historical market days. We must not let 
-            # the real-world Saturday clock drop our symbol universe.
+            is_scheduled, paper_trade_off_hours, sessions = get_schedule_status(profile_name, now, settings)
+            sabbath_active, _, _ = sabbath_context.evaluate(now)
+            force_paper_broker = False
+
+            # ── 2. Determine Execution State ──
+            if not execute_trades:
+                # [RULE 1] Live Trading DISABLED (Paper Mode)
+                # Ignore the scheduler entirely; run if Paper Simulator is Enabled.
+                is_scheduled = paper_sim_enabled
+                # In paper-sim mode, we MUST use a safe market provider (Replay or NoOp).
+                # Live exchange APIs are hard-blocked by the factory.
+            else:
+                # [RULE 2] Live Trading ENABLED
+                # (a) If no schedules exist for the profile, default to 24/7 Live.
+                if not sessions:
+                    is_scheduled = True
+                # (b) If off-hours, activate paper trading only if 'Paper Off-Hours' is enabled on the card.
+                elif not is_scheduled and paper_trade_off_hours:
+                    force_paper_broker = True
+
+            # ── 3. Sabbath Master Override ──
+            # Sabbath overrides everything, including the rules above.
+            if sabbath_active:
+                is_scheduled = False
+                # Paper trading only runs during Sabbath if 'Sabbath Replay' is enabled.
+                force_paper_broker = sabbath_replay_mode
+                if not force_paper_broker:
+                    # Explicitly silence any activity if Sabbath is active and Replay is disabled.
+                    is_scheduled = False
+                    logger.debug("[SABBATH] Entry suppressed (Replay mode disabled)")
+
+            # ── 4. Replay Technical Override ──
+            # Replay mode must always be 'scheduled' to process historical data.
             if replay_provider is not None:
                 is_scheduled = True
-                
-            sabbath_active, _, _ = sabbath_context.evaluate(now)
+
             true_sabbath_active = sabbath_active
 
-            # ── Health Monitor: Record heartbeat at cycle start ──
-            controller.health_monitor.record_heartbeat()
-            controller.health_monitor.set_market_hours(not sabbath_active)
-
-            # If not scheduled but off-hours paper trading is allowed, force swap to paper broker
-            force_paper_broker = False
-            if not is_scheduled and paper_trade_off_hours:
-                force_paper_broker = True
-
-            if (sabbath_active or force_paper_broker) and not executor_paper:
-                logger.info("[PAPER] Initializing Paper Broker dynamically for Sabbath/Off-Hours.")
-                paper_trade_results = TradeResultStore(str(_paths.DATA_DIR / "paper_trade_results.json"))
-                executor_paper = PaperBroker(
-                    profile_settings,
-                    market_provider=provider,
-                    trade_results=paper_trade_results
-                )
-                if not paper_ledger:
-                    paper_ledger = LedgerDaemon(
-                        log_path=_ledger_log_path,
-                        ledger_path=str(_paths.DATA_DIR / "paper_ledger.json"),
-                        interval=60,
-                        lat=getattr(profile_settings, "sabbath_lat", 33.764),
-                        lon=getattr(profile_settings, "sabbath_lon", -84.386),
-                        tz_name=getattr(profile_settings, "sabbath_timezone", "America/New_York"),
-                        default_strategy=getattr(profile_settings, "strategy_variant", ""),
+            # ── 5. Master Executor Selection ──
+            # Fail-safe: Ensure the correct broker is active based on the rules evaluated above.
+            # If live-trading is disabled, we MUST swap to paper broker.
+            if not execute_trades or force_paper_broker or sabbath_active:
+                if not executor_paper:
+                    logger.info("[PAPER] 🛠️  Fail-safe: Initializing Paper Broker dynamically for simulation.")
+                    paper_trade_results = TradeResultStore(str(_paths.DATA_DIR / "paper_trade_results.json"))
+                    executor_paper = PaperBroker(
+                        profile_settings,
+                        market_provider=provider,
+                        trade_results=paper_trade_results
                     )
-                    paper_ledger._paper_mode = True
-                    paper_ledger.start()
-                    if hasattr(controller, 'paper_ledger'):
-                        controller.paper_ledger = paper_ledger
+                    # Start paper ledger if missing
+                    if not paper_ledger:
+                        paper_ledger = LedgerDaemon(
+                            log_path=_ledger_log_path,
+                            ledger_path=str(_paths.DATA_DIR / "paper_ledger.json"),
+                            interval=60,
+                            lat=getattr(profile_settings, "sabbath_lat", 33.764),
+                            lon=getattr(profile_settings, "sabbath_lon", -84.386),
+                            tz_name=getattr(profile_settings, "sabbath_timezone", "America/New_York"),
+                            default_strategy=getattr(profile_settings, "strategy_variant", ""),
+                        )
+                        paper_ledger._paper_mode = True
+                        paper_ledger.start()
+                        if hasattr(controller, 'paper_ledger'):
+                            controller.paper_ledger = paper_ledger
 
-            if (sabbath_active or force_paper_broker) and executor_paper and executor != executor_paper:
-                logger.info("[PAPER] Sabbath/Off-Hours active! Swapping to local Paper Trading for total silence.")
-                executor = executor_paper
+                if executor != executor_paper:
+                    logger.info("[PAPER] 🛡️  Fail-safe: Forcing Paper Broker activation for total isolation.")
+                    executor = executor_paper
+            elif executor_real and executor != executor_real:
+                # Only restore real broker if we are NOT in Sabbath and NOT forcing paper AND execute_trades is True
+                if not sabbath_active and not force_paper_broker and execute_trades:
+                    logger.info("[LIVE] 🚀  Fail-safe: Restoring Real Broker connection.")
+                    executor = executor_real
 
             # Activate replay mode for paper trading based on UI configuration.
             _want_replay = False
@@ -1846,7 +1894,7 @@ def run_bot(
                     replay_provider.advance()
 
                 active_symbols, auto_mode, last_auto_mode = _resolve_active_symbols(
-                    symbols=symbols if is_scheduled else [],
+                    symbols=symbols if (is_scheduled or force_paper_broker) else [],
                     engines=engines,
                     executor=executor,
                     executor_paper=executor_paper,
@@ -2172,6 +2220,33 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
     execute_trades = settings.runtime.execute_trades
     _confirm_trading_universe(symbols, profile_name, execute_trades, settings)
 
+    # ── Paper Trading & Sabbath Settings (Shared with run_bot) ──
+    paper_sim_enabled = True
+    paper_replay_mode = False
+    paper_synthetic_mode = False
+    sabbath_replay_mode = True
+    
+    config_path = _paths.CONFIG_FILE
+    last_config_mtime = config_path.stat().st_mtime if config_path.exists() else 0
+
+    def _update_paper_settings():
+        nonlocal paper_sim_enabled, paper_replay_mode, paper_synthetic_mode, sabbath_replay_mode
+        import json
+        try:
+            if config_path.exists():
+                with open(config_path, "r") as f:
+                    _raw = json.load(f)
+                    _p = _raw.get("paper", {})
+                    _s = _raw.get("safety", {})
+                    paper_sim_enabled = _p.get("enabled", True)
+                    paper_replay_mode = _p.get("replay_mode", False)
+                    paper_synthetic_mode = _p.get("synthetic_mode", False)
+                    sabbath_replay_mode = _s.get("sabbath_replay_mode", True)
+        except Exception as e:
+            logger.debug(f"[PAPER] Failed to update paper settings: {e}")
+
+    _update_paper_settings()
+
     controller = RuntimeController(settings, profile_settings)
     
     # Bridge logs to WS
@@ -2181,8 +2256,30 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
 
     controller.start_ws_server()
 
+    # [SILENCE] If live trading is disabled, neutralize the dedicated OANDA chart provider
+    # that typically runs alongside the WS server for candlestick streaming.
+    if not execute_trades:
+        logger.info("[SILENCE] Live trading disabled: silencing OANDA background chart provider.")
+        # OANDA credentials from env (checked by factory)
+    
     shared_ib = _maybe_connect_primary_ib(settings, execute_trades)
-    provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib)
+    
+    # [RULE] If live trading is disabled, we MUST use a safe market provider.
+    # If paper simulation is enabled, we use ReplayMarketProvider (accelerated).
+    # Otherwise, we use NoOp to ensure zero API interaction.
+    if not execute_trades:
+        # Check profile-level paper simulator setting
+        is_paper_sim = getattr(profile_settings, "paper_simulator_enabled", True)
+        if is_paper_sim:
+             _replay_data_dir = os.path.join(os.getcwd(), "Data", "forex_backtest")
+             logger.info(f"[PAPER] Initializing ReplayMarketProvider for paper simulation (Safe Mode).")
+             provider = ReplayMarketProvider(data_dir=_replay_data_dir, symbols=symbols)
+        else:
+             logger.info("[SILENCE] Paper simulation disabled: using NoOpMarketDataProvider.")
+             provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib) # returns NoOp due to factory
+    else:
+        provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib)
+
     ai_client = TradeSciAIClient(settings.ai)
     profile = BaseProfile(
         name=profile_name,
@@ -2302,10 +2399,30 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                 time.sleep(poll_interval)
                 continue
 
+            # Hot-reload check for paper settings
+            if config_path.exists():
+                mtime = config_path.stat().st_mtime
+                if mtime > last_config_mtime:
+                    _update_paper_settings()
+                    last_config_mtime = mtime
+
             now = datetime.now(tz)
+            sabbath_active, _, _ = sabbath_context.evaluate(now)
+            execute_trades = getattr(settings.runtime, "execute_trades", False)
+
             session = get_current_session(now, settings.schedule.sessions, tz)
+            
+            # [RULE] If live trading is disabled, ignore the scheduler and run if paper simulation is enabled.
+            # [RULE] If Sabbath is active, ignore the scheduler and run if Sabbath Replay is enabled.
+            if not session:
+                if not execute_trades and paper_sim_enabled:
+                    session = {"name": "paper_sim", "end": now + timedelta(hours=1)}
+                elif sabbath_active and sabbath_replay_mode:
+                    session = {"name": "sabbath_replay", "end": now + timedelta(hours=1)}
+
             if session:
                 current_session_name = session["name"]
+            
             if not session:
                 next_start, next_session = get_next_session_start(now, settings.schedule.sessions, tz)
                 if not next_start or not next_session:
@@ -2349,62 +2466,67 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                 # Evaluate Sabbath Status FIRST
                 sabbath_active, _, _ = sabbath_context.evaluate(loop_now)
 
+                # ── [MASTER FAIL-SAFE] ──
+                # Hard-coded gating to ensure Paper Broker is exclusive when live trading is disabled or Sabbath is active.
+                execute_trades = getattr(settings.runtime, "execute_trades", True)
+                if not execute_trades or sabbath_active:
+                    if not executor_paper:
+                        logger.info("[PAPER] Initializing Paper Broker dynamically for scheduled simulation.")
+                        local_paper_results = TradeResultStore(str(_paths.DATA_DIR / "paper_trade_results.json"))
+                        executor_paper = PaperBroker(
+                            profile_settings,
+                            market_provider=provider,
+                            trade_results=local_paper_results
+                        )
+                    if executor != executor_paper:
+                        logger.info("[PAPER] 🛡️  Fail-safe: Forcing Paper Broker activation for scheduled isolation.")
+                        executor = executor_paper
+                elif executor_real and executor != executor_real:
+                    # Only restore real broker if we are NOT in Sabbath AND execute_trades is True
+                    if not sabbath_active and execute_trades:
+                        logger.info("[LIVE] 🚀  Fail-safe: Restoring Real Broker connection for scheduled session.")
+                        executor = executor_real
+
                 # ── Health Monitor: Record heartbeat at cycle start ──
                 controller.health_monitor.record_heartbeat()
                 controller.health_monitor.set_market_hours(not sabbath_active)
-                
-                if sabbath_active and not executor_paper:
-                    logger.info("[PAPER] Initializing Paper Broker dynamically for Sabbath mode.")
-                    # Use existing paper_trade_results initialized near top of run_scheduled_bot
-                    # wait, let me check if paper_trade_results was created! I will just use a generic TradeResultStore creation
-                    local_paper_results = TradeResultStore(str(_paths.DATA_DIR / "paper_trade_results.json"))
-                    executor_paper = PaperBroker(
-                        profile_settings,
-                        market_provider=provider,
-                        trade_results=local_paper_results
-                    )
 
-                # Sabbath Paper Trading Swap
-                if sabbath_active and executor_paper and executor != executor_paper:
-                    logger.info("[SABBATH] Sabbath active! Swapping to local Paper Trading Mode.")
-                    executor = executor_paper
-                    # Activate weekend replay mode
-                    if _replay_data_dir.is_dir() and replay_provider is None:
-                        try:
-                            replay_provider = ReplayMarketProvider(
-                                data_dir=_replay_data_dir,
-                                symbols=symbols,
-                            )
+                # Replay/Synthetic mode for scheduled sessions (Sabbath or Simulation)
+                _want_replay = False
+                if executor == executor_paper and (paper_sim_enabled or (sabbath_active and sabbath_replay_mode)):
+                    _want_replay = True
+
+                if _want_replay and executor == executor_paper:
+                    if replay_provider is None:
+                        if paper_synthetic_mode:
+                            from tradebot_sci.market.synthetic_provider import SyntheticMarketProvider
+                            replay_provider = SyntheticMarketProvider(symbols=symbols)
+                            logger.info("[REPLAY] Synthetic mode activated for scheduled session.")
+                        elif _replay_data_dir.is_dir():
+                            try:
+                                replay_provider = ReplayMarketProvider(data_dir=_replay_data_dir, symbols=symbols)
+                                logger.info("[REPLAY] Replay provider activated for scheduled session.")
+                            except Exception as e:
+                                logger.warning("[REPLAY] Failed to create replay provider: %s", e)
+                        
+                        if replay_provider:
                             provider = replay_provider
                             executor_paper.market_provider = provider
                             controller.replay_provider = replay_provider
-                            
                             for eng in engines.values():
                                 eng.trade_results = paper_trade_results
                                 eng.market_provider = provider
-                                
-                            logger.info("[REPLAY] Weekend replay provider activated & Analytics Isolated")
-                        except Exception as e:
-                            logger.warning("[REPLAY] Failed to create replay provider: %s", e)
-                elif not sabbath_active and executor_paper and executor == executor_paper:
-                    if execute_trades and executor_real:
-                        logger.info("[SABBATH] Sabbath ended. Restoring real Exchange Broker.")
-                        executor = executor_real
-                    elif not execute_trades:
-                        logger.debug("[SABBATH] Sabbath ended, but Live Trading is off — staying on Paper Broker.")
-                    # Restore real provider
-                    if replay_provider is not None:
-                        provider = provider_real
-                        if executor_paper:
-                            executor_paper.market_provider = provider_real
-                        controller.replay_provider = None
-                        replay_provider = None
-                        
-                        for eng in engines.values():
-                            eng.trade_results = trade_results
-                            eng.market_provider = provider_real
-                            
-                        logger.info("[REPLAY] Replay provider deactivated, LIVE provider and Analytics restored")
+                elif not _want_replay and replay_provider is not None:
+                    # Restore live data stream
+                    provider = provider_real
+                    if executor_paper:
+                        executor_paper.market_provider = provider_real
+                    controller.replay_provider = None
+                    replay_provider = None
+                    for eng in engines.values():
+                        eng.trade_results = trade_results if executor != executor_paper else paper_trade_results
+                        eng.market_provider = provider_real
+                    logger.info("[REPLAY] Replay provider deactivated, scheduled session restored to live data stream")
 
                 if executor:
                     executor.refresh_account_summary()

@@ -32,6 +32,7 @@ class ExecutionOutcomeType(Enum):
     BLOCKED_SYMBOL_NOT_ALLOWED = "blocked_symbol_not_allowed"
     SKIPPED = "skipped"
     ERROR = "error"
+    FAILED_OTHER = "failed_other"
 
 
 @dataclass

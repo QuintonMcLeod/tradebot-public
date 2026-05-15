@@ -252,9 +252,10 @@ class CCXTMarketDataProvider:
     Advanced Trade V3 and Nano Futures.
     """
 
-    def __init__(self, exchange: ccxt.Exchange, symbol_map: dict[str, str] | None = None):
+    def __init__(self, exchange: ccxt.Exchange, symbol_map: dict[str, str] | None = None, fallback_provider: MarketDataProvider | None = None):
         self._exchange = exchange
         self._symbol_map = symbol_map or {}
+        self.fallback_provider = fallback_provider
 
     def _normalize_ccxt_symbol(self, symbol: str) -> str:
         """Normalizes symbol for CCXT (e.g. XAUUSD -> XAU/USD) using map and heuristics."""
@@ -309,7 +310,10 @@ class CCXTMarketDataProvider:
         try:
             ohlcv = self._exchange.fetch_ohlcv(sym, tf, limit=limit)
         except Exception as e:
-            logger.warning(f"[CCXT-DATA] Snapshot fetch failed for {symbol} ({sym}): {e}")
+            logger.warning(f"[RESILIENCE] Kraken/CCXT fetch failed for {symbol} on {self._exchange.id}: {e}")
+            if self.fallback_provider:
+                logger.info(f"[RESILIENCE] Engaged fallback provider ({type(self.fallback_provider).__name__}) for {symbol}")
+                return self.fallback_provider.get_latest_candles(symbol, timeframe, limit)
             return []
 
         candles: List[Candle] = []
@@ -367,7 +371,14 @@ class CCXTMarketDataProvider:
                 volume_24h_quote_usd=float(data["quoteVolume"]) if data.get("quoteVolume") is not None else None,
             )
         except Exception as e:
-            logger.warning(f"[CCXT-DATA] Ticker fetch failed for {symbol}: {e}")
+            logger.warning(f"[CCXT-DATA] Ticker fetch failed for {symbol} on {self._exchange.id}: {e}")
+            
+            # 1. Try Fallback Provider first
+            if self.fallback_provider:
+                logger.info(f"[CCXT-DATA] Falling back to {type(self.fallback_provider).__name__} ticker for {symbol}")
+                return self.fallback_provider.get_ticker(symbol)
+
+            # 2. Try OHLCV fallback as last resort
             try:
                 ohlcv = self._exchange.fetch_ohlcv(sym, "1m", limit=1)
                 if not ohlcv or len(ohlcv) == 0:

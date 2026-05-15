@@ -12,7 +12,12 @@ logger = logging.getLogger(__name__)
 
 class VolatilityBreakoutStrategy(BaseStrategy):
     """
-    High-frequency breakout strategy.
+    Volatility Breakout Strategy (Asian Session focus).
+    
+    SESSION_PROFILE: asian_open
+    """
+    SESSION_PROFILE = ["volatility_breakout:london_sweep", "volatility_breakout:us_open", "volatility_breakout:asian_open"]
+    """
     Captures explosive moves when price breaks the recent range with high ATR/RSI momentum.
     """
     

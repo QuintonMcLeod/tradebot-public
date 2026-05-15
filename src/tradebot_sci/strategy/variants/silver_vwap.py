@@ -19,6 +19,7 @@ class SilverVwapStrategy(BaseStrategy):
     Uses the 15M Opening Range and Anchored VWAP as trend filters.
     Executes on VWAP pullbacks within the direction of the trend.
     """
+    SESSION_PROFILE = "silver_vwap:us_open"
     ASSET_TAG = "futures"
 
     def __init__(self, **kwargs):
@@ -47,8 +48,16 @@ class SilverVwapStrategy(BaseStrategy):
         or_high = 0.0
         or_low = float('inf')
         
-        # Since we might be given 1m candles, iterate backwards to find the current session's OR
-        now_est = datetime.now(self.est_tz)
+        # Use the latest candle's timestamp for "current" time (supports backtesting/simulation)
+        now_ts = snapshot.candles[-1].timestamp
+        if isinstance(now_ts, str):
+            now_dt = datetime.fromisoformat(now_ts.replace("Z", "+00:00"))
+        elif isinstance(now_ts, datetime):
+            now_dt = now_ts
+        else:
+            now_dt = datetime.fromtimestamp(now_ts, tz=ZoneInfo('UTC'))
+            
+        now_est = now_dt.astimezone(self.est_tz)
         today_date = now_est.date()
         
         for idx in range(len(snapshot.candles)-1, -1, -1):
@@ -120,8 +129,16 @@ class SilverVwapStrategy(BaseStrategy):
         **kwargs
     ) -> Optional[AITradeDecision]:
         
-        # 1. Reset daily limits on a new day
-        now_est = datetime.now(self.est_tz)
+        # 1. Reset daily limits on a new day (using snapshot time)
+        now_ts = snapshot.candles[-1].timestamp
+        if isinstance(now_ts, str):
+            now_dt = datetime.fromisoformat(now_ts.replace("Z", "+00:00"))
+        elif isinstance(now_ts, datetime):
+            now_dt = now_ts
+        else:
+            now_dt = datetime.fromtimestamp(now_ts, tz=ZoneInfo('UTC'))
+            
+        now_est = now_dt.astimezone(self.est_tz)
         current_date = now_est.date()
         if self.last_trade_date != current_date:
             self.last_trade_date = current_date

@@ -603,7 +603,20 @@ class OandaExchangeBroker(IExchangeBroker):
                         exit_reason=exit_reason,
                         side=side.lower(),
                         spread_cost=est_spread_cost,
+                        mfe_usd=getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0,
+                        mae_usd=getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0,
                     ))
+
+                pnl_sign = '+' if pnl_val >= 0 else '-'
+                pnl_str = f"{pnl_sign}${abs(pnl_val):.2f}"
+                _mfe = getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0
+                _mae = getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0
+                logger.info(
+                    f"[EXIT] OANDA Manual/Signal: {symbol} {pnl_str} "
+                    f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
+                    f"Duration={duration_secs:.0f}s | "
+                    f"MFE=${_mfe:.2f} MAE=${_mae:.2f}"
+                )
 
                 logger.info(f"[OANDA] Flattened {symbol}. Response: {resp}")
                 # Remove from tracked so synthetic stop scanner doesn't double-fire
@@ -1442,12 +1455,45 @@ class OandaExchangeBroker(IExchangeBroker):
 
                     pnl_sign = '+' if pnl >= 0 else '-'
                     pnl_str = f"{pnl_sign}${abs(pnl):.2f}"
+                    # Add to TradeResultStore
+                    if self.trade_results:
+                        _hold_rec = self.position_hold_store.get(sym) if self.position_hold_store else None
+                        _exit_strategy = _hold_rec.strategy if _hold_rec else "unknown"
+                        
+                        self.trade_results.add_result(TradeResult(
+                            symbol=sym,
+                            closed_at=datetime.now(timezone.utc).isoformat(),
+                            pnl_pct=pnl_pct,
+                            pnl_usd=pnl,
+                            is_win=pnl > 0,
+                            tier="100%",
+                            capital_at_close=self._liquid_capital,
+                            opened_at=entry_time_str,
+                            duration_seconds=duration_secs,
+                            strategy=_exit_strategy,
+                            exit_reason="OANDA SL/TP",
+                            side=side.lower(),
+                            spread_cost=est_spread,
+                            mfe_usd=getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0,
+                            mae_usd=getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0,
+                        ))
+                    
+                    _mfe = getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0
+                    _mae = getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0
                     logger.info(
                         f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
                         f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
-                        f"Duration={duration_str} | "
-                        f"Est. Spread Cost: ${est_spread:.4f}"
+                        f"Duration={duration_secs:.0f}s | "
+                        f"MFE=${_mfe:.2f} MAE=${_mae:.2f}"
                     )
+                    
+                    # Record exit for re-entry cooldown
+                    if self.position_hold_store:
+                        self.position_hold_store.record_exit_with_result(sym, is_win=pnl > 0, strategy=_exit_strategy)
+                        self.position_hold_store.remove(sym)
+                    
+                    del self._tracked_positions[sym]
+                    self._save_tracked_positions()
                     # Record exit for re-entry cooldown (losses only — wins can re-enter immediately)
                     if pnl <= 0:
                         self._exit_cooldowns[sym] = time.time()

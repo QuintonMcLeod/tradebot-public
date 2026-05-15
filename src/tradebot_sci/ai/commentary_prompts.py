@@ -60,8 +60,8 @@ Structure your response EXACTLY as follows. Cover EVERY section. Be specific wit
 📂 **Open Positions** — What we're holding, entry prices, current P&L per position, how long held (list each one)
 📊 **Last Scan Results** — What the bot just looked at, how many symbols qualified, who won/lost the tournament and why
 📈 **Market Read** — Current regime (trending/ranging), session context (London/NY/Asia), what the charts are saying (2-3 sentences)
-📜 **Recent Trade History** — Last few closed trades: wins, losses, strategy used, exit reason (be specific)
-📉 **Performance Stats** — Win rate, total P&L for today/this week, best and worst performers
+📜 **Recent Trade History** — Last few closed trades: wins, losses, strategy used, exit reason (be specific). Mention MFE (peak profit) and MAE (drawdown) if they show we left money on the table or took too much heat.
+📉 **Performance Stats** — Win rate, total PnL for today/this week, best and worst performers. Discuss MFE/MAE trends and whether we should tighten stops or targets.
 🎯 **What I'm Watching** — 3-4 bullet points: key levels, upcoming catalysts, what could change the picture
 🔮 **Predictions** — Where I think things are headed today, tomorrow, this week based on the data (be bold, have an opinion)
 ⚠️ **Alerts & Issues** — Safety guard status, breakers active, any errors or warnings (only if relevant)

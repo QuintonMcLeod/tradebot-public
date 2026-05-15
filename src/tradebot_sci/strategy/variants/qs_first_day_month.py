@@ -16,6 +16,8 @@ class QS_FirstDayOfMonthStrategy(BaseStrategy):
     frequently registers anomalous positive returns due to capital inflows.
     Rules: Buy near the close of the last trading day of the month; sell near the close of the first day.
     """
+    SESSION_PROFILE = "first_day_month"
+
     def __init__(self, **kwargs):
         super().__init__("QS First Day of Month Seasonality")
 
@@ -23,7 +25,14 @@ class QS_FirstDayOfMonthStrategy(BaseStrategy):
         if not snapshot.candles:
             return None
         
-        current_time = snapshot.candles[-1].timestamp
+        # Use robust timestamp parsing to ensure current_time is a datetime object
+        raw_ts = snapshot.candles[-1].timestamp
+        if isinstance(raw_ts, str):
+            current_time = datetime.datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+        elif isinstance(raw_ts, (int, float)):
+            current_time = datetime.datetime.fromtimestamp(raw_ts, tz=datetime.timezone.utc)
+        else:
+            current_time = raw_ts
         
         # NOTE: Calendar-based timing (end-of-month entries) is inherently date-specific.
         # This strategy only triggers on month-end/month-start dates regardless of session timing.
@@ -57,7 +66,14 @@ class QS_FirstDayOfMonthStrategy(BaseStrategy):
         if not snapshot.candles:
             return None
             
-        current_time = snapshot.candles[-1].timestamp
+        # Use robust timestamp parsing to ensure current_time is a datetime object
+        raw_ts = snapshot.candles[-1].timestamp
+        if isinstance(raw_ts, str):
+            current_time = datetime.datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+        elif isinstance(raw_ts, (int, float)):
+            current_time = datetime.datetime.fromtimestamp(raw_ts, tz=datetime.timezone.utc)
+        else:
+            current_time = raw_ts
         
         # Determine if we are on the first trading day of the new month
         # In Crypto, day 1 is the 1st. In Forex, day 1 might be the 1st through 3rd.

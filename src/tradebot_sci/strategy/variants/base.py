@@ -6,6 +6,8 @@ from tradebot_sci.strategy.decisions import AITradeDecision
 class BaseStrategy:
     """Interface for all bot strategy variants."""
     
+    SESSION_PROFILE: str | None = None # e.g. "london_open", "us_open"
+    
     def __init__(self, name: str):
         self.name = name
         self.profile_risk_pct: float | None = None  # Set by Meta-SCI or engine

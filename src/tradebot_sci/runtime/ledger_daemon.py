@@ -41,6 +41,8 @@ RE_EXIT = re.compile(
     r"(?:\s+\(Pct=(?P<pct>[+-]?[\d.]+)%\))?"
     r"(?:.*?Duration=(?P<duration>[^|]+))?"
     r"(?:.*?Est\.\s*Spread\s*Cost:\s*\$(?P<spread>[\d.]+))?"
+    r"(?:.*?MFE=\$(?P<mfe>[+-]?[\d.]+))?"
+    r"(?:.*?MAE=\$(?P<mae>[+-]?[\d.]+))?"
 )
 
 # [OANDA] Account Summary: Balance=26.6995, NAV=26.0552
@@ -466,6 +468,8 @@ class LedgerDaemon:
                         "strategy": strat,
                         "spread": round(spread, 4),
                         "duration": (m.group("duration") or "").strip() if m.group("duration") else None,
+                        "mfe": float(m.group("mfe")) if m.group("mfe") else 0.0,
+                        "mae": float(m.group("mae")) if m.group("mae") else 0.0,
                     }
                     current["trade_log"].append(trade_entry)
                     if len(current["trade_log"]) > 200:

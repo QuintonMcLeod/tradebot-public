@@ -80,6 +80,22 @@ You can add multiple schedule blocks for different profiles. The bot evaluates t
 
 ---
 
+## Unified Strategy Scheduling (Auto-Sync)
+
+The Tradebot now supports a centralized, metadata-driven architecture for strategy execution. Strategies are no longer responsible for their own time-based filtering; instead, they declare their required operating windows via a `SESSION_PROFILE`.
+
+### How it Works:
+1. **Metadata Declaration**: Each strategy variant (e.g., `London Breakout`, `ORB Strategy`) defines a `SESSION_PROFILE` constant (e.g., `"london_open"`, `"us_open"`).
+2. **Auto-Link & Enable**: Upon startup, the **Global Scheduler** automatically scans all active strategies. If a strategy requires a specific session, that session is automatically added to the schedule and marked as `active: true`.
+3. **Engine-Level Gating**: The `StrategyEngine` manages the gates. If the current time is outside the required session window, the engine automatically blocks entry signals for that strategy while allowing exits and management to continue.
+
+### Key Benefits:
+- **Zero Configuration**: Users no longer need to manually set up schedule sessions for standard strategies. Enabling a strategy automatically enables its required time window.
+- **Unified Logic**: All time-based logic is centralized in `runtime/scheduling.py`, ensuring consistency across 37+ strategy variants.
+- **Safety**: Strategies are "dumb" about time; the engine is the "boss" that enforces the rules.
+
+---
+
 ## Goodbye, Auto-Schedule
 
 The legacy "Auto-Schedule" and "Session Gate" features have been formally deprecated in favor of the Global Scheduler. The new engine provides significantly more granular control without the fragile profile-switching logic of the past.

@@ -10,6 +10,7 @@ from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.broker.trade_result_store import TradeResult
 from tradebot_sci import paths as _paths
 from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
+from tradebot_sci.strategy.safety_guard import SafetyGuard
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,9 @@ class PaperBroker:
     TAKER_FEE_PCT_FOREX  = float(os.getenv("PAPER_FOREX_FEE_PCT", "0.00005")) # 0.005% (spread-only)
     HALF_SPREAD_PCT = float(os.getenv("PAPER_HALF_SPREAD_PCT", "0.0005"))  # 0.05%
     SLIPPAGE_PCT = float(os.getenv("PAPER_SLIPPAGE_PCT", "0.0002"))        # 0.02%
+
+    # [PHASE 1.1] Emergency Stop Timeout: 5 minutes max unprotected time
+    EMERGENCY_STOP_TIMEOUT_SEC = 300  
 
     def _get_taker_fee(self, symbol: str) -> float:
         """Return half of the round-trip fee for parity with backtester."""
@@ -43,6 +47,7 @@ class PaperBroker:
         self.positions = {} # symbol -> position_dict
         self.history = []
         self._exit_cooldowns = {}  # symbol -> timestamp of last exit
+        self._emergency_stop_timers = {}  # [NEW] symbol -> epoch_time
         self.REENTRY_COOLDOWN = float(os.getenv("PAPER_REENTRY_COOLDOWN", "300"))  # 5 min default
 
         # Load persisted state or fall back to initial balance
@@ -164,6 +169,44 @@ class PaperBroker:
         price = self._get_current_price(symbol)
         
         if action in {"enter_long", "enter_short"}:
+            # [NEW] Weekend filter: Mimic Forex hours (Friday 5PM EST to Sunday 5PM EST)
+            mp_class = getattr(self.market_provider, "__class__", None).__name__ if hasattr(self, "market_provider") else ""
+            is_replay = os.getenv("IS_REPLAY_MODE", "0") == "1" or mp_class == "ReplayMarketProvider"
+            is_synthetic = os.getenv("SYNTHETIC_FIRE", "0") == "1" or mp_class == "SyntheticMarketProvider"
+            if not is_replay and not is_synthetic:
+                try:
+                    import zoneinfo
+                    est_tz = zoneinfo.ZoneInfo("America/New_York")
+                    now_est = self._now().astimezone(est_tz)
+                    is_weekend_block = False
+                    if now_est.weekday() == 4 and now_est.hour >= 17:
+                        is_weekend_block = True
+                    elif now_est.weekday() == 5:
+                        is_weekend_block = True
+                    elif now_est.weekday() == 6 and now_est.hour < 17:
+                        is_weekend_block = True
+                        
+                    if is_weekend_block:
+                        logger.info(f"[PAPER] [WEEKEND BLOCK] Rejecting trade for {symbol}. Forex market is closed (5PM Friday - 5PM Sunday EST).")
+                        return (
+                            ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: Forex market closed"),
+                            ExecutionOutcome(ExecutionOutcomeType.REJECTED, symbol, "Paper: Forex market closed", price=0.0)
+                        )
+                except Exception as e:
+                    pass
+
+            # [NEW] Bankruptcy Check — block entries if equity is zero or negative
+            current_equity = self.get_total_equity()
+            if current_equity <= 0:
+                logger.error(
+                    f"[PAPER] [BANKRUPT] {symbol}: blocked {action}, "
+                    f"account equity is negative (${current_equity:.2f})"
+                )
+                return (
+                    ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: account bankrupt"),
+                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_INSUFFICIENT_EQUITY, symbol, "Paper: account bankrupt")
+                )
+
             # Skip if we already have a position in this symbol
             if symbol in self.positions:
                 return (
@@ -173,7 +216,8 @@ class PaperBroker:
 
             # Re-entry cooldown — prevent churning after SL/TP exits
             if symbol in self._exit_cooldowns:
-                elapsed = time.time() - self._exit_cooldowns[symbol]
+                now_ts = self._now().timestamp()
+                elapsed = now_ts - self._exit_cooldowns[symbol]
                 remaining = self.REENTRY_COOLDOWN - elapsed
                 if remaining > 0:
                     logger.info(
@@ -202,7 +246,7 @@ class PaperBroker:
                 sizing_capital = prop_tier * prop_loss
                 logger.info(f"[PAPER] [PROP FIRM SIZER] True Equity scaling active: ${sizing_capital:,.2f} ({prop_loss*100}% max loss of ${prop_tier:,.0f} nominal tier)")
             else:
-                sizing_capital = self._initial_balance
+                sizing_capital = self.get_total_equity()
                 
             risk_pct = getattr(decision, "risk_per_trade_pct", None) or getattr(self.profile, "risk_per_trade_pct", 0.01)
             
@@ -223,7 +267,7 @@ class PaperBroker:
             # paper trading.
             if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
                 risk_per_unit = abs(price - decision.stop_loss)
-                min_stop_distance = price * 0.0015  # 0.15% of entry (matches backtester)
+                min_stop_distance = price * 0.0010  # 0.10% of entry (~10 pips, harmonized with strategy)
                 if risk_per_unit < min_stop_distance:
                     target_r_cfg = float(getattr(self.profile, 'target_r', 2.5))
                     logger.warning(
@@ -251,6 +295,15 @@ class PaperBroker:
                 f"notional_before_cap=${qty * price:,.0f}"
             )
 
+            # [PHASE 2.3] Simulated Order Rejection (1% chance)
+            import random
+            if random.random() < 0.01:
+                logger.warning(f"[PAPER] [REJECTED] {symbol}: simulated broker rejection (1% chance)")
+                return (
+                    ExecutionResult(ExecutionStatus.FAILED, symbol, "Simulated broker rejection"),
+                    ExecutionOutcome(ExecutionOutcomeType.FAILED_OTHER, symbol, "Simulated broker rejection")
+                )
+
             # [FIX] Leverage-based sizing cap — capped at PAPER_MAX_LEVERAGE
             profile_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
             target_leverage = min(profile_leverage, self.PAPER_MAX_LEVERAGE)
@@ -277,11 +330,14 @@ class PaperBroker:
                 )
                 qty = max_qty
 
-            # Affordability guard: reject if notional exceeds leveraged sizing capital
+            # Affordability guard: reject if notional exceeds leveraged REAL balance
             notional = qty * price
-            if notional > sizing_capital * max(target_leverage, 1.0) * 1.01:
+            # We use the real balance (self.balance) for the permission check, 
+            # while sizing_capital is used only for calculation.
+            if notional > self.balance * max(target_leverage, 1.0) * 1.01:
                 logger.warning(
-                    f"[PAPER] [BLOCKED] {symbol}: notional ${notional:,.0f} exceeds balance ${self.balance:.2f}",
+                    f"[PAPER] [BLOCKED] {symbol}: notional ${notional:,.0f} exceeds "
+                    f"available leveraged balance ${self.balance * target_leverage:,.0f}",
                     extra={"broker": "paper", "symbol": symbol, "event": "blocked", "notional": notional, "balance": self.balance}
                 )
                 return (
@@ -324,7 +380,17 @@ class PaperBroker:
             self.balance -= fee_usd  # Deduct taker fee immediately
 
             stop_loss_val = getattr(decision, "stop_loss", None)
-            initial_risk_val = abs(fill_price - stop_loss_val) if stop_loss_val else None
+            take_profit_val = getattr(decision, "take_profit", None)
+
+            # [PHASE 2.1] Atomic Bracket Order Validation
+            if not stop_loss_val or not take_profit_val:
+                logger.error(f"[PAPER] [REJECTED] {symbol}: Missing SL({stop_loss_val}) or TP({take_profit_val}) for atomic order")
+                return (
+                    ExecutionResult(ExecutionStatus.FAILED, symbol, "Missing bracket parameters"),
+                    ExecutionOutcome(ExecutionOutcomeType.FAILED_OTHER, symbol, "Missing SL/TP")
+                )
+
+            initial_risk_val = abs(fill_price - stop_loss_val)
 
             self.positions[symbol] = {
                 "symbol": symbol,
@@ -344,14 +410,20 @@ class PaperBroker:
                 "take_profit": getattr(decision, "take_profit", None),
                 "entry_fee": fee_usd,
                 "strategy": getattr(decision, "strategy_name", None) or "unknown",
+                "mfe_usd": 0.0,
+                "mae_usd": 0.0,
             }
             logger.info(
                 f"[PAPER] [FILL] {symbol} {qty:.4f} @ {fill_price:.5f} "
                 f"(mid={price:.5f}, spread+slip={friction*100:.2f}%, fee=${fee_usd:.4f}, Risk=${risk_usd:.2f})",
                 extra={"broker": "paper", "symbol": symbol, "event": "order_filled",
                        "side": side, "qty": qty, "fill_price": fill_price,
-                       "fee_usd": fee_usd, "risk_usd": risk_usd}
+                        "fee_usd": fee_usd, "risk_usd": risk_usd}
             )
+
+            # [PHASE 1.1] Start emergency timeout timer on new position
+            self._emergency_stop_timers[symbol] = time.time()
+
             self._save_state()
             return (
                 ExecutionResult(ExecutionStatus.EXECUTED, symbol, f"Paper {action} executed"),
@@ -388,8 +460,15 @@ class PaperBroker:
                     exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
                     fee_usd = abs(pos["qty"] * exit_p) * (fee_pct / 2.0)
 
-                pnl_usd = (exit_p - entry_p) * pos["size"]
-                pnl_usd -= fee_usd
+                if pos_side == "long":
+                    pnl_gross = (exit_p - entry_p) * pos["size"]
+                else:
+                    pnl_gross = (entry_p - exit_p) * pos["size"]
+
+                pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_gross)
+                pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_gross)
+                
+                pnl_usd = pnl_gross - fee_usd
                 self.balance += pnl_usd
 
                 # Duration — use entry_time (sim_time domain) not opened_at (wall-clock)
@@ -403,9 +482,22 @@ class PaperBroker:
                 except Exception:
                     pass
 
+                pnl_sign = "+" if pnl_usd >= 0 else "-"
+                pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
+                pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if pos["size"] else 0.0
+                spread_cost = pos.get("entry_fee", 0.0) + fee_usd
+                mins = int(duration_secs // 60)
+                secs = int(duration_secs % 60)
+                duration_str = f"{mins}m {secs}s"
+                exit_reason = decision.notes or "paper_close"
+
                 logger.info(
-                    f"[PAPER] [EXIT] {symbol} @ {exit_p:.5f} | PNL: ${pnl_usd:.2f} "
-                    f"(fee=${fee_usd:.4f}) (Paper Mode)",
+                    f"[PAPER] [EXIT] Paper {exit_reason}: {symbol} {pnl_str} "
+                    f"(Pct={pnl_pct:.2f}%) position={pos_side.upper()} | "
+                    f"Entry={entry_p:.5f} Exit={exit_p:.5f} | "
+                    f"Duration={duration_str} | "
+                    f"Est. Spread Cost: ${spread_cost:.2f} | "
+                    f"MFE=${pos.get('mfe_usd', 0.0):.2f} MAE=${pos.get('mae_usd', 0.0):.2f}",
                     extra={"broker": "paper", "symbol": symbol, "event": "order_closed",
                            "exit_price": exit_p, "pnl_usd": pnl_usd, "fee_usd": fee_usd}
                 )
@@ -425,9 +517,13 @@ class PaperBroker:
                         strategy=pos.get("strategy", "unknown"),
                         exit_reason=decision.notes or "paper_close",
                         side=pos_side,
+                        spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
+                        mfe_usd=pos.get("mfe_usd", 0.0),
+                        mae_usd=pos.get("mae_usd", 0.0),
                     ))
 
-                self._exit_cooldowns[symbol] = time.time()
+                self._exit_cooldowns[symbol] = self._now().timestamp()
+                SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, sim_time=self._now())
                 self._save_state()
                 self.refresh_account_summary()
                 return (
@@ -477,8 +573,11 @@ class PaperBroker:
                     exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
                     fee_usd = close_qty * exit_p * (fee_pct / 2.0)
 
-                pnl_usd = (exit_p - entry_p) * (close_qty if pos_side == "long" else -close_qty)
-                pnl_usd -= fee_usd
+                pnl_gross = (exit_p - entry_p) * (close_qty if pos_side == "long" else -close_qty)
+                pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_gross)
+                pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_gross)
+                
+                pnl_usd = pnl_gross - fee_usd
                 self.balance += pnl_usd
 
                 # Duration — use entry_time (sim_time domain)
@@ -491,9 +590,22 @@ class PaperBroker:
                 except Exception:
                     pass
 
+                pnl_sign = "+" if pnl_usd >= 0 else "-"
+                pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
+                pnl_pct = (pnl_usd / (entry_p * close_qty)) * 100 if close_qty else 0.0
+                spread_cost = (pos.get("entry_fee", 0.0) * scale_frac) + fee_usd
+                mins = int(duration_secs // 60)
+                secs = int(duration_secs % 60)
+                duration_str = f"{mins}m {secs}s"
+                exit_reason = decision.notes or "paper_scale_out"
+
                 logger.info(
-                    f"[PAPER] [EXIT] {symbol} @ {exit_p:.5f} | PNL: ${pnl_usd:.2f} "
-                    f"(fee=${fee_usd:.4f}) (scale_out {scale_frac:.0%}, remain={remain_qty:.4f}) (Paper Mode)",
+                    f"[PAPER] [EXIT] Paper {exit_reason}: {symbol} {pnl_str} "
+                    f"(Pct={pnl_pct:.2f}%) position={pos_side.upper()} | "
+                    f"Entry={entry_p:.5f} Exit={exit_p:.5f} | "
+                    f"Duration={duration_str} | "
+                    f"Est. Spread Cost: ${spread_cost:.2f} | "
+                    f"MFE=${pos.get('mfe_usd', 0.0):.2f} MAE=${pos.get('mae_usd', 0.0):.2f}",
                     extra={"broker": "paper", "symbol": symbol, "event": "scale_out",
                            "exit_price": exit_p, "pnl_usd": pnl_usd, "fee_usd": fee_usd,
                            "scale_frac": scale_frac, "remain_qty": remain_qty}
@@ -515,6 +627,9 @@ class PaperBroker:
                         strategy=pos.get("strategy", "unknown"),
                         exit_reason=decision.notes or "paper_scale_out",
                         side=pos_side,
+                        spread_cost=(pos.get("entry_fee", 0.0) * scale_frac) + fee_usd,
+                        mfe_usd=pos.get("mfe_usd", 0.0),
+                        mae_usd=pos.get("mae_usd", 0.0),
                     ))
 
                 # Update or remove position
@@ -534,6 +649,15 @@ class PaperBroker:
         
         if action == "scale_in":
             if symbol in self.positions:
+                # [NEW] Bankruptcy Check for pyramiding
+                current_equity = self.get_total_equity()
+                if current_equity <= 0:
+                    logger.error(f"[PAPER] [BANKRUPT] {symbol}: blocked scale_in, account equity is negative (${current_equity:.2f})")
+                    return (
+                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: account bankrupt (pyramid)"),
+                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_INSUFFICIENT_EQUITY, symbol, "Paper: account bankrupt (pyramid)")
+                    )
+
                 pos = self.positions[symbol]
                 side = "buy" if pos["side"] == "long" else "sell"
                 
@@ -716,14 +840,20 @@ class PaperBroker:
 
             pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 and pos["size"] != 0 else 0.0
             pnl_sign = "+" if pnl_usd >= 0 else "-"
+            pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
             entry_fee = abs(pos.get("entry_fee", 0))
             spread_cost = entry_fee + fee_usd
+            mins = int(duration_secs // 60)
+            secs = int(duration_secs % 60)
+            duration_str = f"{mins}m {secs}s"
 
             logger.info(
-                f"[PAPER] [EXIT] Manual Cash-Out: {symbol} {pnl_sign}${abs(pnl_usd):.2f} "
+                f"[PAPER] [EXIT] Paper Manual Cash-Out: {symbol} {pnl_str} "
                 f"(Pct={pnl_pct:.2f}%) position={pos_side.upper()} | "
                 f"Entry={entry_p:.5f} Exit={exit_p:.5f} | "
-                f"Est. Spread Cost: ${spread_cost:.2f}"
+                f"Duration={duration_str} | "
+                f"Est. Spread Cost: ${spread_cost:.2f} | "
+                f"MFE=${pos.get('mfe_usd', 0.0):.2f} MAE=${pos.get('mae_usd', 0.0):.2f}"
             )
 
             # Record in trade results
@@ -741,6 +871,9 @@ class PaperBroker:
                     strategy=pos.get("strategy", "unknown"),
                     exit_reason="manual_cash_out",
                     side=pos_side,
+                    spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
+                    mfe_usd=pos.get("mfe_usd", 0.0),
+                    mae_usd=pos.get("mae_usd", 0.0),
                 ))
 
             self._exit_cooldowns[symbol] = time.time()
@@ -806,6 +939,9 @@ class PaperBroker:
                     strategy=pos.get("strategy", "unknown"),
                     exit_reason=reason,
                     side=side,
+                    spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
+                    mfe_usd=pos.get("mfe_usd", 0.0),
+                    mae_usd=pos.get("mae_usd", 0.0),
                 ))
 
         self._exit_cooldowns.clear()  # Reset cooldowns for new day
@@ -827,8 +963,13 @@ class PaperBroker:
         time_decay, etc. a chance to close at bar-close price before the hard
         stop fires and deletes the position.
         """
+        now_epoch = time.time()
         results = []
         for symbol in list(self.positions.keys()):
+            # [PHASE 1.1] Emergency Stop Timeout Check — DISABLED for Paper Replay
+            # We don't want wall-clock timers killing trades during synthetic replays.
+            pass
+
             pos = self.positions[symbol]
             try:
                 price = self._get_current_price(symbol)
@@ -849,6 +990,38 @@ class PaperBroker:
                 except Exception:
                     pass
 
+            # [PHASE 1.5] Update MFE/MAE (floating high/low pnl)
+            side = pos.get("side", "long")
+            entry_p = pos.get("entry_price", 0)
+            
+            # Use intra-candle extremes (high/low) OR current ticker price for highest granularity
+            tick_price = price
+            
+            if side == "long":
+                # MFE (Favorable) = High - Entry | MAE (Adverse) = Low - Entry
+                best_price = max(tick_price, candle_high) if candle_high is not None else tick_price
+                worst_price = min(tick_price, candle_low) if candle_low is not None else tick_price
+                
+                curr_mfe = best_price - entry_p
+                curr_mae = worst_price - entry_p
+                floating_fav = curr_mfe * pos["size"]
+                floating_adv = curr_mae * pos["size"]
+            else:
+                # MFE (Favorable) = Entry - Low | MAE (Adverse) = Entry - High
+                best_price = min(tick_price, candle_low) if candle_low is not None else tick_price
+                worst_price = max(tick_price, candle_high) if candle_high is not None else tick_price
+                
+                curr_mfe = entry_p - best_price
+                curr_mae = entry_p - worst_price
+                floating_fav = curr_mfe * pos["size"]
+                floating_adv = curr_mae * pos["size"]
+            
+            pos["mfe"] = max(pos.get("mfe", 0.0), curr_mfe)
+            pos["mae"] = min(pos.get("mae", 0.0), curr_mae)
+            pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), floating_fav)
+            pos["mae_usd"] = min(pos.get("mae_usd", 0.0), floating_adv)
+            pos["unrealized_pnl"] = (price - entry_p) * (pos["size"] if side == "long" else -pos["size"])
+
             # ════════════════════════════════════════════════════════════════
             # UNIVERSAL EXIT ROUTER — runs AFTER mechanical SL/TP
             # ════════════════════════════════════════════════════════════════
@@ -866,8 +1039,9 @@ class PaperBroker:
                         _router_held_s = (self._now() - _entry_dt).total_seconds()
                     except Exception:
                         pass
-                # Only run after hold guard (300s = 5 minutes)
-                if _router_held_s >= 300:
+                # Only run after hold guard (60s = 1 minute)
+                # Reduced from 300s to prevent 'Paper INVALIDATION' fee-trapping on 1m/5m charts.
+                if _router_held_s >= 60:
                     try:
                         from tradebot_sci.market.trend_consensus import detect_trend_direction
                         from tradebot_sci.strategy.exit_logic import run_universal_exit_logic
@@ -913,6 +1087,11 @@ class PaperBroker:
                         'take_profit': pos.get("take_profit"),
                             'entry_time': entry_time_str,
                             'initial_risk': pos.get("initial_risk"),
+                            'mfe': pos.get("mfe", 0.0),
+                            'mfe_usd': pos.get("mfe_usd", 0.0),
+                            'mae': pos.get("mae", 0.0),
+                            'mae_usd': pos.get("mae_usd", 0.0),
+                            'unrealized_pnl': pos.get("unrealized_pnl", 0.0),
                         }
                         _router_decision = run_universal_exit_logic(
                             snapshot=_router_snapshot,
@@ -962,7 +1141,8 @@ class PaperBroker:
                                     f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
                                     f"Entry={entry_p:.5f} Exit={_exit_price:.5f} | "
                                     f"Duration={duration_str} | "
-                                    f"Est. Spread Cost: ${spread_cost:.2f} | {_router_reason}"
+                                    f"Est. Spread Cost: ${spread_cost:.2f} | "
+                                    f"MFE=${pos.get('mfe_usd', 0.0):.2f} MAE=${pos.get('mae_usd', 0.0):.2f} | {_router_reason}"
                                 )
     
                                 if self.trade_results:
@@ -979,10 +1159,14 @@ class PaperBroker:
                                         strategy=pos.get("strategy", "unknown"),
                                         exit_reason=_router_reason,
                                         side=side,
+                                        spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
+                                        mfe_usd=pos.get("mfe_usd", 0.0),
+                                        mae_usd=pos.get("mae_usd", 0.0),
                                     ))
     
                                 del self.positions[symbol]
-                                self._exit_cooldowns[symbol] = time.time()
+                                self._exit_cooldowns[symbol] = self._now().timestamp()
+                                SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, sim_time=self._now())
                                 self._save_state()
                                 self.refresh_account_summary()
                                 results.append(ExecutionResult(
@@ -1085,7 +1269,8 @@ class PaperBroker:
                     f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
                     f"Entry={entry_p:.5f} Exit={exit_price:.5f} | "
                     f"Duration={duration_str} | "
-                    f"Est. Spread Cost: ${spread_cost:.2f}"
+                    f"Est. Spread Cost: ${spread_cost:.2f} | "
+                    f"MFE=${pos.get('mfe_usd', 0.0):.2f} MAE=${pos.get('mae_usd', 0.0):.2f}"
                 )
 
                 # Record in paper-specific TradeResultStore (not the live one).
@@ -1105,10 +1290,14 @@ class PaperBroker:
                         strategy=pos.get("strategy", "unknown"),
                         exit_reason=f"paper_{hit.lower()}" if hit else "paper_exit",
                         side=side,
+                        spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
+                        mfe_usd=pos.get("mfe_usd", 0.0),
+                        mae_usd=pos.get("mae_usd", 0.0),
                     ))
 
                 del self.positions[symbol]
-                self._exit_cooldowns[symbol] = time.time()  # Start re-entry cooldown
+                self._exit_cooldowns[symbol] = self._now().timestamp()  # Start re-entry cooldown
+                SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, pnl_usd=pnl_usd, sim_time=self._now())
                 self._save_state()
                 self.refresh_account_summary()
                 results.append(ExecutionResult(

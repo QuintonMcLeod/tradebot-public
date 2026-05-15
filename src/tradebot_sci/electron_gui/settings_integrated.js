@@ -854,7 +854,8 @@ const STRATEGIES = {
         style: "Breakout / Mean Reversion",
         risk: "Low-Risk Controlled",
         bestFor: "Apex / Futures Evaluations",
-        stats: { verified: "Apex Setup", winRate: "High Probability", riskReward: "1:2" }
+        stats: { verified: "Apex Setup", winRate: "High Probability", riskReward: "1:2" },
+        sessionProfile: "us_open"
     },
     orb_breakout: {
         name: "ORB (Opening Range Breakout)",
@@ -864,7 +865,8 @@ const STRATEGIES = {
         style: "Breakout",
         risk: "Low-Medium",
         bestFor: "Forex: NY Open (9:30-11:00 ET), Stocks/ETFs",
-        stats: { verified: "❌ Forex: -$1.7K", winRate: "0%", riskReward: "2:1" }
+        stats: { verified: "❌ Forex: -$1.7K", winRate: "0%", riskReward: "2:1" },
+        sessionProfile: "us_open"
     },
     rubberband_reaper: {
         name: "Rubberband Reaper",
@@ -874,7 +876,8 @@ const STRATEGIES = {
         style: "Mean Reversion",
         risk: "Adaptive",
         bestFor: "Universal: ranging markets, volatile assets",
-        stats: { verified: "+7,036%", winRate: "39%", riskReward: "3.7:1" }
+        stats: { verified: "+7,036%", winRate: "39%", riskReward: "3.7:1" },
+        sessionProfile: ["london_sweep", "us_open", "asian_open"]
     },
     robocop: {
         name: "RoboCop",
@@ -914,7 +917,8 @@ const STRATEGIES = {
         style: "Mean Reversion",
         risk: "Medium",
         bestFor: "Universal: ranging Forex and Crypto markets",
-        stats: { bands: "15p/2.5σ", rsi: "<25/>75", pyramid: "6-bar cool" }
+        stats: { bands: "15p/2.5σ", rsi: "<25/>75", pyramid: "6-bar cool" },
+        sessionProfile: ["london_sweep", "us_open", "asian_open"]
     },
     hyper_scalper: {
         name: "HyperScalper",
@@ -924,7 +928,8 @@ const STRATEGIES = {
         style: "Fast Scalping",
         risk: "Very High",
         bestFor: "Universal: ❌ NOT RECOMMENDED — 0% win rate",
-        stats: { ema: "9/21/200", forex: "❌ -$2K (0% win)", risk: "1%" }
+        stats: { ema: "9/21/200", forex: "❌ -$2K (0% win)", risk: "1%" },
+        sessionProfile: ["london_sweep", "us_open", "asian_open"]
     },
     london_breakout: {
         name: "London Breakout",
@@ -934,7 +939,8 @@ const STRATEGIES = {
         style: "Breakout",
         risk: "Medium",
         bestFor: "Forex: GBP pairs, European session",
-        stats: { session: "08:00-12:00", target: "1.5R", window: "London" }
+        stats: { session: "08:00-12:00", target: "1.5R", window: "London" },
+        sessionProfile: "london_open"
     },
     volatility_breakout: {
         name: "Volatility Breakout",
@@ -944,7 +950,8 @@ const STRATEGIES = {
         style: "Breakout",
         risk: "Medium-High",
         bestFor: "Universal: any market showing compression",
-        stats: { range: "20 periods", target: "2.0R", rsi: ">60/<40" }
+        stats: { range: "20 periods", target: "2.0R", rsi: ">60/<40" },
+        sessionProfile: ["london_sweep", "us_open", "asian_open"]
     },
     aggregator: {
         name: "Singularity Aggregator",
@@ -985,7 +992,8 @@ const STRATEGIES = {
         style: "AI Ensemble",
         risk: "Dynamic",
         bestFor: "Universal: ✅ BEST for Crypto, EXCELLENT for Forex",
-        stats: { crypto: "✅ #1 +$8.2M", forex: "✅ #2 +$951K", ai: "Ensemble" }
+        stats: { crypto: "✅ #1 +$8.2M", forex: "✅ #2 +$951K", ai: "Ensemble" },
+        sessionProfile: ["london_sweep", "us_open", "asian_open", "friday_wind_down"]
     },
     forex_conductor: {
         name: 'Forex Conductor',
@@ -996,7 +1004,8 @@ const STRATEGIES = {
         style: "Regime Router",
         risk: "Dynamic (conservative gates)",
         bestFor: "Forex: adapts to market conditions automatically",
-        stats: { regimes: "4 (trend/range/transition/choppy)", cooldown: "2h", gate: "HTF/LTF align" }
+        stats: { regimes: "4 (trend/range/transition/choppy)", cooldown: "2h", gate: "HTF/LTF align" },
+        sessionProfile: ["london_sweep", "us_open", "asian_open"]
     },
     forex_hybrid_reaper: {
         name: 'Forex Hybrid Scalper',
@@ -1007,7 +1016,8 @@ const STRATEGIES = {
         style: "Restricted Scalper",
         risk: "Low",
         bestFor: "Majors: EURUSD / GBPUSD",
-        stats: { timeframe: "5m", sessions: "London/NY Overlap", indicators: "EMA200, BB(20,2.5), RSI(7)"}
+        stats: { timeframe: "5m", sessions: "London/NY Overlap", indicators: "EMA200, BB(20,2.5), RSI(7)"},
+        sessionProfile: ["hybrid_overlap", "london_open"]
     },
 
     trend_rider: {
@@ -1028,7 +1038,8 @@ const STRATEGIES = {
         style: "Momentum / Session",
         risk: "Medium-High",
         bestFor: "Forex: London & NY session opens",
-        stats: { indicator: "VWAP", volume: "2× avg", target: "2.0R" }
+        stats: { indicator: "VWAP", volume: "2× avg", target: "2.0R" },
+        sessionProfile: ["london_open", "us_open"]
     },
     bearish_engulfing: {
         name: 'Engulfing Reversal',
@@ -1048,7 +1059,8 @@ const STRATEGIES = {
         style: "Reversal / Sweep",
         risk: "Medium",
         bestFor: "Forex: London Session (07:00 - 12:00 UTC)",
-        stats: { winRate: "Variable", target: "Variable", riskReward: "High" }
+        stats: { winRate: "Variable", target: "Variable", riskReward: "High" },
+        sessionProfile: "london_sweep"
     },
     wind_down_truffle: {
         name: 'Wind Down Truffle',
@@ -1058,7 +1070,8 @@ const STRATEGIES = {
         style: "Fade / Mean Reversion",
         risk: "Medium",
         bestFor: "Universal: Fridays 12PM-4:30PM ET",
-        stats: { bias: "Short", target: "2:1 R:R", indicator: "VWAP+EMA" }
+        stats: { bias: "Short", target: "2:1 R:R", indicator: "VWAP+EMA" },
+        sessionProfile: "friday_wind_down"
     },
     new_york_drive: {
         name: 'New York Drive',
@@ -1068,7 +1081,8 @@ const STRATEGIES = {
         style: "Breakout / Momentum",
         risk: "High",
         bestFor: "Universal: NY Session (13:00-16:00 UTC)",
-        stats: { winRate: "Medium", target: "Trailing Stop", riskReward: "Variable" }
+        stats: { winRate: "Medium", target: "Trailing Stop", riskReward: "Variable" },
+        sessionProfile: "us_open"
     },
     golden_pocket: {
         name: 'Golden Pocket',
@@ -1078,7 +1092,8 @@ const STRATEGIES = {
         style: "Trend Pullback",
         risk: "Medium",
         bestFor: "Universal: trending markets",
-        stats: { indicator: "EMA 21/55", winRate: "Variable", riskReward: "Variable" }
+        stats: { indicator: "EMA 21/55", winRate: "Variable", riskReward: "Variable" },
+        sessionProfile: "us_open"
     },
     // ──────────────────────────────────────────────────────────────
     // 🪙 CRYPTO-SPECIFIC STRATEGIES
@@ -1217,7 +1232,8 @@ const STRATEGIES = {
         style: 'Seasonal / Calendar',
         risk: 'Low',
         bestFor: 'Stocks/Indices: End of Month / Start of Month',
-        stats: { holding: '1 to 5 days', edge: 'Institutional Flows' }
+        stats: { holding: '1 to 5 days', edge: 'Institutional Flows' },
+        sessionProfile: "first_day_month"
     }
 };
 
@@ -1549,7 +1565,9 @@ function applyStrategyPreset(strategyKey) {
     const preset = STRATEGY_PRESETS[strategyKey];
     if (!preset) return; // No preset defined for this strategy
 
-    const stratName = STRATEGIES[strategyKey]?.name || strategyKey;
+    const strat = STRATEGIES[strategyKey];
+    const stratName = strat?.name || strategyKey;
+    const sessionID = strat?.sessionProfile;
 
     // Step 1: Reset ALL trading settings to zero/safe defaults
     for (const [key, value] of Object.entries(TRADING_DEFAULTS)) {
@@ -1561,9 +1579,19 @@ function applyStrategyPreset(strategyKey) {
         updateValue(key, value);
     }
 
+    // Step 3: Sync Global Scheduler Session (delegate to the unified sync engine)
+    syncSchedulesWithStrategy('STRATEGY_FOREX', strategyKey);
+
+
     const totalChanged = Object.keys(TRADING_DEFAULTS).length;
     const overrides = Object.keys(preset).length;
     console.log(`[PRESET] Reset ${totalChanged} settings → applied ${overrides} ${stratName} overrides`);
+    
+    // Explicitly save the config because we modified configData.schedule directly
+    if (window.api && window.api.saveConfig) {
+        window.api.saveConfig(configData);
+    }
+    
     showNotice(`${stratName}: ${totalChanged} settings reset, ${overrides} overrides applied`, 'teal');
     renderTab(); // Refresh UI to reflect changes
 }
@@ -4222,6 +4250,47 @@ function renderScheduleTab(container) {
 
     function renderSessionsList() {
         sessionsContainer.innerHTML = '';
+        
+        // Sabbath Mode Alert
+        function isCurrentlySabbath() {
+            if (getValue('SABBATH_ENABLED') !== 'true') return false;
+            
+            const now = new Date();
+            const day = now.getDay(); // 0=Sun, 5=Fri, 6=Sat
+            
+            // Note: UI uses fixed window for simplicity; backend handles astronomical calculation
+            const startTimeStr = getValue('SABBATH_START_LOCAL') || '18:00';
+            const endTimeStr = getValue('SABBATH_END_LOCAL') || '18:00';
+            
+            const [startH, startM] = startTimeStr.split(':').map(Number);
+            const [endH, endM] = endTimeStr.split(':').map(Number);
+            
+            if (day === 5) { // Friday
+                const startTotal = startH * 60 + startM;
+                const nowTotal = now.getHours() * 60 + now.getMinutes();
+                return nowTotal >= startTotal;
+            }
+            if (day === 6) { // Saturday
+                const endTotal = endH * 60 + endM;
+                const nowTotal = now.getHours() * 60 + now.getMinutes();
+                return nowTotal < endTotal;
+            }
+            return false;
+        }
+
+        if (isCurrentlySabbath()) {
+            const sabbathAlert = document.createElement('div');
+            sabbathAlert.style.cssText = 'margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); display: flex; align-items: center; gap: 10px;';
+            sabbathAlert.innerHTML = `
+                <span class="material-symbols-outlined" style="color: var(--warning); font-size: 18px;">event_busy</span>
+                <div style="flex: 1;">
+                    <div style="font-size: 11px; font-weight: 800; color: var(--warning); text-transform: uppercase; letter-spacing: 0.05em;">Sabbath Guard Active</div>
+                    <div style="font-size: 10px; color: var(--text-muted);">Trading is globally blocked Friday sunset to Saturday sunset.</div>
+                </div>
+            `;
+            sessionsContainer.appendChild(sabbathAlert);
+        }
+
         if (!configData.schedule) configData.schedule = {};
         if (!configData.schedule.sessions) configData.schedule.sessions = [];
         
@@ -4251,10 +4320,19 @@ function renderScheduleTab(container) {
                     daysStr = sess.days_of_week.length === 7 ? 'Everyday' : sess.days_of_week.map(d => dayMap[d]).join(', ');
                 }
 
+                const activeLabel = (sess.active === false) 
+                    ? `<span style="font-size: 9px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--error); color: var(--error); background: rgba(239, 68, 68, 0.1); margin-left: 10px; font-weight: 800; letter-spacing: 0.1em;">DISABLED</span>`
+                    : `<span style="font-size: 9px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--success); color: var(--success); background: rgba(16, 185, 129, 0.1); margin-left: 10px; font-weight: 800; letter-spacing: 0.1em;">ENABLED</span>`;
+
+                const [stratKey, sessType] = sess.id.includes(':') ? sess.id.split(':') : [sess.id, null];
+                const strategyMeta = STRATEGIES[stratKey] || null;
+                const displayTitle = strategyMeta 
+                    ? (sessType ? `${strategyMeta.name} (${sessType.replace(/_/g, ' ')})` : strategyMeta.name)
+                    : (sess.id ? `${sess.profile_name} — ${sess.id}` : sess.profile_name);
                 card.innerHTML = `
                     <div class="card-info sched-edit-area" style="flex: 1; cursor: pointer; transition: opacity 0.2s;" title="Click to edit schedule">
                         <span class="card-title" style="display:flex; align-items:center;">
-                            ${sess.profile_name} ${modeLabel}
+                            ${displayTitle} ${modeLabel} ${activeLabel}
                         </span>
                         <span class="card-desc" style="margin-top: 8px; display: flex; gap: 24px; color: var(--text-muted);">
                             <span><strong style="color: var(--text-secondary);">Days:</strong> <span style="color: var(--text-main);">${daysStr}</span></span>
@@ -4262,10 +4340,18 @@ function renderScheduleTab(container) {
                             <span><strong style="color: var(--text-secondary);">Paper Off-Hours:</strong> <span style="color: ${sess.paper_trade_off_hours ? 'var(--accent)' : 'inherit'}">${sess.paper_trade_off_hours ? 'ENABLED' : 'DISABLED'}</span></span>
                         </span>
                     </div>
-                    <div class="card-control no-drag">
-                        <button class="btn-delete material-symbols-outlined" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; transition: all 0.2s; font-size: 20px;" title="Delete Schedule">delete</button>
-                    </div>
-                `;
+                        <div class="card-control no-drag" style="display: flex; gap: 8px; align-items: center;">
+                            <div class="toggle ${sess.active !== false ? 'toggle-active' : ''}" id="toggle-sess-${idx}" title="Enable/Disable this session"></div>
+                            <button class="btn-delete material-symbols-outlined" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; transition: all 0.2s; font-size: 20px;" title="Delete Schedule">delete</button>
+                        </div>
+                    `;
+
+                card.querySelector(`#toggle-sess-${idx}`).addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    sess.active = (sess.active === false);
+                    renderSessionsList();
+                    if (window.api && window.api.saveConfig) window.api.saveConfig(configData);
+                });
                 
                 card.querySelector('.sched-edit-area').addEventListener('click', () => {
                     openAddScheduleModal(sess, idx);
@@ -4347,6 +4433,16 @@ function renderScheduleTab(container) {
                         </div>
                     </div>
                     
+                    <div class="control-card" style="margin-top: 8px; margin-bottom: 0; padding: 16px; cursor: pointer;" id="modal-active-row">
+                        <div class="card-info" style="pointer-events: none;">
+                            <span class="card-title">Enable Schedule <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Enable Schedule', 'If disabled, the bot will ignore this schedule entirely and default to 24/7 trading or other active schedules.')" onmouseleave="hideTooltip()">info</span></span>
+                            <span class="card-desc">Master switch for this window</span>
+                        </div>
+                        <div class="card-control no-drag">
+                            <div class="toggle" id="modal-active"></div>
+                        </div>
+                    </div>
+
                     <div class="control-card" style="margin-top: 8px; margin-bottom: 0; padding: 16px; cursor: pointer;" id="modal-paper-row">
                         <div class="card-info" style="pointer-events: none;">
                             <span class="card-title">Off-Hours Simulation <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.5; margin-left: 6px; cursor: help; vertical-align: middle;" onmouseenter="showTooltip(event, 'Off-Hours Simulation', 'If enabled, when the bot goes to sleep outside its schedule, it will secretly switch to Paper Trading to practice and gather data instead of actually doing nothing.')" onmouseleave="hideTooltip()">info</span></span>
@@ -4413,6 +4509,23 @@ function renderScheduleTab(container) {
             });
         });
         
+        const activeRow = overlay.querySelector('#modal-active-row');
+        const activeCheck = overlay.querySelector('#modal-active');
+        activeCheck.is_active = existingSess ? (existingSess.active !== false) : true;
+        if (activeCheck.is_active) {
+            activeCheck.classList.add('toggle-active');
+        }
+        
+        function toggleActive() {
+            activeCheck.is_active = !activeCheck.is_active;
+            activeCheck.classList.toggle('toggle-active', activeCheck.is_active);
+        }
+        
+        activeRow.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleActive();
+        });
+
         const paperRow = overlay.querySelector('#modal-paper-row');
         const paperCheck = overlay.querySelector('#modal-paper');
         paperCheck.is_active = existingSess ? existingSess.paper_trade_off_hours : false;
@@ -4452,6 +4565,7 @@ function renderScheduleTab(container) {
             const scheduleObj = {
                 id: existingSess ? existingSess.id : Math.random().toString(36).substr(2, 9),
                 profile_name: profile,
+                active: activeCheck.is_active,
                 mode: mode,
                 days_of_week: mode === 'business_hours' ? activeDays : ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
                 weeks_of_month: existingSess ? existingSess.weeks_of_month : [1, 2, 3, 4, 5],
@@ -5251,8 +5365,14 @@ function updateValue(key, value, strategyNamespace = null) {
         else if (!isNaN(value) && value.trim() !== "" && key !== 'OANDA_ACCOUNT_ID' && key !== 'IBKR_PORT' && key !== 'IBKR_CLIENT_ID') {
             val = Number(value);
         }
-
         current[path[path.length - 1]] = val;
+
+        // Auto-sync Global Scheduler sessions
+        if (key === 'EXECUTE_TRADES' || (typeof key === 'string' && key.startsWith('STRATEGY_'))) {
+            if (typeof syncSchedulesWithStrategy === 'function') {
+                syncSchedulesWithStrategy(key, val);
+            }
+        }
 
         // Sync STRATEGY_* to active profile's nested strategies object
         const stratKeyMatch = key.match(/^STRATEGY_(CRYPTO|FOREX|STOCKS|ETF|METALS|FUTURES)$/);
@@ -6070,6 +6190,145 @@ function createControlButton(label, icon, color, onClick) {
     return btn;
 }
 
+/**
+ * Synchronizes the Global Scheduler sessions with the active strategy and live trading state.
+ */
+function syncSchedulesWithStrategy(key, val) {
+    if (!configData.schedule) configData.schedule = {};
+    if (!configData.schedule.sessions) configData.schedule.sessions = [];
+
+    // Sanitize: remove malformed entries (non-string IDs) and bare legacy IDs on every sync
+    const _legacyBareIds = ['london_open', 'us_open', 'asian_open', 'friday_wind_down', 'hybrid_overlap', 'london_sweep'];
+    const _beforeSanitize = configData.schedule.sessions.length;
+    configData.schedule.sessions = configData.schedule.sessions.filter(s => {
+        if (typeof s.id !== 'string') return false; // Corrupt: id was array or object
+        if (_legacyBareIds.includes(s.id)) return false; // Legacy bare ID
+        // Legacy single strategy IDs (no colon) that match a known strategy key
+        if (!s.id.includes(':') && STRATEGIES[s.id]) return false;
+        return true;
+    });
+    if (configData.schedule.sessions.length !== _beforeSanitize) {
+        console.log(`[SCHEDULER] Sanitized ${_beforeSanitize - configData.schedule.sessions.length} legacy/malformed session(s)`);
+    }
+
+
+    const isLive = (getValue('EXECUTE_TRADES') === 'true');
+    const profileName = configData.active_profile || 'auto_schedule';
+    const settings = getActiveProfileSettings();
+    
+    // Determine target strategy and its session type
+    let targetStrategyID = null;
+    let targetSessionType = null;
+
+    if (typeof key === 'string' && key.startsWith('STRATEGY_')) {
+        targetStrategyID = val;
+        targetSessionType = STRATEGIES[val]?.sessionProfile;
+    } else {
+        targetStrategyID = settings.strategy_variant;
+        targetSessionType = targetStrategyID ? STRATEGIES[targetStrategyID]?.sessionProfile : null;
+        if (!targetSessionType && settings.strategies) {
+            for (const [sKey, sVal] of Object.entries(settings.strategies)) {
+                if (STRATEGIES[sVal]?.sessionProfile) {
+                    targetStrategyID = sVal;
+                    targetSessionType = STRATEGIES[sVal].sessionProfile;
+                    break;
+                }
+            }
+        }
+    }
+
+    const targetSessionID = targetStrategyID; // Use Strategy ID as the unique Session ID
+
+    // if (!targetSessionID) return; // REMOVED: Need to continue to disable old sessions if new one is null
+
+    let changed = false;
+    
+    // 1. Provision if missing
+    if (targetStrategyID && targetSessionType) {
+        const types = Array.isArray(targetSessionType) ? targetSessionType : [targetSessionType];
+        
+        types.forEach(t => {
+            const sid = `${targetStrategyID}:${t}`;
+            const existing = configData.schedule.sessions.find(s => s.id === sid && s.profile_name === profileName);
+            
+            if (!existing) {
+                let start = "03:00", end = "11:00"; 
+                if (t === 'us_open') { start = "09:30"; end = "16:00"; }
+                else if (t === 'asian_open') { start = "19:00"; end = "03:00"; }
+                else if (t === 'friday_wind_down') { start = "12:00"; end = "16:30"; }
+                else if (t === 'hybrid_overlap') { start = "08:00"; end = "12:00"; }
+                else if (t === 'london_sweep') { start = "02:00"; end = "07:00"; }
+
+                configData.schedule.sessions.push({
+                    id: sid,
+                    profile_name: profileName,
+                    active: isLive,
+                    mode: 'business_hours',
+                    days_of_week: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+                    start_time: start,
+                    end_time: end
+                });
+                changed = true;
+            }
+        });
+    }
+
+    // 2. Sync Active states & Purge Legacies
+    const allKnownStrategyIds = Object.keys(STRATEGIES);
+    const legacySessionIds = ['london_open', 'us_open', 'asian_open', 'friday_wind_down', 'hybrid_overlap', 'london_sweep'];
+    
+    // Determine all IDs that should be active for the current strategy
+    const activeIdsForStrategy = [];
+    if (targetStrategyID && targetSessionType) {
+        const types = Array.isArray(targetSessionType) ? targetSessionType : [targetSessionType];
+        types.forEach(t => activeIdsForStrategy.push(`${targetStrategyID}:${t}`));
+    }
+
+    // Filter out legacy sessions and sync active states for managed ones
+    const initialCount = configData.schedule.sessions.length;
+    configData.schedule.sessions = configData.schedule.sessions.filter(sess => {
+        if (sess.profile_name !== profileName) return true; // Don't touch other profiles
+
+        const [sKey, sType] = sess.id.includes(':') ? sess.id.split(':') : [sess.id, null];
+        const isLegacy = legacySessionIds.includes(sess.id);
+        const isManagedStrategy = allKnownStrategyIds.includes(sKey);
+
+        if (isLegacy) {
+            // ALWAYS remove legacy IDs from the current profile
+            return false;
+        }
+
+        if (isManagedStrategy) {
+            if (!isLive) {
+                if (sess.active !== false) {
+                    sess.active = false;
+                    changed = true;
+                }
+            } else if (activeIdsForStrategy.includes(sess.id)) {
+                if (sess.active !== true) {
+                    sess.active = true;
+                    changed = true;
+                }
+            } else {
+                // [FIX] DELETE managed strategy sessions that are not for the currently active strategy.
+                // This prevents "card bloat" in the UI when switching strategies.
+                console.log(`[SCHEDULER] Purging inactive managed session: ${sess.id}`);
+                return false; 
+            }
+        }
+        return true;
+    });
+
+    if (configData.schedule.sessions.length !== initialCount) changed = true;
+
+    if (changed) {
+        if (window.api && window.api.saveConfig) window.api.saveConfig(configData);
+        if (currentTab === 'schedule' || currentTab === 'strategy') {
+            renderTab();
+        }
+    }
+}
+
 function updateBotStatusUI(isRunning) {
     const dot = document.getElementById('status-dot');
     const text = document.getElementById('status-text');
@@ -6096,7 +6355,29 @@ function showNotice(message, color = 'teal') {
         window.api.logNotice(message, color);
     }
 
-    // 3. Color mapping for inline styles (no Tailwind dynamic classes)
+    // 3. Ensure stack container exists
+    let stack = document.getElementById('notice-stack');
+    if (!stack) {
+        stack = document.createElement('div');
+        stack.id = 'notice-stack';
+        Object.assign(stack.style, {
+            position: 'fixed',
+            top: '5.5rem',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: '9999',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '0.75rem',
+            pointerEvents: 'none',
+            width: '100%',
+            maxWidth: '500px'
+        });
+        document.body.appendChild(stack);
+    }
+
+    // 4. Color mapping for inline styles
     const colors = {
         teal: { bg: 'rgba(20, 184, 166, 0.15)', border: 'rgba(20, 184, 166, 0.5)', text: '#5eead4', dot: '#14b8a6', glow: 'rgba(20, 184, 166, 0.6)' },
         red: { bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(239, 68, 68, 0.5)', text: '#fca5a5', dot: '#ef4444', glow: 'rgba(239, 68, 68, 0.6)' },
@@ -6104,14 +6385,10 @@ function showNotice(message, color = 'teal') {
     };
     const c = colors[color] || colors.teal;
 
-    // 4. Build toast with inline styles (no broken Tailwind animate classes)
+    // 5. Build toast
     const toast = document.createElement('div');
     Object.assign(toast.style, {
-        position: 'fixed',
-        top: '5.5rem',
-        left: '50%',
-        transform: 'translateX(-50%) translateY(-20px)',
-        zIndex: '9999',
+        position: 'relative',
         padding: '0.875rem 2rem',
         borderRadius: '1rem',
         background: 'rgba(2, 6, 23, 0.95)',
@@ -6119,31 +6396,34 @@ function showNotice(message, color = 'teal') {
         border: `2px solid ${c.border}`,
         boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 40px ${c.glow}`,
         opacity: '0',
-        transition: 'opacity 0.4s ease, transform 0.4s ease',
-        pointerEvents: 'none',
+        transform: 'translateY(-20px)',
+        transition: 'all 0.4s cubic-bezier(0.23, 1, 0.32, 1)',
+        pointerEvents: 'auto',
+        textAlign: 'center',
+        minWidth: '200px'
     });
 
     toast.innerHTML = `
-        <div style="display:flex;align-items:center;gap:0.75rem;">
+        <div style="display:flex;align-items:center;gap:0.75rem;justify-content:center;">
             <div style="width:10px;height:10px;border-radius:50%;background:${c.dot};box-shadow:0 0 12px ${c.glow};animation:pulse 1.5s infinite;"></div>
             <span style="font-size:0.8rem;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;color:${c.text};">${message}</span>
         </div>
     `;
 
-    document.body.appendChild(toast);
+    stack.appendChild(toast);
 
-    // Animate in (next frame so transition triggers)
+    // Animate in
     requestAnimationFrame(() => {
         toast.style.opacity = '1';
-        toast.style.transform = 'translateX(-50%) translateY(0)';
+        toast.style.transform = 'translateY(0)';
     });
 
-    // Auto-dismiss after 3 seconds
+    // Auto-dismiss after 4 seconds
     setTimeout(() => {
         toast.style.opacity = '0';
-        toast.style.transform = 'translateX(-50%) translateY(-20px)';
+        toast.style.transform = 'translateY(-20px)';
         setTimeout(() => toast.remove(), 400);
-    }, 3000);
+    }, 4000);
 }
 
 // ═══════════════════════════════════════════════════════════

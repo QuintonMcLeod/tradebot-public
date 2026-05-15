@@ -123,13 +123,29 @@ class SafetyGuard:
                 cls._state.daily_pnl[asset_class] = current_capital - start_cap
 
     @classmethod
-    def register_trade_completion(cls, symbol: str, is_win: bool):
-        """Call this when a trade closes to update streaks and set cooldown."""
+    def register_trade_completion(cls, symbol: str, is_win: bool, pnl_usd: float = 0.0, sim_time: Optional[datetime] = None):
+        """Call this when a trade closes to update streaks, pnl tracking, and set cooldown."""
         # Per-symbol exit cooldown — prevents death spiral re-entry on LOSSES.
-        # Winning trades skip cooldown so the bot can re-enter immediately.
+        now = sim_time or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+
+        # 1. Update Daily PnL for Drawdown Breaker
+        asset_class = classify_symbol(symbol)
+        
+        # Check for day boundary to reset daily_pnl
+        last_date = cls._state.last_reset_date.get(asset_class)
+        current_date = now.date()
+        if last_date != current_date:
+            logger.info(f"[SAFETY] New day detected ({current_date}). Resetting daily PnL tracker.")
+            cls._state.daily_pnl[asset_class] = 0.0
+            cls._state.last_reset_date[asset_class] = current_date
+
+        cls._state.daily_pnl[asset_class] = cls._state.daily_pnl.get(asset_class, 0.0) + pnl_usd
+        
         if not is_win:
-            cls._state.symbol_exit_cooldown[symbol] = datetime.now(timezone.utc) + timedelta(minutes=5)
-            logger.info(f"[SAFETY] Exit cooldown set for {symbol}: 5 min (loss)")
+            cls._state.symbol_exit_cooldown[symbol] = now + timedelta(minutes=5)
+            logger.info(f"[SAFETY] Exit cooldown set for {symbol}: 5 min (loss) [Ref: {now.strftime('%H:%M:%S')}]")
         else:
             # Clear any existing cooldown on a win
             cls._state.symbol_exit_cooldown.pop(symbol, None)
@@ -266,16 +282,27 @@ class SafetyGuard:
                 # Check trigger
                 hwm = cls._state.hwm_capital.get(asset_class, 0.0)
                 if hwm > 0:
+                    # 1. Absolute Portfolio Drawdown (Wealth Weapon)
                     drawdown = (hwm - current_capital) / hwm
-                    # Adaptive scaling: use configured value as floor, but never
-                    # tighter than what the account size warrants.
                     configured_limit = getattr(safety, 'safety_drawdown_max_pct', 0.05)
                     adaptive_limit = adaptive_drawdown_limit(current_capital)
                     drawdown_limit = max(configured_limit, adaptive_limit)
+                    
                     if drawdown > drawdown_limit:
                          cls._state.drawdown_pause_until[asset_class] = now + timedelta(hours=24)
                          logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}% > {drawdown_limit*100:.1f}% limit, adaptive={adaptive_limit*100:.0f}%). Pausing 24h.")
                          return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
+
+                    # 2. Daily Loss Circuit Breaker (Safety Shield)
+                    # Prevents "death by a thousand cuts" in choppy regimes.
+                    daily_limit = getattr(settings.risk, "limit_loss_daily_pct", 0.03)
+                    realized_pnl = cls._state.daily_pnl.get(asset_class, 0.0)
+                    daily_loss_pct = abs(realized_pnl) / current_capital if realized_pnl < 0 else 0.0
+                    
+                    if daily_loss_pct > daily_limit:
+                         cls._state.drawdown_pause_until[asset_class] = now + timedelta(hours=24)
+                         logger.critical(f"[SAFETY] DAILY LOSS BREAKER: {asset_class.value} lost {daily_loss_pct*100:.1f}% today (Limit {daily_limit*100:.1f}%). Pausing 24h.")
+                         return cls._reject(symbol, timeframe, "Daily Loss Breaker", f"Daily Loss Limit Reached ({daily_loss_pct*100:.1f}%)")
         else:
             # Breaker disabled — clear any lingering pause so it takes
             # effect immediately on hot-plug toggle-off.
@@ -582,7 +609,8 @@ class SafetyGuard:
                     logger.info(f"[SAFETY] Stale Sniper TRIGGERED for {snapshot.symbol} after {bars_since} bars (R={r_multiple:.2f}).")
                     return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Stale Exit ({bars_since} bars)")
                 else:
-                    logger.debug(f"[SAFETY] Stale Sniper SKIPPED for {snapshot.symbol}: profitable ({r_multiple:.2f}R), letting run.")
+                    if bars_since % 12 == 0:
+                        logger.debug(f"[SAFETY] Stale Sniper SKIPPED for {snapshot.symbol}: profitable ({r_multiple:.2f}R), letting run.")
 
         # B. Flash-Trap / Blow-off Seller (Volatility Exhaustion)
         shield_v = settings.safety.safety_flash_trap_enabled
@@ -845,8 +873,8 @@ class SafetyGuard:
         # Uses ATR-based or fixed pct trails to chase runs.
         # "Trailing Stop Enabled" in UI maps to this.
         # 3-phase time-bounded escalation prevents infinite holds:
-        #   Phase 1 (0 → max/2): Normal 1.5× ATR trail
-        #   Phase 2 (max/2 → max): Trail tightens linearly from 1.5× → 0.5× ATR
+        #   Phase 1 (0 → max/2): Normal 2.5× ATR trail
+        #   Phase 2 (max/2 → max): Trail tightens linearly from 2.5× → 1.0× ATR
         #   Phase 3 (> max): Force close — capital is freed
         use_greedy_exit = (settings.performance.trailing_stop_enabled if settings
                            else os.getenv("TRAILING_STOP_ENABLED", "false").lower() == "true")
@@ -856,19 +884,29 @@ class SafetyGuard:
              greedy_max_hours = settings.safety.greedy_exit_max_hold_hours if settings else 8.0
              hours_held = 0.0
              if entry_time and isinstance(entry_time, datetime):
-                 now_tz = sim_time or datetime.now(entry_time.tzinfo or ZoneInfo("UTC"))
+                 # Force both to UTC to prevent local-vs-UTC shifts (often ~4-8h or 24h)
+                 now_tz = sim_time or datetime.now(timezone.utc)
                  if now_tz.tzinfo is None:
-                     now_tz = now_tz.replace(tzinfo=ZoneInfo("UTC"))
-                 hours_held = (now_tz - entry_time).total_seconds() / 3600
+                     now_tz = now_tz.replace(tzinfo=timezone.utc)
+                 
+                 _entry_utc = entry_time if entry_time.tzinfo else entry_time.replace(tzinfo=timezone.utc)
+                 if _entry_utc.tzinfo != timezone.utc:
+                     _entry_utc = _entry_utc.astimezone(timezone.utc)
+                 if now_tz.tzinfo != timezone.utc:
+                     now_tz = now_tz.astimezone(timezone.utc)
+                     
+                 hours_held = (now_tz - _entry_utc).total_seconds() / 3600
 
              # Phase 3: Force close after max hold
-             if greedy_max_hours > 0 and hours_held >= greedy_max_hours:
+             # ADDED: Only timeout if the trade has at least some development (3+ bars)
+             # to prevent "thousand paper cuts" from instant timeouts on re-entry.
+             if greedy_max_hours > 0 and hours_held >= greedy_max_hours and bars_since >= 3:
                  logger.info(f"[SAFETY] Greedy Exit TIMEOUT: {snapshot.symbol} held {hours_held:.1f}h >= {greedy_max_hours}h. Forcing close.")
                  return close_position_decision(snapshot.symbol, snapshot.timeframe,
                                                 reason=f"Greedy Exit Timeout ({hours_held:.1f}h)")
 
-             # Phase 2: Tighten trail multiplier (linear decay from 1.5 to 0.5 ATR)
-             trail_multiplier = 1.5  # Phase 1 default
+             # Phase 2: Tighten trail multiplier (linear decay from 2.5 to 1.0 ATR)
+             trail_multiplier = 2.5  # Phase 1 default (relaxed from 1.5 to prevent churn)
              if greedy_max_hours > 0 and hours_held > greedy_max_hours * 0.5:
                  progress = (hours_held - greedy_max_hours * 0.5) / (greedy_max_hours * 0.5)
                  trail_multiplier = max(0.5, 1.5 - (1.0 * min(progress, 1.0)))
@@ -895,6 +933,7 @@ class SafetyGuard:
                  # Only move UP
                  if potential_stop > current_stop:
                       if not decision or (decision.action == "hold" and (not decision.stop_loss or decision.stop_loss < potential_stop)):
+                           logger.info(f"[SAFETY] {snapshot.symbol} Greedy Exit trail: {current_stop:.5f} → {potential_stop:.5f}")
                            return hold_decision(
                                 symbol=snapshot.symbol,
                                 timeframe=snapshot.timeframe,

@@ -156,6 +156,10 @@ class StrategyEngine:
         "qs_choppiness":        ("tradebot_sci.strategy.variants.qs_choppiness",        "QS_ChoppinessStrategy"),
         "qs_first_day_month":   ("tradebot_sci.strategy.variants.qs_first_day_month",   "QS_FirstDayOfMonthStrategy"),
         "silver_vwap":          ("tradebot_sci.strategy.variants.silver_vwap",          "SilverVwapStrategy"),
+        "london_sweep":         ("tradebot_sci.strategy.variants.london_sweep",         "LondonSweepStrategy"),
+        "new_york_drive":       ("tradebot_sci.strategy.variants.new_york_drive",       "NewYorkDriveStrategy"),
+        "golden_pocket":        ("tradebot_sci.strategy.variants.golden_pocket",        "GoldenPocketStrategy"),
+        "wind_down_truffle":    ("tradebot_sci.strategy.variants.wind_down_truffle",    "WindDownTruffleStrategy"),
     }
 
     def _instantiate_variant(self, variant: str):
@@ -465,6 +469,29 @@ class StrategyEngine:
         elif htf_strength < 0.15 and ltf_strength < 0.15:
             phase = "chop"
 
+        # 0.5. SESSION GATE (Global Scheduler Integration)
+        # We fetch active sessions for metadata/UI display, but the Engine itself
+        # is session-agnostic; the runtime loop handles the actual execution gating.
+        from tradebot_sci.runtime.scheduling import get_schedule_status
+        now_for_sched = current_bar_time or datetime.now(timezone.utc)
+        if now_for_sched.tzinfo is None:
+            now_for_sched = now_for_sched.replace(tzinfo=timezone.utc)
+            
+        # Get list of ALL active sessions for this timestamp
+        _, _, active_sessions = get_schedule_status(
+            profile_name=self.profile.name,
+            now=now_for_sched,
+            settings=self.settings
+        )
+        
+        # Initialize gates here so it can be populated by active sessions
+        gates = {
+            "active_sessions": [s.id for s in active_sessions if getattr(s, 'id', None)],
+        }
+        
+        session_id = getattr(self._strategy, "SESSION_PROFILE", None)
+        session_ok = True # Engine is always 'OK' if the loop is running
+
         # Calculate grade for the current snapshot using the populated trend values
         from tradebot_sci.strategy.scoring import ActionScorer
         score, grade = ActionScorer.score_icc_grade(
@@ -476,10 +503,10 @@ class StrategyEngine:
             continuation=bool(continuation_signal),
             indication=bool(indication_signal),
             correction=bool(correction_signal),
-            session_ok=True
+            session_ok=session_ok
         )
 
-        gates = {
+        gates.update({
             "htf_dir": htf_dir,  # Enriched trend direction for strategies to follow
             "mtf_dir": mtf_dir,  # Required by exit router trend_invalidation (slow layer)
             "ltf_dir": ltf_dir,
@@ -512,7 +539,9 @@ class StrategyEngine:
             "adx": htf_adx,
             "market_regime": market_regime,
             "is_synthetic_override": is_synthetic_override,
-        }
+            "session_ok": session_ok,
+            "session_id": session_id,
+        })
 
         # Per-strategy scoring (gives each strategy its own grade)
         strat_score, strat_grade, strat_summary = self._strategy.score_signal(snapshot, gates)
@@ -535,13 +564,47 @@ class StrategyEngine:
         # 3. Request Decisions from Strategy (Standard Path or Adopted Meta Path)
         # A. Check for EXIT if we have a position
         if open_position and isinstance(open_position, dict) and abs(open_position.get("size", 0.0)) > 0:
-            exit_decision = self._strategy.check_exit_signal(
+            from tradebot_sci.strategy.exit_logic import run_universal_exit_logic
+            
+            # 1. Strategy Specific Exit
+            strategy_exit = self._strategy.check_exit_signal(
                 snapshot, 
                 open_position, 
                 gates, 
                 current_capital=current_capital, 
                 trade_history=history
             )
+            
+            # 2. Universal Exit Router (Platform Level)
+            # This ensures that even if a strategy is silent or has poor exit logic, 
+            # the platform-level thresholds (Ratchet, Breakeven, Chandelier) are applied.
+            exit_decision = run_universal_exit_logic(
+                snapshot,
+                open_position,
+                gates,
+                profile=self.profile,
+                current_capital=current_capital,
+                trade_history=history,
+                strategy_decision=strategy_exit
+            )
+
+            # 3.1. Update MFE/MAE Tracking for Persistence (Real-world Brokers)
+            # This ensures that for OANDA/IBKR, we track the floating high/low water marks
+            # and persist them in the PositionHoldStore so they survive restarts.
+            if hasattr(self, "_broker") and self._broker and hasattr(self._broker, "position_hold_store") and self._broker.position_hold_store:
+                hold_rec = self._broker.position_hold_store.get(self.symbol)
+                if hold_rec:
+                    # Use current price from snapshot (close of most recent candle)
+                    price = snapshot.get("close") or snapshot.get("price")
+                    entry_p = hold_rec.entry_price
+                    size = hold_rec.size
+                    if price and entry_p and size:
+                        floating_gross = (price - entry_p) * size
+                        hold_rec.mfe_usd = max(hold_rec.mfe_usd or 0.0, floating_gross)
+                        hold_rec.mae_usd = min(hold_rec.mae_usd or 0.0, floating_gross)
+                        # We don't force a disk save every tick for performance, 
+                        # but the values are now in memory for the final exit recording.
+            
             # ── Calculate position age (shared by hold guard + safety guard) ──
             # Use candle timestamps (market time) NOT wall-clock time.
             # This matches the backtester: position_age = current_candle_time - entry_time.
@@ -683,6 +746,16 @@ class StrategyEngine:
             hold.grade = grade
 
             return hold
+            
+        # [GLOBAL SCHEDULER VETO]
+        if not session_ok:
+            reason = f"Outside of scheduled session '{session_id}'"
+            logger.info(f"[ENGINE] {self.symbol} Entry BLOCKED: {reason}")
+            from tradebot_sci.strategy.decisions import stand_aside_decision
+            blocked_dec = stand_aside_decision(self.symbol, timeframe, reason)
+            blocked_dec.score = score
+            blocked_dec.grade = grade
+            return blocked_dec
 
         # 4. ACCOUNT SAFETY GUARDS (My Centralized Entry Veto)
         # [CONSOLIDATED] I run all pre-entry checks (Breaker, Lockout, Greed, Churn, Veto, Streak, Sentry)

@@ -441,6 +441,10 @@ function setupIpcHandlers() {
         console.log('[ANALYTICS-IPC] get-trade-history called with filter:', filter, 'paperMode:', paperMode);
         try {
             const data = await logParser.getTradeHistory(filter, paperMode);
+            // Truncate for UI performance (limit to newest 500)
+            if (data && data.trades && data.trades.length > 500) {
+                data.trades = data.trades.slice(0, 500);
+            }
             console.log('[ANALYTICS-IPC] Trade history result - trades:', data.trades?.length, 'capital:', data.capital?.length);
             return { success: true, data };
         } catch (error) {
@@ -1096,15 +1100,22 @@ function setupIpcHandlers() {
             // 4. Gather account context for smarter recommendations
             // -- Capital by broker --
             let capitalContext = '';
-            const ledgerPath = path.join(DATA_DIR, 'ledger.json');
-            const oandaPosPath = path.join(DATA_DIR, 'oanda_tracked_positions.json');
-            const ccxtHoldsPath = path.join(DATA_DIR, 'position_holds.json');
-            const stdoutLogPath = path.join(USER_DATA_DIR, 'logs', 'bot_stdout.log');
-
+            // Check mode (Paper vs Live)
+            const executeTrades = configJson?.global?.execute_trades || configJson?.runtime?.execute_trades || false;
+            const ledgerFilename = executeTrades ? 'ledger.json' : 'paper_ledger.json';
+            const resultsFilename = executeTrades ? 'trade_results.json' : 'paper_trade_results.json';
+            
             let totalCapital = 0;
             let brokerCapitals = {};
             let activePositions = [];
             let recentPnl = { trades: 0, wins: 0, losses: 0, pnl: 0.0 };
+            let mfeStats = { avgMfe: 0, avgMae: 0, avgGiveback: 0 };
+
+            const ledgerPath = path.join(DATA_DIR, ledgerFilename);
+            const resultsPath = path.join(DATA_DIR, resultsFilename);
+            const oandaPosPath = path.join(DATA_DIR, 'oanda_tracked_positions.json');
+            const ccxtHoldsPath = path.join(DATA_DIR, 'position_holds.json');
+            const stdoutLogPath = path.join(USER_DATA_DIR, 'logs', 'bot_stdout.log');
 
             // Read ledger for capital + recent performance
             if (fs.existsSync(ledgerPath)) {
@@ -1118,6 +1129,25 @@ function setupIpcHandlers() {
                         recentPnl.wins += d.wins || 0;
                         recentPnl.losses += d.losses || 0;
                         recentPnl.pnl += d.pnl || 0;
+                    }
+                } catch (_) { /* ignore */ }
+            }
+
+            // Read trade results for MFE/MAE analysis
+            if (fs.existsSync(resultsPath)) {
+                try {
+                    const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+                    const last50 = results.slice(-50);
+                    const mfes = last50.map(t => t.mfe_usd).filter(v => v != null);
+                    const maes = last50.map(t => t.mae_usd).filter(v => v != null);
+                    if (mfes.length > 0) {
+                        mfeStats.avgMfe = mfes.reduce((a,b) => a+b, 0) / mfes.length;
+                        mfeStats.avgMae = maes.reduce((a,b) => a+b, 0) / maes.length;
+                        const winners = last50.filter(t => t.is_win && t.mfe_usd != null);
+                        if (winners.length > 0) {
+                            const totalGiveback = winners.reduce((sum, t) => sum + (t.mfe_usd - t.pnl_usd), 0);
+                            mfeStats.avgGiveback = totalGiveback / winners.length;
+                        }
                     }
                 } catch (_) { /* ignore */ }
             }
@@ -1222,9 +1252,14 @@ ${posLines || '  (none)'}
 
 Recent Performance (last 7 days):
   Trades: ${recentPnl.trades} | Wins: ${recentPnl.wins} | Losses: ${recentPnl.losses} | Win Rate: ${winRate}% | Net PnL: $${recentPnl.pnl.toFixed(2)}
+  Excursion Analysis (MFE/MAE):
+    Avg MFE (Peak Profit): $${mfeStats.avgMfe.toFixed(2)}
+    Avg MAE (Peak Drawdown): $${mfeStats.avgMae.toFixed(2)}
+    Avg Winner Giveback: $${mfeStats.avgGiveback.toFixed(2)} (Profit left on table)
 
 KEY CONSTRAINTS:
 • This is a SMALL ACCOUNT — risk sizing must account for broker fees eating a larger % of each trade.
+• MFE/MAE OPTIMIZATION: If "Winner Giveback" is high, recommend tightening take-profits or using trailing stops. If MAE is consistently near SL before wins, entries are too early—recommend slower settings.
 • On Gemini, each round-trip costs ~0.80% in fees. A 1% take-profit barely breaks even after fees. Factor this into R:R targets.
 • If OANDA is active, forex spreads are the hidden cost — wider stops absorb spread better.
 • Greed guard targets should be proportional to actual account size, not arbitrary large numbers.

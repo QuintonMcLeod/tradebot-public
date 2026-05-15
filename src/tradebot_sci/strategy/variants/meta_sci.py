@@ -8,6 +8,7 @@ from tradebot_sci.strategy.variants.base import BaseStrategy
 logger = logging.getLogger(__name__)
 
 class MetaSCIStrategy(BaseStrategy):
+    SESSION_PROFILE = ["meta_sci:london_sweep", "meta_sci:us_open", "meta_sci:asian_open", "meta_sci:friday_wind_down"]
     """
     True Adaptive Meta-Strategy (The "Clash" Engine).
     
@@ -574,21 +575,9 @@ class MetaSCIStrategy(BaseStrategy):
             return "crypto_ranging"
 
         # Check session open windows first (highest priority)
-        if snapshot.candles:
-            from zoneinfo import ZoneInfo
-            ts = snapshot.candles[-1].timestamp
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=ZoneInfo("UTC"))
-            utc_time = ts.astimezone(ZoneInfo("UTC"))
-            et_time = ts.astimezone(ZoneInfo("America/New_York"))
-
-            # London open: 08:00-08:30 UTC
-            from datetime import time as dt_time
-            if dt_time(8, 0) <= utc_time.time() < dt_time(8, 30):
-                return "session_open"
-            # NY open: 09:30-10:00 ET
-            if dt_time(9, 30) <= et_time.time() < dt_time(10, 0):
-                return "session_open"
+        active_sessions = gates.get("active_sessions", [])
+        if "london_open" in active_sessions or "us_open" in active_sessions:
+            return "session_open"
 
         # HTF trend strength + direction determines regime
         htf_strength = float(gates.get("htf_strength", 0))

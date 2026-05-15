@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 
 class GoldenPocketStrategy(BaseStrategy):
     """
+    Retracement strategy focusing on the 61.8% Fibonacci level (Golden Pocket).
+    
+    SESSION_PROFILE: us_open
+    """
+    SESSION_PROFILE = "golden_pocket:us_open"
+    """
     Dynamic Value Pullback (The Golden Pocket)
     Requires structured Macro Trend (EMA 21 > EMA 55 for Longs).
     Waits for price to pull back deep into the 55 EMA "pocket".

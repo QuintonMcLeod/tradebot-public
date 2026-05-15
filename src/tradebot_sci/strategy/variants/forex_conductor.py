@@ -51,13 +51,13 @@ _ENTRY_COOLDOWN_BARS = 12  # 1-hour cooldown on 5m chart to prevent clustered re
 _SAR_RISK_PCT = 0.027  # ~$60 max SAR loss per trade at 5.7k balance
 
 
-def _check_loss_cooldown(symbol: str, instance_state: dict) -> bool:
-    return instance_state.get('_cooldown_bars', {}).get(symbol, 0) > 0
+def _check_loss_cooldown(symbol: str, instance: ForexConductorStrategy) -> bool:
+    return getattr(instance, "_cooldown_bars", {}).get(symbol, 0) > 0
 
 
-def _update_cooldown(symbol: str, is_loss: bool, instance_state: dict):
-    loss_streaks = instance_state.setdefault('_loss_streaks', {})
-    cooldown_bars = instance_state.setdefault('_cooldown_bars', {})
+def _update_cooldown(symbol: str, is_loss: bool, instance: ForexConductorStrategy):
+    loss_streaks = getattr(instance, "_loss_streaks", {})
+    cooldown_bars = getattr(instance, "_cooldown_bars", {})
     
     if is_loss:
         loss_streaks[symbol] = loss_streaks.get(symbol, 0) + 1
@@ -71,7 +71,7 @@ def _update_cooldown(symbol: str, is_loss: bool, instance_state: dict):
         loss_streaks[symbol] = 0
 
 
-def _tick_cooldowns(symbol: str, instance_state: dict):
+def _tick_cooldowns(symbol: str, instance: ForexConductorStrategy):
     """Tick cooldowns for a SINGLE symbol only.
 
     This must only tick the given symbol because the function is called
@@ -80,8 +80,8 @@ def _tick_cooldowns(symbol: str, instance_state: dict):
     — a nasty coupling bug that changes behaviour depending on how many
     pairs are traded.
     """
-    cooldown_bars = instance_state.setdefault('_cooldown_bars', {})
-    entry_cooldown = instance_state.setdefault('_entry_cooldown', {})
+    cooldown_bars = getattr(instance, "_cooldown_bars", {})
+    entry_cooldown = getattr(instance, "_entry_cooldown", {})
     
     if symbol in cooldown_bars and cooldown_bars[symbol] > 0:
         cooldown_bars[symbol] -= 1
@@ -106,6 +106,7 @@ class ForexConductorStrategy(BaseStrategy):
     """
     Forex Conductor — routes to strategies based on market regime.
     """
+    SESSION_PROFILE = ["forex_conductor:london_sweep", "forex_conductor:us_open", "forex_conductor:asian_open"]
 
     def __init__(self, **kwargs):
         self._profile_risk_pct: float | None = None
@@ -443,8 +444,8 @@ class ForexConductorStrategy(BaseStrategy):
                 _sl = float(signal.stop_loss or 0.0)
                 if _ep > 0 and _sl > 0:
                     is_jpy = "JPY" in snapshot.symbol.upper()
-                    # Minimum 8 pips for prop firms/Oanda minimum stop levels
-                    min_sl_dist = 8.0 * (0.01 if is_jpy else 0.0001)
+                    # Minimum 10 pips for prop firms/Oanda minimum stop levels (harmonized with broker)
+                    min_sl_dist = 10.0 * (0.01 if is_jpy else 0.0001)
                     
                     _current_ir = abs(_ep - _sl)
                     if _current_ir < min_sl_dist:
@@ -477,7 +478,7 @@ class ForexConductorStrategy(BaseStrategy):
                             signal.take_profit = _ep - (_ir * 100.0)
 
                 # Expose the specific route (e.g. trend_rider vs london_sweep) to the engine
-                signal.strategy_name = f"{self.name} [{key}]"
+                signal.strategy_name = f"{key}" # STRIP "Forex Conductor" prefix to allow exit_logic matching
                 return signal
 
         # ── ATR-BASED FORCED SAR ENTRY (DISABLED) ────────────────────

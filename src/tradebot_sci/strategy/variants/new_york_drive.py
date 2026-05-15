@@ -13,11 +13,13 @@ logger = logging.getLogger(__name__)
 
 class NewYorkDriveStrategy(BaseStrategy):
     """
-    New York Momentum Continuation (NY Drive)
+    Aggressive ICC variant focused on the first 2 hours of the US session.
     Operates during the highest volume hours of the day (13:00 - 16:00 UTC).
     If price violently breaches the highest/lowest price established 
     during the London session, we enter with a dynamic momentum stop.
     """
+    SESSION_PROFILE = "new_york_drive:us_open"
+
     def __init__(self, **kwargs):
         super().__init__("NewYorkDrive")
         

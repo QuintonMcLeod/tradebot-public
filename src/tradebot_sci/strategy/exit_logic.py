@@ -11,7 +11,8 @@ def run_universal_exit_logic(
     open_position: dict,
     gates: dict,
     profile: Any,
-    strategy_name: str
+    strategy_name: str = "unknown",
+    **kwargs
 ) -> Optional[AITradeDecision]:
     """
     Centralized Universal Exit Router.
@@ -47,6 +48,11 @@ def run_universal_exit_logic(
     active_strategies = getattr(profile, "universal_exit_strategies", ["fixed_rr"])
     if isinstance(active_strategies, str):
         active_strategies = [s.strip() for s in active_strategies.split(",") if s.strip()]
+    elif isinstance(active_strategies, list):
+        active_strategies = active_strategies.copy()
+        
+    if getattr(profile, "winner_giveback_enabled", False) and "winner_giveback" not in active_strategies:
+        active_strategies.append("winner_giveback")
     
     # ════════════════════════════════════════════════════════════════════
     # PHASE 1: EMERGENCY EXIT STRATEGIES — run BEFORE hard stop
@@ -123,6 +129,8 @@ def run_universal_exit_logic(
             strat_decision = _exit_ratchet(snapshot, open_position, current_price, direction, r_multiple, stop_price, entry_price, initial_risk)
         elif exit_strategy == "adx_death":
             strat_decision = _exit_adx_death(snapshot, open_position, current_price, direction, gates)
+        elif exit_strategy == "winner_giveback":
+            strat_decision = _exit_winner_giveback(snapshot, open_position, current_price, direction, profile)
         else:
             # Default: fixed_rr
             strat_decision = _exit_fixed_rr(snapshot, open_position, current_price, direction, target_price)
@@ -188,13 +196,18 @@ def _exit_chandelier(snapshot, pos, current_price, direction, profile):
     return None
 
 def _exit_scale_breakeven(snapshot, pos, current_price, direction, r_multiple, current_stop, entry_price):
-    """2. Scale & Breakeven - Move to BE at 1R."""
-    if r_multiple >= 1.0:
-        # Check if already at breakeven
-        if direction == "long" and current_stop < entry_price:
-            return hold_decision(snapshot.symbol, snapshot.timeframe, reason="Breakeven Lock (1R+ Hit)", stop_loss=entry_price)
-        elif direction == "short" and current_stop > entry_price:
-            return hold_decision(snapshot.symbol, snapshot.timeframe, reason="Breakeven Lock (1R+ Hit)", stop_loss=entry_price)
+    """2. Scale & Breakeven - Move to BE at 0.7R with spread buffer."""
+    if r_multiple >= 0.7:
+        # [PHASE 1.2] Apply cost-basis buffer (spread + commissions)
+        # Approximate as 0.1% of entry price for true breakeven
+        cost_buffer = entry_price * 0.001 
+        be_price = entry_price + cost_buffer if direction == "long" else entry_price - cost_buffer
+        
+        # Check if already at or beyond breakeven
+        if direction == "long" and current_stop < be_price:
+            return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Breakeven Lock (1R+ Hit) +Buffer", stop_loss=be_price)
+        elif direction == "short" and current_stop > be_price:
+            return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Breakeven Lock (1R+ Hit) +Buffer", stop_loss=be_price)
     return None
 
 def _exit_parabolic_sar(snapshot, pos, current_price, direction):
@@ -323,10 +336,9 @@ def _exit_bollinger_snap(snapshot, pos, current_price, direction):
     return None
 
 def _exit_ratchet(snapshot, pos, current_price, direction, r_multiple, current_stop, entry_price, initial_risk):
-    """10. Profit Protection Ratchet (0.5R steps)"""
+    # REWARD-TO-RISK OPTIMIZATION: Aggressive steps to protect profit
+    # 0.5R->0.0R, 1.0R->0.5R, 1.5R->1.0R, etc.
     if r_multiple < 0.5: return None
-    
-    # 0.5->0R, 1.0->0.5R, 1.5->1.0R
     ratchet_floor_r = float(int(r_multiple * 2) - 1) / 2.0  
     
     if ratchet_floor_r >= 0:
@@ -347,6 +359,51 @@ def _exit_adx_death(snapshot, pos, current_price, direction, gates):
     if ltf_adx > 0 and ltf_adx < 20:
         # Check if trade has enough profit to just scale out, or kill it
         return _hard_exit(snapshot, pos, f"Trend Death (ADX = {ltf_adx:.1f})")
+    return None
+
+def _exit_winner_giveback(snapshot, pos, current_price, direction, profile):
+    """14. Winner Giveback Protection (MFE Trailing) — 
+    Proactively protects profit after reaching a high-water mark.
+    
+    Logic: If MFE > 1.5R, exit if current PnL drops below a certain % of MFE.
+    Default: Exit if 30% of peak profit is given back.
+    """
+    mfe_usd = float(pos.get("mfe_usd", 0))
+    # Need initial_risk to calculate R-multiple arming threshold
+    initial_risk = float(pos.get("initial_risk", 0))
+    if initial_risk <= 0:
+        # Fallback to ATR-based estimate if initial_risk missing
+        atr = calculate_atr(snapshot.candles) or (current_price * 0.001)
+        initial_risk = atr
+    
+    import logging
+    logger = logging.getLogger("tradebot_sci.exit_logic")
+    # Arming Threshold: Only active once trade reaches 0.5R
+    # (We use price-based MFE for the arming check)
+    mfe_price = float(pos.get("mfe", 0))
+    if mfe_price < (initial_risk * 0.5):
+        # logger.debug(f"[GIVEBACK] {pos.get('symbol')} Not armed: mfe_price={mfe_price:.5f} < required={initial_risk * 0.5:.5f} (risk={initial_risk:.5f})")
+        return None
+        
+    logger.info(f"[GIVEBACK] {pos.get('symbol')} ARMED! mfe_price={mfe_price:.5f} > required={initial_risk * 0.5:.5f}")
+        
+    # Current PnL (USD)
+    pnl_usd = float(pos.get("unrealized_pnl", 0))
+    if pnl_usd <= 0:
+        return None # Should not happen if MFE > 0.5R, but safety first
+        
+    # Giveback calculation
+    giveback_usd = mfe_usd - pnl_usd
+    
+    # Threshold (e.g. 0.30 = 30% giveback allowed)
+    threshold_pct = float(getattr(profile, "winner_giveback_pct", 0.30))
+    allowed_giveback = mfe_usd * threshold_pct
+    
+    logger.info(f"[GIVEBACK] {pos.get('symbol')} mfe_usd=${mfe_usd:.2f}, pnl_usd=${pnl_usd:.2f}, giveback_usd=${giveback_usd:.2f}, allowed=${allowed_giveback:.2f} (pct={threshold_pct})")
+    
+    if giveback_usd > allowed_giveback:
+        return _hard_exit(snapshot, pos, f"Winner Giveback Protection ({threshold_pct*100}% of ${mfe_usd:.2f} MFE surrendered)")
+    
     return None
 
 def _exit_structure_failure(snapshot, pos, current_price, direction):
@@ -449,8 +506,9 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates, str
     import logging
     logger = logging.getLogger("tradebot_sci")
 
-    if strategy_name.lower() in {"reversal", "counter_reversal"}:
-        return None  # Reversal strategies are inherently counter-trend and exempt from this kill-shot.
+    exempt_strategies = {"reversal", "counter_reversal", "london_sweep", "golden_pocket", "new_york_drive", "mean_reversion", "forex_conductor"}
+    if strategy_name.lower() in exempt_strategies or any(s in strategy_name.lower() for s in exempt_strategies):
+        return None  # Reversal/Transitional strategies are inherently counter-trend and exempt from this kill-shot.
 
     sym = snapshot.symbol
     entry_ts_str = str(pos.get("entry_time", ""))
@@ -475,6 +533,7 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates, str
     exec_dir = gates.get("exec_dir", "neutral")   # 5m execution TF
     ltf_dir  = gates.get("ltf_dir",  "neutral")   # 15m lower TF
     mtf_dir  = gates.get("mtf_dir",  "neutral")   # 1H mid TF
+    ltf_adx  = gates.get("ltf_adx", 0)            # [PHASE 1.3] ADX Strength
 
     # ═══════════════════════════════════════════════════════════════
     # LAYER 3 (MTF — 1H): Kill shot — NO profit gate, NO grace
@@ -485,10 +544,10 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates, str
     # profitable.  2 bars of confirmation to filter single-bar spikes.
     #
     # This is checked FIRST because it's the most authoritative signal.
-    MTF_CONFIRM = 2
+    MTF_CONFIRM = 3
 
     key = f"{sym}_mtf"
-    if _is_flipped(direction, mtf_dir):
+    if _is_flipped(direction, mtf_dir) and ltf_adx >= 20:
         _trend_inval_confirm[key] = _trend_inval_confirm.get(key, 0) + 1
         if _trend_inval_confirm[key] >= MTF_CONFIRM:
             _clear_confirm(sym)
@@ -514,11 +573,9 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates, str
     # PROFIT GATES — only for EXEC/LTF layers (noisier signals)
     # ═══════════════════════════════════════════════════════════════
 
-    # ── "Was meaningfully profitable" high-water-mark gate ──
-    # Layers 1 & 2 only arm after the trade reaches 0.3R profit.
-    # This prevents micro-noise from killing trades that haven't
-    # established a profit buffer yet.
-    _arm_threshold = _init_risk * 0.3  # Need 0.3R profit to arm L1/L2
+    # REWARD-TO-RISK OPTIMIZATION: Only arm invalidation after reaching 1.0R.
+    # Exiting at 0.3R (the previous default) destroyed the R:R of the strategy.
+    _arm_threshold = _init_risk * 1.0  # Need 1.0R profit to arm L1/L2
 
     _meaningful_profit = False
     if entry_price > 0:
@@ -530,10 +587,23 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates, str
     if _meaningful_profit:
         _trend_inval_was_profitable[sym] = True
 
-    if not _trend_inval_was_profitable.get(sym, False):
-        # Trade has NEVER reached 0.3R profit — skip L1/L2 invalidation.
-        # MTF kill shot (above) already had its chance.
+    # REWARD-TO-RISK OPTIMIZATION: Only kill trades that are CURRENTLY in profit.
+    # We do not use 5m/15m trend noise to kill trades that are underwater;
+    # let them hit the hard stop or recover. This fixes the "bad R:R" issue.
+    _is_currently_in_profit = False
+    if direction == "long" and current_price > entry_price:
+        _is_currently_in_profit = True
+    elif direction == "short" and current_price < entry_price:
+        _is_currently_in_profit = True
+
+    if not _trend_inval_was_profitable.get(sym, False) or not _is_currently_in_profit:
+        # Trade has NEVER reached 1.0R profit — OR is currently in a loss.
+        # Skip L1/L2 invalidation. MTF kill shot already had its chance.
+        if bars_held % 12 == 0: # Throttle noise
+             logger.debug(f"[TREND-INVAL] {sym}: Skipping L1/L2 (Profit gate active | bars_held={bars_held})")
         return None
+    elif _meaningful_profit:
+        logger.info(f"[TREND-INVAL] {sym}: PROFIT GATE ARMED (1.0R reached at {current_price:.5f})")
 
 
     # ═══════════════════════════════════════════════════════════════

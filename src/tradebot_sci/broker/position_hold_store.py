@@ -24,6 +24,8 @@ class PositionHoldRecord:
     strategy: str | None = None
     original_entry_price: float | None = None
     initial_risk: float | None = None
+    mfe_usd: float | None = 0.0
+    mae_usd: float | None = 0.0
     schema_version: int = SCHEMA_VERSION
 
     def to_dict(self) -> Dict[str, Any]:
@@ -41,6 +43,8 @@ class PositionHoldRecord:
             strategy=data.get("strategy"),
             original_entry_price=float(data["original_entry_price"]) if data.get("original_entry_price") is not None else None,
             initial_risk=float(data["initial_risk"]) if data.get("initial_risk") is not None else None,
+            mfe_usd=float(data.get("mfe_usd", 0.0)),
+            mae_usd=float(data.get("mae_usd", 0.0)),
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
         )
 

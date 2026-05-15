@@ -104,71 +104,89 @@ def _is_forex_open(now: datetime) -> bool:
     return True
 
 
-def get_schedule_status(profile_name: str, now: datetime, settings: Any) -> tuple[bool, bool]:
+def get_schedule_status(profile_name: str, now: datetime, settings: Any, session_id: Optional[str] = None) -> tuple[bool, bool, List[Any]]:
     """
-    Evaluates the ScheduleSettings for a given profile_name at the current time.
+    Evaluates the ScheduleSettings for a given profile_name (or specific session_id) at the current time.
     Returns:
-        (is_scheduled, paper_trade_off_hours)
+        (is_scheduled, paper_trade_off_hours, active_sessions)
         - is_scheduled: True if the bot should be running right now based on any matching session.
         - paper_trade_off_hours: True if there is a session for this profile, but we are outside its
           active window AND it allows paper trading during off-hours.
+        - active_sessions: List of session objects that are currently active.
           
-    If NO sessions exist for the profile, default to fully scheduled (True, False).
+    If NO sessions exist for the profile, default to fully scheduled (True, False, []).
     """
     if not hasattr(settings, "schedule") or not settings.schedule.sessions:
-        return True, False
+        return True, False, []
         
-    profile_sessions = [s for s in settings.schedule.sessions if s.profile_name == profile_name]
+    # Filter sessions: if session_id is provided, match by ID. 
+    # Otherwise, match by profile_name (legacy behavior).
+    profile_sessions = []
+    for s in settings.schedule.sessions:
+        # Strictly respect the 'active' flag
+        if not getattr(s, "active", True):
+            continue
+            
+        if session_id:
+            if getattr(s, "id", None) == session_id:
+                profile_sessions.append(s)
+        elif s.profile_name == profile_name:
+            profile_sessions.append(s)
+            
     if not profile_sessions:
-        return True, False
+        # If a specific session was requested but not found (or inactive), block execution.
+        if session_id:
+            return False, False, []
+        # If no profile-wide sessions defined, default to 24/7.
+        return True, False, []
         
     tz = ZoneInfo(settings.schedule.timezone)
     local_now = now.astimezone(tz)
     weekday_str = local_now.strftime("%A")
-    # ISO week starts on Monday (1)
-    # Getting week of month: simple ceil(day / 7)
     import math
     week_of_month = math.ceil(local_now.day / 7)
     
     can_paper_trade = False
+    active_sessions = []
+    is_scheduled = False
     
     for sess in profile_sessions:
+        sess_active = False
         if sess.mode == "24/7":
-            return True, False
-            
-        # Modes: business_hours, custom, one_time
-        if sess.mode == "one_time" and sess.specific_date:
+            sess_active = True
+        elif sess.mode == "one_time" and sess.specific_date:
             date_str = local_now.strftime("%Y-%m-%d")
-            if sess.specific_date != date_str:
-                if sess.paper_trade_off_hours:
-                    can_paper_trade = True
-                continue
+            if sess.specific_date == date_str:
+                # Check Times for one_time
+                start_h, start_m = map(int, sess.start_time.split(":"))
+                end_h, end_m = map(int, sess.end_time.split(":"))
+                start_dt = local_now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+                end_dt = local_now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+                if start_dt <= local_now < end_dt:
+                    sess_active = True
+            elif sess.paper_trade_off_hours:
+                can_paper_trade = True
         else:
-            # Check Days
-            if weekday_str not in sess.days_of_week:
-                if sess.paper_trade_off_hours:
-                    can_paper_trade = True
-                continue
+            # Check Days & Weeks
+            if weekday_str in sess.days_of_week and week_of_month in sess.weeks_of_month:
+                # Check Times
+                start_h, start_m = map(int, sess.start_time.split(":"))
+                end_h, end_m = map(int, sess.end_time.split(":"))
+                start_dt = local_now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+                end_dt = local_now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
                 
-            # Check Weeks
-            if week_of_month not in sess.weeks_of_month:
-                if sess.paper_trade_off_hours:
+                if start_dt <= local_now < end_dt:
+                    sess_active = True
+                elif sess.paper_trade_off_hours:
                     can_paper_trade = True
-                continue
-            
-        # Check Times
-        start_h, start_m = map(int, sess.start_time.split(":"))
-        end_h, end_m = map(int, sess.end_time.split(":"))
-        start_dt = local_now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
-        end_dt = local_now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+            elif sess.paper_trade_off_hours:
+                can_paper_trade = True
         
-        if start_dt <= local_now < end_dt:
-            return True, False
-        elif sess.paper_trade_off_hours:
-            can_paper_trade = True
+        if sess_active:
+            is_scheduled = True
+            active_sessions.append(sess)
             
-    # Outside of all matching schedules
-    return False, can_paper_trade
+    return is_scheduled, can_paper_trade, active_sessions
 
 
 def get_current_session(now: datetime, sessions: List[Any], tz: ZoneInfo) -> Optional[Dict[str, Any]]:

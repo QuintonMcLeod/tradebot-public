@@ -25,6 +25,8 @@ class TradeResult:
     exit_reason: str | None = None       # Why the trade was closed
     side: str | None = None              # Position direction: "long" or "short"
     spread_cost: float | None = None     # Estimated round-trip spread cost in USD
+    mfe_usd: float | None = None         # Maximum Favorable Excursion (highest floating profit)
+    mae_usd: float | None = None         # Maximum Adverse Excursion (lowest floating profit/drawdown)
 
     def to_dict(self) -> dict:
         d = {k: v for k, v in self.__dict__.items()}
@@ -55,7 +57,9 @@ class TradeResult:
             strategy=data.get("strategy"),
             exit_reason=data.get("exit_reason"),
             side=data.get("side"),
-            spread_cost=float(data["spread_cost"]) if data.get("spread_cost") is not None else None
+            spread_cost=float(data["spread_cost"]) if data.get("spread_cost") is not None else None,
+            mfe_usd=float(data["mfe_usd"]) if data.get("mfe_usd") is not None else None,
+            mae_usd=float(data["mae_usd"]) if data.get("mae_usd") is not None else None
         )
 
 class TradeResultStore:

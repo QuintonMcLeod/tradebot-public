@@ -71,9 +71,10 @@ class CCXTExchangeBroker:
     KRAKEN_AVG_SLIPPAGE = float(os.getenv("KRAKEN_AVG_SLIPPAGE", "0.001"))  # ~0.10% est. slippage on market orders
     KRAKEN_LIMIT_OFFSET = float(os.getenv("KRAKEN_LIMIT_OFFSET", "0.001"))  # 0.1% limit offset
 
-    def __init__(self, profile: TradingProfileSettings, position_hold_store_path: str | None = None, default_type: str | None = None, trade_results: TradeResultStore | None = None) -> None:
+    def __init__(self, profile: TradingProfileSettings, position_hold_store_path: str | None = None, default_type: str | None = None, trade_results: TradeResultStore | None = None, fallback_provider: MarketDataProvider | None = None) -> None:
         self.profile = profile
         self.trade_results = trade_results
+        self.fallback_provider = fallback_provider
         # Auto-detect futures mode if profile name suggests it, unless explicitly overridden
         if default_type is None:
             if (os.getenv("PROFILE_NAME") or "").strip().lower() == "coinbase_futures":
@@ -316,7 +317,9 @@ class CCXTExchangeBroker:
                         pass
 
             pos_dir = "LONG" if side == "sell" else "SHORT"
-            logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={pos_dir} | Duration={duration_str} | Est. Fees factored (0.8%)")
+            _mfe = getattr(record, "mfe_usd", 0.0) if record else 0.0
+            _mae = getattr(record, "mae_usd", 0.0) if record else 0.0
+            logger.info(f"[EXIT] CCXT Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={pos_dir} | Duration={duration_str} | MFE=${_mfe:.2f} MAE=${_mae:.2f} | Est. Fees factored (0.8%)")
             
             # Add to TradeResultStore
             if self.trade_results:
@@ -330,7 +333,11 @@ class CCXTExchangeBroker:
                     capital_at_close=0.0, # Will be updated by balance sync
                     opened_at=opened_at_str,
                     duration_seconds=duration_secs,
+                    strategy=getattr(record, "strategy", "unknown") if record else "unknown",
+                    exit_reason=getattr(decision, "notes", "signal_close") if 'decision' in locals() else "signal_close",
                     side="long" if side == "sell" else "short",
+                    mfe_usd=getattr(record, "mfe_usd", 0.0) if record else 0.0,
+                    mae_usd=getattr(record, "mae_usd", 0.0) if record else 0.0,
                 ))
 
             # Clear Position from Store
@@ -2071,8 +2078,17 @@ class CCXTExchangeBroker:
             quote_volume = float(t.get("quoteVolume")) if t.get("quoteVolume") is not None else None
             return Ticker(symbol=sym, bid=bid, ask=ask, last=last, volume_24h_quote_usd=quote_volume)
         except Exception as exc:
-            logger.debug("[CCXT] ticker fetch failed %s (%s)", sym, exc)
-            # Graceful fallback for Commodity Derivatives (OIL/GLD/SIL)
+            logger.debug("[CCXT] ticker fetch failed %s on %s (%s)", sym, self.exchange_id, exc)
+            
+            # 1. Try Fallback Provider first
+            if self.fallback_provider:
+                logger.info(f"[CCXT-BROKER] Falling back to {type(self.fallback_provider).__name__} for ticker {sym}")
+                # We need the original symbol for the provider, or at least a good guess
+                # Most canonical symbols are just sym.replace("/", "")
+                clean_sym = sym.replace("/", "").replace(":", "").split("-")[0]
+                return self.fallback_provider.get_ticker(clean_sym)
+
+            # 2. Graceful fallback for Commodity Derivatives (OIL/GLD/SIL)
             # These don't support standard ticker fetches on Coinbase but we can use our record price.
             if self.position_hold_store:
                 # We can't map back to the 'original' symbol easily here, but we can check the store

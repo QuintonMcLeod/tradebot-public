@@ -260,6 +260,10 @@ class SimulatedPosition:
     stop_was_trailed: bool = False  # True once stop moves from initial position (SAR gate)
     original_entry_price: Optional[float] = None
     initial_risk: Optional[float] = None
+    mfe: float = -float('inf')  # Max Favorable Excursion (highest profit reached)
+    mae: float = float('inf')  # Max Adverse Excursion (deepest drawdown reached)
+    mfe_usd: float = 0.0
+    mae_usd: float = 0.0
 
     def __post_init__(self):
         # Auto-resolve strategy_name from entry_gates if still defaulted
@@ -284,6 +288,8 @@ class SimulatedTrade:
     exit_reason: str  # "stop", "target", "signal", "eod"
     entry_gates: Optional[dict] = None  # Score breakdown at entry time
     strategy_name: str = "unknown"  # Which strategy managed this trade
+    mfe_usd: float = 0.0
+    mae_usd: float = 0.0
 
     def __post_init__(self):
         if self.strategy_name == "unknown" and self.entry_gates:
@@ -961,6 +967,29 @@ class Backtester:
                     continue
 
                 current_bar = current_candles[-1]
+                
+                # Update unrealized P&L
+                pos.unrealized_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction, symbol=symbol)
+
+                # Update MFE/MAE
+                if pos.direction == "long":
+                    # MFE uses candle high, MAE uses candle low
+                    curr_mfe = current_bar.high - pos.entry_price
+                    curr_mae = current_bar.low - pos.entry_price
+                else:
+                    curr_mfe = pos.entry_price - current_bar.low
+                    curr_mae = pos.entry_price - current_bar.high
+
+                if curr_mfe > pos.mfe:
+                    pos.mfe = curr_mfe
+                    # Convert to USD excursion
+                    pos.mfe_usd = _calculate_pnl(pos.entry_price, current_bar.high if pos.direction == "long" else current_bar.low, pos.size, pos.direction, symbol=symbol)
+                
+                if curr_mae < pos.mae:
+                    pos.mae = curr_mae
+                    # Convert to USD excursion
+                    pos.mae_usd = _calculate_pnl(pos.entry_price, current_bar.low if pos.direction == "long" else current_bar.high, pos.size, pos.direction, symbol=symbol)
+                
                 held_seconds = (current_time - pos.entry_time).total_seconds()
 
                 if max_hold_seconds > 0 and held_seconds >= max_hold_seconds:
@@ -1018,12 +1047,16 @@ class Backtester:
                             exit_reason="profit_hold",
                             entry_gates=getattr(pos, "entry_gates", None),
                             strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                            mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                            mae_usd=getattr(pos, 'mae_usd', 0.0),
                         ))
                         trade_results_store.add_result(TradeResult(
                             symbol=symbol,
                             closed_at=current_time.isoformat(),
                             pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
                             pnl_usd=pnl,
+                            mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                            mae_usd=getattr(pos, 'mae_usd', 0.0),
                             is_win=pnl > 0,
                             tier="backtest",
                             capital_at_close=capital,
@@ -1161,6 +1194,8 @@ class Backtester:
                                 exit_reason="guillotine",
                                 entry_gates=getattr(pos, "entry_gates", None),
                                 strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                                mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                                mae_usd=getattr(pos, 'mae_usd', 0.0),
                             ))
                             trade_results_store.add_result(TradeResult(
                                 symbol=symbol,
@@ -1210,12 +1245,16 @@ class Backtester:
                             exit_reason="stop",
                             entry_gates=getattr(pos, "entry_gates", None),
                             strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                            mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                            mae_usd=getattr(pos, 'mae_usd', 0.0),
                         ))
                         trade_results_store.add_result(TradeResult(
                             symbol=symbol,
                             closed_at=current_time.isoformat(),
                             pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
                             pnl_usd=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
+                            mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                            mae_usd=getattr(pos, 'mae_usd', 0.0),
                             is_win=(pnl + getattr(pos, "cumulative_partial_pnl", 0.0)) > 0,
                             tier="backtest",
                             capital_at_close=capital,
@@ -1427,12 +1466,16 @@ class Backtester:
                             exit_reason="target",
                             entry_gates=getattr(pos, "entry_gates", None),
                             strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                            mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                            mae_usd=getattr(pos, 'mae_usd', 0.0),
                         ))
                         trade_results_store.add_result(TradeResult(
                             symbol=symbol,
                             closed_at=current_time.isoformat(),
                             pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
                             pnl_usd=pnl,
+                            mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                            mae_usd=getattr(pos, 'mae_usd', 0.0),
                             is_win=pnl > 0,
                             tier="backtest",
                             capital_at_close=capital,
@@ -1483,6 +1526,10 @@ class Backtester:
                                         'target_price': pos.target_price,
                                         'entry_time': pos.entry_time.isoformat() if pos.entry_time else None,
                                         'initial_risk': getattr(pos, 'initial_risk', None),
+                                        'mfe': getattr(pos, 'mfe', 0.0),
+                                        'mfe_usd': getattr(pos, 'mfe_usd', 0.0),
+                                        'mae_usd': getattr(pos, 'mae_usd', 0.0),
+                                        'unrealized_pnl': getattr(pos, 'unrealized_pnl', 0.0),
                                     }
                                     from tradebot_sci.strategy.exit_logic import run_universal_exit_logic
                                     _router_decision = run_universal_exit_logic(
@@ -1509,12 +1556,16 @@ class Backtester:
                                             exit_reason=_router_reason,
                                             entry_gates=getattr(pos, "entry_gates", None),
                                             strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                                            mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                                            mae_usd=getattr(pos, 'mae_usd', 0.0),
                                         ))
                                         trade_results_store.add_result(TradeResult(
                                             symbol=symbol,
                                             closed_at=current_time.isoformat(),
                                             pnl_pct=(_pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
                                             pnl_usd=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
+                                            mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                                            mae_usd=getattr(pos, 'mae_usd', 0.0),
                                             is_win=(_pnl + getattr(pos, "cumulative_partial_pnl", 0.0)) > 0,
                                             tier="backtest",
                                             capital_at_close=capital,
@@ -1534,9 +1585,6 @@ class Backtester:
                                             logger.info(f"[BACKTEST] {symbol} Router trail: stop {old_stop:.5f} → {pos.stop_price:.5f}")
                         except Exception as _router_err:
                             logger.debug(f"[BACKTEST] Universal exit router error for {symbol}: {_router_err}")
-
-                # Update unrealized P&L
-                pos.unrealized_pnl = _calculate_pnl(pos.entry_price, current_bar.close, pos.size, pos.direction, symbol=symbol)
 
                 # NOTE: Counter-Reversal (CR) is handled in the stop-hit block above.
                 # CR fires after an SAR stop-out (chain guard triggers), going back
@@ -1567,12 +1615,16 @@ class Backtester:
                         exit_reason="max_loss_cap",
                         entry_gates=getattr(pos, "entry_gates", None),
                         strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                        mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                        mae_usd=getattr(pos, 'mae_usd', 0.0),
                     ))
                     trade_results_store.add_result(TradeResult(
                         symbol=symbol,
                         closed_at=current_time.isoformat(),
                         pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
                         pnl_usd=pnl,
+                        mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                        mae_usd=getattr(pos, 'mae_usd', 0.0),
                         is_win=pnl > 0,
                         tier="backtest",
                         capital_at_close=capital,
@@ -1861,6 +1913,8 @@ class Backtester:
                                         exit_reason=actual_reason,
                                         entry_gates=getattr(sp_pos, "entry_gates", None),
                                         strategy_name=getattr(sp_pos, 'strategy_name', 'unknown'),
+                                        mfe_usd=getattr(sp_pos, 'mfe_usd', 0.0),
+                                        mae_usd=getattr(sp_pos, 'mae_usd', 0.0),
                                     ))
                                     trade_results_store.add_result(TradeResult(
                                         symbol=symbol,
@@ -2084,6 +2138,8 @@ class Backtester:
                                 exit_reason=actual_reason,
                                 entry_gates=getattr(current_position, "entry_gates", None),
                                 strategy_name=getattr(current_position, 'strategy_name', 'unknown'),
+                                mfe_usd=getattr(current_position, 'mfe_usd', 0.0),
+                                mae_usd=getattr(current_position, 'mae_usd', 0.0),
                             ))
                             # For multi-position, delete by the sub-strategy key
                             if is_multi_position:

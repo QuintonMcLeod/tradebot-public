@@ -618,6 +618,105 @@ def _create_default_config() -> None:
     logger.info("[CONFIG] Created default config.json - Please configure your settings!")
 
 
+def _sync_strategy_sessions(settings: Settings) -> None:
+    """
+    Auto-link & Dynamic Enablement:
+    1. Ensures each active strategy has a corresponding Global Scheduler session.
+    2. Enables sessions when the strategy is enabled.
+    3. Disables sessions if the strategy is no longer selected.
+    4. Synchronizes session activation with the master 'Live Trading' (execute_trades) toggle.
+    """
+    try:
+        from tradebot_sci.strategy.engine import StrategyEngine
+    except ImportError:
+        return
+
+    import importlib
+    from tradebot_sci.config.models import ScheduleSession
+
+    # A. Global Live Trading State
+    master_live = settings.runtime.execute_trades
+
+    # B. Map Profiles to their required Session IDs
+    # Format: { (profile_name, session_id): True }
+    required_session_map = {}
+    
+    for p_name, profile in settings.profiles.items():
+        profile_strats = set()
+        if profile.strategy_variant:
+            profile_strats.add(profile.strategy_variant.lower())
+        if profile.strategies:
+            # PerAssetStrategies is a Pydantic model, convert to dict to iterate values
+            strat_dict = profile.strategies.model_dump()
+            for s in strat_dict.values():
+                if isinstance(s, str) and s:
+                    profile_strats.add(s.lower())
+        
+        for variant in profile_strats:
+            entry = StrategyEngine.STRATEGY_REGISTRY.get(variant)
+            if entry:
+                try:
+                    module_path, class_name = entry
+                    mod = importlib.import_module(module_path)
+                    cls = getattr(mod, class_name)
+                    session_id = getattr(cls, "SESSION_PROFILE", None)
+                    if session_id:
+                        required_session_map[(p_name, session_id)] = True
+                except Exception:
+                    continue
+
+    # C. Update existing sessions and track which ones we found
+    seen_sessions = set()
+    for sess in settings.schedule.sessions:
+        s_id = getattr(sess, "id", None)
+        p_name = getattr(sess, "profile_name", None)
+        
+        if not s_id or not p_name:
+            continue
+            
+        key = (p_name, s_id)
+        is_required = required_session_map.get(key, False)
+        
+        # Rule: Active only if REQUIRED and LIVE TRADING IS ON
+        should_be_active = is_required and master_live
+        
+        if sess.active != should_be_active:
+            state = "Enabled" if should_be_active else "Disabled"
+            reason = "Strategy Active" if is_required else "Strategy Inactive"
+            if is_required and not master_live:
+                reason = "Live Trading Off"
+            
+            logger.info(f"[CONFIG] {state} session '{s_id}' for profile '{p_name}' ({reason})")
+            sess.active = should_be_active
+            
+        seen_sessions.add(key)
+
+    # D. Auto-create missing sessions for required strategy windows
+    for (p_name, s_id) in required_session_map.keys():
+        if (p_name, s_id) not in seen_sessions:
+            logger.info(f"[CONFIG] Auto-creating missing session '{s_id}' for profile '{p_name}'")
+            
+            # Default windows based on common session IDs
+            defaults = {
+                "london_open": {"start": "03:00", "end": "11:00", "mode": "business_hours"},
+                "us_open":     {"start": "09:30", "end": "16:00", "mode": "business_hours"},
+                "asian_open":  {"start": "19:00", "end": "03:00", "mode": "business_hours"},
+                "friday_wind_down": {"start": "12:00", "end": "16:00", "days": ["Friday"], "mode": "custom"},
+            }
+            d = defaults.get(s_id, {"start": "00:00", "end": "23:59", "mode": "24/7"})
+            
+            new_sess = ScheduleSession(
+                id=s_id,
+                profile_name=p_name,
+                active=master_live, # Start enabled only if live trading is on
+                mode=d.get("mode", "business_hours"),
+                start_time=d.get("start", "09:30"),
+                end_time=d.get("end", "16:00"),
+                days_of_week=d.get("days", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+            )
+            settings.schedule.sessions.append(new_sess)
+
+
 def load_settings() -> Settings:
     """Main entry point for loading and merging configuration."""
     # 0. Ensure user data directories exist and migrate if needed
@@ -698,6 +797,7 @@ def load_settings() -> Settings:
     # 5. Final safety audit
     configure_crypto_routing(settings.market.crypto_routing)
     _enforce_profile_guardrails(settings)
+    _sync_strategy_sessions(settings)
 
     # Final safety check: Ensure profiles is not empty
     if not settings.profiles:

@@ -19,6 +19,8 @@ class LondonSweepStrategy(BaseStrategy):
     If price sweeps these levels but immediately closes back inside,
     we enter a reversal with an ultra-tight stop right above/below the wick. 
     """
+    SESSION_PROFILE = "london_sweep:london_sweep"
+
     def __init__(self, **kwargs):
         super().__init__("LondonSweep")
         

@@ -13,20 +13,11 @@ logger = logging.getLogger(__name__)
 
 class SessionMomentumStrategy(BaseStrategy):
     """
-    Session Momentum: VWAP + Volume Surge at Market Open.
-
-    Captures the initial directional move during the highest-volume
-    period of the trading day. Active only in the first 30 minutes
-    of London or NY session.
-
-    Entry criteria:
-    - Within active session window (London 08:00-08:30 GMT or NY 09:30-10:00 ET)
-    - Price breaks above/below VWAP
-    - Volume of current candle > 2× average volume (surge)
-    - Direction aligns with gap/bias
-
-    R:R: Always 2:1 minimum.
+    Captures intraday momentum following major session opens.
+    
+    SESSION_PROFILE: london_open
     """
+    SESSION_PROFILE = ["session_momentum:london_open", "session_momentum:us_open"]
 
     # Session windows (start, end) in respective timezones
     LONDON_WINDOW = (time(8, 0), time(8, 30))
@@ -116,10 +107,10 @@ class SessionMomentumStrategy(BaseStrategy):
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 risk_per_trade_pct=self.get_risk_pct(),
-                structure_summary=f"Session Momentum: {session_label} Open VWAP Break (Vol={current_volume:.0f}/{avg_volume:.0f})",
+                structure_summary=f"Session Momentum: {self.SESSION_PROFILE} Open VWAP Break (Vol={current_volume:.0f}/{avg_volume:.0f})",
                 invalidation_conditions="Price returns below VWAP",
                 management_instructions="Target 2R. Move to BE after 1R.",
-                notes=f"{session_label} session open momentum trade",
+                notes=f"{self.SESSION_PROFILE} session open momentum trade",
                 urgency="high",
             )
 
@@ -140,10 +131,10 @@ class SessionMomentumStrategy(BaseStrategy):
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 risk_per_trade_pct=self.get_risk_pct(),
-                structure_summary=f"Session Momentum: {session_label} Open VWAP Break (Vol={current_volume:.0f}/{avg_volume:.0f})",
+                structure_summary=f"Session Momentum: {self.SESSION_PROFILE} Open VWAP Break (Vol={current_volume:.0f}/{avg_volume:.0f})",
                 invalidation_conditions="Price returns above VWAP",
                 management_instructions="Target 2R. Move to BE after 1R.",
-                notes=f"{session_label} session open momentum trade",
+                notes=f"{self.SESSION_PROFILE} session open momentum trade",
                 urgency="high",
             )
 

@@ -101,7 +101,7 @@ class ActionScorer:
         if sweep: score += 0.15
         if continuation: score += 0.12
         if indication: score += 0.08
-        if session_ok: score += 0.05
+        # Session bonus removed - handled by runtime scheduler
         
         if not align:
             # Sliding Penalty: If HTF is strong (>0.6), reduce penalty to 10% (0.9x). 

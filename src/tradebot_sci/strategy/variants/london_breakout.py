@@ -16,11 +16,16 @@ logger = logging.getLogger(__name__)
 
 class LondonBreakoutStrategy(BaseStrategy):
     """
-    Session Breakout — Asian Box → London Open.
+    Session Breakout - Asian Box -> London Open.
+    
+    SESSION_PROFILE: london_open
+    """
+    SESSION_PROFILE = "london_breakout:london_open"
 
+    """
     Proven forex strategy (50%+ WR at 1.5:1 R:R, heavily backtested).
-    Identifies the Asian session consolidation range (00:00–06:00 UTC)
-    and trades the breakout when London opens (07:00–10:00 UTC).
+    Identifies the Asian session consolidation range (00:00-06:00 UTC)
+    and trades the breakout when London opens (07:00-10:00 UTC).
 
     Setup: Asian session high/low = "the box"
     Entry: Price breaks AND CLOSES above box high (long) or below box low (short)

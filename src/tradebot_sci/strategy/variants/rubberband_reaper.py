@@ -10,6 +10,7 @@ from tradebot_sci.strategy.icc_signals import calculate_atr, detect_structure_in
 logger = logging.getLogger(__name__)
 
 class RubberbandReaperStrategy(BaseStrategy):
+    SESSION_PROFILE = ["rubberband_reaper:london_sweep", "rubberband_reaper:us_open", "rubberband_reaper:asian_open"]
     """
     Rubberband Reaper: CONFIG 20 (The Staircase Ratchet).
     - Strict Thresholds (Config 13 Quality).

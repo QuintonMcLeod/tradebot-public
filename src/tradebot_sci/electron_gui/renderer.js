@@ -1999,6 +1999,8 @@ function updateStatus(text, latency) {
     if (statusDot) {
         if (text.toLowerCase() === 'connected') {
             statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-pulse";
+        } else if (text.toLowerCase().includes('sabbath')) {
+            statusDot.className = "w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)] animate-pulse";
         } else {
             statusDot.className = "w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]";
         }

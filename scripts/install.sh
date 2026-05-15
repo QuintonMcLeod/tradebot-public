@@ -175,13 +175,24 @@ install_sys_deps() {
             ;;
         darwin)
             if ! command -v brew >/dev/null 2>&1; then
-                info "Homebrew not found. Installing Homebrew..."
-                run_with_spinner "Running Homebrew installer" /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+                if [ -x /opt/homebrew/bin/brew ]; then
+                    eval "$(/opt/homebrew/bin/brew shellenv)"
+                elif [ -x /usr/local/bin/brew ]; then
+                    eval "$(/usr/local/bin/brew shellenv)"
+                fi
             fi
-            if [ -x /opt/homebrew/bin/brew ]; then
-                eval "$(/opt/homebrew/bin/brew shellenv)"
-            elif [ -x /usr/local/bin/brew ]; then
-                eval "$(/usr/local/bin/brew shellenv)"
+
+            if ! command -v brew >/dev/null 2>&1; then
+                info "Homebrew not found. Installing Homebrew..."
+                echo -ne "  ${CYAN}→${NC} Running Homebrew installer (non-interactive)... "
+                NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$LOG_FILE" 2>&1 || true
+                echo -e "\r  ${GREEN}✓${NC} Running Homebrew installer (non-interactive)      "
+                
+                if [ -x /opt/homebrew/bin/brew ]; then
+                    eval "$(/opt/homebrew/bin/brew shellenv)"
+                elif [ -x /usr/local/bin/brew ]; then
+                    eval "$(/usr/local/bin/brew shellenv)"
+                fi
             fi
             SHELL_PROFILE="$HOME/.zprofile"
             if ! grep -q 'brew shellenv' "$SHELL_PROFILE" 2>/dev/null; then

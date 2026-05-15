@@ -194,6 +194,7 @@
             case 'reason': return (trade.reason || '').toLowerCase();
             case 'strategy': return (typeof trade.strategy === 'string' ? trade.strategy : (trade.strategy_name || '')).toLowerCase();
             case 'capital': return trade._runningCapital || 0;
+            case 'mfe_mae': return parseFloat(trade.mfe_usd || 0);
             default: return 0;
         }
     }
@@ -537,7 +538,7 @@
         const sorted = _sortBtTrades(_lastBtTrades);
 
         if (sorted.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-dim); padding:40px 16px; font-style:italic;">
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--text-dim); padding:40px 16px; font-style:italic;">
                 <span class="material-symbols-outlined" style="font-size:28px; display:block; margin-bottom:8px; opacity:0.25;">search_off</span>
                 No trades in this backtest
             </td></tr>`;
@@ -549,7 +550,8 @@
             const isWin = pnl >= 0;
             const cap = t._runningCapital || 0;
             const capColor = cap >= _btInitialCapital ? 'var(--success)' : 'var(--error)';
-            const stratStr = typeof t.strategy === 'string' ? t.strategy : (t.strategy_name || '--');
+            const mfe = parseFloat(t.mfe_usd || 0);
+            const mae = parseFloat(t.mae_usd || 0);
             return `<tr>
                 <td style="color:var(--text-secondary);">${t.time ? new Date(t.time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}</td>
                 <td style="font-weight:700; color:var(--text-main);">${t.symbol || '--'}</td>
@@ -557,8 +559,13 @@
                 <td style="text-align:center;"><span class="wl-dot ${isWin ? 'win' : 'loss'}"></span>${isWin ? 'Win' : 'Loss'}</td>
                 <td style="text-align:right; font-weight:700; color:${isWin ? 'var(--success)' : 'var(--error)'};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
                 <td style="text-align:right; font-weight:600; color:${capColor}; font-variant-numeric:tabular-nums;">$${cap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td style="text-align:center; font-size:10px; font-weight:600;">
+                    <span style="color:#34d399;">${mfe > 0 ? '+' + mfe.toFixed(2) : '--'}</span>
+                    <span style="color:var(--text-dim); margin:0 2px;">/</span>
+                    <span style="color:var(--error);">${mae < 0 ? mae.toFixed(2) : '--'}</span>
+                </td>
                 <td style="color:var(--text-muted);">${t.duration || '--'}</td>
-                <td style="color:var(--text-muted);">${stratStr}</td>
+                <td style="color:var(--text-muted);">${t.strategy || '--'}</td>
                 <td style="color:var(--text-muted);">${t.reason || '--'}</td>
             </tr>`;
         }).join('');
@@ -591,7 +598,7 @@
     function _exportCSV() {
         if (!_lastBtTrades || _lastBtTrades.length === 0) return;
 
-        const headers = ['Time', 'Symbol', 'Side', 'Result', 'PnL', 'Capital', 'Duration', 'Exit Reason'];
+        const headers = ['Time', 'Symbol', 'Side', 'Result', 'PnL', 'Capital', 'MFE', 'MAE', 'Duration', 'Exit Reason'];
         const rows = _lastBtTrades.map(t => {
             const pnl = t.pnl || 0;
             const timeStr = t.time ? new Date(t.time).toLocaleString() : '';
@@ -602,6 +609,8 @@
                 pnl >= 0 ? 'Win' : 'Loss',
                 pnl.toFixed(2),
                 (t._runningCapital || 0).toFixed(2),
+                (t.mfe_usd || 0).toFixed(2),
+                (t.mae_usd || 0).toFixed(2),
                 t.duration || '',
                 t.reason || '',
             ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');

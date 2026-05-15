@@ -249,15 +249,25 @@ class TradingProfileSettings(BaseModel):
         "ma_crossover", "time_decay", "swing_trailing", "rsi_exhaustion", 
         "bollinger_snap", "ratchet_milestone", "adx_death", "structure_failure", "trend_invalidation"
     ]] = Field(
-        default_factory=lambda: ["fixed_rr"],
+        default_factory=lambda: ["fixed_rr", "structure_failure", "trend_invalidation", "ratchet_milestone", "scale_breakeven", "chandelier", "time_decay"],
         description="The universal exit methodology that supersedes strategy-specific exits.",
     )
+    winner_giveback_enabled: bool = Field(
+        default=False,
+        description="Enable MFE-based Winner Giveback protection.",
+    )
+    winner_giveback_pct: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Percentage of MFE (peak profit) allowed to be given back before exiting.",
+    )
     chandelier_atr_mult: float = Field(
-        default=2.0,
+        default=1.5,
         description="The ATR multiplier for the Chandelier trailing stop.",
     )
     time_decay_bars: int = Field(
-        default=24,
+        default=48,
         description="The number of bars before the Time-Decay exit triggers.",
     )
 
@@ -471,17 +481,17 @@ class TradingProfileSettings(BaseModel):
         description="Fixed risk per trade in account currency. Overrides risk_per_trade_pct when > 0.",
     )
     risk_per_trade_pct: float = Field(
-        default=0.01,
+        default=0.005,
         ge=0.0,
         le=1.0,
-        description="Standard risk per trade as a fraction of equity.",
+        description="Standard risk per trade as a fraction of equity (0.005 = 0.5%).",
     )
 
     @field_validator("risk_per_trade_pct", mode="after")
     @classmethod
     def _ensure_valid_risk(cls, v: Any) -> float:
         if not v or v <= 0.0:
-            return 0.01
+            return 0.005
         return float(v)
     risk_dynamic_auto: bool = Field(
         default=False,
@@ -494,10 +504,10 @@ class TradingProfileSettings(BaseModel):
         description="Maximum fraction of liquid balance allowed for a single asset's total exposure.",
     )
     target_leverage: float = Field(
-        default=50.0,
+        default=10.0,
         ge=1.0,
         le=100.0,
-        description="Target leverage for the asset class. Forex default 50x (OANDA provides 50:1 on majors).",
+        description="Target leverage for the asset class. Forex default 10x (Safe-by-default).",
     )
     icc_entry_score_threshold: float = Field(
         default=60.0,
@@ -653,10 +663,10 @@ class TradingProfileSettings(BaseModel):
         description="Halt new entries when daily drawdown exceeds safety_drawdown_max_pct.",
     )
     safety_drawdown_max_pct: float = Field(
-        default=0.10,
+        default=0.03,
         ge=0.0,
         le=1.0,
-        description="Daily drawdown threshold (10%) before drawdown breaker halts entries.",
+        description="Daily drawdown threshold (3%) before drawdown breaker halts entries.",
     )
     safety_streak_breaker_enabled: bool = Field(
         default=False,
@@ -1227,7 +1237,9 @@ class AppSettings(BaseModel):
 
 
 class ScheduleSession(BaseModel):
+    id: Optional[str] = Field(default=None, description="Unique identifier for the session (e.g. 'london_open')")
     profile_name: str
+    active: bool = Field(default=True, description="Whether this session is currently enabled for gating")
     mode: Literal["24/7", "business_hours", "custom", "one_time", "continuous"] = Field(default="business_hours")
     days_of_week: list[str] = Field(default_factory=lambda: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
     weeks_of_month: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5])
@@ -1361,7 +1373,7 @@ class SafetySettings(BaseModel):
         default_factory=lambda: os.getenv("SAFETY_REGIME_FLIP_ENABLED", "False").lower() == "true"
     )
     greedy_exit_max_hold_hours: float = Field(
-        default_factory=lambda: float(os.getenv("GREEDY_EXIT_MAX_HOLD_HOURS", "8.0")),
+        default_factory=lambda: float(os.getenv("GREEDY_EXIT_MAX_HOLD_HOURS", "24.0")),
         ge=0.0,
         description="Maximum hours before Greedy Exit forces a close (0 disables). "
                     "Trail tightens in the second half of this window.",

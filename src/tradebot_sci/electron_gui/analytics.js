@@ -73,6 +73,7 @@ async function loadAnalyticsData(filter) {
 
         if (result && result.success) {
             const d = result.data;
+            window._analyticsDisplayLimit = d.displayLimit || 500;
             updateMetrics(d);
             updateCharts(d);
             // Store per-broker data at module level
@@ -214,9 +215,19 @@ function updateMetrics(data) {
     // R:R in grid
     set('metric-rr-grid', data.riskReward && data.riskReward !== 'N/A' ? `${data.riskReward}:1` : 'N/A');
 
-    // Trade count badge
+    // Trade count badge (showing truncation info if applicable)
     const tcEl = document.getElementById('trade-count');
-    if (tcEl) tcEl.textContent = `${data.totalTrades ?? 0} trades`;
+    if (tcEl) {
+        const total = data.totalTrades ?? 0;
+        const shown = data.trades ? data.trades.filter(t => !t._active).length : 0;
+        if (shown < total && shown > 0) {
+            tcEl.textContent = `Showing last ${shown} of ${total} trades`;
+            tcEl.title = `The UI is limited to the last ${shown} trades for performance. Analytics still use all ${total} trades.`;
+        } else {
+            tcEl.textContent = `${total} trades`;
+            tcEl.title = '';
+        }
+    }
 
     // ── Payout Mentor Logic ──
     const tpCard = document.getElementById('take-profit-card');
@@ -1023,6 +1034,7 @@ function _sortValue(trade, key) {
         }
         case 'strategy': return (trade.strategy || '').toLowerCase();
         case 'reason': return (trade.reason || '').toLowerCase();
+        case 'mfe_mae': return parseFloat(trade.mfe_usd || 0); // Sort by MFE
         default: return 0;
     }
 }
@@ -1111,7 +1123,7 @@ function updateTradeHistory(trades) {
     if (active.length > 0) {
         const headerRow = document.createElement('tr');
         headerRow.innerHTML = `
-            <td colspan="10" style="padding:8px 16px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:#34d399; background:rgba(16,185,129,0.06); border-bottom:1px solid rgba(16,185,129,0.1);">
+            <td colspan="11" style="padding:8px 16px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:#34d399; background:rgba(16,185,129,0.06); border-bottom:1px solid rgba(16,185,129,0.1);">
                 <span class="material-symbols-outlined" style="font-size:13px; vertical-align:-2px; margin-right:4px;">radio_button_checked</span>
                 Active Positions (${active.length})
             </td>
@@ -1144,6 +1156,8 @@ function updateTradeHistory(trades) {
             const strategy = trade.strategy ? trade.strategy.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '--';
             const pnlPct = parseFloat(trade.pct || trade.pnlPct) || 0;
             const spread = parseFloat(trade.spread) || 0;
+            const mfe = parseFloat(trade.mfe_usd || 0);
+            const mae = parseFloat(trade.mae_usd || 0);
 
             // Unique button ID
             const sym = trade.symbol || 'UNK';
@@ -1156,6 +1170,11 @@ function updateTradeHistory(trades) {
                 <td style="text-align:center;"><span style="font-size:9px;padding:2px 8px;border-radius:4px;background:rgba(16,185,129,0.12);color:#34d399;font-weight:800;letter-spacing:0.05em;">OPEN</span></td>
                 <td style="text-align:right; font-weight:700; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
                 <td style="text-align:right; font-size:11px; color:${pnlPct >= 0 ? '#34d399' : '#f87171'};">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
+                <td style="text-align:center; font-size:10px; font-weight:600;">
+                    <span style="color:#34d399;">${mfe > 0 ? '+' + mfe.toFixed(2) : '--'}</span>
+                    <span style="color:#475569; margin:0 2px;">/</span>
+                    <span style="color:#f87171;">${mae < 0 ? mae.toFixed(2) : '--'}</span>
+                </td>
                 <td style="text-align:right; font-size:11px; color:#475569;">--</td>
                 <td style="color:#34d399; font-size:11px; font-weight:600;">⏱ ${duration}</td>
                 <td style="color:#94a3b8; font-size:11px;">${strategy}</td>
@@ -1242,10 +1261,12 @@ function updateTradeHistory(trades) {
     if (closed.length > 0) {
         if (active.length > 0) {
             const headerRow = document.createElement('tr');
+            const isTruncated = trades.length >= (window._analyticsDisplayLimit || 500);
+            const countText = isTruncated ? `Last ${closed.length} Trades` : `Closed Trades (${closed.length})`;
             headerRow.innerHTML = `
-                <td colspan="10" style="padding:8px 16px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:#64748b; background:rgba(71,85,105,0.06); border-bottom:1px solid rgba(71,85,105,0.1);">
+                <td colspan="11" style="padding:8px 16px; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.15em; color:#64748b; background:rgba(71,85,105,0.06); border-bottom:1px solid rgba(71,85,105,0.1);">
                     <span class="material-symbols-outlined" style="font-size:13px; vertical-align:-2px; margin-right:4px;">receipt_long</span>
-                    Closed Trades (${closed.length})
+                    ${countText}
                 </td>
             `;
             tbody.appendChild(headerRow);
@@ -1270,6 +1291,8 @@ function updateTradeHistory(trades) {
             const strategy = trade.strategy ? trade.strategy.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '--';
             const pnlPct = parseFloat(trade.pct || trade.pnlPct) || 0;
             const spread = parseFloat(trade.spread) || 0;
+            const mfe = parseFloat(trade.mfe_usd || 0);
+            const mae = parseFloat(trade.mae_usd || 0);
 
             // Result badge
             let resultBadge;
@@ -1288,6 +1311,11 @@ function updateTradeHistory(trades) {
                 <td style="text-align:center;">${resultBadge}</td>
                 <td style="text-align:right; font-weight:700; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
                 <td style="text-align:right; font-size:11px; color:${pnlPct >= 0 ? '#34d399' : '#f87171'};">${pnlPct !== 0 ? (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%' : '--'}</td>
+                <td style="text-align:center; font-size:10px; font-weight:600;">
+                    <span style="color:#34d399;">${mfe > 0 ? '+' + mfe.toFixed(2) : '--'}</span>
+                    <span style="color:#475569; margin:0 2px;">/</span>
+                    <span style="color:#f87171;">${mae < 0 ? mae.toFixed(2) : '--'}</span>
+                </td>
                 <td style="text-align:right; font-size:11px; color:#475569;">${spread > 0 ? '$' + spread.toFixed(2) : '--'}</td>
                 <td style="color:#34d399; font-size:11px; font-weight:600;">${(() => { const d = formatClosedDuration(trade); return d ? '⏱ ' + d : '--'; })()}</td>
                 <td style="color:#94a3b8; font-size:11px;">${strategy}</td>

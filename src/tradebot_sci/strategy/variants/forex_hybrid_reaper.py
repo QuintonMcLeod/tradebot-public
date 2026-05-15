@@ -12,6 +12,7 @@ from tradebot_sci.strategy.icc_signals import calculate_atr
 logger = logging.getLogger(__name__)
 
 class ForexHybridReaperStrategy(BaseStrategy):
+    SESSION_PROFILE = ["forex_hybrid_reaper:hybrid_overlap", "forex_hybrid_reaper:london_open"]
     """
     Forex Hybrid Scalper — Router inspired high-frequency 5m Forex strategy.
     Combines HyperScalper's trend filter (EMA 200) with Rubberband Reaper's 

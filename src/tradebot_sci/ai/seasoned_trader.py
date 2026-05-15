@@ -120,6 +120,8 @@ SENTINEL_TOOLTIP_REFERENCE = {
     # ── Exit & Trailing ──
     "TRAILING_STOP_ENABLED": "Trailing stop that follows price upward, locking in profit.",
     "TRAILING_STOP_MIN_PROFIT_PCT": "Minimum profit before trailing stop activates.",
+    "WINNER_GIVEBACK_ENABLED": "If enabled, uses the 'Winner Giveback' strategy in the exit router to protect profit after MFE hits 1.5R. Highly recommended for trending markets.",
+    "WINNER_GIVEBACK_PCT": "The percentage of peak profit (MFE) you are willing to give back before exiting. 0.30 = 30%. Lower values (0.15) are tighter; higher (0.50) are looser.",
     "STOP_ATR_MULTIPLIER": "Distance of stop-loss from entry, as a multiple of ATR (market volatility).",
     "MIN_HOLD_HOURS": "Minimum time a trade must be held before it can be closed.",
     "MAX_HOLD_HOURS": "Maximum time a trade is allowed to stay open.",
@@ -160,6 +162,8 @@ SENTINEL_PROFILE_REFERENCE = {
     "strategies.etf": "Strategy override for ETF trades.",
     "strategies.metals": "Strategy override for metals trades.",
     "strategies.futures": "Strategy override for futures trades.",
+    "winner_giveback_enabled": "Enable MFE-based Winner Giveback protection.",
+    "winner_giveback_pct": "Percentage of MFE profit surrender allowed (0.10 to 0.90).",
 }
 
 
@@ -237,6 +241,7 @@ class SeasonedTraderDaemon:
     _PROFILE_MODIFY_BLOCKLIST = {
         "htf_timeframe", "mtf_timeframe", "ltf_timeframe",
         "timeframe", "execution_timeframe",
+        "execute_trades", # [SAFETY] AI must NEVER toggle live trading
     }
 
     def _modify_profile(self, name: str, updates: dict):
@@ -714,9 +719,11 @@ class SeasonedTraderDaemon:
                 size = pos.get("size", pos.get("units", 0))
                 pnl = pos.get("unrealized_pnl", pos.get("pnl", 0))
                 entry_time = pos.get("entry_time", "?")
+                mfe = pos.get("mfe_usd", 0.0)
+                mae = pos.get("mae_usd", 0.0)
                 lines.append(
                     f"  {sym} {side} | entry={entry} | SL={sl} | TP={tp} "
-                    f"| size={size} | PnL=${pnl} | opened={entry_time}"
+                    f"| size={size} | PnL=${pnl} | MFE=${mfe} | MAE=${mae} | opened={entry_time}"
                 )
         else:
             lines.append("\n--- OPEN POSITIONS ---\n  No open positions.")
@@ -810,6 +817,12 @@ class SeasonedTraderDaemon:
         """Lazily create an OANDA market data provider, or return ReplayProvider from controller."""
         if self.controller and hasattr(self.controller, "replay_provider") and self.controller.replay_provider:
             return self.controller.replay_provider
+
+        # [SILENCE] If live trading is disabled and no replay is active, we return None
+        # to prevent polling live OANDA APIs for market data ingestion.
+        execute_trades = config.get("runtime", {}).get("execute_trades", False)
+        if not execute_trades:
+            return None
 
         if hasattr(self, '_market_provider') and self._market_provider:
             return self._market_provider
@@ -949,6 +962,31 @@ class SeasonedTraderDaemon:
         lines.append(f"  Avg Trade Duration: {avg_duration_mins:.1f} min")
         lines.append(f"  Best Trade: {best.get('symbol','?')} ${float(best.get('pnl_usd',0)):+.2f}")
         lines.append(f"  Worst Trade: {worst.get('symbol','?')} ${float(worst.get('pnl_usd',0)):+.2f}")
+
+        # ── MFE/MAE Analysis ──
+        mfes = [float(t.get("mfe_usd", 0)) for t in trades if t.get("mfe_usd") is not None]
+        maes = [float(t.get("mae_usd", 0)) for t in trades if t.get("mae_usd") is not None]
+        
+        if mfes:
+            avg_mfe = sum(mfes) / len(mfes)
+            avg_mae = sum(maes) / len(maes) if maes else 0
+            mfe_mae_ratio = abs(avg_mfe / avg_mae) if avg_mae != 0 else avg_mfe
+            
+            # Analyze "Left on Table" (MFE vs final PnL for winners)
+            winner_mfes = [float(t.get("mfe_usd", 0)) for t in wins if t.get("mfe_usd") is not None]
+            winner_pnls = [float(t.get("pnl_usd", 0)) for t in wins]
+            avg_winner_giveback = 0.0
+            if winner_mfes:
+                givebacks = [(m - p) for m, p in zip(winner_mfes, winner_pnls) if m > 0]
+                avg_winner_giveback = sum(givebacks) / len(givebacks) if givebacks else 0
+
+            lines.append("\n--- EXCURSION ANALYSIS (MFE/MAE) ---")
+            lines.append(f"  Avg MFE (Peak Profit): ${avg_mfe:.2f}")
+            lines.append(f"  Avg MAE (Peak Drawdown): ${avg_mae:.2f}")
+            lines.append(f"  MFE/MAE Ratio: {mfe_mae_ratio:.2f}")
+            lines.append(f"  Avg Winner Giveback: ${avg_winner_giveback:.2f} (Profit left on table)")
+            lines.append("  💡 Insight: If Avg Winner Giveback is high, consider tightening TP or Trailing Stop.")
+            lines.append("  💡 Insight: If MAE is consistently near SL before winning, consider wider SL or later entry.")
 
         # ── Timeframe Breakdown ──
         now = datetime.now()
@@ -1141,6 +1179,12 @@ class SeasonedTraderDaemon:
             '- Only propose profiles and symbols for asset classes supported by the connected exchanges.\n'
             '- OANDA US does NOT allow metals trading (XAU/USD, XAG/USD, etc.) — this is a US regulatory restriction (CFTC). Do NOT suggest gold, silver, or any metal pairs.\n'
             '- OANDA US supports: Forex pairs and CFD indices ONLY. No metals, no crypto.\n'
+            '- MFE/MAE OPTIMIZATION PROTOCOL:\n'
+            '    * You are now provided with MFE (Maximum Favorable Excursion) and MAE (Maximum Adverse Excursion) for all trades.\n'
+            '    * MFE is the peak profit a trade reached before closing. MAE is the peak drawdown it hit.\n'
+            '    * If MFE is high but the trade closed at a loss (Winner Giveback), the bot is "giving back" too much. TWEAK: Decrease RISK_REWARD_RATIO or enable/tighten TRAILING_STOP_MIN_PROFIT_PCT.\n'
+            '    * If MAE is consistently large (approaching SL) before the trade turns into a win, your entries are too early. TWEAK: Switch to a slower HTF/LTF pairing or increase STOP_ATR_MULTIPLIER.\n'
+            '    * If MFE/MAE ratio is low (< 1.0), the strategy is "unclean"—it takes more heat than heat it generates. Consider switching strategy_variant.\n'
             '\n'
             'HANDS-OFF SETTINGS (DO NOT TOUCH):\n'
             '- NEVER modify htf_timeframe, mtf_timeframe, or ltf_timeframe on ANY profile. These are architecturally load-bearing.\n'

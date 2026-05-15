@@ -315,7 +315,7 @@ class NoOpExchangeBroker(IExchangeBroker):
     def _has_active_orders_or_position(self, *args, **kwargs) -> bool: return False
     def refresh_account_summary(self) -> None: pass
     def summarize_pnl(self) -> None: pass
-    def get_liquid_capital(self) -> float: return 0.0
+    def get_liquid_capital(self, symbol: str | None = None) -> float: return 0.0
     def get_total_equity(self) -> float: return 0.0
 
 
@@ -343,6 +343,14 @@ def _create_single_broker(name: str, settings: Settings, profile_settings, share
     """Helper to instantiate a broker by name."""
     name = name.lower().strip()
     
+    # [RULE] If live-trading is disabled, we return a No-Op broker to ensure
+    # absolute isolation from live exchange APIs.
+    # The PaperBroker is initialized separately in loop.py when needed.
+    execute_trades = getattr(settings.runtime, "execute_trades", False)
+    if not execute_trades:
+        logger.info(f"[ROUTED-EXEC] Live trading disabled: routing '{name}' to NoOpExchangeBroker (Isolation Gate).")
+        return NoOpExchangeBroker()
+
     if name == "disabled" or name == "none":
         return NoOpExchangeBroker()
 
@@ -481,6 +489,14 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
     """Helper to instantiate a market provider by name."""
     name = name.lower().strip()
     
+    # [RULE] If live-trading is disabled, we return a No-Op provider to ensure
+    # absolute isolation from live market data APIs.
+    # The ReplayMarketProvider is initialized separately in loop.py if needed.
+    execute_trades = getattr(settings.runtime, "execute_trades", False)
+    if not execute_trades and name not in ("oanda", "kraken", "primary", "ccxt", "coinbase", "gemini"):
+        logger.info(f"[ROUTED-DATA] Live trading disabled: routing '{name}' to NoOpMarketDataProvider (Isolation Gate).")
+        return NoOpMarketDataProvider()
+
     if name == "disabled" or name == "none":
         return NoOpMarketDataProvider()
 
@@ -516,13 +532,18 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
     if name == "ibkr":
         return IbkrMarketDataProvider(shared_ib)
     elif name == "oanda":
-        if not settings.oanda:
+        if not settings.oanda or not settings.oanda.api_key:
             from tradebot_sci.config.broker import load_oanda_broker_options
             settings.oanda = load_oanda_broker_options()
+        
+        # If still no API key after loading, we can't create the provider
+        if not settings.oanda.api_key:
+            logger.warning("[ROUTED-DATA] Oanda provider requested but no API key found in env or config.")
+            return NoOpMarketDataProvider()
+            
         return OandaMarketDataProvider(
             account_id=settings.oanda.account_id,
             api_key=settings.oanda.api_key,
-
             environment=settings.oanda.environment
         )
     elif name == "paxos" or name == "itbit":
@@ -532,19 +553,38 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
         return PaxosMarketDataProvider(environment=settings.paxos.environment)
     elif name == "ccxt" or name == "coinbase":
         if profile_settings:
-            temp_broker = CCXTExchangeBroker(profile_settings)
-            return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data)
+            # Try to get Oanda as fallback for CCXT brokers
+            fallback = None
+            if os.getenv("OANDA_API_KEY"):
+                try: fallback = _create_single_provider("oanda", settings, profile_settings, shared_ib)
+                except Exception: pass
+            temp_broker = CCXTExchangeBroker(profile_settings, fallback_provider=fallback)
+            return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data, fallback_provider=fallback)
         return CoinbaseMarketDataProvider()
     elif name == "gemini":
         # Gemini specific CCXT initialization
         os.environ["CCXT_EXCHANGE"] = "gemini"
-        temp_broker = CCXTExchangeBroker(profile_settings)
-        return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data)
+        # Try to get Oanda as fallback
+        fallback = None
+        if os.getenv("OANDA_API_KEY"):
+            try: fallback = _create_single_provider("oanda", settings, profile_settings, shared_ib)
+            except Exception: pass
+        temp_broker = CCXTExchangeBroker(profile_settings, fallback_provider=fallback)
+        return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data, fallback_provider=fallback)
     elif name == "kraken":
         # Kraken specific CCXT initialization (public API, no keys needed)
         os.environ["CCXT_EXCHANGE"] = "kraken"
-        temp_broker = CCXTExchangeBroker(profile_settings)
-        return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data)
+        
+        # [RESILIENCE] Inject Oanda as a fallback if available to survive Kraken rate limits
+        fallback = None
+        if os.getenv("OANDA_API_KEY"):
+            try:
+                fallback = _create_single_provider("oanda", settings, profile_settings, shared_ib)
+            except Exception as e:
+                logger.warning(f"[RESILIENCE] Failed to initialize Oanda fallback: {e}")
+
+        temp_broker = CCXTExchangeBroker(profile_settings, fallback_provider=fallback)
+        return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data, fallback_provider=fallback)
     elif name in ("mt5", "ftmo"):
         from tradebot_sci.broker.mt5_zmq_broker import MT5ZMQMarketProvider
         logger.info(f"[ROUTED-DATA] MT5 Market Data Provider engaged via ZMQ (Mode: {name}).")

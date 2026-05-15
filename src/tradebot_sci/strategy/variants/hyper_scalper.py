@@ -11,6 +11,7 @@ from tradebot_sci.config.models import UserConfig
 logger = logging.getLogger(__name__)
 
 class HyperScalperStrategy(BaseStrategy):
+    SESSION_PROFILE = ["hyper_scalper:london_sweep", "hyper_scalper:us_open", "hyper_scalper:asian_open"]
     """
     High-frequency 5m Forex strategy.
     Uses EMA Crossovers (9/21) and ATR for rapid compounding.

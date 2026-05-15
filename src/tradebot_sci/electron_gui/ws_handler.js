@@ -442,12 +442,18 @@ async function connectWebSocket() {
                         profileEl.className = "text-xs text-emerald-400 font-bold drop-shadow-sm";
                     }
                 }
-                if (data.is_sabbath !== undefined) {
-                    window.isSabbath = !!data.is_sabbath;
+                if (data.is_sabbath !== undefined || data.sabbath_mode !== undefined) {
+                    const isSabbathActive = !!data.is_sabbath || !!data.sabbath_mode;
+                    window.isSabbath = isSabbathActive;
                     const sabbathEl = document.getElementById('status-sabbath');
                     if (sabbathEl) {
-                        if (data.is_sabbath) sabbathEl.classList.remove('hidden');
+                        if (isSabbathActive) sabbathEl.classList.remove('hidden');
                         else sabbathEl.classList.add('hidden');
+                    }
+                    if (isSabbathActive) {
+                        updateStatus('Sabbath Standby', '--');
+                    } else if (!data.halted) {
+                        updateStatus('connected', '--');
                     }
                 }
                 if (data.is_eval !== undefined) {
