@@ -2424,6 +2424,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                 current_session_name = session["name"]
             
             if not session:
+                controller.health_monitor.set_market_hours(False)
                 next_start, next_session = get_next_session_start(now, settings.schedule.sessions, tz)
                 if not next_start or not next_session:
                     logger.info("[STATE] No upcoming sessions; idling")
@@ -2488,7 +2489,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         executor = executor_real
 
                 # ── Health Monitor: Record heartbeat at cycle start ──
-                controller.health_monitor.record_heartbeat()
+                controller.health_monitor.record_heartbeat(sabbath_active)
                 controller.health_monitor.set_market_hours(not sabbath_active)
 
                 # Replay/Synthetic mode for scheduled sessions (Sabbath or Simulation)
@@ -2558,6 +2559,20 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         allow_entries = False
                     elif not replay_provider.can_enter():
                         allow_entries = False
+                else:
+                    # Live simulation / paper mode: check Forex weekend block to prevent ghost trade attempts
+                    try:
+                        import zoneinfo
+                        est_tz = zoneinfo.ZoneInfo("America/New_York")
+                        now_est = datetime.now(est_tz)
+                        if now_est.weekday() == 4 and now_est.hour >= 17:
+                            allow_entries = False
+                        elif now_est.weekday() == 5:
+                            allow_entries = False
+                        elif now_est.weekday() == 6 and now_est.hour < 17:
+                            allow_entries = False
+                    except Exception:
+                        pass
                 if next_decision_in <= 0:
                     # Advance the replay cursor if in weekend replay mode
                     if replay_provider is not None:

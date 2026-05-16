@@ -215,44 +215,53 @@ function getTradeHistory(filter = '24h', paperMode = false) {
                     const ts = t.closed_at || t.timestamp;
                     if (ts && new Date(ts) >= fallbackGlobalCutoff) {
                         const tsTime = new Date(ts).getTime();
-                        const isDupe = trades.some(existing => {
+                        const existingIdx = trades.findIndex(existing => {
                             if (existing.symbol !== t.symbol) return false;
                             const existingTs = existing.closed_at || existing.timestamp || existing.time || 0;
                             return Math.abs(new Date(existingTs).getTime() - tsTime) < 5000;
                         });
-                        if (!isDupe) {
-                            // Normalize field names: trade_results.json uses
-                            // pnl_usd/pnl_pct/exit_reason, analytics expects pnl/pct/reason
-                            const pnlVal = t.pnl ?? t.pnl_usd ?? 0;
-                            const exitReason = t.exit_reason || t.reason || '';
 
-                            // Extract strategy from exit_reason when strategy is 'unknown'
-                            // e.g. "[Conductor:trend_rider] ..." → "trend_rider"
-                            let strategy = t.strategy || 'unknown';
-                            // Overwrite MT5 native auto-comments with 'manual'
-                            if (typeof strategy === 'string' && strategy.match(/^\[(tp|sl|sl\/tp|tp\/sl).*\]/i)) {
-                                strategy = 'manual';
-                            }
-                            if (strategy === 'unknown' && exitReason) {
-                                const stratMatch = exitReason.match(/\[Conductor:(\w+)\]/);
-                                if (stratMatch) {
-                                    strategy = stratMatch[1];
-                                } else if (exitReason.includes('sl_tp_hit')) {
-                                    strategy = 'forex_conductor';
-                                } else if (exitReason.includes('Regime Flip')) {
-                                    strategy = 'regime_flip';
-                                }
-                            }
+                        // Normalize field names: trade_results.json uses
+                        // pnl_usd/pnl_pct/exit_reason, analytics expects pnl/pct/reason
+                        const pnlVal = t.pnl ?? t.pnl_usd ?? 0;
+                        const exitReason = t.exit_reason || t.reason || '';
 
-                            // Compute pnl_pct from capital if missing/zero
-                            let pctVal = t.pct ?? t.pnl_pct ?? 0;
-                            if (pctVal === 0 && pnlVal !== 0 && t.capital_at_close) {
-                                const capitalBefore = t.capital_at_close - pnlVal;
-                                if (capitalBefore > 0) {
-                                    pctVal = (pnlVal / capitalBefore) * 100;
-                                }
+                        // Extract strategy from exit_reason when strategy is 'unknown'
+                        // e.g. "[Conductor:trend_rider] ..." → "trend_rider"
+                        let strategy = t.strategy || 'unknown';
+                        // Overwrite MT5 native auto-comments with 'manual'
+                        if (typeof strategy === 'string' && strategy.match(/^\[(tp|sl|sl\/tp|tp\/sl).*\]/i)) {
+                            strategy = 'manual';
+                        }
+                        if (strategy === 'unknown' && exitReason) {
+                            const stratMatch = exitReason.match(/\[Conductor:(\w+)\]/);
+                            if (stratMatch) {
+                                strategy = stratMatch[1];
+                            } else if (exitReason.includes('sl_tp_hit')) {
+                                strategy = 'forex_conductor';
+                            } else if (exitReason.includes('Regime Flip')) {
+                                strategy = 'regime_flip';
                             }
+                        }
 
+                        // Compute pnl_pct from capital if missing/zero
+                        let pctVal = t.pct ?? t.pnl_pct ?? 0;
+                        if (pctVal === 0 && pnlVal !== 0 && t.capital_at_close) {
+                            const capitalBefore = t.capital_at_close - pnlVal;
+                            if (capitalBefore > 0) {
+                                pctVal = (pnlVal / capitalBefore) * 100;
+                            }
+                        }
+
+                        if (existingIdx !== -1) {
+                            const existing = trades[existingIdx];
+                            if (t.mfe_usd !== undefined) existing.mfe_usd = t.mfe_usd;
+                            if (t.mae_usd !== undefined) existing.mae_usd = t.mae_usd;
+                            if (t.spread ?? t.spread_cost) existing.spread = t.spread ?? t.spread_cost;
+                            if (strategy !== 'unknown') existing.strategy = strategy;
+                            if (exitReason) existing.reason = exitReason;
+                            existing._source = 'ledger+trade_results';
+                        } else {
                             trades.push({
                                 ...t,
                                 pnl: pnlVal,

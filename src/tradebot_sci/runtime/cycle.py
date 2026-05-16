@@ -367,11 +367,13 @@ def process_candidate_cycle(
                             # the risk is technically the entire position's notional value.
                             actual_risk = entry * abs(size)
                             
-                        if hasattr(executor, 'get_liquid_capital'):
-                            try:
-                                sizing_capital = executor.get_liquid_capital(s)
-                            except TypeError:
-                                sizing_capital = executor.get_liquid_capital()
+                        prop_tier = float(getattr(profile_settings, "prop_challenge_tier_usd", 0.0))
+                        prop_loss = float(getattr(profile_settings, "prop_challenge_max_loss_pct", 0.0))
+                        if prop_tier > 0 and prop_loss <= 0:
+                            prop_loss = 0.04 if prop_tier <= 50000 else 0.03
+                        
+                        if prop_tier > 0 and prop_loss > 0:
+                            sizing_capital = prop_tier * prop_loss
                         else:
                             sizing_capital = global_equity
                             

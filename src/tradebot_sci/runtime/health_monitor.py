@@ -128,10 +128,11 @@ class HealthMonitor:
     # ──────────────────────────────────────────────────────
     # Vital #1: Heartbeat
     # ──────────────────────────────────────────────────────
-    def record_heartbeat(self) -> None:
+    def record_heartbeat(self, sabbath_active: bool = False) -> None:
         """Called at the top of each bot loop cycle."""
         self._last_heartbeat_ts = time.time()
         self._cycle_count += 1
+        self._market_hours_active = not sabbath_active
         self._evaluate_heartbeat()
 
     def _evaluate_heartbeat(self) -> None:
