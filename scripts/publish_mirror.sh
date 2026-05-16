@@ -4,10 +4,12 @@ set -e
 # Usage: ./scripts/publish_mirror.sh <REMOTE_URL> [BRANCH]
 
 # 1. Config
-# Try to extract the GitLab token from environment, .env.secrets, .env, or the local git config
-GITLAB_TOKEN="${GITLAB_TOKEN:-}"
-if [ -z "$GITLAB_TOKEN" ] && [ -f "${HOME}/.config/tradebot-sci/.env.secrets" ]; then
+# Force extract the GitLab token from .env.secrets first, ignoring stale environment variables
+if [ -f "${HOME}/.config/tradebot-sci/.env.secrets" ]; then
     GITLAB_TOKEN=$(grep -oP 'GITLAB_TOKEN=\K.*' "${HOME}/.config/tradebot-sci/.env.secrets" 2>/dev/null || true)
+fi
+if [ -z "$GITLAB_TOKEN" ]; then
+    GITLAB_TOKEN="${GITLAB_TOKEN:-}"
 fi
 if [ -z "$GITLAB_TOKEN" ] && [ -f "$(dirname "$0")/../.env" ]; then
     GITLAB_TOKEN=$(grep -oP 'GITLAB_TOKEN=\K.*' "$(dirname "$0")/../.env" 2>/dev/null || true)
