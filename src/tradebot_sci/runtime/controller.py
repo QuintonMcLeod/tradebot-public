@@ -373,3 +373,12 @@ class RuntimeController:
         """Record an event in the health monitor timeline."""
         self.health_monitor.add_event(label, level)
 
+    def broadcast_restriction(self, restriction_data: dict[str, Any]) -> None:
+        """Push broker restriction notifications to the GUI via WebSocket."""
+        if not self.ws_server:
+            return
+        try:
+            self.ws_server.broadcast_restriction_sync(restriction_data)
+        except Exception as e:
+            logger.error(f"[CONTROLLER] Restriction broadcast failed: {e}")
+

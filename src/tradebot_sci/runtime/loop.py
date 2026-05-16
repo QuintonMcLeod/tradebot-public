@@ -983,6 +983,8 @@ def run_bot(
     )
 
     controller = RuntimeController(settings, profile_settings)
+    if executor_paper:
+        executor_paper.controller = controller
     # Wire paper ledger to controller for PnL display
     # Paper mode activates via Sabbath OR when live trading is disabled.
     if (sabbath_context.enabled or not execute_trades) and paper_ledger:
@@ -1182,6 +1184,13 @@ def run_bot(
                 # Populate cache with the latest candle
                 _candle_cache[(symbol.upper(), tf.lower())] = hist[-1]
                 logger.info(f"[WS-CACHE] Cached: {symbol} {tf} → {hist[-1].timestamp.isoformat()}")
+                
+                # Immediately push current health vitals, state, holdings, and commentary to the newly subscribed client
+                controller.broadcast_health(force=True)
+                controller.broadcast_holdings(executor)
+                last_comm, _ = controller.get_last_commentary()
+                if last_comm:
+                    controller.ws_server.broadcast_commentary_sync(last_comm, datetime.now(timezone.utc).strftime("%I:%M %p"), 300)
             else:
                 logger.warning(f"[WS] No history found for {symbol} ({tf})")
         except Exception as e:
@@ -1479,7 +1488,8 @@ def run_bot(
                                     executor_paper = PaperBroker(
                                         profile_settings,
                                         market_provider=provider,
-                                        trade_results=paper_trade_results
+                                        trade_results=paper_trade_results,
+                                        controller=controller
                                     )
                                     if not paper_ledger:
                                         paper_ledger = LedgerDaemon(
@@ -1605,7 +1615,8 @@ def run_bot(
                     executor_paper = PaperBroker(
                         profile_settings,
                         market_provider=provider,
-                        trade_results=paper_trade_results
+                        trade_results=paper_trade_results,
+                        controller=controller
                     )
                     # Start paper ledger if missing
                     if not paper_ledger:
@@ -2322,7 +2333,8 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         executor_paper = PaperBroker(
             profile_settings, 
             market_provider=provider, 
-            trade_results=paper_trade_results
+            trade_results=paper_trade_results,
+            controller=controller
         )
         if not execute_trades:
             logger.info("[PAPER] 📝 Paper Trading mode active (Live Trading disabled).")
@@ -2477,7 +2489,8 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         executor_paper = PaperBroker(
                             profile_settings,
                             market_provider=provider,
-                            trade_results=local_paper_results
+                            trade_results=local_paper_results,
+                            controller=controller
                         )
                     if executor != executor_paper:
                         logger.info("[PAPER] 🛡️  Fail-safe: Forcing Paper Broker activation for scheduled isolation.")
@@ -2489,8 +2502,11 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         executor = executor_real
 
                 # ── Health Monitor: Record heartbeat at cycle start ──
+                any_market_open = any(is_market_open(sym, loop_now, settings=profile_settings) for sym in symbols)
                 controller.health_monitor.record_heartbeat(sabbath_active)
-                controller.health_monitor.set_market_hours(not sabbath_active)
+                controller.health_monitor.set_market_hours((not sabbath_active) and any_market_open)
+                if controller.health_monitor.is_warming_up:
+                    logger.info(f"[WARM-UP] Strategy warm-up active (Cycle {controller.health_monitor._cycle_count}/10). Suppressing health warnings.")
 
                 # Replay/Synthetic mode for scheduled sessions (Sabbath or Simulation)
                 _want_replay = False

@@ -24,9 +24,62 @@ function _resolveUserDataDir() {
 }
 const USER_DATA_DIR = _resolveUserDataDir();
 
+function _getInstanceId() {
+    if (process.env.TRADEBOT_INSTANCE_ID) return process.env.TRADEBOT_INSTANCE_ID;
+    let wsUrl = process.env.GUI_WS_URL;
+    const dotenvPath = path.join(_APP_ROOT, '.env');
+    if (!wsUrl && fs.existsSync(dotenvPath)) {
+        try {
+            const content = fs.readFileSync(dotenvPath, 'utf8');
+            content.split('\n').forEach(line => {
+                const match = line.match(/^\s*GUI_WS_URL\s*=\s*(.*)$/);
+                if (match) wsUrl = match[1].trim();
+            });
+        } catch(e) {}
+    }
+    if (wsUrl) {
+        const m = wsUrl.match(/:(\d+)/);
+        if (m) return `instance_${m[1]}`;
+        const clean = wsUrl.replace(/[^A-Za-z0-9_]/g, '_');
+        return `instance_${clean}`;
+    }
+    return 'instance_8080';
+}
+const INSTANCE_ID = _getInstanceId();
+
 // Primary: user data dir (where the daemon writes); Fallback: project root (legacy/dev)
-const LOGS_DIR = fs.existsSync(path.join(USER_DATA_DIR, 'logs')) ? path.join(USER_DATA_DIR, 'logs') : path.join(_APP_ROOT, 'logs');
-const DATA_DIR = fs.existsSync(path.join(USER_DATA_DIR, 'data')) ? path.join(USER_DATA_DIR, 'data') : path.join(_APP_ROOT, 'data');
+const BASE_LOGS_DIR = fs.existsSync(path.join(USER_DATA_DIR, 'logs')) ? path.join(USER_DATA_DIR, 'logs') : path.join(_APP_ROOT, 'logs');
+const BASE_DATA_DIR = fs.existsSync(path.join(USER_DATA_DIR, 'data')) ? path.join(USER_DATA_DIR, 'data') : path.join(_APP_ROOT, 'data');
+
+const LOGS_DIR = path.join(BASE_LOGS_DIR, INSTANCE_ID);
+const DATA_DIR = path.join(BASE_DATA_DIR, INSTANCE_ID);
+
+if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Auto-migrate legacy top-level data/logs into the instance subdirectory if empty
+if (fs.existsSync(BASE_DATA_DIR) && BASE_DATA_DIR !== DATA_DIR) {
+    fs.readdirSync(BASE_DATA_DIR).forEach(fname => {
+        const src = path.join(BASE_DATA_DIR, fname);
+        const dst = path.join(DATA_DIR, fname);
+        try {
+            if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+                fs.copyFileSync(src, dst);
+            }
+        } catch(e) {}
+    });
+}
+if (fs.existsSync(BASE_LOGS_DIR) && BASE_LOGS_DIR !== LOGS_DIR) {
+    fs.readdirSync(BASE_LOGS_DIR).forEach(fname => {
+        const src = path.join(BASE_LOGS_DIR, fname);
+        const dst = path.join(LOGS_DIR, fname);
+        try {
+            if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+                fs.copyFileSync(src, dst);
+            }
+        } catch(e) {}
+    });
+}
 
 // ── Helpers ──────────────────────────────────────────────
 

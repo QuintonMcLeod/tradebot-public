@@ -30,6 +30,9 @@ class WebSocketServer:
         self.subscriptions: dict[web.WebSocketResponse, dict[str, str]] = {}
         self.loop: asyncio.AbstractEventLoop | None = None
         self._halted = False
+        self.broadcast_queue: asyncio.PriorityQueue | None = None
+        self.broadcast_task: asyncio.Task | None = None
+        self._msg_counter: int = 0
         self._on_subscribe_cb: Callable[[str, str, int | None], Any] | None = None
         self._on_tick_cb: Callable[[str, str], Any] | None = None
         self._on_flatten_cb: Callable[[str], Any] | None = None
@@ -40,10 +43,41 @@ class WebSocketServer:
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, self.host, self.port)
         await self.site.start()
+        self.broadcast_queue = asyncio.PriorityQueue()
+        self.broadcast_task = asyncio.create_task(self._broadcast_worker())
         logger.info(f"WebSocket Server started at ws://{self.host}:{self.port}/ws")
+
+    async def _broadcast_worker(self) -> None:
+        """Background worker that pulls messages from the priority queue and broadcasts them."""
+        while not self._halted:
+            try:
+                if self.broadcast_queue is None:
+                    await asyncio.sleep(0.1)
+                    continue
+                priority, timestamp, counter, message = await self.broadcast_queue.get()
+                await self.broadcast(message)
+                self.broadcast_queue.task_done()
+                
+                # Prevent WebSocket flooding and UI freezing during high-speed replay mode.
+                # Priority 1 (health) and Priority 2 (state) are vital telemetry and are sent instantly.
+                # Lower priority messages (holdings, commentary, candles, logs) get a small adaptive yield/sleep
+                # to allow the Electron GUI main thread time to process DOM updates without freezing.
+                if priority > 2:
+                    await asyncio.sleep(0.005)  # Caps low-priority flood to ~200 msgs/sec while vitals remain unthrottled
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"[WS-WORKER] Error in broadcast worker: {e}")
 
     async def stop(self) -> None:
         """Stops the WebSocket server."""
+        self._halted = True
+        if self.broadcast_task:
+            self.broadcast_task.cancel()
+            try:
+                await self.broadcast_task
+            except asyncio.CancelledError:
+                pass
         for ws in list(self.clients):
             await ws.close(code=aiohttp.WSCloseCode.GOING_AWAY, message=b'Server shutdown')
         if self.runner:
@@ -191,9 +225,27 @@ class WebSocketServer:
         if self.loop:
             asyncio.run_coroutine_threadsafe(self.stop(), self.loop)
 
-    def broadcast_sync(self, message: dict[str, Any]) -> None:
-        """Thread-safe broadcast from sync code."""
-        if self.loop:
+    def _get_next_counter(self) -> int:
+        self._msg_counter += 1
+        return self._msg_counter
+
+    def broadcast_sync(self, message: dict[str, Any], priority: int = 10) -> None:
+        """Thread-safe broadcast from sync code using priority queue."""
+        if self.loop and getattr(self, 'broadcast_queue', None) is not None:
+            msg_type = message.get("type", "")
+            if msg_type == "health":
+                priority = 1
+            elif msg_type == "state":
+                priority = 2
+            elif msg_type in ("ai_commentary", "flatten_ack"):
+                priority = 3
+            elif msg_type == "holdings":
+                priority = 5
+            
+            import time
+            item = (priority, time.time_ns(), self._get_next_counter(), message)
+            self.loop.call_soon_threadsafe(self.broadcast_queue.put_nowait, item)
+        elif self.loop:
             asyncio.run_coroutine_threadsafe(self.broadcast(message), self.loop)
 
     def broadcast_candle_sync(
@@ -260,6 +312,14 @@ class WebSocketServer:
         msg: dict[str, Any] = {
             "type": "health",
             "data": health_data
+        }
+        self.broadcast_sync(msg)
+
+    def broadcast_restriction_sync(self, restriction_data: dict[str, Any]) -> None:
+        """Thread-safe broker restriction broadcast for AI pop-up notifications."""
+        msg: dict[str, Any] = {
+            "type": "broker_restriction",
+            "data": restriction_data
         }
         self.broadcast_sync(msg)
 

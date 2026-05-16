@@ -40,10 +40,11 @@ class PaperBroker:
     # crypto paper trading.  Cap at 3x to prevent catastrophic position sizing.
     PAPER_MAX_LEVERAGE = float(os.getenv("PAPER_MAX_LEVERAGE", "50.0"))
     
-    def __init__(self, profile_settings, market_provider=None, trade_results=None, initial_balance=10000.0):
+    def __init__(self, profile_settings, market_provider=None, trade_results=None, initial_balance=10000.0, controller=None):
         self.profile = profile_settings
         self.market_provider = market_provider
         self.trade_results = trade_results
+        self.controller = controller
         self.positions = {} # symbol -> position_dict
         self.history = []
         self._exit_cooldowns = {}  # symbol -> timestamp of last exit
@@ -163,6 +164,136 @@ class PaperBroker:
         logger.info(f"[PAPER] [TOTAL] Liquidity available: ${self.balance:.2f}")
         logger.info(f"[PAPER] [CASH] Buying Power: ${self.balance:.2f}")
 
+    def _apply_high_net_worth_restrictions(self, symbol: str, action: str, price: float, sizing_capital: float, qty: float, decision: Any, existing_notional: float = 0.0) -> tuple[float, float, bool, str]:
+        """
+        Applies professional broker restrictions for high-net-worth / large balance accounts.
+        Returns: (adjusted_qty, slippage_penalty_bps, is_blocked, block_reason)
+        """
+        # Determine account tier based on total equity
+        if sizing_capital < 50000.0:
+            tier_name = "Standard (<$50k)"
+            max_leverage = self.PAPER_MAX_LEVERAGE
+            slippage_bps = 0.0
+            max_symbol_notional = sizing_capital * max_leverage
+            min_stop_pct = 0.0010  # 0.10%
+            reject_prob = 0.0
+        elif sizing_capital < 250000.0:
+            tier_name = "High-Balance Tier 1 ($50k-$250k)"
+            max_leverage = min(20.0, self.PAPER_MAX_LEVERAGE)
+            slippage_bps = 1.0
+            max_symbol_notional = min(sizing_capital * max_leverage, 1000000.0)
+            min_stop_pct = 0.0015  # 0.15%
+            reject_prob = 0.0
+        elif sizing_capital < 1000000.0:
+            tier_name = "High-Balance Tier 2 ($250k-$1M)"
+            max_leverage = min(10.0, self.PAPER_MAX_LEVERAGE)
+            slippage_bps = 2.5
+            max_symbol_notional = min(sizing_capital * max_leverage, 2000000.0)
+            min_stop_pct = 0.0020  # 0.20%
+            reject_prob = 0.0
+        else:
+            tier_name = "Whale / Institutional (>$1M)"
+            max_leverage = min(5.0, self.PAPER_MAX_LEVERAGE)
+            slippage_bps = 5.0
+            max_symbol_notional = min(sizing_capital * max_leverage, 3000000.0)
+            min_stop_pct = 0.0025  # 0.25%
+            reject_prob = 0.05  # 5% chance of manual desk review rejection
+
+        # 1. Simulated Institutional Desk Review Rejection
+        if reject_prob > 0:
+            import random
+            if random.random() < reject_prob:
+                logger.warning(f"[PAPER] [DESK REVIEW REJECT] {symbol}: Order rejected by institutional desk review ({reject_prob*100:.1f}% chance for {tier_name})")
+                if hasattr(self, 'controller') and self.controller:
+                    self.controller.broadcast_restriction({
+                        "symbol": symbol,
+                        "restriction_type": "desk_review",
+                        "tier": tier_name,
+                        "message": f"Order rejected by institutional desk review ({reject_prob*100:.1f}% chance for {tier_name}).",
+                        "suggested_action": "Click AI Optimize to adjust sizing or enable Seasoned Trader Autopilot.",
+                        "manual_location": "Settings Tab -> Strategy Parameters -> Risk Per Trade / Max Leverage"
+                    })
+                return qty, slippage_bps, True, f"Institutional desk review rejection ({tier_name})"
+
+        # 2. Mandatory Minimum Stop Distance Widen
+        if decision and getattr(decision, "stop_loss", None) and abs(price - decision.stop_loss) > 1e-6:
+            risk_per_unit = abs(price - decision.stop_loss)
+            min_stop_distance = price * min_stop_pct
+            if risk_per_unit < min_stop_distance:
+                target_r_cfg = float(getattr(self.profile, 'target_r', 2.5))
+                logger.warning(
+                    f"[PAPER] [STOP-WIDEN TIERING] {symbol}: Stop too tight for {tier_name} "
+                    f"(${risk_per_unit:.5f} < ${min_stop_distance:.5f} / {min_stop_pct*100:.2f}%), "
+                    f"widening to tier minimum (rescaling TP to {target_r_cfg}R)"
+                )
+                if hasattr(self, 'controller') and self.controller:
+                    self.controller.broadcast_restriction({
+                        "symbol": symbol,
+                        "restriction_type": "stop_loss_widened",
+                        "tier": tier_name,
+                        "message": f"Stop loss too tight for {tier_name} (${risk_per_unit:.5f} < ${min_stop_distance:.5f}). Stop widened to tier minimum.",
+                        "suggested_action": "Click AI Optimize to recalibrate volatility stops or enable AI Autopilot.",
+                        "manual_location": "Settings Tab -> Strategy Parameters -> ATR Multiplier / Target R"
+                    })
+                risk_per_unit = min_stop_distance
+                if action in ("enter_long", "scale_in_long", "buy"):
+                    decision.stop_loss = price - min_stop_distance
+                    decision.take_profit = price + (min_stop_distance * target_r_cfg)
+                else:
+                    decision.stop_loss = price + min_stop_distance
+                    decision.take_profit = price - (min_stop_distance * target_r_cfg)
+                
+                # If we widened the stop, recompute qty to maintain risk_usd if possible
+                risk_usd = getattr(decision, "risk_per_trade_dollars", 0.0)
+                if not risk_usd:
+                    risk_pct = getattr(decision, "risk_per_trade_pct", None) or getattr(self.profile, "risk_per_trade_pct", 0.01)
+                    risk_usd = sizing_capital * float(risk_pct)
+                qty = risk_usd / risk_per_unit
+
+        # 3. Leverage & Concentration Sizing Cap
+        profile_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
+        effective_leverage = min(profile_leverage, max_leverage)
+        
+        # Calculate maximum additional notional allowed
+        remaining_notional = max(0.0, max_symbol_notional - existing_notional)
+        max_add_qty = remaining_notional / price if price > 0 else 0.0
+
+        if qty > max_add_qty:
+            if max_add_qty <= 0:
+                logger.warning(
+                    f"[PAPER] [CONCENTRATION BLOCKED] {symbol}: existing notional "
+                    f"${existing_notional:,.0f} already at {tier_name} cap ${max_symbol_notional:,.0f} "
+                    f"(max leverage {effective_leverage}x)"
+                )
+                if hasattr(self, 'controller') and self.controller:
+                    self.controller.broadcast_restriction({
+                        "symbol": symbol,
+                        "restriction_type": "concentration_blocked",
+                        "tier": tier_name,
+                        "message": f"Existing notional ${existing_notional:,.0f} already at {tier_name} cap ${max_symbol_notional:,.0f}.",
+                        "suggested_action": "Click AI Optimize to balance portfolio allocation or enable AI Autopilot.",
+                        "manual_location": "Settings Tab -> Strategy Parameters -> Max Position Concentration"
+                    })
+                return qty, slippage_bps, True, f"Concentration limit reached for {tier_name} (${max_symbol_notional:,.0f} cap)"
+            
+            logger.warning(
+                f"[PAPER] [TIERED SIZING CAP] {symbol}: qty {qty:.4f} -> {max_add_qty:.4f} "
+                f"(notional ${qty * price:,.0f} + existing ${existing_notional:,.0f} exceeds {tier_name} cap ${max_symbol_notional:,.0f} at {effective_leverage}x leverage)",
+                extra={"broker": "paper", "symbol": symbol, "event": "tiered_sizing_cap", "original_qty": qty, "capped_qty": max_add_qty, "tier": tier_name}
+            )
+            if hasattr(self, 'controller') and self.controller:
+                self.controller.broadcast_restriction({
+                    "symbol": symbol,
+                    "restriction_type": "tiered_sizing_cap",
+                    "tier": tier_name,
+                    "message": f"Position size capped at {max_add_qty:.4f} to stay within {tier_name} notional limit (${max_symbol_notional:,.0f}).",
+                    "suggested_action": "Click AI Optimize to optimize leverage tiers or enable AI Autopilot.",
+                    "manual_location": "Settings Tab -> Strategy Parameters -> Target Leverage / Risk Per Trade"
+                })
+            qty = max_add_qty
+
+        return qty, slippage_bps, False, ""
+
     def execute_decision(self, decision: AITradeDecision) -> tuple[ExecutionResult, ExecutionOutcome]:
         action = decision.action
         symbol = decision.symbol
@@ -235,18 +366,7 @@ class PaperBroker:
             side = "buy" if action == "enter_long" else "sell"
             
             # Dynamic Paper Sizing
-            # ── Prop Firm Auto-Sizer ──
-            prop_tier = float(getattr(self.profile, "prop_challenge_tier_usd", 0.0))
-            prop_loss = float(getattr(self.profile, "prop_challenge_max_loss_pct", 0.0))
-            
-            if prop_tier > 0 and prop_loss <= 0:
-                prop_loss = 0.04 if prop_tier <= 50000 else 0.03
-            
-            if prop_tier > 0 and prop_loss > 0:
-                sizing_capital = prop_tier * prop_loss
-                logger.info(f"[PAPER] [PROP FIRM SIZER] True Equity scaling active: ${sizing_capital:,.2f} ({prop_loss*100}% max loss of ${prop_tier:,.0f} nominal tier)")
-            else:
-                sizing_capital = self.get_total_equity()
+            sizing_capital = self.get_total_equity()
                 
             risk_pct = getattr(decision, "risk_per_trade_pct", None) or getattr(self.profile, "risk_per_trade_pct", 0.01)
             
@@ -286,7 +406,17 @@ class PaperBroker:
             else:
                 # Fallback: Treat risk_usd as the actual notional size (very conservative for paper)
                 qty = risk_usd / price if price > 0 else 0
-            
+
+            # [PHASE 2.2] Apply High-Net-Worth / Large Balance Tiered Restrictions
+            qty, tier_slip_bps, is_blocked, block_reason = self._apply_high_net_worth_restrictions(
+                symbol, action, price, sizing_capital, qty, decision, existing_notional=0.0
+            )
+            if is_blocked:
+                return (
+                    ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, f"Paper: {block_reason}"),
+                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, f"Paper: {block_reason}")
+                )
+
             # [DEBUG] Trace sizing pipeline
             logger.info(
                 f"[PAPER] [SIZING DEBUG] {symbol}: sizing_capital=${sizing_capital:.2f}, "
@@ -304,36 +434,11 @@ class PaperBroker:
                     ExecutionOutcome(ExecutionOutcomeType.FAILED_OTHER, symbol, "Simulated broker rejection")
                 )
 
-            # [FIX] Leverage-based sizing cap — capped at PAPER_MAX_LEVERAGE
+            # Affordability guard: reject if notional exceeds leveraged REAL balance
+            # (Note: Leverage cap is already enforced inside _apply_high_net_worth_restrictions)
+            notional = qty * price
             profile_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
             target_leverage = min(profile_leverage, self.PAPER_MAX_LEVERAGE)
-            if profile_leverage > self.PAPER_MAX_LEVERAGE:
-                logger.info(
-                    f"[PAPER] [LEVERAGE] {symbol}: profile leverage {profile_leverage}x "
-                    f"capped to paper max {self.PAPER_MAX_LEVERAGE}x"
-                )
-            max_notional = sizing_capital * target_leverage
-            max_qty = max_notional / price if price > 0 else 0
-            
-            logger.info(
-                f"[PAPER] [CAP DEBUG] {symbol}: profile_leverage={profile_leverage}, "
-                f"target_leverage={target_leverage}, max_notional=${max_notional:,.0f}, "
-                f"max_qty={max_qty:.4f}, qty={qty:.4f}, "
-                f"will_cap={qty > max_qty and max_qty > 0}"
-            )
-            
-            if qty > max_qty and max_qty > 0:
-                logger.warning(
-                    f"[PAPER] [LEVERAGE CAP] {symbol}: qty {qty:.4f} -> {max_qty:.4f} "
-                    f"(notional ${qty * price:,.0f} exceeds {target_leverage}x leverage cap ${max_notional:,.0f})",
-                    extra={"broker": "paper", "symbol": symbol, "event": "leverage_cap", "original_qty": qty, "capped_qty": max_qty}
-                )
-                qty = max_qty
-
-            # Affordability guard: reject if notional exceeds leveraged REAL balance
-            notional = qty * price
-            # We use the real balance (self.balance) for the permission check, 
-            # while sizing_capital is used only for calculation.
             if notional > self.balance * max(target_leverage, 1.0) * 1.01:
                 logger.warning(
                     f"[PAPER] [BLOCKED] {symbol}: notional ${notional:,.0f} exceeds "
@@ -361,7 +466,7 @@ class PaperBroker:
             
             fee_bps = float(_p_conf.get("fee_bps", 0.0))
             spread_bps = float(_p_conf.get("spread_bps", 0.0))
-            slip_bps = float(_p_conf.get("slippage_bps", 0.0))
+            slip_bps = float(_p_conf.get("slippage_bps", 0.0)) + tier_slip_bps
 
             if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
                 # Parity Mode: use backtester equivalent fees and NO artificial spread
@@ -369,7 +474,7 @@ class PaperBroker:
                 fill_price = price
                 fee_usd = abs(qty * fill_price) * self._get_taker_fee(symbol)
             else:
-                # Custom UI Override Mode
+                # Custom UI Override Mode + Tiered Slippage Penalty
                 fee_pct = fee_bps / 10000.0
                 spread_pct = spread_bps / 10000.0
                 slip_pct = slip_bps / 10000.0
@@ -410,6 +515,7 @@ class PaperBroker:
                 "take_profit": getattr(decision, "take_profit", None),
                 "entry_fee": fee_usd,
                 "strategy": getattr(decision, "strategy_name", None) or "unknown",
+                "risk_usd": risk_usd,
                 "mfe_usd": 0.0,
                 "mae_usd": 0.0,
             }
@@ -684,34 +790,18 @@ class PaperBroker:
                 else:
                     qty = risk_usd / price if price > 0 else 0
                 
-                # [FIX] Leverage cap for scale_in — same cap as initial entry
-                # Without this, pyramids bypass the leverage limit entirely,
-                # allowing positions to balloon to millions in notional.
-                profile_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
-                target_leverage = min(profile_leverage, self.PAPER_MAX_LEVERAGE)
-                max_notional = self._initial_balance * target_leverage
+                # [PHASE 2.2] Apply High-Net-Worth / Large Balance Tiered Restrictions
                 existing_notional = pos["qty"] * price
-                remaining_notional = max(0, max_notional - existing_notional)
-                max_add_qty = remaining_notional / price if price > 0 else 0
-                
-                if qty > max_add_qty:
-                    if max_add_qty <= 0:
-                        logger.warning(
-                            f"[PAPER] [SCALE_IN BLOCKED] {symbol}: existing notional "
-                            f"${existing_notional:,.0f} already at {target_leverage}x "
-                            f"leverage cap ${max_notional:,.0f}"
-                        )
-                        return (
-                            ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: pyramid blocked by leverage cap"),
-                            ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, "Paper: pyramid leverage cap")
-                        )
-                    logger.info(
-                        f"[PAPER] [SCALE_IN CAP] {symbol}: pyramid qty {qty:.4f} -> {max_add_qty:.4f} "
-                        f"(existing notional ${existing_notional:,.0f}, "
-                        f"cap ${max_notional:,.0f} at {target_leverage}x)"
+                sizing_capital = self.get_total_equity()
+                qty, tier_slip_bps, is_blocked, block_reason = self._apply_high_net_worth_restrictions(
+                    symbol, action, price, sizing_capital, qty, decision, existing_notional=existing_notional
+                )
+                if is_blocked:
+                    return (
+                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, f"Paper: {block_reason}"),
+                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, f"Paper: {block_reason}")
                     )
-                    qty = max_add_qty
-                
+
                 # Check Paper config for UI overrides
                 import json
                 try:
@@ -722,7 +812,7 @@ class PaperBroker:
                 
                 fee_bps = float(_p_conf.get("fee_bps", 0.0))
                 spread_bps = float(_p_conf.get("spread_bps", 0.0))
-                slip_bps = float(_p_conf.get("slippage_bps", 0.0))
+                slip_bps = float(_p_conf.get("slippage_bps", 0.0)) + tier_slip_bps
 
                 if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
                     friction = 0.0
@@ -754,6 +844,7 @@ class PaperBroker:
                     pos["take_profit"] = decision.take_profit
                     
                 pos["entry_fee"] = pos.get("entry_fee", 0) + fee_usd
+                pos["risk_usd"] = pos.get("risk_usd", 0.0) + risk_usd
 
                 logger.info(
                     f"[PAPER] [SCALE_IN] {symbol} {qty:.4f} @ {fill_price:.5f} "

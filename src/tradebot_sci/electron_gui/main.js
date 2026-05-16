@@ -25,27 +25,184 @@ let botRunning = false;
 const isWindows = () => process.platform === 'win32';
 
 // Helper to find repo root reliably
-const DOTENV_PATH = path.join(__dirname, '../../../.env');
+const LEGACY_DOTENV_PATH = path.join(__dirname, '../../../.env');
 const PROFILES_PATH = path.join(__dirname, '../../../config/settings_profiles.yaml');
-// Use the same XDG user data dir as the Python runtime (paths.py)
-// Linux: ~/.config/tradebot-sci, macOS: ~/Library/Application Support/tradebot-sci
-const USER_DATA_DIR = process.platform === 'darwin'
-    ? path.join(os.homedir(), 'Library', 'Application Support', 'tradebot-sci')
-    : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'tradebot-sci');
-const CONFIG_JSON_PATH = path.join(USER_DATA_DIR, 'config.json');
-// Fallback: if user data config doesn't exist but project root one does, use it
+
+// Root Configuration Path
+const ROOT_CONFIG_DIR = process.platform === 'darwin'
+    ? path.join(os.homedir(), 'Library', 'Application Support', 'tradebot-sci-gui')
+    : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'tradebot-sci-gui');
+
+const ACTIVE_INSTANCE_FILE = path.join(ROOT_CONFIG_DIR, 'active_instance.txt');
 const LEGACY_CONFIG_JSON_PATH = path.join(__dirname, '../../../config.json');
-const SECRETS_PATH = path.join(USER_DATA_DIR, '.env.secrets');
 const LEGACY_SECRETS_PATH = path.join(__dirname, '../../../.env.secrets');
 
-// Ensure user data directories exist before any writes
-for (const sub of ['', 'data', 'logs']) {
-    const dir = path.join(USER_DATA_DIR, sub);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+function getActiveInstanceName(wsUrl) {
+    if (!wsUrl) return 'local';
+    if (wsUrl.includes('localhost') || wsUrl.includes('127.0.0.1')) return 'local';
+    const crypto = require('crypto');
+    const hash = crypto.createHash('md5').update(wsUrl).digest('hex').substring(0, 8);
+    return `remote-${hash}`;
 }
+
+function getCurrentInstance() {
+    if (fs.existsSync(ACTIVE_INSTANCE_FILE)) {
+        try {
+            const name = fs.readFileSync(ACTIVE_INSTANCE_FILE, 'utf8').trim();
+            if (name) return name;
+        } catch(e) {}
+    }
+    let wsUrl = process.env.GUI_WS_URL;
+    if (!wsUrl && fs.existsSync(LEGACY_DOTENV_PATH)) {
+        try {
+            const content = fs.readFileSync(LEGACY_DOTENV_PATH, 'utf8');
+            content.split('\n').forEach(line => {
+                const match = line.match(/^\s*GUI_WS_URL\s*=\s*(.*)$/);
+                if (match) wsUrl = match[1].trim();
+            });
+        } catch(e) {}
+    }
+    return getActiveInstanceName(wsUrl);
+}
+
+function setCurrentInstance(wsUrl) {
+    const instanceName = getActiveInstanceName(wsUrl);
+    if (!fs.existsSync(ROOT_CONFIG_DIR)) {
+        fs.mkdirSync(ROOT_CONFIG_DIR, { recursive: true });
+    }
+    fs.writeFileSync(ACTIVE_INSTANCE_FILE, instanceName, 'utf8');
+    console.log(`[MAIN] Switched active instance context to: ${instanceName}`);
+    return instanceName;
+}
+
+function getInstanceDir() {
+    const inst = getCurrentInstance();
+    const dir = path.join(ROOT_CONFIG_DIR, inst);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return dir;
+}
+
+// Dynamic Getters for all config and data paths
+function getDotenvPath() { return path.join(getInstanceDir(), '.env'); }
+function getConfigJsonPath() { return path.join(getInstanceDir(), 'config.json'); }
+function getSecretsPath() { return path.join(getInstanceDir(), '.env.secrets'); }
+function getDataDir() {
+    const d = path.join(getInstanceDir(), 'data');
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+    return d;
+}
+function getLogsDir() {
+    const l = path.join(getInstanceDir(), 'logs');
+    if (!fs.existsSync(l)) fs.mkdirSync(l, { recursive: true });
+    return l;
+}
+function getUserDataDir() { return getInstanceDir(); }
+function getInstanceId() { return getCurrentInstance(); }
+
+// Bind dynamic getters to global namespace so all existing references in main.js resolve dynamically
+Object.defineProperty(global, 'DOTENV_PATH', { get: () => getDotenvPath() });
+Object.defineProperty(global, 'CONFIG_JSON_PATH', { get: () => getConfigJsonPath() });
+Object.defineProperty(global, 'SECRETS_PATH', { get: () => getSecretsPath() });
+Object.defineProperty(global, 'DATA_DIR', { get: () => getDataDir() });
+Object.defineProperty(global, 'LOGS_DIR', { get: () => getLogsDir() });
+Object.defineProperty(global, 'USER_DATA_DIR', { get: () => getUserDataDir() });
+Object.defineProperty(global, 'INSTANCE_ID', { get: () => getInstanceId() });
+
+// Auto-migrate legacy files/directories into the active instance directory if it is empty/new
+function autoMigrateLegacyData() {
+    try {
+        const instDir = getInstanceDir();
+        const legacyBaseDir = process.platform === 'darwin'
+            ? path.join(os.homedir(), 'Library', 'Application Support', 'tradebot-sci')
+            : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'tradebot-sci');
+
+        // Migrate config.json
+        const instConfig = path.join(instDir, 'config.json');
+        if (!fs.existsSync(instConfig)) {
+            const legacyCfgUserData = path.join(legacyBaseDir, 'config.json');
+            if (fs.existsSync(legacyCfgUserData)) {
+                fs.copyFileSync(legacyCfgUserData, instConfig);
+            } else if (fs.existsSync(LEGACY_CONFIG_JSON_PATH)) {
+                fs.copyFileSync(LEGACY_CONFIG_JSON_PATH, instConfig);
+            }
+        }
+
+        // Migrate .env.secrets
+        const instSecrets = path.join(instDir, '.env.secrets');
+        if (!fs.existsSync(instSecrets)) {
+            const legacySecUserData = path.join(legacyBaseDir, '.env.secrets');
+            if (fs.existsSync(legacySecUserData)) {
+                fs.copyFileSync(legacySecUserData, instSecrets);
+            } else if (fs.existsSync(LEGACY_SECRETS_PATH)) {
+                fs.copyFileSync(LEGACY_SECRETS_PATH, instSecrets);
+            }
+        }
+
+        // Migrate .env
+        const instDotenv = path.join(instDir, '.env');
+        if (!fs.existsSync(instDotenv)) {
+            const legacyEnvUserData = path.join(legacyBaseDir, '.env');
+            if (fs.existsSync(legacyEnvUserData)) {
+                fs.copyFileSync(legacyEnvUserData, instDotenv);
+            } else if (fs.existsSync(LEGACY_DOTENV_PATH)) {
+                fs.copyFileSync(LEGACY_DOTENV_PATH, instDotenv);
+            }
+        }
+
+        // Migrate data folder
+        const legacyData = path.join(legacyBaseDir, 'data');
+        const instData = path.join(instDir, 'data');
+        if (!fs.existsSync(instData)) fs.mkdirSync(instData, { recursive: true });
+        if (fs.existsSync(legacyData)) {
+            fs.readdirSync(legacyData).forEach(fname => {
+                const src = path.join(legacyData, fname);
+                const dst = path.join(instData, fname);
+                try {
+                    if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+                        fs.copyFileSync(src, dst);
+                    }
+                } catch(e) {}
+            });
+        }
+
+        // Migrate logs folder
+        const legacyLogs = path.join(legacyBaseDir, 'logs');
+        const instLogs = path.join(instDir, 'logs');
+        if (!fs.existsSync(instLogs)) fs.mkdirSync(instLogs, { recursive: true });
+        if (fs.existsSync(legacyLogs)) {
+            fs.readdirSync(legacyLogs).forEach(fname => {
+                const src = path.join(legacyLogs, fname);
+                const dst = path.join(instLogs, fname);
+                try {
+                    if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+                        fs.copyFileSync(src, dst);
+                    }
+                } catch(e) {}
+            });
+        }
+    } catch(e) {
+        console.error("[MAIN] Auto-migration error:", e);
+    }
+}
+autoMigrateLegacyData();
 
 // Setup IPC handlers (called after app ready)
 function setupIpcHandlers() {
+    ipcMain.handle('show-broker-restriction', async (event, data) => {
+        const { dialog } = require('electron');
+        const win = BrowserWindow.getFocusedWindow() || mainWindow;
+        if (!win) return { success: false };
+        await dialog.showMessageBox(win, {
+            type: 'warning',
+            title: `BROKER RESTRICTION: ${data.symbol || ''}`,
+            message: `Broker Restriction: ${data.symbol || ''}`,
+            detail: data.detail || '',
+            buttons: ['Acknowledge'],
+            defaultId: 0
+        });
+        return { success: true };
+    });
+
     // IPC Handlers for Settings Data
     ipcMain.handle('read-env', async () => {
         if (!fs.existsSync(DOTENV_PATH)) return {};
@@ -59,6 +216,9 @@ function setupIpcHandlers() {
     });
 
     ipcMain.handle('save-env', async (event, updates) => {
+        if (updates.GUI_WS_URL !== undefined) {
+            setCurrentInstance(updates.GUI_WS_URL);
+        }
         let content = fs.existsSync(DOTENV_PATH) ? fs.readFileSync(DOTENV_PATH, 'utf8') : '';
         let lines = content.split('\n');
         const keys = Object.keys(updates);
@@ -196,8 +356,8 @@ function setupIpcHandlers() {
             // Inject secrets under special namespace
             configData._secrets = secrets;
 
-            const liveLedgerPath = path.join(USER_DATA_DIR, 'data', 'ledger.json');
-            const paperLedgerPath = path.join(USER_DATA_DIR, 'data', 'paper_ledger.json');
+            const liveLedgerPath = path.join(DATA_DIR, 'ledger.json');
+            const paperLedgerPath = path.join(DATA_DIR, 'paper_ledger.json');
             if (fs.existsSync(liveLedgerPath)) try { configData._live_ledger = JSON.parse(fs.readFileSync(liveLedgerPath, 'utf8')); } catch(e) {}
             if (fs.existsSync(paperLedgerPath)) try { configData._paper_ledger = JSON.parse(fs.readFileSync(paperLedgerPath, 'utf8')); } catch(e) {}
 
@@ -213,8 +373,8 @@ function setupIpcHandlers() {
         try {
             let deletedSomething = false;
 
-            const liveLedgerPath = path.join(USER_DATA_DIR, 'data', 'ledger.json');
-            const paperLedgerPath = path.join(USER_DATA_DIR, 'data', 'paper_ledger.json');
+            const liveLedgerPath = path.join(DATA_DIR, 'ledger.json');
+            const paperLedgerPath = path.join(DATA_DIR, 'paper_ledger.json');
             const DOT_ENV_PATH = path.join(process.cwd(), '.env');
             const pathsToDelete = [CONFIG_JSON_PATH, LEGACY_CONFIG_JSON_PATH, SECRETS_PATH, LEGACY_SECRETS_PATH, DOT_ENV_PATH, liveLedgerPath, paperLedgerPath];
             
@@ -274,8 +434,8 @@ function setupIpcHandlers() {
                 console.log("[MAIN] Imported and saved .env.secrets");
             }
             
-            const liveLedgerPath = path.join(USER_DATA_DIR, 'data', 'ledger.json');
-            const paperLedgerPath = path.join(USER_DATA_DIR, 'data', 'paper_ledger.json');
+            const liveLedgerPath = path.join(DATA_DIR, 'ledger.json');
+            const paperLedgerPath = path.join(DATA_DIR, 'paper_ledger.json');
             if (parsed._live_ledger) {
                 fs.writeFileSync(liveLedgerPath, JSON.stringify(parsed._live_ledger, null, 2));
                 delete parsed._live_ledger;
@@ -627,7 +787,7 @@ function setupIpcHandlers() {
 
     // =============================================
     // Paper data lives in the XDG user data dir (same as Python _paths.DATA_DIR)
-    const DATA_DIR = path.join(USER_DATA_DIR, 'data');
+    // DATA_DIR is now globally scoped to INSTANCE_ID at the top of the file
 
     // ── Theme persistence (filesystem-backed) ──
     const themePath = path.join(USER_DATA_DIR, 'theme-state.json');
@@ -751,8 +911,8 @@ function setupIpcHandlers() {
             fs.writeFileSync(path.join(DATA_DIR, 'paper_trade_results.json'), '[]');
 
             // Truncate ghost logs so log_analytics.js doesn't pull old trades into the UI
-            const stdoutLog1 = path.join(USER_DATA_DIR, 'logs', 'bot_stdout.log');
-            const tradebotLog1 = path.join(USER_DATA_DIR, 'logs', 'tradebot.log');
+            const stdoutLog1 = path.join(LOGS_DIR, 'bot_stdout.log');
+            const tradebotLog1 = path.join(LOGS_DIR, 'tradebot.log');
             const stdoutLog2 = path.join(__dirname, '../../../logs/bot_stdout.log');
             const tradebotLog2 = path.join(__dirname, '../../../logs/tradebot.log');
             if (fs.existsSync(stdoutLog1)) fs.writeFileSync(stdoutLog1, '');
@@ -806,7 +966,7 @@ function setupIpcHandlers() {
     // =============================================
     // Backtest — Recording Info & Execution
     // =============================================
-    const CANDLE_HISTORY_DIR = path.join(USER_DATA_DIR, 'data', 'candle_history');
+    const CANDLE_HISTORY_DIR = path.join(DATA_DIR, 'candle_history');
 
     ipcMain.handle('get-recording-info', async () => {
         try {
@@ -892,10 +1052,28 @@ function setupIpcHandlers() {
             // ── Get the sender window for live streaming ──────────────────────
             const senderWindow = BrowserWindow.getAllWindows()[0];
 
+            let spawnExe = pythonExe;
+            let spawnArgs = [...args];
+            if (process.platform === 'linux') {
+                const os = require('os');
+                const numCpus = os.cpus().length;
+                // Goal 2 & 3: Implement process-level CPU affinity or task offloading to decouple heavy backtesting computations from the UI rendering thread.
+                // Leave Core 0 dedicated to Electron GUI and assign remaining cores (1 to N-1) to the backtester.
+                if (numCpus > 1) {
+                    spawnArgs = ['-c', `1-${numCpus - 1}`, pythonExe, ...args];
+                    spawnExe = 'taskset';
+                    console.log(`[MAIN] Applying CPU affinity (taskset -c 1-${numCpus - 1}) to backtester process.`);
+                } else {
+                    spawnArgs = ['-n', '10', pythonExe, ...args];
+                    spawnExe = 'nice';
+                    console.log(`[MAIN] Applying process niceness (nice -n 10) to backtester process.`);
+                }
+            }
+
             return new Promise((resolve) => {
                 let stdoutBuf = '';
                 let stderrBuf = '';
-                const proc = spawn(pythonExe, args, {
+                const proc = spawn(spawnExe, spawnArgs, {
                     cwd: path.join(__dirname, '../../..'),
                     env: { ...process.env },
                     timeout: 1800000, // 30 min max for long replays
@@ -1051,7 +1229,7 @@ function setupIpcHandlers() {
             const merged = { ...envData, ...aiConfig };
             const get = (key) => merged[key] || merged[key.toLowerCase()] || merged[key.toUpperCase()] || '';
             const provider = get('provider') || get('TRADE_SCI_PROVIDER') || 'openrouter';
-            const apiKeyRaw = get('TRADE_SCI_API_KEY') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || '';
+            const apiKeyRaw = get('TRADE_SCI_API_KEY') || get('TRADE_SCI_GEMINI_KEY') || get('GEMINI_API_KEY') || get('TRADE_SCI_CLAUDE_KEY') || get('ANTHROPIC_API_KEY') || get('TRADE_SCI_DEEPSEEK_KEY') || get('TRADE_SCI_OPENROUTER_KEY') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || '';
             const defaultModels = { deepseek: 'deepseek-chat', openai: 'gpt-4o', claude: 'claude-3-5-sonnet-20241022', gemini: 'gemini-2.0-flash', openrouter: 'google/gemini-2.0-flash-001', local: 'llama3' };
             const model = get('model') || get('TRADE_SCI_MODEL_NAME') || defaultModels[provider] || 'deepseek-chat';
             let baseUrl = get('base_url') || get('TRADE_SCI_API_BASE_URL') || '';
@@ -1071,6 +1249,8 @@ function setupIpcHandlers() {
                     openai: 'https://api.openai.com/v1',
                     openrouter: 'https://openrouter.ai/api/v1',
                     deepseek: 'https://api.deepseek.com',
+                    gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
+                    claude: 'https://api.anthropic.com/v1',
                     local: 'http://localhost:11434/v1',
                 };
                 baseUrl = providerUrls[provider] || 'https://openrouter.ai/api/v1';
@@ -1115,7 +1295,7 @@ function setupIpcHandlers() {
             const resultsPath = path.join(DATA_DIR, resultsFilename);
             const oandaPosPath = path.join(DATA_DIR, 'oanda_tracked_positions.json');
             const ccxtHoldsPath = path.join(DATA_DIR, 'position_holds.json');
-            const stdoutLogPath = path.join(USER_DATA_DIR, 'logs', 'bot_stdout.log');
+            const stdoutLogPath = path.join(LOGS_DIR, 'bot_stdout.log');
 
             // Read ledger for capital + recent performance
             if (fs.existsSync(ledgerPath)) {
@@ -1263,6 +1443,12 @@ KEY CONSTRAINTS:
 • On Gemini, each round-trip costs ~0.80% in fees. A 1% take-profit barely breaks even after fees. Factor this into R:R targets.
 • If OANDA is active, forex spreads are the hidden cost — wider stops absorb spread better.
 • Greed guard targets should be proportional to actual account size, not arbitrary large numbers.
+• PAPER BROKER TIERED RESTRICTIONS (MANDATORY): The simulated paper broker enforces strict minimum stop loss distances and maximum leverage caps based on account equity tiers to mimic professional risk desks:
+    - Standard (<$50k equity): Mandatory minimum stop loss distance of 0.10% of entry price. Max leverage cap: 50x.
+    - High-Balance Tier 1 ($50k-$250k equity): Mandatory minimum stop loss distance of 0.15% of entry price. Max leverage cap: 20x.
+    - High-Balance Tier 2 ($250k-$1M equity): Mandatory minimum stop loss distance of 0.20% of entry price. Max leverage cap: 10x.
+    - Whale / Institutional (>$1M equity): Mandatory minimum stop loss distance of 0.25% of entry price. Max leverage cap: 5x.
+  CRITICAL: You MUST check the user's Total Capital against these tiers. When recommending STOP_ATR_MULTIPLIER, RISK_PER_TRADE_PCT, and SAFETY_MAX_TOTAL_LEVERAGE, ensure the ATR multiplier is set high enough (e.g. 2.0 to 3.0+) so that the resulting stop loss distance satisfies the active tier's minimum percentage (0.10% to 0.25%) to prevent the paper broker from forcefully widening the stop or blocking the trade! Also ensure SAFETY_MAX_TOTAL_LEVERAGE does not exceed the tier's leverage cap.
 
     Analyze these symbols and asset classes, then recommend OPTIMAL settings across these 4 categories.
     
@@ -1393,7 +1579,7 @@ CATEGORY 2: SAFETY & SHIELDS (no nuclear overrides)
 ── Account Safety ──
 • SAFETY_STABILITY_MODE_ENABLED (boolean): Forces 1% max risk + 75+ quality score floor. Emergency brake for bleeding accounts.
 • SAFETY_ATR_SHIELD_ENABLED (boolean): Volatility-adjusted stop-loss & breakeven protection (ATR Armor).
-• STOP_ATR_MULTIPLIER (number, 0.5-5): Stop distance as multiple of ATR. Lower=tighter stops, higher=wider stops.
+• STOP_ATR_MULTIPLIER (number, 0.5-5): Stop distance as multiple of ATR. Lower=tighter stops, higher=wider stops. CRITICAL: For accounts under $50k, ensure this is set high enough (e.g., 2.0+) to exceed the 0.10% minimum stop distance rule. For larger accounts, increase accordingly (e.g. 2.5+ for >$50k, 3.0+ for >$250k) to satisfy the 0.15%-0.25% minimum stop rules.
 • BREAKEVEN_TRAIL_PCT (number, 0-5): Lock in risk-free at this profit level %.
 • SAFETY_DRAWDOWN_BREAKER_ENABLED (boolean): Emergency circuit breaker — stops trading if account drawdown from HWM exceeds threshold. Uses adaptive scaling by default.
 • SAFETY_DRAWDOWN_MAX_PCT (number, 0.05-0.25): Maximum drawdown % before Drawdown Breaker triggers (0.05=5%, 0.25=25%). The bot auto-scales this based on account size (25% for <$100, 15% for $500, 10% for $1K, 5% for $10K+). Set this to override the auto-scaled value — but the bot will always use whichever is MORE generous (higher) between your setting and the adaptive calculation.
@@ -1405,7 +1591,7 @@ CATEGORY 2: SAFETY & SHIELDS (no nuclear overrides)
 • SAFETY_CHURN_BURNER_ENABLED (boolean): Rate limiter — prevents overtrading.
 • SAFETY_CHURN_BURNER_MAX (number, 1-20): Max trades allowed per hour.
 • SAFETY_LEVERAGE_SENTRY_ENABLED (boolean): Block entries above leverage cap.
-• SAFETY_MAX_TOTAL_LEVERAGE (number, 1-50): Maximum total leverage allowed.
+• SAFETY_MAX_TOTAL_LEVERAGE (number, 1-50): Maximum total leverage allowed. Must respect the active tier cap (50x for <$50k, 20x for $50k-$250k, 10x for $250k-$1M, 5x for >$1M).
 • SAFETY_VOLATILITY_VETO_ENABLED (boolean): Block entries if ATR is too Low or too High.
 • SAFETY_STREAK_BREAKER_ENABLED (boolean): Pauses a symbol for 4h after 3 consecutive losses.
 • SAFETY_OPENING_SENTRY_ENABLED (boolean): Avoid first 15 mins of market open (9:30-9:45 ET). Only relevant for stocks/forex.
@@ -1522,56 +1708,141 @@ Respond with ONLY a valid JSON object (no markdown, no explanation outside JSON)
             let aiResponse;
 
             if (apiKey) {
-                // ── User has their own AI key → direct OpenAI-compatible call ──
-                console.log('[MAIN] Using user AI key for optimization');
-                const url = new URL(baseUrl + '/chat/completions');
-                const isSecure = url.protocol === 'https:';
-                const requestModule = isSecure ? https : http;
+                const sysText = 'You are a trading bot configuration expert who explains things in plain, everyday English — like you\'re talking to a smart friend who\'s never traded before. Avoid jargon. Use analogies and real examples. Always respond with ONLY valid JSON. No markdown fences, no prose outside the JSON. Every boolean must be true or false. Every number must be a JSON number or string. Include ALL settings from ALL 4 categories.';
+                if (provider === 'gemini') {
+                    console.log('[MAIN] Using Gemini native API for optimization');
+                    const aiUrl = new URL(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`);
+                    aiResponse = await new Promise((resolve, reject) => {
+                        const req = https.request({
+                            hostname: aiUrl.hostname,
+                            path: aiUrl.pathname + aiUrl.search,
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            timeout: 90000,
+                        }, (res) => {
+                            let data = '';
+                            res.on('data', chunk => { data += chunk; });
+                            res.on('end', () => {
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.error) {
+                                        reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
+                                    } else if (parsed.candidates?.[0]?.content?.parts?.[0]) {
+                                        resolve(parsed.candidates[0].content.parts[0].text);
+                                    } else {
+                                        reject(new Error(`Unexpected Gemini response: ${data.substring(0, 200)}`));
+                                    }
+                                } catch (e) {
+                                    reject(new Error(`Failed to parse Gemini response: ${data.substring(0, 200)}`));
+                                }
+                            });
+                        });
+                        req.on('error', reject);
+                        req.on('timeout', () => { req.destroy(); reject(new Error('Gemini request timed out (90s)')); });
+                        req.write(JSON.stringify({
+                            contents: [{ role: 'user', parts: [{ text: sysText + '\n\nUser Request:\n' + prompt }] }],
+                            generationConfig: { temperature: 0.3 }
+                        }));
+                        req.end();
+                    });
+                } else if (provider === 'claude') {
+                    console.log('[MAIN] Using Claude native API for optimization');
+                    aiResponse = await new Promise((resolve, reject) => {
+                        const req = https.request({
+                            hostname: 'api.anthropic.com',
+                            path: '/v1/messages',
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'x-api-key': apiKey,
+                                'anthropic-version': '2023-06-01'
+                            },
+                            timeout: 90000,
+                        }, (res) => {
+                            let data = '';
+                            res.on('data', chunk => { data += chunk; });
+                            res.on('end', () => {
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.error) {
+                                        reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
+                                    } else if (parsed.content?.[0]) {
+                                        resolve(parsed.content[0].text);
+                                    } else {
+                                        reject(new Error(`Unexpected Claude response: ${data.substring(0, 200)}`));
+                                    }
+                                } catch (e) {
+                                    reject(new Error(`Failed to parse Claude response: ${data.substring(0, 200)}`));
+                                }
+                            });
+                        });
+                        req.on('error', reject);
+                        req.on('timeout', () => { req.destroy(); reject(new Error('Claude request timed out (90s)')); });
+                        req.write(JSON.stringify({
+                            model: model,
+                            system: sysText,
+                            messages: [{ role: 'user', content: prompt }],
+                            max_tokens: 8192,
+                            temperature: 0.3
+                        }));
+                        req.end();
+                    });
+                } else {
+                    // Universal OpenAI Compatible (OpenAI, DeepSeek, OpenRouter, Local, Custom)
+                    console.log('[MAIN] Using user AI key for optimization (OpenAI-compatible)');
+                    const url = new URL(baseUrl + '/chat/completions');
+                    const isSecure = url.protocol === 'https:';
+                    const requestModule = isSecure ? https : http;
 
-                const requestBody = JSON.stringify({
-                    model: model,
-                    messages: [
-                        { role: 'system', content: 'You are a trading bot configuration expert who explains things in plain, everyday English — like you\'re talking to a smart friend who\'s never traded before. Avoid jargon. Use analogies and real examples. Always respond with ONLY valid JSON. No markdown fences, no prose outside the JSON. Every boolean must be true or false. Every number must be a JSON number or string. Include ALL settings from ALL 4 categories.' },
-                        { role: 'user', content: prompt }
-                    ],
-                    temperature: 0.3,
-                    max_tokens: 8192,
-                });
+                    const requestBody = JSON.stringify({
+                        model: model,
+                        messages: [
+                            { role: 'system', content: sysText },
+                            { role: 'user', content: prompt }
+                        ],
+                        temperature: 0.3,
+                        max_tokens: 8192,
+                    });
 
-                aiResponse = await new Promise((resolve, reject) => {
-                    const req = requestModule.request({
-                        hostname: url.hostname,
-                        port: url.port || (isSecure ? 443 : 80),
-                        path: url.pathname,
-                        method: 'POST',
-                        headers: {
+                    aiResponse = await new Promise((resolve, reject) => {
+                        const headers = {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${apiKey}`,
                             'Content-Length': Buffer.byteLength(requestBody),
-                        },
-                        timeout: 90000,
-                    }, (res) => {
-                        let data = '';
-                        res.on('data', chunk => { data += chunk; });
-                        res.on('end', () => {
-                            try {
-                                const parsed = JSON.parse(data);
-                                if (parsed.error) {
-                                    reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
-                                } else {
-                                    const content = parsed.choices?.[0]?.message?.content || '';
-                                    resolve(content);
+                        };
+                        if (provider === 'openrouter') {
+                            Object.assign(headers, { 'HTTP-Referer': 'https://tradebot-sci.com', 'X-Title': 'Tradebot SCI' });
+                        }
+                        const req = requestModule.request({
+                            hostname: url.hostname,
+                            port: url.port || (isSecure ? 443 : 80),
+                            path: url.pathname,
+                            method: 'POST',
+                            headers: headers,
+                            timeout: 90000,
+                        }, (res) => {
+                            let data = '';
+                            res.on('data', chunk => { data += chunk; });
+                            res.on('end', () => {
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.error) {
+                                        reject(new Error(parsed.error.message || JSON.stringify(parsed.error)));
+                                    } else {
+                                        const content = parsed.choices?.[0]?.message?.content || '';
+                                        resolve(content);
+                                    }
+                                } catch (e) {
+                                    reject(new Error(`Failed to parse AI response: ${data.substring(0, 200)}`));
                                 }
-                            } catch (e) {
-                                reject(new Error(`Failed to parse AI response: ${data.substring(0, 200)}`));
-                            }
+                            });
                         });
+                        req.on('error', reject);
+                        req.on('timeout', () => { req.destroy(); reject(new Error('AI request timed out (90s)')); });
+                        req.write(requestBody);
+                        req.end();
                     });
-                    req.on('error', reject);
-                    req.on('timeout', () => { req.destroy(); reject(new Error('AI request timed out (90s)')); });
-                    req.write(requestBody);
-                    req.end();
-                });
+                }
             } else {
                 // ── No user key → use GhostSpotter relay (free, rate-limited) ──
                 console.log('[MAIN] No user AI key — using GhostSpotter relay');
@@ -1745,7 +2016,7 @@ Respond in plain English a smart friend would understand. No jargon. Use analogi
             const get = (key) => merged[key] || merged[key.toLowerCase()] || merged[key.toUpperCase()] || '';
             
             const provider = get('provider') || get('TRADE_SCI_PROVIDER') || 'gemini';
-            const apiKeyRaw = get('TRADE_SCI_API_KEY') || get('api_key') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || get('ANTHROPIC_API_KEY') || get('GEMINI_API_KEY') || '';
+            const apiKeyRaw = get('TRADE_SCI_API_KEY') || get('api_key') || get('TRADE_SCI_GEMINI_KEY') || get('GEMINI_API_KEY') || get('TRADE_SCI_CLAUDE_KEY') || get('ANTHROPIC_API_KEY') || get('TRADE_SCI_DEEPSEEK_KEY') || get('TRADE_SCI_OPENROUTER_KEY') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || '';
             const isPlaceholder = (v) => !v || /example\.com|your_.*_here|placeholder|changeme|xxx/i.test(v);
             const apiKey = isPlaceholder(apiKeyRaw) ? '' : apiKeyRaw;
             
@@ -1759,6 +2030,8 @@ Respond in plain English a smart friend would understand. No jargon. Use analogi
                     openai: 'https://api.openai.com/v1',
                     openrouter: 'https://openrouter.ai/api/v1',
                     deepseek: 'https://api.deepseek.com',
+                    gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
+                    claude: 'https://api.anthropic.com/v1',
                     local: 'http://localhost:11434/v1',
                 };
                 baseUrl = providerUrls[provider] || 'https://api.openai.com/v1';
@@ -2063,7 +2336,7 @@ function startProfilesWatcher(win) {
 
 // Handle Log Tailing
 function startLogWatcher(win) {
-    const logPath = path.join(USER_DATA_DIR, 'logs', 'tradebot.log');
+    const logPath = path.join(LOGS_DIR, 'tradebot.log');
     if (!fs.existsSync(logPath)) return;
 
     // Start fresh — don't replay stale log history.
@@ -2110,7 +2383,51 @@ function startLogWatcher(win) {
     });
 }
 
+function getGuiWsUrl() {
+    let wsUrl = process.env.GUI_WS_URL;
+    if (!wsUrl && fs.existsSync(DOTENV_PATH)) {
+        try {
+            const content = fs.readFileSync(DOTENV_PATH, 'utf8');
+            content.split('\n').forEach(line => {
+                const match = line.match(/^\s*GUI_WS_URL\s*=\s*(.*)$/);
+                if (match) wsUrl = match[1].trim();
+            });
+        } catch(e) {}
+    }
+    return wsUrl || 'ws://localhost:8080/ws';
+}
+
+function isRemoteInstance() {
+    const wsUrl = getGuiWsUrl();
+    try {
+        const parsed = new URL(wsUrl);
+        const hostname = parsed.hostname;
+        if (hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '0.0.0.0') {
+            return true;
+        }
+    } catch(e) {
+        if (!wsUrl.includes('localhost') && !wsUrl.includes('127.0.0.1') && !wsUrl.includes('0.0.0.0')) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function checkBotStatus(win, force = false) {
+    if (isRemoteInstance()) {
+        // Decouple local process monitoring from remote connection telemetry.
+        // If configured for a remote instance, local pgrep checks are bypassed so the UI correctly
+        // distinguishes between a "Local Instance" and a "Remote Instance" connection state.
+        if (force || !botRunning) {
+            botRunning = true;
+            console.log(`[MAIN] Bot Status (Remote Instance): RUNNING (WS: ${getGuiWsUrl()})`);
+            if (win && !win.isDestroyed()) {
+                win.webContents.send('bot-status', { running: true, isRemote: true });
+            }
+        }
+        return;
+    }
+
     exec('pgrep -f "[r]un_dev_bot.py"', (err, stdout) => {
         const isProcessRunning = !!(stdout && stdout.trim());
         
@@ -2124,6 +2441,20 @@ function checkBotStatus(win, force = false) {
             }
         }
     });
+}
+
+function applyUIScaling(win, baseWidth, baseHeight) {
+    if (!win || win.isDestroyed()) return;
+    try {
+        const bounds = win.getBounds();
+        const widthFactor = bounds.width / baseWidth;
+        const heightFactor = bounds.height / baseHeight;
+        const factor = (widthFactor + heightFactor) / 2;
+        const clampedFactor = Math.min(Math.max(factor, 0.5), 1.0);
+        win.webContents.setZoomFactor(clampedFactor);
+    } catch (e) {
+        console.warn('[MAIN] Failed to apply UI scaling:', e);
+    }
 }
 
 function createSettingsWindow() {
@@ -2148,6 +2479,13 @@ function createSettingsWindow() {
 
     settingsWindow.loadFile('settings.html');
 
+    settingsWindow.webContents.once('did-finish-load', () => {
+        applyUIScaling(settingsWindow, 1280, 800);
+    });
+    settingsWindow.on('resize', () => {
+        applyUIScaling(settingsWindow, 1280, 800);
+    });
+
     // Enable native Copy/Paste context menu for settings window
     settingsWindow.webContents.on('context-menu', (event, params) => {
         const menu = new Menu();
@@ -2155,12 +2493,6 @@ function createSettingsWindow() {
 
         if (params.selectionText) {
             menu.append(new MenuItem({ label: 'Copy Text', role: 'copy' }));
-            hasItems = true;
-        }
-
-        if (params.isEditable) {
-            menu.append(new MenuItem({ label: 'Paste', role: 'paste' }));
-            menu.append(new MenuItem({ label: 'Cut', role: 'cut' }));
             hasItems = true;
         }
 
@@ -2195,6 +2527,16 @@ function createWindow() {
     win.loadFile('index.html');
     mainWindow = win;
 
+    win.webContents.once('did-finish-load', () => {
+        applyUIScaling(win, 1400, 900);
+        startLogWatcher(win);
+        startProfilesWatcher(win);
+        setInterval(() => checkBotStatus(win), 2000);
+    });
+    win.on('resize', () => {
+        applyUIScaling(win, 1400, 900);
+    });
+
     // Enable native Copy/Paste context menu
     win.webContents.on('context-menu', (event, params) => {
         const menu = new Menu();
@@ -2224,12 +2566,6 @@ function createWindow() {
         }
     });
 
-    win.webContents.once('did-finish-load', () => {
-        startLogWatcher(win);
-        startProfilesWatcher(win);
-        setInterval(() => checkBotStatus(win), 2000);
-    });
-
     ipcMain.handle('get-motd', async (event) => {
         const motdPath = path.join(__dirname, '../../../Documentation/motd.txt');
         try {
@@ -2244,6 +2580,15 @@ function createWindow() {
 
     ipcMain.on('start-bot', async (event, opts = {}) => {
         console.log('[MAIN] Start signal received. Options:', opts);
+        if (isRemoteInstance()) {
+            console.log(`[MAIN] Guard: GUI_WS_URL (${getGuiWsUrl()}) points to a remote instance. Bypassing local process spawn.`);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Remote Instance Active", detail: `Configured for remote bot at ${getGuiWsUrl()}.\nLocal process spawning bypassed.`, color: 'teal' });
+            }
+            checkBotStatus(mainWindow, true);
+            return;
+        }
+
         const debugLogPath = path.join(USER_DATA_DIR, 'logs', 'gui_start_debug.log');
         const timestamp = new Date().toISOString();
         fs.appendFileSync(debugLogPath, `[${timestamp}] START SIGNAL RECEIVED\n`);
@@ -2262,7 +2607,7 @@ function createWindow() {
         }
 
         // 2. Clear old stdout log to get fresh errors
-        const stdoutPath = path.join(USER_DATA_DIR, 'logs', 'bot_stdout.log');
+        const stdoutPath = path.join(LOGS_DIR, 'bot_stdout.log');
         try { if (fs.existsSync(stdoutPath)) fs.truncateSync(stdoutPath); } catch (e) { }
 
         // 3. Determine if MOTD confirmation is needed
@@ -2347,14 +2692,27 @@ function createWindow() {
 
         let extraArgs = isWindows() ? '' : ' --env TRADING_CONFIRMATION=YES';
 
+        let linuxWrapper = '';
+        if (process.platform === 'linux') {
+            const os = require('os');
+            const numCpus = os.cpus().length;
+            if (numCpus > 1) {
+                linuxWrapper = `taskset -c 1-${numCpus - 1} `;
+                console.log(`[MAIN] Applying CPU affinity (${linuxWrapper.trim()}) to daemon bot process.`);
+            } else {
+                linuxWrapper = 'nice -n 10 ';
+                console.log(`[MAIN] Applying process niceness (${linuxWrapper.trim()}) to daemon bot process.`);
+            }
+        }
+
         let spawnCmd = isWindows()
             ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" scripts/run_dev_bot.py`
-            : `TRADING_CONFIRMATION=${isConfirmed ? 'YES' : 'NO'} bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon${extraArgs}`;
+            : `TRADEBOT_INSTANCE_ID=${INSTANCE_ID} TRADING_CONFIRMATION=${isConfirmed ? 'YES' : 'NO'} ${linuxWrapper}bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon${extraArgs}`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);
         fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
 
-        const envOpts = { ...process.env, PYTHONPATH: 'src' };
+        const envOpts = { ...process.env, PYTHONPATH: 'src', TRADEBOT_INSTANCE_ID: INSTANCE_ID };
         if (isConfirmed) {
             envOpts.TRADING_CONFIRMATION = 'YES';
         }
@@ -2396,8 +2754,8 @@ function createWindow() {
                                     : path.join(process.env.XDG_CONFIG_HOME || path.join(require('os').homedir(), '.config'), 'tradebot-sci'));
                             const logPaths = [
                                 stdoutPath,
-                                path.join(userDataDir, 'logs', 'bot_stdout.log'),
-                                path.join(userDataDir, 'logs', 'tradebot.log'),
+                                path.join(LOGS_DIR, 'bot_stdout.log'),
+                                path.join(LOGS_DIR, 'tradebot.log'),
                             ];
                             let combinedTail = '';
                             for (const lp of logPaths) {
@@ -2462,6 +2820,14 @@ function createWindow() {
 
     ipcMain.on('stop-bot', () => {
         console.log('[MAIN] Stopping bot...');
+        if (isRemoteInstance()) {
+            console.log(`[MAIN] Guard: GUI_WS_URL (${getGuiWsUrl()}) points to a remote instance. Bypassing local process kill.`);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Remote Instance Active", detail: `Configured for remote bot at ${getGuiWsUrl()}.\nLocal process stopping bypassed.`, color: 'yellow' });
+            }
+            return;
+        }
+
         const cmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -9 -f "[r]un_dev_bot.py"';
 
         try { require('child_process').execSync(cmd); } catch (e) {}
@@ -2470,6 +2836,15 @@ function createWindow() {
 
     ipcMain.on('restart-bot', () => {
         console.log('[MAIN] Restarting bot...');
+        if (isRemoteInstance()) {
+            console.log(`[MAIN] Guard: GUI_WS_URL (${getGuiWsUrl()}) points to a remote instance. Bypassing local process kill/spawn.`);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Remote Instance Active", detail: `Configured for remote bot at ${getGuiWsUrl()}.\nLocal process spawning bypassed.`, color: 'teal' });
+                mainWindow.webContents.send('bot-restarted');
+            }
+            return;
+        }
+
         const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "[r]un_dev_bot.py"';
 
         exec(killCmd, () => {

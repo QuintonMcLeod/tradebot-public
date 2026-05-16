@@ -141,15 +141,23 @@ let WS_URL = DEFAULT_WS_URL;
 const normalizeTf = (t) => t.toLowerCase().trim();
 
 async function connectWebSocket() {
+    // Check localStorage first for immediate synchronous availability
+    const cachedUrl = localStorage.getItem('GUI_WS_URL');
+    if (cachedUrl) {
+        WS_URL = cachedUrl;
+    }
+
     try {
         const env = await window.api.invoke('read-env');
         if (env.GUI_WS_URL) {
             WS_URL = env.GUI_WS_URL;
+            localStorage.setItem('GUI_WS_URL', WS_URL);
         }
     } catch (err) {
-        console.warn("Failed to read GUI_WS_URL from .env, using default:", WS_URL);
+        console.warn("Failed to read GUI_WS_URL from .env, using default/cached:", WS_URL);
     }
 
+    console.log(`[WS_INIT] Discovered WS_URL during startup sequence: ${WS_URL}`);
     console.log(`Connecting to Live Data Stream (${WS_URL})...`);
     ws = new WebSocket(WS_URL);
 
@@ -168,7 +176,7 @@ async function connectWebSocket() {
         }
 
         console.log("Connected to Live Data Stream.");
-        updateStatus('connected', '--');
+        updateStatus('Online', '--');
 
         // Subscribe to current UI selection on open
         const symbol = document.getElementById('chart-symbol-label')?.innerText;
@@ -187,9 +195,9 @@ async function connectWebSocket() {
                 }
                 
                 // Guard against Zombie backend: verify actual health data is flowing
-                // Backend broadcasts health every 30s, so give it up to 90s before assuming a zombie crash
-                if (window._lastHealthUpdate && (now - window._lastHealthUpdate > 90000)) {
-                    console.warn("[WS] Health Vitals timeout (No loop data in 90s). Bot loop stalled. Forcing reconnect...");
+                // Backend broadcasts health every 30s, so give it up to 240s (matching backend 180s critical timeout + jitter) before assuming a zombie crash
+                if (window._lastHealthUpdate && (now - window._lastHealthUpdate > 240000)) {
+                    console.warn("[WS] Health Vitals timeout (No loop data in 240s). Bot loop stalled. Forcing reconnect...");
                     ws.close();
                     return;
                 }
@@ -218,7 +226,15 @@ async function connectWebSocket() {
         try {
             const msg = JSON.parse(event.data);
 
-
+            // [DEBUG] Targeted console-based debugging of WebSocket throughput & health vitals prioritization
+            if (msg.type === 'health') {
+                const lag = window.__healthVitals && window.__healthVitals._receivedAt ? Date.now() - window.__healthVitals._receivedAt : 0;
+                console.log(`[WS-THROUGHPUT] [PRIORITY-1] Health Vitals received. Time since last health update: ${lag}ms. Overall: ${msg.data.overall}`);
+            } else if (msg.type === 'state') {
+                console.log(`[WS-THROUGHPUT] [PRIORITY-2] State update received. Profile: ${msg.data.profile}, Paper: ${msg.data.is_paper}, Sabbath: ${msg.data.is_sabbath}`);
+            } else if (msg.type === 'holdings') {
+                console.log(`[WS-THROUGHPUT] [PRIORITY-5] Holdings update received. Count: ${msg.data.count}`);
+            }
 
             if (msg.type === 'pong') {
                 ws._lastPong = Date.now();
@@ -451,9 +467,9 @@ async function connectWebSocket() {
                         else sabbathEl.classList.add('hidden');
                     }
                     if (isSabbathActive) {
-                        updateStatus('Sabbath Standby', '--');
+                        updateStatus('Online', '--');
                     } else if (!data.halted) {
-                        updateStatus('connected', '--');
+                        updateStatus('Online', '--');
                     }
                 }
                 if (data.is_eval !== undefined) {
@@ -718,6 +734,19 @@ async function connectWebSocket() {
                         _syncAllCashOutButtons(sym, 'reset');
                     }, 4000);
                 }
+            } else if (msg.type === 'broker_restriction') {
+                if (!window._brokerRestrictionAcknowledged) {
+                    window._brokerRestrictionAcknowledged = true; // Prevent duplicate popups while dialog is open or after acknowledgement
+                    let msgText = msg.data?.message || `Broker restriction triggered for ${msg.data?.symbol || 'asset'}.`;
+                    if (msg.data?.tier) msgText += `\nAccount Tier: ${msg.data.tier}`;
+                    if (msg.data?.suggested_action) msgText += `\n\nSuggested Action: ${msg.data.suggested_action}`;
+                    if (msg.data?.manual_location) msgText += `\nLocation: ${msg.data.manual_location}`;
+
+                    window.api?.invoke('show-broker-restriction', {
+                        symbol: msg.data?.symbol || '',
+                        detail: msgText
+                    }).catch(err => console.error("Failed to show broker restriction dialog:", err));
+                }
             }
         } catch (e) {
             console.error("WS Parse Error", e);
@@ -734,7 +763,7 @@ async function connectWebSocket() {
         }
 
         console.warn("Live Data Stream Disconnected. Retrying in 5s...");
-        updateStatus('disconnected', '--');
+        updateStatus('Offline', '--');
         if (document.getElementById('status-dot')) {
             document.getElementById('status-dot').className = 'w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]';
         }

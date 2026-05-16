@@ -24,6 +24,7 @@ class PositionHoldRecord:
     strategy: str | None = None
     original_entry_price: float | None = None
     initial_risk: float | None = None
+    risk_usd: float | None = None
     mfe_usd: float | None = 0.0
     mae_usd: float | None = 0.0
     schema_version: int = SCHEMA_VERSION
@@ -43,6 +44,7 @@ class PositionHoldRecord:
             strategy=data.get("strategy"),
             original_entry_price=float(data["original_entry_price"]) if data.get("original_entry_price") is not None else None,
             initial_risk=float(data["initial_risk"]) if data.get("initial_risk") is not None else None,
+            risk_usd=float(data["risk_usd"]) if data.get("risk_usd") is not None else None,
             mfe_usd=float(data.get("mfe_usd", 0.0)),
             mae_usd=float(data.get("mae_usd", 0.0)),
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
@@ -92,7 +94,7 @@ class PositionHoldStore:
             os.fsync(handle.fileno())
         tmp.replace(self.path)
 
-    def upsert(self, symbol: str, opened_at: datetime, stop_loss: float | None = None, entry_price: float | None = None, take_profit: float | None = None, size: float | None = None, strategy: str | None = None, original_entry_price: float | None = None, initial_risk: float | None = None) -> None:
+    def upsert(self, symbol: str, opened_at: datetime, stop_loss: float | None = None, entry_price: float | None = None, take_profit: float | None = None, size: float | None = None, strategy: str | None = None, original_entry_price: float | None = None, initial_risk: float | None = None, risk_usd: float | None = None) -> None:
         key = symbol.upper()
         
         # Merging Update: Retain existing fields if not explicitly overwritten (crucial for pyramiding stability)
@@ -108,6 +110,7 @@ class PositionHoldStore:
             if strategy is not None: existing.strategy = strategy
             if original_entry_price is not None: existing.original_entry_price = original_entry_price
             if initial_risk is not None: existing.initial_risk = initial_risk
+            if risk_usd is not None: existing.risk_usd = risk_usd
             record = existing
         else:
             record = PositionHoldRecord(
@@ -120,6 +123,7 @@ class PositionHoldStore:
                 strategy=strategy,
                 original_entry_price=original_entry_price,
                 initial_risk=initial_risk,
+                risk_usd=risk_usd,
             )
             
         self.records[record.symbol] = record

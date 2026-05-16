@@ -360,22 +360,46 @@ def process_candidate_cycle(
                         entry = float(p.get("entry_price") or p.get("avg_price") or price)
                         sl = float(p.get("stop_loss") or 0.0)
                         
-                        if sl > 0:
+                        if "risk_usd" in p:
+                            actual_risk_usd = float(p["risk_usd"])
+                        else:
+                            if sl <= 0 or entry <= 0:
+                                # Snapshot null-safety grace period: skip record_risk_sizing if broker hasn't registered SL/entry yet
+                                continue
                             actual_risk = abs(entry - sl) * abs(size)
-                        else:
-                            # If no mechanical stop is detected in the broker state, 
-                            # the risk is technically the entire position's notional value.
-                            actual_risk = entry * abs(size)
+                                
+                            sym_upper = s.upper().replace("_", "")
+                            is_jpy_quote = sym_upper.endswith("JPY") and not sym_upper.startswith("USD")
+                            is_cad_quote = sym_upper.endswith("CAD") and not sym_upper.startswith("USD")
+                            is_chf_quote = sym_upper.endswith("CHF") and not sym_upper.startswith("USD")
                             
-                        prop_tier = float(getattr(profile_settings, "prop_challenge_tier_usd", 0.0))
-                        prop_loss = float(getattr(profile_settings, "prop_challenge_max_loss_pct", 0.0))
-                        if prop_tier > 0 and prop_loss <= 0:
-                            prop_loss = 0.04 if prop_tier <= 50000 else 0.03
-                        
-                        if prop_tier > 0 and prop_loss > 0:
-                            sizing_capital = prop_tier * prop_loss
-                        else:
-                            sizing_capital = global_equity
+                            if is_jpy_quote:
+                                usdjpy_rate = 150.0
+                                try:
+                                    from tradebot_sci.market import oanda_provider
+                                    usdjpy_rate = getattr(oanda_provider, '_last_usdjpy', 150.0) or 150.0
+                                except Exception: pass
+                                actual_risk_usd = actual_risk / usdjpy_rate if usdjpy_rate > 0 else actual_risk
+                            elif is_cad_quote:
+                                usdcad_rate = 1.35
+                                try:
+                                    from tradebot_sci.market import oanda_provider
+                                    usdcad_rate = getattr(oanda_provider, '_last_usdcad', 1.35) or 1.35
+                                except Exception: pass
+                                actual_risk_usd = actual_risk / usdcad_rate if usdcad_rate > 0 else actual_risk
+                            elif is_chf_quote:
+                                usdchf_rate = 0.90
+                                try:
+                                    from tradebot_sci.market import oanda_provider
+                                    usdchf_rate = getattr(oanda_provider, '_last_usdchf', 0.90) or 0.90
+                                except Exception: pass
+                                actual_risk_usd = actual_risk / usdchf_rate if usdchf_rate > 0 else actual_risk
+                            elif sym_upper.startswith("USD") and not sym_upper.endswith("USD"):
+                                actual_risk_usd = actual_risk / price if price > 0 else actual_risk
+                            else:
+                                actual_risk_usd = actual_risk
+
+                        sizing_capital = global_equity
                             
                         cfg_risk_dollars = float(getattr(profile_settings, "risk_per_trade_dollars", 0.0))
                         if cfg_risk_dollars > 0 and sizing_capital > 0:
@@ -385,7 +409,11 @@ def process_candidate_cycle(
                             
                         try:
                             from tradebot_sci.runtime.health_monitor import health_monitor
-                            health_monitor.record_risk_sizing(cfg_risk_pct, actual_risk, sizing_capital, s)
+                            leverage_capped = bool(p.get("leverage_capped", False))
+                            health_monitor.record_risk_sizing(
+                                cfg_risk_pct, actual_risk_usd, sizing_capital, s,
+                                leverage_capped=leverage_capped, total_notional_sum=global_position_notional
+                            )
                         except Exception:
                             pass
         except Exception as e:

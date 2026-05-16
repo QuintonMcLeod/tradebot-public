@@ -135,11 +135,27 @@ class HealthMonitor:
         self._market_hours_active = not sabbath_active
         self._evaluate_heartbeat()
 
+    @property
+    def is_warming_up(self) -> bool:
+        return self._cycle_count <= 10
+
     def _evaluate_heartbeat(self) -> None:
         v = self.vitals["heartbeat"]
-        age = time.time() - self._last_heartbeat_ts if self._last_heartbeat_ts else 9999
-        uptime = time.time() - self._start_ts
+        now = time.time()
+        uptime = now - self._start_ts
         uptime_str = self._format_duration(uptime)
+
+        if not self._market_hours_active:
+            v.set(HEALTHY,
+                  "Market is closed / Sabbath active — bot is resting normally.",
+                  f"Last cycle: {now - self._last_heartbeat_ts if self._last_heartbeat_ts else 0:.0f}s ago | Uptime: {uptime_str} | Cycles: {self._cycle_count}")
+            return
+
+        if self._last_heartbeat_ts > 0:
+            age = now - self._last_heartbeat_ts
+        else:
+            # If heartbeat hasn't been recorded yet but bot just booted, use uptime as age
+            age = uptime if uptime < 120 else 9999
 
         if age < 60:
             v.set(HEALTHY,
@@ -172,6 +188,12 @@ class HealthMonitor:
 
     def _evaluate_indicators(self) -> None:
         v = self.vitals["indicators"]
+        if self.is_warming_up:
+            v.set(HEALTHY,
+                  "Strategy warm-up in progress — populating indicator buffers.",
+                  f"Cycle {self._cycle_count}/10 warm-up")
+            return
+
         zeroed = {k: c for k, c in self._indicator_zero_counts.items() if c >= 5}
         all_zero = all(c >= 5 for c in self._indicator_zero_counts.values()) if self._indicator_zero_counts else False
 
@@ -357,9 +379,16 @@ class HealthMonitor:
                            actual_position_usd: float,
                            account_equity: float,
                            symbol: str = "",
-                           leverage_capped: bool = False) -> None:
+                           leverage_capped: bool = False,
+                           total_notional_sum: float = 0.0) -> None:
         """Called after position sizing calculation."""
         v = self.vitals["risk"]
+
+        if self.is_warming_up:
+            v.set(HEALTHY,
+                  "Strategy warm-up in progress — establishing risk baselines.",
+                  f"Cycle {self._cycle_count}/10 warm-up")
+            return
 
         if account_equity <= 0:
             v.set(WARNING,
@@ -374,35 +403,59 @@ class HealthMonitor:
                   f"Risk %: {configured_risk_pct}%")
             return
 
+        # Check if leverage_capped is True or if the broker's safety guards intentionally limited position size
+        if leverage_capped:
+            detail = (f"{symbol}: {configured_risk_pct}% of ${account_equity:.0f} = "
+                      f"${expected_risk_usd:.2f} expected, ${actual_position_usd:.2f} actual "
+                      f"[LEVERAGE CAPPED] (Total Notional: ${total_notional_sum:,.2f})")
+            self._last_risk_detail = detail
+            v.set(HEALTHY,
+                  f"Trade size limited safely by leverage cap ({symbol} actual: ${actual_position_usd:.2f}).",
+                  detail)
+            return
+
         deviation = abs(actual_position_usd - expected_risk_usd) / expected_risk_usd
 
-        detail = (f"{symbol}: {configured_risk_pct}% of ${account_equity:.0f} = "
-                  f"${expected_risk_usd:.2f} expected, ${actual_position_usd:.2f} actual "
-                  f"(deviation: {deviation:.0%})")
-        if leverage_capped:
-            detail += " [LEVERAGE CAPPED]"
-        self._last_risk_detail = detail
+        # If we have total_notional_sum, perform aggregate exposure check
+        if total_notional_sum > 0:
+            agg_ratio = total_notional_sum / account_equity if account_equity > 0 else 0.0
+            detail = (f"{symbol}: {configured_risk_pct}% of ${account_equity:.0f} = "
+                      f"${expected_risk_usd:.2f} exp, ${actual_position_usd:.2f} act "
+                      f"(dev: {deviation:.0%}) | Agg Exposure: ${total_notional_sum:,.2f} ({agg_ratio:.1f}x equity)")
+            self._last_risk_detail = detail
 
-        if deviation < 0.20:
-            v.set(HEALTHY,
-                  f"Trade sizes match your risk settings ({configured_risk_pct}% = ${expected_risk_usd:.0f}).",
-                  detail)
-        elif deviation < 0.50:
-            msg = "The bot is placing smaller trades than expected"
-            if leverage_capped:
-                msg += " — your leverage cap is limiting position size."
+            if deviation < 0.20:
+                v.set(HEALTHY,
+                      f"Trade sizes match your risk settings ({configured_risk_pct}% = ${expected_risk_usd:.0f}).",
+                      detail)
+            elif deviation < 0.80: # Relaxed threshold for aggregate/multi-position checks
+                v.set(WARNING,
+                      f"Position sizing deviation ({deviation:.0%}) within relaxed multi-position aggregate limits.",
+                      detail)
             else:
-                msg += " — minimum lot sizing may be rounding down."
-            v.set(WARNING, msg, detail)
+                v.set(CRITICAL,
+                      f"Trade sizes differ significantly from expected risk ({deviation:.0%} deviation).",
+                      detail)
+                self.add_event(f"Risk deviation: {deviation:.0%} on {symbol}", "warn")
         else:
-            msg = "Trade sizes are very different from your expected risk."
-            if leverage_capped or "[LEVERAGE CAPPED]" in detail:
-                msg += " Your leverage cap severely limited this position size because you have too many open trades."
+            detail = (f"{symbol}: {configured_risk_pct}% of ${account_equity:.0f} = "
+                      f"${expected_risk_usd:.2f} expected, ${actual_position_usd:.2f} actual "
+                      f"(deviation: {deviation:.0%})")
+            self._last_risk_detail = detail
+
+            if deviation < 0.20:
+                v.set(HEALTHY,
+                      f"Trade sizes match your risk settings ({configured_risk_pct}% = ${expected_risk_usd:.0f}).",
+                      detail)
+            elif deviation < 0.50:
+                v.set(WARNING,
+                      "The bot is placing smaller trades than expected — minimum lot sizing may be rounding down.",
+                      detail)
             else:
-                msg += " Risk configuration might be broken or spread/margin limits blocked the full size!"
-                
-            v.set(CRITICAL, msg, detail)
-            self.add_event(f"Risk deviation: {deviation:.0%} on {symbol}", "warn")
+                v.set(CRITICAL,
+                      "Trade sizes are very different from your expected risk. Risk configuration might be broken!",
+                      detail)
+                self.add_event(f"Risk deviation: {deviation:.0%} on {symbol}", "warn")
 
     # ──────────────────────────────────────────────────────
     # Vital #8: Strategy Signal

@@ -150,23 +150,23 @@ class MarketSettings(BaseModel):
     default_timeframe: str = Field(default="5m")
     max_candles: PositiveInt = Field(default=200)
     symbols: list[str] = Field(default_factory=list, description="Symbols the scanner will consider")
-    exchange_provider: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda"] = Field(
+    exchange_provider: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda", "mt5", "ftmo", "tradovate", "apex"] = Field(
         default_factory=lambda: os.getenv("EXCHANGE_PROVIDER", "primary"),
         description="DEPRECATED: Use market_data_mode and broker_mode instead. Selects global mode.",
     )
-    market_data_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda", "gemini", "kraken"] = Field(
+    market_data_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda", "gemini", "kraken", "mt5", "ftmo", "tradovate", "apex"] = Field(
         default_factory=lambda: os.getenv("MARKET_DATA_MODE", os.getenv("EXCHANGE_PROVIDER", "primary")),
         description="Selects the market data provider strategy (primary=IBKR, alternative=Crypto plugin, hybrid=Mix, coinbase_futures=Coinbase V3 Futures, oanda=OANDA v20).",
     )
-    broker_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda", "gemini", "kraken"] = Field(
+    broker_mode: Literal["primary", "alternative", "hybrid", "coinbase_futures", "oanda", "gemini", "kraken", "mt5", "ftmo", "tradovate", "apex"] = Field(
         default_factory=lambda: os.getenv("BROKER_MODE", os.getenv("EXCHANGE_PROVIDER", "primary")),
         description="Selects the broker execution strategy (primary=IBKR, alternative=CCXT, hybrid=Mix, coinbase_futures=Coinbase V3 Futures, oanda=OANDA v20).",
     )
-    alternative_market_data: Literal["mock", "coinbase", "coinbase_futures", "ccxt", "oanda", "gemini", "kraken"] = Field(
+    alternative_market_data: Literal["mock", "coinbase", "coinbase_futures", "ccxt", "oanda", "gemini", "kraken", "mt5", "ftmo", "tradovate", "apex"] = Field(
         default="mock",
         description="Market data backend to use when exchange_provider=alternative (mock, ccxt, oanda, or coinbase).",
     )
-    alternative_broker: Literal["mock", "ccxt", "coinbase_futures", "oanda", "gemini", "kraken"] = Field(
+    alternative_broker: Literal["mock", "ccxt", "coinbase_futures", "oanda", "gemini", "kraken", "mt5", "ftmo", "tradovate", "apex"] = Field(
         default="mock",
         description="Execution backend to use when exchange_provider=alternative and EXECUTE_TRADES=true (mock, ccxt, or oanda).",
     )

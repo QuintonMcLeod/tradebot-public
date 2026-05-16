@@ -688,6 +688,14 @@ class OandaExchangeBroker(IExchangeBroker):
             if take_profit and take_profit > 0:
                 result["take_profit"] = take_profit
             
+            if hasattr(self, "position_hold_store") and self.position_hold_store:
+                hold_rec = self.position_hold_store.get(symbol)
+                if hold_rec:
+                    if getattr(hold_rec, "risk_usd", None) is not None:
+                        result["risk_usd"] = float(hold_rec.risk_usd)
+                    if getattr(hold_rec, "strategy", None):
+                        result["strategy"] = hold_rec.strategy
+            
             return result
         except Exception:
             return None
@@ -1067,18 +1075,7 @@ class OandaExchangeBroker(IExchangeBroker):
                         ExecutionOutcome(ExecutionOutcomeType.ERROR, decision.symbol, f"capital too low: ${self._liquid_capital:.2f}")
                     )
 
-            # ── Prop Firm Auto-Sizer ──
-            prop_tier = float(getattr(self.profile, "prop_challenge_tier_usd", 0.0))
-            prop_loss = float(getattr(self.profile, "prop_challenge_max_loss_pct", 0.0))
-            
-            if prop_tier > 0 and prop_loss <= 0:
-                prop_loss = 0.04 if prop_tier <= 50000 else 0.03
-                
-            if prop_tier > 0 and prop_loss > 0:
-                sizing_capital = prop_tier * prop_loss
-                logger.info(f"[OANDA] [PROP FIRM SIZER] True Equity scaling active: ${sizing_capital:,.2f}")
-            else:
-                sizing_capital = self._liquid_capital
+            sizing_capital = self._liquid_capital
 
             # 1. Prioritize explicit dollar risk from the strategy (if provided)
             risk_amount = decision.risk_per_trade_dollars or 0.0
@@ -1353,8 +1350,15 @@ class OandaExchangeBroker(IExchangeBroker):
                         size=units,
                         strategy=getattr(decision, "strategy_name", None) or "unknown",
                         original_entry_price=avg_fill,
-                        initial_risk=initial_risk_val
+                        initial_risk=initial_risk_val,
+                        risk_usd=risk_amount
                     )
+                elif hasattr(self, "position_hold_store") and self.position_hold_store:
+                    hold_rec = self.position_hold_store.get(decision.symbol)
+                    if hold_rec:
+                        existing_risk = getattr(hold_rec, "risk_usd", None) or 0.0
+                        hold_rec.risk_usd = existing_risk + risk_amount
+                        self.position_hold_store.save()
 
                 return ExecutionResult(ExecutionStatus.EXECUTED, decision.symbol, f"filled {fill['id']}"), ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, decision.symbol, order_ids=[fill['id']])
             else:

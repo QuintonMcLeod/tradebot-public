@@ -1997,10 +1997,8 @@ function updateStatus(text, latency) {
     if (statusText) statusText.textContent = `Status: ${text.toUpperCase()}`;
     if (statusLatency) statusLatency.textContent = latency;
     if (statusDot) {
-        if (text.toLowerCase() === 'connected') {
+        if (text.toLowerCase() === 'online') {
             statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-pulse";
-        } else if (text.toLowerCase().includes('sabbath')) {
-            statusDot.className = "w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)] animate-pulse";
         } else {
             statusDot.className = "w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]";
         }
@@ -2612,7 +2610,7 @@ async function executeStartBot() {
     }
 }
 
-function init() {
+async function init() {
     console.log("Initializing Dashboard...");
 
     // Initialize DOM references
@@ -2638,7 +2636,18 @@ function init() {
     }
 
     try {
-        connectWebSocket();
+        // Pre-fetch read-env to ensure GUI_WS_URL is fully loaded and cached in localStorage before WS connection
+        try {
+            const env = await window.api?.invoke('read-env');
+            if (env?.GUI_WS_URL) {
+                window.GUI_WS_URL = env.GUI_WS_URL;
+                localStorage.setItem('GUI_WS_URL', env.GUI_WS_URL);
+            }
+        } catch (err) {
+            console.warn("init() failed to read-env:", err);
+        }
+
+        await connectWebSocket();
         setupInteractiveElements();
         setupPanelRotation();
         setupCalendar();

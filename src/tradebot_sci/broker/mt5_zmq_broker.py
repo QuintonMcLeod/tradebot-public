@@ -24,9 +24,11 @@ class MT5ZMQBroker(IExchangeBroker):
         self.trade_results = trade_results
         
         # Initialize ZMQ Context and Socket
+        import os
+        mt5_host = os.getenv("MT5_ZMQ_HOST", "localhost")
         self.context = zmq.Context()
         self.req_socket = self.context.socket(zmq.REQ)
-        self.req_socket.connect(f"tcp://localhost:{self.req_port}")
+        self.req_socket.connect(f"tcp://{mt5_host}:{self.req_port}")
         
         # Socket settings
         self.req_socket.setsockopt(zmq.RCVTIMEO, 5000)  # 5 second timeout
@@ -53,7 +55,9 @@ class MT5ZMQBroker(IExchangeBroker):
             # Reset socket on timeout
             self.req_socket.close()
             self.req_socket = self.context.socket(zmq.REQ)
-            self.req_socket.connect(f"tcp://localhost:{self.req_port}")
+            import os
+            mt5_host = os.getenv("MT5_ZMQ_HOST", "localhost")
+            self.req_socket.connect(f"tcp://{mt5_host}:{self.req_port}")
             self.req_socket.setsockopt(zmq.RCVTIMEO, 5000)
             self.req_socket.setsockopt(zmq.SNDTIMEO, 5000)
             self.req_socket.setsockopt(zmq.LINGER, 0)
@@ -351,7 +355,9 @@ class MT5ZMQMarketProvider(MarketDataProvider):
         
         context = zmq.Context()
         req_socket = context.socket(zmq.REQ)
-        req_socket.connect(f"tcp://localhost:{self.req_port}")
+        import os
+        mt5_host = os.getenv("MT5_ZMQ_HOST", "localhost")
+        req_socket.connect(f"tcp://{mt5_host}:{self.req_port}")
         req_socket.setsockopt(zmq.RCVTIMEO, 5000)
         req_socket.setsockopt(zmq.SNDTIMEO, 5000)
         req_socket.setsockopt(zmq.LINGER, 0)

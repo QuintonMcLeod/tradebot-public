@@ -73,6 +73,7 @@ const CONFIG_MAP = {
     'TRADEBOT_LOG': ['logging', 'file'],
     'WS_SERVER_PORT': ['runtime', 'ws_server_port'],
     'GUI_WS_URL': ['runtime', 'gui_ws_url'],
+    'GUI_WS_URL_HISTORY': ['runtime', 'gui_ws_url_history'],
     'GUI_PNL_TIMEFRAME': ['runtime', 'pnl_timeframe'],
     'GUI_DEBUG_NOTIFICATIONS': ['runtime', 'gui_debug_notifications'],
     'GLOBAL_RISK_PCT': ['runtime', 'global_default_risk_pct'],
@@ -1737,6 +1738,14 @@ async function loadSettings() {
             configData = await window.api.readConfig() || {};
             secretsData = await window.api.readSecrets() || {};
             syncEnvData();
+            if (window.api && window.api.readEnv) {
+                try {
+                    const rawEnv = await window.api.readEnv();
+                    if (rawEnv) {
+                        Object.assign(envData, rawEnv);
+                    }
+                } catch(err) { console.warn("Failed to read env in loadSettings:", err); }
+            }
             profilesContent = JSON.stringify(configData, null, 2);
             console.log("[SETTINGS] Config loaded and synced.");
 
@@ -2218,6 +2227,104 @@ function createCard(title, desc, key, controlType, options = {}) {
             updateValue(key, String(selectedHour));
         });
         controlContainer.appendChild(timeInput);
+    }
+    else if (controlType === 'ws_connect') {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'flex flex-col gap-2 w-full';
+
+        const inputFlex = document.createElement('div');
+        inputFlex.className = 'flex items-center gap-2 w-full';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'input-field flex-1';
+        input.value = value;
+        input.placeholder = options.placeholder || 'ws://localhost:8080/ws';
+
+        const saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.className = 'px-3 py-1.5 bg-teal-500/20 border border-teal-500/40 text-teal-400 font-bold rounded-lg hover:bg-teal-500/30 transition-colors text-xs flex items-center gap-1 cursor-pointer';
+        saveBtn.innerHTML = '<span class="material-symbols-outlined text-xs">save</span> Save & Connect';
+        saveBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const currentVal = input.value.trim();
+            if (!currentVal) return;
+            
+            // Update GUI_WS_URL
+            updateValue(key, currentVal, stratNamespace);
+            
+            // Manage GUI_WS_URL_HISTORY
+            let historyStr = envData['GUI_WS_URL_HISTORY'] || 'ws://localhost:8080/ws,ws://myhome.tradebot:8080/ws';
+            let historyArr = historyStr.split(',').map(s => s.trim()).filter(Boolean);
+            if (!historyArr.includes(currentVal)) {
+                historyArr.unshift(currentVal);
+                if (historyArr.length > 10) historyArr.pop(); // keep last 10
+            }
+            const newHistoryStr = historyArr.join(',');
+            envData['GUI_WS_URL_HISTORY'] = newHistoryStr;
+            localChanges['GUI_WS_URL_HISTORY'] = true;
+            
+            // Trigger saveAll which will do the hard refresh
+            if (typeof saveAll === 'function') {
+                saveAll();
+            }
+        });
+
+        input.addEventListener('change', (e) => {
+            updateValue(key, e.target.value.trim(), stratNamespace);
+        });
+        let _inputDebounce;
+        input.addEventListener('input', (e) => {
+            clearTimeout(_inputDebounce);
+            _inputDebounce = setTimeout(() => updateValue(key, e.target.value.trim(), stratNamespace), 800);
+        });
+
+        inputFlex.appendChild(input);
+        inputFlex.appendChild(saveBtn);
+
+        const historyWrap = document.createElement('div');
+        historyWrap.className = 'flex items-center gap-2 w-full mt-1 bg-slate-900/40 p-2 rounded-lg border border-slate-800';
+
+        const historyLabel = document.createElement('span');
+        historyLabel.className = 'text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1 whitespace-nowrap';
+        historyLabel.innerHTML = '<span class="material-symbols-outlined text-xs">history</span> Connection History:';
+
+        const select = document.createElement('select');
+        select.className = 'input-field appearance-none flex-1 text-xs py-1 px-2 bg-slate-950 border border-slate-700/50 rounded cursor-pointer text-slate-300';
+        
+        // Populate history
+        let historyStr = envData['GUI_WS_URL_HISTORY'] || 'ws://localhost:8080/ws,ws://myhome.tradebot:8080/ws';
+        let historyArr = historyStr.split(',').map(s => s.trim()).filter(Boolean);
+        // Ensure current value is in history
+        if (value && !historyArr.includes(value)) {
+            historyArr.unshift(value);
+        }
+        
+        historyArr.forEach(url => {
+            const opt = document.createElement('option');
+            opt.value = url;
+            opt.textContent = url === 'ws://localhost:8080/ws' ? `${url} (Local Instance)` : `${url} (Remote Cluster)`;
+            opt.selected = url === value;
+            select.appendChild(opt);
+        });
+
+        select.addEventListener('change', (e) => {
+            const selectedUrl = e.target.value;
+            input.value = selectedUrl;
+            updateValue(key, selectedUrl, stratNamespace);
+            
+            // Trigger saveAll which will do the hard refresh
+            if (typeof saveAll === 'function') {
+                saveAll();
+            }
+        });
+
+        historyWrap.appendChild(historyLabel);
+        historyWrap.appendChild(select);
+
+        wrapper.appendChild(inputFlex);
+        wrapper.appendChild(historyWrap);
+        controlContainer.appendChild(wrapper);
     }
 
     return card;
@@ -2758,7 +2865,7 @@ function renderSystemTab(container) {
     section.appendChild(createCard('Live Trading', 'Master switch for real order execution', 'EXECUTE_TRADES', 'toggle'));
     section.appendChild(createCard('Continuous Mode', 'Keep runtime alive indefinitely', 'CONTINUOUS_MODE', 'toggle'));
     section.appendChild(createCard('Friday Fade Damper', 'Risk cap after 12:00 PM EST Fri (Forex Only)', 'FRIDAY_FADE_ENABLED', 'toggle', { default: 'true' }));
-    section.appendChild(createCard('WebConnect URL', 'Remote bot connection address', 'GUI_WS_URL', 'input', { default: 'ws://localhost:8080/ws' }));
+    section.appendChild(createCard('WebConnect URL', 'Remote bot connection address', 'GUI_WS_URL', 'ws_connect', { default: 'ws://localhost:8080/ws' }));
     section.appendChild(createCard('Bot Listening Port', 'Port the bot server listens on', 'WS_SERVER_PORT', 'input', { default: '8080' }));
 
     section.appendChild(createCard('PnL Timeframe', 'Select performance measurement period for the dashboard', 'GUI_PNL_TIMEFRAME', 'dropdown', {
@@ -5489,22 +5596,74 @@ async function saveAll() {
 
     if (window.api) {
         try {
+            if (localChanges['GUI_WS_URL']) {
+                const newUrl = envData['GUI_WS_URL'];
+                if (newUrl) {
+                    showNotice("Validating connection...", "amber");
+                    if (indicator) indicator.style.opacity = '1';
+                    const isValid = await new Promise((resolve) => {
+                        try {
+                            const ws = new WebSocket(newUrl);
+                            const timer = setTimeout(() => {
+                                ws.close();
+                                resolve(false);
+                            }, 3000);
+                            ws.onopen = () => {
+                                clearTimeout(timer);
+                                ws.close();
+                                resolve(true);
+                            };
+                            ws.onerror = () => {
+                                clearTimeout(timer);
+                                ws.close();
+                                resolve(false);
+                            };
+                        } catch(e) {
+                            resolve(false);
+                        }
+                    });
+
+                    if (!isValid) {
+                        showNotice("Unreachable Endpoint. Save Aborted.", "red");
+                        if (indicator) indicator.style.opacity = '0';
+                        return;
+                    }
+                    showNotice("Connection Verified", "teal");
+                }
+            }
+
             // Save unified config
             const res1 = await window.api.saveConfig(configData);
             // Save secrets
             const res2 = await window.api.saveSecrets(secretsData);
+            // Save env variables (like GUI_WS_URL)
+            let res3 = { success: true };
+            if (window.api.saveEnv) {
+                res3 = await window.api.saveEnv(envData);
+            }
 
-            if (res1.success && res2.success) {
+            if (res1.success && res2.success && res3.success) {
                 console.log("[SETTINGS] Save successful.");
                 
                 // Check if Prop Firm routing toggles were modified
                 const needsRestart = localChanges['PROP_FTMO_ENABLED'] || localChanges['PROP_APEX_ENABLED'] || localChanges['PROP_FN_ENABLED'];
+                const urlChanged = localChanges['GUI_WS_URL'] || localChanges['GUI_WS_URL_HISTORY'];
                 
                 showNotice("Settings Saved", "teal");
                 localChanges = {};
                 updateChangeCounter();
                 
-                if (needsRestart) {
+                if (urlChanged) {
+                    showNotice("Connection Changed. Hard Refreshing UI...", "amber");
+                    setTimeout(() => {
+                        try {
+                            localStorage.removeItem('tradebot_state');
+                            localStorage.removeItem('tradebot_ai_insights');
+                            sessionStorage.clear();
+                        } catch(err) { console.warn("Error clearing storage:", err); }
+                        window.location.reload();
+                    }, 1000);
+                } else if (needsRestart) {
                     showNotice("Routing Changed. Restarting Bot...", "amber");
                     setTimeout(() => {
                         if (window.api && window.api.restartBot) {
@@ -6337,11 +6496,11 @@ function updateBotStatusUI(isRunning) {
 
     if (isRunning) {
         dot.className = 'w-2 h-2 rounded-full bg-teal-500 shadow-[0_0_10px_rgba(20,184,166,0.8)]';
-        text.textContent = 'Status: Connected';
+        text.textContent = 'Status: Online';
         text.className = 'text-[10px] font-black uppercase tracking-widest text-teal-400';
     } else {
         dot.className = 'w-2 h-2 rounded-full bg-slate-500 animate-pulse';
-        text.textContent = 'Status: Disconnected';
+        text.textContent = 'Status: Offline';
         text.className = 'text-[10px] font-black uppercase tracking-widest text-slate-400';
     }
 }

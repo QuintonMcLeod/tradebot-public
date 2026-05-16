@@ -298,7 +298,18 @@ SABBATH="false"
 NO_SABBATH="false"
 
 SESSION_NAME="${SESSION_NAME:-tradebot}"
-LOG_FILE="${TRADEBOT_LOG:-$USER_DATA_DIR/logs/tradebot.log}"
+
+INSTANCE_ID="${TRADEBOT_INSTANCE_ID:-instance_8080}"
+if [[ -n "${GUI_WS_URL:-}" && -z "${TRADEBOT_INSTANCE_ID:-}" ]]; then
+  if [[ "$GUI_WS_URL" =~ :([0-9]+) ]]; then
+    INSTANCE_ID="instance_${BASH_REMATCH[1]}"
+  else
+    INSTANCE_ID="instance_${GUI_WS_URL//[^A-Za-z0-9_]/_}"
+  fi
+fi
+export TRADEBOT_INSTANCE_ID="$INSTANCE_ID"
+
+LOG_FILE="${TRADEBOT_LOG:-$USER_DATA_DIR/logs/$INSTANCE_ID/tradebot.log}"
 MARKET_DATA_MODE="${MARKET_DATA_MODE:-}"
 BROKER_MODE="${BROKER_MODE:-}"
 
@@ -403,7 +414,7 @@ fi
 
 # Build the master command string for the bot process.
 # We only inject environment variables if they are NOT empty to ensure config.json remains source of truth.
-BOT_CMD="PYTHONPATH=src "
+BOT_CMD="PYTHONPATH=src TRADEBOT_INSTANCE_ID=\"$INSTANCE_ID\" "
 [[ -n "$PROFILE_NAME" ]] && BOT_CMD+="PROFILE_NAME=\"$PROFILE_NAME\" "
 [[ -n "$EXECUTE_TRADES" ]] && BOT_CMD+="EXECUTE_TRADES=\"$EXECUTE_TRADES\" "
 [[ -n "$TRADING_CONFIRMATION" ]]  && BOT_CMD+="TRADING_CONFIRMATION=\"$TRADING_CONFIRMATION\" "
@@ -487,7 +498,7 @@ restart_tmux() {
 	      saved_exec="$(tmux show-environment -t "$SESSION_NAME" TRADEBOT_EXECUTE_TRADES 2>/dev/null | sed -n 's/^TRADEBOT_EXECUTE_TRADES=//p' || true)"
 	      if [[ -n "$saved_exec" ]]; then
 	        EXECUTE_TRADES="$saved_exec"
-	        BOT_CMD="PROFILE_NAME=\"$PROFILE_NAME\" PYTHONPATH=src EXECUTE_TRADES=\"$EXECUTE_TRADES\" TRADING_CONFIRMATION=YES MARKET_DATA_MODE=\"${MARKET_DATA_MODE:-}\" BROKER_MODE=\"${BROKER_MODE:-}\" $PYTHON_EXE scripts/run_dev_bot.py ${BOT_ARGS[*]}"
+	        BOT_CMD="PROFILE_NAME=\"$PROFILE_NAME\" PYTHONPATH=src TRADEBOT_INSTANCE_ID=\"$INSTANCE_ID\" EXECUTE_TRADES=\"$EXECUTE_TRADES\" TRADING_CONFIRMATION=YES MARKET_DATA_MODE=\"${MARKET_DATA_MODE:-}\" BROKER_MODE=\"${BROKER_MODE:-}\" $PYTHON_EXE scripts/run_dev_bot.py ${BOT_ARGS[*]}"
 	      fi
 	    fi
 	  fi
