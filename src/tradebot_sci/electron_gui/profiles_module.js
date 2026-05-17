@@ -230,20 +230,45 @@ window.profilesModule = (function () {
 
     async function loadProfiles() {
         try {
-            // Read profiles from config.json (single source of truth)
-            const config = await window.api.readConfig();
-            if (config && config.profiles) {
-                allProfiles = config.profiles;
-            } else {
-                // Fallback: try YAML file
-                const result = await window.api.invoke('read-profiles');
-                if (result) {
-                    allProfiles = parseYaml(result);
+            let loadedFromRemote = false;
+
+            // 1. Backend Remote Fetch via get-active-profile (Single Source of Truth in Remote Mode)
+            try {
+                const activeProfData = await window.api.invoke('get-active-profile');
+                if (activeProfData && typeof activeProfData === 'object') {
+                    if (activeProfData.profiles && Object.keys(activeProfData.profiles).length > 0) {
+                        allProfiles = activeProfData.profiles;
+                        activeProfileName = activeProfData.activeProfile || activeProfData.active_profile || 'default';
+                        loadedFromRemote = true;
+                        console.log('[PROFILES] Successfully loaded profile data and active profile from remote backend.');
+                    } else if (activeProfData.activeProfile) {
+                        activeProfileName = activeProfData.activeProfile;
+                    }
+                } else if (typeof activeProfData === 'string') {
+                    activeProfileName = activeProfData;
                 }
+            } catch (err) {
+                console.warn('[PROFILES] Failed to fetch active profile data via get-active-profile:', err);
             }
-            // Read active_profile from config so sidebar dots render correctly on startup
-            if (config && config.active_profile) {
-                activeProfileName = config.active_profile;
+
+            // 2. JSON Config Fallback (if not loaded from remote)
+            if (!loadedFromRemote) {
+                const config = await window.api.readConfig();
+                if (config && config.profiles) {
+                    allProfiles = config.profiles;
+                    if (!activeProfileName || activeProfileName === 'default') {
+                        activeProfileName = config.active_profile || 'default';
+                    }
+                    console.log('[PROFILES] Loaded profile data from local config.json.');
+                } else {
+                    // 3. Local YAML Fallback
+                    const result = await window.api.invoke('read-profiles');
+                    if (result) {
+                        allProfiles = parseYaml(result);
+                        if (!activeProfileName) activeProfileName = 'default';
+                        console.log('[PROFILES] Loaded profile data from local YAML fallback.');
+                    }
+                }
             }
 
             // Sanitize explicit null profiles to prevent UI rendering crashes

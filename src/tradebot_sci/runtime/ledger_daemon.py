@@ -573,3 +573,18 @@ class LedgerDaemon:
     def get_ledger(self) -> dict:
         """Get the full ledger (for IPC)."""
         return self._ledger
+
+    def reset(self, initial_balance: float = 10000.0) -> None:
+        """Reset the ledger to a clean state for paper trading reset."""
+        now_iso = datetime.now(self.tz).isoformat()
+        self._ledger = {
+            "version": 1,
+            "last_updated": now_iso,
+            "sundown_timezone": self.tz_name,
+            "current_day": _empty_day(now_iso),
+            "days": [],
+        }
+        self._ledger["current_day"]["capital_at_start"] = initial_balance
+        self._ledger["current_day"]["capital_now"] = initial_balance
+        self._save_ledger()
+        logger.info(f"[LEDGER] Reset ledger to clean state with initial balance ${initial_balance:.2f}")

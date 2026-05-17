@@ -2,7 +2,7 @@ import os, json, time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-env_path = Path("/home/qchan/.config/tradebot-sci/.env.secrets")
+env_path = Path("/home/qchan/.config/secrets/.env.secrets")
 if env_path.exists():
     with open(env_path) as f:
         for line in f:

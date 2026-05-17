@@ -863,7 +863,7 @@ def run_bot(
         
         if _auth_count == 0:
             logger.critical("[PREFLIGHT] ❌ FATAL: All configured tracking brokers failed authentication (no API data). Halting bot.")
-            import sys; sys.exit(2)
+            sys.exit(2)
 
     # ── Paper Broker ──
     # Create PaperBroker if:
@@ -1246,6 +1246,21 @@ def run_bot(
 
     controller.ws_server.set_on_flatten_callback(on_flatten)
 
+    # ── Remote Paper Trading Reset from GUI ──────────────────────────
+    def on_reset_paper():
+        """Handle paper trading reset from the GUI."""
+        logger.info("[PAPER RESET] ⚡ User requested paper trading reset via GUI")
+        init_bal = float(os.environ.get("PAPER_BALANCE", 10000.0))
+        if executor_paper:
+            executor_paper.reset(initial_balance=init_bal)
+        if paper_ledger:
+            paper_ledger.reset(initial_balance=init_bal)
+        controller.broadcast_state(executor, force=True, executor_real=executor_real)
+        controller.broadcast_holdings(executor)
+        logger.info("[PAPER RESET] Successfully reset paper trading state.")
+
+    controller.ws_server.set_on_reset_paper_callback(on_reset_paper)
+
     # Expose cache updater so the trading cycle can refresh the chart cache
     controller.update_candle_cache = update_candle_cache
 
@@ -1561,9 +1576,13 @@ def run_bot(
             # Check for Halt Signal
             if controller.is_halted():
                 logger.debug("[LOOP] Bot is HALTED via signal. Waiting...")
+                controller.health_monitor.set_halted(True)
+                controller.broadcast_health()
                 # Force a 1s sleep regardless of poll_interval to prevent CPU pin
                 time.sleep(1.0 if poll_interval <= 0 else poll_interval)
                 continue
+            else:
+                controller.health_monitor.set_halted(False)
 
             # ── 1. Base Schedule & Sabbath Evaluation ──
             now = datetime.now(ZoneInfo("UTC"))
@@ -1584,7 +1603,7 @@ def run_bot(
                 if not sessions:
                     is_scheduled = True
                 # (b) If off-hours, activate paper trading only if 'Paper Off-Hours' is enabled on the card.
-                elif not is_scheduled and paper_trade_off_hours:
+                elif not is_scheduled and paper_trade_off_hours and paper_sim_enabled:
                     force_paper_broker = True
 
             # ── 3. Sabbath Master Override ──
@@ -1671,10 +1690,13 @@ def run_bot(
                                 replay_provider = SyntheticMarketProvider(symbols=symbols)
                                 logger.info("[REPLAY] 💥 Synthetic Fire Mode Activated!")
                             else:
-                                replay_provider = ReplayMarketProvider(
+                                _rp = ReplayMarketProvider(
                                     data_dir=_replay_data_dir,
                                     symbols=symbols,
                                 )
+                                if _rp.replay_date is None:
+                                    raise ValueError(f"No replay data found in {_replay_data_dir} for symbols {symbols}")
+                                replay_provider = _rp
                             provider = replay_provider
                             # Give paper broker the replay provider for pricing
                             executor_paper.market_provider = provider
@@ -1727,6 +1749,13 @@ def run_bot(
                     Path("data/.sabbath_active").unlink(missing_ok=True)
                 except Exception:
                     pass
+
+            # ── Health Monitor: Record heartbeat at cycle start ──
+            any_market_open = any(is_market_open(sym, now, settings=profile_settings) for sym in symbols)
+            controller.health_monitor.record_heartbeat(sabbath_active)
+            controller.health_monitor.set_market_hours((not sabbath_active) and any_market_open)
+            if controller.health_monitor.is_warming_up:
+                logger.info(f"[WARM-UP] Strategy warm-up active (Cycle {controller.health_monitor._cycle_count}/10). Suppressing health warnings.")
 
             last_holdings_log_ts, last_capital_check_ts = _run_heartbeat_cycle(
                 executor=executor,
@@ -1836,6 +1865,8 @@ def run_bot(
             # Sabbath Paper Trading: Allow scanning and trading 
             # if we have successfully swapped to the local PaperBroker.
             allow_entries = not sabbath_active or executor == executor_paper
+            if not is_scheduled and not force_paper_broker:
+                allow_entries = False
             # Replay mode: block entries during warmup, throttle after warmup
             if replay_provider is not None:
                 if replay_provider.in_warmup:
@@ -1845,7 +1876,7 @@ def run_bot(
 
             if next_decision_in <= 0:
                 # Advance the replay cursor if in replay mode
-                if replay_provider is not None:
+                if replay_provider is not None and getattr(replay_provider, "replay_date", None) is not None:
                     # Auto-chain: when this day finishes, load the next day
                     if replay_provider.is_replay_complete:
                         _prev_day = replay_provider.original_replay_date or replay_provider.replay_date
@@ -1889,12 +1920,15 @@ def run_bot(
                                     strat.reset_instance_state()
 
                             _old_offset = replay_provider._time_offset
-                            replay_provider = ReplayMarketProvider(
+                            _rp = ReplayMarketProvider(
                                 data_dir=_replay_data_dir,
                                 symbols=symbols,
                                 replay_date=_next,
                                 time_offset=_old_offset,
                             )
+                            if _rp.replay_date is None:
+                                raise ValueError(f"No replay data found in {_replay_data_dir} for symbols {symbols} on {_next}")
+                            replay_provider = _rp
                             provider = replay_provider
                             executor_paper.market_provider = provider
                             controller.replay_provider = replay_provider
@@ -1905,7 +1939,7 @@ def run_bot(
                     replay_provider.advance()
 
                 active_symbols, auto_mode, last_auto_mode = _resolve_active_symbols(
-                    symbols=symbols if (is_scheduled or force_paper_broker) else [],
+                    symbols=symbols if (is_scheduled or force_paper_broker or execute_trades) else [],
                     engines=engines,
                     executor=executor,
                     executor_paper=executor_paper,
@@ -2284,7 +2318,12 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         if is_paper_sim:
              _replay_data_dir = os.path.join(os.getcwd(), "Data", "forex_backtest")
              logger.info(f"[PAPER] Initializing ReplayMarketProvider for paper simulation (Safe Mode).")
-             provider = ReplayMarketProvider(data_dir=_replay_data_dir, symbols=symbols)
+             _rp = ReplayMarketProvider(data_dir=_replay_data_dir, symbols=symbols)
+             if _rp.replay_date is None:
+                 logger.warning(f"[PAPER] No replay data found in {_replay_data_dir} for symbols {symbols}. Using NoOpMarketDataProvider.")
+                 provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib)
+             else:
+                 provider = _rp
         else:
              logger.info("[SILENCE] Paper simulation disabled: using NoOpMarketDataProvider.")
              provider = build_market_provider(settings, profile_settings, shared_ib=shared_ib) # returns NoOp due to factory
@@ -2408,8 +2447,12 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
             # Check for Halt Signal
             if controller.is_halted():
                 logger.debug("[LOOP] Bot is HALTED via signal. Waiting...")
+                controller.health_monitor.set_halted(True)
+                controller.broadcast_health()
                 time.sleep(poll_interval)
                 continue
+            else:
+                controller.health_monitor.set_halted(False)
 
             # Hot-reload check for paper settings
             if config_path.exists():
@@ -2521,7 +2564,10 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                             logger.info("[REPLAY] Synthetic mode activated for scheduled session.")
                         elif _replay_data_dir.is_dir():
                             try:
-                                replay_provider = ReplayMarketProvider(data_dir=_replay_data_dir, symbols=symbols)
+                                _rp = ReplayMarketProvider(data_dir=_replay_data_dir, symbols=symbols)
+                                if _rp.replay_date is None:
+                                    raise ValueError(f"No replay data found in {_replay_data_dir} for symbols {symbols}")
+                                replay_provider = _rp
                                 logger.info("[REPLAY] Replay provider activated for scheduled session.")
                             except Exception as e:
                                 logger.warning("[REPLAY] Failed to create replay provider: %s", e)
@@ -2591,7 +2637,7 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         pass
                 if next_decision_in <= 0:
                     # Advance the replay cursor if in weekend replay mode
-                    if replay_provider is not None:
+                    if replay_provider is not None and getattr(replay_provider, "replay_date", None) is not None:
                         replay_provider.advance()
 
                     active_symbols = symbols

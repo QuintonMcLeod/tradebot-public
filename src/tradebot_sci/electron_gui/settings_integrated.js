@@ -1722,7 +1722,7 @@ async function init() {
     // Listen for bot status updates
     if (window.api?.onBotStatus) {
         window.api.onBotStatus((status) => {
-            updateBotStatusUI(status.running);
+            updateBotStatusUI(status.running, status.isRemote);
         });
         window.api.getBotStatus();
     }
@@ -2059,6 +2059,10 @@ function renderTab() {
         console.error("[SETTINGS] Tab not found in TABS:", currentTab);
         container.innerHTML = `<div style="color: orange; padding: 20px;">Tab "${currentTab}" not found</div>`;
     }
+
+    if (typeof syncUIState === 'function') {
+        syncUIState(isRemoteInstanceActive);
+    }
 }
 
 window.setSubTab = (category, tab) => {
@@ -2245,14 +2249,40 @@ function createCard(title, desc, key, controlType, options = {}) {
         saveBtn.type = 'button';
         saveBtn.className = 'px-3 py-1.5 bg-teal-500/20 border border-teal-500/40 text-teal-400 font-bold rounded-lg hover:bg-teal-500/30 transition-colors text-xs flex items-center gap-1 cursor-pointer';
         saveBtn.innerHTML = '<span class="material-symbols-outlined text-xs">save</span> Save & Connect';
-        saveBtn.addEventListener('click', (e) => {
+        saveBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
             const currentVal = input.value.trim();
             if (!currentVal) return;
-            
-            // Update GUI_WS_URL
-            updateValue(key, currentVal, stratNamespace);
-            
+
+            showNotice("Validating connection...", "amber");
+            const isValid = await new Promise((resolve) => {
+                try {
+                    const ws = new WebSocket(currentVal);
+                    const timer = setTimeout(() => {
+                        ws.close();
+                        resolve(false);
+                    }, 3000);
+                    ws.onopen = () => {
+                        clearTimeout(timer);
+                        ws.close();
+                        resolve(true);
+                    };
+                    ws.onerror = () => {
+                        clearTimeout(timer);
+                        ws.close();
+                        resolve(false);
+                    };
+                } catch(err) {
+                    resolve(false);
+                }
+            });
+
+            if (!isValid) {
+                showNotice("Unreachable Endpoint. Save Aborted.", "red");
+                return;
+            }
+            showNotice("Connection Verified", "teal");
+
             // Manage GUI_WS_URL_HISTORY
             let historyStr = envData['GUI_WS_URL_HISTORY'] || 'ws://localhost:8080/ws,ws://myhome.tradebot:8080/ws';
             let historyArr = historyStr.split(',').map(s => s.trim()).filter(Boolean);
@@ -2263,20 +2293,27 @@ function createCard(title, desc, key, controlType, options = {}) {
             const newHistoryStr = historyArr.join(',');
             envData['GUI_WS_URL_HISTORY'] = newHistoryStr;
             localChanges['GUI_WS_URL_HISTORY'] = true;
-            
-            // Trigger saveAll which will do the hard refresh
-            if (typeof saveAll === 'function') {
-                saveAll();
-            }
-        });
 
-        input.addEventListener('change', (e) => {
-            updateValue(key, e.target.value.trim(), stratNamespace);
-        });
-        let _inputDebounce;
-        input.addEventListener('input', (e) => {
-            clearTimeout(_inputDebounce);
-            _inputDebounce = setTimeout(() => updateValue(key, e.target.value.trim(), stratNamespace), 800);
+            // Save history to current instance's .env before switching
+            if (window.api && window.api.saveEnv) {
+                await window.api.saveEnv(envData);
+            }
+
+            // Perform the instance switch via IPC
+            if (window.api && window.api.invoke) {
+                showNotice("Switching Instance...", "amber");
+                await window.api.invoke('switch-instance', currentVal);
+                showNotice("Connection Changed. Hard Refreshing UI...", "amber");
+                setTimeout(() => {
+                    try {
+                        localStorage.removeItem('tradebot_state');
+                        localStorage.removeItem('tradebot_ai_insights');
+                        localStorage.removeItem('GUI_WS_URL');
+                        sessionStorage.clear();
+                    } catch(err){}
+                    window.location.reload();
+                }, 1500);
+            }
         });
 
         inputFlex.appendChild(input);
@@ -2308,14 +2345,53 @@ function createCard(title, desc, key, controlType, options = {}) {
             select.appendChild(opt);
         });
 
-        select.addEventListener('change', (e) => {
+        select.addEventListener('change', async (e) => {
             const selectedUrl = e.target.value;
             input.value = selectedUrl;
-            updateValue(key, selectedUrl, stratNamespace);
-            
-            // Trigger saveAll which will do the hard refresh
-            if (typeof saveAll === 'function') {
-                saveAll();
+
+            showNotice("Validating connection...", "amber");
+            const isValid = await new Promise((resolve) => {
+                try {
+                    const ws = new WebSocket(selectedUrl);
+                    const timer = setTimeout(() => {
+                        ws.close();
+                        resolve(false);
+                    }, 3000);
+                    ws.onopen = () => {
+                        clearTimeout(timer);
+                        ws.close();
+                        resolve(true);
+                    };
+                    ws.onerror = () => {
+                        clearTimeout(timer);
+                        ws.close();
+                        resolve(false);
+                    };
+                } catch(err) {
+                    resolve(false);
+                }
+            });
+
+            if (!isValid) {
+                showNotice("Unreachable Endpoint. Save Aborted.", "red");
+                return;
+            }
+            showNotice("Connection Verified", "teal");
+
+            // Perform the instance switch via IPC
+            if (window.api && window.api.invoke) {
+                showNotice("Switching Instance...", "amber");
+                await window.api.invoke('switch-instance', selectedUrl);
+                showNotice("Connection Changed. Hard Refreshing UI...", "amber");
+                setTimeout(() => {
+                    try {
+                        localStorage.removeItem('tradebot_state');
+                        localStorage.removeItem('tradebot_ai_insights');
+                        localStorage.removeItem('GUI_WS_URL');
+                        sessionStorage.clear();
+                    } catch(err){}
+                    window.location.reload();
+                }, 1500);
             }
         });
 
@@ -2894,10 +2970,12 @@ function renderSystemTab(container) {
         window.api.startBot();
         showNotice('Bot start command sent', 'teal');
     });
+    btnStart.id = 'btn-control-start';
     const btnStop = createControlButton('Stop Bot', 'stop', 'red', () => {
         window.api.stopBot();
         showNotice('Bot stop command sent', 'red');
     });
+    btnStop.id = 'btn-control-stop';
     const btnRestart = createControlButton('Restart', 'refresh', 'purple', () => {
         window.api.restartBot();
         showNotice('Bot restarting — UI will refresh when ready...', 'purple');
@@ -2922,6 +3000,7 @@ function renderSystemTab(container) {
             setTimeout(() => window.location.reload(), 8000);
         }
     });
+    btnRestart.id = 'btn-control-restart';
 
     controlGrid.appendChild(btnStart);
     controlGrid.appendChild(btnStop);
@@ -3109,6 +3188,7 @@ function renderSystemTab(container) {
     });
     btnReset.addEventListener('mouseenter', (e) => showTooltip(e, 'Factory Reset', '<strong style="color: #ef4444;">CAUTION DESTRUCTIVE ACTION:</strong> This completely wipes your database, deletes all profiles, and resets the bot back to brand new factory defaults. There is no undo.'));
     btnReset.addEventListener('mouseleave', () => hideTooltip());
+    btnReset.id = 'btn-control-reset';
 
     dataGrid.appendChild(btnImport);
     dataGrid.appendChild(btnExport);
@@ -5645,6 +5725,11 @@ async function saveAll() {
             if (res1.success && res2.success && res3.success) {
                 console.log("[SETTINGS] Save successful.");
                 
+                // Push config to remote backend (K8s/Docker) over WebSocket
+                if (typeof window.syncConfigToBackend === 'function') {
+                    window.syncConfigToBackend(configData);
+                }
+                
                 // Check if Prop Firm routing toggles were modified
                 const needsRestart = localChanges['PROP_FTMO_ENABLED'] || localChanges['PROP_APEX_ENABLED'] || localChanges['PROP_FN_ENABLED'];
                 const urlChanged = localChanges['GUI_WS_URL'] || localChanges['GUI_WS_URL_HISTORY'];
@@ -6488,7 +6573,34 @@ function syncSchedulesWithStrategy(key, val) {
     }
 }
 
-function updateBotStatusUI(isRunning) {
+let isRemoteInstanceActive = false;
+
+function syncUIState(isRemote) {
+    isRemoteInstanceActive = !!isRemote;
+    const buttons = [
+        document.getElementById('btn-control-start'),
+        document.getElementById('btn-control-stop'),
+        document.getElementById('btn-control-restart'),
+        document.getElementById('btn-control-reset')
+    ];
+
+    buttons.forEach(btn => {
+        if (!btn) return;
+        if (isRemote) {
+            btn.classList.add('opacity-50', 'pointer-events-none');
+            btn.title = "Disabled in Remote Management Mode";
+        } else {
+            btn.classList.remove('opacity-50', 'pointer-events-none');
+            btn.title = "";
+        }
+    });
+}
+
+function updateBotStatusUI(isRunning, isRemote) {
+    if (isRemote !== undefined) {
+        syncUIState(isRemote);
+    }
+
     const dot = document.getElementById('status-dot');
     const text = document.getElementById('status-text');
 

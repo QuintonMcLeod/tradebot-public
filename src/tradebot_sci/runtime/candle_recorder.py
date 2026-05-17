@@ -3,7 +3,7 @@
 Enables 1:1 replay backtesting by recording exactly what the bot saw
 (including partial candles) at each decision point.
 
-Storage: ~/.config/tradebot-sci/data/candle_history/{symbol}/
+Storage: ~/.config/tradebot-sci-gui/<instance_id>/data/candle_history/{symbol}/
 Format:  One JSONL file per day per symbol (e.g. EURUSD_2026-03-02.jsonl)
 Pruning: Files older than 6 months are auto-deleted on startup.
 """
@@ -24,16 +24,9 @@ _TAIL_CANDLES = 200
 _PRUNE_DAYS = 180  # 6 months
 
 
-def _config_dir() -> Path:
-    """Resolve the user config directory."""
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    if xdg:
-        return Path(xdg) / "tradebot-sci"
-    return Path.home() / ".config" / "tradebot-sci"
-
-
 def _candle_history_dir() -> Path:
-    return _config_dir() / "data" / "candle_history"
+    from tradebot_sci.paths import DATA_DIR
+    return DATA_DIR / "candle_history"
 
 
 def _candle_to_dict(c) -> dict:

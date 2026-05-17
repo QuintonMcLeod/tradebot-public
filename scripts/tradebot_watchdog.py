@@ -83,9 +83,22 @@ def check_log_activity(log_path, max_hours_idle=2.0):
         logging.warning(f"ALERT: No [DECISION] logs found in {log_path} at all. Bot may not be running or logging correctly.")
         return False
 
+from pathlib import Path
+
+def get_default_log_path():
+    instance_id = os.environ.get("TRADEBOT_INSTANCE_ID", "local")
+    td = os.environ.get("TRADEBOT_DATA_DIR")
+    if td:
+        base_dir = Path(td)
+        if base_dir.name != instance_id:
+            base_dir = base_dir / instance_id
+    else:
+        base_dir = Path.home() / ".config" / "tradebot-sci-gui" / instance_id
+    return str(base_dir / "logs" / "tradebot.log")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Watchdog for Tradebot SCI logs.")
-    parser.add_argument('--log', type=str, default=os.path.expanduser('~/.config/tradebot-sci/logs/tradebot.log'), help='Path to tradebot.log')
+    parser.add_argument('--log', type=str, default=get_default_log_path(), help='Path to tradebot.log')
     parser.add_argument('--hours', type=float, default=2.0, help='Maximum idle hours before alerting')
     parser.add_argument('--loop', action='store_true', help='Run continuously in a loop')
     args = parser.parse_args()

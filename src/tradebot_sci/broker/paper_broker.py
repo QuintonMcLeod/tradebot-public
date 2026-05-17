@@ -68,6 +68,15 @@ class PaperBroker:
         # Immediate reporting on startup for UI visibility
         self.summarize_pnl()
         self.refresh_account_summary()
+        self.last_status: str = "healthy"
+        self.last_error: str = ""
+        self._update_status("healthy", "")
+
+    def _update_status(self, status: str, error: str = "") -> None:
+        self.last_status = status
+        self.last_error = error
+        if hasattr(self, 'controller') and self.controller and hasattr(self.controller, 'health_monitor'):
+            self.controller.health_monitor.record_paper_broker_status(status, error)
 
     def _load_state(self) -> dict | None:
         """Load persisted paper state from disk."""
@@ -226,15 +235,6 @@ class PaperBroker:
                     f"(${risk_per_unit:.5f} < ${min_stop_distance:.5f} / {min_stop_pct*100:.2f}%), "
                     f"widening to tier minimum (rescaling TP to {target_r_cfg}R)"
                 )
-                if hasattr(self, 'controller') and self.controller:
-                    self.controller.broadcast_restriction({
-                        "symbol": symbol,
-                        "restriction_type": "stop_loss_widened",
-                        "tier": tier_name,
-                        "message": f"Stop loss too tight for {tier_name} (${risk_per_unit:.5f} < ${min_stop_distance:.5f}). Stop widened to tier minimum.",
-                        "suggested_action": "Click AI Optimize to recalibrate volatility stops or enable AI Autopilot.",
-                        "manual_location": "Settings Tab -> Strategy Parameters -> ATR Multiplier / Target R"
-                    })
                 risk_per_unit = min_stop_distance
                 if action in ("enter_long", "scale_in_long", "buy"):
                     decision.stop_loss = price - min_stop_distance
@@ -254,8 +254,11 @@ class PaperBroker:
         profile_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
         effective_leverage = min(profile_leverage, max_leverage)
         
+        # Adjust max_symbol_notional to respect effective_leverage and actual balance
+        effective_max_notional = min(max_symbol_notional, sizing_capital * effective_leverage, self.balance * effective_leverage)
+        
         # Calculate maximum additional notional allowed
-        remaining_notional = max(0.0, max_symbol_notional - existing_notional)
+        remaining_notional = max(0.0, effective_max_notional - existing_notional)
         max_add_qty = remaining_notional / price if price > 0 else 0.0
 
         if qty > max_add_qty:
@@ -281,15 +284,6 @@ class PaperBroker:
                 f"(notional ${qty * price:,.0f} + existing ${existing_notional:,.0f} exceeds {tier_name} cap ${max_symbol_notional:,.0f} at {effective_leverage}x leverage)",
                 extra={"broker": "paper", "symbol": symbol, "event": "tiered_sizing_cap", "original_qty": qty, "capped_qty": max_add_qty, "tier": tier_name}
             )
-            if hasattr(self, 'controller') and self.controller:
-                self.controller.broadcast_restriction({
-                    "symbol": symbol,
-                    "restriction_type": "tiered_sizing_cap",
-                    "tier": tier_name,
-                    "message": f"Position size capped at {max_add_qty:.4f} to stay within {tier_name} notional limit (${max_symbol_notional:,.0f}).",
-                    "suggested_action": "Click AI Optimize to optimize leverage tiers or enable AI Autopilot.",
-                    "manual_location": "Settings Tab -> Strategy Parameters -> Target Leverage / Risk Per Trade"
-                })
             qty = max_add_qty
 
         return qty, slippage_bps, False, ""
@@ -319,6 +313,7 @@ class PaperBroker:
                         
                     if is_weekend_block:
                         logger.info(f"[PAPER] [WEEKEND BLOCK] Rejecting trade for {symbol}. Forex market is closed (5PM Friday - 5PM Sunday EST).")
+                        self._update_status("warning", "Forex market is closed (weekend)")
                         return (
                             ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: Forex market closed"),
                             ExecutionOutcome(ExecutionOutcomeType.REJECTED, symbol, "Paper: Forex market closed", price=0.0)
@@ -333,6 +328,7 @@ class PaperBroker:
                     f"[PAPER] [BANKRUPT] {symbol}: blocked {action}, "
                     f"account equity is negative (${current_equity:.2f})"
                 )
+                self._update_status("critical", "Account equity is negative (Bankrupt)")
                 return (
                     ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: account bankrupt"),
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_INSUFFICIENT_EQUITY, symbol, "Paper: account bankrupt")
@@ -412,6 +408,7 @@ class PaperBroker:
                 symbol, action, price, sizing_capital, qty, decision, existing_notional=0.0
             )
             if is_blocked:
+                self._update_status("warning", f"Restriction: {block_reason}")
                 return (
                     ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, f"Paper: {block_reason}"),
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, f"Paper: {block_reason}")
@@ -429,28 +426,29 @@ class PaperBroker:
             import random
             if random.random() < 0.01:
                 logger.warning(f"[PAPER] [REJECTED] {symbol}: simulated broker rejection (1% chance)")
+                self._update_status("warning", "Simulated broker rejection")
                 return (
                     ExecutionResult(ExecutionStatus.FAILED, symbol, "Simulated broker rejection"),
                     ExecutionOutcome(ExecutionOutcomeType.FAILED_OTHER, symbol, "Simulated broker rejection")
                 )
 
-            # Affordability guard: reject if notional exceeds leveraged REAL balance
-            # (Note: Leverage cap is already enforced inside _apply_high_net_worth_restrictions)
+            # Affordability guard: cap qty if notional exceeds leveraged REAL balance
             notional = qty * price
             profile_leverage = getattr(self.profile, "target_leverage", 1.0) or 1.0
             target_leverage = min(profile_leverage, self.PAPER_MAX_LEVERAGE)
-            if notional > self.balance * max(target_leverage, 1.0) * 1.01:
+            max_affordable_notional = self.balance * max(target_leverage, 1.0)
+            if notional > max_affordable_notional * 1.01:
+                max_affordable_qty = max_affordable_notional / price if price > 0 else 0.0
                 logger.warning(
-                    f"[PAPER] [BLOCKED] {symbol}: notional ${notional:,.0f} exceeds "
-                    f"available leveraged balance ${self.balance * target_leverage:,.0f}",
-                    extra={"broker": "paper", "symbol": symbol, "event": "blocked", "notional": notional, "balance": self.balance}
+                    f"[PAPER] [AFFORDABILITY CAPPED] {symbol}: notional ${notional:,.0f} exceeds "
+                    f"available leveraged balance ${max_affordable_notional:,.0f}, capping qty from {qty:.4f} to {max_affordable_qty:.4f}",
+                    extra={"broker": "paper", "symbol": symbol, "event": "affordability_capped", "original_notional": notional, "capped_notional": max_affordable_notional, "balance": self.balance}
                 )
-                return (
-                    ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: insufficient balance"),
-                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_INSUFFICIENT_EQUITY, symbol, "Paper: insufficient balance")
-                )
+                qty = max_affordable_qty
+                notional = qty * price
 
             if qty <= 0:
+                self._update_status("warning", "Paper position size too small")
                 return (
                     ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper position size too small"),
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, "Paper size zero")
@@ -490,6 +488,7 @@ class PaperBroker:
             # [PHASE 2.1] Atomic Bracket Order Validation
             if not stop_loss_val or not take_profit_val:
                 logger.error(f"[PAPER] [REJECTED] {symbol}: Missing SL({stop_loss_val}) or TP({take_profit_val}) for atomic order")
+                self._update_status("error", "Missing SL/TP for atomic order")
                 return (
                     ExecutionResult(ExecutionStatus.FAILED, symbol, "Missing bracket parameters"),
                     ExecutionOutcome(ExecutionOutcomeType.FAILED_OTHER, symbol, "Missing SL/TP")
@@ -531,6 +530,7 @@ class PaperBroker:
             self._emergency_stop_timers[symbol] = time.time()
 
             self._save_state()
+            self._update_status("healthy", "")
             return (
                 ExecutionResult(ExecutionStatus.EXECUTED, symbol, f"Paper {action} executed"),
                 ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, symbol, f"Paper {action}")
@@ -632,6 +632,7 @@ class PaperBroker:
                 SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, sim_time=self._now())
                 self._save_state()
                 self.refresh_account_summary()
+                self._update_status("healthy", "")
                 return (
                     ExecutionResult(ExecutionStatus.EXECUTED, symbol, "Paper flatten executed"),
                     ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, symbol, "Paper flatten")
@@ -748,6 +749,7 @@ class PaperBroker:
 
                 self._save_state()
                 self.refresh_account_summary()
+                self._update_status("healthy", "")
                 return (
                     ExecutionResult(ExecutionStatus.EXECUTED, symbol, f"Paper scale_out {scale_frac:.0%}"),
                     ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, symbol, f"Paper scale_out {scale_frac:.0%}")
@@ -759,6 +761,7 @@ class PaperBroker:
                 current_equity = self.get_total_equity()
                 if current_equity <= 0:
                     logger.error(f"[PAPER] [BANKRUPT] {symbol}: blocked scale_in, account equity is negative (${current_equity:.2f})")
+                    self._update_status("critical", "Account equity is negative (Bankrupt)")
                     return (
                         ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: account bankrupt (pyramid)"),
                         ExecutionOutcome(ExecutionOutcomeType.BLOCKED_INSUFFICIENT_EQUITY, symbol, "Paper: account bankrupt (pyramid)")
@@ -797,6 +800,7 @@ class PaperBroker:
                     symbol, action, price, sizing_capital, qty, decision, existing_notional=existing_notional
                 )
                 if is_blocked:
+                    self._update_status("warning", f"Restriction: {block_reason}")
                     return (
                         ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, f"Paper: {block_reason}"),
                         ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, f"Paper: {block_reason}")
@@ -854,6 +858,7 @@ class PaperBroker:
                            "fee_usd": fee_usd, "risk_usd": risk_usd}
                 )
                 self._save_state()
+                self._update_status("healthy", "")
                 return (
                     ExecutionResult(ExecutionStatus.EXECUTED, symbol, f"Paper scale_in executed"),
                     ExecutionOutcome(ExecutionOutcomeType.SUCCESS_SUBMITTED, symbol, f"Paper scale_in")
@@ -1414,6 +1419,19 @@ class PaperBroker:
     def summarize_pnl(self):
         logger.info(f"Session summary: Balance=${self.balance:.2f}, Open positions={len(self.positions)}")
         self._save_state()
+
+    def reset(self, initial_balance: float = 10000.0) -> None:
+        """Reset the paper broker to a clean state."""
+        self.positions.clear()
+        self._exit_cooldowns.clear()
+        self._emergency_stop_timers.clear()
+        self.balance = initial_balance
+        self._initial_balance = initial_balance
+        if self.trade_results:
+            self.trade_results.clear()
+        self._save_state()
+        self._update_status("healthy", "")
+        logger.info(f"[PAPER] Reset Paper Broker to clean state with balance ${initial_balance:.2f}")
 
     def _fetch_symbol_state(self, symbol: str) -> dict:
         return {}

@@ -7,7 +7,6 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { exec } = require('child_process');
-const logParser = require('./log_analytics');
 
 // Suppress EPIPE errors on stdout/stderr — these are non-fatal pipe breaks
 // when the parent process (terminal/launcher) closes before Electron finishes writing.
@@ -46,6 +45,9 @@ function getActiveInstanceName(wsUrl) {
 }
 
 function getCurrentInstance() {
+    if (process.env.GUI_WS_URL) {
+        return getActiveInstanceName(process.env.GUI_WS_URL);
+    }
     if (fs.existsSync(ACTIVE_INSTANCE_FILE)) {
         try {
             const name = fs.readFileSync(ACTIVE_INSTANCE_FILE, 'utf8').trim();
@@ -71,6 +73,9 @@ function setCurrentInstance(wsUrl) {
         fs.mkdirSync(ROOT_CONFIG_DIR, { recursive: true });
     }
     fs.writeFileSync(ACTIVE_INSTANCE_FILE, instanceName, 'utf8');
+    process.env.TRADEBOT_INSTANCE_ID = instanceName;
+    process.env.TRADEBOT_DATA_DIR = path.join(ROOT_CONFIG_DIR, instanceName);
+    if (wsUrl !== undefined) process.env.GUI_WS_URL = wsUrl;
     console.log(`[MAIN] Switched active instance context to: ${instanceName}`);
     return instanceName;
 }
@@ -108,6 +113,18 @@ Object.defineProperty(global, 'LOGS_DIR', { get: () => getLogsDir() });
 Object.defineProperty(global, 'USER_DATA_DIR', { get: () => getUserDataDir() });
 Object.defineProperty(global, 'INSTANCE_ID', { get: () => getInstanceId() });
 
+function waitForRemoteInit() {
+    const activeInstance = getCurrentInstance();
+    const wsUrl = getGuiWsUrl();
+    process.env.GUI_WS_URL = wsUrl;
+    process.env.TRADEBOT_INSTANCE_ID = activeInstance;
+    process.env.TRADEBOT_DATA_DIR = getUserDataDir();
+    console.log(`[MAIN] Handshake complete. Resolved Instance: ${activeInstance}, WS: ${wsUrl}, Mode: ${isRemoteInstance() ? 'REMOTE' : 'LOCAL'}`);
+}
+waitForRemoteInit();
+
+const logParser = require('./log_analytics');
+
 // Auto-migrate legacy files/directories into the active instance directory if it is empty/new
 function autoMigrateLegacyData() {
     try {
@@ -120,8 +137,11 @@ function autoMigrateLegacyData() {
         const instConfig = path.join(instDir, 'config.json');
         if (!fs.existsSync(instConfig)) {
             const legacyCfgUserData = path.join(legacyBaseDir, 'config.json');
+            const localCfgUserData = path.join(ROOT_CONFIG_DIR, 'local', 'config.json');
             if (fs.existsSync(legacyCfgUserData)) {
                 fs.copyFileSync(legacyCfgUserData, instConfig);
+            } else if (fs.existsSync(localCfgUserData)) {
+                fs.copyFileSync(localCfgUserData, instConfig);
             } else if (fs.existsSync(LEGACY_CONFIG_JSON_PATH)) {
                 fs.copyFileSync(LEGACY_CONFIG_JSON_PATH, instConfig);
             }
@@ -131,8 +151,11 @@ function autoMigrateLegacyData() {
         const instSecrets = path.join(instDir, '.env.secrets');
         if (!fs.existsSync(instSecrets)) {
             const legacySecUserData = path.join(legacyBaseDir, '.env.secrets');
+            const localSecUserData = path.join(ROOT_CONFIG_DIR, 'local', '.env.secrets');
             if (fs.existsSync(legacySecUserData)) {
                 fs.copyFileSync(legacySecUserData, instSecrets);
+            } else if (fs.existsSync(localSecUserData)) {
+                fs.copyFileSync(localSecUserData, instSecrets);
             } else if (fs.existsSync(LEGACY_SECRETS_PATH)) {
                 fs.copyFileSync(LEGACY_SECRETS_PATH, instSecrets);
             }
@@ -142,10 +165,25 @@ function autoMigrateLegacyData() {
         const instDotenv = path.join(instDir, '.env');
         if (!fs.existsSync(instDotenv)) {
             const legacyEnvUserData = path.join(legacyBaseDir, '.env');
+            const localEnvUserData = path.join(ROOT_CONFIG_DIR, 'local', '.env');
             if (fs.existsSync(legacyEnvUserData)) {
                 fs.copyFileSync(legacyEnvUserData, instDotenv);
+            } else if (fs.existsSync(localEnvUserData)) {
+                fs.copyFileSync(localEnvUserData, instDotenv);
             } else if (fs.existsSync(LEGACY_DOTENV_PATH)) {
                 fs.copyFileSync(LEGACY_DOTENV_PATH, instDotenv);
+            }
+        }
+
+        // Migrate ui_layouts.json
+        const instLayouts = path.join(instDir, 'ui_layouts.json');
+        if (!fs.existsSync(instLayouts)) {
+            const legacyLayoutsUserData = path.join(legacyBaseDir, 'ui_layouts.json');
+            const localLayoutsUserData = path.join(ROOT_CONFIG_DIR, 'local', 'ui_layouts.json');
+            if (fs.existsSync(legacyLayoutsUserData)) {
+                fs.copyFileSync(legacyLayoutsUserData, instLayouts);
+            } else if (fs.existsSync(localLayoutsUserData)) {
+                fs.copyFileSync(localLayoutsUserData, instLayouts);
             }
         }
 
@@ -159,6 +197,9 @@ function autoMigrateLegacyData() {
                 const dst = path.join(instData, fname);
                 try {
                     if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+                        if (isRemoteInstance() && ['ledger.json', 'paper_ledger.json', 'trade_results.json', 'paper_trade_results.json', 'paper_state.json'].includes(fname)) {
+                            return;
+                        }
                         fs.copyFileSync(src, dst);
                     }
                 } catch(e) {}
@@ -175,6 +216,9 @@ function autoMigrateLegacyData() {
                 const dst = path.join(instLogs, fname);
                 try {
                     if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+                        if (isRemoteInstance() && fname.endsWith('.log')) {
+                            return;
+                        }
                         fs.copyFileSync(src, dst);
                     }
                 } catch(e) {}
@@ -205,20 +249,27 @@ function setupIpcHandlers() {
 
     // IPC Handlers for Settings Data
     ipcMain.handle('read-env', async () => {
-        if (!fs.existsSync(DOTENV_PATH)) return {};
+        if (!fs.existsSync(DOTENV_PATH)) return { GUI_WS_URL: process.env.GUI_WS_URL };
         const content = fs.readFileSync(DOTENV_PATH, 'utf8');
         const env = {};
         content.split('\n').forEach(line => {
             const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)$/);
             if (match) env[match[1]] = match[2];
         });
+        if (process.env.GUI_WS_URL) {
+            env.GUI_WS_URL = process.env.GUI_WS_URL;
+        }
         return env;
     });
 
+    ipcMain.handle('switch-instance', async (event, wsUrl) => {
+        console.log(`[MAIN] IPC switch-instance requested for URL: ${wsUrl}`);
+        const instanceName = setCurrentInstance(wsUrl);
+        autoMigrateLegacyData();
+        return { success: true, instanceName, wsUrl };
+    });
+
     ipcMain.handle('save-env', async (event, updates) => {
-        if (updates.GUI_WS_URL !== undefined) {
-            setCurrentInstance(updates.GUI_WS_URL);
-        }
         let content = fs.existsSync(DOTENV_PATH) ? fs.readFileSync(DOTENV_PATH, 'utf8') : '';
         let lines = content.split('\n');
         const keys = Object.keys(updates);
@@ -318,6 +369,34 @@ function setupIpcHandlers() {
             console.error("[MAIN] Config JSON Save Error:", e);
             return { success: false, error: e.message };
         }
+    });
+
+    let remoteActiveProfile = null;
+    ipcMain.on('update-active-profile', (event, profile) => {
+        remoteActiveProfile = profile;
+    });
+
+    ipcMain.handle('get-active-profile', async () => {
+        if (isRemoteInstance() && remoteActiveProfile) {
+            if (typeof remoteActiveProfile === 'object') {
+                return remoteActiveProfile;
+            }
+            return { activeProfile: remoteActiveProfile, profiles: null };
+        }
+        try {
+            let configPath = CONFIG_JSON_PATH;
+            if (!fs.existsSync(configPath) && fs.existsSync(LEGACY_CONFIG_JSON_PATH)) {
+                configPath = LEGACY_CONFIG_JSON_PATH;
+            }
+            if (fs.existsSync(configPath)) {
+                const content = fs.readFileSync(configPath, 'utf8');
+                const cfg = JSON.parse(content);
+                return { activeProfile: cfg.active_profile || 'default', profiles: cfg.profiles || null };
+            }
+        } catch(e) {
+            console.error("[MAIN] get-active-profile error:", e);
+        }
+        return { activeProfile: 'default', profiles: null };
     });
 
     ipcMain.handle('export-config', async (event) => {
@@ -600,7 +679,13 @@ function setupIpcHandlers() {
     ipcMain.handle('get-trade-history', async (event, filter = '24h', paperMode = false) => {
         console.log('[ANALYTICS-IPC] get-trade-history called with filter:', filter, 'paperMode:', paperMode);
         try {
-            const data = await logParser.getTradeHistory(filter, paperMode);
+            const options = {
+                dataDir: getDataDir(),
+                logsDir: getLogsDir(),
+                userDataDir: getUserDataDir(),
+                instanceId: getInstanceId()
+            };
+            const data = await logParser.getTradeHistory(filter, paperMode, options);
             // Truncate for UI performance (limit to newest 500)
             if (data && data.trades && data.trades.length > 500) {
                 data.trades = data.trades.slice(0, 500);
@@ -616,7 +701,13 @@ function setupIpcHandlers() {
     ipcMain.handle('get-analytics-summary', async (event, filter = '24h', paperMode = false) => {
         console.log('[ANALYTICS-IPC] get-analytics-summary called with filter:', filter, 'paperMode:', paperMode);
         try {
-            const data = await logParser.getTradeHistory(filter, paperMode);
+            const options = {
+                dataDir: getDataDir(),
+                logsDir: getLogsDir(),
+                userDataDir: getUserDataDir(),
+                instanceId: getInstanceId()
+            };
+            const data = await logParser.getTradeHistory(filter, paperMode, options);
             console.log('[ANALYTICS-IPC] Raw data - trades:', data.trades?.length, 'capital:', data.capital?.length);
             const summary = logParser.calculateAnalyticsSummary(data, paperMode);
             console.log('[ANALYTICS-IPC] Summary calculated - totalTrades:', summary.totalTrades);
@@ -629,9 +720,48 @@ function setupIpcHandlers() {
 
     ipcMain.handle('get-log-files', async () => {
         try {
-            const files = logParser.getLogFiles();
+            const options = {
+                logsDir: getLogsDir()
+            };
+            const files = logParser.getLogFiles(options);
             return { success: true, data: files };
         } catch (error) {
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('sync-remote-files', async (event, data) => {
+        console.log('[MAIN] Syncing remote files from WebSocket payload...');
+        try {
+            const dataDir = getDataDir();
+            const logsDir = getLogsDir();
+            
+            if (data.ledger) {
+                fs.writeFileSync(path.join(dataDir, 'ledger.json'), JSON.stringify(data.ledger, null, 2));
+            }
+            if (data.paper_ledger) {
+                fs.writeFileSync(path.join(dataDir, 'paper_ledger.json'), JSON.stringify(data.paper_ledger, null, 2));
+            }
+            if (data.trade_results) {
+                fs.writeFileSync(path.join(dataDir, 'trade_results.json'), JSON.stringify(data.trade_results, null, 2));
+            }
+            if (data.paper_trade_results) {
+                fs.writeFileSync(path.join(dataDir, 'paper_trade_results.json'), JSON.stringify(data.paper_trade_results, null, 2));
+            }
+            if (data.paper_state) {
+                fs.writeFileSync(path.join(dataDir, 'paper_state.json'), JSON.stringify(data.paper_state, null, 2));
+            }
+            if (data.logs && Array.isArray(data.logs)) {
+                fs.writeFileSync(path.join(logsDir, 'tradebot.log'), data.logs.join('\n') + '\n');
+            }
+            
+            const win = BrowserWindow.getFocusedWindow() || mainWindow;
+            if (win && !win.isDestroyed()) {
+                win.webContents.send('fromMain', { type: 'remote-data-updated' });
+            }
+            return { success: true };
+        } catch (error) {
+            console.error('[MAIN] Error syncing remote files:', error);
             return { success: false, error: error.message };
         }
     });
@@ -807,6 +937,13 @@ function setupIpcHandlers() {
 
     ipcMain.handle('reset-paper-trading', async () => {
         console.log('[MAIN] Resetting paper trading...');
+        if (isRemoteInstance()) {
+            console.log(`[MAIN] Guard: GUI_WS_URL (${getGuiWsUrl()}) points to a remote instance. Bypassing local process kill and local file reset. Sending remote reset_paper signal.`);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('fromMain', { type: 'remote-reset-paper' });
+            }
+            return { success: true };
+        }
 
         // Step 1: Kill the bot process
         const killCmd = isWindows() ? 'taskkill /F /IM python.exe' : 'pkill -f "[r]un_dev_bot.py"';
@@ -1438,6 +1575,7 @@ Recent Performance (last 7 days):
     Avg Winner Giveback: $${mfeStats.avgGiveback.toFixed(2)} (Profit left on table)
 
 KEY CONSTRAINTS:
+• MANDATORY STRATEGY BLACKLIST: Do NOT recommend "conductor", STOP_AND_REVERSE_ENABLED (SAR), or Conductor Reversal (CR) settings under ANY circumstances. They are currently blacklisted pending subsequent AI recommendation engine refinement. Ensure STOP_AND_REVERSE_ENABLED is set to false.
 • This is a SMALL ACCOUNT — risk sizing must account for broker fees eating a larger % of each trade.
 • MFE/MAE OPTIMIZATION: If "Winner Giveback" is high, recommend tightening take-profits or using trailing stops. If MAE is consistently near SL before wins, entries are too early—recommend slower settings.
 • On Gemini, each round-trip costs ~0.80% in fees. A 1% take-profit barely breaks even after fees. Factor this into R:R targets.
@@ -1671,23 +1809,7 @@ RULES:
 4. VWAP is useless for forex-only profiles.
 5. Opening Sentry is irrelevant for 24/7 crypto-only profiles.
 6. Gamma Squeeze multiplier conflicts with standard trailing stop logic.
-7. CONDUCTOR STRATEGY OVERRIDE — MANDATORY: If you pick \"conductor\" for ANY asset class, you MUST use these EXACT settings. The Conductor is a self-contained strategy with its own internal pyramiding, de-risk, and exit logic. External settings that conflict with it (like fixed R:R or low pyramid caps) will BREAK the strategy. These values were tuned through extensive backtesting and are NON-NEGOTIABLE:
-   • RISK_PER_TRADE_PCT = 1.0 (1% entry risk — the Conductor manages risk internally via the 95% guillotine)
-   • RISK_REWARD_RATIO = 0 (DISABLED — the Conductor uses a dynamic ATR trailing stop, NOT a fixed TP. Setting any R:R caps winners and kills the strategy's edge)
-   • MAX_PYRAMID_ENTRIES = 50 (the Conductor pyramids at every 0.5R milestone — pyramids 4-8 are where the real money is. Do NOT cap below 50)
-   • PYRAMID_RISK_LOAD = 30 (30% risk on the FIRST pyramid add at 1.0R — the floor moves to breakeven so the original trade has zero risk, allowing an aggressive first add)
-   • PYRAMID_RISK_SCALE = 4 (4% risk on all subsequent pyramid adds — smaller but consistent. Death by a thousand pyramids)
-   • BREAKEVEN_TRAIL_AFTER_PYRAMIDS = 1 (move stop to breakeven after the first pyramid — already locked at 1.0R floor)
-   • STOP_AND_REVERSE_ENABLED = true
-   • REVERSAL_TP_R = 1.0 (quick 1R grab on reversals — tested vs uncapped, uncapped was $132 worse)
-   • REVERSAL_COST_AWARE_TP = true (pads TP by spread cost so net profit = true 1R)
-   • REVERSAL_RISK_PER_TRADE = 0.045 (4.5% — aggressive because reversals catch confirmed momentum)
-   • SCALE_OUT_FRACTION = 0.95 (the 95% guillotine — closes 95% at -0.3R, leaving only 5% for the stop)
-   • TRAILING_STOP_ENABLED = false (Conductor has its own ATR trail — the external one conflicts)
-   • SAFETY_GREED_GUARD_ENABLED = false (the Conductor lets winners compound through pyramids — a profit cap kills the compounding)
-   • SAFETY_CHURN_BURNER_ENABLED = false (pyramid adds fire in rapid succession — a trade rate limiter blocks them)
-   • MIN_HOLD_HOURS = 0.08 (5 minutes — the Conductor cuts losers fast via the guillotine)
-   If you pick Conductor and set ANY of these values differently, your output is WRONG. Explain in reasoning_strategy that these are backtester-proven values locked for the Conductor.
+7. MANDATORY STRATEGY BLACKLIST: Do NOT recommend "conductor", STOP_AND_REVERSE_ENABLED (SAR), or Conductor Reversal (CR) settings (such as REVERSAL_TP_R, REVERSAL_COST_AWARE_TP, REVERSAL_RISK_PER_TRADE, SCALE_OUT_FRACTION) under ANY circumstances. They are currently blacklisted pending subsequent AI recommendation engine refinement. Ensure STOP_AND_REVERSE_ENABLED is set to false.
 
 Respond with ONLY a valid JSON object (no markdown, no explanation outside JSON) containing ALL the settings listed above with their recommended values. Include these reasoning keys:
 - "reasoning_strategies": 3-5 sentences in plain English explaining WHY you picked each strategy for each asset class. Name the strategy, explain what it does in simple terms (no jargon), and explain why it fits the user's specific symbols. Example: "For your forex pairs, I picked Quantum because it waits for the price to pull back to a key average before buying — like buying a dip during a clear uptrend. This works great for major pairs like EUR/USD and AUD/JPY because they tend to trend smoothly."
@@ -1708,7 +1830,7 @@ Respond with ONLY a valid JSON object (no markdown, no explanation outside JSON)
             let aiResponse;
 
             if (apiKey) {
-                const sysText = 'You are a trading bot configuration expert who explains things in plain, everyday English — like you\'re talking to a smart friend who\'s never traded before. Avoid jargon. Use analogies and real examples. Always respond with ONLY valid JSON. No markdown fences, no prose outside the JSON. Every boolean must be true or false. Every number must be a JSON number or string. Include ALL settings from ALL 4 categories.';
+                const sysText = 'You are a trading bot configuration expert who explains things in plain, everyday English — like you\'re talking to a smart friend who\'s never traded before. Avoid jargon. Use analogies and real examples. Always respond with ONLY valid JSON. No markdown fences, no prose outside the JSON. Every boolean must be true or false. Every number must be a JSON number or string. Include ALL settings from ALL 4 categories. MANDATORY STRATEGY BLACKLIST: Do NOT recommend "conductor", STOP_AND_REVERSE_ENABLED (SAR), or Conductor Reversal (CR) settings under ANY circumstances. They are blacklisted pending subsequent AI recommendation engine refinement. Ensure STOP_AND_REVERSE_ENABLED is set to false.';
                 if (provider === 'gemini') {
                     console.log('[MAIN] Using Gemini native API for optimization');
                     const aiUrl = new URL(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`);
@@ -1874,6 +1996,8 @@ RULE 8 — PERFORMANCE FOUNDATION IS MANDATORY: If total capital is under $500, 
 
 RULE 9 — DON'T USE ARBITRARY ROUND NUMBERS: Do NOT pick convenient round numbers like $10, $20, $50 for dollar-denominated targets. Always calculate the target as a percentage of the user's actual capital first, then convert to dollars. Show your math in the reasoning.
 
+RULE 10 — MANDATORY STRATEGY BLACKLIST: Do NOT recommend "conductor", STOP_AND_REVERSE_ENABLED (SAR), or Conductor Reversal (CR) settings under ANY circumstances. They are currently blacklisted pending subsequent AI recommendation engine refinement. Ensure STOP_AND_REVERSE_ENABLED is set to false.
+
 Respond in plain English a smart friend would understand. No jargon. Use analogies. Respond with ONLY valid JSON — no markdown fences, no text outside JSON. Every boolean must be true/false. Every number must be a number. Include ALL settings from ALL 4 categories.`;
                 let fullPrompt = systemPrompt + '\n\n' + prompt;
                 // Remove PERFORMANCE_MODE_NONE from available options — force the AI to pick a real foundation
@@ -1976,13 +2100,34 @@ Respond in plain English a smart friend would understand. No jargon. Use analogi
             // Post-processing: If using GhostSpotter relay and AI stubbornly picked NONE for
             // performance mode, override to SMOOTH — every account benefits from risk smoothing.
             // This only applies to the relay path (Gemini Flash-Lite tends to default to NONE).
-            if (!apiKey && recommendations.PERFORMANCE_MODE_NONE === true) {
-                console.log('[MAIN] Overriding PERFORMANCE_MODE_NONE → SMOOTH (relay fallback)');
-                recommendations.PERFORMANCE_MODE_NONE = false;
-                recommendations.PERFORMANCE_MODE_SMOOTH = true;
-                // Update reasoning if present
-                if (recommendations.reasoning_performance) {
-                    recommendations.reasoning_performance += ' [Auto-adjusted: Smooth mode enabled as a baseline risk management foundation — it averages out position sizing to prevent wild swings, which benefits accounts of any size.]';
+            if (!apiKey) {
+                if (recommendations.PERFORMANCE_MODE_NONE === true) {
+                    console.log('[MAIN] Overriding PERFORMANCE_MODE_NONE → SMOOTH (relay fallback)');
+                    recommendations.PERFORMANCE_MODE_NONE = false;
+                    recommendations.PERFORMANCE_MODE_SMOOTH = true;
+                    // Update reasoning if present
+                    if (recommendations.reasoning_performance) {
+                        recommendations.reasoning_performance += ' [Auto-adjusted: Smooth mode enabled as a baseline risk management foundation — it averages out position sizing to prevent wild swings, which benefits accounts of any size.]';
+                    }
+                }
+
+                // Post-processing: If using GhostSpotter relay and AI stubbornly picked blacklisted strategies or SAR, override them.
+                const stratKeys = ['STRATEGY_CRYPTO', 'STRATEGY_FOREX', 'STRATEGY_STOCKS', 'STRATEGY_ETF', 'STRATEGY_METALS', 'STRATEGY_FUTURES'];
+                let replacedConductor = false;
+                for (const key of stratKeys) {
+                    if (recommendations[key] === 'conductor') {
+                        console.log(`[MAIN] Overriding blacklisted ${key} (conductor → london_breakout) (relay fallback)`);
+                        recommendations[key] = key === 'STRATEGY_CRYPTO' ? 'rubberband_reaper' : 'london_breakout';
+                        replacedConductor = true;
+                    }
+                }
+                if (recommendations.STOP_AND_REVERSE_ENABLED === true) {
+                    console.log('[MAIN] Overriding blacklisted STOP_AND_REVERSE_ENABLED (true → false) (relay fallback)');
+                    recommendations.STOP_AND_REVERSE_ENABLED = false;
+                    replacedConductor = true;
+                }
+                if (replacedConductor && recommendations.reasoning_strategies) {
+                    recommendations.reasoning_strategies += ' [Auto-adjusted: Conductor strategy and Stop-and-Reverse (SAR) are currently blacklisted pending subsequent AI recommendation engine refinement. Replaced with proven backtested alternatives.]';
                 }
             }
 
@@ -2336,6 +2481,14 @@ function startProfilesWatcher(win) {
 
 // Handle Log Tailing
 function startLogWatcher(win) {
+    if (isRemoteInstance()) {
+        console.log('[MAIN] Guard: GUI_WS_URL points to a remote instance. Bypassing local fs.watchFile log streaming. Logs are consumed via WebSocket event stream.');
+        if (!win.isDestroyed()) {
+            win.webContents.send('fromMain', { type: 'log-clear' });
+        }
+        return;
+    }
+
     const logPath = path.join(LOGS_DIR, 'tradebot.log');
     if (!fs.existsSync(logPath)) return;
 
@@ -2421,8 +2574,11 @@ function checkBotStatus(win, force = false) {
         if (force || !botRunning) {
             botRunning = true;
             console.log(`[MAIN] Bot Status (Remote Instance): RUNNING (WS: ${getGuiWsUrl()})`);
-            if (win && !win.isDestroyed()) {
-                win.webContents.send('bot-status', { running: true, isRemote: true });
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('bot-status', { running: true, isRemote: true });
+            }
+            if (settingsWindow && !settingsWindow.isDestroyed()) {
+                settingsWindow.webContents.send('bot-status', { running: true, isRemote: true });
             }
         }
         return;
@@ -2436,8 +2592,11 @@ function checkBotStatus(win, force = false) {
         if (force || isProcessRunning !== botRunning) {
             botRunning = isProcessRunning;
             console.log(`[MAIN] Bot Status changed: ${botRunning ? 'RUNNING' : 'STOPPED'} (Process: ${isProcessRunning})`);
-            if (win && !win.isDestroyed()) {
-                win.webContents.send('bot-status', { running: botRunning });
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('bot-status', { running: botRunning, isRemote: false });
+            }
+            if (settingsWindow && !settingsWindow.isDestroyed()) {
+                settingsWindow.webContents.send('bot-status', { running: botRunning, isRemote: false });
             }
         }
     });
@@ -2581,9 +2740,10 @@ function createWindow() {
     ipcMain.on('start-bot', async (event, opts = {}) => {
         console.log('[MAIN] Start signal received. Options:', opts);
         if (isRemoteInstance()) {
-            console.log(`[MAIN] Guard: GUI_WS_URL (${getGuiWsUrl()}) points to a remote instance. Bypassing local process spawn.`);
+            console.log(`[MAIN] Guard: GUI_WS_URL (${getGuiWsUrl()}) points to a remote instance. Bypassing local process spawn. Sending remote RESUME signal.`);
             if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Remote Instance Active", detail: `Configured for remote bot at ${getGuiWsUrl()}.\nLocal process spawning bypassed.`, color: 'teal' });
+                mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Remote Instance Active", detail: `Configured for remote bot at ${getGuiWsUrl()}.\nLocal process spawning bypassed. Remote RESUME signal sent.`, color: 'teal' });
+                mainWindow.webContents.send('fromMain', { type: 'remote-resume' });
             }
             checkBotStatus(mainWindow, true);
             return;
@@ -2748,10 +2908,7 @@ function createWindow() {
     
                             // Read stdout + main log for error capture
                             let errorDetail = "Process died unexpectedly or took too long to spawn.";
-                            const userDataDir = process.env.TRADEBOT_DATA_DIR
-                                || (process.platform === 'darwin'
-                                    ? path.join(require('os').homedir(), 'Library/Application Support/tradebot-sci')
-                                    : path.join(process.env.XDG_CONFIG_HOME || path.join(require('os').homedir(), '.config'), 'tradebot-sci'));
+                            const userDataDir = USER_DATA_DIR;
                             const logPaths = [
                                 stdoutPath,
                                 path.join(LOGS_DIR, 'bot_stdout.log'),
@@ -2821,9 +2978,10 @@ function createWindow() {
     ipcMain.on('stop-bot', () => {
         console.log('[MAIN] Stopping bot...');
         if (isRemoteInstance()) {
-            console.log(`[MAIN] Guard: GUI_WS_URL (${getGuiWsUrl()}) points to a remote instance. Bypassing local process kill.`);
+            console.log(`[MAIN] Guard: GUI_WS_URL (${getGuiWsUrl()}) points to a remote instance. Bypassing local process kill. Sending remote HALT signal.`);
             if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Remote Instance Active", detail: `Configured for remote bot at ${getGuiWsUrl()}.\nLocal process stopping bypassed.`, color: 'yellow' });
+                mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Remote Instance Active", detail: `Configured for remote bot at ${getGuiWsUrl()}.\nLocal process stopping bypassed. Remote HALT signal sent.`, color: 'yellow' });
+                mainWindow.webContents.send('fromMain', { type: 'remote-halt' });
             }
             return;
         }
@@ -2837,9 +2995,10 @@ function createWindow() {
     ipcMain.on('restart-bot', () => {
         console.log('[MAIN] Restarting bot...');
         if (isRemoteInstance()) {
-            console.log(`[MAIN] Guard: GUI_WS_URL (${getGuiWsUrl()}) points to a remote instance. Bypassing local process kill/spawn.`);
+            console.log(`[MAIN] Guard: GUI_WS_URL (${getGuiWsUrl()}) points to a remote instance. Bypassing local process kill/spawn. Sending remote RESUME signal.`);
             if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Remote Instance Active", detail: `Configured for remote bot at ${getGuiWsUrl()}.\nLocal process spawning bypassed.`, color: 'teal' });
+                mainWindow.webContents.send('fromMain', { type: 'gui-notice', message: "Remote Instance Active", detail: `Configured for remote bot at ${getGuiWsUrl()}.\nLocal process spawning bypassed. Remote RESUME signal sent.`, color: 'teal' });
+                mainWindow.webContents.send('fromMain', { type: 'remote-resume' });
                 mainWindow.webContents.send('bot-restarted');
             }
             return;

@@ -1657,6 +1657,18 @@ window.api?.on('fromMain', (payload) => {
                 }
             });
         }
+    } else if (payload.type === 'remote-halt') {
+        if (typeof window.sendHaltSignal === 'function') {
+            window.sendHaltSignal();
+        }
+    } else if (payload.type === 'remote-resume') {
+        if (typeof window.sendResumeSignal === 'function') {
+            window.sendResumeSignal();
+        }
+    } else if (payload.type === 'remote-reset-paper') {
+        if (typeof window.sendResetPaperSignal === 'function') {
+            window.sendResetPaperSignal();
+        }
     } else if (payload.type === 'gui-notice') {
         const level = payload.color === 'red' ? 'ERROR' : (payload.color === 'teal' ? 'GUI' : 'SYSTEM');
         let msg = payload.message;

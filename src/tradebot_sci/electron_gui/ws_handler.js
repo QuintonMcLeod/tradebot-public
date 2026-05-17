@@ -131,6 +131,50 @@ function _syncAllCashOutButtons(symbol, state, reason) {
 // Expose globally for cross-module access
 window.sendFlattenSymbol = sendFlattenSymbol;
 window._syncAllCashOutButtons = _syncAllCashOutButtons;
+window.sendHaltSignal = () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'halt' }));
+        console.log('[HALT] Sent remote halt signal via WebSocket.');
+        if (typeof appendLog === 'function') appendLog('SYSTEM', 'Sent remote HALT signal via WebSocket.');
+    } else {
+        console.warn('[HALT] Cannot send halt signal: WebSocket is not open.');
+        if (typeof appendLog === 'function') appendLog('ERROR', 'Cannot send remote HALT signal: WebSocket is not connected.');
+    }
+};
+window.sendResumeSignal = () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resume' }));
+        console.log('[RESUME] Sent remote resume signal via WebSocket.');
+        if (typeof appendLog === 'function') appendLog('SYSTEM', 'Sent remote RESUME signal via WebSocket.');
+    } else {
+        console.warn('[RESUME] Cannot send resume signal: WebSocket is not open.');
+        if (typeof appendLog === 'function') appendLog('ERROR', 'Cannot send remote RESUME signal: WebSocket is not connected.');
+    }
+};
+window.sendResetPaperSignal = () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'reset_paper' }));
+        console.log('[RESET-PAPER] Sent remote reset_paper signal via WebSocket.');
+        if (typeof appendLog === 'function') appendLog('SYSTEM', 'Sent remote RESET_PAPER signal via WebSocket.');
+    } else {
+        console.warn('[RESET-PAPER] Cannot send reset_paper signal: WebSocket is not open.');
+        if (typeof appendLog === 'function') appendLog('ERROR', 'Cannot send remote RESET_PAPER signal: WebSocket is not connected.');
+    }
+};
+
+/**
+ * Push config.json to the remote backend over WebSocket.
+ * Called after local save so the K8s/remote bot also receives settings.
+ * @param {Object} config - The full config object to sync
+ */
+window.syncConfigToBackend = (config) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'save_config', config }));
+        console.log('[CONFIG-SYNC] Pushed config to remote backend via WebSocket.');
+    } else {
+        console.warn('[CONFIG-SYNC] WebSocket not open — remote config sync skipped.');
+    }
+};
 
 // [WEBSOCKET] Connect to Python Backend
 const DEFAULT_WS_URL = 'ws://localhost:8080/ws';
@@ -183,6 +227,11 @@ async function connectWebSocket() {
         const tf = document.getElementById('chart-tf-label')?.innerText || '15m';
         if (symbol) subscribeToAsset(symbol, tf);
 
+        if (WS_URL !== DEFAULT_WS_URL) {
+            console.log("[WS] Remote instance detected. Requesting remote data sync...");
+            ws.send(JSON.stringify({ type: 'get_remote_data' }));
+        }
+
         if (pingInterval) clearInterval(pingInterval);
         ws._lastPong = Date.now(); // Initialize to prevent immediate timeout
         pingInterval = setInterval(() => {
@@ -222,7 +271,7 @@ async function connectWebSocket() {
         }, 3000); // Tick every 3 seconds for live price movement
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
         try {
             const msg = JSON.parse(event.data);
 
@@ -242,6 +291,17 @@ async function connectWebSocket() {
                     const latency = Date.now() - ws._lastPing;
                     if (typeof statusLatency !== 'undefined' && statusLatency) {
                         statusLatency.textContent = `${latency}ms`;
+                    }
+                }
+            } else if (msg.type === 'remote_data_sync') {
+                console.log("[WS] Received remote data sync payload. Sending to main process...");
+                if (window.api && window.api.invoke) {
+                    await window.api.invoke('sync-remote-files', msg);
+                    if (typeof loadAnalyticsData === 'function') {
+                        loadAnalyticsData(typeof currentFilter !== 'undefined' ? currentFilter : '24h');
+                    }
+                    if (typeof loadLogFiles === 'function') {
+                        loadLogFiles();
                     }
                 }
             } else if (msg.type === 'history') {
@@ -452,6 +512,12 @@ async function connectWebSocket() {
                     if (cashEl) cashEl.innerText = data.cash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 }
                 if (data.profile) {
+                    if (window.api && window.api.send) {
+                        window.api.send('update-active-profile', {
+                            activeProfile: data.profile,
+                            profiles: data.profiles || null
+                        });
+                    }
                     const profileEl = document.getElementById('status-profile');
                     if (profileEl) {
                         profileEl.innerText = data.profile.toUpperCase();
@@ -623,6 +689,19 @@ async function connectWebSocket() {
                 
                 saveState();
             } else if (msg.type === 'health') {
+                // Check if we are in Paper Trading mode
+                const isPaper = window.isPaper || msg.data.is_paper;
+                
+                // Gating logic: If in Paper Trading mode, only show warning if the Paper broker is legitimately failing/inactive
+                if (isPaper && msg.data.overall === 'warning') {
+                    const brokerVital = msg.data.vitals?.['Broker Link'] || {};
+                    const paperBrokerFailing = msg.data.paper_broker_status === 'error' || brokerVital.status === 'warning' || brokerVital.status === 'critical';
+                    if (!paperBrokerFailing) {
+                        msg.data.overall = 'healthy';
+                        msg.data.overall_message = 'Paper Broker Active — All systems operational.';
+                    }
+                }
+
                 // Store health vitals globally for the Vitals tab
                 window.__healthVitals = msg.data;
                 window.__healthVitals._receivedAt = Date.now();
@@ -709,6 +788,21 @@ async function connectWebSocket() {
                 }
             } else if (msg.type === 'ai_commentary') {
                 updateAIInsightPanel(msg.content, msg.timestamp, msg.next_update_in);
+            } else if (msg.type === 'reset_paper_ack') {
+                if (msg.status === 'ok') {
+                    console.log('[RESET-PAPER] ✅ Paper trading reset acknowledged by backend');
+                    if (typeof appendLog === 'function') {
+                        appendLog('INFO', '[SYSTEM] ⚡ Remote paper trading state reset successfully.');
+                    }
+                    if (typeof window.updateRealizedPnL === 'function') {
+                        setTimeout(() => window.updateRealizedPnL(), 1000);
+                    }
+                } else {
+                    console.warn(`[RESET-PAPER] ❌ Paper trading reset failed: ${msg.reason || 'unknown'}`);
+                    if (typeof appendLog === 'function') {
+                        appendLog('ERROR', `[SYSTEM] Failed to reset remote paper trading state: ${msg.reason || 'unknown'}`);
+                    }
+                }
             } else if (msg.type === 'flatten_ack') {
                 // Backend acknowledged a Cash-Out request
                 const sym = msg.symbol || '??';

@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
     // Basic IPC
     send: (channel, data) => {
-        let validChannels = ["toMain", "start-bot", "stop-bot", "minimize-window", "maximize-window", "close-window", "open-settings", "get-bot-status"];
+        let validChannels = ["toMain", "start-bot", "stop-bot", "minimize-window", "maximize-window", "close-window", "open-settings", "get-bot-status", "update-active-profile"];
         if (validChannels.includes(channel)) {
             ipcRenderer.send(channel, data);
         }

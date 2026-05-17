@@ -1,7 +1,16 @@
 import json, os
 from pathlib import Path
 
-state_file = os.path.expanduser("~/.config/tradebot-sci/data/paper_state.json")
+instance_id = os.environ.get("TRADEBOT_INSTANCE_ID", "local")
+td = os.environ.get("TRADEBOT_DATA_DIR")
+if td:
+    base_dir = Path(td)
+    if base_dir.name != instance_id:
+        base_dir = base_dir / instance_id
+else:
+    base_dir = Path.home() / ".config" / "tradebot-sci-gui" / instance_id
+
+state_file = base_dir / "data" / "paper_state.json"
 
 start_cap = 10000.0
 current_balance = start_cap

@@ -104,6 +104,12 @@ class TradeResultStore:
         if not self._skip_save:
             self.save()
 
+    def clear(self) -> None:
+        """Clear all stored trade results."""
+        self.results = []
+        if not self._skip_save:
+            self.save()
+
     def get_recent_results(self, limit: int = 10) -> List[TradeResult]:
         return self.results[-limit:]
 

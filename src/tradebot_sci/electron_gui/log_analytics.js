@@ -17,69 +17,119 @@ const os = require('os');
 
 // ── Resolve user data directory (mirrors Python paths.py + tradebot.sh) ──
 const _APP_ROOT = path.join(__dirname, '..', '..', '..');
-function _resolveUserDataDir() {
-    if (process.env.TRADEBOT_DATA_DIR) return process.env.TRADEBOT_DATA_DIR;
-    if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'tradebot-sci');
-    return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'tradebot-sci');
-}
-const USER_DATA_DIR = _resolveUserDataDir();
 
-function _getInstanceId() {
+function _getActiveInstanceName(wsUrl) {
+    if (!wsUrl) return 'local';
+    if (wsUrl.includes('localhost') || wsUrl.includes('127.0.0.1')) return 'local';
+    const crypto = require('crypto');
+    const hash = crypto.createHash('md5').update(wsUrl).digest('hex').substring(0, 8);
+    return `remote-${hash}`;
+}
+
+function _getRootConfigDir() {
+    if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'tradebot-sci-gui');
+    if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'tradebot-sci-gui');
+    return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'tradebot-sci-gui');
+}
+
+function _getInstanceId(options = {}) {
+    if (options.instanceId) return options.instanceId;
+    if (global.INSTANCE_ID) return global.INSTANCE_ID;
     if (process.env.TRADEBOT_INSTANCE_ID) return process.env.TRADEBOT_INSTANCE_ID;
     let wsUrl = process.env.GUI_WS_URL;
+    if (wsUrl) return _getActiveInstanceName(wsUrl);
+
+    const rootDir = _getRootConfigDir();
+    const activeFile = path.join(rootDir, 'active_instance.txt');
+    if (fs.existsSync(activeFile)) {
+        try {
+            const name = fs.readFileSync(activeFile, 'utf8').trim();
+            if (name) return name;
+        } catch(e) {}
+    }
+
     const dotenvPath = path.join(_APP_ROOT, '.env');
-    if (!wsUrl && fs.existsSync(dotenvPath)) {
+    if (fs.existsSync(dotenvPath)) {
         try {
             const content = fs.readFileSync(dotenvPath, 'utf8');
             content.split('\n').forEach(line => {
                 const match = line.match(/^\s*GUI_WS_URL\s*=\s*(.*)$/);
                 if (match) wsUrl = match[1].trim();
             });
+            if (wsUrl) return _getActiveInstanceName(wsUrl);
         } catch(e) {}
     }
-    if (wsUrl) {
-        const m = wsUrl.match(/:(\d+)/);
-        if (m) return `instance_${m[1]}`;
-        const clean = wsUrl.replace(/[^A-Za-z0-9_]/g, '_');
-        return `instance_${clean}`;
-    }
-    return 'instance_8080';
+    return 'local';
 }
-const INSTANCE_ID = _getInstanceId();
 
-// Primary: user data dir (where the daemon writes); Fallback: project root (legacy/dev)
-const BASE_LOGS_DIR = fs.existsSync(path.join(USER_DATA_DIR, 'logs')) ? path.join(USER_DATA_DIR, 'logs') : path.join(_APP_ROOT, 'logs');
-const BASE_DATA_DIR = fs.existsSync(path.join(USER_DATA_DIR, 'data')) ? path.join(USER_DATA_DIR, 'data') : path.join(_APP_ROOT, 'data');
+function _resolveUserDataDir(options = {}) {
+    if (options.userDataDir) return options.userDataDir;
+    if (global.USER_DATA_DIR) return global.USER_DATA_DIR;
+    if (process.env.TRADEBOT_DATA_DIR) {
+        let td = process.env.TRADEBOT_DATA_DIR;
+        if (td.endsWith('/data') || td.endsWith('/logs') || td.endsWith('/config') ||
+            td.endsWith('\\data') || td.endsWith('\\logs') || td.endsWith('\\config')) {
+            td = path.dirname(td);
+        }
+        const instId = _getInstanceId(options);
+        if (path.basename(td) === instId || td.includes(instId)) return td;
+        return path.join(td, instId);
+    }
+    return path.join(_getRootConfigDir(), _getInstanceId(options));
+}
 
-const LOGS_DIR = path.join(BASE_LOGS_DIR, INSTANCE_ID);
-const DATA_DIR = path.join(BASE_DATA_DIR, INSTANCE_ID);
+function getLogsDir(options = {}) {
+    if (options.logsDir) return options.logsDir;
+    if (global.LOGS_DIR) return global.LOGS_DIR;
+    const userData = _resolveUserDataDir(options);
+    const d = path.join(userData, 'logs');
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+    return d;
+}
 
-if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+function getDataDir(options = {}) {
+    if (options.dataDir) return options.dataDir;
+    if (global.DATA_DIR) return global.DATA_DIR;
+    const userData = _resolveUserDataDir(options);
+    const d = path.join(userData, 'data');
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+    return d;
+}
 
 // Auto-migrate legacy top-level data/logs into the instance subdirectory if empty
-if (fs.existsSync(BASE_DATA_DIR) && BASE_DATA_DIR !== DATA_DIR) {
-    fs.readdirSync(BASE_DATA_DIR).forEach(fname => {
-        const src = path.join(BASE_DATA_DIR, fname);
-        const dst = path.join(DATA_DIR, fname);
-        try {
-            if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
-                fs.copyFileSync(src, dst);
-            }
-        } catch(e) {}
-    });
-}
-if (fs.existsSync(BASE_LOGS_DIR) && BASE_LOGS_DIR !== LOGS_DIR) {
-    fs.readdirSync(BASE_LOGS_DIR).forEach(fname => {
-        const src = path.join(BASE_LOGS_DIR, fname);
-        const dst = path.join(LOGS_DIR, fname);
-        try {
-            if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
-                fs.copyFileSync(src, dst);
-            }
-        } catch(e) {}
-    });
-}
+try {
+    const instId = _getInstanceId();
+    if (!instId.startsWith('remote-')) {
+        const currentDataDir = getDataDir();
+        const currentLogsDir = getLogsDir();
+        const legacyRoot = path.join(_getRootConfigDir(), '..', 'tradebot-sci');
+        const legacyData = path.join(legacyRoot, 'data');
+        const legacyLogs = path.join(legacyRoot, 'logs');
+
+        if (fs.existsSync(legacyData) && legacyData !== currentDataDir) {
+            fs.readdirSync(legacyData).forEach(fname => {
+                const src = path.join(legacyData, fname);
+                const dst = path.join(currentDataDir, fname);
+                try {
+                    if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+                        fs.copyFileSync(src, dst);
+                    }
+                } catch(e) {}
+            });
+        }
+        if (fs.existsSync(legacyLogs) && legacyLogs !== currentLogsDir) {
+            fs.readdirSync(legacyLogs).forEach(fname => {
+                const src = path.join(legacyLogs, fname);
+                const dst = path.join(currentLogsDir, fname);
+                try {
+                    if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+                        fs.copyFileSync(src, dst);
+                    }
+                } catch(e) {}
+            });
+        }
+    }
+} catch(e) {}
 
 // ── Helpers ──────────────────────────────────────────────
 
@@ -118,12 +168,12 @@ function _latestByBroker(capitalByBroker) {
 /**
  * getLogFiles — returns a list of available log files, newest first.
  */
-function getLogFiles() {
+function getLogFiles(options = {}) {
     const files = [];
     const seenInodes = new Set();
 
     // Scan both user-data logs and project-root logs
-    const logDirs = [LOGS_DIR, path.join(_APP_ROOT, 'logs')].filter(d => fs.existsSync(d));
+    const logDirs = [getLogsDir(options), path.join(_APP_ROOT, 'logs')].filter(d => fs.existsSync(d));
     for (const dir of logDirs) {
         // Include tradebot.log* AND bot_stdout.log (launcher redirects stdout there)
         const entries = fs.readdirSync(dir)
@@ -153,7 +203,7 @@ function getLogFiles() {
  * @param {string} filter — '1h', '4h', '24h', 'week', 'month', 'year', 'all'
  * @returns {{ trades: Array, capital: Array, capitalByBroker: Object }}
  */
-function getTradeHistory(filter = '24h', paperMode = false) {
+function getTradeHistory(filter = '24h', paperMode = false, options = {}) {
     // In paper mode, replay trades use candle timestamps (e.g., 2026-02-18)
     // which don't match wall-clock time. Use 'all' to include them.
     const effectiveFilter = paperMode ? 'all' : filter;
@@ -163,8 +213,9 @@ function getTradeHistory(filter = '24h', paperMode = false) {
     const capitalByBroker = {};
 
     // 1. Read from ledger — paper mode uses paper_ledger exclusively
-    const liveLedgerPath = path.join(DATA_DIR, 'ledger.json');
-    const paperLedgerPath = path.join(DATA_DIR, 'paper_ledger.json');
+    const currentDataDir = getDataDir(options);
+    const liveLedgerPath = path.join(currentDataDir, 'ledger.json');
+    const paperLedgerPath = path.join(currentDataDir, 'paper_ledger.json');
     const ledgerPath = paperMode ? paperLedgerPath : (fs.existsSync(liveLedgerPath) ? liveLedgerPath : paperLedgerPath);
     let ledger = null;
     let fallbackGlobalCutoff = cutoff; // We enhance the cutoff timestamp if there has been a paper reset
@@ -182,7 +233,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
     
     // Also check paper_state.json as an additional safety
     if (paperMode) {
-        const paperStatePath = path.join(DATA_DIR, 'paper_state.json');
+        const paperStatePath = path.join(currentDataDir, 'paper_state.json');
         if (fs.existsSync(paperStatePath)) {
             try {
                 const state = JSON.parse(fs.readFileSync(paperStatePath, 'utf8'));
@@ -259,7 +310,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
 
     // 2. Read from trade_results.json (live) or paper_trade_results.json (paper)
     const resultsFile = paperMode ? 'paper_trade_results.json' : 'trade_results.json';
-    const resultsPath = path.join(DATA_DIR, resultsFile);
+    const resultsPath = path.join(currentDataDir, resultsFile);
     if (fs.existsSync(resultsPath)) {
         try {
             const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
@@ -465,7 +516,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
             { file: 'position_holds.json', key: null, isArray: true },  // CCXT position hold store
         ];
     for (const src of positionSources) {
-        const posPath = path.join(DATA_DIR, src.file);
+        const posPath = path.join(currentDataDir, src.file);
         if (fs.existsSync(posPath)) {
             try {
                 const raw = JSON.parse(fs.readFileSync(posPath, 'utf8'));
@@ -513,7 +564,7 @@ function getTradeHistory(filter = '24h', paperMode = false) {
     // This captures positions (like DOGE) that aren't in any static JSON file
     // AND it acts as the authoritative source to prune ghost static states.
     if (true) { // Always run this, even in paperMode, because paperMode relies on [HOLDINGS] too
-        const stdoutPath = path.join(LOGS_DIR, 'bot_stdout.log');
+        const stdoutPath = path.join(getLogsDir(options), 'bot_stdout.log');
         if (fs.existsSync(stdoutPath)) {
             try {
                 // Read last 50KB to find the most recent [HOLDINGS] line

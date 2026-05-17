@@ -114,6 +114,7 @@ class RuntimeController:
                 "cash": cash,
                 "holdings_count": holdings_count,
                 "profile": self.profile_name,
+                "profiles": {name: prof.model_dump() for name, prof in self.settings.profiles.items()},
                 "symbols": getattr(self.profile_settings, "symbols", []),
                 "is_sabbath": sabbath_active,
                 "sabbath_mode": sabbath_active,
@@ -364,6 +365,15 @@ class RuntimeController:
             return
         try:
             vitals = self.health_monitor.get_vitals()
+            is_paper = not getattr(self.settings.runtime, "execute_trades", True)
+            try:
+                from tradebot_sci.runtime.sabbath import SabbathContext
+                sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
+                if sabbath_active:
+                    is_paper = True
+            except Exception:
+                pass
+            vitals["is_paper"] = is_paper
             self.ws_server.broadcast_health_sync(vitals)
             self._last_health_broadcast_ts = now
         except Exception as e:

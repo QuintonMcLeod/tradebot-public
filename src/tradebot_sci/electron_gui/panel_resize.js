@@ -51,21 +51,21 @@
         handles.forEach(handle => {
             const aboveId = handle.dataset.above;
             const belowId = handle.dataset.below;
-            if (!aboveId || !belowId) return;
+            if (!aboveId) return;
 
             handle.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 const aboveEl = document.getElementById(aboveId);
-                const belowEl = document.getElementById(belowId);
-                if (!aboveEl || !belowEl) return;
+                const belowEl = belowId ? document.getElementById(belowId) : null;
+                if (!aboveEl) return;
 
                 const startY = e.clientY;
                 const startAboveH = aboveEl.getBoundingClientRect().height;
-                const startBelowH = belowEl.getBoundingClientRect().height;
+                const startBelowH = belowEl ? belowEl.getBoundingClientRect().height : 0;
 
                 // Lock both panels to their current pixel sizes
                 forceHeight(aboveEl, startAboveH);
-                forceHeight(belowEl, startBelowH);
+                if (belowEl) forceHeight(belowEl, startBelowH);
 
                 // Visual feedback
                 const dot = handle.querySelector('div');
@@ -77,14 +77,16 @@
                 const onMove = (e2) => {
                     const dy = e2.clientY - startY;
                     const newAbove = Math.max(MIN_HEIGHT, startAboveH + dy);
-                    const newBelow = Math.max(MIN_HEIGHT, startBelowH - dy);
 
-                    // Enforce total conservation
-                    const total = startAboveH + startBelowH;
-                    if (newAbove + newBelow > total + 2) return;
+                    if (belowEl) {
+                        const newBelow = Math.max(MIN_HEIGHT, startBelowH - dy);
+                        // Enforce total conservation
+                        const total = startAboveH + startBelowH;
+                        if (newAbove + newBelow > total + 2) return;
+                        forceHeight(belowEl, newBelow);
+                    }
 
                     forceHeight(aboveEl, newAbove);
-                    forceHeight(belowEl, newBelow);
                 };
 
                 const onUp = () => {
@@ -99,7 +101,7 @@
                     // Save current sizes
                     const sizes = loadSavedSizes();
                     sizes[aboveId] = Math.round(aboveEl.getBoundingClientRect().height);
-                    sizes[belowId] = Math.round(belowEl.getBoundingClientRect().height);
+                    if (belowEl) sizes[belowId] = Math.round(belowEl.getBoundingClientRect().height);
                     saveSizes(sizes);
                 };
 
@@ -108,6 +110,27 @@
             });
         });
     }
+
+    window.resetPanelLayout = function () {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem('tradebot_panel_heights');
+        ['chart-panel', 'decisions-panel', 'log-panel'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.style.flex = '';
+            el.style.height = '';
+            el.style.maxHeight = '';
+            el.style.minHeight = '';
+            el.style.overflow = '';
+        });
+        setTimeout(() => {
+            if (window.chart) {
+                const container = document.getElementById('chart-area');
+                if (container) window.chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+            }
+        }, 100);
+        console.log('[UI] Panel layout reset to defaults');
+    };
 
     // Initialize after DOM is ready
     if (document.readyState === 'loading') {

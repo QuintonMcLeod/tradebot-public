@@ -5,8 +5,8 @@ set -e
 
 # 1. Config
 # Force extract the GitLab token from .env.secrets first, ignoring stale environment variables
-if [ -f "${HOME}/.config/tradebot-sci/.env.secrets" ]; then
-    GITLAB_TOKEN=$(grep -oP 'GITLAB_TOKEN=\K.*' "${HOME}/.config/tradebot-sci/.env.secrets" 2>/dev/null || true)
+if [ -f "${HOME}/.config/secrets/.env.secrets" ]; then
+    GITLAB_TOKEN=$(grep -oP 'GITLAB_TOKEN=\K.*' "${HOME}/.config/secrets/.env.secrets" 2>/dev/null || true)
 fi
 if [ -z "$GITLAB_TOKEN" ]; then
     GITLAB_TOKEN="${GITLAB_TOKEN:-}"

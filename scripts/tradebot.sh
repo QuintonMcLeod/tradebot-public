@@ -4,13 +4,41 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# ── Instance ID resolution (mirrors Python paths.py) ──
+INSTANCE_ID="${TRADEBOT_INSTANCE_ID:-}"
+if [[ -z "$INSTANCE_ID" && -n "${GUI_WS_URL:-}" ]]; then
+  if [[ "$GUI_WS_URL" == *localhost* || "$GUI_WS_URL" == *127.0.0.1* ]]; then
+    INSTANCE_ID="local"
+  else
+    if command -v md5sum >/dev/null 2>&1; then
+      _h=$(echo -n "$GUI_WS_URL" | md5sum | cut -c1-8)
+      INSTANCE_ID="remote-$_h"
+    elif command -v md5 >/dev/null 2>&1; then
+      _h=$(echo -n "$GUI_WS_URL" | md5 | cut -c1-8)
+      INSTANCE_ID="remote-$_h"
+    else
+      INSTANCE_ID="instance_${GUI_WS_URL//[^A-Za-z0-9_]/_}"
+    fi
+  fi
+fi
+if [[ -z "$INSTANCE_ID" ]]; then
+  INSTANCE_ID="local"
+fi
+export TRADEBOT_INSTANCE_ID="$INSTANCE_ID"
+
 # ── OS-aware user data directory (mirrors Python paths.py) ──
 if [[ -n "${TRADEBOT_DATA_DIR:-}" ]]; then
   USER_DATA_DIR="$TRADEBOT_DATA_DIR"
+  if [[ "${USER_DATA_DIR%/}" == */data || "${USER_DATA_DIR%/}" == */logs || "${USER_DATA_DIR%/}" == */config ]]; then
+    USER_DATA_DIR="$(dirname "$USER_DATA_DIR")"
+  fi
+  if [[ "$(basename "$USER_DATA_DIR")" != "$INSTANCE_ID" && "$USER_DATA_DIR" != *"$INSTANCE_ID"* ]]; then
+    USER_DATA_DIR="$USER_DATA_DIR/$INSTANCE_ID"
+  fi
 elif [[ "$(uname)" == "Darwin" ]]; then
-  USER_DATA_DIR="$HOME/Library/Application Support/tradebot-sci"
+  USER_DATA_DIR="$HOME/Library/Application Support/tradebot-sci-gui/$INSTANCE_ID"
 else
-  USER_DATA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tradebot-sci"
+  USER_DATA_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tradebot-sci-gui/$INSTANCE_ID"
 fi
 mkdir -p "$USER_DATA_DIR/data" "$USER_DATA_DIR/logs" "$USER_DATA_DIR/config"
 
@@ -299,17 +327,15 @@ NO_SABBATH="false"
 
 SESSION_NAME="${SESSION_NAME:-tradebot}"
 
-INSTANCE_ID="${TRADEBOT_INSTANCE_ID:-instance_8080}"
-if [[ -n "${GUI_WS_URL:-}" && -z "${TRADEBOT_INSTANCE_ID:-}" ]]; then
-  if [[ "$GUI_WS_URL" =~ :([0-9]+) ]]; then
-    INSTANCE_ID="instance_${BASH_REMATCH[1]}"
-  else
-    INSTANCE_ID="instance_${GUI_WS_URL//[^A-Za-z0-9_]/_}"
-  fi
-fi
 export TRADEBOT_INSTANCE_ID="$INSTANCE_ID"
 
-LOG_FILE="${TRADEBOT_LOG:-$USER_DATA_DIR/logs/$INSTANCE_ID/tradebot.log}"
+if [[ -n "${TRADEBOT_LOG:-}" ]]; then
+  LOG_FILE="$TRADEBOT_LOG"
+elif [[ "${TRADEBOT_DATA_DIR:-}" == "/app/data" ]]; then
+  LOG_FILE="/app/logs/$INSTANCE_ID/tradebot.log"
+else
+  LOG_FILE="$USER_DATA_DIR/logs/tradebot.log"
+fi
 MARKET_DATA_MODE="${MARKET_DATA_MODE:-}"
 BROKER_MODE="${BROKER_MODE:-}"
 

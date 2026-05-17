@@ -98,6 +98,10 @@ class HealthMonitor:
         self._cycle_count: int = 0
         self._last_risk_detail: str = ""
         self._market_hours_active: bool = True
+        self._is_halted: bool = False
+        self._paper_broker_status: str = "healthy"
+        self._paper_broker_error: str = ""
+
 
     @classmethod
     def get(cls) -> "HealthMonitor":
@@ -148,6 +152,12 @@ class HealthMonitor:
         if not self._market_hours_active:
             v.set(HEALTHY,
                   "Market is closed / Sabbath active — bot is resting normally.",
+                  f"Last cycle: {now - self._last_heartbeat_ts if self._last_heartbeat_ts else 0:.0f}s ago | Uptime: {uptime_str} | Cycles: {self._cycle_count}")
+            return
+
+        if self._is_halted:
+            v.set(HEALTHY,
+                  "Bot is HALTED via remote control — standing by.",
                   f"Last cycle: {now - self._last_heartbeat_ts if self._last_heartbeat_ts else 0:.0f}s ago | Uptime: {uptime_str} | Cycles: {self._cycle_count}")
             return
 
@@ -242,6 +252,12 @@ class HealthMonitor:
                   "Off-hours mode")
             return
 
+        if self._is_halted:
+            v.set(HEALTHY,
+                  "Bot is HALTED via remote control — no new pricing data expected.",
+                  "Halted mode")
+            return
+
         if not self._data_feed_ts:
             v.set(WARNING,
                   "No market data received yet — waiting for the first price update.",
@@ -296,6 +312,12 @@ class HealthMonitor:
             v.set(HEALTHY,
                   "Market is closed — scanner is on standby.",
                   f"Off-hours mode | {self._cycle_count} total cycles completed")
+            return
+
+        if self._is_halted:
+            v.set(HEALTHY,
+                  "Bot is HALTED via remote control — scanner is on standby.",
+                  f"Halted mode | {self._cycle_count} total cycles completed")
             return
 
         if cycles_with_candidates > 0:
@@ -485,6 +507,12 @@ class HealthMonitor:
                   "Off-hours / session lockout active")
             return
 
+        if self._is_halted:
+            v.set(HEALTHY,
+                  "Bot is HALTED via remote control — no signals expected.",
+                  "Halted mode")
+            return
+
         if self._hold_only_cycles == 0 or self._last_signal_ts > 0:
             age = time.time() - self._last_signal_ts if self._last_signal_ts else 0
             if age < 60 and self._last_signal_detail:
@@ -521,6 +549,20 @@ class HealthMonitor:
         """Tell the monitor whether market hours are active."""
         self._market_hours_active = active
 
+    def set_halted(self, halted: bool) -> None:
+        """Tell the monitor whether the bot is halted via remote control."""
+        self._is_halted = halted
+
+    def record_paper_broker_status(self, status: str, error: str = "") -> None:
+        """Record explicit Paper Broker operational status and error state."""
+        self._paper_broker_status = status
+        self._paper_broker_error = error
+        if status != "healthy":
+            v = self.vitals["broker"]
+            v.set(WARNING if status == "warning" else CRITICAL,
+                  f"Paper Broker issue: {error}",
+                  f"Paper Broker: {error}")
+
     # ──────────────────────────────────────────────────────
     # Aggregation
     # ──────────────────────────────────────────────────────
@@ -551,6 +593,8 @@ class HealthMonitor:
             "cycle_count": self._cycle_count,
             "vitals": {v["name"]: v for v in vitals_list},
             "events": self._events[-20:],  # Last 20 events for timeline
+            "paper_broker_status": self._paper_broker_status,
+            "paper_broker_error": self._paper_broker_error,
         }
 
     # ──────────────────────────────────────────────────────

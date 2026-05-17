@@ -29,6 +29,7 @@ class WebSocketServer:
         self.clients: set[web.WebSocketResponse] = set()
         self.subscriptions: dict[web.WebSocketResponse, dict[str, str]] = {}
         self.loop: asyncio.AbstractEventLoop | None = None
+        self._stopped = False
         self._halted = False
         self.broadcast_queue: asyncio.PriorityQueue | None = None
         self.broadcast_task: asyncio.Task | None = None
@@ -36,6 +37,7 @@ class WebSocketServer:
         self._on_subscribe_cb: Callable[[str, str, int | None], Any] | None = None
         self._on_tick_cb: Callable[[str, str], Any] | None = None
         self._on_flatten_cb: Callable[[str], Any] | None = None
+        self._on_reset_paper_cb: Callable[[], Any] | None = None
 
     async def start(self) -> None:
         """Starts the WebSocket server."""
@@ -49,7 +51,7 @@ class WebSocketServer:
 
     async def _broadcast_worker(self) -> None:
         """Background worker that pulls messages from the priority queue and broadcasts them."""
-        while not self._halted:
+        while not self._stopped:
             try:
                 if self.broadcast_queue is None:
                     await asyncio.sleep(0.1)
@@ -71,6 +73,7 @@ class WebSocketServer:
 
     async def stop(self) -> None:
         """Stops the WebSocket server."""
+        self._stopped = True
         self._halted = True
         if self.broadcast_task:
             self.broadcast_task.cancel()
@@ -98,6 +101,34 @@ class WebSocketServer:
                         data = json.loads(msg.data)
                         if data.get('type') == 'ping':
                             await ws.send_str(json.dumps({'type': 'pong'}))
+                        elif data.get('type') == 'halt':
+                            logger.warning("[WS] Remote HALT signal received from GUI. Halting bot activity.")
+                            self._halted = True
+                            ack = json.dumps({
+                                'type': 'gui-notice',
+                                'message': 'Bot Halted',
+                                'detail': 'Remote HALT signal received. Bot activity paused.',
+                                'color': 'yellow'
+                            })
+                            for client in list(self.clients):
+                                try:
+                                    await client.send_str(ack)
+                                except Exception:
+                                    pass
+                        elif data.get('type') == 'resume':
+                            logger.info("[WS] Remote RESUME signal received from GUI. Resuming bot activity.")
+                            self._halted = False
+                            ack = json.dumps({
+                                'type': 'gui-notice',
+                                'message': 'Bot Resumed',
+                                'detail': 'Remote RESUME signal received. Bot activity resumed.',
+                                'color': 'teal'
+                            })
+                            for client in list(self.clients):
+                                try:
+                                    await client.send_str(ack)
+                                except Exception:
+                                    pass
                         elif data.get('type') == 'subscribe':
                             symbol = data.get('symbol')
                             tf = data.get('tf')
@@ -162,11 +193,99 @@ class WebSocketServer:
                                     'status': 'error',
                                     'reason': 'No executor available'
                                 }))
+                        elif data.get('type') == 'reset_paper':
+                            if self._on_reset_paper_cb:
+                                logger.info("[WS] Remote Paper Trade Reset request received from GUI")
+                                try:
+                                    loop = asyncio.get_event_loop()
+                                    await loop.run_in_executor(
+                                        None, self._on_reset_paper_cb
+                                    )
+                                    self.broadcast_reset_paper_ack(status='ok')
+                                except Exception as e:
+                                    logger.error(f"[WS] Paper Trade Reset failed: {e}")
+                                    self.broadcast_reset_paper_ack(status='error', reason=str(e))
+                            else:
+                                logger.warning("[WS] Paper Trade Reset request received but no callback registered")
+                                self.broadcast_reset_paper_ack(status='error', reason='No reset callback registered')
+                        elif data.get('type') == 'save_config':
+                            # Remote config persistence: GUI pushes config.json to backend
+                            config_payload = data.get('config')
+                            if config_payload and isinstance(config_payload, dict):
+                                try:
+                                    from tradebot_sci import paths as _paths
+                                    import os
+                                    os.makedirs(_paths.USER_DATA_DIR, exist_ok=True)
+                                    cfg_path = _paths.CONFIG_FILE
+                                    with open(cfg_path, 'w', encoding='utf-8') as f:
+                                        json.dump(config_payload, f, indent=2)
+                                    logger.info(f"[WS] Remote config saved to {cfg_path}")
+                                    await ws.send_str(json.dumps({
+                                        'type': 'save_config_ack',
+                                        'status': 'ok',
+                                        'path': str(cfg_path)
+                                    }))
+                                    # Notify all clients
+                                    notice = json.dumps({
+                                        'type': 'gui-notice',
+                                        'message': 'Remote Config Saved',
+                                        'detail': f'Settings synced to backend ({cfg_path})',
+                                        'color': 'teal'
+                                    })
+                                    for client in list(self.clients):
+                                        try:
+                                            await client.send_str(notice)
+                                        except Exception:
+                                            pass
+                                except Exception as e:
+                                    logger.error(f"[WS] Failed to save remote config: {e}")
+                                    await ws.send_str(json.dumps({
+                                        'type': 'save_config_ack',
+                                        'status': 'error',
+                                        'reason': str(e)
+                                    }))
                         elif data.get('type') == 'log':
                             # Bridge frontend logs to backend for easier debugging
                             lvl = data.get('level', 'INFO').upper()
                             log_data = data.get('data', '')
                             getattr(logger, lvl.lower(), logger.info)(f"[FRONTEND] {log_data}")
+                        elif data.get('type') == 'get_remote_data':
+                            from tradebot_sci import paths as _paths
+                            import os
+                            
+                            res = {
+                                'type': 'remote_data_sync',
+                                'ledger': None,
+                                'paper_ledger': None,
+                                'trade_results': None,
+                                'paper_trade_results': None,
+                                'paper_state': None,
+                                'logs': []
+                            }
+                            
+                            for key, fname in [
+                                ('ledger', 'ledger.json'),
+                                ('paper_ledger', 'paper_ledger.json'),
+                                ('trade_results', 'trade_results.json'),
+                                ('paper_trade_results', 'paper_trade_results.json'),
+                                ('paper_state', 'paper_state.json')
+                            ]:
+                                p = _paths.DATA_DIR / fname
+                                if p.is_file():
+                                    try:
+                                        res[key] = json.loads(p.read_text(encoding='utf-8'))
+                                    except Exception:
+                                        pass
+                            
+                            log_p = _paths.LOG_DIR / "tradebot.log"
+                            if log_p.is_file():
+                                try:
+                                    lines = log_p.read_text(encoding='utf-8').splitlines()
+                                    res['logs'] = lines[-500:]
+                                except Exception:
+                                    pass
+                                    
+                            await ws.send_str(json.dumps(res))
                     except json.JSONDecodeError:
                         if msg.data == 'ping':
                             await ws.send_str(json.dumps({'type': 'pong'}))
@@ -334,6 +453,20 @@ class WebSocketServer:
     def set_on_flatten_callback(self, cb: Callable[[str], Any]) -> None:
         """Register a callback for manual position cash-out from the GUI."""
         self._on_flatten_cb = cb
+
+    def set_on_reset_paper_callback(self, cb: Callable[[], Any]) -> None:
+        """Register a callback for paper trading reset from the GUI."""
+        self._on_reset_paper_cb = cb
+
+    def broadcast_reset_paper_ack(self, status: str = 'ok', reason: str | None = None) -> None:
+        """Thread-safe reset_paper_ack broadcast."""
+        msg: dict[str, Any] = {
+            "type": "reset_paper_ack",
+            "status": status
+        }
+        if reason:
+            msg["reason"] = reason
+        self.broadcast_sync(msg, priority=3)
 
     def get_subscriptions(self) -> list[tuple[str, str]]:
         """Returns a list of (symbol, timeframe) currently subscribed to by clients."""
