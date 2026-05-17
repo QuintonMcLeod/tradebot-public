@@ -48,12 +48,14 @@ class RuntimeController:
             return
             
         now = time.time()
-        is_paper = not getattr(self.settings.runtime, "execute_trades", True)
-        # Detect paper mode from executor mismatch: if the loop passed a real
-        # executor reference AND the active executor differs, the loop has swapped
-        # to the paper broker (covers Sabbath, off-hours, and hot-reload paths).
-        if executor_real is not None and executor is not executor_real:
+        execute_trades = getattr(self.settings.runtime, "execute_trades", True)
+        is_paper = not execute_trades
+        # Detect paper mode from executor mismatch ONLY if Live Trading is disabled.
+        # When Live Trading is enabled, the user explicitly requested that the Live Broker's capital
+        # and live status remain visible in the GUI, even during off-hours or Sabbath, without violating the global schedule.
+        if not execute_trades and executor_real is not None and executor is not executor_real:
             is_paper = True
+
         # Paper/replay mode: 5s throttle for fast turbo updates; Live: 30s
         throttle = 5.0 if is_paper else 30.0
         if not force and (now - self.last_capital_sync_ts < throttle):
@@ -63,8 +65,11 @@ class RuntimeController:
             sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
 
             # For GUI display, use actual tracked balance (not sizing-capped value).
-            # The user requested that during Sabbath (when executor is paper), we SHOULD show the paper capital.
-            display_source = executor
+            # When Live Trading is enabled, the Live Broker's capital should be visible.
+            if execute_trades and executor_real is not None:
+                display_source = executor_real
+            else:
+                display_source = executor
 
             if display_source and hasattr(display_source, 'get_display_cash'):
                 cash = display_source.get_display_cash()
@@ -89,11 +94,9 @@ class RuntimeController:
                 self.profile_name = current_profile
 
             # Multi-interval PnL Tracking
-            # The executor is already switched to paper in paper mode (loop.py L887),
-            # so executor.trade_results always points to the correct store.
             pnl_stats = {}
-            if executor and hasattr(executor, 'trade_results') and executor.trade_results:
-                store = executor.trade_results
+            if display_source and hasattr(display_source, 'trade_results') and display_source.trade_results:
+                store = display_source.trade_results
                 for tf_code in ['24h', 'week', 'month', 'year', 'all']:
                     pnl_stats[tf_code] = store.get_stats_for_timeframe(tf_code).get('pnl_usd', 0.0)
 
@@ -119,7 +122,7 @@ class RuntimeController:
                 "is_sabbath": sabbath_active,
                 "sabbath_mode": sabbath_active,
                 "is_eval": is_eval,
-                "is_paper": is_paper or sabbath_active,
+                "is_paper": is_paper,
                 "halted": self.ws_server.is_halted(),
                 "pnl_stats": pnl_stats,
                 "time_format": getattr(self.settings.runtime, "time_format", "24h"),
@@ -138,24 +141,32 @@ class RuntimeController:
         except Exception as e:
             logger.error(f"[CONTROLLER] State broadcast failed: {e}")
 
-    def broadcast_holdings(self, executor: Any):
+    def broadcast_holdings(self, executor: Any, executor_real: Any = None):
         """Send current paper/live holdings to GUI as a dedicated WS message.
         This is more reliable than relying on log-line parsing."""
-        if not self.ws_server or not executor:
+        if not self.ws_server:
+            return
+        execute_trades = getattr(self.settings.runtime, "execute_trades", True)
+        if execute_trades and executor_real is not None:
+            holdings_source = executor_real
+        else:
+            holdings_source = executor
+
+        if not holdings_source:
             return
         try:
             positions = []
             # Get current candle time from replay provider (or fall back to wall clock)
             sim_time = None
-            mp = getattr(executor, 'market_provider', None)
+            mp = getattr(holdings_source, 'market_provider', None)
             if mp and hasattr(mp, 'sim_time'):
                 sim_time = mp.sim_time
             if sim_time is None:
                 sim_time = datetime.now(timezone.utc)
 
-            if hasattr(executor, 'list_open_position_symbols'):
-                for sym in (executor.list_open_position_symbols() or []):
-                    snap = executor.get_open_position_snapshot(sym)
+            if hasattr(holdings_source, 'list_open_position_symbols'):
+                for sym in (holdings_source.list_open_position_symbols() or []):
+                    snap = holdings_source.get_open_position_snapshot(sym)
                     if snap and not snap.get('is_dust', False):
                         # Compute candle-time-based age so GUI shows "15m" not "2 days"
                         entry_str = snap.get('entry_time', '')

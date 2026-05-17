@@ -1187,7 +1187,7 @@ def run_bot(
                 
                 # Immediately push current health vitals, state, holdings, and commentary to the newly subscribed client
                 controller.broadcast_health(force=True)
-                controller.broadcast_holdings(executor)
+                controller.broadcast_holdings(executor, executor_real=executor_real)
                 last_comm, _ = controller.get_last_commentary()
                 if last_comm:
                     controller.ws_server.broadcast_commentary_sync(last_comm, datetime.now(timezone.utc).strftime("%I:%M %p"), 300)
@@ -1256,7 +1256,7 @@ def run_bot(
         if paper_ledger:
             paper_ledger.reset(initial_balance=init_bal)
         controller.broadcast_state(executor, force=True, executor_real=executor_real)
-        controller.broadcast_holdings(executor)
+        controller.broadcast_holdings(executor, executor_real=executor_real)
         logger.info("[PAPER RESET] Successfully reset paper trading state.")
 
     controller.ws_server.set_on_reset_paper_callback(on_reset_paper)
@@ -1829,7 +1829,7 @@ def run_bot(
                     logger.error(f"[EVAL] Error evaluating prop firm rules: {e}")
 
             # Push holdings + state + health to GUI via dedicated WS messages (not log parsing)
-            controller.broadcast_holdings(executor)
+            controller.broadcast_holdings(executor, executor_real=executor_real)
             controller.broadcast_state(executor, executor_real=executor_real)
             controller.broadcast_health()
             
@@ -2194,7 +2194,7 @@ def run_bot(
                     logger.debug(f"[COMMENTARY] Trigger skipped: {e}")
                 
                 # Push immediate post-entry holding state so rapid Replay Mode doesn't flash past trades
-                controller.broadcast_holdings(executor)
+                controller.broadcast_holdings(executor, executor_real=executor_real)
                 controller.broadcast_state(executor, executor_real=executor_real)
                 
                 next_decision_in = decision_interval
