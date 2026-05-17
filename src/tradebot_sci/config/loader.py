@@ -219,6 +219,9 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     # pnl_timeframe, global_default_risk_pct, etc.) to config["runtime"].
     # Merge those in so they aren't silently dropped.
     runtime_cfg.update(config.get("runtime", {}))
+    # Ensure global execute_trades stringently overrides any stale runtime execute_trades
+    if "execute_trades" in g_cfg:
+        runtime_cfg["execute_trades"] = g_cfg["execute_trades"]
     risk_model_cfg = config.get("risk", {})
     schedule_cfg = config.get("schedule", {})
 
