@@ -455,6 +455,7 @@ def process_candidate_cycle(
             liq_cap = executor.get_liquid_capital(symbol) if executor else None
             total_equity = executor.get_total_equity() if executor and hasattr(executor, "get_total_equity") else (liq_cap or 0.0)
             
+            engines[symbol]._broker = executor
             decision = engines[symbol].decide(
                 snapshot.timeframe, 
                 open_position=pos, 

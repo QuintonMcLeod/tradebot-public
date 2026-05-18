@@ -42,6 +42,7 @@ class StrategyEngine:
         symbol: str,
         trade_results: Optional[TradeResultStore] = None,
         settings: Optional[Any] = None,
+        broker: Optional[Any] = None,
     ):
         self.ai_client = ai_client
         self.market_provider = market_provider
@@ -49,6 +50,7 @@ class StrategyEngine:
         self.symbol = symbol
         self.trade_results = trade_results
         self.settings = settings  # Root Settings object (has .safety, .risk, etc.)
+        self._broker = broker
         
         # Last strategy scoring (populated by decide(), read by cycle.py for logging)
         self.last_strat_name: str = "Unknown"
@@ -595,7 +597,7 @@ class StrategyEngine:
                 hold_rec = self._broker.position_hold_store.get(self.symbol)
                 if hold_rec:
                     # Use current price from snapshot (close of most recent candle)
-                    price = snapshot.get("close") or snapshot.get("price")
+                    price = snapshot.candles[-1].close if snapshot.candles else 0.0
                     entry_p = hold_rec.entry_price
                     size = hold_rec.size
                     if price and entry_p and size:

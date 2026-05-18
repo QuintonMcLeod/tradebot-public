@@ -1463,10 +1463,12 @@ class OandaExchangeBroker(IExchangeBroker):
                     pnl_sign = '+' if pnl >= 0 else '-'
                     pnl_str = f"{pnl_sign}${abs(pnl):.2f}"
                     # Add to TradeResultStore
+                    _hold_rec = self.position_hold_store.get(sym) if self.position_hold_store else None
+                    _exit_strategy = _hold_rec.strategy if _hold_rec else "unknown"
+                    _mfe = getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0
+                    _mae = getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0
+
                     if self.trade_results:
-                        _hold_rec = self.position_hold_store.get(sym) if self.position_hold_store else None
-                        _exit_strategy = _hold_rec.strategy if _hold_rec else "unknown"
-                        
                         self.trade_results.add_result(TradeResult(
                             symbol=sym,
                             closed_at=datetime.now(timezone.utc).isoformat(),
@@ -1474,23 +1476,21 @@ class OandaExchangeBroker(IExchangeBroker):
                             pnl_usd=pnl,
                             is_win=pnl > 0,
                             tier="100%",
-                            capital_at_close=self._liquid_capital,
+                            capital_at_close=current_balance or self._liquid_capital,
                             opened_at=entry_time_str,
                             duration_seconds=duration_secs,
                             strategy=_exit_strategy,
                             exit_reason="OANDA SL/TP",
                             side=side.lower(),
                             spread_cost=est_spread,
-                            mfe_usd=getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0,
-                            mae_usd=getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0,
+                            mfe_usd=_mfe,
+                            mae_usd=_mae,
                         ))
                     
-                    _mfe = getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0
-                    _mae = getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0
                     logger.info(
                         f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
                         f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
-                        f"Duration={duration_secs:.0f}s | "
+                        f"Duration={duration_str} | "
                         f"MFE=${_mfe:.2f} MAE=${_mae:.2f}"
                     )
                     
@@ -1513,34 +1513,6 @@ class OandaExchangeBroker(IExchangeBroker):
                     except Exception as e:
                         logger.error(f"[STREAK] Failed to register trade completion for {sym}: {e}")
 
-                    # Read strategy from hold store before removing
-                    _exit_strategy = None
-                    if self.position_hold_store:
-                        _hold_rec = self.position_hold_store.get(sym)
-                        _exit_strategy = _hold_rec.strategy if _hold_rec else None
-                        self.position_hold_store.record_exit_with_result(sym, is_win=pnl > 0, strategy=_exit_strategy)
-                        self.position_hold_store.remove(sym)  # clean up record
-
-                    # Record in TradeResultStore for pnl_stats
-                    if self.trade_results:
-                        from datetime import datetime as _dt, timezone as _tz
-                        self.trade_results.add_result(TradeResult(
-                            symbol=sym,
-                            closed_at=_dt.now(_tz.utc).isoformat(),
-                            pnl_pct=pnl_pct,
-                            pnl_usd=pnl,
-                            is_win=pnl > 0,
-                            tier="100%",
-                            capital_at_close=current_balance or self._liquid_capital,
-                            opened_at=entry_time_str,
-                            duration_seconds=duration_secs,
-                            strategy=_exit_strategy or "unknown",
-                            exit_reason="sl_tp_hit",
-                            side=side.lower() if side else None,
-                            spread_cost=est_spread,
-                        ))
-
-                    del self._tracked_positions[sym]
                     results.append(ExecutionResult(
                         ExecutionStatus.EXIT_SIGNAL, sym,
                         f"OANDA SL/TP exit PnL={pnl:.2f}"
