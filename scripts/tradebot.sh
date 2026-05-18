@@ -109,6 +109,7 @@ fi
 set -a
 [ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" > /dev/null 2>&1 || true
 [ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" > /dev/null 2>&1 || true
+[ -f "$USER_DATA_DIR/.env" ] && source "$USER_DATA_DIR/.env" > /dev/null 2>&1 || true
 [ -f "$USER_DATA_DIR/.env.secrets" ] && source "$USER_DATA_DIR/.env.secrets" > /dev/null 2>&1 || true
 set +a
 
@@ -122,7 +123,7 @@ fi
 
 # In tmux, panes are spawned via a non-interactive shell (no .bashrc),
 # so env vars like ${CHATGPT_KEY} won't exist unless we explicitly load them.
-ENV_BOOTSTRAP="source \"$HOME/.bashrc\" > /dev/null 2>&1 || true; set -a; [ -f \"$ROOT_DIR/.env\" ] && source \"$ROOT_DIR/.env\" > /dev/null 2>&1; [ -f \"$ROOT_DIR/.env.secrets\" ] && source \"$ROOT_DIR/.env.secrets\" > /dev/null 2>&1; [ -f \"$USER_DATA_DIR/.env.secrets\" ] && source \"$USER_DATA_DIR/.env.secrets\" > /dev/null 2>&1; set +a"
+ENV_BOOTSTRAP="source \"$HOME/.bashrc\" > /dev/null 2>&1 || true; set -a; [ -f \"$ROOT_DIR/.env\" ] && source \"$ROOT_DIR/.env\" > /dev/null 2>&1; [ -f \"$ROOT_DIR/.env.secrets\" ] && source \"$ROOT_DIR/.env.secrets\" > /dev/null 2>&1; [ -f \"$USER_DATA_DIR/.env\" ] && source \"$USER_DATA_DIR/.env\" > /dev/null 2>&1; [ -f \"$USER_DATA_DIR/.env.secrets\" ] && source \"$USER_DATA_DIR/.env.secrets\" > /dev/null 2>&1; set +a"
 
 list_profiles() {
   # Try config.json from user data dir first, then app dir, then legacy YAML
@@ -491,6 +492,7 @@ restart_tmux() {
 	  set -a
 	  [ -f "$ROOT_DIR/.env" ] && source "$ROOT_DIR/.env" > /dev/null 2>&1 || true
 	  [ -f "$ROOT_DIR/.env.secrets" ] && source "$ROOT_DIR/.env.secrets" > /dev/null 2>&1 || true
+	  [ -f "$USER_DATA_DIR/.env" ] && source "$USER_DATA_DIR/.env" > /dev/null 2>&1 || true
 	  [ -f "$USER_DATA_DIR/.env.secrets" ] && source "$USER_DATA_DIR/.env.secrets" > /dev/null 2>&1 || true
 	  set +a
 

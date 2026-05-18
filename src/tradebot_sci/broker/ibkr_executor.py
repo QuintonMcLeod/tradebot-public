@@ -253,7 +253,8 @@ class IbkrExecutor:
             logger.warning("ib_insync not installed; running in dry-run mode.")
             return None
         except Exception as exc:  # pragma: no cover - connection failures
-            raise RuntimeError(f"Failed to connect to IBKR: {exc}") from exc
+            logger.warning(f"IBKR connection failed ({exc}); running in dry-run/disconnected mode.")
+            return None
 
     def _build_contract_symbol_map(self) -> dict[tuple[str, str], str]:
         mapping: dict[tuple[str, str], str] = {}
@@ -1791,6 +1792,10 @@ class IbkrExecutor:
         """IBKR net liquidation already IS total equity."""
         return self.get_liquid_capital()
 
+    def get_display_cash(self) -> float:
+        """Return actual tracked cash balance for GUI display."""
+        return self.get_liquid_capital()
+
     def _check_margin_guard(
         self, symbol: str, metadata: SymbolMetadata, decision: AITradeDecision
     ) -> tuple[bool, str | None]:
@@ -2531,6 +2536,8 @@ class IbkrExecutor:
             "working_order_statuses": [],
             "synthetic_stop_armed": False,
         }
+        if not self.ib:
+            return state
         try:
             positions = self.ib.positions()
             for pos in positions:
@@ -2777,6 +2784,10 @@ class IbkrExecutor:
     def get_open_position_snapshot(self, symbol: str) -> Optional[dict]:
         """Returns structured open position info for prompt context."""
         symbol_key = symbol.upper()
+        if not self.ib:
+            self._scale_in_counts[symbol_key] = 0
+            self._position_metadata.pop(symbol_key, None)
+            return None
         try:
             positions = self.ib.positions()
             for pos in positions:

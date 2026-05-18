@@ -202,8 +202,8 @@ def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool, allowed_
     try:
         from ib_insync import IB  # type: ignore
     except Exception as exc:
-        logger.error("IBKR init failed for exchange_provider=primary; missing ib_insync: %s", exc)
-        raise SystemExit(1) from exc
+        logger.warning("IBKR init failed for exchange_provider=primary; missing ib_insync: %s", exc)
+        return None
 
     shared_ib = IB()
     connect_timeout = float(os.getenv("IBKR_CONNECT_TIMEOUT", "20") or 20)
@@ -237,8 +237,8 @@ def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool, allowed_
                 )
                 time.sleep(retry_delay)
             else:
-                logger.error("IBKR init failed for exchange_provider=primary after %d attempts; aborting: %s", max_retries, exc)
-                raise SystemExit(1) from exc
+                logger.warning("IBKR init failed for exchange_provider=primary after %d attempts; running in dry-run/disconnected mode: %s", max_retries, exc)
+                return None
 
     try:
         shared_ib.RequestTimeout = request_timeout

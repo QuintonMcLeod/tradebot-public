@@ -821,6 +821,10 @@ class CCXTExchangeBroker:
                 logger.warning("[CCXT] get_liquid_capital failed: %s", exc)
             return 0.0
 
+    def get_display_cash(self) -> float:
+        """Return actual tracked cash balance for GUI display."""
+        return self.get_liquid_capital(None)
+
     def get_total_balance_value(self) -> float:
         """Return total Net Worth (Cash + Asset Value) in USD for display."""
         try:

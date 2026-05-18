@@ -99,6 +99,9 @@ class TradovateBroker(IExchangeBroker):
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         return self._liquid_capital
 
+    def get_display_cash(self) -> float:
+        return self._liquid_capital
+
     def get_total_equity(self) -> float:
         return self._liquid_capital # Simplify for now until cashBalance parsing is added
 

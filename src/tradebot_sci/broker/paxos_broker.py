@@ -138,6 +138,10 @@ class PaxosExchangeBroker(IExchangeBroker):
         """Paxos doesn't distinguish — liquid capital is total equity."""
         return self._liquid_capital
 
+    def get_display_cash(self) -> float:
+        """Return actual tracked cash balance for GUI display."""
+        return self._liquid_capital
+
     def get_total_equity(self) -> float:
         """Paxos doesn't distinguish — liquid capital is total equity."""
         return self._liquid_capital

@@ -470,6 +470,9 @@ class OandaExchangeBroker(IExchangeBroker):
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         return self._liquid_capital
 
+    def get_display_cash(self) -> float:
+        return self._liquid_capital
+
     def get_total_balance_value(self) -> float:
         """Returns total account NAV (used by controller for state broadcasts)."""
         self.refresh_account_summary()

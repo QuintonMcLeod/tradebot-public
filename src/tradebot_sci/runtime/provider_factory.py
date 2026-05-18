@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, List, Dict
 
 from tradebot_sci.broker.ccxt_broker import CCXTExchangeBroker
 from tradebot_sci.broker.ibkr_executor import IbkrExecutor
-from tradebot_sci.broker.interfaces import IExchangeBroker
+from tradebot_sci.broker.interfaces import IExchangeBroker, NoOpExchangeBroker
 from tradebot_sci.config.models import Settings, TradingProfileSettings
 from tradebot_sci.market.coinbase import CoinbaseMarketDataProvider
 from tradebot_sci.broker.oanda_broker import OandaExchangeBroker
@@ -291,32 +291,6 @@ class NoOpMarketDataProvider(MarketDataProvider):
         pass
 
 
-class NoOpExchangeBroker(IExchangeBroker):
-    """Placeholder broker for deactivated assets."""
-    @property
-    def profile(self): return None
-    @property
-    def position_hold_store(self): return None
-    def place_order(self, *args, **kwargs) -> Any:
-        logger.warning("[NO-OP] Order placement blocked (Asset Class Disabled).")
-        return None
-    def cancel_order(self, *args, **kwargs) -> Any: return None
-    def cancel_all_orders_for_symbol(self, *args, **kwargs) -> None: pass
-    def flatten_symbol(self, *args, **kwargs) -> None: pass
-    def get_positions(self, *args, **kwargs) -> Any: return []
-    def get_open_orders(self, *args, **kwargs) -> Any: return []
-    def get_recent_fills(self, *args, **kwargs) -> Any: return []
-    def get_open_position_snapshot(self, *args, **kwargs) -> Any: return None
-    def list_open_position_symbols(self) -> List[str]: return []
-    def evaluate_synthetic_stops(self, *args, **kwargs) -> Any: return []
-    def _fetch_symbol_state(self, *args, **kwargs) -> dict: return {}
-    def should_block_for_hold(self, *args, **kwargs) -> Any: return False, None, None
-    def execute_decision(self, *args, **kwargs) -> Any: return None
-    def _has_active_orders_or_position(self, *args, **kwargs) -> bool: return False
-    def refresh_account_summary(self) -> None: pass
-    def summarize_pnl(self) -> None: pass
-    def get_liquid_capital(self, symbol: str | None = None) -> float: return 0.0
-    def get_total_equity(self) -> float: return 0.0
 
 
 def _get_effective_setting(key: str, settings: Settings, profile_settings: TradingProfileSettings | None) -> str:
