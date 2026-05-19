@@ -311,7 +311,7 @@ class ICCCoreStandaloneStrategy(BaseStrategy):
         entry_price = float(open_position.get("entry_price") or 0)
         stop_price = float(open_position.get("stop_price") or open_position.get("stop_loss") or 0)
         initial_risk_per_unit = abs(entry_price - stop_price) if stop_price else 0
-        size = float(open_position.get("size") or 1)
+        size = abs(float(open_position.get("size") or 1))
         initial_risk = initial_risk_per_unit * size if initial_risk_per_unit > 0 else 1
         r_multiple = pos_pnl / initial_risk if initial_risk > 0 else 0
 

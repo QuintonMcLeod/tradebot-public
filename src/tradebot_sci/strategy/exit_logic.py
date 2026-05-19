@@ -112,7 +112,7 @@ def run_universal_exit_logic(
         if exit_strategy == "chandelier":
             strat_decision = _exit_chandelier(snapshot, open_position, current_price, direction, profile)
         elif exit_strategy == "scale_breakeven":
-            strat_decision = _exit_scale_breakeven(snapshot, open_position, current_price, direction, r_multiple, stop_price, entry_price)
+            strat_decision = _exit_scale_breakeven(snapshot, open_position, current_price, direction, r_multiple, stop_price, entry_price, profile)
         elif exit_strategy == "parabolic_sar":
             strat_decision = _exit_parabolic_sar(snapshot, open_position, current_price, direction)
         elif exit_strategy == "ma_crossover":
@@ -126,7 +126,7 @@ def run_universal_exit_logic(
         elif exit_strategy == "bollinger_snap":
             strat_decision = _exit_bollinger_snap(snapshot, open_position, current_price, direction)
         elif exit_strategy == "ratchet_milestone":
-            strat_decision = _exit_ratchet(snapshot, open_position, current_price, direction, r_multiple, stop_price, entry_price, initial_risk)
+            strat_decision = _exit_ratchet(snapshot, open_position, current_price, direction, r_multiple, stop_price, entry_price, initial_risk, profile)
         elif exit_strategy == "adx_death":
             strat_decision = _exit_adx_death(snapshot, open_position, current_price, direction, gates)
         elif exit_strategy == "winner_giveback":
@@ -174,40 +174,61 @@ def _exit_chandelier(snapshot, pos, current_price, direction, profile):
     atr_mult = float(getattr(profile, "chandelier_atr_mult", 2.0))
     atr = calculate_atr(snapshot.candles, period=14) or (current_price * 0.001)
     
-    current_stop = float(pos.get("stop_price", 0))
+    current_stop = float(pos.get("stop_loss", 0) or pos.get("stop_price", 0) or 0)
     entry_time_str = str(pos.get("entry_time", ""))
     
     if not entry_time_str: return None
     
-    # Find highest/lowest price since entry (approximation via last 50 candles cache)
-    lookback = min(len(snapshot.candles), 50)
-    if lookback < 2: return None
+    # Find highest/lowest price since entry (approximation via candles since entry)
+    bars_held = _calc_bars_held(pos, snapshot)
+    lookback = max(1, min(bars_held + 1, len(snapshot.candles), 50))
+    
+    entry_price = float(pos.get("entry_price", 0))
+    if entry_price <= 0:
+        entry_price = current_price
+        
+    candles_since_entry = snapshot.candles[-lookback:]
     
     if direction == "long":
-        hh = max(c.high for c in snapshot.candles[-lookback:])
+        hh = max(entry_price, max(c.high for c in candles_since_entry))
         new_stop = hh - (atr * atr_mult)
+        
+        # If the trailing stop has been crossed by the current price, exit immediately.
+        if current_price <= new_stop:
+            return _hard_exit(snapshot, pos, f"Chandelier Trail Cross (Price {current_price:.5f} <= Trail {new_stop:.5f})")
+            
         if new_stop > current_stop:
-            return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Chandelier Trail ({atr_mult}x ATR)", stop_loss=new_stop)
+            if new_stop < current_price:
+                return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Chandelier Trail ({atr_mult}x ATR)", stop_loss=new_stop)
     else:
-        ll = min(c.low for c in snapshot.candles[-lookback:])
+        ll = min(entry_price, min(c.low for c in candles_since_entry))
         new_stop = ll + (atr * atr_mult)
+        
+        # If the trailing stop has been crossed by the current price, exit immediately.
+        if current_price >= new_stop:
+            return _hard_exit(snapshot, pos, f"Chandelier Trail Cross (Price {current_price:.5f} >= Trail {new_stop:.5f})")
+            
         if new_stop < current_stop or current_stop == 0:
-            return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Chandelier Trail ({atr_mult}x ATR)", stop_loss=new_stop)
+            if new_stop > current_price:
+                return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Chandelier Trail ({atr_mult}x ATR)", stop_loss=new_stop)
     return None
 
-def _exit_scale_breakeven(snapshot, pos, current_price, direction, r_multiple, current_stop, entry_price):
-    """2. Scale & Breakeven - Move to BE at 0.7R with spread buffer."""
-    if r_multiple >= 0.7:
+def _exit_scale_breakeven(snapshot, pos, current_price, direction, r_multiple, current_stop, entry_price, profile=None):
+    """2. Scale & Breakeven - Move to BE at dynamic arm_r (default 0.35R) with spread buffer."""
+    arm_r = float(getattr(profile, "scale_breakeven_arm_r", 0.35)) if profile else 0.35
+    if r_multiple >= arm_r:
         # [PHASE 1.2] Apply cost-basis buffer (spread + commissions)
         # Approximate as 0.1% of entry price for true breakeven
         cost_buffer = entry_price * 0.001 
         be_price = entry_price + cost_buffer if direction == "long" else entry_price - cost_buffer
         
-        # Check if already at or beyond breakeven
+        # Check if already at or beyond breakeven and ensure be_price doesn't violate current_price
         if direction == "long" and current_stop < be_price:
-            return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Breakeven Lock (1R+ Hit) +Buffer", stop_loss=be_price)
+            if be_price < current_price:
+                return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Breakeven Lock (1R+ Hit) +Buffer", stop_loss=be_price)
         elif direction == "short" and current_stop > be_price:
-            return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Breakeven Lock (1R+ Hit) +Buffer", stop_loss=be_price)
+            if be_price > current_price:
+                return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Breakeven Lock (1R+ Hit) +Buffer", stop_loss=be_price)
     return None
 
 def _exit_parabolic_sar(snapshot, pos, current_price, direction):
@@ -282,12 +303,18 @@ def _exit_swing_trailing(snapshot, pos, current_price, direction, profile, curre
     if len(snapshot.candles) < 4: return None
     if direction == "long":
         sl_cand = min(c.low for c in snapshot.candles[-4:-1])
+        if current_price <= sl_cand:
+            return _hard_exit(snapshot, pos, f"Swing Low Trail Cross (Price {current_price:.5f} <= SL {sl_cand:.5f})")
         if sl_cand > current_stop * 1.0005:  # buffer
-            return hold_decision(snapshot.symbol, snapshot.timeframe, reason="Swing Low Trail", stop_loss=sl_cand)
+            if sl_cand < current_price:
+                return hold_decision(snapshot.symbol, snapshot.timeframe, reason="Swing Low Trail", stop_loss=sl_cand)
     else:
         sh_cand = max(c.high for c in snapshot.candles[-4:-1])
+        if current_price >= sh_cand:
+            return _hard_exit(snapshot, pos, f"Swing High Trail Cross (Price {current_price:.5f} >= SL {sh_cand:.5f})")
         if (sh_cand < current_stop * 0.9995) or current_stop == 0:
-            return hold_decision(snapshot.symbol, snapshot.timeframe, reason="Swing High Trail", stop_loss=sh_cand)
+            if sh_cand > current_price:
+                return hold_decision(snapshot.symbol, snapshot.timeframe, reason="Swing High Trail", stop_loss=sh_cand)
     return None
 
 def _exit_rsi_exhaustion(snapshot, pos, current_price, direction):
@@ -335,21 +362,27 @@ def _exit_bollinger_snap(snapshot, pos, current_price, direction):
         return _hard_exit(snapshot, pos, "Bollinger Lower Band Tagged")
     return None
 
-def _exit_ratchet(snapshot, pos, current_price, direction, r_multiple, current_stop, entry_price, initial_risk):
+def _exit_ratchet(snapshot, pos, current_price, direction, r_multiple, current_stop, entry_price, initial_risk, profile=None):
     # REWARD-TO-RISK OPTIMIZATION: Aggressive steps to protect profit
-    # 0.5R->0.0R, 1.0R->0.5R, 1.5R->1.0R, etc.
-    if r_multiple < 0.5: return None
-    ratchet_floor_r = float(int(r_multiple * 2) - 1) / 2.0  
+    arm_r = float(getattr(profile, "ratchet_arm_r", 0.25)) if profile else 0.25
+    if r_multiple < arm_r: return None
+    
+    if r_multiple < 0.5:
+        ratchet_floor_r = 0.0
+    else:
+        ratchet_floor_r = float(int(r_multiple * 2) - 1) / 2.0  
     
     if ratchet_floor_r >= 0:
         if direction == "long":
             new_stop = entry_price + (initial_risk * ratchet_floor_r)
             if new_stop > current_stop:
-                return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Ratchet Trail ({ratchet_floor_r:.1f}R Floor)", stop_loss=new_stop)
+                if new_stop < current_price:
+                    return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Ratchet Trail ({ratchet_floor_r:.1f}R Floor)", stop_loss=new_stop)
         else:
             new_stop = entry_price - (initial_risk * ratchet_floor_r)
             if new_stop < current_stop or current_stop == 0:
-                return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Ratchet Trail ({ratchet_floor_r:.1f}R Floor)", stop_loss=new_stop)
+                if new_stop > current_price:
+                    return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Ratchet Trail ({ratchet_floor_r:.1f}R Floor)", stop_loss=new_stop)
     return None
 
 def _exit_adx_death(snapshot, pos, current_price, direction, gates):
@@ -369,40 +402,52 @@ def _exit_winner_giveback(snapshot, pos, current_price, direction, profile):
     Default: Exit if 30% of peak profit is given back.
     """
     mfe_usd = float(pos.get("mfe_usd", 0))
-    # Need initial_risk to calculate R-multiple arming threshold
-    initial_risk = float(pos.get("initial_risk", 0))
-    if initial_risk <= 0:
-        # Fallback to ATR-based estimate if initial_risk missing
-        atr = calculate_atr(snapshot.candles) or (current_price * 0.001)
-        initial_risk = atr
-    
+    if mfe_usd <= 0:
+        return None
+
+    # Determine initial risk in dollar terms (risk_usd)
+    risk_usd = float(pos.get("risk_usd", 0))
+    if risk_usd <= 0:
+        initial_risk = float(pos.get("initial_risk", 0))
+        if initial_risk <= 0:
+            atr = calculate_atr(snapshot.candles) or (current_price * 0.001)
+            initial_risk = atr
+        size = float(pos.get("size", 0))
+        risk_usd = initial_risk * abs(size) if size != 0 else (initial_risk * 1000)
+
     import logging
     logger = logging.getLogger("tradebot_sci.exit_logic")
-    # Arming Threshold: Only active once trade reaches 0.5R
-    # (We use price-based MFE for the arming check)
-    mfe_price = float(pos.get("mfe", 0))
-    if mfe_price < (initial_risk * 0.5):
-        # logger.debug(f"[GIVEBACK] {pos.get('symbol')} Not armed: mfe_price={mfe_price:.5f} < required={initial_risk * 0.5:.5f} (risk={initial_risk:.5f})")
+    
+    arm_r = float(getattr(profile, "winner_giveback_arm_r", 0.25))
+    # Arming Threshold: Active once trade reaches arm_r in dollar terms
+    if mfe_usd < (risk_usd * arm_r):
         return None
         
-    logger.info(f"[GIVEBACK] {pos.get('symbol')} ARMED! mfe_price={mfe_price:.5f} > required={initial_risk * 0.5:.5f}")
+    logger.info(f"[GIVEBACK] {pos.get('symbol')} ARMED! mfe_usd=${mfe_usd:.2f} >= required=${risk_usd * arm_r:.2f} ({arm_r}R)")
         
     # Current PnL (USD)
     pnl_usd = float(pos.get("unrealized_pnl", 0))
     if pnl_usd <= 0:
-        return None # Should not happen if MFE > 0.5R, but safety first
+        # Fallback estimation if unrealized_pnl missing
+        entry_price = float(pos.get("entry_price", 0))
+        size = float(pos.get("size", 0))
+        if entry_price > 0 and size != 0:
+            pnl_usd = (current_price - entry_price) * size
+            
+    if pnl_usd <= 0:
+        return None
         
     # Giveback calculation
     giveback_usd = mfe_usd - pnl_usd
     
-    # Threshold (e.g. 0.30 = 30% giveback allowed)
-    threshold_pct = float(getattr(profile, "winner_giveback_pct", 0.30))
+    # Threshold (e.g. 0.20 = 20% giveback allowed)
+    threshold_pct = float(getattr(profile, "winner_giveback_pct", 0.20))
     allowed_giveback = mfe_usd * threshold_pct
     
     logger.info(f"[GIVEBACK] {pos.get('symbol')} mfe_usd=${mfe_usd:.2f}, pnl_usd=${pnl_usd:.2f}, giveback_usd=${giveback_usd:.2f}, allowed=${allowed_giveback:.2f} (pct={threshold_pct})")
     
     if giveback_usd > allowed_giveback:
-        return _hard_exit(snapshot, pos, f"Winner Giveback Protection ({threshold_pct*100}% of ${mfe_usd:.2f} MFE surrendered)")
+        return _hard_exit(snapshot, pos, f"Winner Giveback Protection ({threshold_pct*100:.0f}% of ${mfe_usd:.2f} MFE surrendered)")
     
     return None
 

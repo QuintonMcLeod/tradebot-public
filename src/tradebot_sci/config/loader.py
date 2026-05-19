@@ -664,7 +664,11 @@ def _sync_strategy_sessions(settings: Settings) -> None:
                     cls = getattr(mod, class_name)
                     session_id = getattr(cls, "SESSION_PROFILE", None)
                     if session_id:
-                        required_session_map[(p_name, session_id)] = True
+                        if isinstance(session_id, list):
+                            for sid in session_id:
+                                required_session_map[(p_name, sid)] = True
+                        else:
+                            required_session_map[(p_name, session_id)] = True
                 except Exception:
                     continue
 
@@ -680,14 +684,12 @@ def _sync_strategy_sessions(settings: Settings) -> None:
         key = (p_name, s_id)
         is_required = required_session_map.get(key, False)
         
-        # Rule: Active only if REQUIRED and LIVE TRADING IS ON
-        should_be_active = is_required and master_live
+        # Rule: Active if REQUIRED (allow running in paper/simulation mode)
+        should_be_active = is_required
         
         if sess.active != should_be_active:
             state = "Enabled" if should_be_active else "Disabled"
             reason = "Strategy Active" if is_required else "Strategy Inactive"
-            if is_required and not master_live:
-                reason = "Live Trading Off"
             
             logger.info(f"[CONFIG] {state} session '{s_id}' for profile '{p_name}' ({reason})")
             sess.active = should_be_active
@@ -704,14 +706,16 @@ def _sync_strategy_sessions(settings: Settings) -> None:
                 "london_open": {"start": "03:00", "end": "11:00", "mode": "business_hours"},
                 "us_open":     {"start": "09:30", "end": "16:00", "mode": "business_hours"},
                 "asian_open":  {"start": "19:00", "end": "03:00", "mode": "business_hours"},
+                "hybrid_overlap": {"start": "08:00", "end": "12:00", "mode": "business_hours"},
                 "friday_wind_down": {"start": "12:00", "end": "16:00", "days": ["Friday"], "mode": "custom"},
             }
-            d = defaults.get(s_id, {"start": "00:00", "end": "23:59", "mode": "24/7"})
+            # Match suffix / substring of the session ID (e.g. strategy:london_open -> london_open)
+            d = next((v for k, v in defaults.items() if k in s_id), {"start": "00:00", "end": "23:59", "mode": "24/7"})
             
             new_sess = ScheduleSession(
                 id=s_id,
                 profile_name=p_name,
-                active=master_live, # Start enabled only if live trading is on
+                active=True, # Start enabled so scheduler can evaluate it
                 mode=d.get("mode", "business_hours"),
                 start_time=d.get("start", "09:30"),
                 end_time=d.get("end", "16:00"),

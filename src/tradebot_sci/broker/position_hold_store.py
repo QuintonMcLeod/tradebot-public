@@ -53,8 +53,20 @@ class PositionHoldRecord:
 
 class PositionHoldStore:
     REENTRY_COOLDOWN = float(os.getenv("REENTRY_COOLDOWN_SECONDS", "300"))  # 5 min default
+    _instances: Dict[str, PositionHoldStore] = {}
+
+    def __new__(cls, path: str, *args, **kwargs):
+        abs_path = str(Path(path).resolve())
+        if abs_path not in cls._instances:
+            instance = super().__new__(cls)
+            cls._instances[abs_path] = instance
+            instance._initialized = False
+            return instance
+        return cls._instances[abs_path]
 
     def __init__(self, path: str):
+        if getattr(self, "_initialized", False):
+            return
         self.path = Path(path)
         self.records: Dict[str, PositionHoldRecord] = {}
         # In-memory exit cooldown tracking (not persisted — transient per session)
@@ -62,6 +74,7 @@ class PositionHoldStore:
         self._exit_strategies: Dict[str, str] = {}         # symbol -> strategy used at last exit
         self._ensure_directory()
         self._load()
+        self._initialized = True
 
     def _ensure_directory(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, Any
 
-from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
+from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass, convert_quote_to_usd
 
 from tradebot_sci.ai.client import TradeSciAIClient
 from tradebot_sci.market.models import MarketSnapshot
@@ -492,7 +492,12 @@ class StrategyEngine:
         }
         
         session_id = getattr(self._strategy, "SESSION_PROFILE", None)
-        session_ok = True # Engine is always 'OK' if the loop is running
+        session_ok = True
+        if getattr(self.profile, "session_gate_enabled", False) and session_id:
+            if isinstance(session_id, list):
+                session_ok = any(sid in gates["active_sessions"] for sid in session_id)
+            else:
+                session_ok = session_id in gates["active_sessions"]
 
         # Calculate grade for the current snapshot using the populated trend values
         from tradebot_sci.strategy.scoring import ActionScorer
@@ -568,6 +573,33 @@ class StrategyEngine:
         if open_position and isinstance(open_position, dict) and abs(open_position.get("size", 0.0)) > 0:
             from tradebot_sci.strategy.exit_logic import run_universal_exit_logic
             
+            # 3.1. Update MFE/MAE Tracking for Persistence (Real-world Brokers) BEFORE Exit Router
+            # This ensures that for OANDA/IBKR, we track the floating high/low water marks
+            # and persist them in the PositionHoldStore so they survive restarts.
+            if hasattr(self, "_broker") and self._broker and hasattr(self._broker, "position_hold_store") and self._broker.position_hold_store:
+                hold_rec = self._broker.position_hold_store.get(self.symbol)
+                if hold_rec:
+                    # Use current price from snapshot (close of most recent candle)
+                    price = snapshot.candles[-1].close if snapshot.candles else 0.0
+                    entry_p = hold_rec.entry_price or open_position.get("entry_price")
+                    size = hold_rec.size or open_position.get("size")
+                    if price and entry_p and size:
+                        floating_gross_raw = (price - entry_p) * size
+                        floating_gross = convert_quote_to_usd(
+                            floating_gross_raw,
+                            self.symbol,
+                            price,
+                            self.market_provider
+                        )
+                        hold_rec.mfe_usd = max(hold_rec.mfe_usd or 0.0, floating_gross)
+                        hold_rec.mae_usd = min(hold_rec.mae_usd or 0.0, floating_gross)
+                        open_position["mfe_usd"] = hold_rec.mfe_usd
+                        open_position["mae_usd"] = hold_rec.mae_usd
+                        if getattr(hold_rec, "risk_usd", None) is not None:
+                            open_position["risk_usd"] = float(hold_rec.risk_usd)
+                        if getattr(hold_rec, "initial_risk", None) is not None:
+                            open_position["initial_risk"] = float(hold_rec.initial_risk)
+
             # 1. Strategy Specific Exit
             strategy_exit = self._strategy.check_exit_signal(
                 snapshot, 
@@ -589,23 +621,6 @@ class StrategyEngine:
                 trade_history=history,
                 strategy_decision=strategy_exit
             )
-
-            # 3.1. Update MFE/MAE Tracking for Persistence (Real-world Brokers)
-            # This ensures that for OANDA/IBKR, we track the floating high/low water marks
-            # and persist them in the PositionHoldStore so they survive restarts.
-            if hasattr(self, "_broker") and self._broker and hasattr(self._broker, "position_hold_store") and self._broker.position_hold_store:
-                hold_rec = self._broker.position_hold_store.get(self.symbol)
-                if hold_rec:
-                    # Use current price from snapshot (close of most recent candle)
-                    price = snapshot.candles[-1].close if snapshot.candles else 0.0
-                    entry_p = hold_rec.entry_price
-                    size = hold_rec.size
-                    if price and entry_p and size:
-                        floating_gross = (price - entry_p) * size
-                        hold_rec.mfe_usd = max(hold_rec.mfe_usd or 0.0, floating_gross)
-                        hold_rec.mae_usd = min(hold_rec.mae_usd or 0.0, floating_gross)
-                        # We don't force a disk save every tick for performance, 
-                        # but the values are now in memory for the final exit recording.
             
             # ── Calculate position age (shared by hold guard + safety guard) ──
             # Use candle timestamps (market time) NOT wall-clock time.
@@ -635,15 +650,16 @@ class StrategyEngine:
             # Hold for 15 minutes (3 candles on 5m) before allowing non-emergency exits.
             # This matches the backtester's natural bar-by-bar timing where trades
             # can't exit faster than one candle (5m).
-            HOLD_GUARD_SECONDS = 900  # 15 minutes = median backtester trade duration
-            position_is_young = (position_age is not None and position_age < HOLD_GUARD_SECONDS)
+            hold_guard_enabled = getattr(self.profile, "enable_hold_guard", True)
+            hold_guard_seconds = int(getattr(self.profile, "hold_guard_seconds", 900))
+            position_is_young = (hold_guard_enabled and position_age is not None and position_age < hold_guard_seconds)
 
             if exit_decision:
                 is_emergency = getattr(exit_decision, 'emergency_exit', False)
                 if position_is_young and not is_emergency:
                     logger.info(
                         f"[HOLD GUARD] {self.symbol} strategy exit BLOCKED — "
-                        f"age {position_age:.0f}s < {HOLD_GUARD_SECONDS}s "
+                        f"age {position_age:.0f}s < {hold_guard_seconds}s "
                         f"(non-emergency exits blocked during hold). "
                         f"Reason: {getattr(exit_decision, 'notes', 'N/A')[:80]}"
                     )
@@ -686,7 +702,7 @@ class StrategyEngine:
                     if position_is_young:
                         logger.info(
                             f"[HOLD GUARD] {self.symbol} runner exit BLOCKED — "
-                            f"age {position_age:.0f}s < {HOLD_GUARD_SECONDS}s"
+                            f"age {position_age:.0f}s < {hold_guard_seconds}s"
                         )
                     else:
                         performance_exit.score = score
@@ -699,7 +715,7 @@ class StrategyEngine:
                 if position_is_young:
                     logger.info(
                         f"[HOLD GUARD] {self.symbol} safety exit BLOCKED — "
-                        f"age {position_age:.0f}s < {HOLD_GUARD_SECONDS}s "
+                        f"age {position_age:.0f}s < {hold_guard_seconds}s "
                         f"(ALL exits blocked during hold). Reason: {getattr(safety_exit, 'notes', 'N/A')[:80]}"
                     )
                 else:

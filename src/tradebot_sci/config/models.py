@@ -247,20 +247,38 @@ class TradingProfileSettings(BaseModel):
     universal_exit_strategies: list[Literal[
         "fixed_rr", "chandelier", "scale_breakeven", "parabolic_sar", 
         "ma_crossover", "time_decay", "swing_trailing", "rsi_exhaustion", 
-        "bollinger_snap", "ratchet_milestone", "adx_death", "structure_failure", "trend_invalidation"
+        "bollinger_snap", "ratchet_milestone", "adx_death", "structure_failure", "trend_invalidation", "winner_giveback"
     ]] = Field(
-        default_factory=lambda: ["fixed_rr", "structure_failure", "trend_invalidation", "ratchet_milestone", "scale_breakeven", "chandelier", "time_decay"],
+        default_factory=lambda: ["fixed_rr", "structure_failure", "trend_invalidation", "ratchet_milestone", "scale_breakeven", "chandelier", "time_decay", "winner_giveback"],
         description="The universal exit methodology that supersedes strategy-specific exits.",
     )
     winner_giveback_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable MFE-based Winner Giveback protection.",
     )
     winner_giveback_pct: float = Field(
-        default=0.30,
+        default=0.20,
         ge=0.0,
         le=1.0,
         description="Percentage of MFE (peak profit) allowed to be given back before exiting.",
+    )
+    winner_giveback_arm_r: float = Field(
+        default=0.25,
+        ge=0.1,
+        le=2.0,
+        description="R-multiple threshold at which winner giveback protection arms.",
+    )
+    scale_breakeven_arm_r: float = Field(
+        default=0.35,
+        ge=0.1,
+        le=2.0,
+        description="R-multiple threshold at which breakeven lock arms.",
+    )
+    ratchet_arm_r: float = Field(
+        default=0.25,
+        ge=0.1,
+        le=2.0,
+        description="R-multiple threshold at which ratchet trailing stop arms.",
     )
     chandelier_atr_mult: float = Field(
         default=1.5,
@@ -304,7 +322,7 @@ class TradingProfileSettings(BaseModel):
         description="Lower timeframe used for ICC execution structure; defaults to candle_timeframe when unset.",
     )
     target_r: float = Field(
-        default=2.0,
+        default=1.2,
         description="Global Risk-to-Reward ratio fallback. Also maps to the specific targets of sub-strategies.",
     )
     trend_window: PositiveInt = Field(
@@ -835,6 +853,15 @@ class TradingProfileSettings(BaseModel):
         default=3,
         ge=1,
         description="Max number of entries per position (1 = no pyramid, 3 = initial + 2 adds)",
+    )
+    enable_hold_guard: bool = Field(
+        default=True,
+        description="Whether to block non-emergency exits for positions younger than hold_guard_seconds."
+    )
+    hold_guard_seconds: int = Field(
+        default=900,
+        ge=0,
+        description="Duration in seconds for the exit hold guard."
     )
     pyramid_score_threshold: float = Field(
         default=70.0,

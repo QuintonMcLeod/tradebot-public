@@ -688,6 +688,7 @@ class OandaExchangeBroker(IExchangeBroker):
             
             if stop_loss and stop_loss > 0:
                 result["stop_loss"] = stop_loss
+                result["stop_price"] = stop_loss
             if take_profit and take_profit > 0:
                 result["take_profit"] = take_profit
             
@@ -696,6 +697,12 @@ class OandaExchangeBroker(IExchangeBroker):
                 if hold_rec:
                     if getattr(hold_rec, "risk_usd", None) is not None:
                         result["risk_usd"] = float(hold_rec.risk_usd)
+                    if getattr(hold_rec, "mfe_usd", None) is not None:
+                        result["mfe_usd"] = float(hold_rec.mfe_usd)
+                    if getattr(hold_rec, "mae_usd", None) is not None:
+                        result["mae_usd"] = float(hold_rec.mae_usd)
+                    if getattr(hold_rec, "initial_risk", None) is not None:
+                        result["initial_risk"] = float(hold_rec.initial_risk)
                     if getattr(hold_rec, "strategy", None):
                         result["strategy"] = hold_rec.strategy
             

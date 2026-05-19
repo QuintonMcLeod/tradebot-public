@@ -450,6 +450,12 @@ def process_candidate_cycle(
                         pos["original_entry_price"] = record.original_entry_price
                     if not pos.get("initial_risk") and getattr(record, "initial_risk", None) is not None:
                         pos["initial_risk"] = record.initial_risk
+                    if not pos.get("risk_usd") and getattr(record, "risk_usd", None) is not None:
+                        pos["risk_usd"] = record.risk_usd
+                    if not pos.get("mfe_usd") and getattr(record, "mfe_usd", None) is not None:
+                        pos["mfe_usd"] = record.mfe_usd
+                    if not pos.get("mae_usd") and getattr(record, "mae_usd", None) is not None:
+                        pos["mae_usd"] = record.mae_usd
 
         try:
             liq_cap = executor.get_liquid_capital(symbol) if executor else None

@@ -2100,13 +2100,14 @@ class Backtester:
                         # Handle exit signals if we have an open position
                         if current_position is not None and decision.action in ("exit", "close_position"):
                             held_seconds = (current_time - current_position.entry_time).total_seconds()
-                            # 5-MINUTE HOLD GUARD: Match engine.py
-                            HOLD_GUARD_SECONDS = 300
+                            # HOLD GUARD: Match engine.py
+                            hold_guard_enabled = getattr(profile, "enable_hold_guard", True)
+                            hold_guard_seconds = int(getattr(profile, "hold_guard_seconds", 300))
                             is_sl_tp = getattr(decision, 'emergency_exit', False)
-                            if held_seconds < HOLD_GUARD_SECONDS and not is_sl_tp:
+                            if hold_guard_enabled and held_seconds < hold_guard_seconds and not is_sl_tp:
                                 logger.info(
                                     f"[BACKTEST] [HOLD GUARD] {symbol} exit blocked — "
-                                    f"age {held_seconds:.0f}s < {HOLD_GUARD_SECONDS}s "
+                                    f"age {held_seconds:.0f}s < {hold_guard_seconds}s "
                                     f"(only SL/TP exits allowed)"
                                 )
                                 continue

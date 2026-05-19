@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, Callable
+from typing import Optional, Callable, Any
 
 class AssetClass(Enum):
     CRYPTO = "crypto"
@@ -124,4 +124,48 @@ def get_fee_for_symbol(symbol: str, override: float | None = None) -> float:
             return live
     asset_class = classify_symbol(symbol)
     return BROKER_FEE_DEFAULTS.get(asset_class, 0.004)
+
+
+def convert_quote_to_usd(amount: float, symbol: str, current_price: float, market_provider: Optional[Any] = None) -> float:
+    """Converts a quote currency amount to USD for a given symbol."""
+    if amount == 0.0:
+        return 0.0
+
+    sym_clean = symbol.upper().replace("_", "").replace("-", "").replace("/", "")
+    
+    # 1. Quote is already USD, no conversion needed.
+    if sym_clean.endswith("USD"):
+        return amount
+        
+    # 2. Base is USD, quote is something else (USDJPY, USDCAD, USDCHF, etc.)
+    # The price of the pair is USD/Quote.
+    # To convert Quote amount to USD, we divide by USD/Quote rate (which is current_price).
+    if sym_clean.startswith("USD") and current_price > 0:
+        return amount / current_price
+        
+    # 3. Cross currency pairs (e.g. AUDJPY, GBPJPY, EURGBP)
+    if len(sym_clean) == 6:
+        quote = sym_clean[3:]
+        conversion_pair = f"USD_{quote}"
+        
+        if market_provider:
+            # Try to get the latest price of USD_quote from the market provider
+            try:
+                ticker = market_provider.get_ticker(conversion_pair)
+                if ticker and ticker.last and ticker.last > 0:
+                    return amount / ticker.last
+            except Exception:
+                pass
+                
+            try:
+                snapshot = market_provider.get_latest_snapshot(conversion_pair, "5m")
+                if snapshot and snapshot.candles:
+                    rate = snapshot.candles[-1].close
+                    if rate > 0:
+                        return amount / rate
+            except Exception:
+                pass
+
+    return amount
+
 

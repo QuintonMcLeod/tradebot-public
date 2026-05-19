@@ -9,7 +9,7 @@ from tradebot_sci.broker.execution import ExecutionOutcome, ExecutionResult, Exe
 from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.broker.trade_result_store import TradeResult
 from tradebot_sci import paths as _paths
-from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
+from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass, convert_quote_to_usd
 from tradebot_sci.strategy.safety_guard import SafetyGuard
 
 logger = logging.getLogger(__name__)
@@ -480,6 +480,7 @@ class PaperBroker:
                 fill_price = price * (1 + friction) if side == "buy" else price * (1 - friction)
                 fee_usd = abs(qty * fill_price) * (fee_pct / 2.0)  # Half on entry
 
+            fee_usd = convert_quote_to_usd(fee_usd, symbol, fill_price, self.market_provider)
             self.balance -= fee_usd  # Deduct taker fee immediately
 
             stop_loss_val = getattr(decision, "stop_loss", None)
@@ -567,9 +568,12 @@ class PaperBroker:
                     fee_usd = abs(pos["qty"] * exit_p) * (fee_pct / 2.0)
 
                 if pos_side == "long":
-                    pnl_gross = (exit_p - entry_p) * pos["size"]
+                    pnl_gross_raw = (exit_p - entry_p) * pos["size"]
                 else:
-                    pnl_gross = (entry_p - exit_p) * pos["size"]
+                    pnl_gross_raw = (entry_p - exit_p) * pos["size"]
+
+                pnl_gross = convert_quote_to_usd(pnl_gross_raw, symbol, exit_p, self.market_provider)
+                fee_usd = convert_quote_to_usd(fee_usd, symbol, exit_p, self.market_provider)
 
                 pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_gross)
                 pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_gross)
@@ -680,7 +684,10 @@ class PaperBroker:
                     exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
                     fee_usd = close_qty * exit_p * (fee_pct / 2.0)
 
-                pnl_gross = (exit_p - entry_p) * (close_qty if pos_side == "long" else -close_qty)
+                pnl_gross_raw = (exit_p - entry_p) * (close_qty if pos_side == "long" else -close_qty)
+                pnl_gross = convert_quote_to_usd(pnl_gross_raw, symbol, exit_p, self.market_provider)
+                fee_usd = convert_quote_to_usd(fee_usd, symbol, exit_p, self.market_provider)
+
                 pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_gross)
                 pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_gross)
                 
@@ -830,6 +837,7 @@ class PaperBroker:
                     fill_price = price * (1 + friction) if side == "buy" else price * (1 - friction)
                     fee_usd = abs(qty * fill_price) * (fee_pct / 2.0)
 
+                fee_usd = convert_quote_to_usd(fee_usd, symbol, fill_price, self.market_provider)
                 self.balance -= fee_usd
                 
                 # Update position sizing and avg_price
@@ -880,8 +888,9 @@ class PaperBroker:
             # Update current price and PNL
             price = self._get_current_price(symbol)
             pos["current_price"] = price
-            pos["unrealized_pnl"] = (price - pos["entry_price"]) * pos["size"]
-            pos["pnl_pct"] = (pos["unrealized_pnl"] / (pos["entry_price"] * abs(pos["size"]))) * 100
+            unrealized_pnl_raw = (price - pos["entry_price"]) * pos["size"]
+            pos["unrealized_pnl"] = convert_quote_to_usd(unrealized_pnl_raw, symbol, price, self.market_provider)
+            pos["pnl_pct"] = (unrealized_pnl_raw / (pos["entry_price"] * abs(pos["size"]))) * 100 if pos["size"] else 0.0
         return pos
 
     def list_open_position_symbols(self) -> List[str]:
@@ -920,8 +929,10 @@ class PaperBroker:
                 exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
                 fee_usd = abs(pos["qty"] * exit_p) * (fee_pct / 2.0)
 
-            pnl_usd = (exit_p - entry_p) * pos["size"]
-            pnl_usd -= fee_usd
+            pnl_gross_raw = (exit_p - entry_p) * pos["size"]
+            pnl_gross = convert_quote_to_usd(pnl_gross_raw, symbol, exit_p, self.market_provider)
+            fee_usd = convert_quote_to_usd(fee_usd, symbol, exit_p, self.market_provider)
+            pnl_usd = pnl_gross - fee_usd
             self.balance += pnl_usd
 
             # Duration
@@ -1114,9 +1125,14 @@ class PaperBroker:
             
             pos["mfe"] = max(pos.get("mfe", 0.0), curr_mfe)
             pos["mae"] = min(pos.get("mae", 0.0), curr_mae)
-            pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), floating_fav)
-            pos["mae_usd"] = min(pos.get("mae_usd", 0.0), floating_adv)
-            pos["unrealized_pnl"] = (price - entry_p) * (pos["size"] if side == "long" else -pos["size"])
+            floating_fav_usd = convert_quote_to_usd(floating_fav, symbol, price, self.market_provider)
+            floating_adv_usd = convert_quote_to_usd(floating_adv, symbol, price, self.market_provider)
+            unrealized_pnl_raw = (price - entry_p) * (pos["size"] if side == "long" else -pos["size"])
+            unrealized_pnl_usd = convert_quote_to_usd(unrealized_pnl_raw, symbol, price, self.market_provider)
+
+            pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), floating_fav_usd)
+            pos["mae_usd"] = min(pos.get("mae_usd", 0.0), floating_adv_usd)
+            pos["unrealized_pnl"] = unrealized_pnl_usd
 
             # ════════════════════════════════════════════════════════════════
             # UNIVERSAL EXIT ROUTER — runs AFTER mechanical SL/TP
@@ -1408,8 +1424,9 @@ class PaperBroker:
             try:
                 cur = self._get_current_price(sym)
                 pos["current_price"] = cur
-                pos["unrealized_pnl"] = (cur - pos["entry_price"]) * pos["size"]
-                pos["pnl_pct"] = (pos["unrealized_pnl"] / (pos["entry_price"] * abs(pos["size"]))) * 100
+                unrealized_pnl_raw = (cur - pos["entry_price"]) * pos["size"]
+                pos["unrealized_pnl"] = convert_quote_to_usd(unrealized_pnl_raw, sym, cur, self.market_provider)
+                pos["pnl_pct"] = (unrealized_pnl_raw / (pos["entry_price"] * abs(pos["size"]))) * 100 if pos["size"] else 0.0
             except Exception:
                 pass
         self._save_state()

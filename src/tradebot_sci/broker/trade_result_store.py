@@ -27,6 +27,9 @@ class TradeResult:
     spread_cost: float | None = None     # Estimated round-trip spread cost in USD
     mfe_usd: float | None = None         # Maximum Favorable Excursion (highest floating profit)
     mae_usd: float | None = None         # Maximum Adverse Excursion (lowest floating profit/drawdown)
+    trade_id: str | None = None          # Exchange trade/order ID
+    size: float | None = None            # Position size/units
+    entry_price: float | None = None     # Average entry price
 
     def to_dict(self) -> dict:
         d = {k: v for k, v in self.__dict__.items()}
@@ -59,7 +62,10 @@ class TradeResult:
             side=data.get("side"),
             spread_cost=float(data["spread_cost"]) if data.get("spread_cost") is not None else None,
             mfe_usd=float(data["mfe_usd"]) if data.get("mfe_usd") is not None else None,
-            mae_usd=float(data["mae_usd"]) if data.get("mae_usd") is not None else None
+            mae_usd=float(data["mae_usd"]) if data.get("mae_usd") is not None else None,
+            trade_id=data.get("trade_id"),
+            size=float(data["size"]) if data.get("size") is not None else None,
+            entry_price=float(data["entry_price"]) if data.get("entry_price") is not None else None
         )
 
 class TradeResultStore:
