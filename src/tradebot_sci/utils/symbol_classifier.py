@@ -166,6 +166,18 @@ def convert_quote_to_usd(amount: float, symbol: str, current_price: float, marke
             except Exception:
                 pass
 
+        # Static fallback if market provider fails or is missing
+        static_rates = {
+            "JPY": 150.0,
+            "CAD": 1.35,
+            "CHF": 0.90,
+            "EUR": 0.92,
+            "GBP": 0.80,
+            "AUD": 1.50
+        }
+        if quote in static_rates:
+            return amount / static_rates[quote]
+
     return amount
 
 

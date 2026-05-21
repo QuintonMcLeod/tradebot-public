@@ -550,8 +550,10 @@
             const isWin = pnl >= 0;
             const cap = t._runningCapital || 0;
             const capColor = cap >= _btInitialCapital ? 'var(--success)' : 'var(--error)';
-            const mfe = parseFloat(t.mfe_usd || 0);
-            const mae = parseFloat(t.mae_usd || 0);
+            const hasMfe = t.mfe_usd !== null && t.mfe_usd !== undefined;
+            const hasMae = t.mae_usd !== null && t.mae_usd !== undefined;
+            const mfe = hasMfe ? parseFloat(t.mfe_usd) : null;
+            const mae = hasMae ? parseFloat(t.mae_usd) : null;
             return `<tr>
                 <td style="color:var(--text-secondary);">${t.time ? new Date(t.time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--'}</td>
                 <td style="font-weight:700; color:var(--text-main);">${t.symbol || '--'}</td>
@@ -560,9 +562,9 @@
                 <td style="text-align:right; font-weight:700; color:${isWin ? 'var(--success)' : 'var(--error)'};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
                 <td style="text-align:right; font-weight:600; color:${capColor}; font-variant-numeric:tabular-nums;">$${cap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td style="text-align:center; font-size:10px; font-weight:600;">
-                    <span style="color:#34d399;">${mfe > 0 ? '+' + mfe.toFixed(2) : '--'}</span>
+                    <span style="color:#34d399;">${hasMfe ? (mfe >= 0 ? '+' : '') + mfe.toFixed(2) : '--'}</span>
                     <span style="color:var(--text-dim); margin:0 2px;">/</span>
-                    <span style="color:var(--error);">${mae < 0 ? mae.toFixed(2) : '--'}</span>
+                    <span style="color:var(--error);">${hasMae ? mae.toFixed(2) : '--'}</span>
                 </td>
                 <td style="color:var(--text-muted);">${t.duration || '--'}</td>
                 <td style="color:var(--text-muted);">${t.strategy || '--'}</td>
@@ -609,8 +611,8 @@
                 pnl >= 0 ? 'Win' : 'Loss',
                 pnl.toFixed(2),
                 (t._runningCapital || 0).toFixed(2),
-                (t.mfe_usd || 0).toFixed(2),
-                (t.mae_usd || 0).toFixed(2),
+                t.mfe_usd !== null && t.mfe_usd !== undefined ? parseFloat(t.mfe_usd).toFixed(2) : '',
+                t.mae_usd !== null && t.mae_usd !== undefined ? parseFloat(t.mae_usd).toFixed(2) : '',
                 t.duration || '',
                 t.reason || '',
             ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');

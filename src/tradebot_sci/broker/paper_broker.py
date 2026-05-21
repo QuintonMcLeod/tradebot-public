@@ -1111,8 +1111,8 @@ class PaperBroker:
                 
                 curr_mfe = best_price - entry_p
                 curr_mae = worst_price - entry_p
-                floating_fav = curr_mfe * pos["size"]
-                floating_adv = curr_mae * pos["size"]
+                floating_fav = curr_mfe * abs(pos["size"])
+                floating_adv = curr_mae * abs(pos["size"])
             else:
                 # MFE (Favorable) = Entry - Low | MAE (Adverse) = Entry - High
                 best_price = min(tick_price, candle_low) if candle_low is not None else tick_price
@@ -1120,14 +1120,14 @@ class PaperBroker:
                 
                 curr_mfe = entry_p - best_price
                 curr_mae = entry_p - worst_price
-                floating_fav = curr_mfe * pos["size"]
-                floating_adv = curr_mae * pos["size"]
+                floating_fav = curr_mfe * abs(pos["size"])
+                floating_adv = curr_mae * abs(pos["size"])
             
             pos["mfe"] = max(pos.get("mfe", 0.0), curr_mfe)
             pos["mae"] = min(pos.get("mae", 0.0), curr_mae)
             floating_fav_usd = convert_quote_to_usd(floating_fav, symbol, price, self.market_provider)
             floating_adv_usd = convert_quote_to_usd(floating_adv, symbol, price, self.market_provider)
-            unrealized_pnl_raw = (price - entry_p) * (pos["size"] if side == "long" else -pos["size"])
+            unrealized_pnl_raw = (price - entry_p) * pos["size"]
             unrealized_pnl_usd = convert_quote_to_usd(unrealized_pnl_raw, symbol, price, self.market_provider)
 
             pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), floating_fav_usd)

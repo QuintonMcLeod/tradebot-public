@@ -444,8 +444,8 @@ class ForexConductorStrategy(BaseStrategy):
                 _sl = float(signal.stop_loss or 0.0)
                 if _ep > 0 and _sl > 0:
                     is_jpy = "JPY" in snapshot.symbol.upper()
-                    # Minimum 10 pips for prop firms/Oanda minimum stop levels (harmonized with broker)
-                    min_sl_dist = 10.0 * (0.01 if is_jpy else 0.0001)
+                    # Minimum 20 pips stop-loss to provide breathing room and prevent whipsaws
+                    min_sl_dist = 20.0 * (0.01 if is_jpy else 0.0001)
                     
                     _current_ir = abs(_ep - _sl)
                     if _current_ir < min_sl_dist:

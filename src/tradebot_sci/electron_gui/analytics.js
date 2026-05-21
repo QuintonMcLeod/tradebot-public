@@ -1156,8 +1156,10 @@ function updateTradeHistory(trades) {
             const strategy = trade.strategy ? trade.strategy.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '--';
             const pnlPct = parseFloat(trade.pct || trade.pnlPct) || 0;
             const spread = parseFloat(trade.spread) || 0;
-            const mfe = parseFloat(trade.mfe_usd || 0);
-            const mae = parseFloat(trade.mae_usd || 0);
+            const hasMfe = trade.mfe_usd !== null && trade.mfe_usd !== undefined;
+            const hasMae = trade.mae_usd !== null && trade.mae_usd !== undefined;
+            const mfe = hasMfe ? parseFloat(trade.mfe_usd) : null;
+            const mae = hasMae ? parseFloat(trade.mae_usd) : null;
 
             // Unique button ID
             const sym = trade.symbol || 'UNK';
@@ -1171,9 +1173,9 @@ function updateTradeHistory(trades) {
                 <td style="text-align:right; font-weight:700; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
                 <td style="text-align:right; font-size:11px; color:${pnlPct >= 0 ? '#34d399' : '#f87171'};">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
                 <td style="text-align:center; font-size:10px; font-weight:600;">
-                    <span style="color:#34d399;">${mfe > 0 ? '+' + mfe.toFixed(2) : '--'}</span>
+                    <span style="color:#34d399;">${hasMfe ? (mfe >= 0 ? '+' : '') + mfe.toFixed(2) : '--'}</span>
                     <span style="color:#475569; margin:0 2px;">/</span>
-                    <span style="color:#f87171;">${mae < 0 ? mae.toFixed(2) : '--'}</span>
+                    <span style="color:#f87171;">${hasMae ? mae.toFixed(2) : '--'}</span>
                 </td>
                 <td style="text-align:right; font-size:11px; color:#475569;">--</td>
                 <td style="color:#34d399; font-size:11px; font-weight:600;">⏱ ${duration}</td>
@@ -1291,8 +1293,10 @@ function updateTradeHistory(trades) {
             const strategy = trade.strategy ? trade.strategy.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '--';
             const pnlPct = parseFloat(trade.pct || trade.pnlPct) || 0;
             const spread = parseFloat(trade.spread) || 0;
-            const mfe = parseFloat(trade.mfe_usd || 0);
-            const mae = parseFloat(trade.mae_usd || 0);
+            const hasMfe = trade.mfe_usd !== null && trade.mfe_usd !== undefined;
+            const hasMae = trade.mae_usd !== null && trade.mae_usd !== undefined;
+            const mfe = hasMfe ? parseFloat(trade.mfe_usd) : null;
+            const mae = hasMae ? parseFloat(trade.mae_usd) : null;
 
             // Result badge
             let resultBadge;
@@ -1312,9 +1316,9 @@ function updateTradeHistory(trades) {
                 <td style="text-align:right; font-weight:700; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
                 <td style="text-align:right; font-size:11px; color:${pnlPct >= 0 ? '#34d399' : '#f87171'};">${pnlPct !== 0 ? (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%' : '--'}</td>
                 <td style="text-align:center; font-size:10px; font-weight:600;">
-                    <span style="color:#34d399;">${mfe > 0 ? '+' + mfe.toFixed(2) : '--'}</span>
+                    <span style="color:#34d399;">${hasMfe ? (mfe >= 0 ? '+' : '') + mfe.toFixed(2) : '--'}</span>
                     <span style="color:#475569; margin:0 2px;">/</span>
-                    <span style="color:#f87171;">${mae < 0 ? mae.toFixed(2) : '--'}</span>
+                    <span style="color:#f87171;">${hasMae ? mae.toFixed(2) : '--'}</span>
                 </td>
                 <td style="text-align:right; font-size:11px; color:#475569;">${spread > 0 ? '$' + spread.toFixed(2) : '--'}</td>
                 <td style="color:#34d399; font-size:11px; font-weight:600;">${(() => { const d = formatClosedDuration(trade); return d ? '⏱ ' + d : '--'; })()}</td>

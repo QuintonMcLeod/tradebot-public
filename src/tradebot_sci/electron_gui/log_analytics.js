@@ -507,11 +507,15 @@ function getTradeHistory(filter = '24h', paperMode = false, options = {}) {
         return ta - tb;
     });
 
-    // Also include active positions — paper mode only shows paper positions
+    // Also include active positions — paper mode only shows paper positions.
+    // NOTE: paper_state.json is intentionally EXCLUDED from live-mode sources.
+    // It stores paper/simulation state and may contain stale test positions
+    // (e.g. strategy='test') that are not real live trades. In live mode the
+    // authoritative sources are oanda_tracked_positions.json, position_holds.json,
+    // and the [HOLDINGS] heartbeat below — which acts as the final hard-prune arbiter.
     const positionSources = paperMode
         ? [{ file: 'paper_state.json', key: 'positions' }]
         : [
-            { file: 'paper_state.json', key: 'positions' },
             { file: 'oanda_tracked_positions.json', key: null },  // top-level object of symbol->position
             { file: 'position_holds.json', key: null, isArray: true },  // CCXT position hold store
         ];

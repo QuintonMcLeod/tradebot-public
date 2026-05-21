@@ -592,6 +592,15 @@ class OandaExchangeBroker(IExchangeBroker):
 
                 # Add to TradeResultStore
                 if self.trade_results:
+                    _ep = getattr(_hold_rec, "entry_price", None) if _hold_rec else None
+                    _sz = getattr(_hold_rec, "size", None) if _hold_rec else None
+                    _mfe_val = getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0
+                    _mae_val = getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0
+                    # If both MFE and MAE are 0.0, the engine never got a scan in during this
+                    # trade (closed before next cycle). Seed MAE floor from realized PnL so
+                    # at minimum the excursion is non-zero.
+                    if _mfe_val == 0.0 and _mae_val == 0.0 and pnl_val < 0:
+                        _mae_val = pnl_val  # worst case: PnL is the adverse excursion
                     self.trade_results.add_result(TradeResult(
                         symbol=symbol,
                         closed_at=datetime.now(timezone.utc).isoformat(),
@@ -606,8 +615,10 @@ class OandaExchangeBroker(IExchangeBroker):
                         exit_reason=exit_reason,
                         side=side.lower(),
                         spread_cost=est_spread_cost,
-                        mfe_usd=getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0,
-                        mae_usd=getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0,
+                        mfe_usd=_mfe_val,
+                        mae_usd=_mae_val,
+                        entry_price=_ep,
+                        size=_sz,
                     ))
 
                 pnl_sign = '+' if pnl_val >= 0 else '-'
@@ -1474,6 +1485,18 @@ class OandaExchangeBroker(IExchangeBroker):
                     _exit_strategy = _hold_rec.strategy if _hold_rec else "unknown"
                     _mfe = getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0
                     _mae = getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0
+                    _ep  = getattr(_hold_rec, "entry_price", None) if _hold_rec else None
+                    _sz  = getattr(_hold_rec, "size", None) if _hold_rec else None
+                    # Fallback: if entry_price is missing, pull it from the tracked snapshot
+                    if _ep is None:
+                        _ep = prev.get("avg_price") or prev.get("entry_price") or prev.get("original_entry_price")
+                    if _sz is None:
+                        _sz = prev.get("size")
+                    # If both MFE and MAE are 0.0, the engine never scanned during this
+                    # trade (SL hit between cycles). Seed MAE floor from realized PnL so
+                    # the excursion is always at least non-zero for losing trades.
+                    if _mfe == 0.0 and _mae == 0.0 and pnl < 0:
+                        _mae = pnl
 
                     if self.trade_results:
                         self.trade_results.add_result(TradeResult(
@@ -1492,6 +1515,8 @@ class OandaExchangeBroker(IExchangeBroker):
                             spread_cost=est_spread,
                             mfe_usd=_mfe,
                             mae_usd=_mae,
+                            entry_price=_ep,
+                            size=_sz,
                         ))
                     
                     logger.info(

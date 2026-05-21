@@ -195,17 +195,29 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
 
 
 
+    # Push routed broker settings to environment for provider_factory.py 5-lane routing
+    if b_cfg.get("primary_forex") or m_cfg.get("primary_forex") or m_cfg.get("broker_forex"):
+        os.environ["BROKER_FOREX"] = b_cfg.get("primary_forex") or m_cfg.get("primary_forex") or m_cfg.get("broker_forex")
+    if b_cfg.get("primary_crypto") or m_cfg.get("primary_crypto") or m_cfg.get("broker_crypto"):
+        os.environ["BROKER_CRYPTO"] = b_cfg.get("primary_crypto") or m_cfg.get("primary_crypto") or m_cfg.get("broker_crypto")
+    if b_cfg.get("primary_equities") or m_cfg.get("primary_equities") or m_cfg.get("broker_equities"):
+        os.environ["BROKER_EQUITIES"] = b_cfg.get("primary_equities") or m_cfg.get("primary_equities") or m_cfg.get("broker_equities")
+    if b_cfg.get("primary_futures") or m_cfg.get("primary_futures") or m_cfg.get("broker_futures"):
+        os.environ["BROKER_FUTURES"] = b_cfg.get("primary_futures") or m_cfg.get("primary_futures") or m_cfg.get("broker_futures")
+    if b_cfg.get("primary_metals") or m_cfg.get("primary_metals") or m_cfg.get("broker_metals"):
+        os.environ["BROKER_METALS"] = b_cfg.get("primary_metals") or m_cfg.get("primary_metals") or m_cfg.get("broker_metals")
+
     market_cfg = {
         "market_data_mode": market_data_mode,
         "broker_mode": broker_mode,
         "exchange_provider": exchange_provider,
         "primary_market_provider": primary_market_provider,
         "primary_broker": primary_broker,
-        "primary_forex": b_cfg.get("primary_forex") or m_cfg.get("primary_forex") or g_cfg.get("primary_forex") or os.getenv("PRIMARY_FOREX", "oanda"),
-        "primary_crypto": b_cfg.get("primary_crypto") or m_cfg.get("primary_crypto") or g_cfg.get("primary_crypto") or os.getenv("PRIMARY_CRYPTO", "gemini"),
-        "primary_equities": b_cfg.get("primary_equities") or m_cfg.get("primary_equities") or g_cfg.get("primary_equities") or os.getenv("PRIMARY_EQUITIES", "disabled"),
-        "primary_metals": b_cfg.get("primary_metals") or m_cfg.get("primary_metals") or g_cfg.get("primary_metals") or os.getenv("PRIMARY_METALS", "ibkr"),
-        "primary_futures": b_cfg.get("primary_futures") or m_cfg.get("primary_futures") or g_cfg.get("primary_futures") or os.getenv("PRIMARY_FUTURES", "disabled"),
+        "primary_forex": os.getenv("BROKER_FOREX") or os.getenv("PRIMARY_FOREX", "oanda"),
+        "primary_crypto": os.getenv("BROKER_CRYPTO") or os.getenv("PRIMARY_CRYPTO", "gemini"),
+        "primary_equities": os.getenv("BROKER_EQUITIES") or os.getenv("PRIMARY_EQUITIES", "disabled"),
+        "primary_metals": os.getenv("BROKER_METALS") or os.getenv("PRIMARY_METALS", "ibkr"),
+        "primary_futures": os.getenv("BROKER_FUTURES") or os.getenv("PRIMARY_FUTURES", "disabled"),
         "alternative_market_data": m_cfg.get("alternative_market_data") or g_cfg.get("alternative_market_data") or "ccxt",
         "alternative_broker": m_cfg.get("alternative_broker") or g_cfg.get("alternative_broker") or "ccxt",
         "default_symbol": m_cfg.get("default_symbol") or g_cfg.get("market_default_symbol") or "SPY",

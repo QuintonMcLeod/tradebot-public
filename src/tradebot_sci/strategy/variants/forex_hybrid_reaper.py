@@ -167,6 +167,35 @@ class ForexHybridReaperStrategy(BaseStrategy):
         score, grade, summary = self.score_signal(snapshot, gates)
 
         logger.info(f"[HybridReaper Debug {snapshot.symbol}] Close={last_close:.5f} | EMA={trend_ema:.5f} | GlobalRSI={rsi:.1f} | GlobalLBB={lower_bb:.5f} | GlobalUBB={upper_bb:.5f} | HTF={htf_dir} | Score={score:.1f}")
+
+        # ---------------------------------------------------------
+        # 4. 3-Bar Momentum Gate (Anti-Exhaustion)
+        # ---------------------------------------------------------
+        # Block entry if all 3 recent bars moved against the proposed direction.
+        # BB+RSI can fire at the TAIL of an exhausted move (price pierced BB then
+        # reversed). If the last 3 closes are already running against us, the
+        # bounce has not materialized — skip and wait for actual reversal.
+        #
+        # Gate fires when:  ALL of bar[-3]→[-2], [-2]→[-1] move against direction.
+        # i.e. for LONG: every close-to-close delta is negative (pure sell momentum)
+        #      for SHORT: every close-to-close delta is positive (pure buy momentum)
+        is_long_setup = last_close > trend_ema
+        if len(closes) >= 4:
+            deltas = [closes[-i] - closes[-i-1] for i in range(1, 4)]  # last 3 bar moves
+            all_against_long  = all(d < 0 for d in deltas)  # 3 consecutive down bars
+            all_against_short = all(d > 0 for d in deltas)  # 3 consecutive up bars
+            if is_long_setup and all_against_long:
+                logger.info(
+                    f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar momentum gate — "
+                    f"3 consecutive down bars into long setup (exhaustion, not reversal)"
+                )
+                return None
+            if not is_long_setup and all_against_short:
+                logger.info(
+                    f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar momentum gate — "
+                    f"3 consecutive up bars into short setup (exhaustion, not reversal)"
+                )
+                return None
             
         # LONG: Price > 200 EMA + Strict BB/RSI Touch + Minimum Score (no OR condition)
         if last_close > trend_ema and rsi <= oversold_thresh and last_close <= lower_bb and score >= 60.0:

@@ -707,20 +707,6 @@ def build_exchange_broker(
     use_ftmo = getattr(settings.risk, "prop_ftmo_enabled", False) or (profile_settings and getattr(profile_settings, "prop_ftmo_enabled", False))
     use_apex = getattr(settings.risk, "prop_apex_enabled", False) or (profile_settings and getattr(profile_settings, "prop_apex_enabled", False))
 
-    # ── OANDA-only short-circuit ──
-    # If OANDA credentials exist but no CCXT/Gemini keys, skip ALL config-driven
-    # routing (which may reference gemini/ccxt) and return OANDA+NoOp directly.
-    _has_oanda = bool(os.getenv("OANDA_API_KEY"))
-    _has_ccxt = bool(os.getenv("CCXT_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("CCXT_SECRET") or os.getenv("GEMINI_API_SECRET"))
-    if _has_oanda and not _has_ccxt and not use_ftmo and not use_apex:
-        logger.info("[ROUTED-EXEC] OANDA-only detected (no CCXT/Gemini keys) → Forex=OANDA, Crypto/Equity=NoOp")
-        b_forex = _create_single_broker("oanda", settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
-        return RoutedExchangeBroker({
-            "crypto": NoOpExchangeBroker(),
-            "forex": b_forex,
-            "equity": NoOpExchangeBroker(),
-        })
-
     crypto_mode = os.getenv("BROKER_CRYPTO", "").lower()
     forex_mode = os.getenv("BROKER_FOREX", "").lower()
     equity_mode = os.getenv("BROKER_EQUITIES", "").lower()
@@ -780,8 +766,13 @@ def build_exchange_broker(
     # Auto-detect OANDA-only: if OANDA credentials exist but no CCXT/Gemini keys,
     # build a routed broker: OANDA for forex, NoOp for crypto/equity.
     _has_oanda = bool(os.getenv("OANDA_API_KEY"))
-    _has_ccxt = bool(os.getenv("CCXT_API_KEY") or os.getenv("GEMINI_API_KEY"))
-    if _has_oanda and mode in ("primary", "alternative") and not _has_ccxt:
+    _has_ccxt = bool(
+        os.getenv("CCXT_API_KEY") or 
+        os.getenv("CCXT_SECRET") or 
+        (os.getenv("GEMINI_API_KEY") and os.getenv("GEMINI_API_SECRET"))
+    )
+    _has_other_brokers = shared_ib is not None or bool(os.getenv("KRAKEN_API_KEY")) or bool(os.getenv("COINBASE_API_KEY"))
+    if _has_oanda and mode in ("primary", "alternative") and not _has_ccxt and not _has_other_brokers:
         logger.info("[ROUTED-EXEC] OANDA-only detected → Forex=OANDA, Crypto/Equity=NoOp")
         b_forex = _create_single_broker("oanda", settings, profile_settings, shared_ib, allowed_symbols, trade_results=trade_results)
         return RoutedExchangeBroker({

@@ -640,9 +640,12 @@ class SafetyGuard:
                         logger.debug(f"[SAFETY] Regime-Flip SKIPPED for {snapshot.symbol}: SAR trade — let SL/TP handle exit")
                     elif r_multiple < 1.0:
                         logger.info(f"[SAFETY] Regime-Flip TRIGGERED for {snapshot.symbol}. HTF is {htf_dir} (R={r_multiple:.2f}).")
-                        # Set 10-min cooldown to prevent flip→SAR→flip churn cycle
-                        cls._state.regime_flip_cooldown[snapshot.symbol] = (sim_time or datetime.now(timezone.utc)) + timedelta(minutes=3)
-                        logger.info(f"[SAFETY] Regime Flip Cooldown set for {snapshot.symbol}: 3 min")
+                        # 15-min cooldown: longer than OANDA_REENTRY_COOLDOWN (5m) so the
+                        # strategy cannot re-enter into the same flipped regime before the
+                        # HTF has had time to stabilise. Old value (3m) caused a churn loop:
+                        # re-entry fired at 5m, found the same flipped regime, lost again.
+                        cls._state.regime_flip_cooldown[snapshot.symbol] = (sim_time or datetime.now(timezone.utc)) + timedelta(minutes=15)
+                        logger.info(f"[SAFETY] Regime Flip Cooldown set for {snapshot.symbol}: 15 min")
                         return close_position_decision(snapshot.symbol, snapshot.timeframe, reason=f"Regime Flip: {htf_dir.upper()}")
                     else:
                         logger.debug(f"[SAFETY] Regime-Flip SKIPPED for {snapshot.symbol}: profitable ({r_multiple:.2f}R), ignoring HTF flip.")
