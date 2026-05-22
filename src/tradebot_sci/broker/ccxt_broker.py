@@ -272,6 +272,7 @@ class CCXTExchangeBroker:
                     # Fallback to position-reported avg_price/entry_price
                     entry_price = float(pos.get("entry_price") or pos.get("avg_price") or 0.0)
 
+            est_fee_usd = 0.0
             if entry_price > 0:
                 # Prioritize current_price from snapshot for accurate exit PnL
                 curr_px = float(pos.get("current_price") or pos.get("close") or pos.get("avg_price") or entry_price)
@@ -283,7 +284,8 @@ class CCXTExchangeBroker:
                 # Factor in Gemini/Broker fees to prevent "bleeding" reports
                 # Gemini Taker Fee is typically 0.4%. We estimate 0.4% for entry + 0.4% for exit.
                 est_fee_pct = 0.008 # 0.8% total round trip
-                pnl_val -= (entry_price * qty * est_fee_pct)
+                est_fee_usd = entry_price * qty * est_fee_pct
+                pnl_val -= est_fee_usd
                 
                 pnl_pct = (pnl_val / (entry_price * qty)) * 100
             else:
@@ -319,7 +321,19 @@ class CCXTExchangeBroker:
             pos_dir = "LONG" if side == "sell" else "SHORT"
             _mfe = getattr(record, "mfe_usd", 0.0) if record else 0.0
             _mae = getattr(record, "mae_usd", 0.0) if record else 0.0
-            logger.info(f"[EXIT] CCXT Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={pos_dir} | Duration={duration_str} | MFE=${_mfe:.2f} MAE=${_mae:.2f} | Est. Fees factored (0.8%)")
+            # Apply mathematical bounds using realized PnL:
+            if pnl_val > 0:
+                _mfe = max(_mfe, pnl_val)
+            else:
+                _mae = min(_mae, pnl_val)
+            logger.info(
+                f"[EXIT] CCXT Manual/Signal: {symbol} {pnl_str} "
+                f"(Pct={pnl_pct:.2f}%) position={pos_dir} | "
+                f"Duration={duration_str} | "
+                f"Est. Spread Cost: ${est_fee_usd:.4f} | "
+                f"MFE=${_mfe:.2f} MAE=${_mae:.2f} | "
+                f"Est. Fees factored (0.8%)"
+            )
             
             # Add to TradeResultStore
             if self.trade_results:
@@ -336,8 +350,9 @@ class CCXTExchangeBroker:
                     strategy=getattr(record, "strategy", "unknown") if record else "unknown",
                     exit_reason=getattr(decision, "notes", "signal_close") if 'decision' in locals() else "signal_close",
                     side="long" if side == "sell" else "short",
-                    mfe_usd=getattr(record, "mfe_usd", 0.0) if record else 0.0,
-                    mae_usd=getattr(record, "mae_usd", 0.0) if record else 0.0,
+                    spread_cost=est_fee_usd,
+                    mfe_usd=_mfe,
+                    mae_usd=_mae,
                 ))
 
             # Clear Position from Store

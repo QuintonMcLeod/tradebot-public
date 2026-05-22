@@ -273,7 +273,7 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         "candle_timeframe", "htf_timeframe", "mtf_timeframe", "ltf_timeframe",
         "risk_dynamic_auto",
         # Profile-level behavioral flags (set by GUI profile editor)
-        "continuous_mode", "session_gate_enabled",
+        "continuous_mode",
     }
 
     profiles = {}

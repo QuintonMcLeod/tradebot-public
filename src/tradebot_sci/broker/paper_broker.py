@@ -428,7 +428,7 @@ class PaperBroker:
                 logger.warning(f"[PAPER] [REJECTED] {symbol}: simulated broker rejection (1% chance)")
                 self._update_status("warning", "Simulated broker rejection")
                 return (
-                    ExecutionResult(ExecutionStatus.FAILED, symbol, "Simulated broker rejection"),
+                    ExecutionResult(ExecutionStatus.ERROR, symbol, "Simulated broker rejection"),
                     ExecutionOutcome(ExecutionOutcomeType.FAILED_OTHER, symbol, "Simulated broker rejection")
                 )
 
@@ -491,7 +491,7 @@ class PaperBroker:
                 logger.error(f"[PAPER] [REJECTED] {symbol}: Missing SL({stop_loss_val}) or TP({take_profit_val}) for atomic order")
                 self._update_status("error", "Missing SL/TP for atomic order")
                 return (
-                    ExecutionResult(ExecutionStatus.FAILED, symbol, "Missing bracket parameters"),
+                    ExecutionResult(ExecutionStatus.ERROR, symbol, "Missing bracket parameters"),
                     ExecutionOutcome(ExecutionOutcomeType.FAILED_OTHER, symbol, "Missing SL/TP")
                 )
 
@@ -945,6 +945,11 @@ class PaperBroker:
             except Exception:
                 pass
 
+            if pnl_usd > 0:
+                pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd)
+            else:
+                pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_usd)
+
             pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 and pos["size"] != 0 else 0.0
             pnl_sign = "+" if pnl_usd >= 0 else "-"
             pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
@@ -1241,6 +1246,11 @@ class PaperBroker:
                                     else:
                                         duration_str = f"{_m}m {_s}s"
                                 
+                                if pnl_usd > 0:
+                                    pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd)
+                                else:
+                                    pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_usd)
+
                                 pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                                 pnl_sign = "+" if pnl_usd >= 0 else "-"
                                 pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
@@ -1340,6 +1350,12 @@ class PaperBroker:
                 pnl_usd = (exit_price - entry_p) * pos["size"]
                 fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * self._get_taker_fee(symbol)
                 pnl_usd -= fee_usd
+                
+                if pnl_usd > 0:
+                    pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd)
+                else:
+                    pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_usd)
+
                 pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                 self.balance += pnl_usd
                 # Format PnL as +$X.XX or -$X.XX (sign BEFORE dollar)

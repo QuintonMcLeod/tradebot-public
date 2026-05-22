@@ -420,10 +420,6 @@ class TradingProfileSettings(BaseModel):
         default_factory=lambda: os.getenv("TREND_CORRELATION_STACKING_ENABLED", "true").lower() == "true",
         description="When enabled, allows the bot to open multiple highly correlated pairs (e.g. multiple USD pairs) simultaneously.",
     )
-    session_gate_enabled: bool = Field(
-        default=True,
-        description="When true, enforces volume/range expansion for session-aware entries.",
-    )
     session_gate_min_candles: PositiveInt = Field(
         default=15,
         description="Minimum candles required before enforcing session health gates.",
@@ -862,6 +858,19 @@ class TradingProfileSettings(BaseModel):
         default=900,
         ge=0,
         description="Duration in seconds for the exit hold guard."
+    )
+    enable_negative_hold_guard: bool = Field(
+        default=True,
+        description="Whether to block exits for negative trades under negative_hold_seconds."
+    )
+    negative_hold_seconds: int = Field(
+        default=2700,
+        ge=0,
+        description="Duration in seconds for the negative trade exit hold guard (default 45 minutes)."
+    )
+    enable_spread_profit_guard: bool = Field(
+        default=True,
+        description="Whether to block non-emergency exits when position PnL is positive but lower than the estimated spread cost."
     )
     pyramid_score_threshold: float = Field(
         default=70.0,
@@ -1537,6 +1546,10 @@ class RiskSettings(BaseModel):
     )
 
     # ── Promoted from profiles (global source of truth) ─────────
+    session_gate_enabled: bool = Field(
+        default=True,
+        description="Enforces the Global Scheduler. If False, the bot will trade 24/5."
+    )
     risk_per_trade_pct: float = Field(
         default=0.01, ge=0.0, le=1.0,
         description="Standard risk per trade as a fraction of equity (e.g. 0.01 = 1.0%).",

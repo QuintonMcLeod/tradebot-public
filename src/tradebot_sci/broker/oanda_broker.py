@@ -569,7 +569,7 @@ class OandaExchangeBroker(IExchangeBroker):
 
                 pnl_sign = '+' if pnl_val >= 0 else '-'
                 pnl_str = f"{pnl_sign}${abs(pnl_val):.2f}"
-                logger.info(f"[EXIT] Manual/Signal: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={side} | Duration={duration_str} | Live Spread Cost: ${est_spread_cost:.4f} ({self.get_live_spread(symbol):.1f} pips)")
+                logger.info(f"[OANDA] Manual close triggered: {symbol} {pnl_str} (Pct={pnl_pct:.2f}%) position={side} | Duration={duration_str} | Live Spread Cost: ${est_spread_cost:.4f} ({self.get_live_spread(symbol):.1f} pips)")
                 # Record exit for re-entry cooldown (losses only — wins can re-enter immediately)
                 if pnl_val <= 0:
                     self._exit_cooldowns[symbol] = time.time()
@@ -596,11 +596,11 @@ class OandaExchangeBroker(IExchangeBroker):
                     _sz = getattr(_hold_rec, "size", None) if _hold_rec else None
                     _mfe_val = getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0
                     _mae_val = getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0
-                    # If both MFE and MAE are 0.0, the engine never got a scan in during this
-                    # trade (closed before next cycle). Seed MAE floor from realized PnL so
-                    # at minimum the excursion is non-zero.
-                    if _mfe_val == 0.0 and _mae_val == 0.0 and pnl_val < 0:
-                        _mae_val = pnl_val  # worst case: PnL is the adverse excursion
+                    # Apply mathematical bounds using realized PnL:
+                    if pnl_val > 0:
+                        _mfe_val = max(_mfe_val, pnl_val)
+                    else:
+                        _mae_val = min(_mae_val, pnl_val)
                     self.trade_results.add_result(TradeResult(
                         symbol=symbol,
                         closed_at=datetime.now(timezone.utc).isoformat(),
@@ -623,13 +623,12 @@ class OandaExchangeBroker(IExchangeBroker):
 
                 pnl_sign = '+' if pnl_val >= 0 else '-'
                 pnl_str = f"{pnl_sign}${abs(pnl_val):.2f}"
-                _mfe = getattr(_hold_rec, "mfe_usd", 0.0) if _hold_rec else 0.0
-                _mae = getattr(_hold_rec, "mae_usd", 0.0) if _hold_rec else 0.0
                 logger.info(
                     f"[EXIT] OANDA Manual/Signal: {symbol} {pnl_str} "
                     f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
                     f"Duration={duration_secs:.0f}s | "
-                    f"MFE=${_mfe:.2f} MAE=${_mae:.2f}"
+                    f"Est. Spread Cost: ${est_spread_cost:.4f} | "
+                    f"MFE=${_mfe_val:.2f} MAE=${_mae_val:.2f}"
                 )
 
                 logger.info(f"[OANDA] Flattened {symbol}. Response: {resp}")
@@ -1492,11 +1491,11 @@ class OandaExchangeBroker(IExchangeBroker):
                         _ep = prev.get("avg_price") or prev.get("entry_price") or prev.get("original_entry_price")
                     if _sz is None:
                         _sz = prev.get("size")
-                    # If both MFE and MAE are 0.0, the engine never scanned during this
-                    # trade (SL hit between cycles). Seed MAE floor from realized PnL so
-                    # the excursion is always at least non-zero for losing trades.
-                    if _mfe == 0.0 and _mae == 0.0 and pnl < 0:
-                        _mae = pnl
+                    # Apply mathematical bounds using realized PnL:
+                    if pnl > 0:
+                        _mfe = max(_mfe, pnl)
+                    else:
+                        _mae = min(_mae, pnl)
 
                     if self.trade_results:
                         self.trade_results.add_result(TradeResult(
@@ -1523,6 +1522,7 @@ class OandaExchangeBroker(IExchangeBroker):
                         f"[EXIT] OANDA SL/TP: {sym} {pnl_str} "
                         f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
                         f"Duration={duration_str} | "
+                        f"Est. Spread Cost: ${est_spread:.4f} | "
                         f"MFE=${_mfe:.2f} MAE=${_mae:.2f}"
                     )
                     

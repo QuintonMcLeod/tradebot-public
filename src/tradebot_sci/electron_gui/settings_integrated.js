@@ -84,6 +84,7 @@ const CONFIG_MAP = {
     'STOP_ATR_MULTIPLIER': ['global', 'stop_atr_multiplier'],
     'SAFETY_FEE_SHIELD_ENABLED': ['safety', 'safety_fee_shield_enabled'],
     'SAFETY_FEE_RT_PCT': ['safety', 'safety_fee_rt_pct'],
+    'SAFETY_SPREAD_PROFIT_GUARD_ENABLED': ['safety', 'enable_spread_profit_guard'],
     'SAFETY_SENTIMENT_SHIELD_ENABLED': ['safety', 'safety_sentiment_shield_enabled'],
     'SAFETY_VOLATILITY_VETO_ENABLED': ['safety', 'safety_volatility_veto_enabled'],
     'WEALTH_EXIT_GAMMA_ENABLED': ['safety', 'wealth_exit_gamma_enabled'],
@@ -173,6 +174,7 @@ const CONFIG_MAP = {
     'RSI_OVERBOUGHT': ['global', 'rsi_overbought'],
     'RSI_OVERSOLD': ['global', 'rsi_oversold'],
     // ── Risk & ICC (Global — not per-profile) ──────────────────
+    'SESSION_GATE_ENABLED': ['risk', 'session_gate_enabled'],
     'TARGET_LEVERAGE': ['risk', 'target_leverage'],
     'RISK_PER_TRADE_PCT': ['risk', 'risk_per_trade_pct'],
     'RISK_DYNAMIC_AUTO': ['risk', 'risk_dynamic_auto'],
@@ -474,6 +476,7 @@ const TOOLTIPS = {
     STOP_AFTER_SINGLE_LOSS_ENABLED: "The 'Quit While Ahead' Guard. Once the bot wins a trade today, it locks in profits. The very next losing trade halts ALL trading until midnight. This prevents giving back your daily gains by over-trading after a win.",
     SAFETY_OPENING_SENTRY_ENABLED: "The Morning Commute Guard. Blocks the bot from trading during the crazy, volatile first 15 minutes right after the market opens.",
     SAFETY_SENTIMENT_SHIELD_ENABLED: "The AI Co-Pilot. Asks your selected AI (like ChatGPT) to quickly look at the chart right before taking a trade. If the AI says 'this looks dangerous,' the bot cancels the trade.",
+    SAFETY_SPREAD_PROFIT_GUARD_ENABLED: "<strong>Spread Profit Guard.</strong> Imagine buying a collectible coin for $100, but the dealer charges a $5 fee to sell it back. If the coin value goes to $102, you are technically in profit, but if you sell, you get back $97, losing $3 overall.<br><br>This guard prevents the bot from exiting a winning trade early if the profit isn't big enough to cover the dealer's fee (the spread), making sure you only exit when you actually make real money.",
 
     // Performance & Profits (Wealth Creation) - Detailed Layman Tooltips
     PERFORMANCE_MODE_NONE: "<strong>Safe Mode (Standard):</strong> The boring, reliable way to trade. No crazy risk-taking, just standard, mathematical position sizes.",
@@ -4432,6 +4435,8 @@ function renderScheduleTab(container) {
         "<strong>Global Scheduler</strong><br><br>Manage active trading hours for each profile. If a profile is outside its scheduled window, the bot will sleep. If 'Off-Hours Paper Trading' is enabled, the bot will automatically swap to simulation mode instead of sleeping."
     ));
 
+    section.appendChild(createCard('Enforce Global Scheduler', 'When enabled, the bot strictly obeys the active hours defined in the schedule below. When disabled, the bot will trade 24/5 and ignore all schedules (WARNING: This exposes you to toxic overnight spreads).', 'SESSION_GATE_ENABLED', 'toggle', { default: 'true' }));
+
     const sessionsContainer = document.createElement('div');
     sessionsContainer.className = 'mb-6 px-1';
 
@@ -5229,6 +5234,7 @@ function renderSafetyTab(container) {
     section.appendChild(createSliderCard('Fee Shield Buffer', 'Estimated round-trip cost', 'SAFETY_FEE_RT_PCT', 0.05, 1.0, 0.05, '%', {
         tooltip: "What percentage is the broker charging you for the 'round-trip' (both buying and selling)?<br><br>Set this slightly higher than what they actually charge just to be extremely safe against unpredictable spikes during wild market moments."
     }));
+    section.appendChild(createCard('Spread Profit Guard', 'Block exits if net profit is less than spread cost', 'SAFETY_SPREAD_PROFIT_GUARD_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker — Adaptive (25% small → 5% large accounts)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Session Lockout', 'Stops new entries after cutoff time', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Lockout Time (EST)', 'No new entries after this time', 'SAFETY_SESSION_LOCKOUT_HOUR', 'time', { default: '16', tooltip: "Forces the bot to totally stop looking for new trades at this hour. If you set it to 16 (4:00 PM EST), the bot goes to sleep before the wild end-of-day volatility and spread widening kicks in." }));

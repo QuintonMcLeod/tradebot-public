@@ -852,7 +852,6 @@ window.profilesModule = (function () {
         'strategies.etf': 'Which trading strategy to use specifically for ETF (exchange-traded fund) trades.',
         'strategies.metals': 'Which trading strategy to use specifically for precious metals (gold, silver) trades.',
         'strategies.futures': 'Which trading strategy to use specifically for futures contract trades.',
-        'session_gate_enabled': 'Only trade during active market hours. Prevents trades during low-volume off-hours when spreads are wider.',
         'continuous_mode': 'Run this profile around the clock without stopping. Best for 24/7 crypto markets.',
         'crypto_only': 'Restrict this profile to only trade cryptocurrency symbols, ignoring any forex or stock symbols.',
         'conductor_pyramid_enabled': 'Master switch to allow the Conductor to pyramid (add size) to winning trades.',
@@ -954,7 +953,6 @@ window.profilesModule = (function () {
         return `
             ${_sectionHeader('Trading Schedule', 'schedule')}
         <div style="display:flex; flex-direction:column; gap:10px;">
-            ${renderToggle('session_gate_enabled', 'Session Gate', profile.session_gate_enabled)}
             ${renderToggle('continuous_mode', 'Continuous (24/7)', profile.continuous_mode)}
             ${renderToggle('crypto_only', 'Crypto Only', profile.crypto_only)}
         </div>

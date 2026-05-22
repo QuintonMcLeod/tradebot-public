@@ -493,7 +493,11 @@ class StrategyEngine:
         
         session_id = getattr(self._strategy, "SESSION_PROFILE", None)
         session_ok = True
-        if getattr(self.profile, "session_gate_enabled", False) and session_id:
+        session_gate_enabled = False
+        if self.settings and getattr(self.settings, "risk", None):
+            session_gate_enabled = getattr(self.settings.risk, "session_gate_enabled", False)
+
+        if session_gate_enabled and session_id:
             if isinstance(session_id, list):
                 session_ok = any(sid in gates["active_sessions"] for sid in session_id)
             else:
@@ -578,21 +582,52 @@ class StrategyEngine:
             # and persist them in the PositionHoldStore so they survive restarts.
             if hasattr(self, "_broker") and self._broker and hasattr(self._broker, "position_hold_store") and self._broker.position_hold_store:
                 hold_rec = self._broker.position_hold_store.get(self.symbol)
+                if not hold_rec and open_position:
+                    entry_p = open_position.get("entry_price") or open_position.get("avg_price")
+                    size = open_position.get("size")
+                    strategy = open_position.get("strategy") or "unknown"
+                    entry_time_str = open_position.get("entry_time")
+                    opened_at = None
+                    if entry_time_str:
+                        try:
+                            from datetime import datetime as dt
+                            opened_at = dt.fromisoformat(entry_time_str.replace('Z', '+00:00'))
+                        except Exception:
+                            pass
+                    if not opened_at:
+                        from datetime import datetime as dt, timezone as tz
+                        opened_at = dt.now(tz.utc)
+                    
+                    self._broker.position_hold_store.upsert(
+                        symbol=self.symbol,
+                        opened_at=opened_at,
+                        entry_price=entry_p,
+                        size=size,
+                        strategy=strategy
+                    )
+                    hold_rec = self._broker.position_hold_store.get(self.symbol)
+
                 if hold_rec:
-                    # Use current price from snapshot (close of most recent candle)
-                    price = snapshot.candles[-1].close if snapshot.candles else 0.0
-                    entry_p = hold_rec.entry_price or open_position.get("entry_price")
-                    size = hold_rec.size or open_position.get("size")
-                    if price and entry_p and size:
-                        floating_gross_raw = (price - entry_p) * size
-                        floating_gross = convert_quote_to_usd(
-                            floating_gross_raw,
-                            self.symbol,
-                            price,
-                            self.market_provider
-                        )
+                    floating_gross = None
+                    if open_position and open_position.get("unrealized_pnl") is not None:
+                        floating_gross = float(open_position["unrealized_pnl"])
+                    else:
+                        price = snapshot.candles[-1].close if snapshot.candles else 0.0
+                        entry_p = hold_rec.entry_price or open_position.get("entry_price")
+                        size = hold_rec.size or open_position.get("size")
+                        if price and entry_p and size:
+                            floating_gross_raw = (price - entry_p) * size
+                            floating_gross = convert_quote_to_usd(
+                                floating_gross_raw,
+                                self.symbol,
+                                price,
+                                self.market_provider
+                            )
+                    
+                    if floating_gross is not None:
                         hold_rec.mfe_usd = max(hold_rec.mfe_usd or 0.0, floating_gross)
                         hold_rec.mae_usd = min(hold_rec.mae_usd or 0.0, floating_gross)
+                        self._broker.position_hold_store.save()
                         open_position["mfe_usd"] = hold_rec.mfe_usd
                         open_position["mae_usd"] = hold_rec.mae_usd
                         if getattr(hold_rec, "risk_usd", None) is not None:
@@ -654,20 +689,81 @@ class StrategyEngine:
             hold_guard_seconds = int(getattr(self.profile, "hold_guard_seconds", 900))
             position_is_young = (hold_guard_enabled and position_age is not None and position_age < hold_guard_seconds)
 
+            # ── NEGATIVE HOLD GUARD ───────────────────────────────────────
+            enable_negative_hold_guard = getattr(self.profile, "enable_negative_hold_guard", True)
+            negative_hold_seconds = int(getattr(self.profile, "negative_hold_seconds", 2700))
+            is_negative = False
+            if enable_negative_hold_guard and open_position:
+                current_price = snapshot.candles[-1].close if (snapshot and snapshot.candles) else open_position.get("current_price")
+                entry_price = open_position.get("entry_price") or open_position.get("avg_price")
+                direction = open_position.get("side") or open_position.get("direction")
+                if not direction:
+                    size_val = open_position.get("size", 0.0)
+                    direction = "long" if size_val > 0 else "short"
+                
+                if current_price is not None and entry_price is not None:
+                    if str(direction).lower() in ("long", "buy"):
+                        is_negative = current_price < entry_price
+                    elif str(direction).lower() in ("short", "sell"):
+                        is_negative = current_price > entry_price
+
+            neg_hold_blocked = (
+                enable_negative_hold_guard
+                and is_negative
+                and position_age is not None
+                and position_age < negative_hold_seconds
+            )
+
+            # ── SPREAD PROFIT GUARD ───────────────────────────────────────
+            enable_spread_profit_guard = getattr(self.profile, "enable_spread_profit_guard", True)
+            spread_profit_blocked = False
+            floating_pnl_usd = 0.0
+            est_spread_usd = 0.0
+            
+            if enable_spread_profit_guard and open_position:
+                current_price = snapshot.candles[-1].close if (snapshot and snapshot.candles) else open_position.get("current_price")
+                if current_price:
+                    if open_position.get("unrealized_pnl") is not None:
+                        floating_pnl_usd = float(open_position["unrealized_pnl"])
+                    else:
+                        entry_p = open_position.get("entry_price") or open_position.get("avg_price")
+                        size = open_position.get("size")
+                        if entry_p and size:
+                            raw_pnl = (current_price - entry_p) * size
+                            floating_pnl_usd = convert_quote_to_usd(
+                                raw_pnl,
+                                self.symbol,
+                                current_price,
+                                self.market_provider
+                            )
+                    
+                    if floating_pnl_usd is not None:
+                        est_spread_usd = self._estimate_spread_cost(open_position, current_price)
+                        if floating_pnl_usd > 0 and floating_pnl_usd < est_spread_usd:
+                            spread_profit_blocked = True
+
             if exit_decision:
                 is_emergency = getattr(exit_decision, 'emergency_exit', False)
-                if position_is_young and not is_emergency:
+                if (position_is_young or neg_hold_blocked or spread_profit_blocked) and not is_emergency:
+                    if spread_profit_blocked:
+                        block_reason = "spread profit guard"
+                        block_limit_str = f"PnL ${floating_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd:.2f}"
+                    else:
+                        block_reason = "negative hold" if neg_hold_blocked else "hold guard"
+                        block_limit = negative_hold_seconds if neg_hold_blocked else hold_guard_seconds
+                        block_limit_str = f"age {position_age:.0f}s < {block_limit}s"
                     logger.info(
                         f"[HOLD GUARD] {self.symbol} strategy exit BLOCKED — "
-                        f"age {position_age:.0f}s < {hold_guard_seconds}s "
-                        f"(non-emergency exits blocked during hold). "
+                        f"{block_limit_str} "
+                        f"(non-emergency exits blocked during {block_reason}). "
                         f"Reason: {getattr(exit_decision, 'notes', 'N/A')[:80]}"
                     )
+                    exit_decision = None
                 else:
-                    if is_emergency and position_is_young:
+                    if is_emergency and (position_is_young or neg_hold_blocked or spread_profit_blocked):
                         logger.info(
                             f"[HOLD GUARD] {self.symbol} EMERGENCY EXIT allowed — "
-                            f"age {position_age:.0f}s (bypassed hold guard)"
+                            f"bypassed hold/negative/spread profit guards"
                         )
                     exit_decision.score = score
                     exit_decision.grade = grade
@@ -699,10 +795,13 @@ class StrategyEngine:
                 performance_exit = SafetyGuard.handle_runner_exit(decision_to_check, open_position)
                 if performance_exit:
                     # Apply hold guard to runner exits too
-                    if position_is_young:
+                    if position_is_young or neg_hold_blocked or spread_profit_blocked:
+                        block_reason = "spread profit guard" if spread_profit_blocked else ("negative hold" if neg_hold_blocked else "hold guard")
+                        block_limit = negative_hold_seconds if neg_hold_blocked else hold_guard_seconds
+                        block_limit_str = f"PnL ${floating_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd:.2f}" if spread_profit_blocked else f"age {position_age:.0f}s < {block_limit}s"
                         logger.info(
                             f"[HOLD GUARD] {self.symbol} runner exit BLOCKED — "
-                            f"age {position_age:.0f}s < {hold_guard_seconds}s"
+                            f"{block_limit_str} ({block_reason})"
                         )
                     else:
                         performance_exit.score = score
@@ -711,14 +810,34 @@ class StrategyEngine:
                         return performance_exit
             
             if safety_exit:
-                # Apply hold guard to ALL safety exits — no exceptions
+                is_safety_emergency = getattr(safety_exit, 'emergency_exit', False)
+                # Apply hold guard to ALL safety exits if young (no exceptions)
+                # Apply negative hold guard to non-emergency safety exits
                 if position_is_young:
                     logger.info(
                         f"[HOLD GUARD] {self.symbol} safety exit BLOCKED — "
                         f"age {position_age:.0f}s < {hold_guard_seconds}s "
                         f"(ALL exits blocked during hold). Reason: {getattr(safety_exit, 'notes', 'N/A')[:80]}"
                     )
+                elif (neg_hold_blocked or spread_profit_blocked) and not is_safety_emergency:
+                    if spread_profit_blocked:
+                        logger.info(
+                            f"[HOLD GUARD] {self.symbol} safety exit BLOCKED — "
+                            f"PnL ${floating_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd:.2f} "
+                            f"(blocked during spread profit guard). Reason: {getattr(safety_exit, 'notes', 'N/A')[:80]}"
+                        )
+                    else:
+                        logger.info(
+                            f"[HOLD GUARD] {self.symbol} safety exit BLOCKED — "
+                            f"age {position_age:.0f}s < {negative_hold_seconds}s "
+                            f"(blocked during negative hold). Reason: {getattr(safety_exit, 'notes', 'N/A')[:80]}"
+                        )
                 else:
+                    if is_safety_emergency and (neg_hold_blocked or spread_profit_blocked):
+                        logger.info(
+                            f"[HOLD GUARD] {self.symbol} EMERGENCY safety exit allowed — "
+                            f"age {position_age:.0f}s (bypassed negative/spread profit hold guards)"
+                        )
                     safety_exit.score = score
                     safety_exit.grade = grade
 
@@ -1320,3 +1439,56 @@ class StrategyEngine:
             signals={},
             metadata=kwargs
         )
+
+    def _estimate_spread_cost(self, open_position: dict, current_price: float) -> float:
+        """
+        Estimate the round-trip transaction friction (spread or commission fees) in USD.
+        """
+        size_val = abs(open_position.get("size", 0.0))
+        if size_val <= 0:
+            return 0.0
+            
+        symbol_upper = self.symbol.upper()
+        
+        # Check if the active broker is CCXT or if the symbol is crypto
+        is_crypto = False
+        if hasattr(self, "_broker") and self._broker:
+            if hasattr(self._broker, "_is_crypto"):
+                is_crypto = self._broker._is_crypto(self.symbol)
+            elif "ccxt" in self._broker.__class__.__name__.lower():
+                is_crypto = True
+        
+        if not is_crypto and ("BTC" in symbol_upper or "ETH" in symbol_upper or "SOL" in symbol_upper or "/" in symbol_upper):
+            is_crypto = True
+            
+        if is_crypto:
+            # CCXT / Crypto: round-trip taker fee (2 * 0.8% = 1.6% of notional size)
+            estimated_fee = current_price * size_val * 0.016
+            return estimated_fee
+        else:
+            # Forex/CFD: Estimate pip-based spread cost
+            pip_size = 0.01 if symbol_upper.endswith("JPY") else 0.0001
+            spread_pips = 1.5
+            if "EURUSD" in symbol_upper:
+                spread_pips = 1.3
+            elif "GBPUSD" in symbol_upper:
+                spread_pips = 1.5
+            elif "AUDUSD" in symbol_upper:
+                spread_pips = 1.4
+            elif "USDCAD" in symbol_upper:
+                spread_pips = 1.5
+            elif "USDCHF" in symbol_upper:
+                spread_pips = 1.6
+            elif "USDJPY" in symbol_upper:
+                spread_pips = 1.5
+            
+            # Spread cost in quote currency
+            spread_cost_quote = size_val * spread_pips * pip_size
+            # Convert quote currency to USD using convert_quote_to_usd
+            spread_cost_usd = convert_quote_to_usd(
+                spread_cost_quote,
+                self.symbol,
+                current_price,
+                self.market_provider
+            )
+            return spread_cost_usd
