@@ -67,7 +67,7 @@ window.profilesModule = (function () {
         { value: 'aggregator', label: 'Singularity Aggregator' },
         { value: 'meta_sci', label: 'Meta-SCI (AI Ensemble)' },
         { value: 'forex_conductor', label: 'Forex Conductor (Session Scheduler)' },
-        { value: 'forex_hybrid_reaper', label: 'Forex Hybrid Scalper' },
+        { value: 'forex_hybrid_scalper', label: 'Forex Hybrid Scalper' },
         { value: 'icc_core_standalone', label: 'ICC Core (ICT Methodology)' },
         { value: 'supply_demand', label: 'Supply & Demand' },
         { value: 'trend_rider', label: 'Trend Rider (EMA Pullback)' },

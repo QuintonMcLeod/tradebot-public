@@ -1495,8 +1495,8 @@ class Backtester:
                 # engine.decide() ever evaluates the exit router.
                 if pos_key in positions and len(current_candles) >= 30:
                     _router_held_s = (current_time - pos.entry_time).total_seconds()
-                    # Only run after 5-minute hold guard (same as engine.py)
-                    if _router_held_s >= 300:
+                    # Run on every tick (age >= 0) to allow emergency exits to fire.
+                    if _router_held_s >= 0:
                         try:
                             _router_engine = _engine_cache.get(symbol)
                             if _router_engine:
@@ -1540,42 +1540,138 @@ class Backtester:
                                         strategy_name=getattr(pos, 'strategy_name', 'unknown'),
                                     )
                                     if _router_decision and getattr(_router_decision, 'action', '') == 'close_position':
-                                        _exit_price = current_bar.close
-                                        _pnl = _calculate_pnl(pos.entry_price, _exit_price, pos.size, pos.direction, symbol=symbol)
-                                        capital += _pnl
                                         _router_reason = getattr(_router_decision, 'notes', None) or 'invalidation'
-                                        completed_trades.append(SimulatedTrade(
-                                            symbol=symbol,
-                                            direction=pos.direction,
-                                            entry_price=pos.entry_price,
-                                            exit_price=_exit_price,
-                                            size=pos.size,
-                                            entry_time=pos.entry_time,
-                                            exit_time=current_time,
-                                            pnl=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
-                                            exit_reason=_router_reason,
-                                            entry_gates=getattr(pos, "entry_gates", None),
-                                            strategy_name=getattr(pos, 'strategy_name', 'unknown'),
-                                            mfe_usd=getattr(pos, 'mfe_usd', 0.0),
-                                            mae_usd=getattr(pos, 'mae_usd', 0.0),
-                                        ))
-                                        trade_results_store.add_result(TradeResult(
-                                            symbol=symbol,
-                                            closed_at=current_time.isoformat(),
-                                            pnl_pct=(_pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
-                                            pnl_usd=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
-                                            mfe_usd=getattr(pos, 'mfe_usd', 0.0),
-                                            mae_usd=getattr(pos, 'mae_usd', 0.0),
-                                            is_win=(_pnl + getattr(pos, "cumulative_partial_pnl", 0.0)) > 0,
-                                            tier="backtest",
-                                            capital_at_close=capital,
-                                            strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
-                                            exit_reason=_router_reason,
-                                            side=pos.direction,
-                                        ))
-                                        del positions[pos_key]
-                                        logger.info(f"[BACKTEST] {symbol} UNIVERSAL EXIT: {_router_reason} | PnL=${_pnl:.2f}")
-                                        continue
+                                        
+                                        if _router_reason == "Hard Stop Loss Hit":
+                                            # Delegate precise execution to the mechanical SL/TP block below
+                                            pass
+                                        else:
+                                            # Check hold guards
+                                            is_emergency = getattr(_router_decision, 'emergency_exit', False)
+                                            hold_guard_enabled = getattr(profile, "enable_hold_guard", True)
+                                            hold_guard_seconds = int(getattr(profile, "hold_guard_seconds", 900))
+                                            position_is_young = (hold_guard_enabled and _router_held_s < hold_guard_seconds)
+
+                                            enable_negative_hold_guard = getattr(profile, "enable_negative_hold_guard", True)
+                                            negative_hold_seconds = int(getattr(profile, "negative_hold_seconds", 2700))
+
+                                            is_negative = False
+                                            if enable_negative_hold_guard:
+                                                if pos.direction == "long":
+                                                    is_negative = current_bar.close < pos.entry_price
+                                                else:
+                                                    is_negative = current_bar.close > pos.entry_price
+
+                                            neg_hold_blocked = (
+                                                enable_negative_hold_guard
+                                                and is_negative
+                                                and _router_held_s < negative_hold_seconds
+                                            )
+
+                                            enable_spread_profit_guard = getattr(profile, "enable_spread_profit_guard", True)
+                                            spread_profit_blocked = False
+                                            if enable_spread_profit_guard:
+                                                from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                                                from tradebot_sci.config.loader import load_config_json
+                                                
+                                                try:
+                                                    fee_pct = get_fee_for_symbol(symbol)
+                                                    cfg = load_config_json()
+                                                    prof = cfg.get("active_profile", "primary")
+                                                    p_data = cfg.get("profiles", {}).get(prof, {})
+                                                    slip_bps = float(p_data.get("paper", {}).get("slippage_bps", 0.0))
+                                                    if slip_bps == 0:
+                                                        slip_bps = float(p_data.get("slippage_bps", 0.0))
+                                                except Exception:
+                                                    fee_pct = 0.0025  # fallback
+                                                    slip_bps = 0.0
+                                                
+                                                slip_pct = slip_bps / 10000.0
+                                                total_friction_pct = fee_pct + (slip_pct * 2)
+                                                
+                                                # Calculate unrealized PnL
+                                                if pos.direction == "short":
+                                                    raw_pnl = (pos.entry_price - current_bar.close) * pos.size
+                                                else:
+                                                    raw_pnl = (current_bar.close - pos.entry_price) * pos.size
+                                                
+                                                sym = symbol.upper().replace("_", "")
+                                                if sym.startswith("USD") and current_bar.close > 0:
+                                                    raw_pnl = raw_pnl / current_bar.close
+                                                elif "JPY" in sym and current_bar.close > 0:
+                                                    raw_pnl = raw_pnl / current_bar.close
+                                                
+                                                unrealized_pnl_usd = raw_pnl
+                                                
+                                                notional = pos.entry_price * abs(pos.size)
+                                                if "JPY" in sym or sym.startswith("USD"):
+                                                    if sym.startswith("USD"):
+                                                        notional = abs(pos.size)
+                                                    else:
+                                                        notional = abs(pos.size) * pos.entry_price / pos.entry_price
+                                                
+                                                est_spread_usd = notional * total_friction_pct
+                                                
+                                                if unrealized_pnl_usd > 0 and unrealized_pnl_usd < est_spread_usd:
+                                                    spread_profit_blocked = True
+
+                                            if (position_is_young or neg_hold_blocked or spread_profit_blocked) and not is_emergency:
+                                                if spread_profit_blocked:
+                                                    block_reason = "spread profit guard"
+                                                    block_limit_str = f"PnL ${unrealized_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd:.2f}"
+                                                else:
+                                                    block_reason = "negative hold" if neg_hold_blocked else "hold guard"
+                                                    block_limit = negative_hold_seconds if neg_hold_blocked else hold_guard_seconds
+                                                    block_limit_str = f"age {_router_held_s:.0f}s < {block_limit}s"
+                                                logger.info(
+                                                    f"[BACKTEST HOLD GUARD] {symbol} strategy exit BLOCKED — "
+                                                    f"{block_limit_str} "
+                                                    f"(non-emergency exits blocked during {block_reason}). "
+                                                    f"Reason: {_router_reason}"
+                                                )
+                                                # Fall through to mechanical checks (do not exit here)
+                                                pass
+                                            else:
+                                                if is_emergency and (position_is_young or neg_hold_blocked or spread_profit_blocked):
+                                                    logger.info(
+                                                        f"[BACKTEST HOLD GUARD] {symbol} EMERGENCY EXIT allowed — "
+                                                        f"bypassed hold/negative/spread profit guards"
+                                                    )
+                                                _exit_price = current_bar.close
+                                                _pnl = _calculate_pnl(pos.entry_price, _exit_price, pos.size, pos.direction, symbol=symbol)
+                                                capital += _pnl
+                                                completed_trades.append(SimulatedTrade(
+                                                    symbol=symbol,
+                                                    direction=pos.direction,
+                                                    entry_price=pos.entry_price,
+                                                    exit_price=_exit_price,
+                                                    size=pos.size,
+                                                    entry_time=pos.entry_time,
+                                                    exit_time=current_time,
+                                                    pnl=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
+                                                    exit_reason=_router_reason,
+                                                    entry_gates=getattr(pos, "entry_gates", None),
+                                                    strategy_name=getattr(pos, 'strategy_name', 'unknown'),
+                                                    mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                                                    mae_usd=getattr(pos, 'mae_usd', 0.0),
+                                                ))
+                                                trade_results_store.add_result(TradeResult(
+                                                    symbol=symbol,
+                                                    closed_at=current_time.isoformat(),
+                                                    pnl_pct=(_pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
+                                                    pnl_usd=_pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
+                                                    mfe_usd=getattr(pos, 'mfe_usd', 0.0),
+                                                    mae_usd=getattr(pos, 'mae_usd', 0.0),
+                                                    is_win=(_pnl + getattr(pos, "cumulative_partial_pnl", 0.0)) > 0,
+                                                    tier="backtest",
+                                                    capital_at_close=capital,
+                                                    strategy=(getattr(pos, 'entry_gates', None) or {}).get('meta_source') or getattr(pos, 'strategy_name', 'unknown'),
+                                                    exit_reason=_router_reason,
+                                                    side=pos.direction,
+                                                ))
+                                                del positions[pos_key]
+                                                logger.info(f"[BACKTEST] {symbol} UNIVERSAL EXIT: {_router_reason} | PnL=${_pnl:.2f}")
+                                                continue
                                     elif _router_decision and getattr(_router_decision, 'action', '') == 'hold' and _router_decision.stop_loss is not None:
                                         # Trailing stop update from router (e.g., chandelier, ratchet)
                                         if _router_decision.stop_loss != pos.stop_price:

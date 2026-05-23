@@ -27,13 +27,42 @@ class PaperBroker:
     HALF_SPREAD_PCT = float(os.getenv("PAPER_HALF_SPREAD_PCT", "0.0005"))  # 0.05%
     SLIPPAGE_PCT = float(os.getenv("PAPER_SLIPPAGE_PCT", "0.0002"))        # 0.02%
 
-    # [PHASE 1.1] Emergency Stop Timeout: 5 minutes max unprotected time
-    EMERGENCY_STOP_TIMEOUT_SEC = 300  
 
     def _get_taker_fee(self, symbol: str) -> float:
         """Return half of the round-trip fee for parity with backtester."""
         from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
         return get_fee_for_symbol(symbol) / 2.0
+
+    def _get_paper_friction(self, tier_slip_bps: float = 0.0) -> tuple[float, float, float, float, bool]:
+        """Parse configuration to extract fee, spread, and slippage percentages.
+        Returns: (fee_pct, spread_pct, slip_pct, friction_rate, is_parity)
+        """
+        import json
+        from tradebot_sci import paths as _paths
+        try:
+            with open(_paths.CONFIG_FILE, "r") as f:
+                _full_conf = json.load(f)
+                _p_conf = _full_conf.get("paper", {})
+                _g_conf = _full_conf.get("global", {})
+        except Exception:
+            _p_conf = {}
+            _g_conf = {}
+
+        spread_buffer = float(_g_conf.get("spread_buffer", _p_conf.get("spread_bps", 0.0)))
+        commission_rate = float(_g_conf.get("commission_rate", _p_conf.get("fee_bps", 0.0)))
+        
+        fee_bps = commission_rate
+        spread_bps = spread_buffer
+        slip_bps = float(_p_conf.get("slippage_bps", 0.0)) + tier_slip_bps
+
+        if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
+            return 0.0, 0.0, 0.0, 0.0, True
+        else:
+            fee_pct = fee_bps / 10000.0
+            spread_pct = spread_bps / 10000.0
+            slip_pct = slip_bps / 10000.0
+            friction = (spread_pct / 2.0) + slip_pct
+            return fee_pct, spread_pct, slip_pct, friction, False
 
     # Hard leverage cap for paper trading.
     # Profile target_leverage (e.g. 50x) is for OANDA forex — way too high for
@@ -454,29 +483,13 @@ class PaperBroker:
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, "Paper size zero")
                 )
 
-            # Check Paper config for UI overrides
-            import json
-            try:
-                with open(_paths.CONFIG_FILE, "r") as f:
-                    _p_conf = json.load(f).get("paper", {})
-            except Exception:
-                _p_conf = {}
-            
-            fee_bps = float(_p_conf.get("fee_bps", 0.0))
-            spread_bps = float(_p_conf.get("spread_bps", 0.0))
-            slip_bps = float(_p_conf.get("slippage_bps", 0.0)) + tier_slip_bps
-
-            if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
+            fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction(tier_slip_bps)
+            if is_parity:
                 # Parity Mode: use backtester equivalent fees and NO artificial spread
-                friction = 0.0
                 fill_price = price
                 fee_usd = abs(qty * fill_price) * self._get_taker_fee(symbol)
             else:
                 # Custom UI Override Mode + Tiered Slippage Penalty
-                fee_pct = fee_bps / 10000.0
-                spread_pct = spread_bps / 10000.0
-                slip_pct = slip_bps / 10000.0
-                friction = (spread_pct / 2.0) + slip_pct
                 fill_price = price * (1 + friction) if side == "buy" else price * (1 - friction)
                 fee_usd = abs(qty * fill_price) * (fee_pct / 2.0)  # Half on entry
 
@@ -528,7 +541,7 @@ class PaperBroker:
             )
 
             # [PHASE 1.1] Start emergency timeout timer on new position
-            self._emergency_stop_timers[symbol] = time.time()
+            self._emergency_stop_timers[symbol] = self._now().timestamp()
 
             self._save_state()
             self._update_status("healthy", "")
@@ -544,26 +557,11 @@ class PaperBroker:
                 opened_at_str = pos.get("opened_at", "")
                 pos_side = pos.get("side", "long")
 
-                # Check Paper config for UI overrides
-                import json
-                try:
-                    with open(_paths.CONFIG_FILE, "r") as f:
-                        _p_conf = json.load(f).get("paper", {})
-                except Exception:
-                    _p_conf = {}
-                
-                fee_bps = float(_p_conf.get("fee_bps", 0.0))
-                spread_bps = float(_p_conf.get("spread_bps", 0.0))
-                slip_bps = float(_p_conf.get("slippage_bps", 0.0))
-                
-                if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
+                fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
+                if is_parity:
                     exit_p = price
                     fee_usd = abs(pos["qty"] * exit_p) * self._get_taker_fee(symbol)
                 else:
-                    fee_pct = fee_bps / 10000.0
-                    spread_pct = spread_bps / 10000.0
-                    slip_pct = slip_bps / 10000.0
-                    friction = (spread_pct / 2.0) + slip_pct
                     exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
                     fee_usd = abs(pos["qty"] * exit_p) * (fee_pct / 2.0)
 
@@ -661,26 +659,11 @@ class PaperBroker:
                 close_qty = abs(pos["qty"]) * scale_frac
                 remain_qty = abs(pos["qty"]) - close_qty
 
-                # Check Paper config for UI overrides
-                import json
-                try:
-                    with open(_paths.CONFIG_FILE, "r") as f:
-                        _p_conf = json.load(f).get("paper", {})
-                except Exception:
-                    _p_conf = {}
-                
-                fee_bps = float(_p_conf.get("fee_bps", 0.0))
-                spread_bps = float(_p_conf.get("spread_bps", 0.0))
-                slip_bps = float(_p_conf.get("slippage_bps", 0.0))
-                
-                if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
+                fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
+                if is_parity:
                     exit_p = price
                     fee_usd = close_qty * exit_p * self._get_taker_fee(symbol)
                 else:
-                    fee_pct = fee_bps / 10000.0
-                    spread_pct = spread_bps / 10000.0
-                    slip_pct = slip_bps / 10000.0
-                    friction = (spread_pct / 2.0) + slip_pct
                     exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
                     fee_usd = close_qty * exit_p * (fee_pct / 2.0)
 
@@ -749,7 +732,7 @@ class PaperBroker:
                 # Update or remove position
                 if remain_qty < 1e-6:
                     del self.positions[symbol]
-                    self._exit_cooldowns[symbol] = time.time()
+                    self._exit_cooldowns[symbol] = self._now().timestamp()
                 else:
                     pos["qty"] = remain_qty
                     pos["size"] = remain_qty if pos_side == "long" else -remain_qty
@@ -813,27 +796,11 @@ class PaperBroker:
                         ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, f"Paper: {block_reason}")
                     )
 
-                # Check Paper config for UI overrides
-                import json
-                try:
-                    with open(_paths.CONFIG_FILE, "r") as f:
-                        _p_conf = json.load(f).get("paper", {})
-                except Exception:
-                    _p_conf = {}
-                
-                fee_bps = float(_p_conf.get("fee_bps", 0.0))
-                spread_bps = float(_p_conf.get("spread_bps", 0.0))
-                slip_bps = float(_p_conf.get("slippage_bps", 0.0)) + tier_slip_bps
-
-                if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
-                    friction = 0.0
+                fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction(tier_slip_bps)
+                if is_parity:
                     fill_price = price
                     fee_usd = abs(qty * fill_price) * self._get_taker_fee(symbol)
                 else:
-                    fee_pct = fee_bps / 10000.0
-                    spread_pct = spread_bps / 10000.0
-                    slip_pct = slip_bps / 10000.0
-                    friction = (spread_pct / 2.0) + slip_pct
                     fill_price = price * (1 + friction) if side == "buy" else price * (1 - friction)
                     fee_usd = abs(qty * fill_price) * (fee_pct / 2.0)
 
@@ -906,26 +873,11 @@ class PaperBroker:
             pos_side = pos.get("side", "long")
             price = self._get_current_price(symbol)
 
-            # Compute fees (same logic as close_position)
-            import json
-            try:
-                with open(_paths.CONFIG_FILE, "r") as f:
-                    _p_conf = json.load(f).get("paper", {})
-            except Exception:
-                _p_conf = {}
-
-            fee_bps = float(_p_conf.get("fee_bps", 0.0))
-            spread_bps = float(_p_conf.get("spread_bps", 0.0))
-            slip_bps = float(_p_conf.get("slippage_bps", 0.0))
-
-            if fee_bps == 0.0 and spread_bps == 0.0 and slip_bps == 0.0:
+            fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
+            if is_parity:
                 exit_p = price
                 fee_usd = abs(pos["qty"] * exit_p) * self._get_taker_fee(symbol)
             else:
-                fee_pct = fee_bps / 10000.0
-                spread_pct = spread_bps / 10000.0
-                slip_pct = slip_bps / 10000.0
-                friction = (spread_pct / 2.0) + slip_pct
                 exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
                 fee_usd = abs(pos["qty"] * exit_p) * (fee_pct / 2.0)
 
@@ -988,7 +940,7 @@ class PaperBroker:
                     mae_usd=pos.get("mae_usd", 0.0),
                 ))
 
-            self._exit_cooldowns[symbol] = time.time()
+            self._exit_cooldowns[symbol] = self._now().timestamp()
             self._save_state()
             self.refresh_account_summary()
 
@@ -1153,12 +1105,16 @@ class PaperBroker:
                 if entry_time_str:
                     try:
                         _entry_dt = datetime.fromisoformat(entry_time_str)
-                        _router_held_s = (self._now() - _entry_dt).total_seconds()
+                        if _entry_dt.tzinfo is None:
+                            _entry_dt = _entry_dt.replace(tzinfo=timezone.utc)
+                        _now_dt = self._now()
+                        if _now_dt.tzinfo is None:
+                            _now_dt = _now_dt.replace(tzinfo=timezone.utc)
+                        _router_held_s = (_now_dt - _entry_dt).total_seconds()
                     except Exception:
                         pass
-                # Only run after hold guard (60s = 1 minute)
-                # Reduced from 300s to prevent 'Paper INVALIDATION' fee-trapping on 1m/5m charts.
-                if _router_held_s >= 60:
+                # Run the exit router for all active positions (age >= 0)
+                if _router_held_s >= 0:
                     try:
                         from tradebot_sci.market.trend_consensus import detect_trend_direction
                         from tradebot_sci.strategy.exit_logic import run_universal_exit_logic
@@ -1225,77 +1181,135 @@ class PaperBroker:
                                 # instead of exiting at the inaccurate 5m candle close price.
                                 pass
                             else:
-                                # Exit router wants to close via strategy — do it at bar close price
-                                _exit_price = candles_for_router[-1].close if candles_for_router else price
-                                entry_p = pos.get("entry_price", 0)
-                                pnl_usd = (_exit_price - entry_p) * pos["size"]
-                                fee_usd = abs(pos.get("qty", abs(pos["size"])) * _exit_price) * self._get_taker_fee(symbol)
-                                pnl_usd -= fee_usd
-                                self.balance += pnl_usd
-                                
-                                # Duration
-                                duration_secs = _router_held_s
-                                duration_str = "N/A"
-                                if duration_secs is not None:
-                                    _m = int(duration_secs // 60)
-                                    _s = int(duration_secs % 60)
-                                    if _m >= 60:
-                                        _h = _m // 60
-                                        _m = _m % 60
-                                        duration_str = f"{_h}h {_m}m {_s}s"
-                                    else:
-                                        duration_str = f"{_m}m {_s}s"
-                                
-                                if pnl_usd > 0:
-                                    pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd)
-                                else:
-                                    pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_usd)
+                                # Apply Hold Guards parity with engine.py
+                                is_emergency = getattr(_router_decision, 'emergency_exit', False)
+                                hold_guard_enabled = getattr(self.profile, 'enable_hold_guard', True)
+                                hold_guard_seconds = int(getattr(self.profile, 'hold_guard_seconds', 900))
+                                position_is_young = (hold_guard_enabled and _router_held_s < hold_guard_seconds)
 
-                                pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
-                                pnl_sign = "+" if pnl_usd >= 0 else "-"
-                                pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
+                                enable_negative_hold_guard = getattr(self.profile, 'enable_negative_hold_guard', True)
+                                negative_hold_seconds = int(getattr(self.profile, 'negative_hold_seconds', 2700))
                                 
-                                entry_fee = abs(pos.get("entry_fee", 0))
-                                spread_cost = entry_fee + fee_usd
-    
-                                logger.info(
-                                    f"[PAPER] [EXIT] Paper INVALIDATION: {symbol} {pnl_str} "
-                                    f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
-                                    f"Entry={entry_p:.5f} Exit={_exit_price:.5f} | "
-                                    f"Duration={duration_str} | "
-                                    f"Est. Spread Cost: ${spread_cost:.2f} | "
-                                    f"MFE=${pos.get('mfe_usd', 0.0):.2f} MAE=${pos.get('mae_usd', 0.0):.2f} | {_router_reason}"
+                                is_negative = False
+                                entry_p = pos.get("entry_price", 0)
+                                if enable_negative_hold_guard:
+                                    if side == "long":
+                                        is_negative = price < entry_p
+                                    else:
+                                        is_negative = price > entry_p
+                                
+                                neg_hold_blocked = (
+                                    enable_negative_hold_guard
+                                    and is_negative
+                                    and _router_held_s < negative_hold_seconds
                                 )
-    
-                                if self.trade_results:
-                                    self.trade_results.add_result(TradeResult(
-                                        symbol=symbol,
-                                        closed_at=self._wall_clock().isoformat(),
-                                        pnl_pct=pnl_pct,
-                                        pnl_usd=pnl_usd,
-                                        is_win=pnl_usd > 0,
-                                        tier="100%",
-                                        capital_at_close=self.balance,
-                                        opened_at=pos.get("opened_at", ""),
-                                        duration_seconds=duration_secs,
-                                        strategy=pos.get("strategy", "unknown"),
-                                        exit_reason=_router_reason,
-                                        side=side,
-                                        spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
-                                        mfe_usd=pos.get("mfe_usd", 0.0),
-                                        mae_usd=pos.get("mae_usd", 0.0),
+
+                                enable_spread_profit_guard = getattr(self.profile, 'enable_spread_profit_guard', True)
+                                spread_profit_blocked = False
+                                if enable_spread_profit_guard:
+                                    fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
+                                    qty = pos.get("qty", abs(pos["size"]))
+                                    if is_parity:
+                                        taker_fee = self._get_taker_fee(symbol)
+                                        est_spread_usd = abs(qty * price) * taker_fee
+                                    else:
+                                        est_spread_usd = abs(qty * price) * (fee_pct / 2.0)
+                                    
+                                    if unrealized_pnl_usd > 0 and unrealized_pnl_usd < est_spread_usd:
+                                        spread_profit_blocked = True
+
+                                if (position_is_young or neg_hold_blocked or spread_profit_blocked) and not is_emergency:
+                                    if spread_profit_blocked:
+                                        block_reason = "spread profit guard"
+                                        block_limit_str = f"PnL ${unrealized_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd:.2f}"
+                                    else:
+                                        block_reason = "negative hold" if neg_hold_blocked else "hold guard"
+                                        block_limit = negative_hold_seconds if neg_hold_blocked else hold_guard_seconds
+                                        block_limit_str = f"age {_router_held_s:.0f}s < {block_limit}s"
+                                    logger.info(
+                                        f"[PAPER HOLD GUARD] {symbol} strategy exit BLOCKED — "
+                                        f"{block_limit_str} "
+                                        f"(non-emergency exits blocked during {block_reason}). "
+                                        f"Reason: {_router_reason}"
+                                    )
+                                    # Fall through to mechanical stops (do not exit here)
+                                else:
+                                    if is_emergency and (position_is_young or neg_hold_blocked or spread_profit_blocked):
+                                        logger.info(
+                                            f"[PAPER HOLD GUARD] {symbol} EMERGENCY EXIT allowed — "
+                                            f"bypassed hold/negative/spread profit guards"
+                                        )
+                                    # Exit router wants to close via strategy — do it at bar close price
+                                    _exit_price = candles_for_router[-1].close if candles_for_router else price
+                                    entry_p = pos.get("entry_price", 0)
+                                    pnl_usd = (_exit_price - entry_p) * pos["size"]
+                                    fee_usd = abs(pos.get("qty", abs(pos["size"])) * _exit_price) * self._get_taker_fee(symbol)
+                                    pnl_usd -= fee_usd
+                                    self.balance += pnl_usd
+                                    
+                                    # Duration
+                                    duration_secs = _router_held_s
+                                    duration_str = "N/A"
+                                    if duration_secs is not None:
+                                        _m = int(duration_secs // 60)
+                                        _s = int(duration_secs % 60)
+                                        if _m >= 60:
+                                            _h = _m // 60
+                                            _m = _m % 60
+                                            duration_str = f"{_h}h {_m}m {_s}s"
+                                        else:
+                                            duration_str = f"{_m}m {_s}s"
+                                    
+                                    if pnl_usd > 0:
+                                        pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd)
+                                    else:
+                                        pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_usd)
+
+                                    pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
+                                    pnl_sign = "+" if pnl_usd >= 0 else "-"
+                                    pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
+                                    
+                                    entry_fee = abs(pos.get("entry_fee", 0))
+                                    spread_cost = entry_fee + fee_usd
+        
+                                    logger.info(
+                                        f"[PAPER] [EXIT] Paper INVALIDATION: {symbol} {pnl_str} "
+                                        f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
+                                        f"Entry={entry_p:.5f} Exit={_exit_price:.5f} | "
+                                        f"Duration={duration_str} | "
+                                        f"Est. Spread Cost: ${spread_cost:.2f} | "
+                                        f"MFE=${pos.get('mfe_usd', 0.0):.2f} MAE=${pos.get('mae_usd', 0.0):.2f} | {_router_reason}"
+                                    )
+        
+                                    if self.trade_results:
+                                        self.trade_results.add_result(TradeResult(
+                                            symbol=symbol,
+                                            closed_at=self._wall_clock().isoformat(),
+                                            pnl_pct=pnl_pct,
+                                            pnl_usd=pnl_usd,
+                                            is_win=pnl_usd > 0,
+                                            tier="100%",
+                                            capital_at_close=self.balance,
+                                            opened_at=pos.get("opened_at", ""),
+                                            duration_seconds=duration_secs,
+                                            strategy=pos.get("strategy", "unknown"),
+                                            exit_reason=_router_reason,
+                                            side=side,
+                                            spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
+                                            mfe_usd=pos.get("mfe_usd", 0.0),
+                                            mae_usd=pos.get("mae_usd", 0.0),
+                                        ))
+        
+                                    del self.positions[symbol]
+                                    self._exit_cooldowns[symbol] = self._now().timestamp()
+                                    SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, sim_time=self._now())
+                                    self._save_state()
+                                    self.refresh_account_summary()
+                                    results.append(ExecutionResult(
+                                        ExecutionStatus.EXIT_SIGNAL, symbol,
+                                        f"Paper INVALIDATION exit PnL={pnl_usd:.2f}"
                                     ))
-    
-                                del self.positions[symbol]
-                                self._exit_cooldowns[symbol] = self._now().timestamp()
-                                SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, sim_time=self._now())
-                                self._save_state()
-                                self.refresh_account_summary()
-                                results.append(ExecutionResult(
-                                    ExecutionStatus.EXIT_SIGNAL, symbol,
-                                    f"Paper INVALIDATION exit PnL={pnl_usd:.2f}"
-                                ))
-                                continue  # Skip SL/TP check — position already closed
+                                    continue  # Skip SL/TP check — position already closed
 
                         elif _router_decision and getattr(_router_decision, 'action', '') == 'hold' and _router_decision.stop_loss is not None:
                             # Trailing stop update from router (chandelier, ratchet)
@@ -1318,17 +1332,23 @@ class PaperBroker:
             hit = None
             exit_price = price  # Default to close price
 
+            fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
+
             if side == "long":
                 # SL: use candle LOW (worst intra-bar price against long)
                 check_sl = candle_low if candle_low is not None else price
                 # TP: use candle HIGH (best intra-bar price for long)
                 check_tp = candle_high if candle_high is not None else price
-                if sl and check_sl <= sl:
+                
+                check_sl_bid = check_sl * (1 - friction)
+                check_tp_bid = check_tp * (1 - friction)
+
+                if sl and check_sl_bid <= sl:
                     hit = "SL"
-                    exit_price = sl  # Exit at exact SL level
-                elif tp and tp > entry_p and check_tp >= tp:
+                    exit_price = sl * (1 - friction) if not is_parity else sl
+                elif tp and tp > entry_p and check_tp_bid >= tp:
                     hit = "TP"
-                    exit_price = tp  # Exit at exact TP level
+                    exit_price = tp # Limit orders fill at exact price without spread penalty
                 elif tp and tp <= entry_p:
                     logger.warning(f"[PAPER] [GHOST GUARD] {symbol}: TP {tp} <= entry {entry_p} for LONG — ignoring TP")
             else:  # short
@@ -1336,19 +1356,26 @@ class PaperBroker:
                 check_sl = candle_high if candle_high is not None else price
                 # TP: use candle LOW (best intra-bar price for short)
                 check_tp = candle_low if candle_low is not None else price
-                if sl and check_sl >= sl:
+                
+                check_sl_ask = check_sl * (1 + friction)
+                check_tp_ask = check_tp * (1 + friction)
+
+                if sl and check_sl_ask >= sl:
                     hit = "SL"
-                    exit_price = sl  # Exit at exact SL level
-                elif tp and tp < entry_p and check_tp <= tp:
+                    exit_price = sl * (1 + friction) if not is_parity else sl
+                elif tp and tp < entry_p and check_tp_ask <= tp:
                     hit = "TP"
-                    exit_price = tp  # Exit at exact TP level
+                    exit_price = tp # Limit orders fill at exact price without spread penalty
                 elif tp and tp >= entry_p:
                     logger.warning(f"[PAPER] [GHOST GUARD] {symbol}: TP {tp} >= entry {entry_p} for SHORT — ignoring TP")
 
             if hit:
                 # exit_price already set to exact SL/TP level from OHLC evaluation above
                 pnl_usd = (exit_price - entry_p) * pos["size"]
-                fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * self._get_taker_fee(symbol)
+                if is_parity:
+                    fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * self._get_taker_fee(symbol)
+                else:
+                    fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * (fee_pct / 2.0)
                 pnl_usd -= fee_usd
                 
                 if pnl_usd > 0:

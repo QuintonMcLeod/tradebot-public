@@ -169,7 +169,7 @@ class MetaSCIStrategy(BaseStrategy):
             "trend_rider": TrendRiderStrategy(),
             "quantum": QuantumStrategy(),
             "volatility_breakout": VolatilityBreakoutStrategy(),  # [PHASE 7] Was missing!
-            "forex_hybrid_reaper": ForexHybridReaperStrategy(),
+            "forex_hybrid_scalper": ForexHybridReaperStrategy(),
             # --- Ranging / Reversal Market ---
             "rubberband_reaper": RubberbandReaperStrategy(),
             "icc_core": ICCCoreStrategy(),
@@ -235,23 +235,23 @@ class MetaSCIStrategy(BaseStrategy):
             "bearish_trending": [
                 "icc_core",             # ✅ +$1,237 solo (ATR*2.0, 2.0R, profit guard)
                 "mean_reversion",       # Near-break (R:R 0.82, best of losers)
-                "forex_hybrid_reaper",
+                "forex_hybrid_scalper",
             ] + en_masse,
             "bullish_trending": [
                 "icc_core",             # ✅ +$1,237 solo
                 "mean_reversion",
-                "forex_hybrid_reaper",
+                "forex_hybrid_scalper",
             ] + en_masse,
             "ranging": [
                 "icc_core",             # ✅ Works in all regimes
                 "mean_reversion",       # Mean reversion natural in ranging
-                "forex_hybrid_reaper",
+                "forex_hybrid_scalper",
             ] + en_masse,
             "session_open": [
                 "london_breakout",      # Session-specific (London open)
                 "orb_breakout",         # ✅ +$1,718 solo (Opening Range Breakout)
                 "session_momentum",     # Session-specific
-                "forex_hybrid_reaper",
+                "forex_hybrid_scalper",
                 "london_sweep", "new_york_drive"
             ],
             "crypto_trending": [
@@ -277,7 +277,7 @@ class MetaSCIStrategy(BaseStrategy):
             
             # --- Breakout/Session (Medium) ---
             "orb_breakout": 15,
-            "forex_hybrid_reaper": 15,
+            "forex_hybrid_scalper": 15,
             "london_breakout": 10,
             "london_sweep": 10,
             "new_york_drive": 10,
@@ -323,7 +323,7 @@ class MetaSCIStrategy(BaseStrategy):
             "silver_vwap": 5,
             
             # --- Breakout/Session (Medium/Low) ---
-            "forex_hybrid_reaper": 15,
+            "forex_hybrid_scalper": 15,
             "london_breakout": 5,
             "london_sweep": 5,
             "new_york_drive": 5,
@@ -442,7 +442,7 @@ class MetaSCIStrategy(BaseStrategy):
         "icc_core",             # ✅ +$1,237 solo (battle-hardened)
         "orb_breakout",         # ✅ +$1,718 solo (battle-hardened)
         "london_breakout",      # Session-specific, near-profitable in ensemble
-        "forex_hybrid_reaper",  # Router-based ensemble
+        "forex_hybrid_scalper",  # Router-based ensemble
         # Forced additions:
         "forex_conductor", "qs_3_10_trend", "qs_choppiness", "qs_first_day_month",
         "qs_golden_cross", "qs_rsi_mean_reversion", "qs_sma_filter", "qs_tqqq_btal",
@@ -469,7 +469,7 @@ class MetaSCIStrategy(BaseStrategy):
     ALL_AROUND_HITTERS = {
         "icc_core",        # ICT methodology works in any session
         "mean_reversion",  # Mean reversion works in any session (best R:R 0.82)
-        "forex_hybrid_reaper", # Universal execution
+        "forex_hybrid_scalper", # Universal execution
         # Forced additions
         "forex_conductor", "qs_3_10_trend", "qs_choppiness", "qs_first_day_month",
         "qs_golden_cross", "qs_rsi_mean_reversion", "qs_sma_filter", "qs_tqqq_btal",

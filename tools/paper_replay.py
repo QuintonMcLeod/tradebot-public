@@ -58,8 +58,8 @@ for _noisy in ("tradebot_sci", "httpcore", "httpx"):
 logger = logging.getLogger("paper_replay")
 
 # ── Candle History Location ───────────────────────────────────────────────────
-_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "tradebot-sci"
-_CANDLE_DIR = _CONFIG_DIR / "data" / "candle_history"
+from tradebot_sci.paths import DATA_DIR, CONFIG_FILE
+_CANDLE_DIR = DATA_DIR / "candle_history"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -135,6 +135,13 @@ class ReplayMarketProvider:
         self._last_price: dict[str, float] = {}
         # Per-symbol latest snapshot — for get_latest_snapshot(symbol) lookups
         self._sym_snapshot: dict[str, MarketSnapshot] = {}
+
+    @property
+    def sim_time(self) -> Optional[datetime]:
+        """Return the current simulated time from the active snapshot."""
+        if self._snapshot and self._snapshot.candles:
+            return self._snapshot.candles[-1].timestamp
+        return None
 
     def set_htf_timeline(self, htf_timeline: dict[str, list[Candle]]):
         self._htf_timeline = htf_timeline
@@ -1295,7 +1302,7 @@ def main():
 
     if args.data_dir:
         global _CANDLE_DIR
-        _CANDLE_DIR = _CONFIG_DIR / "data" / args.data_dir
+        _CANDLE_DIR = DATA_DIR / args.data_dir
 
     # Resolve date range
     def parse_cli_date(d_str: str) -> datetime:

@@ -149,7 +149,7 @@ class StrategyEngine:
         "crypto_grid":          ("tradebot_sci.strategy.variants.crypto_grid",          "CryptoGridStrategy"),
         "aggregator":           ("tradebot_sci.strategy.variants.aggregator",           "AggregatorStrategy"),
         "forex_conductor":      ("tradebot_sci.strategy.variants.forex_conductor",      "ForexConductorStrategy"),
-        "forex_hybrid_reaper":  ("tradebot_sci.strategy.variants.forex_hybrid_reaper",  "ForexHybridReaperStrategy"),
+        "forex_hybrid_scalper":  ("tradebot_sci.strategy.variants.forex_hybrid_reaper",  "ForexHybridReaperStrategy"),
         "qs_sma_filter":        ("tradebot_sci.strategy.variants.qs_sma_filter",        "QS_SMAFilterStrategy"),
         "qs_golden_cross":      ("tradebot_sci.strategy.variants.qs_golden_cross",      "QS_GoldenCrossStrategy"),
         "qs_rsi_mean_reversion":("tradebot_sci.strategy.variants.qs_rsi_mean_reversion","QS_RSIMeanReversionStrategy"),
@@ -494,14 +494,23 @@ class StrategyEngine:
         session_id = getattr(self._strategy, "SESSION_PROFILE", None)
         session_ok = True
         session_gate_enabled = False
-        if self.settings and getattr(self.settings, "risk", None):
-            session_gate_enabled = getattr(self.settings.risk, "session_gate_enabled", False)
+        if self.settings and hasattr(self.settings, "safety"):
+            session_gate_enabled = getattr(self.settings.safety, "session_gate_enabled", False)
 
         if session_gate_enabled and session_id:
             if isinstance(session_id, list):
-                session_ok = any(sid in gates["active_sessions"] for sid in session_id)
+                cleaned_ids = [sid.split(":")[-1] if ":" in sid else sid for sid in session_id]
+                session_ok = any(sid in gates["active_sessions"] for sid in cleaned_ids)
             else:
-                session_ok = session_id in gates["active_sessions"]
+                cleaned_id = session_id.split(":")[-1] if isinstance(session_id, str) and ":" in session_id else session_id
+                session_ok = cleaned_id in gates["active_sessions"]
+                
+            # [SABBATH REPLAY OVERRIDE]
+            # If we failed the gate but Sabbath is enabled, we are in PaperBroker, AND paper off-hours is enabled, force True!
+            if not session_ok and self.settings and hasattr(self.settings, "safety"):
+                if getattr(self.settings.safety, "sabbath_enabled", False):
+                    if type(self._broker).__name__ == "PaperBroker" and can_paper_trade:
+                        session_ok = True
 
         # Calculate grade for the current snapshot using the populated trend values
         from tradebot_sci.strategy.scoring import ActionScorer
@@ -1242,6 +1251,28 @@ class StrategyEngine:
             if meta_src:
                 self.last_strat_name = meta_src
 
+            # [DURATION FILTER] Minimum Hold Time Enforcement
+            if decision.action in ("close_position", "flatten", "scale_out") and open_position:
+                min_hold_hours = float(getattr(self.profile, "min_hold_hours", 0.0))
+                if min_hold_hours > 0:
+                    entry_time_str = open_position.get("entry_time", open_position.get("opened_at", ""))
+                    if entry_time_str:
+                        try:
+                            entry_dt = datetime.fromisoformat(entry_time_str)
+                            now = candle_now or current_bar_time or (datetime.now(entry_dt.tzinfo) if entry_dt.tzinfo else datetime.now(timezone.utc))
+                            duration_seconds = (now - entry_dt).total_seconds()
+                            if duration_seconds < (min_hold_hours * 3600):
+                                reason = f"Duration Filter: Hold time ({duration_seconds/3600:.2f}h) < min_hold_hours ({min_hold_hours}h)"
+                                logger.info(f"[DURATION_GUARD] {self.symbol} {reason}")
+                                from tradebot_sci.strategy.decisions import stand_aside_decision
+                                from tradebot_sci.runtime.rejection_journal import rejection_journal
+                                rejection_journal.log(self.symbol, timeframe, "DurationGuard", reason)
+                                blocked = stand_aside_decision(snapshot.symbol, snapshot.timeframe, reason)
+                                blocked.score = strat_score
+                                blocked.grade = strat_grade
+                                return blocked
+                        except Exception as e:
+                            logger.error(f"[DURATION_GUARD] Error calculating duration for {self.symbol}: {e}")
 
             # Counter-Trend Entry Block
             # Prevents going long when HTF is bearish, or short when HTF is bullish.
@@ -1324,7 +1355,8 @@ class StrategyEngine:
                 # [FRIDAY FADE DAMPER] Global Forex Protection
                 from tradebot_sci.config.models import UserConfig
                 if UserConfig.FRIDAY_FADE_ENABLED:
-                    est_now = datetime.now(ZoneInfo("America/New_York"))
+                    _sim_now = candle_now or current_bar_time or datetime.now(timezone.utc)
+                    est_now = _sim_now.astimezone(ZoneInfo("America/New_York"))
                     if est_now.weekday() == 4 and est_now.hour >= 12:
                         if classify_symbol(self.symbol) == AssetClass.FOREX:
                             old_risk = decision.risk_per_trade_pct
@@ -1381,7 +1413,21 @@ class StrategyEngine:
                     else:
                         env_override = float(os.environ["SAFETY_FEE_RT_PCT"]) / 100.0 if "SAFETY_FEE_RT_PCT" in os.environ else None
                     est_fee_rt = get_fee_for_symbol(self.symbol, override=env_override)
-                    min_edge_pct = est_fee_rt * 1.5
+                    
+                    # [NEW] Incorporate Global Spread Buffer into Fee Shield
+                    try:
+                        import json
+                        from tradebot_sci import paths as _paths
+                        with open(_paths.CONFIG_FILE, "r") as f:
+                            _g_conf = json.load(f).get("global", {})
+                        spread_buffer_bps = float(_g_conf.get("spread_buffer", 0.0))
+                    except Exception:
+                        spread_buffer_bps = 0.0
+                    
+                    spread_buffer_pct = spread_buffer_bps / 10000.0
+                    total_friction_pct = est_fee_rt + spread_buffer_pct
+                    
+                    min_edge_pct = total_friction_pct * 1.5
                     if potential_reward_pct < min_edge_pct:
                         logger.warning(f"[FEE SHIELD] {self.symbol} Reward {potential_reward_pct:.2%} < Min Edge {min_edge_pct:.2%} (Fees)")
                         from tradebot_sci.strategy.decisions import stand_aside_decision

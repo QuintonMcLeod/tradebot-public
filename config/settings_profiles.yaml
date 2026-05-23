@@ -182,8 +182,8 @@ profiles:
     - GBPUSD 
     - USDJPY 
     strategies: 
-      forex: forex_hybrid_reaper 
-    strategy_variant: forex_hybrid_reaper 
+      forex: forex_hybrid_scalper 
+    strategy_variant: forex_hybrid_scalper 
     candle_timeframe: 5m 
     mtf_timeframe: 1h 
     htf_timeframe: 4h 

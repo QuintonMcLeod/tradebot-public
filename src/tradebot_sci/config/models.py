@@ -1261,7 +1261,7 @@ class TradingProfileSettings(BaseModel):
             
         # 3. Last Resort Fallback Map (Strictly Enforce Conductor for Forex)
         if asset_class == AssetClass.FOREX:
-            return "forex_hybrid_reaper"
+            return "forex_hybrid_scalper"
         elif asset_class == AssetClass.CRYPTO:
             return "meta_sci"
         
