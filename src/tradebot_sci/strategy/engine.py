@@ -715,7 +715,10 @@ class StrategyEngine:
             )
 
             # ── SPREAD PROFIT GUARD ───────────────────────────────────────
-            enable_spread_profit_guard = getattr(self.profile, "enable_spread_profit_guard", True)
+            if self.settings and hasattr(self.settings, 'safety'):
+                enable_spread_profit_guard = getattr(self.settings.safety, "enable_spread_profit_guard", True)
+            else:
+                enable_spread_profit_guard = getattr(self.profile, "enable_spread_profit_guard", True)
             spread_profit_blocked = False
             floating_pnl_usd = 0.0
             est_spread_usd = 0.0

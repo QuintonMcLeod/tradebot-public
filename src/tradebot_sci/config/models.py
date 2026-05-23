@@ -1364,6 +1364,7 @@ class SafetySettings(BaseModel):
     sabbath_timezone: str = Field(default="America/New_York")
     profile_pdt_guard_enabled: bool = Field(default=True)
     disable_friction_guard: bool = Field(default=True)
+    enable_spread_profit_guard: bool = Field(default=True)
 
     # --- ATR & Armor ---
     safety_atr_shield_enabled: bool = Field(

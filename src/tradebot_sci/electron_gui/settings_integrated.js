@@ -112,6 +112,10 @@ const CONFIG_MAP = {
     'STRATEGY_ETF': ['global', 'strategy_etf'],
     'STRATEGY_METALS': ['global', 'strategy_metals'],
     'STRATEGY_FUTURES': ['global', 'strategy_futures'],
+    // Timeframes (global SSOT)
+    'CANDLE_TIMEFRAME': ['global', 'candle_timeframe'],
+    'HTF_TIMEFRAME': ['global', 'htf_timeframe'],
+    'LTF_TIMEFRAME': ['global', 'ltf_timeframe'],
     // Pyramiding (under global in config.json)
     'MAX_PYRAMID_ENTRIES': ['global', 'max_pyramid_entries'],
     'BREAKEVEN_TRAIL_AFTER_PYRAMIDS': ['global', 'breakeven_trail_after_pyramids'],

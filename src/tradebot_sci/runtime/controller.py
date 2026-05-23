@@ -50,10 +50,9 @@ class RuntimeController:
         now = time.time()
         execute_trades = getattr(self.settings.runtime, "execute_trades", True)
         is_paper = not execute_trades
-        # Detect paper mode from executor mismatch ONLY if Live Trading is disabled.
-        # When Live Trading is enabled, the user explicitly requested that the Live Broker's capital
-        # and live status remain visible in the GUI, even during off-hours or Sabbath, without violating the global schedule.
-        if not execute_trades and executor_real is not None and executor is not executor_real:
+        # If the active executor is not the real executor (e.g., during Sabbath simulation),
+        # force UI into paper/simulation mode to reflect the virtual snapshot.
+        if executor_real is not None and executor is not executor_real:
             is_paper = True
 
         # Paper/replay mode: 5s throttle for fast turbo updates; Live: 30s
@@ -65,8 +64,8 @@ class RuntimeController:
             sabbath_active, _, _ = SabbathContext(self.profile_settings).evaluate(datetime.now(timezone.utc))
 
             # For GUI display, use actual tracked balance (not sizing-capped value).
-            # When Live Trading is enabled, the Live Broker's capital should be visible.
-            if execute_trades and executor_real is not None:
+            # When the system enters a simulated state (e.g. Sabbath), track the virtual snapshot.
+            if not is_paper and executor_real is not None:
                 display_source = executor_real
             else:
                 display_source = executor
