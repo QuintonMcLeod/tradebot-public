@@ -149,9 +149,15 @@ class OandaMarketDataProvider:
         active_prof = config.get("active_profile", "primary")
         prof_data = config.get("profiles", {}).get(active_prof, {})
         htf_setting = prof_data.get("htf_timeframe") or config.get("global", {}).get("htf_timeframe") or "4h"
+        xtf_setting = prof_data.get("xtf_timeframe") or config.get("global", {}).get("xtf_timeframe") or "1m"
 
         ltf_candles = self.get_latest_candles(symbol, timeframe, limit=1000)
         htf_candles = self.get_latest_candles(symbol, htf_setting, limit=1000)
+        
+        try:
+            micro_candles = self.get_latest_candles(symbol, xtf_setting, limit=10)
+        except Exception:
+            micro_candles = []
         
         # Neutral defaults — engine.py's Trend Detection sets direction
         _neutral = TrendState(direction="neutral", strength=0.0)
@@ -164,8 +170,10 @@ class OandaMarketDataProvider:
             trend_ltf=_neutral,
             htf_candles=htf_candles,
             ltf_candles=ltf_candles,
+            micro_candles=micro_candles,
             htf_timeframe=htf_setting,
             ltf_timeframe=timeframe,
+            micro_timeframe=xtf_setting,
         )
 
     def get_ticker(self, symbol: str) -> Ticker | None:

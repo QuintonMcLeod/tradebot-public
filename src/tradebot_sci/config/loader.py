@@ -270,7 +270,7 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
 
     _REAL_PROFILE_KEYS = {
         "name", "strategy_variant", "strategies", "symbols",
-        "candle_timeframe", "htf_timeframe", "mtf_timeframe", "ltf_timeframe",
+        "candle_timeframe", "htf_timeframe", "mtf_timeframe", "ltf_timeframe", "xtf_timeframe",
         "risk_dynamic_auto",
         # Profile-level behavioral flags (set by GUI profile editor)
         "continuous_mode",

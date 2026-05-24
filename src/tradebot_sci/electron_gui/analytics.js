@@ -958,13 +958,22 @@ function formatDuration(entryTime) {
         const diffMs = now - entry;
         if (diffMs < 0) return '--';
 
-        const mins = Math.floor(diffMs / 60000);
-        const hrs = Math.floor(mins / 60);
-        const days = Math.floor(hrs / 24);
+        if (diffMs < 1000) {
+            let ms = Math.floor(diffMs);
+            if (ms <= 0) ms = 1;
+            return `${ms}ms`;
+        }
 
-        if (days > 0) return `${days}d ${hrs % 24}h`;
-        if (hrs > 0) return `${hrs}h ${mins % 60}m`;
-        return `${mins}m`;
+        const totalSec = Math.floor(diffMs / 1000);
+        const days = Math.floor(totalSec / 86400);
+        const hrs = Math.floor((totalSec % 86400) / 3600);
+        const mins = Math.floor((totalSec % 3600) / 60);
+        const secs = Math.floor(totalSec % 60);
+
+        if (days > 0) return `${days}d ${hrs}h`;
+        if (hrs > 0) return `${hrs}h ${mins}m`;
+        if (mins > 0) return `${mins}m ${secs}s`;
+        return `${secs}s`;
     } catch (_) { return '--'; }
 }
 
@@ -990,12 +999,19 @@ function formatClosedDuration(trade) {
 
 /** Convert seconds to human-readable duration */
 function _formatSeconds(totalSec) {
+    if (totalSec < 1) {
+        let ms = Math.floor(totalSec * 1000);
+        if (ms <= 0) ms = 1;
+        return `${ms}ms`;
+    }
     const days = Math.floor(totalSec / 86400);
     const hrs = Math.floor((totalSec % 86400) / 3600);
     const mins = Math.floor((totalSec % 3600) / 60);
+    const secs = Math.floor(totalSec % 60);
     if (days > 0) return `${days}d ${hrs}h`;
     if (hrs > 0) return `${hrs}h ${mins}m`;
-    return `${mins}m`;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
 }
 
 // TRADE HISTORY (using side-badge from analytics.css)

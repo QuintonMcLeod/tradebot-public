@@ -64,7 +64,7 @@ def run_universal_exit_logic(
     #
     # This mirrors the backtester fix where the Universal Exit Router runs
     # at the per-bar level BEFORE the hardcoded stop check.
-    _EMERGENCY_STRATEGIES = {"trend_invalidation", "structure_failure"}
+    _EMERGENCY_STRATEGIES = {"trend_invalidation", "structure_failure", "micro_canary"}
     for exit_strategy in active_strategies:
         exit_strategy_key = str(exit_strategy).lower()
         if exit_strategy_key not in _EMERGENCY_STRATEGIES:
@@ -74,6 +74,8 @@ def run_universal_exit_logic(
             strat_decision = _exit_trend_invalidation(snapshot, open_position, current_price, direction, gates, strategy_name)
         elif exit_strategy_key == "structure_failure":
             strat_decision = _exit_structure_failure(snapshot, open_position, current_price, direction)
+        elif exit_strategy_key == "micro_canary":
+            strat_decision = _exit_micro_canary(snapshot, open_position, current_price, direction, profile, r_multiple)
         if strat_decision and getattr(strat_decision, "action", None) == "close_position":
             return strat_decision
 
@@ -139,7 +141,23 @@ def run_universal_exit_logic(
             if getattr(strat_decision, "action", None) == "close_position":
                 return strat_decision
             # Preserve hold decisions (trailing stops) if no hard exit triggered
-            decision = strat_decision
+            # Ensure we only keep the TIGHTEST stop loss among all strategies
+            if getattr(strat_decision, "action", None) in ("hold", "stand_aside"):
+                new_sl = getattr(strat_decision, "stop_loss", None)
+                if new_sl is not None:
+                    new_sl = float(new_sl)
+                    if direction == "long":
+                        if new_sl > stop_price:
+                            stop_price = new_sl
+                            open_position["stop_loss"] = new_sl
+                            decision = strat_decision
+                    else:
+                        if stop_price == 0 or new_sl < stop_price:
+                            stop_price = new_sl
+                            open_position["stop_loss"] = new_sl
+                            decision = strat_decision
+                elif decision is None:
+                    decision = strat_decision
 
     return decision
 
@@ -434,10 +452,7 @@ def _exit_winner_giveback(snapshot, pos, current_price, direction, profile):
         if entry_price > 0 and size != 0:
             pnl_usd = (current_price - entry_price) * size
             
-    if pnl_usd <= 0:
-        return None
-        
-    # Giveback calculation
+    # Giveback calculation (supports pnl_usd <= 0 to trigger immediate exit on fast reversal)
     giveback_usd = mfe_usd - pnl_usd
     
     # Threshold (e.g. 0.20 = 20% giveback allowed)
@@ -756,4 +771,39 @@ def _calc_bars_held(pos: dict, snapshot) -> int:
     return bars_held
 
 
+def _exit_micro_canary(snapshot: MarketSnapshot, open_position: dict, current_price: float, direction: str, profile: Any, r_multiple: float) -> Optional[AITradeDecision]:
+    """
+    Micro-Canary Early Warning Exit
+    Uses extra-low timeframe (1m) candles to detect microscopic structural collapse 
+    before the 5m candle closes. Allows greedy exits to front-run massive reversals.
+    """
+    micro_candles = getattr(snapshot, "micro_candles", [])
+    if not micro_candles or len(micro_candles) < 5:
+        return None
+        
+    # Only arm if trade is decently profitable (e.g., 0.5R)
+    if r_multiple < 0.5:
+        return None
+        
+    # Calculate 1m ATR
+    atr_1m = calculate_atr(micro_candles[-14:], period=14) if len(micro_candles) >= 14 else calculate_atr(micro_candles, period=len(micro_candles))
+    if not atr_1m or atr_1m <= 0:
+        return None
 
+    # Get recent 1m candles
+    c1 = micro_candles[-1]
+    c2 = micro_candles[-2]
+    c3 = micro_candles[-3]
+    
+    # Check for violent engulfing or velocity drop
+    if direction == "long":
+        # Check if latest 1m candle crashed below the low of the last 3 minutes combined
+        recent_low = min(c2.low, c3.low)
+        if c1.close < recent_low and (c1.open - c1.close) > atr_1m * 1.5:
+            return _hard_exit(snapshot, open_position, "Micro-Canary Reversal: Massive 1m bearish drop detected", True)
+    else:
+        recent_high = max(c2.high, c3.high)
+        if c1.close > recent_high and (c1.close - c1.open) > atr_1m * 1.5:
+            return _hard_exit(snapshot, open_position, "Micro-Canary Reversal: Massive 1m bullish spike detected", True)
+
+    return None

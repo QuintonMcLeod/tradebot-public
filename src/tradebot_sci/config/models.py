@@ -321,6 +321,10 @@ class TradingProfileSettings(BaseModel):
         default=None,
         description="Lower timeframe used for ICC execution structure; defaults to candle_timeframe when unset.",
     )
+    xtf_timeframe: str = Field(
+        default="1m",
+        description="Extra-low timeframe used for Micro-Canary early warning detection.",
+    )
     target_r: float = Field(
         default=1.2,
         description="Global Risk-to-Reward ratio fallback. Also maps to the specific targets of sub-strategies.",

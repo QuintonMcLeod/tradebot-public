@@ -78,13 +78,40 @@ class PaxosMarketDataProvider(MarketDataProvider):
         tick = self.get_ticker(symbol)
         if not tick:
             return None
+            
+        # Resolve HTF/XTF timeframe from config
+        try:
+            from tradebot_sci.config.loader import load_config_json
+            config = load_config_json()
+        except ImportError:
+            from tradebot_sci import paths as _paths
+            import json
+            try:
+                with open(_paths.CONFIG_FILE, "r") as f:
+                    config = json.load(f)
+            except Exception:
+                config = {}
+        
+        active_prof = config.get("active_profile", "primary")
+        prof_data = config.get("profiles", {}).get(active_prof, {})
+        htf_setting = prof_data.get("htf_timeframe") or config.get("global", {}).get("htf_timeframe") or "4h"
+        xtf_setting = prof_data.get("xtf_timeframe") or config.get("global", {}).get("xtf_timeframe") or "1m"
+
+        _neutral = TrendState(direction="neutral", strength=0.0)
+        
         # Create a synthetic candle from ticker? OR just snapshot
         return MarketSnapshot(
             symbol=symbol,
-            price=tick.last,
-            volume=0, # No volume data readily available in ticker
-            timestamp=tick.time,
-            order_book=self.get_order_book(symbol, 5)
+            timeframe=timeframe,
+            candles=[],
+            trend_htf=_neutral,
+            trend_ltf=_neutral,
+            htf_candles=[],
+            ltf_candles=[],
+            micro_candles=[],
+            htf_timeframe=htf_setting,
+            ltf_timeframe=timeframe,
+            micro_timeframe=xtf_setting,
         )
 
     def close(self) -> None:

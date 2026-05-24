@@ -188,11 +188,30 @@ class SyntheticMarketProvider:
 
     def get_latest_snapshot(self, symbol: str, timeframe: str) -> MarketSnapshot:
         """Build a snapshot from generated candles."""
+        # Resolve HTF/XTF timeframe from config
+        try:
+            from tradebot_sci.config.loader import load_config_json
+            config = load_config_json()
+        except ImportError:
+            from tradebot_sci import paths as _paths
+            import json
+            try:
+                with open(_paths.CONFIG_FILE, "r") as f:
+                    config = json.load(f)
+            except Exception:
+                config = {}
+        
+        active_prof = config.get("active_profile", "primary")
+        prof_data = config.get("profiles", {}).get(active_prof, {})
+        htf_setting = prof_data.get("htf_timeframe") or config.get("global", {}).get("htf_timeframe") or "4h"
+        xtf_setting = prof_data.get("xtf_timeframe") or config.get("global", {}).get("xtf_timeframe") or "1m"
+
         candles = self.get_latest_candles(symbol, timeframe, limit=200)
         _neutral = TrendState(direction="neutral", strength=0.0)
 
-        htf_candles = self.get_latest_candles(symbol, "1h", limit=60)
-        ltf_candles = self.get_latest_candles(symbol, "15m", limit=60)
+        htf_candles = self.get_latest_candles(symbol, htf_setting, limit=60)
+        ltf_candles = self.get_latest_candles(symbol, timeframe, limit=60)
+        micro_candles = self.get_latest_candles(symbol, xtf_setting, limit=10)
 
         # ── SYNTHETIC REGIME OVERRIDE ───────────────────────────────────────
         # Standard indicators (ADX, EMA55) are too slow to classify the
@@ -224,8 +243,10 @@ class SyntheticMarketProvider:
             trend_ltf=forced_trend,
             htf_candles=htf_candles,
             ltf_candles=ltf_candles,
-            htf_timeframe="1h",
-            ltf_timeframe="15m",
+            micro_candles=micro_candles,
+            htf_timeframe=htf_setting,
+            ltf_timeframe=timeframe,
+            micro_timeframe=xtf_setting,
         )
 
     def get_order_book(self, symbol: str, depth: int = 10):

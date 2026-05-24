@@ -595,6 +595,12 @@ class HistoricalMarketDataProvider:
 
         # Neutral defaults — engine.py's Trend Detection sets direction
         _neutral = TrendState(direction="neutral", strength=0.0)
+        
+        xtf_timeframe = getattr(profile, "xtf_timeframe", "1m")
+        try:
+            micro_candles = self.get_latest_candles(symbol, xtf_timeframe, limit=10)
+        except Exception:
+            micro_candles = []
 
         return MarketSnapshot(
             symbol=symbol,
@@ -606,9 +612,11 @@ class HistoricalMarketDataProvider:
             htf_candles=htf_candles[-htf_indicator_window:] if len(htf_candles) >= htf_indicator_window else htf_candles,
             mtf_candles=mtf_candles[-mtf_indicator_window:] if len(mtf_candles) >= mtf_indicator_window else mtf_candles,
             ltf_candles=ltf_candles[-ltf_indicator_window:] if len(ltf_candles) >= ltf_indicator_window else ltf_candles,
+            micro_candles=micro_candles,
             htf_timeframe=profile.htf_timeframe,
             mtf_timeframe=getattr(profile, "mtf_timeframe", "1h"),
             ltf_timeframe=profile.ltf_timeframe or timeframe,
+            micro_timeframe=xtf_timeframe,
         )
 
 

@@ -202,7 +202,7 @@ class ReplayMarketProvider:
 
         for sym in self.symbols:
             self._candles[sym] = {}
-            for tf in ["5m", "15m", "1h", "4h"]:
+            for tf in ["1m", "5m", "15m", "1h", "4h"]:
                 path = self.data_dir / f"{sym}_{tf}.json"
                 if not path.exists():
                     continue
@@ -443,6 +443,10 @@ class ReplayMarketProvider:
             # Resample 5m -> 15m (3 bars per 15m candle)
             ltf_candles = self._resample(candles, 3)
 
+        micro_candles = self._get_visible_candles(symbol, "1m")
+        if not micro_candles:
+            micro_candles = []
+
         INDICATOR_MIN = 60
         return MarketSnapshot(
             symbol=symbol,
@@ -453,9 +457,11 @@ class ReplayMarketProvider:
             htf_candles=htf_candles[-INDICATOR_MIN:] if len(htf_candles) >= INDICATOR_MIN else htf_candles,
             mtf_candles=mtf_candles[-INDICATOR_MIN:] if len(mtf_candles) >= INDICATOR_MIN else mtf_candles,
             ltf_candles=ltf_candles[-INDICATOR_MIN:] if len(ltf_candles) >= INDICATOR_MIN else ltf_candles,
+            micro_candles=micro_candles[-10:] if len(micro_candles) >= 10 else micro_candles,
             htf_timeframe="4h",
             mtf_timeframe="1h",
             ltf_timeframe="15m",
+            micro_timeframe="1m",
         )
 
     @staticmethod

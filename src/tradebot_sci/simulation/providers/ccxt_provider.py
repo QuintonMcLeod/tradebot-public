@@ -229,6 +229,12 @@ class CCXTHistoricalDataProvider:
         ltf_candles = (
             resample_candles(candles, ltf_seconds) if ltf_seconds != base_seconds else candles
         )
+        
+        # Micro candles cannot be resampled down from base timeframe, fetch directly from cache
+        try:
+            micro_candles = self.get_latest_candles(symbol, profile.xtf_timeframe, limit=10)
+        except Exception:
+            micro_candles = []
 
         # Neutral defaults — engine.py's Trend Detection sets direction
         _neutral = TrendState(direction="neutral", strength=0.0)
@@ -241,8 +247,10 @@ class CCXTHistoricalDataProvider:
             trend_ltf=_neutral,
             htf_candles=htf_candles[-htf_window:] if len(htf_candles) >= htf_window else htf_candles,
             ltf_candles=ltf_candles[-ltf_window:] if len(ltf_candles) >= ltf_window else ltf_candles,
+            micro_candles=micro_candles,
             htf_timeframe=profile.htf_timeframe,
             ltf_timeframe=profile.ltf_timeframe or timeframe,
+            micro_timeframe=profile.xtf_timeframe,
         )
     
     # Optional capabilities used by PairSelector

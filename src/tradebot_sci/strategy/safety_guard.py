@@ -1079,6 +1079,14 @@ class SafetyGuard:
         if raw and raw != "none":
             modes = [m.strip() for m in raw.split(",") if m.strip()]
         
+        # Also check env variable for stackable modes
+        env_mode = os.getenv("PERFORMANCE_MODE", "")
+        if env_mode:
+            for m in env_mode.split(","):
+                m_clean = m.strip().lower()
+                if m_clean and m_clean not in modes:
+                    modes.append(m_clean)
+
         # [STABILITY] Force stability mode if active in config
         if UserConfig.STABILITY_MODE_ACTIVE:
             if "stability" not in modes:
@@ -1101,14 +1109,51 @@ class SafetyGuard:
         if not decision or decision.action not in ["enter_long", "enter_short", "scale_in"]:
             return decision
 
-        modes = cls.get_active_wealth_modes()
-        if not modes:
-            return decision
+        modes = cls.get_active_wealth_modes() or []
 
         # -------------------------------------------------------------
         # 0. RESOLVE ASSET CLASS
         # -------------------------------------------------------------
         asset_class = classify_symbol(snapshot.symbol)
+
+        # ── REAL-TIME SPREAD & DAMPENING ──
+        symbol = decision.symbol
+        spread_bps = 0.0
+        from tradebot_sci.utils.symbol_classifier import _live_spread_provider
+        if _live_spread_provider is not None:
+            try:
+                val = _live_spread_provider(symbol)
+                if val is not None:
+                    spread_bps = val * 10000.0
+            except Exception:
+                pass
+
+        if spread_bps == 0.0:
+            try:
+                import json
+                from tradebot_sci import paths
+                with open(paths.CONFIG_FILE, 'r') as f:
+                    cf = json.load(f)
+                    spread_bps = float(cf.get("global", {}).get("spread_buffer", cf.get("paper", {}).get("spread_bps", 0.0)))
+            except Exception:
+                pass
+
+        # Load elevated spread threshold
+        elevated_spread_threshold = 3.0
+        try:
+            import json
+            from tradebot_sci import paths
+            with open(paths.CONFIG_FILE, 'r') as f:
+                cf = json.load(f)
+                elevated_spread_threshold = float(cf.get("global", {}).get("elevated_spread_threshold", 3.0))
+        except Exception:
+            pass
+
+        if spread_bps > elevated_spread_threshold:
+            if "stability" not in modes:
+                modes.append("stability")
+                decision.notes = (decision.notes or "") + f" | [SPREAD ALERT] Forced Stability Mode (Spread {spread_bps:.2f} bps)"
+                logger.info(f"[SPREAD ALERT] Real-time spread ({spread_bps:.2f} bps) exceeds elevated threshold ({elevated_spread_threshold} bps). Forcing Stability mode.")
 
         # -------------------------------------------------------------
         # -------------------------------------------------------------
@@ -1314,6 +1359,32 @@ class SafetyGuard:
                 elif is_long and pct_change < -0.03:
                      decision.risk_per_trade_pct *= 1.5
                      decision.notes = (decision.notes or "") + " | Contrarian Catch Bottom (1.5x)"
+
+        # ── SPREAD-BASED RISK SCALING ──
+        spread_rules = None
+        try:
+            import json
+            from tradebot_sci import paths
+            with open(paths.CONFIG_FILE, 'r') as f:
+                cf = json.load(f)
+                scaling_config = cf.get("global", {}).get("spread_scaling", {})
+                spread_rules = scaling_config.get(symbol) or scaling_config.get("DEFAULT")
+        except Exception:
+            pass
+
+        if spread_rules:
+            sorted_rules = sorted(spread_rules, key=lambda x: x.get("limit_bps", 0.0))
+            scale_factor = 1.0
+            matched_limit = 0.0
+            for rule in sorted_rules:
+                limit = rule.get("limit_bps", 999.0)
+                if spread_bps > limit:
+                    scale_factor = rule.get("scale_factor", 1.0)
+                    matched_limit = limit
+            if scale_factor < 1.0:
+                decision.risk_per_trade_pct *= scale_factor
+                decision.notes = (decision.notes or "") + f" | [SPREAD SCALING] Applied {scale_factor}x due to {spread_bps:.2f} bps spread"
+                logger.info(f"[SPREAD SCALING] {symbol} spread is {spread_bps:.2f} bps (> {matched_limit} limit), scaling risk by {scale_factor}x to {decision.risk_per_trade_pct*100:.3f}%")
 
         # L. STABILITY OVERRIDE (Final Clamp)
         if "stability" in modes:

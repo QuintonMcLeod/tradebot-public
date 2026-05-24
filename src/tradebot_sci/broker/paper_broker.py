@@ -154,7 +154,7 @@ class PaperBroker:
         # Check if market_provider has sim_time (replay mode)
         if hasattr(self, 'market_provider') and self.market_provider is not None:
             sim_time = getattr(self.market_provider, 'sim_time', None)
-            if sim_time is not None:
+            if isinstance(sim_time, datetime):
                 return sim_time
         return datetime.now(timezone.utc)
 
@@ -166,6 +166,71 @@ class PaperBroker:
         (which races ahead of real time in turbo mode).
         """
         return datetime.now(timezone.utc)
+
+    def _compute_duration(self, pos: dict) -> tuple[float, str]:
+        """Compute duration of a paper position in seconds and human-readable string.
+        
+        Enforces sim_time domain first. If the resulting duration is less than 1 second
+        (common in accelerated replay where entry and exit occur within the same heartbeat cycle/candle),
+        falls back to high-resolution wall-clock duration to achieve sub-second/millisecond precision
+        and avoid the "0m 0s" reporting bug.
+        """
+        duration_secs = 0.0
+        try:
+            entry_time_str = pos.get("entry_time")
+            opened_at_str = pos.get("opened_at")
+            
+            # Start with sim_time domain
+            if entry_time_str:
+                entry_dt = datetime.fromisoformat(entry_time_str)
+                if entry_dt.tzinfo is None:
+                    entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                closed_sim = self._now()
+                if closed_sim.tzinfo is None:
+                    closed_sim = closed_sim.replace(tzinfo=timezone.utc)
+                duration_secs = (closed_sim - entry_dt).total_seconds()
+                if duration_secs < 0:
+                    duration_secs = abs(duration_secs)
+            
+            # Fall back to wall-clock if sub-second
+            if duration_secs < 1.0 and opened_at_str:
+                opened_at_dt = datetime.fromisoformat(opened_at_str)
+                if opened_at_dt.tzinfo is None:
+                    opened_at_dt = opened_at_dt.replace(tzinfo=timezone.utc)
+                now_wall = self._wall_clock()
+                if now_wall.tzinfo is None:
+                    now_wall = now_wall.replace(tzinfo=timezone.utc)
+                wall_diff = (now_wall - opened_at_dt).total_seconds()
+                if wall_diff > 0:
+                    duration_secs = wall_diff
+                else:
+                    duration_secs = 0.001  # Fallback to 1ms minimum
+        except Exception:
+            pass
+
+        if not isinstance(duration_secs, (int, float)):
+            duration_secs = 0.0
+
+        # Format string
+        if duration_secs < 1.0:
+            ms = int(duration_secs * 1000)
+            if ms <= 0:
+                ms = 1
+            duration_str = f"{ms}ms"
+        else:
+            mins = int(duration_secs // 60)
+            secs = int(duration_secs % 60)
+            
+            if mins >= 60:
+                hrs = mins // 60
+                mins = mins % 60
+                duration_str = f"{hrs}h {mins}m {secs}s"
+            elif mins > 0:
+                duration_str = f"{mins}m {secs}s"
+            else:
+                duration_str = f"{secs}s"
+
+        return duration_secs, duration_str
 
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         """Return sizing capital (initial balance) to prevent compounding snowball.
@@ -443,6 +508,85 @@ class PaperBroker:
                     ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, f"Paper: {block_reason}")
                 )
 
+            # ── FLOOR SIZING PROTECTION ──
+            is_crypto = False
+            try:
+                from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
+                is_crypto = classify_symbol(symbol) == AssetClass.CRYPTO
+            except Exception:
+                is_crypto = any(c in symbol.upper() for c in ["BTC", "ETH", "SOL", "ADA", "LTC"])
+
+            min_unit = 0.0001 if is_crypto else 1.0
+            matched = False
+
+            min_units_dict = getattr(self.profile, "min_units", None) or getattr(self.profile, "min_unit", None)
+            if min_units_dict and isinstance(min_units_dict, dict):
+                sym_clean = symbol.upper().replace("_", "").replace("/", "")
+                for k, v in min_units_dict.items():
+                    k_clean = k.upper().replace("_", "").replace("/", "")
+                    if k_clean == sym_clean:
+                        min_unit = float(v)
+                        matched = True
+                        break
+                if not matched:
+                    g_def = min_units_dict.get("DEFAULT", min_units_dict.get("default"))
+                    if g_def is not None:
+                        g_def_val = float(g_def)
+                        if not is_crypto or g_def_val < 1.0:
+                            min_unit = g_def_val
+            else:
+                # Fallback to check global config
+                try:
+                    import json
+                    from tradebot_sci import paths
+                    with open(paths.CONFIG_FILE, "r") as f:
+                        cf = json.load(f)
+                        g_min = cf.get("global", {}).get("min_units") or cf.get("global", {}).get("min_unit")
+                        if g_min and isinstance(g_min, dict):
+                            sym_clean = symbol.upper().replace("_", "").replace("/", "")
+                            for k, v in g_min.items():
+                                k_clean = k.upper().replace("_", "").replace("/", "")
+                                if k_clean == sym_clean:
+                                    min_unit = float(v)
+                                    matched = True
+                                    break
+                            if not matched:
+                                g_def = g_min.get("DEFAULT", g_min.get("default"))
+                                if g_def is not None:
+                                    g_def_val = float(g_def)
+                                    if not is_crypto or g_def_val < 1.0:
+                                        min_unit = g_def_val
+                except Exception:
+                    pass
+
+            below_action = getattr(self.profile, "below_min_unit_action", None)
+            if not below_action:
+                try:
+                    import json
+                    from tradebot_sci import paths
+                    with open(paths.CONFIG_FILE, "r") as f:
+                        below_action = json.load(f).get("global", {}).get("below_min_unit_action", "reject")
+                except Exception:
+                    below_action = "reject"
+            below_action = below_action.lower()
+
+            if qty < min_unit:
+                if below_action == "round_up":
+                    logger.warning(
+                        f"[PAPER] [FLOOR SIZING] Qty {qty:.4f} is below min_unit {min_unit:.4f} for {symbol}. "
+                        f"Rounding up to minimum lot size."
+                    )
+                    qty = min_unit
+                else:
+                    logger.warning(
+                        f"[PAPER] [FLOOR SIZING] Qty {qty:.4f} is below min_unit {min_unit:.4f} for {symbol}. "
+                        f"Rejecting entry as below min_unit floor."
+                    )
+                    return (
+                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, f"below min_unit floor: {qty:.4f} < {min_unit}"),
+                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, f"below min_unit floor")
+                    )
+
             # [DEBUG] Trace sizing pipeline
             logger.info(
                 f"[PAPER] [SIZING DEBUG] {symbol}: sizing_capital=${sizing_capital:.2f}, "
@@ -579,24 +723,11 @@ class PaperBroker:
                 pnl_usd = pnl_gross - fee_usd
                 self.balance += pnl_usd
 
-                # Duration — use entry_time (sim_time domain) not opened_at (wall-clock)
-                # In turbo replay, wall-clock trades open/close seconds apart = 0m.
-                duration_secs = 0.0
-                entry_time_str = pos.get("entry_time", "")
-                try:
-                    if entry_time_str:
-                        entry_dt = datetime.fromisoformat(entry_time_str)
-                        duration_secs = (self._now() - entry_dt).total_seconds()
-                except Exception:
-                    pass
-
+                duration_secs, duration_str = self._compute_duration(pos)
                 pnl_sign = "+" if pnl_usd >= 0 else "-"
                 pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
                 pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if pos["size"] else 0.0
                 spread_cost = pos.get("entry_fee", 0.0) + fee_usd
-                mins = int(duration_secs // 60)
-                secs = int(duration_secs % 60)
-                duration_str = f"{mins}m {secs}s"
                 exit_reason = decision.notes or "paper_close"
 
                 logger.info(
@@ -677,23 +808,11 @@ class PaperBroker:
                 pnl_usd = pnl_gross - fee_usd
                 self.balance += pnl_usd
 
-                # Duration — use entry_time (sim_time domain)
-                duration_secs = 0.0
-                entry_time_str = pos.get("entry_time", "")
-                try:
-                    if entry_time_str:
-                        entry_dt = datetime.fromisoformat(entry_time_str)
-                        duration_secs = (self._now() - entry_dt).total_seconds()
-                except Exception:
-                    pass
-
+                duration_secs, duration_str = self._compute_duration(pos)
                 pnl_sign = "+" if pnl_usd >= 0 else "-"
                 pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
                 pnl_pct = (pnl_usd / (entry_p * close_qty)) * 100 if close_qty else 0.0
                 spread_cost = (pos.get("entry_fee", 0.0) * scale_frac) + fee_usd
-                mins = int(duration_secs // 60)
-                secs = int(duration_secs % 60)
-                duration_str = f"{mins}m {secs}s"
                 exit_reason = decision.notes or "paper_scale_out"
 
                 logger.info(
@@ -887,16 +1006,7 @@ class PaperBroker:
             pnl_usd = pnl_gross - fee_usd
             self.balance += pnl_usd
 
-            # Duration
-            duration_secs = 0.0
-            entry_time_str = pos.get("entry_time", "")
-            try:
-                if entry_time_str:
-                    entry_dt = datetime.fromisoformat(entry_time_str)
-                    duration_secs = (self._now() - entry_dt).total_seconds()
-            except Exception:
-                pass
-
+            duration_secs, duration_str = self._compute_duration(pos)
             if pnl_usd > 0:
                 pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd)
             else:
@@ -907,9 +1017,6 @@ class PaperBroker:
             pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
             entry_fee = abs(pos.get("entry_fee", 0))
             spread_cost = entry_fee + fee_usd
-            mins = int(duration_secs // 60)
-            secs = int(duration_secs % 60)
-            duration_str = f"{mins}m {secs}s"
 
             logger.info(
                 f"[PAPER] [EXIT] Paper Manual Cash-Out: {symbol} {pnl_str} "
@@ -1248,17 +1355,7 @@ class PaperBroker:
                                     self.balance += pnl_usd
                                     
                                     # Duration
-                                    duration_secs = _router_held_s
-                                    duration_str = "N/A"
-                                    if duration_secs is not None:
-                                        _m = int(duration_secs // 60)
-                                        _s = int(duration_secs % 60)
-                                        if _m >= 60:
-                                            _h = _m // 60
-                                            _m = _m % 60
-                                            duration_str = f"{_h}h {_m}m {_s}s"
-                                        else:
-                                            duration_str = f"{_m}m {_s}s"
+                                    duration_secs, duration_str = self._compute_duration(pos)
                                     
                                     if pnl_usd > 0:
                                         pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd)
@@ -1395,29 +1492,7 @@ class PaperBroker:
                 spread_cost = entry_fee + fee_usd
 
                 # Compute trade duration
-                opened_at_str = pos.get("opened_at")
-                duration_secs = None
-                duration_str = "N/A"
-                if opened_at_str:
-                    try:
-                        # Use entry_time (sim_time domain) for duration, not opened_at (wall-clock)
-                        entry_time_str = pos.get("entry_time", opened_at_str)
-                        entry_dt = datetime.fromisoformat(entry_time_str)
-                        closed_sim = self._now()
-                        duration_secs = (closed_sim - entry_dt).total_seconds()
-                        if duration_secs < 0:
-                            duration_secs = abs(duration_secs)
-                        # Human-readable duration
-                        mins = int(duration_secs // 60)
-                        secs = int(duration_secs % 60)
-                        if mins >= 60:
-                            hrs = mins // 60
-                            mins = mins % 60
-                            duration_str = f"{hrs}h {mins}m {secs}s"
-                        else:
-                            duration_str = f"{mins}m {secs}s"
-                    except Exception:
-                        pass
+                duration_secs, duration_str = self._compute_duration(pos)
 
                 logger.info(
                     f"[PAPER] [EXIT] Paper {hit}: {symbol} {pnl_str} "

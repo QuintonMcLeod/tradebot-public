@@ -1245,6 +1245,77 @@ class OandaExchangeBroker(IExchangeBroker):
                 units = int(units)
                 min_size = 1
                 
+            # ── FLOOR SIZING PROTECTION ──
+            min_unit = 0.0001 if is_crypto else 1.0
+            matched = False
+            min_units_dict = getattr(self.profile, "min_units", None) or getattr(self.profile, "min_unit", None)
+            if min_units_dict and isinstance(min_units_dict, dict):
+                sym_clean = decision.symbol.upper().replace("_", "").replace("/", "")
+                for k, v in min_units_dict.items():
+                    k_clean = k.upper().replace("_", "").replace("/", "")
+                    if k_clean == sym_clean:
+                        min_unit = float(v)
+                        matched = True
+                        break
+                if not matched:
+                    g_def = min_units_dict.get("DEFAULT", min_units_dict.get("default"))
+                    if g_def is not None:
+                        g_def_val = float(g_def)
+                        if not is_crypto or g_def_val < 1.0:
+                            min_unit = g_def_val
+            else:
+                # Fallback to check global config
+                try:
+                    import json
+                    from tradebot_sci import paths
+                    with open(paths.CONFIG_FILE, "r") as f:
+                        cf = json.load(f)
+                        g_min = cf.get("global", {}).get("min_units") or cf.get("global", {}).get("min_unit")
+                        if g_min and isinstance(g_min, dict):
+                            sym_clean = decision.symbol.upper().replace("_", "").replace("/", "")
+                            for k, v in g_min.items():
+                                k_clean = k.upper().replace("_", "").replace("/", "")
+                                if k_clean == sym_clean:
+                                    min_unit = float(v)
+                                    matched = True
+                                    break
+                            if not matched:
+                                g_def = g_min.get("DEFAULT", g_min.get("default"))
+                                if g_def is not None:
+                                    g_def_val = float(g_def)
+                                    if not is_crypto or g_def_val < 1.0:
+                                        min_unit = g_def_val
+                except Exception:
+                    pass
+
+            below_action = getattr(self.profile, "below_min_unit_action", None)
+            if not below_action:
+                try:
+                    import json
+                    from tradebot_sci import paths
+                    with open(paths.CONFIG_FILE, "r") as f:
+                        below_action = json.load(f).get("global", {}).get("below_min_unit_action", "reject")
+                except Exception:
+                    below_action = "reject"
+            below_action = below_action.lower()
+
+            if abs(units) < min_unit:
+                if below_action == "round_up":
+                    logger.warning(
+                        f"[OANDA] [FLOOR SIZING] Units {abs(units):.4f} below min_unit {min_unit:.4f} for {decision.symbol}. "
+                        f"Rounding up to minimum lot size."
+                    )
+                    units = min_unit if units >= 0 else -min_unit
+                else:
+                    logger.warning(
+                        f"[OANDA] [FLOOR SIZING] Units {abs(units):.4f} below min_unit {min_unit:.4f} for {decision.symbol}. "
+                        f"Rejecting entry as below min_unit floor."
+                    )
+                    return (
+                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, f"below min_unit floor: {abs(units):.4f} < {min_unit}"),
+                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, f"below min_unit floor")
+                    )
+
             if abs(units) < min_size:
                 logger.warning(f"[OANDA] Calculated units too small: {units} for {decision.symbol} (min={min_size}). This is likely a pyramid scale-in that was too small.")
                 return ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, decision.symbol, "units too small"), ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, decision.symbol, "units too small")

@@ -41,6 +41,8 @@ class MarketSnapshot:
     htf_timeframe: Optional[str] = None
     mtf_timeframe: Optional[str] = None
     ltf_timeframe: Optional[str] = None
+    micro_candles: Optional[List[Candle]] = None
+    micro_timeframe: Optional[str] = None
 
 
 @dataclass
