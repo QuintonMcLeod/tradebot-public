@@ -1257,6 +1257,16 @@ class PaperBroker:
                             "mtf_dir": _consensus.mtf_dir,
                             "htf_dir": _consensus.htf_dir,
                         }
+
+                        # Pre-calculate spread cost for the router so strategies can be spread-aware
+                        fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
+                        qty_for_spread = pos.get("qty", abs(pos["size"]))
+                        if is_parity:
+                            taker_fee = self._get_taker_fee(symbol)
+                            est_spread_usd_for_router = abs(qty_for_spread * price) * taker_fee
+                        else:
+                            est_spread_usd_for_router = abs(qty_for_spread * price) * (fee_pct / 2.0)
+
                         _router_pos = {
                             'symbol': symbol,
                             'direction': side,
@@ -1264,7 +1274,7 @@ class PaperBroker:
                             'size': pos.get("size", 0),
                             'stop_price': pos.get("stop_loss"),
                             'stop_loss': pos.get("stop_loss"),
-                        'take_profit': pos.get("take_profit"),
+                            'take_profit': pos.get("take_profit"),
                             'entry_time': entry_time_str,
                             'initial_risk': pos.get("initial_risk"),
                             'mfe': pos.get("mfe", 0.0),
@@ -1272,6 +1282,7 @@ class PaperBroker:
                             'mae': pos.get("mae", 0.0),
                             'mae_usd': pos.get("mae_usd", 0.0),
                             'unrealized_pnl': pos.get("unrealized_pnl", 0.0),
+                            'est_spread_usd': est_spread_usd_for_router,
                         }
                         _router_decision = run_universal_exit_logic(
                             snapshot=_router_snapshot,
@@ -1300,10 +1311,8 @@ class PaperBroker:
                                 is_negative = False
                                 entry_p = pos.get("entry_price", 0)
                                 if enable_negative_hold_guard:
-                                    if side == "long":
-                                        is_negative = price < entry_p
-                                    else:
-                                        is_negative = price > entry_p
+                                    # Use net_pnl_usd for Negative Hold Guard to ensure we factor in spread cost!
+                                    is_negative = (unrealized_pnl_usd - est_spread_usd_for_router) < 0
                                 
                                 neg_hold_blocked = (
                                     enable_negative_hold_guard
@@ -1314,14 +1323,7 @@ class PaperBroker:
                                 enable_spread_profit_guard = getattr(self.profile, 'enable_spread_profit_guard', True)
                                 spread_profit_blocked = False
                                 if enable_spread_profit_guard:
-                                    fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
-                                    qty = pos.get("qty", abs(pos["size"]))
-                                    if is_parity:
-                                        taker_fee = self._get_taker_fee(symbol)
-                                        est_spread_usd = abs(qty * price) * taker_fee
-                                    else:
-                                        est_spread_usd = abs(qty * price) * (fee_pct / 2.0)
-                                    
+                                    est_spread_usd = est_spread_usd_for_router
                                     if unrealized_pnl_usd > 0 and unrealized_pnl_usd < est_spread_usd:
                                         spread_profit_blocked = True
 

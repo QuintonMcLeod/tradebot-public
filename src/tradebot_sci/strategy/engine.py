@@ -653,19 +653,6 @@ class StrategyEngine:
                 trade_history=history
             )
             
-            # 2. Universal Exit Router (Platform Level)
-            # This ensures that even if a strategy is silent or has poor exit logic, 
-            # the platform-level thresholds (Ratchet, Breakeven, Chandelier) are applied.
-            exit_decision = run_universal_exit_logic(
-                snapshot,
-                open_position,
-                gates,
-                profile=self.profile,
-                current_capital=current_capital,
-                trade_history=history,
-                strategy_decision=strategy_exit
-            )
-            
             # ── Calculate position age (shared by hold guard + safety guard) ──
             # Use candle timestamps (market time) NOT wall-clock time.
             # This matches the backtester: position_age = current_candle_time - entry_time.
@@ -673,12 +660,18 @@ class StrategyEngine:
             entry_time = open_position.get("entry_time")
             position_age = None
             if entry_time:
-                if isinstance(entry_time, str):
+                from datetime import datetime as dt
+                if isinstance(entry_time, (int, float)):
                     try:
-                        from datetime import datetime as dt
+                        entry_time = dt.fromtimestamp(entry_time, tz=ZoneInfo("UTC"))
+                    except Exception as e:
+                        logger.debug(f"[ENGINE] Hold Guard: failed to parse numeric entry_time '{entry_time}': {e}")
+                elif isinstance(entry_time, str):
+                    try:
                         entry_time = dt.fromisoformat(entry_time.replace("Z", "+00:00"))
                     except (ValueError, TypeError, AttributeError):
-                        logger.debug(f"[ENGINE] Hold Guard: failed to parse entry_time '{entry_time}'")
+                        logger.debug(f"[ENGINE] Hold Guard: failed to parse string entry_time '{entry_time}'")
+                        
                 if isinstance(entry_time, datetime):
                     # Use last candle timestamp as "now" — same as backtester.
                     # Falls back to current_bar_time, then wall-clock as last resort.
@@ -689,50 +682,11 @@ class StrategyEngine:
                         entry_time = entry_time.replace(tzinfo=ZoneInfo("UTC"))
                     position_age = (_now - entry_time).total_seconds()
 
-            # ── HOLD GUARD ───────────────────────────────────────────────
-            # Data-driven: 695 backtester trades show median=15m, avg=32m.
-            # Hold for 15 minutes (3 candles on 5m) before allowing non-emergency exits.
-            # This matches the backtester's natural bar-by-bar timing where trades
-            # can't exit faster than one candle (5m).
-            hold_guard_enabled = getattr(self.profile, "enable_hold_guard", True)
-            hold_guard_seconds = int(getattr(self.profile, "hold_guard_seconds", 900))
-            position_is_young = (hold_guard_enabled and position_age is not None and position_age < hold_guard_seconds)
-
-            # ── NEGATIVE HOLD GUARD ───────────────────────────────────────
-            enable_negative_hold_guard = getattr(self.profile, "enable_negative_hold_guard", True)
-            negative_hold_seconds = int(getattr(self.profile, "negative_hold_seconds", 2700))
-            is_negative = False
-            if enable_negative_hold_guard and open_position:
-                current_price = snapshot.candles[-1].close if (snapshot and snapshot.candles) else open_position.get("current_price")
-                entry_price = open_position.get("entry_price") or open_position.get("avg_price")
-                direction = open_position.get("side") or open_position.get("direction")
-                if not direction:
-                    size_val = open_position.get("size", 0.0)
-                    direction = "long" if size_val > 0 else "short"
-                
-                if current_price is not None and entry_price is not None:
-                    if str(direction).lower() in ("long", "buy"):
-                        is_negative = current_price < entry_price
-                    elif str(direction).lower() in ("short", "sell"):
-                        is_negative = current_price > entry_price
-
-            neg_hold_blocked = (
-                enable_negative_hold_guard
-                and is_negative
-                and position_age is not None
-                and position_age < negative_hold_seconds
-            )
-
-            # ── SPREAD PROFIT GUARD ───────────────────────────────────────
-            if self.settings and hasattr(self.settings, 'safety'):
-                enable_spread_profit_guard = getattr(self.settings.safety, "enable_spread_profit_guard", True)
-            else:
-                enable_spread_profit_guard = getattr(self.profile, "enable_spread_profit_guard", True)
-            spread_profit_blocked = False
+            # ── CALCULATE NET PNL (INCL. SPREAD) ──────────────────────────
             floating_pnl_usd = 0.0
             est_spread_usd = 0.0
-            
-            if enable_spread_profit_guard and open_position:
+            current_price = None
+            if open_position:
                 current_price = snapshot.candles[-1].close if (snapshot and snapshot.candles) else open_position.get("current_price")
                 if current_price:
                     if open_position.get("unrealized_pnl") is not None:
@@ -748,22 +702,61 @@ class StrategyEngine:
                                 current_price,
                                 self.market_provider
                             )
-                    
-                    if floating_pnl_usd is not None:
-                        est_spread_usd = self._estimate_spread_cost(open_position, current_price)
-                        if floating_pnl_usd > 0 and floating_pnl_usd < est_spread_usd:
-                            spread_profit_blocked = True
+                    est_spread_usd = self._estimate_spread_cost(open_position, current_price)
+                    open_position["est_spread_usd"] = est_spread_usd
+
+            # ── NEGATIVE HOLD GUARD ───────────────────────────────────────
+            enable_negative_hold_guard = getattr(self.profile, "enable_negative_hold_guard", True)
+            negative_hold_seconds = int(getattr(self.profile, "negative_hold_seconds", 2700))
+            is_negative = False
+            if enable_negative_hold_guard and open_position:
+                # Trade is negative if net profit (gross PnL minus spread) is underwater
+                is_negative = (floating_pnl_usd - est_spread_usd) < 0
+
+            neg_hold_blocked = (
+                enable_negative_hold_guard
+                and is_negative
+                and position_age is not None
+                and position_age < negative_hold_seconds
+            )
+            
+            # Inject neg_hold_blocked into gates for exit router visibility
+            gates["neg_hold_blocked"] = neg_hold_blocked
+
+            # 2. Universal Exit Router (Platform Level)
+            # This ensures that even if a strategy is silent or has poor exit logic, 
+            # the platform-level thresholds (Ratchet, Breakeven, Chandelier) are applied.
+            exit_decision = run_universal_exit_logic(
+                snapshot,
+                open_position,
+                gates,
+                profile=self.profile,
+                current_capital=current_capital,
+                trade_history=history,
+                strategy_decision=strategy_exit
+            )
+
+
+            # ── SPREAD PROFIT GUARD ───────────────────────────────────────
+            if self.settings and hasattr(self.settings, 'safety'):
+                enable_spread_profit_guard = getattr(self.settings.safety, "enable_spread_profit_guard", True)
+            else:
+                enable_spread_profit_guard = getattr(self.profile, "enable_spread_profit_guard", True)
+            spread_profit_blocked = False
+            
+            if enable_spread_profit_guard and open_position and current_price:
+                if floating_pnl_usd > 0 and floating_pnl_usd < est_spread_usd:
+                    spread_profit_blocked = True
 
             if exit_decision:
                 is_emergency = getattr(exit_decision, 'emergency_exit', False)
-                if (position_is_young or neg_hold_blocked or spread_profit_blocked) and not is_emergency:
+                if (neg_hold_blocked or spread_profit_blocked) and not is_emergency:
                     if spread_profit_blocked:
                         block_reason = "spread profit guard"
                         block_limit_str = f"PnL ${floating_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd:.2f}"
                     else:
-                        block_reason = "negative hold" if neg_hold_blocked else "hold guard"
-                        block_limit = negative_hold_seconds if neg_hold_blocked else hold_guard_seconds
-                        block_limit_str = f"age {position_age:.0f}s < {block_limit}s"
+                        block_reason = "negative hold"
+                        block_limit_str = f"age {position_age:.0f}s < {negative_hold_seconds}s"
                     logger.info(
                         f"[HOLD GUARD] {self.symbol} strategy exit BLOCKED — "
                         f"{block_limit_str} "
@@ -772,10 +765,10 @@ class StrategyEngine:
                     )
                     exit_decision = None
                 else:
-                    if is_emergency and (position_is_young or neg_hold_blocked or spread_profit_blocked):
+                    if is_emergency and (neg_hold_blocked or spread_profit_blocked):
                         logger.info(
                             f"[HOLD GUARD] {self.symbol} EMERGENCY EXIT allowed — "
-                            f"bypassed hold/negative/spread profit guards"
+                            f"bypassed negative/spread profit guards"
                         )
                     exit_decision.score = score
                     exit_decision.grade = grade
@@ -807,10 +800,9 @@ class StrategyEngine:
                 performance_exit = SafetyGuard.handle_runner_exit(decision_to_check, open_position)
                 if performance_exit:
                     # Apply hold guard to runner exits too
-                    if position_is_young or neg_hold_blocked or spread_profit_blocked:
-                        block_reason = "spread profit guard" if spread_profit_blocked else ("negative hold" if neg_hold_blocked else "hold guard")
-                        block_limit = negative_hold_seconds if neg_hold_blocked else hold_guard_seconds
-                        block_limit_str = f"PnL ${floating_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd:.2f}" if spread_profit_blocked else f"age {position_age:.0f}s < {block_limit}s"
+                    if neg_hold_blocked or spread_profit_blocked:
+                        block_reason = "spread profit guard" if spread_profit_blocked else "negative hold"
+                        block_limit_str = f"PnL ${floating_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd:.2f}" if spread_profit_blocked else f"age {position_age:.0f}s < {negative_hold_seconds}s"
                         logger.info(
                             f"[HOLD GUARD] {self.symbol} runner exit BLOCKED — "
                             f"{block_limit_str} ({block_reason})"
@@ -823,15 +815,8 @@ class StrategyEngine:
             
             if safety_exit:
                 is_safety_emergency = getattr(safety_exit, 'emergency_exit', False)
-                # Apply hold guard to ALL safety exits if young (no exceptions)
                 # Apply negative hold guard to non-emergency safety exits
-                if position_is_young:
-                    logger.info(
-                        f"[HOLD GUARD] {self.symbol} safety exit BLOCKED — "
-                        f"age {position_age:.0f}s < {hold_guard_seconds}s "
-                        f"(ALL exits blocked during hold). Reason: {getattr(safety_exit, 'notes', 'N/A')[:80]}"
-                    )
-                elif (neg_hold_blocked or spread_profit_blocked) and not is_safety_emergency:
+                if (neg_hold_blocked or spread_profit_blocked) and not is_safety_emergency:
                     if spread_profit_blocked:
                         logger.info(
                             f"[HOLD GUARD] {self.symbol} safety exit BLOCKED — "

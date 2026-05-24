@@ -1707,9 +1707,9 @@ def run_bot(
                                 eng.market_provider = provider
                             logger.info("[REPLAY] Replay provider activated (engines swapped to paper store)")
                             # User requested a speed that doesn't feel like a broken standstill. 
-                            poll_interval = 1
-                            decision_interval = 1
-                            logger.info("[REPLAY] Replay running at 1 candle per second: poll=%ds decision=%ds", poll_interval, decision_interval)
+                            poll_interval = 0
+                            decision_interval = 0
+                            logger.info("[REPLAY] Replay running at maximum CPU speed: poll=%ds decision=%ds", poll_interval, decision_interval)
                         except Exception as e:
                             logger.warning("[REPLAY] Failed to create replay provider: %s", e)
                 # Flag for GUI: switch to paper ledger
@@ -1954,7 +1954,7 @@ def run_bot(
                 )
                 if not active_symbols:
                     next_decision_in = decision_interval
-                    time.sleep(poll_interval)
+                    time.sleep(0.001 if (replay_provider and getattr(replay_provider, 'in_warmup', False)) else poll_interval)
                     continue
 
                 candidates, data_fetch_succeeded = build_candidate_list(
@@ -1988,7 +1988,7 @@ def run_bot(
                         consecutive_error_iterations = 0
                         controller.health_monitor.record_pipeline(0)
                     next_decision_in = decision_interval
-                    time.sleep(poll_interval)
+                    time.sleep(0.001 if (replay_provider and getattr(replay_provider, 'in_warmup', False)) else poll_interval)
                     continue
                 # Reset error counter when we successfully fetch at least one symbol
                 consecutive_error_iterations = 0
@@ -2003,7 +2003,7 @@ def run_bot(
                     controller.broadcast_state(executor, force=True, executor_real=executor_real)
                     logger.info("[SABBATH] Strict adherence active (no PaperBroker): Skipping candidate processing.")
                     next_decision_in = decision_interval
-                    time.sleep(poll_interval)
+                    time.sleep(0.001 if (replay_provider and getattr(replay_provider, 'in_warmup', False)) else poll_interval)
                     continue
 
 
@@ -2200,7 +2200,7 @@ def run_bot(
                 next_decision_in = decision_interval
             else:
                 next_decision_in -= poll_interval
-            time.sleep(poll_interval)
+            time.sleep(0.001 if (replay_provider and getattr(replay_provider, 'in_warmup', False)) else poll_interval)
     except KeyboardInterrupt:
         logger.info("Shutting down simulation")
     except Exception as exc:

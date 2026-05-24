@@ -667,8 +667,7 @@ class SafetyGuard:
                     )
                     return close_position_decision(
                         snapshot.symbol, snapshot.timeframe,
-                        reason=f"Structure Invalidation (swing={inval.swing_level:.4f})",
-                        emergency_exit=True,  # Bypass hold guard — cut losers immediately
+                        reason=f"Structure Invalidation (swing={inval.swing_level:.4f})"
                     )
 
         # ─────────────────────────────────────────────────────────────

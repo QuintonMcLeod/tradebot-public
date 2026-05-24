@@ -146,16 +146,23 @@ def run_universal_exit_logic(
                 new_sl = getattr(strat_decision, "stop_loss", None)
                 if new_sl is not None:
                     new_sl = float(new_sl)
-                    if direction == "long":
-                        if new_sl > stop_price:
-                            stop_price = new_sl
-                            open_position["stop_loss"] = new_sl
-                            decision = strat_decision
+                    
+                    # Prevent trailing stops from artificially tightening and locking in a loss
+                    # when the trade is underwater and protected by the Negative Hold Guard
+                    is_neg_hold_blocked = gates.get("neg_hold_blocked", False)
+                    if is_neg_hold_blocked:
+                        logger.debug(f"[EXIT-ROUTER] Trailing stop update to {new_sl} BLOCKED by Negative Hold Guard")
                     else:
-                        if stop_price == 0 or new_sl < stop_price:
-                            stop_price = new_sl
-                            open_position["stop_loss"] = new_sl
-                            decision = strat_decision
+                        if direction == "long":
+                            if new_sl > stop_price:
+                                stop_price = new_sl
+                                open_position["stop_loss"] = new_sl
+                                decision = strat_decision
+                        else:
+                            if stop_price == 0 or new_sl < stop_price:
+                                stop_price = new_sl
+                                open_position["stop_loss"] = new_sl
+                                decision = strat_decision
                 elif decision is None:
                     decision = strat_decision
 
@@ -213,6 +220,15 @@ def _exit_chandelier(snapshot, pos, current_price, direction, profile):
         
         # If the trailing stop has been crossed by the current price, exit immediately.
         if current_price <= new_stop:
+            # SPREAD AWARENESS: Don't trigger if it's a profit-protecting trail but spread causes a net loss
+            est_spread_usd = float(pos.get("est_spread_usd", 0.0))
+            net_pnl_usd = float(pos.get("unrealized_pnl", 0)) - est_spread_usd
+            if new_stop > entry_price and net_pnl_usd < 0:
+                import logging
+                logger = logging.getLogger("tradebot_sci.exit_logic")
+                logger.info(f"[CHANDELIER] {pos.get('symbol')} Ignoring trail cross: protecting profit would result in a net loss of ${net_pnl_usd:.2f} (Spread: ${est_spread_usd:.2f})")
+                return None
+                
             return _hard_exit(snapshot, pos, f"Chandelier Trail Cross (Price {current_price:.5f} <= Trail {new_stop:.5f})")
             
         if new_stop > current_stop:
@@ -224,6 +240,15 @@ def _exit_chandelier(snapshot, pos, current_price, direction, profile):
         
         # If the trailing stop has been crossed by the current price, exit immediately.
         if current_price >= new_stop:
+            # SPREAD AWARENESS: Don't trigger if it's a profit-protecting trail but spread causes a net loss
+            est_spread_usd = float(pos.get("est_spread_usd", 0.0))
+            net_pnl_usd = float(pos.get("unrealized_pnl", 0)) - est_spread_usd
+            if new_stop < entry_price and net_pnl_usd < 0:
+                import logging
+                logger = logging.getLogger("tradebot_sci.exit_logic")
+                logger.info(f"[CHANDELIER] {pos.get('symbol')} Ignoring trail cross: protecting profit would result in a net loss of ${net_pnl_usd:.2f} (Spread: ${est_spread_usd:.2f})")
+                return None
+                
             return _hard_exit(snapshot, pos, f"Chandelier Trail Cross (Price {current_price:.5f} >= Trail {new_stop:.5f})")
             
         if new_stop < current_stop or current_stop == 0:
@@ -322,6 +347,15 @@ def _exit_swing_trailing(snapshot, pos, current_price, direction, profile, curre
     if direction == "long":
         sl_cand = min(c.low for c in snapshot.candles[-4:-1])
         if current_price <= sl_cand:
+            # SPREAD AWARENESS: Don't trigger if it's a profit-protecting trail but spread causes a net loss
+            est_spread_usd = float(pos.get("est_spread_usd", 0.0))
+            net_pnl_usd = float(pos.get("unrealized_pnl", 0)) - est_spread_usd
+            entry_price = float(pos.get("entry_price", current_price))
+            if sl_cand > entry_price and net_pnl_usd < 0:
+                import logging
+                logger = logging.getLogger("tradebot_sci.exit_logic")
+                logger.info(f"[SWING TRAIL] {pos.get('symbol')} Ignoring trail cross: protecting profit would result in a net loss of ${net_pnl_usd:.2f} (Spread: ${est_spread_usd:.2f})")
+                return None
             return _hard_exit(snapshot, pos, f"Swing Low Trail Cross (Price {current_price:.5f} <= SL {sl_cand:.5f})")
         if sl_cand > current_stop * 1.0005:  # buffer
             if sl_cand < current_price:
@@ -329,6 +363,15 @@ def _exit_swing_trailing(snapshot, pos, current_price, direction, profile, curre
     else:
         sh_cand = max(c.high for c in snapshot.candles[-4:-1])
         if current_price >= sh_cand:
+            # SPREAD AWARENESS: Don't trigger if it's a profit-protecting trail but spread causes a net loss
+            est_spread_usd = float(pos.get("est_spread_usd", 0.0))
+            net_pnl_usd = float(pos.get("unrealized_pnl", 0)) - est_spread_usd
+            entry_price = float(pos.get("entry_price", current_price))
+            if sh_cand < entry_price and net_pnl_usd < 0:
+                import logging
+                logger = logging.getLogger("tradebot_sci.exit_logic")
+                logger.info(f"[SWING TRAIL] {pos.get('symbol')} Ignoring trail cross: protecting profit would result in a net loss of ${net_pnl_usd:.2f} (Spread: ${est_spread_usd:.2f})")
+                return None
             return _hard_exit(snapshot, pos, f"Swing High Trail Cross (Price {current_price:.5f} >= SL {sh_cand:.5f})")
         if (sh_cand < current_stop * 0.9995) or current_stop == 0:
             if sh_cand > current_price:
@@ -437,32 +480,43 @@ def _exit_winner_giveback(snapshot, pos, current_price, direction, profile):
     logger = logging.getLogger("tradebot_sci.exit_logic")
     
     arm_r = float(getattr(profile, "winner_giveback_arm_r", 0.25))
-    # Arming Threshold: Active once trade reaches arm_r in dollar terms
-    if mfe_usd < (risk_usd * arm_r):
+    est_spread_usd = float(pos.get("est_spread_usd", 0.0))
+    net_mfe_usd = mfe_usd - est_spread_usd
+    
+    # Arming Threshold: Active once trade reaches arm_r in dollar terms (spread-aware)
+    if net_mfe_usd < (risk_usd * arm_r):
         return None
         
-    logger.info(f"[GIVEBACK] {pos.get('symbol')} ARMED! mfe_usd=${mfe_usd:.2f} >= required=${risk_usd * arm_r:.2f} ({arm_r}R)")
+    logger.info(f"[GIVEBACK] {pos.get('symbol')} ARMED! net_mfe_usd=${net_mfe_usd:.2f} >= required=${risk_usd * arm_r:.2f} ({arm_r}R)")
         
     # Current PnL (USD)
     pnl_usd = float(pos.get("unrealized_pnl", 0))
-    if pnl_usd <= 0:
+    if pos.get("unrealized_pnl") is None:
         # Fallback estimation if unrealized_pnl missing
         entry_price = float(pos.get("entry_price", 0))
         size = float(pos.get("size", 0))
         if entry_price > 0 and size != 0:
+            # Note: This is an estimation that assumes Quote currency is USD.
             pnl_usd = (current_price - entry_price) * size
             
-    # Giveback calculation (supports pnl_usd <= 0 to trigger immediate exit on fast reversal)
-    giveback_usd = mfe_usd - pnl_usd
+    # SPREAD AWARENESS
+    net_pnl_usd = pnl_usd - est_spread_usd
+            
+    # Giveback calculation uses NET PnL to protect actual realizable profit
+    giveback_usd = net_mfe_usd - net_pnl_usd
     
     # Threshold (e.g. 0.20 = 20% giveback allowed)
     threshold_pct = float(getattr(profile, "winner_giveback_pct", 0.20))
-    allowed_giveback = mfe_usd * threshold_pct
+    allowed_giveback = net_mfe_usd * threshold_pct
     
-    logger.info(f"[GIVEBACK] {pos.get('symbol')} mfe_usd=${mfe_usd:.2f}, pnl_usd=${pnl_usd:.2f}, giveback_usd=${giveback_usd:.2f}, allowed=${allowed_giveback:.2f} (pct={threshold_pct})")
+    logger.info(f"[GIVEBACK] {pos.get('symbol')} net_mfe_usd=${net_mfe_usd:.2f}, net_pnl_usd=${net_pnl_usd:.2f}, giveback_usd=${giveback_usd:.2f}, allowed=${allowed_giveback:.2f} (pct={threshold_pct})")
     
     if giveback_usd > allowed_giveback:
-        return _hard_exit(snapshot, pos, f"Winner Giveback Protection ({threshold_pct*100:.0f}% of ${mfe_usd:.2f} MFE surrendered)")
+        # Do not exit if protecting profit actually results in a net loss! Let it ride or hit standard stop loss.
+        if net_pnl_usd < 0:
+            logger.info(f"[GIVEBACK] {pos.get('symbol')} Ignoring signal: executing would result in a net loss of ${net_pnl_usd:.2f} (Spread: ${est_spread_usd:.2f})")
+            return None
+        return _hard_exit(snapshot, pos, f"Winner Giveback Protection ({threshold_pct*100:.0f}% of ${net_mfe_usd:.2f} NET MFE surrendered)")
     
     return None
 
@@ -513,7 +567,7 @@ def _exit_structure_failure(snapshot, pos, current_price, direction):
         if c2.high > c1.high and c2.high > c3.high:
             logger.info(f"[DEBUG STRUCTURE] Swing High formed at {c2.high}. Max_H is {max_h}. Diff: {c2.high - max_h}")
             if c2.high < max_h * 0.995: 
-                return _hard_exit(snapshot, pos, "Structure Failure (Lower High)", is_emergency=True)
+                return _hard_exit(snapshot, pos, "Structure Failure (Lower High)")
     else:
         min_l = min(c.low for c in trade_candles)
         c1, c2, c3 = trade_candles[-3], trade_candles[-2], trade_candles[-1]
@@ -522,7 +576,7 @@ def _exit_structure_failure(snapshot, pos, current_price, direction):
         if c2.low < c1.low and c2.low < c3.low:
             logger.info(f"[DEBUG STRUCTURE] Swing Low formed at {c2.low}. Min_L is {min_l}. Diff: {c2.low - min_l}")
             if c2.low > min_l * 1.005:
-                return _hard_exit(snapshot, pos, "Structure Failure (Higher Low)", is_emergency=True)
+                return _hard_exit(snapshot, pos, "Structure Failure (Higher Low)")
                 
     return None
 
@@ -617,8 +671,7 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates, str
             )
             return _hard_exit(
                 snapshot, pos,
-                f"Trend Invalidation: 1H flipped {mtf_dir.upper()} vs {direction.upper()} trade (kill shot)",
-                is_emergency=True
+                f"Trend Invalidation: 1H flipped {mtf_dir.upper()} vs {direction.upper()} trade (kill shot)"
             )
         else:
             logger.info(
@@ -685,8 +738,7 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates, str
                 )
                 return _hard_exit(
                     snapshot, pos,
-                    f"Trend Invalidation: 5m flipped {exec_dir.upper()} vs {direction.upper()} trade",
-                    is_emergency=True
+                    f"Trend Invalidation: 5m flipped {exec_dir.upper()} vs {direction.upper()} trade"
                 )
             else:
                 logger.info(
@@ -714,8 +766,7 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates, str
                 )
                 return _hard_exit(
                     snapshot, pos,
-                    f"Trend Invalidation: 15m flipped {ltf_dir.upper()} vs {direction.upper()} trade",
-                    is_emergency=True
+                    f"Trend Invalidation: 15m flipped {ltf_dir.upper()} vs {direction.upper()} trade"
                 )
             else:
                 logger.info(
@@ -800,10 +851,10 @@ def _exit_micro_canary(snapshot: MarketSnapshot, open_position: dict, current_pr
         # Check if latest 1m candle crashed below the low of the last 3 minutes combined
         recent_low = min(c2.low, c3.low)
         if c1.close < recent_low and (c1.open - c1.close) > atr_1m * 1.5:
-            return _hard_exit(snapshot, open_position, "Micro-Canary Reversal: Massive 1m bearish drop detected", True)
+            return _hard_exit(snapshot, open_position, "Micro-Canary Reversal: Massive 1m bearish drop detected")
     else:
         recent_high = max(c2.high, c3.high)
         if c1.close > recent_high and (c1.close - c1.open) > atr_1m * 1.5:
-            return _hard_exit(snapshot, open_position, "Micro-Canary Reversal: Massive 1m bullish spike detected", True)
+            return _hard_exit(snapshot, open_position, "Micro-Canary Reversal: Massive 1m bullish spike detected")
 
     return None
