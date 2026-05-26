@@ -109,6 +109,7 @@ class TrendConsensus:
     indicator_dir: str     # Combined consensus ("long", "short", "neutral")
     indicator_strength: float  # Combined vote ratio
     htf_adx: float         # HTF ADX strength value
+    ltf_adx: float         # LTF ADX strength value
     # Raw indicator data (from HTF, for GUI broadcast)
     rsi: float
     macd: dict
@@ -669,6 +670,7 @@ def detect_trend_direction(
         indicator_dir=combined_dir,
         indicator_strength=combined_str,
         htf_adx=htf.adx,
+        ltf_adx=ltf.adx,
         rsi=htf.rsi,
         macd=htf.macd,
         supertrend=htf.supertrend,

@@ -1251,13 +1251,6 @@ class PaperBroker:
                             mtf_candles=getattr(_router_snapshot, 'mtf_candles', None),
                             ltf_candles=getattr(_router_snapshot, 'ltf_candles', None),
                         )
-                        _router_gates = {
-                            "exec_dir": _consensus.exec_dir,
-                            "ltf_dir": _consensus.ltf_dir,
-                            "mtf_dir": _consensus.mtf_dir,
-                            "htf_dir": _consensus.htf_dir,
-                        }
-
                         # Pre-calculate spread cost for the router so strategies can be spread-aware
                         fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
                         qty_for_spread = pos.get("qty", abs(pos["size"]))
@@ -1266,6 +1259,29 @@ class PaperBroker:
                             est_spread_usd_for_router = abs(qty_for_spread * price) * taker_fee
                         else:
                             est_spread_usd_for_router = abs(qty_for_spread * price) * (fee_pct / 2.0)
+
+                        enable_negative_hold_guard = getattr(self.profile, 'enable_negative_hold_guard', True)
+                        negative_hold_seconds = int(getattr(self.profile, 'negative_hold_seconds', 2700))
+                        
+                        is_negative = False
+                        if enable_negative_hold_guard:
+                            # Use net_pnl_usd for Negative Hold Guard to ensure we factor in spread cost!
+                            is_negative = (unrealized_pnl_usd - est_spread_usd_for_router) < 0
+                        
+                        neg_hold_blocked = (
+                            enable_negative_hold_guard
+                            and is_negative
+                            and _router_held_s < negative_hold_seconds
+                        )
+
+                        _router_gates = {
+                            "exec_dir": _consensus.exec_dir,
+                            "ltf_dir": _consensus.ltf_dir,
+                            "mtf_dir": _consensus.mtf_dir,
+                            "htf_dir": _consensus.htf_dir,
+                            "ltf_adx": getattr(_consensus, "ltf_adx", 0.0),
+                            "neg_hold_blocked": neg_hold_blocked,
+                        }
 
                         _router_pos = {
                             'symbol': symbol,
@@ -1304,21 +1320,6 @@ class PaperBroker:
                                 hold_guard_enabled = getattr(self.profile, 'enable_hold_guard', True)
                                 hold_guard_seconds = int(getattr(self.profile, 'hold_guard_seconds', 900))
                                 position_is_young = (hold_guard_enabled and _router_held_s < hold_guard_seconds)
-
-                                enable_negative_hold_guard = getattr(self.profile, 'enable_negative_hold_guard', True)
-                                negative_hold_seconds = int(getattr(self.profile, 'negative_hold_seconds', 2700))
-                                
-                                is_negative = False
-                                entry_p = pos.get("entry_price", 0)
-                                if enable_negative_hold_guard:
-                                    # Use net_pnl_usd for Negative Hold Guard to ensure we factor in spread cost!
-                                    is_negative = (unrealized_pnl_usd - est_spread_usd_for_router) < 0
-                                
-                                neg_hold_blocked = (
-                                    enable_negative_hold_guard
-                                    and is_negative
-                                    and _router_held_s < negative_hold_seconds
-                                )
 
                                 enable_spread_profit_guard = getattr(self.profile, 'enable_spread_profit_guard', True)
                                 spread_profit_blocked = False

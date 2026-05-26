@@ -30,7 +30,7 @@ class LocalJSONProvider:
         self.data_dir = data_dir
         self._cache = {}
 
-    def fetch_historical_candles(self, symbol, timeframe, start_date, end_date):
+    def fetch_historical_candles(self, symbol, timeframe, start_date, end_date, **kwargs):
         # Map symbol "EUR/USD" -> "EURUSD"
         file_symbol = symbol.replace("/", "")
         file_name = f"{file_symbol}_{timeframe}.json"
@@ -137,12 +137,12 @@ def run_friday_simulation():
     # (1m data from Kraken is limited to ~5 hours)
     profile = TradingProfileSettings(
         strategy_variant="rubberband_reaper",
-        candle_timeframe="1m",               # [CHANGE] 1m for High Res
-        market_poll_interval_seconds=60,
-        ai_decision_interval_seconds=60,
-        htf_timeframe="15m",                 # [CHANGE] HTF step down
-        ltf_timeframe="1m",
-        trend_window=30,                     # [CHANGE] Smoother trend on 1m
+        candle_timeframe="5m",               # Use 5m since 1m files are not in repo
+        market_poll_interval_seconds=300,
+        ai_decision_interval_seconds=300,
+        htf_timeframe="15m",                 # HTF step down
+        ltf_timeframe="5m",
+        trend_window=30,                     # Smoother trend on 5m
         trend_min_swings=3,
         trend_strength_floor=0.1,
         risk_per_trade_pct=0.20,
@@ -163,7 +163,8 @@ def run_friday_simulation():
     )
 
     # [CHANGE] DISABLE FRIDAY FADE TO TEST RISK
-    UserConfig.FRIDAY_FADE_ENABLED = False
+    type(UserConfig).FRIDAY_FADE_ENABLED = property(lambda self: False)
+
 
     # 2. Init Backtester
     # Use ib=None, passing our custom provider later
@@ -179,8 +180,8 @@ def run_friday_simulation():
     # 3. Define Time Range (Jan 23, 2026 - Friday)
     # Morning: 8 AM - 12 PM EST (13:00 - 17:00 UTC) - Normal risk trades
     # Afternoon: 12 PM - 5 PM EST (17:00 - 22:00 UTC) - Friday Fade capped at 0.25%
-    start_date = datetime(2026, 1, 23, 8, 0, 0, tzinfo=timezone.utc)   # 3 AM EST
-    end_date = datetime(2026, 1, 23, 23, 0, 0, tzinfo=timezone.utc)    # 6 PM EST
+    start_date = datetime(2026, 1, 30, 8, 0, 0, tzinfo=timezone.utc)
+    end_date = datetime(2026, 1, 30, 23, 0, 0, tzinfo=timezone.utc)
 
     print(f"Time Range: {start_date} -> {end_date}")
     print(f"Symbols: {symbols}")

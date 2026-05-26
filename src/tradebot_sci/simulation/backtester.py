@@ -1510,6 +1510,61 @@ class Backtester:
                             if _router_engine:
                                 _router_snapshot = self.market_provider.get_latest_snapshot(symbol, timeframe)
                                 if _router_snapshot and _router_snapshot.candles:
+                                    # Pre-calculate spread cost and negative hold guard for the router so strategies can be spread-aware
+                                    from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
+                                    from tradebot_sci.config.loader import load_config_json
+                                    
+                                    try:
+                                        fee_pct = get_fee_for_symbol(symbol)
+                                        cfg = load_config_json()
+                                        prof = cfg.get("active_profile", "primary")
+                                        p_data = cfg.get("profiles", {}).get(prof, {})
+                                        slip_bps = float(p_data.get("paper", {}).get("slippage_bps", 0.0))
+                                        if slip_bps == 0:
+                                            slip_bps = float(p_data.get("slippage_bps", 0.0))
+                                    except Exception:
+                                        fee_pct = 0.0025  # fallback
+                                        slip_bps = 0.0
+                                    
+                                    slip_pct = slip_bps / 10000.0
+                                    total_friction_pct = fee_pct + (slip_pct * 2)
+                                    
+                                    # Calculate unrealized PnL
+                                    if pos.direction == "short":
+                                        raw_pnl = (pos.entry_price - current_bar.close) * pos.size
+                                    else:
+                                        raw_pnl = (current_bar.close - pos.entry_price) * pos.size
+                                    
+                                    sym = symbol.upper().replace("_", "")
+                                    if sym.startswith("USD") and current_bar.close > 0:
+                                        raw_pnl = raw_pnl / current_bar.close
+                                    elif "JPY" in sym and current_bar.close > 0:
+                                        raw_pnl = raw_pnl / current_bar.close
+                                    
+                                    unrealized_pnl_usd = raw_pnl
+                                    
+                                    notional = pos.entry_price * abs(pos.size)
+                                    if "JPY" in sym or sym.startswith("USD"):
+                                        if sym.startswith("USD"):
+                                            notional = abs(pos.size)
+                                        else:
+                                            notional = abs(pos.size) * pos.entry_price / pos.entry_price
+                                    
+                                    est_spread_usd = notional * total_friction_pct
+
+                                    enable_negative_hold_guard = getattr(profile, "enable_negative_hold_guard", True)
+                                    negative_hold_seconds = int(getattr(profile, "negative_hold_seconds", 2700))
+
+                                    is_negative = False
+                                    if enable_negative_hold_guard:
+                                        is_negative = (unrealized_pnl_usd - est_spread_usd) < 0
+
+                                    neg_hold_blocked = (
+                                        enable_negative_hold_guard
+                                        and is_negative
+                                        and _router_held_s < negative_hold_seconds
+                                    )
+
                                     # Build gates via trend_consensus (same path as engine.decide)
                                     from tradebot_sci.market.trend_consensus import detect_trend_direction
                                     _consensus = detect_trend_direction(
@@ -1523,6 +1578,8 @@ class Backtester:
                                         "ltf_dir": _consensus.ltf_dir,
                                         "mtf_dir": _consensus.mtf_dir,
                                         "htf_dir": _consensus.htf_dir,
+                                        "ltf_adx": getattr(_consensus, "ltf_adx", 0.0),
+                                        "neg_hold_blocked": neg_hold_blocked,
                                     }
                                     _router_pos = {
                                         'symbol': pos.symbol,
@@ -1538,6 +1595,7 @@ class Backtester:
                                         'mfe_usd': getattr(pos, 'mfe_usd', 0.0),
                                         'mae_usd': getattr(pos, 'mae_usd', 0.0),
                                         'unrealized_pnl': getattr(pos, 'unrealized_pnl', 0.0),
+                                        'est_spread_usd': est_spread_usd,
                                     }
                                     from tradebot_sci.strategy.exit_logic import run_universal_exit_logic
                                     _router_decision = run_universal_exit_logic(
@@ -1560,66 +1618,9 @@ class Backtester:
                                             hold_guard_seconds = int(getattr(profile, "hold_guard_seconds", 900))
                                             position_is_young = (hold_guard_enabled and _router_held_s < hold_guard_seconds)
 
-                                            enable_negative_hold_guard = getattr(profile, "enable_negative_hold_guard", True)
-                                            negative_hold_seconds = int(getattr(profile, "negative_hold_seconds", 2700))
-
-                                            is_negative = False
-                                            if enable_negative_hold_guard:
-                                                if pos.direction == "long":
-                                                    is_negative = current_bar.close < pos.entry_price
-                                                else:
-                                                    is_negative = current_bar.close > pos.entry_price
-
-                                            neg_hold_blocked = (
-                                                enable_negative_hold_guard
-                                                and is_negative
-                                                and _router_held_s < negative_hold_seconds
-                                            )
-
                                             enable_spread_profit_guard = getattr(profile, "enable_spread_profit_guard", True)
                                             spread_profit_blocked = False
                                             if enable_spread_profit_guard:
-                                                from tradebot_sci.utils.symbol_classifier import get_fee_for_symbol
-                                                from tradebot_sci.config.loader import load_config_json
-                                                
-                                                try:
-                                                    fee_pct = get_fee_for_symbol(symbol)
-                                                    cfg = load_config_json()
-                                                    prof = cfg.get("active_profile", "primary")
-                                                    p_data = cfg.get("profiles", {}).get(prof, {})
-                                                    slip_bps = float(p_data.get("paper", {}).get("slippage_bps", 0.0))
-                                                    if slip_bps == 0:
-                                                        slip_bps = float(p_data.get("slippage_bps", 0.0))
-                                                except Exception:
-                                                    fee_pct = 0.0025  # fallback
-                                                    slip_bps = 0.0
-                                                
-                                                slip_pct = slip_bps / 10000.0
-                                                total_friction_pct = fee_pct + (slip_pct * 2)
-                                                
-                                                # Calculate unrealized PnL
-                                                if pos.direction == "short":
-                                                    raw_pnl = (pos.entry_price - current_bar.close) * pos.size
-                                                else:
-                                                    raw_pnl = (current_bar.close - pos.entry_price) * pos.size
-                                                
-                                                sym = symbol.upper().replace("_", "")
-                                                if sym.startswith("USD") and current_bar.close > 0:
-                                                    raw_pnl = raw_pnl / current_bar.close
-                                                elif "JPY" in sym and current_bar.close > 0:
-                                                    raw_pnl = raw_pnl / current_bar.close
-                                                
-                                                unrealized_pnl_usd = raw_pnl
-                                                
-                                                notional = pos.entry_price * abs(pos.size)
-                                                if "JPY" in sym or sym.startswith("USD"):
-                                                    if sym.startswith("USD"):
-                                                        notional = abs(pos.size)
-                                                    else:
-                                                        notional = abs(pos.size) * pos.entry_price / pos.entry_price
-                                                
-                                                est_spread_usd = notional * total_friction_pct
-                                                
                                                 if unrealized_pnl_usd > 0 and unrealized_pnl_usd < est_spread_usd:
                                                     spread_profit_blocked = True
 

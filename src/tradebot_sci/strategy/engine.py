@@ -313,6 +313,7 @@ class StrategyEngine:
             exec_strength = snapshot.trend_ltf.strength
             htf_align = True # Synthetic overrides are strictly aligned
             htf_adx = 50.0 # Force high ADX for regime checks
+            ltf_adx = 50.0
             indicator_dir = snapshot.trend_htf.direction
             indicator_strength = snapshot.trend_htf.strength
             market_regime = "trending" if htf_strength > 0.5 else "transitional"
@@ -343,6 +344,7 @@ class StrategyEngine:
             ltf_strength = consensus.ltf_strength
             exec_strength = consensus.exec_strength
             htf_adx = consensus.htf_adx
+            ltf_adx = consensus.ltf_adx
             htf_align = consensus.htf_align
             indicator_dir = consensus.indicator_dir
             indicator_strength = consensus.indicator_strength
@@ -362,7 +364,7 @@ class StrategyEngine:
             # also receive the indicator-derived direction.
             from dataclasses import replace as dc_replace
             snapshot.trend_htf = dc_replace(
-                snapshot.trend_htf, direction=htf_dir, strength=htf_strength
+                snapshot.trend_htf, direction=htf_dir, strength=htf_strength, adx=htf_adx
             )
             if hasattr(snapshot, "trend_mtf"):
                 if snapshot.trend_mtf is not None:
@@ -373,7 +375,7 @@ class StrategyEngine:
                     from tradebot_sci.market.models import TrendState
                     snapshot.trend_mtf = TrendState(direction=mtf_dir, strength=mtf_strength)
             snapshot.trend_ltf = dc_replace(
-                snapshot.trend_ltf, direction=ltf_dir, strength=ltf_strength
+                snapshot.trend_ltf, direction=ltf_dir, strength=ltf_strength, adx=ltf_adx
             )
             
             if getattr(snapshot, 'trend_exec', None):
@@ -557,6 +559,7 @@ class StrategyEngine:
             "continuation": bool(continuation_signal),
             "continuation_dir": continuation_signal.direction if continuation_signal else None,
             "adx": htf_adx,
+            "ltf_adx": ltf_adx,
             "market_regime": market_regime,
             "is_synthetic_override": is_synthetic_override,
             "session_ok": session_ok,
