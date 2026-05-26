@@ -102,9 +102,12 @@ class SafetyGuard:
 
 
     @classmethod
-    def _update_daily_stats(cls, current_capital: float, asset_class: AssetClass):
+    def _update_daily_stats(cls, current_capital: float, asset_class: AssetClass, now: Optional[datetime] = None):
         """Updates daily PnL tracking for Greed Guard."""
-        today = datetime.now(ZoneInfo("America/New_York")).date()
+        dt = now or datetime.now(timezone.utc)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        today = dt.astimezone(ZoneInfo("America/New_York")).date()
         if cls._state.last_reset_date.get(asset_class) != today:
             cls._state.daily_start_capital[asset_class] = current_capital
             cls._state.daily_pnl[asset_class] = 0.0
@@ -199,7 +202,7 @@ class SafetyGuard:
                 cls._state.drawdown_pause_until.pop(asset_class, None)
                 deposit_just_detected = True
             cls._state.hwm_capital[asset_class] = current_capital
-        cls._update_daily_stats(current_capital, asset_class)
+        cls._update_daily_stats(current_capital, asset_class, now=now)
 
         # -------------------------------------------------------------
         # 0.5 EXIT COOLDOWN (per-symbol, prevents death spiral re-entry)
@@ -428,51 +431,56 @@ class SafetyGuard:
         # 8. [NEW] AI SENTIMENT SHIELD (The Independent Veto)
         # -------------------------------------------------------------
         if safety and safety.safety_sentiment_shield_enabled and ai_client:
-             try:
-                 # Cache per ASSET CLASS (not per symbol) to reduce API calls.
-                 # All forex pairs share the same macro environment.
-                 class_cache = cls._state.sentiment_cache.get(asset_class, {})
-                 cached = class_cache.get(asset_class)  # one entry per class
-                 cache_valid = False
-                 if cached:
-                     ts, sentiment_val = cached
-                     # Valid if less than 30 mins old (was 15 — too aggressive)
-                     if (now - ts) < timedelta(minutes=30):
-                         cache_valid = True
-                         sentiment = sentiment_val
-                 
-                 if not cache_valid:
-                     # Fetch real-time news headlines
-                     news_context = get_latest_news(limit=5)
-                     sentiment_prompt = (
-                         f"You are a risk analyst evaluating whether {symbol} is safe to trade RIGHT NOW.\n"
-                         f"HTF trend: {snapshot.trend_htf}.\n"
-                         f"Recent headlines:\n{news_context}\n\n"
-                         f"IMPORTANT: General geopolitical tension, trade wars, or macro uncertainty are NORMAL "
-                         f"market conditions — they do NOT make a market DANGEROUS. Markets trade through uncertainty every day.\n\n"
-                         f"Only answer DANGEROUS if there is a SPECIFIC, IMMINENT threat to {symbol} such as:\n"
-                         f"- Central bank emergency intervention happening RIGHT NOW\n"
-                         f"- A flash crash or circuit breaker event in progress\n"
-                         f"- A currency peg breaking or sovereign default announcement\n"
-                         f"- An exchange or liquidity provider outage\n\n"
-                         f"If conditions are normal (even if volatile or uncertain), answer SAFE.\n"
-                         f"Answer with ONE word: SAFE or DANGEROUS."
-                     )
-                     sentiment = ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]).upper()
-                     # Update Cache — store per asset class
-                     class_cache[asset_class] = (now, sentiment)
+             # Replay/historical bypass: if now is more than 24 hours in the past compared to system time, bypass AI shield
+             if (datetime.now(timezone.utc) - now).total_seconds() > 86400:
+                 logger.info(f"[SAFETY] AI Sentiment Shield bypassed in replay (historical time: {now})")
+             else:
+                 try:
+                     # Cache per ASSET CLASS (not per symbol) to reduce API calls.
+                     # All forex pairs share the same macro environment.
+                     class_cache = cls._state.sentiment_cache.get(asset_class, {})
+                     cached = class_cache.get(asset_class)  # one entry per class
+                     cache_valid = False
+                     if cached:
+                         ts, sentiment_val = cached
+                         # Valid if less than 30 mins old (was 15 — too aggressive)
+                         if (now - ts) < timedelta(minutes=30):
+                             cache_valid = True
+                             sentiment = sentiment_val
+                     
+                     if not cache_valid:
+                         # Fetch real-time news headlines
+                         news_context = get_latest_news(limit=5)
+                         sentiment_prompt = (
+                             f"You are a risk analyst evaluating whether {symbol} is safe to trade RIGHT NOW.\n"
+                             f"HTF trend: {snapshot.trend_htf}.\n"
+                             f"Recent headlines:\n{news_context}\n\n"
+                             f"IMPORTANT: General geopolitical tension, trade wars, or macro uncertainty are NORMAL "
+                             f"market conditions — they do NOT make a market DANGEROUS. Markets trade through uncertainty every day.\n\n"
+                             f"Only answer DANGEROUS if there is a SPECIFIC, IMMINENT threat to {symbol} such as:\n"
+                             f"- Central bank emergency intervention happening RIGHT NOW\n"
+                             f"- A flash crash or circuit breaker event in progress\n"
+                             f"- A currency peg breaking or sovereign default announcement\n"
+                             f"- An exchange or liquidity provider outage\n\n"
+                             f"If conditions are normal (even if volatile or uncertain), answer SAFE.\n"
+                             f"Answer with ONE word: SAFE or DANGEROUS."
+                         )
+                         sentiment = ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]).upper()
+                         # Update Cache — store per asset class
+                         class_cache[asset_class] = (now, sentiment)
+                         cls._state.sentiment_cache[asset_class] = class_cache
+                         logger.info(f"[SAFETY] AI Shield Refreshed for {asset_class}: {sentiment}")
+                     
+                     if "DANGEROUS" in sentiment:
+                          if not cache_valid: logger.warning(f"[SAFETY] AI Sentiment Shield blocked {symbol}: {sentiment}")
+                          return cls._reject(symbol, timeframe, "AI Sentiment Shield", f"AI Sentiment Shield: {sentiment}")
+                           
+                 except Exception as e:
+                     logger.warning(f"[SAFETY] AI Shield failed request: {e}")
+                     # Cache a default 'SAFE' response to back off and prevent API spam loop
+                     class_cache = cls._state.sentiment_cache.get(asset_class, {})
+                     class_cache[asset_class] = (now, "SAFE")
                      cls._state.sentiment_cache[asset_class] = class_cache
-                     logger.info(f"[SAFETY] AI Shield Refreshed for {asset_class}: {sentiment}")
-                 
-                 if "DANGEROUS" in sentiment:
-                      if not cache_valid: logger.warning(f"[SAFETY] AI Sentiment Shield blocked {symbol}: {sentiment}")
-                      return cls._reject(symbol, timeframe, "AI Sentiment Shield", f"AI Sentiment Shield: {sentiment}")
-                       
-             except Exception as e:
-                 logger.warning(f"[SAFETY] AI Shield failed request: {e}")
-                 # Cache a default 'SAFE' response to back off and prevent API spam loop
-                 class_cache[asset_class] = (now, "SAFE")
-                 cls._state.sentiment_cache[asset_class] = class_cache
 
         # -------------------------------------------------------------
         # 9. [NEW] SEGMENTED LEVERAGE SENTRY (Max Account Leverage)
@@ -513,12 +521,12 @@ class SafetyGuard:
 
 
     @classmethod
-    def notify_entry(cls, symbol: str):
+    def notify_entry(cls, symbol: str, sim_time: Optional[datetime] = None):
         """Call this when a trade is effectively entered to update rate limits."""
         asset_class = classify_symbol(symbol)
         if asset_class not in cls._state.trade_timestamps:
             cls._state.trade_timestamps[asset_class] = []
-        cls._state.trade_timestamps[asset_class].append(datetime.now(timezone.utc))
+        cls._state.trade_timestamps[asset_class].append(sim_time or datetime.now(timezone.utc))
 
     @classmethod
     def augment_exit_decision(cls, decision: Optional[AITradeDecision], open_position: dict, snapshot: MarketSnapshot, sim_time: Optional[datetime] = None) -> AITradeDecision:

@@ -22,6 +22,17 @@ def run_universal_exit_logic(
     if not snapshot.candles or not open_position:
         return None
 
+    # ── Master Hold Interceptor (Negative Hold Guard) ──
+    if gates and gates.get("neg_hold_blocked"):
+        logger.info(f"[EXIT-ROUTER] [{snapshot.symbol}] neg_hold_blocked is True. Freezing exit evaluations and returning HOLD.")
+        stop_price = float(open_position.get("stop_price", 0) or open_position.get("stop_loss", 0))
+        return hold_decision(
+            symbol=snapshot.symbol,
+            timeframe=snapshot.timeframe,
+            reason="Negative Hold Guard active; exits frozen.",
+            stop_loss=stop_price if stop_price > 0 else None
+        )
+
     # Common parameters
     current_price = snapshot.candles[-1].close
     entry_price = float(open_position.get("entry_price", 0))
