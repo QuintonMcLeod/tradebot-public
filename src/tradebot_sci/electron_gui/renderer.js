@@ -827,6 +827,8 @@ function addDecisionRow(symbol, action, scoreNum, reason, forcedGrade = null, st
             actionHtml = `<span class="text-red-500 font-bold text-glow-sm">${actUpper}</span>`;
         } else if (actUpper === "HOLD" || actUpper === "WAIT" || actUpper === "CONTINUATION") {
             actionHtml = `<span class="text-slate-400 font-bold text-glow-sm">${actUpper}</span>`;
+        } else if (actUpper === "BLOCKED" || actUpper === "VETO") {
+            actionHtml = `<span class="text-orange-500 font-bold text-glow-sm">${actUpper}</span>`;
         } else {
             actionHtml = `<span class="text-cyan-400 font-bold text-glow-sm">${actUpper}</span>`;
         }

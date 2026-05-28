@@ -63,7 +63,6 @@ profiles:
       futures: silver_vwap 
     candle_timeframe: 1m 
     continuous_mode: false 
-    session_gate_enabled: true 
   auto_schedule: 
     symbols: 
     - BTCUSD 
@@ -101,15 +100,15 @@ profiles:
   forex_continuous: 
     strategies: 
       etf: meta_sci 
-      forex: meta_sci 
+      forex: forex_hybrid_scalper 
       futures: silver_vwap 
-      metals: forex_conductor 
+      metals: forex_hybrid_scalper 
       stocks: robocop 
-      crypto: forex_conductor 
-    strategy_variant: forex_conductor 
+      crypto: forex_hybrid_scalper 
+    strategy_variant: forex_hybrid_scalper 
     symbols: 
-    - GBPUSD 
     - EURUSD 
+    - GBPUSD 
     - USDJPY 
     - AUDUSD 
     - NZDUSD 
@@ -118,13 +117,13 @@ profiles:
     - GBPJPY 
     - EURJPY 
     - AUDJPY 
-    candle_timeframe: 1m 
+    candle_timeframe: 5m 
     mtf_timeframe: 1h 
     ltf_timeframe: 5m 
     htf_timeframe: 4h 
+    xtf_timeframe: 1m 
     risk_dynamic_auto: false 
     continuous_mode: true 
-    session_gate_enabled: false 
   forex_crypto_hybrid: 
     symbols: 
     - EURUSD 
@@ -182,10 +181,9 @@ profiles:
     - GBPUSD 
     - USDJPY 
     strategies: 
-      forex: forex_hybrid_scalper 
+      forex: forex_hybrid_reaper 
     strategy_variant: forex_hybrid_scalper 
     candle_timeframe: 5m 
     mtf_timeframe: 1h 
     htf_timeframe: 4h 
     continuous_mode: true 
-    session_gate_enabled: false 

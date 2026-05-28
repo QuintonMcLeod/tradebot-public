@@ -295,7 +295,7 @@
         }
 
         // 1. Neural Decision Matrix
-        if (line.includes('[STRUCTURE]') || line.includes('Decision: Decision:') || line.includes('[DECISION]') || line.includes('[SAFETY]') || line.includes('[ENGINE]')) {
+        if (line.includes('[STRUCTURE]') || line.includes('Decision: Decision:') || line.includes('[DECISION]') || line.includes('[SAFETY]') || line.includes('[ENGINE]') || line.includes('[COOLDOWN]') || line.includes('[EVICTION]') || line.includes('[BAR-CLOSE]') || line.includes('[BLOCKED]')) {
             try {
                 let content = "";
                 if (line.includes('[STRUCTURE]')) content = line.split('[STRUCTURE]')[1].trim();
@@ -303,6 +303,10 @@
                 else if (line.includes('[DECISION]')) content = line.split('[DECISION]')[1].trim();
                 else if (line.includes('[SAFETY]')) content = line.split('[SAFETY]')[1].trim();
                 else if (line.includes('[ENGINE]')) content = line.split('[ENGINE]')[1].trim();
+                else if (line.includes('[COOLDOWN]')) content = line.split('[COOLDOWN]')[1].trim();
+                else if (line.includes('[EVICTION]')) content = line.split('[EVICTION]')[1].trim();
+                else if (line.includes('[BAR-CLOSE]')) content = line.split('[BAR-CLOSE]')[1].trim();
+                else if (line.includes('[BLOCKED]')) content = line.split('[BLOCKED]')[1].trim();
 
                 const parts = content.split('|');
                 let head = parts[0].trim();
@@ -335,7 +339,10 @@
                     body.match(/gate=([^\s|]+)/i) ||
                     body.match(/Switched to\s+([^\s|]+)/i) ||
                     body.match(/Blocked\s+([A-Z0-9]+):\s+([^\s|]+)/i);
-                if (actionMatch) {
+
+                if (line.includes('[COOLDOWN]') || line.includes('[EVICTION]') || line.includes('[BAR-CLOSE]') || line.includes('[BLOCKED]') || body.toLowerCase().includes('blocked')) {
+                    action = "BLOCKED";
+                } else if (actionMatch) {
                     if (line.includes('[SAFETY]') && actionMatch[2]) {
                         action = "HOLD";
                     } else {

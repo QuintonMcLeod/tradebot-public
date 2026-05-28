@@ -232,6 +232,10 @@ function getTradeHistory(filter = '24h', paperMode = false, options = {}) {
     }
     
     // Also check paper_state.json as an additional safety
+    // In paper mode, paper_state.json is the authoritative source for the
+    // current running balance (the paper broker updates it on every close).
+    // The ledger's capital_now is a log-scrape approximation and drifts.
+    let paperStateBalance = null;
     if (paperMode) {
         const paperStatePath = path.join(currentDataDir, 'paper_state.json');
         if (fs.existsSync(paperStatePath)) {
@@ -242,6 +246,10 @@ function getTradeHistory(filter = '24h', paperMode = false, options = {}) {
                     if (resetTime > fallbackGlobalCutoff) {
                         fallbackGlobalCutoff = resetTime;
                     }
+                }
+                // Capture the authoritative running balance
+                if (typeof state.balance === 'number' && state.balance > 0) {
+                    paperStateBalance = state.balance;
                 }
             } catch (_) { }
         }
@@ -697,7 +705,7 @@ function getTradeHistory(filter = '24h', paperMode = false, options = {}) {
         }
     }
 
-    return { trades, capital, capitalByBroker, ledgerBySymbol, ledgerByStrategy };
+    return { trades, capital, capitalByBroker, ledgerBySymbol, ledgerByStrategy, paperStateBalance };
 }
 
 /**
@@ -708,7 +716,8 @@ function getTradeHistory(filter = '24h', paperMode = false, options = {}) {
 const TRADE_DISPLAY_LIMIT = 500;
 
 function calculateAnalyticsSummary(data, paperMode = false) {
-    const { trades = [], capital = [], capitalByBroker = {}, ledgerBySymbol = {}, ledgerByStrategy = {} } = data;
+    const { trades = [], capital = [], capitalByBroker = {}, ledgerBySymbol = {}, ledgerByStrategy = {},
+            paperStateBalance = null } = data;
     const closed = trades.filter(t => !t._active);
 
     let totalPnl = 0, grossProfit = 0, grossLoss = 0;
@@ -760,18 +769,47 @@ function calculateAnalyticsSummary(data, paperMode = false) {
     const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : grossProfit > 0 ? 'Inf' : 'N/A';
     const riskReward = avgLoss !== 0 ? Math.abs(avgWin / avgLoss).toFixed(2) : 'N/A';
 
+    // Capital calculations
     const sortedCapital = capital
         .filter(c => c.nav || c.balance)
         .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    const capitalStart = sortedCapital.length > 0 ? (sortedCapital[0].nav || sortedCapital[0].balance) : 0;
-    const capitalEnd = sortedCapital.length > 0 ? (sortedCapital[sortedCapital.length - 1].nav || sortedCapital[sortedCapital.length - 1].balance) : 0;
-    const capitalChange = capitalEnd - capitalStart;
-    const capitalChangePct = capitalStart > 0 ? ((capitalChange / capitalStart) * 100).toFixed(1) : 0;
 
-    // In paper mode, there are no cashouts/deposits. Therefore, the absolute difference in capital
-    // is the mathematically perfect Total PNL, avoiding any inaccuracies caused by trade history truncation.
+    let capitalEnd, capitalStart, capitalChange, capitalChangePct;
+
+    if (paperMode && paperStateBalance !== null) {
+        // Paper mode: paper_state.json is the authoritative running balance.
+        // Derive Capital Start as (Capital Now - trade PnL sum) so that
+        // Start, Now, and Net Change are all internally consistent with
+        // the trade history — regardless of ledger drift or reset mismatches.
+        capitalEnd = paperStateBalance;
+        capitalStart = capitalEnd - totalPnl;
+        capitalChange = totalPnl;
+        capitalChangePct = capitalStart > 0 ? ((capitalChange / capitalStart) * 100).toFixed(1) : 0;
+    } else {
+        const cap0 = sortedCapital.length > 0 ? (sortedCapital[0].nav || sortedCapital[0].balance) : 0;
+        const capN = sortedCapital.length > 0 ? (sortedCapital[sortedCapital.length - 1].nav || sortedCapital[sortedCapital.length - 1].balance) : 0;
+        capitalStart = cap0;
+        capitalEnd = capN;
+        capitalChange = capitalEnd - capitalStart;
+        capitalChangePct = capitalStart > 0 ? ((capitalChange / capitalStart) * 100).toFixed(1) : 0;
+    }
+
+    // In paper mode, prefer the trade-sum PnL (sum of all closed trade PnLs) because it is
+    // always internally consistent with grossProfit, winRate, and the symbol/strategy breakdown.
+    //
+    // WHY NOT capitalChange: The ledger's capital_at_start may have been written during a
+    // different reset/session than the trade history window. When they don't match, using
+    // capitalChange produces an impossible contradiction — e.g., both symbols positive but
+    // total PnL negative — because the two data sources have different time origins.
+    //
+    // Fallback: if we have no trade data at all (e.g. fresh account, log parse failed),
+    // fall back to capitalChange so at least something meaningful is shown.
     if (paperMode) {
-        totalPnl = capitalChange;
+        if (totalTrades === 0 && capitalChange !== 0) {
+            // No trade history: best we can do is the capital delta
+            totalPnl = capitalChange;
+        }
+        // else: keep the trade-sum totalPnl — it is consistent with all other shown metrics
     }
 
     // ── Cashout & Active PnL Detection ──

@@ -19,6 +19,10 @@ PAPER_STATE_FILE = str(_paths.DATA_DIR / "paper_state.json")
 class PaperBroker:
     """A simulated broker for local-only paper trading during Sabbath."""
 
+    # Capability flag — lets engine.py detect this is a paper broker without
+    # hard-coding a class name check (keeps the engine broker-agnostic).
+    is_paper: bool = True
+
     # Per-leg trading friction for realistic paper results.
     # Crypto: Kraken ActiveTrader tier taker fee 0.25%, half-spread ~0.05%, slippage ~0.02%
     # Forex:  OANDA zero commission, friction is spread-only (~0.005% covers residual)
@@ -435,9 +439,13 @@ class PaperBroker:
                     ExecutionOutcome(ExecutionOutcomeType.SKIPPED, symbol, f"Paper: duplicate entry blocked")
                 )
 
-            # Re-entry cooldown — prevent churning after SL/TP exits
+            # Re-entry cooldown — prevent churning after SL/TP exits.
+            # Always use wall-clock time (time.time()) here, NOT _now().
+            # _now() returns sim_time during replay (which can be weeks in the
+            # future), producing a permanently negative elapsed time that blocks
+            # re-entry for millions of seconds after replay ends.
             if symbol in self._exit_cooldowns:
-                now_ts = self._now().timestamp()
+                now_ts = time.time()
                 elapsed = now_ts - self._exit_cooldowns[symbol]
                 remaining = self.REENTRY_COOLDOWN - elapsed
                 if remaining > 0:
@@ -761,7 +769,7 @@ class PaperBroker:
                         mae_usd=pos.get("mae_usd", 0.0),
                     ))
 
-                self._exit_cooldowns[symbol] = self._now().timestamp()
+                self._exit_cooldowns[symbol] = time.time()
                 SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, sim_time=self._now())
                 self._save_state()
                 self.refresh_account_summary()
@@ -851,7 +859,7 @@ class PaperBroker:
                 # Update or remove position
                 if remain_qty < 1e-6:
                     del self.positions[symbol]
-                    self._exit_cooldowns[symbol] = self._now().timestamp()
+                    self._exit_cooldowns[symbol] = time.time()
                 else:
                     pos["qty"] = remain_qty
                     pos["size"] = remain_qty if pos_side == "long" else -remain_qty
@@ -1047,7 +1055,7 @@ class PaperBroker:
                     mae_usd=pos.get("mae_usd", 0.0),
                 ))
 
-            self._exit_cooldowns[symbol] = self._now().timestamp()
+            self._exit_cooldowns[symbol] = time.time()
             self._save_state()
             self.refresh_account_summary()
 
@@ -1260,27 +1268,17 @@ class PaperBroker:
                         else:
                             est_spread_usd_for_router = abs(qty_for_spread * price) * (fee_pct / 2.0)
 
-                        enable_negative_hold_guard = getattr(self.profile, 'enable_negative_hold_guard', True)
-                        negative_hold_seconds = int(getattr(self.profile, 'negative_hold_seconds', 2700))
-                        
-                        is_negative = False
-                        if enable_negative_hold_guard:
-                            # Use net_pnl_usd for Negative Hold Guard to ensure we factor in spread cost!
-                            is_negative = (unrealized_pnl_usd - est_spread_usd_for_router) < 0
-                        
-                        neg_hold_blocked = (
-                            enable_negative_hold_guard
-                            and is_negative
-                            and _router_held_s < negative_hold_seconds
-                        )
-
+                        # Gates for the exit router — direction signals only.
+                        # neg_hold_blocked is computed by engine.py and passed
+                        # through the standard gates dict; the paper broker must
+                        # not re-compute it here (that would make it behave
+                        # differently from the live OANDA broker path).
                         _router_gates = {
                             "exec_dir": _consensus.exec_dir,
                             "ltf_dir": _consensus.ltf_dir,
                             "mtf_dir": _consensus.mtf_dir,
                             "htf_dir": _consensus.htf_dir,
                             "ltf_adx": getattr(_consensus, "ltf_adx", 0.0),
-                            "neg_hold_blocked": neg_hold_blocked,
                         }
 
                         _router_pos = {
@@ -1315,7 +1313,11 @@ class PaperBroker:
                                 # instead of exiting at the inaccurate 5m candle close price.
                                 pass
                             else:
-                                # Apply Hold Guards parity with engine.py
+                                # Apply Hold Guard parity with engine.py.
+                                # Only the age-based hold guard is evaluated here.
+                                # neg_hold_blocked and spread_profit_blocked are computed
+                                # by engine.py (the authoritative gate propagator) and
+                                # are not duplicated inside the broker layer.
                                 is_emergency = getattr(_router_decision, 'emergency_exit', False)
                                 hold_guard_enabled = getattr(self.profile, 'enable_hold_guard', True)
                                 hold_guard_seconds = int(getattr(self.profile, 'hold_guard_seconds', 900))
@@ -1324,18 +1326,16 @@ class PaperBroker:
                                 enable_spread_profit_guard = getattr(self.profile, 'enable_spread_profit_guard', True)
                                 spread_profit_blocked = False
                                 if enable_spread_profit_guard:
-                                    est_spread_usd = est_spread_usd_for_router
-                                    if unrealized_pnl_usd > 0 and unrealized_pnl_usd < est_spread_usd:
+                                    if unrealized_pnl_usd > 0 and unrealized_pnl_usd < est_spread_usd_for_router:
                                         spread_profit_blocked = True
 
-                                if (position_is_young or neg_hold_blocked or spread_profit_blocked) and not is_emergency:
+                                if (position_is_young or spread_profit_blocked) and not is_emergency:
                                     if spread_profit_blocked:
                                         block_reason = "spread profit guard"
-                                        block_limit_str = f"PnL ${unrealized_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd:.2f}"
+                                        block_limit_str = f"PnL ${unrealized_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd_for_router:.2f}"
                                     else:
-                                        block_reason = "negative hold" if neg_hold_blocked else "hold guard"
-                                        block_limit = negative_hold_seconds if neg_hold_blocked else hold_guard_seconds
-                                        block_limit_str = f"age {_router_held_s:.0f}s < {block_limit}s"
+                                        block_reason = "hold guard"
+                                        block_limit_str = f"age {_router_held_s:.0f}s < {hold_guard_seconds}s"
                                     logger.info(
                                         f"[PAPER HOLD GUARD] {symbol} strategy exit BLOCKED — "
                                         f"{block_limit_str} "
@@ -1344,10 +1344,10 @@ class PaperBroker:
                                     )
                                     # Fall through to mechanical stops (do not exit here)
                                 else:
-                                    if is_emergency and (position_is_young or neg_hold_blocked or spread_profit_blocked):
+                                    if is_emergency and (position_is_young or spread_profit_blocked):
                                         logger.info(
                                             f"[PAPER HOLD GUARD] {symbol} EMERGENCY EXIT allowed — "
-                                            f"bypassed hold/negative/spread profit guards"
+                                            f"bypassed hold/spread profit guards"
                                         )
                                     # Exit router wants to close via strategy — do it at bar close price
                                     _exit_price = candles_for_router[-1].close if candles_for_router else price
@@ -1401,7 +1401,7 @@ class PaperBroker:
                                         ))
         
                                     del self.positions[symbol]
-                                    self._exit_cooldowns[symbol] = self._now().timestamp()
+                                    self._exit_cooldowns[symbol] = time.time()
                                     SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, sim_time=self._now())
                                     self._save_state()
                                     self.refresh_account_summary()
@@ -1529,7 +1529,7 @@ class PaperBroker:
                     ))
 
                 del self.positions[symbol]
-                self._exit_cooldowns[symbol] = self._now().timestamp()  # Start re-entry cooldown
+                self._exit_cooldowns[symbol] = time.time()  # Start re-entry cooldown
                 SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, pnl_usd=pnl_usd, sim_time=self._now())
                 self._save_state()
                 self.refresh_account_summary()

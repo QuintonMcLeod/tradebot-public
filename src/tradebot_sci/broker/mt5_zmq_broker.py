@@ -159,7 +159,7 @@ class MT5ZMQBroker(IExchangeBroker):
             "action": "EXECUTE",
             "symbol": symbol,
             "type": "BUY" if action == "enter_long" else "SELL" if action == "enter_short" else action.upper(),
-            "sl": getattr(decision, "stop_loss", 0.0),
+            "sl": 0.0,  # [CRITICAL FIX] Virtual SL only. Rely on engine's 45m hold / 1% floor.
             "tp": getattr(decision, "take_profit", 0.0),
             "risk_usd": risk_usd,
             "strategy": getattr(decision, "strategy_name", "manual") or "manual"

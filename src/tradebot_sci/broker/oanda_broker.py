@@ -749,9 +749,14 @@ class OandaExchangeBroker(IExchangeBroker):
 
             # Modify all open trades for this symbol (usually just 1)
             for tid in trade_ids:
-                data = {
-                    "stopLoss": {"price": f"{new_stop:{fmt}}"}
-                }
+                if new_stop is None or new_stop <= 0:
+                    # Pass None to explicitly cancel any physical Stop Loss order
+                    data = {"stopLoss": None}
+                    log_sl_msg = "CANCELLED"
+                else:
+                    data = {"stopLoss": {"price": f"{new_stop:{fmt}}"}}
+                    log_sl_msg = f"{new_stop:{fmt}}"
+                    
                 r_mod = trades.TradeCRCDO(
                     accountID=self.account_id,
                     tradeID=tid,
@@ -760,7 +765,7 @@ class OandaExchangeBroker(IExchangeBroker):
                 self.client.request(r_mod)
                 logger.info(
                     f"[OANDA] STOP MODIFIED {symbol} trade#{tid}: "
-                    f"new SL={new_stop:{fmt}}"
+                    f"new SL={log_sl_msg}"
                 )
             return True
         except Exception as e:
@@ -1378,8 +1383,11 @@ class OandaExchangeBroker(IExchangeBroker):
                 }
             
             # Attach SL/TP if provided
-            if stop_price:
-                order_data["order"]["stopLossOnFill"] = {"price": f"{stop_price:{fmt}}"}
+            # [CRITICAL FIX] Do NOT send physical SL to OANDA on entry.
+            # We rely entirely on the virtual SafetyGuard (45m hold / 1% floor) to manage stops.
+            # Sending a tight physical SL here causes premature liquidations before the guard can act.
+            # if stop_price:
+            #     order_data["order"]["stopLossOnFill"] = {"price": f"{stop_price:{fmt}}"}
             if take_profit:
                 order_data["order"]["takeProfitOnFill"] = {"price": f"{take_profit:{fmt}}"}
 

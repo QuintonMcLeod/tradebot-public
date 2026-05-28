@@ -149,7 +149,8 @@ class StrategyEngine:
         "crypto_grid":          ("tradebot_sci.strategy.variants.crypto_grid",          "CryptoGridStrategy"),
         "aggregator":           ("tradebot_sci.strategy.variants.aggregator",           "AggregatorStrategy"),
         "forex_conductor":      ("tradebot_sci.strategy.variants.forex_conductor",      "ForexConductorStrategy"),
-        "forex_hybrid_scalper":  ("tradebot_sci.strategy.variants.forex_hybrid_reaper",  "ForexHybridReaperStrategy"),
+        "forex_hybrid_scalper": ("tradebot_sci.strategy.variants.forex_hybrid_reaper",  "ForexHybridReaperStrategy"),
+        "forex_hybrid_reaper":  ("tradebot_sci.strategy.variants.forex_hybrid_reaper",  "ForexHybridReaperStrategy"),
         "qs_sma_filter":        ("tradebot_sci.strategy.variants.qs_sma_filter",        "QS_SMAFilterStrategy"),
         "qs_golden_cross":      ("tradebot_sci.strategy.variants.qs_golden_cross",      "QS_GoldenCrossStrategy"),
         "qs_rsi_mean_reversion":("tradebot_sci.strategy.variants.qs_rsi_mean_reversion","QS_RSIMeanReversionStrategy"),
@@ -511,7 +512,7 @@ class StrategyEngine:
             # If we failed the gate but Sabbath is enabled, we are in PaperBroker, AND paper off-hours is enabled, force True!
             if not session_ok and self.settings and hasattr(self.settings, "safety"):
                 if getattr(self.settings.safety, "sabbath_enabled", False):
-                    if type(self._broker).__name__ == "PaperBroker" and can_paper_trade:
+                    if getattr(self._broker, "is_paper", False) and can_paper_trade:
                         session_ok = True
 
         # Calculate grade for the current snapshot using the populated trend values
@@ -875,6 +876,42 @@ class StrategyEngine:
                 safety_exit.score = score
                 safety_exit.grade = grade
                 return safety_exit
+
+            # ── NEG HOLD GUARD: Widen native broker SL to 1%-capital-risk floor ──────
+            # When the negative hold guard is active, the broker's native stop-loss
+            # (placed as a bracket order at entry) can still fire server-side and bypass
+            # the engine entirely. For OANDA/MT5, cycle.py propagates any hold decision
+            # that carries a stop_loss to modify_stop_loss() on the broker.
+            # We use that path to push the SL to the 1%-capital-risk floor so it
+            # physically cannot be hit until the hold guard expires or the loss
+            # reaches the max risk threshold (whichever comes first).
+            if neg_hold_blocked and open_position and current_price:
+                try:
+                    existing_sl = open_position.get("stop_loss")
+                    
+                    # If there's an existing physical stop loss, we want to actively remove it.
+                    # We pass 0.0 to cycle.py, which translates it to `{"stopLoss": None}` for OANDA.
+                    # This completely nullifies any physical stop loss on the server, enforcing the 45-minute virtual hold.
+                    if existing_sl is not None and float(existing_sl) != 0.0:
+                        from tradebot_sci.strategy.decisions import stand_aside_decision
+                        hold_with_sl = stand_aside_decision(
+                            self.symbol, timeframe,
+                            f"[NEG HOLD GUARD] SL explicitly cancelled "
+                            f"(age {position_age:.0f}s < {negative_hold_seconds}s, "
+                            f"PnL ${floating_pnl_usd:.2f})"
+                        )
+                        hold_with_sl.action = "hold"
+                        hold_with_sl.stop_loss = 0.0
+                        hold_with_sl.score = score
+                        hold_with_sl.grade = grade
+                        logger.info(
+                            f"[HOLD GUARD] {self.symbol} explicitly cancelling native SL → 0.0 "
+                            f"(age {position_age:.0f}s/{negative_hold_seconds}s, "
+                            f"PnL ${floating_pnl_usd:.2f})"
+                        )
+                        return hold_with_sl
+                except Exception as _hg_err:
+                    logger.warning(f"[HOLD GUARD] SL cancellation failed for {self.symbol}: {_hg_err}")
 
             from tradebot_sci.strategy.decisions import stand_aside_decision
             hold = stand_aside_decision(self.symbol, timeframe, "[POSITION LOCK] Holding — position managed by SL/TP")

@@ -183,6 +183,12 @@ class SafetyGuard:
             
         est_now = now.astimezone(ZoneInfo("America/New_York"))
         asset_class = classify_symbol(symbol)
+
+        # Detect replay / historical mode: if the latest candle timestamp is more
+        # than 2 hours behind real wall-clock time, we are replaying history.
+        # Time-of-day session guards (lockout, rollover, etc.) are meaningless
+        # against historical candle time — they must be skipped in replay mode.
+        _is_replay = (datetime.now(timezone.utc) - now).total_seconds() > 7200
         safety = getattr(settings, 'safety', None) if settings else None
 
         # 0. State Updates — with deposit detection
@@ -292,7 +298,8 @@ class SafetyGuard:
                     drawdown_limit = max(configured_limit, adaptive_limit)
                     
                     if drawdown > drawdown_limit:
-                         cls._state.drawdown_pause_until[asset_class] = now + timedelta(hours=24)
+                         _pause_base = datetime.now(timezone.utc) if _is_replay else now
+                         cls._state.drawdown_pause_until[asset_class] = _pause_base + timedelta(hours=24)
                          logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}% > {drawdown_limit*100:.1f}% limit, adaptive={adaptive_limit*100:.0f}%). Pausing 24h.")
                          return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
 
@@ -303,7 +310,8 @@ class SafetyGuard:
                     daily_loss_pct = abs(realized_pnl) / current_capital if realized_pnl < 0 else 0.0
                     
                     if daily_loss_pct > daily_limit:
-                         cls._state.drawdown_pause_until[asset_class] = now + timedelta(hours=24)
+                         _pause_base = datetime.now(timezone.utc) if _is_replay else now
+                         cls._state.drawdown_pause_until[asset_class] = _pause_base + timedelta(hours=24)
                          logger.critical(f"[SAFETY] DAILY LOSS BREAKER: {asset_class.value} lost {daily_loss_pct*100:.1f}% today (Limit {daily_limit*100:.1f}%). Pausing 24h.")
                          return cls._reject(symbol, timeframe, "Daily Loss Breaker", f"Daily Loss Limit Reached ({daily_loss_pct*100:.1f}%)")
         else:
@@ -314,7 +322,7 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # 2. SESSION LOCKOUT (Time Manager)
         # -------------------------------------------------------------
-        if safety and safety.safety_session_lockout_enabled:
+        if not _is_replay and safety and safety.safety_session_lockout_enabled:
              lockout_hour = safety.safety_session_lockout_hour
              if est_now.hour >= lockout_hour:
                  return cls._reject(symbol, timeframe, "Session Lockout", f"Session Lockout (After {lockout_hour}:00 EST)")
@@ -352,7 +360,7 @@ class SafetyGuard:
         # -------------------------------------------------------------
         # Forex rollover occurs at 5:00 PM EST daily. Spreads widen astronomically.
         # Blocking trades from 16:55 to 18:05 EST preserves capital by avoiding spread traps.
-        if safety and safety.safety_rollover_deadzone_enabled and asset_class == AssetClass.FOREX:
+        if not _is_replay and safety and safety.safety_rollover_deadzone_enabled and asset_class == AssetClass.FOREX:
             if (est_now.hour == 16 and est_now.minute >= 55) or est_now.hour == 17 or (est_now.hour == 18 and est_now.minute <= 5):
                  return cls._reject(symbol, timeframe, "Rollover Deadzone", "Rollover Deadzone (16:55-18:05 EST) - Extreme Spread Protection")
 
@@ -391,7 +399,10 @@ class SafetyGuard:
             
             streak_limit = getattr(safety, 'safety_streak_max_losses', 2)
             if cls._state.symbol_loss_streaks.get(symbol, 0) >= streak_limit:
-                cls._state.symbol_pause_until[symbol] = now + timedelta(hours=4)
+                # In replay mode, pause relative to wall-clock so the pause
+                # doesn't bleed across chained replay days.
+                _pause_base = datetime.now(timezone.utc) if _is_replay else now
+                cls._state.symbol_pause_until[symbol] = _pause_base + timedelta(hours=4)
                 cls._state.symbol_loss_streaks[symbol] = 0 # Reset count after triggering
                 logger.warning(f"[SAFETY] Streak Breaker triggered for {symbol} ({streak_limit} losses). Pausing 4h.")
                 return cls._reject(symbol, timeframe, "Streak Breaker", f"Streak Breaker Triggered ({streak_limit} Losses)")
@@ -1095,7 +1106,10 @@ class SafetyGuard:
                     modes.append(m_clean)
 
         # [STABILITY] Force stability mode if active in config
-        if UserConfig.STABILITY_MODE_ACTIVE:
+        prof = settings.get_active_profile() if hasattr(settings, "get_active_profile") else None
+        is_stability_active = getattr(prof, "stability_mode_active", False) or getattr(UserConfig, "STABILITY_MODE_ACTIVE", False)
+        
+        if is_stability_active:
             if "stability" not in modes:
                 modes.insert(0, "stability")
         
@@ -1157,10 +1171,8 @@ class SafetyGuard:
             pass
 
         if spread_bps > elevated_spread_threshold:
-            if "stability" not in modes:
-                modes.append("stability")
-                decision.notes = (decision.notes or "") + f" | [SPREAD ALERT] Forced Stability Mode (Spread {spread_bps:.2f} bps)"
-                logger.info(f"[SPREAD ALERT] Real-time spread ({spread_bps:.2f} bps) exceeds elevated threshold ({elevated_spread_threshold} bps). Forcing Stability mode.")
+            decision.notes = (decision.notes or "") + f" | [SPREAD ALERT] Elevated Spread ({spread_bps:.2f} bps)"
+            logger.info(f"[SPREAD ALERT] Real-time spread ({spread_bps:.2f} bps) exceeds elevated threshold ({elevated_spread_threshold} bps).")
 
         # -------------------------------------------------------------
         # -------------------------------------------------------------

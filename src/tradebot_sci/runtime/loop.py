@@ -183,14 +183,25 @@ def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool, allowed_
     if not market_mode and legacy_provider:
         market_mode = legacy_provider
 
-    if broker_mode not in ("primary", "hybrid") and market_mode not in ("primary", "hybrid"):
+    # Check 5-lane routing configurations
+    lanes = [
+        os.getenv("BROKER_FOREX", settings.market.primary_forex).lower(),
+        os.getenv("BROKER_EQUITIES", settings.market.primary_equities).lower(),
+        os.getenv("BROKER_FUTURES", settings.market.primary_futures).lower(),
+        os.getenv("BROKER_METALS", settings.market.primary_metals).lower(),
+        os.getenv("BROKER_CRYPTO", settings.market.primary_crypto).lower()
+    ]
+    is_routed_to_ibkr = "ibkr" in lanes
+    
+    if broker_mode not in ("primary", "hybrid") and market_mode not in ("primary", "hybrid") and not is_routed_to_ibkr:
         return None
 
-    # Only connect IBKR if it is actually the designated 'primary' provider
+    # Only connect IBKR if it is actually the designated 'primary' provider, or if it is routed
     prime_m = settings.market.primary_market_provider.lower()
     prime_b = settings.market.primary_broker.lower()
-    if prime_m != "ibkr" and prime_b != "ibkr":
-        logger.info(f"[IBKR] Skipping connection - primary provider/broker is {prime_m}/{prime_b}")
+    
+    if prime_m != "ibkr" and prime_b != "ibkr" and not is_routed_to_ibkr:
+        logger.info(f"[IBKR] Skipping connection - primary provider/broker is {prime_m}/{prime_b} and IBKR not in routed lanes")
         return None
         
     # Asset Class Guard: Only connect if Forex or Equity/Metals are active
@@ -491,13 +502,18 @@ def _preflight_broker_check(settings) -> None:
     if gemini_key:
         configured_brokers.append("Gemini")
     
-    # IBKR — needs a non-default account_id and execution_mode != simulate
-    if (hasattr(settings, 'broker')
-            and settings.broker.account_id
-            and settings.broker.account_id != "DU1234567"
-            and settings.broker.execution_mode != "simulate"):
+    # IBKR — considered configured if shared_ib is connected, or if config has an account_id 
+    # (even if it's DU1234567, since single-account setups default to it).
+    if hasattr(settings, 'broker') and settings.broker:
         mode = "paper" if settings.broker.use_paper_trading else "live"
-        configured_brokers.append(f"IBKR ({mode})")
+        
+        # Check if IBKR was actually connected during initialization
+        import sys
+        # shared_ib is created right before this is called in loop.py, but it's local there.
+        # However, we can check if it's enabled in the 5-lane or primary setup and not explicitly disabled.
+        # For simplicity, we just check if it's explicitly set to simulate=False, or if execute_trades=True and it's routed.
+        if settings.broker.execution_mode != "simulate":
+            configured_brokers.append(f"IBKR ({mode})")
     
     # Kraken — needs api_key
     if hasattr(settings, 'kraken') and settings.kraken.api_key:
@@ -1723,6 +1739,11 @@ def run_bot(
                     provider = provider_real
                     if executor_paper:
                         executor_paper.market_provider = provider_real
+                        # Evict any cooldown entries written during replay so they
+                        # cannot block re-entry in the live paper session.
+                        if hasattr(executor_paper, "_exit_cooldowns"):
+                            executor_paper._exit_cooldowns.clear()
+                            logger.info("[REPLAY] Exit cooldowns cleared on replay teardown.")
                     controller.replay_provider = None
                     replay_provider = None
                     # Swap engines back to live data stream

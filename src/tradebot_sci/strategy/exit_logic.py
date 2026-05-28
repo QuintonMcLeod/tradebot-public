@@ -22,17 +22,6 @@ def run_universal_exit_logic(
     if not snapshot.candles or not open_position:
         return None
 
-    # ── Master Hold Interceptor (Negative Hold Guard) ──
-    if gates and gates.get("neg_hold_blocked"):
-        logger.info(f"[EXIT-ROUTER] [{snapshot.symbol}] neg_hold_blocked is True. Freezing exit evaluations and returning HOLD.")
-        stop_price = float(open_position.get("stop_price", 0) or open_position.get("stop_loss", 0))
-        return hold_decision(
-            symbol=snapshot.symbol,
-            timeframe=snapshot.timeframe,
-            reason="Negative Hold Guard active; exits frozen.",
-            stop_loss=stop_price if stop_price > 0 else None
-        )
-
     # Common parameters
     current_price = snapshot.candles[-1].close
     entry_price = float(open_position.get("entry_price", 0))
@@ -123,7 +112,7 @@ def run_universal_exit_logic(
         strat_decision = None
         
         if exit_strategy == "chandelier":
-            strat_decision = _exit_chandelier(snapshot, open_position, current_price, direction, profile)
+            strat_decision = _exit_chandelier(snapshot, open_position, current_price, direction, profile, gates)
         elif exit_strategy == "scale_breakeven":
             strat_decision = _exit_scale_breakeven(snapshot, open_position, current_price, direction, r_multiple, stop_price, entry_price, profile)
         elif exit_strategy == "parabolic_sar":
@@ -205,8 +194,9 @@ def _exit_fixed_rr(snapshot, pos, current_price, direction, target_price):
         return _hard_exit(snapshot, pos, "Take Profit Target Hit (Fixed RR)")
     return None
 
-def _exit_chandelier(snapshot, pos, current_price, direction, profile):
+def _exit_chandelier(snapshot, pos, current_price, direction, profile, gates=None):
     """1. Chandelier Trailing - Highest high / Lowest low minus X ATR."""
+    if gates is None: gates = {}
     atr_mult = float(getattr(profile, "chandelier_atr_mult", 2.0))
     atr = calculate_atr(snapshot.candles, period=14) or (current_price * 0.001)
     
@@ -224,6 +214,10 @@ def _exit_chandelier(snapshot, pos, current_price, direction, profile):
         entry_price = current_price
         
     candles_since_entry = snapshot.candles[-lookback:]
+
+    # Minimum Hold Guard: prevent noise exits on the first bar
+    MIN_BARS_FOR_EXIT = 2
+    _can_hard_exit = bars_held >= MIN_BARS_FOR_EXIT
     
     if direction == "long":
         hh = max(entry_price, max(c.high for c in candles_since_entry))
@@ -231,13 +225,22 @@ def _exit_chandelier(snapshot, pos, current_price, direction, profile):
         
         # If the trailing stop has been crossed by the current price, exit immediately.
         if current_price <= new_stop:
-            # SPREAD AWARENESS: Don't trigger if it's a profit-protecting trail but spread causes a net loss
+            if not _can_hard_exit:
+                return None
+
+            # [NEGATIVE HOLD GUARD] Respect the engine's gate
+            if gates.get("neg_hold_blocked"):
+                return None
+
+            # [SPREAD AWARENESS] Block exits that would realize a net loss after spread.
             est_spread_usd = float(pos.get("est_spread_usd", 0.0))
-            net_pnl_usd = float(pos.get("unrealized_pnl", 0)) - est_spread_usd
-            if new_stop > entry_price and net_pnl_usd < 0:
+            unrealized_pnl = float(pos.get("unrealized_pnl", 0))
+            net_pnl_usd = unrealized_pnl - est_spread_usd
+
+            if net_pnl_usd < 0 and est_spread_usd > 0:
                 import logging
                 logger = logging.getLogger("tradebot_sci.exit_logic")
-                logger.info(f"[CHANDELIER] {pos.get('symbol')} Ignoring trail cross: protecting profit would result in a net loss of ${net_pnl_usd:.2f} (Spread: ${est_spread_usd:.2f})")
+                logger.info(f"[CHANDELIER] {pos.get('symbol')} exit suppressed: net loss of ${net_pnl_usd:.2f} after spread (spread=${est_spread_usd:.2f}). Trail={new_stop:.5f} Entry={entry_price:.5f}")
                 return None
                 
             return _hard_exit(snapshot, pos, f"Chandelier Trail Cross (Price {current_price:.5f} <= Trail {new_stop:.5f})")
@@ -251,13 +254,22 @@ def _exit_chandelier(snapshot, pos, current_price, direction, profile):
         
         # If the trailing stop has been crossed by the current price, exit immediately.
         if current_price >= new_stop:
-            # SPREAD AWARENESS: Don't trigger if it's a profit-protecting trail but spread causes a net loss
+            if not _can_hard_exit:
+                return None
+
+            # [NEGATIVE HOLD GUARD] Respect the engine's gate
+            if gates.get("neg_hold_blocked"):
+                return None
+
+            # [SPREAD AWARENESS] Block exits that would realize a net loss after spread.
             est_spread_usd = float(pos.get("est_spread_usd", 0.0))
-            net_pnl_usd = float(pos.get("unrealized_pnl", 0)) - est_spread_usd
-            if new_stop < entry_price and net_pnl_usd < 0:
+            unrealized_pnl = float(pos.get("unrealized_pnl", 0))
+            net_pnl_usd = unrealized_pnl - est_spread_usd
+            
+            if net_pnl_usd < 0 and est_spread_usd > 0:
                 import logging
                 logger = logging.getLogger("tradebot_sci.exit_logic")
-                logger.info(f"[CHANDELIER] {pos.get('symbol')} Ignoring trail cross: protecting profit would result in a net loss of ${net_pnl_usd:.2f} (Spread: ${est_spread_usd:.2f})")
+                logger.info(f"[CHANDELIER] {pos.get('symbol')} exit suppressed: net loss of ${net_pnl_usd:.2f} after spread (spread=${est_spread_usd:.2f}). Trail={new_stop:.5f} Entry={entry_price:.5f}")
                 return None
                 
             return _hard_exit(snapshot, pos, f"Chandelier Trail Cross (Price {current_price:.5f} >= Trail {new_stop:.5f})")
