@@ -500,6 +500,61 @@ class OandaExchangeBroker(IExchangeBroker):
         except Exception as e:
             logger.error(f"[OANDA] Failed to cancel orders for {symbol}: {e}")
 
+    def cancel_all_pending_orders_on_startup(self) -> int:
+        """Cancel ALL pending orders on the account at startup.
+
+        This is a safety sweep that prevents stale LIMIT/STOP orders from a
+        previous bot instance from filling after a pod restart or crash. It
+        cancels every pending order regardless of symbol, logging each one.
+
+        Returns the count of orders cancelled.
+        """
+        if self.read_only:
+            logger.warning("[OANDA] Read-only mode: skipping startup pending order sweep")
+            return 0
+        if not self._authorized:
+            return 0
+
+        cancelled = 0
+        try:
+            r = orders.OrdersPending(self.account_id)
+            self.client.request(r)
+            pending = r.response.get("orders", [])
+
+            if not pending:
+                logger.info("[OANDA] [STARTUP] No pending orders found — account is clean.")
+                return 0
+
+            logger.warning(
+                f"[OANDA] [STARTUP] Found {len(pending)} orphaned pending order(s) — cancelling all."
+            )
+            for order in pending:
+                order_id   = order.get("id", "?")
+                instrument = order.get("instrument", "?")
+                order_type = order.get("type", "?")
+                try:
+                    cancel_r = orders.OrderCancel(self.account_id, orderID=order_id)
+                    self.client.request(cancel_r)
+                    logger.warning(
+                        f"[OANDA] [STARTUP] Cancelled orphaned {order_type} order #{order_id} "
+                        f"for {instrument}"
+                    )
+                    cancelled += 1
+                except Exception as e:
+                    logger.error(
+                        f"[OANDA] [STARTUP] Failed to cancel order #{order_id} for {instrument}: {e}"
+                    )
+
+        except Exception as e:
+            logger.error(f"[OANDA] [STARTUP] Pending order sweep failed: {e}")
+
+        if cancelled:
+            logger.warning(
+                f"[OANDA] [STARTUP] ⚠  Cancelled {cancelled} stale order(s). "
+                f"These were likely left by a previous bot instance."
+            )
+        return cancelled
+
     def flatten_symbol(self, symbol: str, exit_reason: str = "manual_flatten") -> None:
         """Closes any open positions for the symbol."""
         if self.read_only:

@@ -932,9 +932,27 @@ def run_bot(
     else:
         executor = executor_real
 
+    # ── Startup Pending Order Sweep ──────────────────────────────────────────
+    # Always cancel ALL pending orders on the OANDA account before the main
+    # loop begins. This prevents stale LIMIT orders left by a previous pod
+    # instance from silently filling and appearing as ghost trades with
+    # strategy="unknown". Runs only in live mode (execute_trades=True).
+    if execute_trades and executor_real:
+        _oanda_broker = executor_real
+        # If using a routed multi-broker, unwrap the OANDA sub-broker
+        if hasattr(executor_real, "brokers"):
+            for _b in set(executor_real.brokers.values()):
+                if type(_b).__name__ == "OandaBroker":
+                    _oanda_broker = _b
+                    break
+        if hasattr(_oanda_broker, "cancel_all_pending_orders_on_startup"):
+            _oanda_broker.cancel_all_pending_orders_on_startup()
+
+    # Legacy per-symbol cancel (controlled by CANCEL_ORDERS_ON_START env var)
     if executor and settings.runtime.cancel_orders_on_start:
         for symbol in symbols:
             executor.cancel_all_orders_for_symbol(symbol)
+
     if executor:
         for symbol in symbols:
             snapshot = _log_state_snapshot(executor, symbol)
@@ -2449,6 +2467,19 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
     current_session_name = "scheduled"
     start_ts = time.time()
     try:
+        # ── Startup Pending Order Sweep ──────────────────────────────────────
+        # Cancel ALL pending OANDA orders before the main loop begins.
+        # Prevents stale limit orders from a prior pod from filling as ghost trades.
+        if execute_trades and executor_real:
+            _oanda_broker_sched = executor_real
+            if hasattr(executor_real, "brokers"):
+                for _b in set(executor_real.brokers.values()):
+                    if type(_b).__name__ == "OandaBroker":
+                        _oanda_broker_sched = _b
+                        break
+            if hasattr(_oanda_broker_sched, "cancel_all_pending_orders_on_startup"):
+                _oanda_broker_sched.cancel_all_pending_orders_on_startup()
+
         if executor and settings.runtime.cancel_orders_on_start:
             for symbol in symbols:
                 executor.cancel_all_orders_for_symbol(symbol)
