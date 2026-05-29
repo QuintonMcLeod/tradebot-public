@@ -628,6 +628,23 @@ def _run_heartbeat_cycle(
                 f"[CRASH_GUARD] Error in evaluate_synthetic_stops: {e}",
                 exc_info=True,
             )
+            
+        # ── Market Close Emergency Liquidation ──
+        try:
+            now_est = datetime.now(ZoneInfo('America/New_York'))
+            from tradebot_sci.runtime.scheduling import is_market_open
+            
+            for sym in getattr(profile_settings, "symbols", []):
+                pos = executor.get_open_position_snapshot(sym) if hasattr(executor, "get_open_position_snapshot") else None
+                if pos and abs(float(pos.get("size", 0.0))) > 0:
+                    if not is_market_open(sym, now_est, settings=profile_settings):
+                        logger.warning(f"[HARD CLOSE] {sym} is held past market hours. Executing emergency liquidation.")
+                        try:
+                            executor.flatten_symbol(sym, exit_reason="market_close_liquidation")
+                        except Exception as close_err:
+                            logger.error(f"[HARD CLOSE] Failed to flatten {sym}: {close_err}")
+        except Exception as e:
+            logger.error(f"[CRASH_GUARD] Error in emergency liquidation: {e}", exc_info=True)
     strike_tracker.advance_cycle()
     return last_holdings_log_ts, last_capital_check_ts
 
@@ -1224,6 +1241,7 @@ def run_bot(
                 # Immediately push current health vitals, state, holdings, and commentary to the newly subscribed client
                 controller.broadcast_health(force=True)
                 controller.broadcast_holdings(executor, executor_real=executor_real)
+                controller.broadcast_state(executor, force=True, executor_real=executor_real)
                 last_comm, _ = controller.get_last_commentary()
                 if last_comm:
                     controller.ws_server.broadcast_commentary_sync(last_comm, datetime.now(timezone.utc).strftime("%I:%M %p"), 300)

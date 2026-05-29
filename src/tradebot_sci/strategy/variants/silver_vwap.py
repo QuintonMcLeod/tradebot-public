@@ -48,6 +48,9 @@ class SilverVwapStrategy(BaseStrategy):
         or_high = 0.0
         or_low = float('inf')
         
+        if not snapshot.candles:
+            return 0.0, 0.0
+            
         # Use the latest candle's timestamp for "current" time (supports backtesting/simulation)
         now_ts = snapshot.candles[-1].timestamp
         if isinstance(now_ts, str):
@@ -56,6 +59,9 @@ class SilverVwapStrategy(BaseStrategy):
             now_dt = now_ts
         else:
             now_dt = datetime.fromtimestamp(now_ts, tz=ZoneInfo('UTC'))
+            
+        if now_dt.tzinfo is None:
+            now_dt = now_dt.replace(tzinfo=ZoneInfo('UTC'))
             
         now_est = now_dt.astimezone(self.est_tz)
         today_date = now_est.date()
@@ -74,6 +80,9 @@ class SilverVwapStrategy(BaseStrategy):
                     c_dt = c.timestamp
                 else:
                     c_dt = datetime.fromtimestamp(c.timestamp, tz=ZoneInfo('UTC'))
+                
+                if c_dt.tzinfo is None:
+                    c_dt = c_dt.replace(tzinfo=ZoneInfo('UTC'))
                 
                 c_est = c_dt.astimezone(self.est_tz)
                 
@@ -129,14 +138,21 @@ class SilverVwapStrategy(BaseStrategy):
         **kwargs
     ) -> Optional[AITradeDecision]:
         
+        candles = snapshot.candles
+        if not candles or len(candles) < 30:
+            return None
+        
         # 1. Reset daily limits on a new day (using snapshot time)
-        now_ts = snapshot.candles[-1].timestamp
+        now_ts = candles[-1].timestamp
         if isinstance(now_ts, str):
             now_dt = datetime.fromisoformat(now_ts.replace("Z", "+00:00"))
         elif isinstance(now_ts, datetime):
             now_dt = now_ts
         else:
             now_dt = datetime.fromtimestamp(now_ts, tz=ZoneInfo('UTC'))
+            
+        if now_dt.tzinfo is None:
+            now_dt = now_dt.replace(tzinfo=ZoneInfo('UTC'))
             
         now_est = now_dt.astimezone(self.est_tz)
         current_date = now_est.date()
@@ -147,10 +163,6 @@ class SilverVwapStrategy(BaseStrategy):
             
         if self.halt_trading:
             logger.info(f"[SilverVWAP] Trading halted for {snapshot.symbol} due to daily loss limits.")
-            return None
-            
-        candles = snapshot.candles
-        if len(candles) < 30:
             return None
             
         closes = [c.close for c in candles]

@@ -2002,6 +2002,19 @@ class CCXTExchangeBroker:
                 ex._last_nonce = curr
                 return curr
             ex.nonce = get_gemini_nonce
+        
+        # Kraken Nonce collision mitigation
+        if self.exchange_id == "kraken":
+            ex.milliseconds = lambda: int(time.time() * 1000)
+            def get_kraken_nonce():
+                curr = int(time.time() * 1000)
+                if not hasattr(ex, "_last_nonce"):
+                    ex._last_nonce = 0
+                if curr <= ex._last_nonce:
+                    curr = ex._last_nonce + 1
+                ex._last_nonce = curr
+                return curr
+            ex.nonce = get_kraken_nonce
         # load_markets() is called below after sandbox mode setup
         # (no redundant call here)
         if os.getenv("CCXT_SANDBOX", "false").lower() == "true":
