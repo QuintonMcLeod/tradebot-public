@@ -200,7 +200,9 @@ def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool, allowed_
     prime_m = settings.market.primary_market_provider.lower()
     prime_b = settings.market.primary_broker.lower()
     
-    if prime_m != "ibkr" and prime_b != "ibkr" and not is_routed_to_ibkr:
+    is_ibkr_configured = settings.broker and settings.broker.execution_mode != "simulate"
+    
+    if prime_m != "ibkr" and prime_b != "ibkr" and not is_routed_to_ibkr and not is_ibkr_configured:
         logger.info(f"[IBKR] Skipping connection - primary provider/broker is {prime_m}/{prime_b} and IBKR not in routed lanes")
         return None
         

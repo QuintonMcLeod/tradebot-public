@@ -527,10 +527,12 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
         return PaxosMarketDataProvider(environment=settings.paxos.environment)
     elif name == "ccxt" or name == "coinbase":
         if profile_settings:
-            # Try to get Oanda as fallback for CCXT brokers
+            # Try to get primary_broker as fallback for CCXT brokers
             fallback = None
-            if os.getenv("OANDA_API_KEY"):
-                try: fallback = _create_single_provider("oanda", settings, profile_settings, shared_ib)
+            fallback_name = settings.market.primary_broker
+            if fallback_name == "primary": fallback_name = "ibkr"
+            if fallback_name and fallback_name not in ("ccxt", "coinbase"):
+                try: fallback = _create_single_provider(fallback_name, settings, profile_settings, shared_ib)
                 except Exception: pass
             temp_broker = CCXTExchangeBroker(profile_settings, fallback_provider=fallback)
             return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data, fallback_provider=fallback)
@@ -538,10 +540,12 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
     elif name == "gemini":
         # Gemini specific CCXT initialization
         os.environ["CCXT_EXCHANGE"] = "gemini"
-        # Try to get Oanda as fallback
+        # Try to get primary_broker as fallback
         fallback = None
-        if os.getenv("OANDA_API_KEY"):
-            try: fallback = _create_single_provider("oanda", settings, profile_settings, shared_ib)
+        fallback_name = settings.market.primary_broker
+        if fallback_name == "primary": fallback_name = "ibkr"
+        if fallback_name and fallback_name != "gemini":
+            try: fallback = _create_single_provider(fallback_name, settings, profile_settings, shared_ib)
             except Exception: pass
         temp_broker = CCXTExchangeBroker(profile_settings, fallback_provider=fallback)
         return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data, fallback_provider=fallback)
@@ -549,13 +553,15 @@ def _create_single_provider(name: str, settings: Settings, profile_settings, sha
         # Kraken specific CCXT initialization (public API, no keys needed)
         os.environ["CCXT_EXCHANGE"] = "kraken"
         
-        # [RESILIENCE] Inject Oanda as a fallback if available to survive Kraken rate limits
+        # [RESILIENCE] Inject primary_broker as a fallback if available to survive Kraken rate limits
         fallback = None
-        if os.getenv("OANDA_API_KEY"):
+        fallback_name = settings.market.primary_broker
+        if fallback_name == "primary": fallback_name = "ibkr"
+        if fallback_name and fallback_name != "kraken":
             try:
-                fallback = _create_single_provider("oanda", settings, profile_settings, shared_ib)
+                fallback = _create_single_provider(fallback_name, settings, profile_settings, shared_ib)
             except Exception as e:
-                logger.warning(f"[RESILIENCE] Failed to initialize Oanda fallback: {e}")
+                logger.warning(f"[RESILIENCE] Failed to initialize {fallback_name} fallback: {e}")
 
         temp_broker = CCXTExchangeBroker(profile_settings, fallback_provider=fallback)
         return CCXTMarketDataProvider(temp_broker.exchange, temp_broker.symbol_map_data, fallback_provider=fallback)
@@ -596,7 +602,7 @@ def build_market_provider(
 
     # Check for Granular Overrides first
     crypto_md_mode = os.getenv("BROKER_CRYPTO", "").lower()
-    forex_md_mode = os.getenv("BROKER_FOREX", "").lower() 
+    forex_md_mode = os.getenv("BROKER_FOREX", settings.market.primary_forex).lower() 
     if forex_md_mode in ("kraken", "ccxt", "binance"):
         logger.info(f"[PROVIDER_FACTORY] Overriding unsafe Forex data feed '{forex_md_mode}' to 'ibkr' to prevent rate limit lockouts.")
         forex_md_mode = "ibkr"
