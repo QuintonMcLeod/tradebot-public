@@ -183,35 +183,39 @@ def _maybe_connect_primary_ib(settings: Settings, execute_trades: bool, allowed_
     if not market_mode and legacy_provider:
         market_mode = legacy_provider
 
-    # Check 5-lane routing configurations
-    lanes = [
-        os.getenv("BROKER_FOREX", settings.market.primary_forex).lower(),
-        os.getenv("BROKER_EQUITIES", settings.market.primary_equities).lower(),
-        os.getenv("BROKER_FUTURES", settings.market.primary_futures).lower(),
-        os.getenv("BROKER_METALS", settings.market.primary_metals).lower(),
-        os.getenv("BROKER_CRYPTO", settings.market.primary_crypto).lower()
-    ]
-    is_routed_to_ibkr = "ibkr" in lanes
-    
-    if broker_mode not in ("primary", "hybrid") and market_mode not in ("primary", "hybrid") and not is_routed_to_ibkr:
-        return None
-
-    # Only connect IBKR if it is actually the designated 'primary' provider, or if it is routed
+    # Check if IBKR is actually needed for the current profile
     prime_m = settings.market.primary_market_provider.lower()
     prime_b = settings.market.primary_broker.lower()
     
-    is_ibkr_configured = settings.broker and settings.broker.execution_mode != "simulate"
+    uses_ibkr_as_primary = (prime_m == "ibkr" or prime_b == "ibkr")
     
-    if prime_m != "ibkr" and prime_b != "ibkr" and not is_routed_to_ibkr and not is_ibkr_configured:
-        logger.info(f"[IBKR] Skipping connection - primary provider/broker is {prime_m}/{prime_b} and IBKR not in routed lanes")
-        return None
-        
-    # Asset Class Guard: Only connect if Forex or Equity/Metals are active
+    active_lanes = []
     if allowed_asset_classes:
-        has_ib_class = any(ac in ("forex", "equity", "commodity") for ac in allowed_asset_classes)
-        if not has_ib_class:
-            logger.info("[IBKR] Skipping connection - no Forex or Equity symbols in active profile.")
-            return None
+        if "forex" in allowed_asset_classes:
+            active_lanes.append(os.getenv("BROKER_FOREX", settings.market.primary_forex).lower())
+        if "equity" in allowed_asset_classes:
+            active_lanes.append(os.getenv("BROKER_EQUITIES", settings.market.primary_equities).lower())
+        if "future" in allowed_asset_classes:
+            active_lanes.append(os.getenv("BROKER_FUTURES", settings.market.primary_futures).lower())
+        if "commodity" in allowed_asset_classes:
+            active_lanes.append(os.getenv("BROKER_METALS", settings.market.primary_metals).lower())
+        if "crypto" in allowed_asset_classes:
+            active_lanes.append(os.getenv("BROKER_CRYPTO", settings.market.primary_crypto).lower())
+        
+        is_routed_to_ibkr = "ibkr" in active_lanes
+    else:
+        lanes = [
+            os.getenv("BROKER_FOREX", settings.market.primary_forex).lower(),
+            os.getenv("BROKER_EQUITIES", settings.market.primary_equities).lower(),
+            os.getenv("BROKER_FUTURES", settings.market.primary_futures).lower(),
+            os.getenv("BROKER_METALS", settings.market.primary_metals).lower(),
+            os.getenv("BROKER_CRYPTO", settings.market.primary_crypto).lower()
+        ]
+        is_routed_to_ibkr = "ibkr" in lanes
+
+    if not uses_ibkr_as_primary and not is_routed_to_ibkr:
+        logger.info(f"[IBKR] Skipping connection - IBKR is not the primary broker ({prime_b}) nor routed for active asset classes.")
+        return None
     try:
         from ib_insync import IB  # type: ignore
     except Exception as exc:
