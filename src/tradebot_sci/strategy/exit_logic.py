@@ -332,36 +332,35 @@ def _exit_ma_crossover(snapshot, pos, current_price, direction):
     return None
 
 def _exit_time_decay(snapshot, pos, current_price, direction, profile):
-    """6. Time-Decay (The Impatient) - Exits after X bars."""
+    """6. Time-Decay (The Impatient) - Exits after X bars.
+
+    IMPORTANT: This function uses candle bar count (sim_time domain) to determine
+    elapsed bars. Do NOT compare wall-clock entry_time against candle timestamps —
+    in a fast replay the candle bar timestamps advance through months of history
+    in seconds of real time, causing instant erroneous exits.
+
+    Primary method: count elapsed bars since the candle whose timestamp matches
+    (or first exceeds) the stored entry_time.
+    Fallback: use _calc_bars_held() which also operates in candle-bar space.
+    """
     decay_bars = int(getattr(profile, "time_decay_bars", 24))
-    bars_held = pos.get("bars_held", 0)  # Ideally updated by backend
-    
-    # Fallback to estimating time via entry timestamp
-    entry_ts_str = pos.get("entry_time")
-    if entry_ts_str:
-        try:
-            from datetime import datetime, timezone
-            import dateutil.parser
-            entry_dt = dateutil.parser.parse(str(entry_ts_str))
-            if entry_dt.tzinfo is None:
-                entry_dt = entry_dt.replace(tzinfo=timezone.utc)
-            now_dt = snapshot.candles[-1].timestamp
-            if now_dt.tzinfo is None:
-                now_dt = now_dt.replace(tzinfo=timezone.utc)
-            diff_seconds = (now_dt - entry_dt).total_seconds()
-            
-            # Rough estimate: 24 bars of 5m = 120 mins = 7200 seconds
-            # Without explicitly knowing timeframe here perfectly, we assume 15m average if not provided
-            max_seconds = decay_bars * 15 * 60
-            if "5m" in str(snapshot.timeframe): max_seconds = decay_bars * 5 * 60
-            elif "1h" in str(snapshot.timeframe) or "H1" in str(snapshot.timeframe): max_seconds = decay_bars * 60 * 60
-            
-            if diff_seconds > max_seconds:
-                return _hard_exit(snapshot, pos, f"Time Decay Reached ({decay_bars} bars)")
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            pass
+
+    # ── Primary: measure in candle-bar space (replay-safe) ──────────────────
+    # Use _calc_bars_held which computes elapsed_seconds / bar_interval using
+    # candle timestamps only — both entry and current time in the same domain.
+    bars_held = _calc_bars_held(pos, snapshot)
+
+    if bars_held > 0:
+        if bars_held >= decay_bars:
+            return _hard_exit(snapshot, pos, f"Time Decay Reached ({decay_bars} bars)")
+        return None
+
+    # ── Fallback: raw seconds from the explicit bars_held position key ───────
+    # Only reached if _calc_bars_held couldn't compute (no candles or no entry_time).
+    bars_held_cached = pos.get("bars_held", 0)
+    if bars_held_cached >= decay_bars:
+        return _hard_exit(snapshot, pos, f"Time Decay Reached ({decay_bars} bars)")
+
     return None
 
 def _exit_swing_trailing(snapshot, pos, current_price, direction, profile, current_stop):
@@ -479,11 +478,16 @@ def _exit_adx_death(snapshot, pos, current_price, direction, gates):
     return None
 
 def _exit_winner_giveback(snapshot, pos, current_price, direction, profile):
-    """14. Winner Giveback Protection (MFE Trailing) — 
+    """14. Winner Giveback Protection (MFE Trailing) —
     Proactively protects profit after reaching a high-water mark.
-    
-    Logic: If MFE > 1.5R, exit if current PnL drops below a certain % of MFE.
-    Default: Exit if 30% of peak profit is given back.
+
+    Logic: If MFE > arm_r dollars, exit if current PnL drops below a
+    certain % of MFE. Default: Exit if 20% of peak profit is given back.
+
+    IMPORTANT: Always compute live PnL from current_price × size, NOT from
+    the cached unrealized_pnl field in the position dict. In replay mode the
+    dict value can be stale by one or more bars, causing the guard to fire
+    at the wrong price (showing MFE > 0 but pnl already deeply negative).
     """
     mfe_usd = float(pos.get("mfe_usd", 0))
     if mfe_usd <= 0:
@@ -501,46 +505,58 @@ def _exit_winner_giveback(snapshot, pos, current_price, direction, profile):
 
     import logging
     logger = logging.getLogger("tradebot_sci.exit_logic")
-    
+
     arm_r = float(getattr(profile, "winner_giveback_arm_r", 0.25))
     est_spread_usd = float(pos.get("est_spread_usd", 0.0))
     net_mfe_usd = mfe_usd - est_spread_usd
-    
+
     # Arming Threshold: Active once trade reaches arm_r in dollar terms (spread-aware)
     if net_mfe_usd < (risk_usd * arm_r):
         return None
-        
+
     logger.info(f"[GIVEBACK] {pos.get('symbol')} ARMED! net_mfe_usd=${net_mfe_usd:.2f} >= required=${risk_usd * arm_r:.2f} ({arm_r}R)")
-        
-    # Current PnL (USD)
-    pnl_usd = float(pos.get("unrealized_pnl", 0))
-    if pos.get("unrealized_pnl") is None:
-        # Fallback estimation if unrealized_pnl missing
-        entry_price = float(pos.get("entry_price", 0))
-        size = float(pos.get("size", 0))
-        if entry_price > 0 and size != 0:
-            # Note: This is an estimation that assumes Quote currency is USD.
-            pnl_usd = (current_price - entry_price) * size
-            
+
+    # ── Live PnL: always recompute from current_price to avoid stale cache ──
+    # In replay mode the position's unrealized_pnl may be one bar behind current_price.
+    # Computing directly from price avoids the stale-cache bug where WGP fires
+    # believing the trade is still profitable when price has already reversed fully.
+    entry_price = float(pos.get("entry_price", 0))
+    size = float(pos.get("size", 0))  # signed: positive=long, negative=short
+    if entry_price > 0 and size != 0:
+        # Raw PnL in quote currency (assumed USD for Forex majors)
+        pnl_usd = (current_price - entry_price) * size
+    else:
+        # Absolute fallback: use whatever the broker last recorded
+        pnl_usd = float(pos.get("unrealized_pnl", 0))
+
     # SPREAD AWARENESS
     net_pnl_usd = pnl_usd - est_spread_usd
-            
+
     # Giveback calculation uses NET PnL to protect actual realizable profit
     giveback_usd = net_mfe_usd - net_pnl_usd
-    
+
     # Threshold (e.g. 0.20 = 20% giveback allowed)
     threshold_pct = float(getattr(profile, "winner_giveback_pct", 0.20))
     allowed_giveback = net_mfe_usd * threshold_pct
-    
-    logger.info(f"[GIVEBACK] {pos.get('symbol')} net_mfe_usd=${net_mfe_usd:.2f}, net_pnl_usd=${net_pnl_usd:.2f}, giveback_usd=${giveback_usd:.2f}, allowed=${allowed_giveback:.2f} (pct={threshold_pct})")
-    
+
+    logger.info(
+        f"[GIVEBACK] {pos.get('symbol')} net_mfe_usd=${net_mfe_usd:.2f}, "
+        f"live_pnl_usd=${pnl_usd:.2f}, net_pnl_usd=${net_pnl_usd:.2f}, "
+        f"giveback_usd=${giveback_usd:.2f}, allowed=${allowed_giveback:.2f} (pct={threshold_pct})"
+    )
+
     if giveback_usd > allowed_giveback:
-        # Do not exit if protecting profit actually results in a net loss! Let it ride or hit standard stop loss.
+        # Do not exit if protecting profit actually results in a net loss.
+        # Let the trade hit the hard stop or recover.
         if net_pnl_usd < 0:
-            logger.info(f"[GIVEBACK] {pos.get('symbol')} Ignoring signal: executing would result in a net loss of ${net_pnl_usd:.2f} (Spread: ${est_spread_usd:.2f})")
+            logger.info(
+                f"[GIVEBACK] {pos.get('symbol')} Suppressed: live exit would realize "
+                f"net loss of ${net_pnl_usd:.2f} (spread=${est_spread_usd:.2f}). "
+                f"Holding for SL or recovery."
+            )
             return None
         return _hard_exit(snapshot, pos, f"Winner Giveback Protection ({threshold_pct*100:.0f}% of ${net_mfe_usd:.2f} NET MFE surrendered)")
-    
+
     return None
 
 def _exit_structure_failure(snapshot, pos, current_price, direction):
