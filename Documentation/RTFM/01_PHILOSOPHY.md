@@ -1,5 +1,5 @@
 ---
-title: 01 Born From Late-Stage Capitalism: Why This Bot Exists
+title: "01 Born From Late-Stage Capitalism: Why This Bot Exists"
 category: rtfm
 icon: psychology
 description: 'Welcome to TradeBot SCI Enterprise. It has no fancy marketing name.

@@ -1,5 +1,5 @@
 ---
-title: 44 The Sabbath Protocol: When the Bot Takes a Day Off
+title: "44 The Sabbath Protocol: When the Bot Takes a Day Off"
 category: rtfm
 icon: synagogue
 description: "\"Even God rested on the seventh day. The bot just switches to paper\

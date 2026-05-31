@@ -1,5 +1,5 @@
 ---
-title: 03 The Ancient Oaths
+title: "03 The Ancient Oaths"
 description: Standard documentation.
 category: rtfm
 icon: article

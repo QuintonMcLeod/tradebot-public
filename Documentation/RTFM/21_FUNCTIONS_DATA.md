@@ -1,5 +1,5 @@
 ---
-title: 21 Under the Hood: Every Function, Every Data Packet
+title: "21 Under the Hood: Every Function, Every Data Packet"
 category: rtfm
 icon: data_object
 description: "\"The devil is in the details. And the bugs.\" If you are debugging\

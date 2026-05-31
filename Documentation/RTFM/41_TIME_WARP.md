@@ -1,5 +1,5 @@
 ---
-title: 41 The Time Warp: Backtesting, Replay & Paper Trading
+title: "41 The Time Warp: Backtesting, Replay & Paper Trading"
 category: rtfm
 icon: fast_forward
 description: '"Imagine if you could simulate that conversation before you had it."

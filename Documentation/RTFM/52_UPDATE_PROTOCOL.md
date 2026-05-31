@@ -1,5 +1,5 @@
 ---
-title: 52 The Update Protocol: How the Bot Updates Itself
+title: "52 The Update Protocol: How the Bot Updates Itself"
 category: rtfm
 icon: system_update
 description: '"In the future, software updates itself. We''re living in the future.

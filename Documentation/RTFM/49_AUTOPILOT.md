@@ -1,5 +1,5 @@
 ---
-title: 49 The Autopilot (Or: Why You Should Stop Touching Things)
+title: "49 The Autopilot (Or: Why You Should Stop Touching Things)"
 category: rtfm
 icon: smart_toy
 description: '"You, a guy who learned trading from a TikTok video with subway surfers

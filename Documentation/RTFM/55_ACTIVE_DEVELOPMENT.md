@@ -1,5 +1,5 @@
 ---
-title: 55 Your Bot Has a Mechanic (And That's Everything)
+title: "55 Your Bot Has a Mechanic (And That's Everything)"
 category: rtfm
 icon: engineering
 description: "\"The bot lost $14 last week. Is it broken?\" No. It's being fixed.

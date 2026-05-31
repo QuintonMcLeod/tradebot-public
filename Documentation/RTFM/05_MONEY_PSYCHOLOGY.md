@@ -1,5 +1,5 @@
 ---
-title: 05 Money Psychology: The 8 Emotional Traps The Bot Prevents
+title: "05 Money Psychology: The 8 Emotional Traps The Bot Prevents"
 category: rtfm
 icon: psychology_alt
 description: "\"The market is designed to do whatever hurts the most people.\" This\

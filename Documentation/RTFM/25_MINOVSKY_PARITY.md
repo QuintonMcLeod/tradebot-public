@@ -1,5 +1,5 @@
 ---
-title: 25 The Minovsky Engine: Temporal Parity & Advanced Simulation
+title: "25 The Minovsky Engine: Temporal Parity & Advanced Simulation"
 category: rtfm
 icon: hourglass_empty
 description: 'Backtesting is easy when you cheat. We do not cheat. The Minovsky Engine implements a strict Temporal Domain Split, separating wall-clock display from sim-time processing, ensuring perfect paper-trade parity and enabling Tier-S cross-symbol auto-discovery.'

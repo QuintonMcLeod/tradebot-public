@@ -1,5 +1,5 @@
 ---
-title: 29 Context Masking for Dummies
+title: "29 Context Masking for Dummies"
 category: rtfm
 icon: theater_comedy
 description: '"Wait... so if I tell the bot to risk 1% globally, how the hell do I

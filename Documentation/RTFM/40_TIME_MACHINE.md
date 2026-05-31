@@ -1,5 +1,5 @@
 ---
-title: 40 I Have to Go Back: The Trinity of Backtesting
+title: "40 I Have to Go Back: The Trinity of Backtesting"
 category: rtfm
 icon: history
 description: '"I have to go back." You have discovered that there are actually three

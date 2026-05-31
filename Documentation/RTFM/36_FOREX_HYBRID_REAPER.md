@@ -1,5 +1,5 @@
 ---
-title: 36 Forex Hybrid Scalper
+title: "36 Forex Hybrid Scalper"
 category: rtfm
 icon: ssid_chart
 description: 'A structural Frankenstein that bolts HyperScalper trend logic directly into the explosive kinetic triggers of the Rubberband Reaper.'

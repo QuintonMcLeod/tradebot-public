@@ -1,5 +1,5 @@
 ---
-title: 31 Advanced Quantitative Strategies
+title: "31 Advanced Quantitative Strategies"
 category: rtfm
 icon: functions
 description: '"You don''t even know how to balance your own checkbook, but suddenly

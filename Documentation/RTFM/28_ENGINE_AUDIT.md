@@ -1,5 +1,5 @@
 ---
-title: 28 Engine Audit: The Minovsky Engine''s 14-Day Stress Test
+title: "28 Engine Audit: The Minovsky Engine's 14-Day Stress Test"
 category: rtfm
 icon: verified
 description: '"Show me what you can do in two weeks." 2,278 trades. +$3,974 PnL. Profit

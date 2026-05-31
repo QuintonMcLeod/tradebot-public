@@ -1,5 +1,5 @@
 ---
-title: 37 Position Alchemy: The Art and Science of SL, TP, and Trailing Stops
+title: "37 Position Alchemy: The Art and Science of SL, TP, and Trailing Stops"
 category: rtfm
 icon: auto_graph
 description: '"The entry is science. The exit is art. The stop-loss is religion."

@@ -1,5 +1,5 @@
 ---
-title: 35 The 1-Minute Forex Reality Check
+title: "35 The 1-Minute Forex Reality Check"
 category: rtfm
 icon: speed
 description: '"You want a lambo by Tuesday? You''re gonna be taking the bus by Wednesday."

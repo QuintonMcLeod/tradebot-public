@@ -1,5 +1,5 @@
 ---
-title: 42 The Night Watch: Sleeping While Your Money Works
+title: "42 The Night Watch: Sleeping While Your Money Works"
 category: rtfm
 icon: bedtime
 description: "\"The market never sleeps. Neither does your anxiety.\" So you've got\

@@ -1,5 +1,5 @@
 ---
-title: 24 The Minovsky Engine: Death of the Phoenix, Birth of the Reactor
+title: "24 The Minovsky Engine: Death of the Phoenix, Birth of the Reactor"
 category: rtfm
 icon: precision_manufacturing
 description: "\"Why are you making your own bread when there's a perfectly good bakery\

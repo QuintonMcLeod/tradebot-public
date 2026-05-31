@@ -1,5 +1,5 @@
 ---
-title: 33 The Bot Is a 20-Year Seasoned Trader
+title: "33 The Bot Is a 20-Year Seasoned Trader"
 category: rtfm
 icon: military_tech
 description: "\"You spent 20 years learning to read price action. The bot learned\

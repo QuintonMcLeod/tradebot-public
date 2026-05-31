@@ -1,5 +1,5 @@
 ---
-title: 50 Recipes for Traders: A Cookbook of Common Tasks
+title: "50 Recipes for Traders: A Cookbook of Common Tasks"
 category: rtfm
 icon: menu_book
 description: '"Give a man a fish, he trades for a day. Teach a man to configure the

@@ -1,5 +1,5 @@
 ---
-title: 19 Something Is Wrong \u2014 The Emergency Panic Protocol
+title: "19 Something Is Wrong \u2014 The Emergency Panic Protocol"
 category: rtfm
 icon: emergency
 description: "\"Something is wrong. Make it stop.\" So the bot is screaming in red\

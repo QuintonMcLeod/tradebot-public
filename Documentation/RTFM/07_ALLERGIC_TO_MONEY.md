@@ -1,5 +1,5 @@
 ---
-title: 07 Allergic to Money: Stop Playing With Me
+title: "07 Allergic to Money: Stop Playing With Me"
 category: rtfm
 icon: money_off
 description: '"You can''t invest a HUNNIT dollars in yourself? But you''d spend $100

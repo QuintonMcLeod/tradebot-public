@@ -1,5 +1,5 @@
 ---
-title: 32 36 Weapons of War: The Complete Strategy Arsenal
+title: "32 36 Weapons of War: The Complete Strategy Arsenal"
 category: rtfm
 icon: strategy
 description: "\"One strategy doesn't fit all markets. Choose your weapon wisely \u2014\

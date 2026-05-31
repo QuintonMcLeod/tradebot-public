@@ -1,5 +1,5 @@
 ---
-title: 14 Lost in the Codebase? The Complete Navigation Map
+title: "14 Lost in the Codebase? The Complete Navigation Map"
 category: rtfm
 icon: map
 description: "\"Where is main.py again?\" The project structure is classic Python\

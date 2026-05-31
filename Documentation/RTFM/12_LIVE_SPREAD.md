@@ -1,5 +1,5 @@
 ---
-title: 12 Live Spread Integration: Why Your Bot Was Trading Blindfolded
+title: "12 Live Spread Integration: Why Your Bot Was Trading Blindfolded"
 category: rtfm
 icon: visibility
 description: '"The bot thought the highway toll was $1.50 but sometimes it was $15."

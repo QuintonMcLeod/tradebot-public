@@ -1,5 +1,5 @@
 ---
-title: 11 The Crypto Frontier: The Wild West of 24/7 Markets
+title: "11 The Crypto Frontier: The Wild West of 24/7 Markets"
 category: rtfm
 icon: currency_bitcoin
 description: "\"Crypto: where stability means it only moved 8% today.\" How crypto\

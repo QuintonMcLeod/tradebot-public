@@ -1,5 +1,5 @@
 ---
-title: 08 The Accounting Engine: PnL Integrity & Cost Basis Physics
+title: "08 The Accounting Engine: PnL Integrity & Cost Basis Physics"
 category: rtfm
 icon: calculate
 description: 'How the bot handles the math of money. A deep dive into the Futures Capital Model, Slippage Injection for paper trading, and the temporal AGE parity that synchronizes simulated metrics to real-world physics.'

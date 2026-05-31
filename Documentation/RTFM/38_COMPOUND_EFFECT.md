@@ -1,5 +1,5 @@
 ---
-title: 38 The Compound Effect: Why Small Accounts Don''t Stay Small
+title: "38 The Compound Effect: Why Small Accounts Don't Stay Small"
 category: rtfm
 icon: trending_up
 description: "\"Three good days a month. That's all the math needs.\" Take a $50k\

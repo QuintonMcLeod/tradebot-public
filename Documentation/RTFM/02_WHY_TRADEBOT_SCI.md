@@ -1,5 +1,5 @@
 ---
-title: 02 Why TradeBot SCI? (A Totally Unbiased Comparison)
+title: "02 Why TradeBot SCI? (A Totally Unbiased Comparison)"
 category: rtfm
 icon: emoji_events
 description: Chad and Karen from Accounting review the competition. 3Commas, Cryptohopper,

@@ -1,5 +1,5 @@
 ---
-title: 22 I Think, Therefore I Trade: The AI Decision Engine
+title: "22 I Think, Therefore I Trade: The AI Decision Engine"
 category: rtfm
 icon: smart_toy
 description: "\"I think, therefore I trade.\" You know the bot trades. But how does\

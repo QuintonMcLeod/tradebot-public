@@ -1,5 +1,5 @@
 ---
-title: 04 This Is Not a Money Printer
+title: "04 This Is Not a Money Printer"
 category: rtfm
 icon: hourglass_top
 description: "\"I installed the bot forty-five minutes ago. When do I get rich?\"\

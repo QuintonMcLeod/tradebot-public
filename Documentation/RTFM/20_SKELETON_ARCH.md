@@ -1,5 +1,5 @@
 ---
-title: 20 Inside the Machine: The Complete Skeletal Architecture
+title: "20 Inside the Machine: The Complete Skeletal Architecture"
 category: rtfm
 icon: account_tree
 description: "\"It's alive! ...mostly.\" This document explains the anatomy of the\

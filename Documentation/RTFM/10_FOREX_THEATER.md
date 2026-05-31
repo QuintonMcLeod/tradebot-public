@@ -1,5 +1,5 @@
 ---
-title: 10 The Forex Theater: Sessions, Spreads, and the Global Money Dance
+title: "10 The Forex Theater: Sessions, Spreads, and the Global Money Dance"
 category: rtfm
 icon: public
 description: '"The forex market is a theater. Three acts per day. The actors are central

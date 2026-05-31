@@ -1,5 +1,5 @@
 ---
-title: 54 Remote Setup: Run the Core on One PC, the GUI on Another
+title: "54 Remote Setup: Run the Core on One PC, the GUI on Another"
 category: rtfm
 icon: lan
 description: "\"The bot has two halves \u2014 a brain and a face.\" How to run the\

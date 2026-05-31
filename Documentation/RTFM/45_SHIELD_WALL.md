@@ -1,5 +1,5 @@
 ---
-title: 45 The Shield Wall: Risk Management Deep Dive
+title: "45 The Shield Wall: Risk Management Deep Dive"
 category: rtfm
 icon: shield
 description: '"The fastest way to go broke is to be right 90% of the time and blow

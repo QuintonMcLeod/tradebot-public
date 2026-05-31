@@ -1,5 +1,5 @@
 ---
-title: 16 The Dashboard: Reading the GUI Like a Fighter Pilot
+title: "16 The Dashboard: Reading the GUI Like a Fighter Pilot"
 category: rtfm
 icon: dashboard
 description: '"If fighter pilots can land on aircraft carriers using instruments,

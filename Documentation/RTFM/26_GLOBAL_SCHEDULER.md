@@ -1,5 +1,5 @@
 ---
-title: 26 The Global Scheduler: Precision Timing & Off-Hours
+title: "26 The Global Scheduler: Precision Timing & Off-Hours"
 category: rtfm
 icon: schedule
 description: "\"The bot doesn't have a 9-to-5. It has a 24/7 and a strong opinion\

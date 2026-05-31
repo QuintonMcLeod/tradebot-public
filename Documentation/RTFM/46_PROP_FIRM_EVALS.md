@@ -1,5 +1,5 @@
 ---
-title: 46 49. Out of the Red: Prop Firms and Escaping the Rat Race
+title: "46 49. Out of the Red: Prop Firms and Escaping the Rat Race"
 description: 'How to use Prop Firms to skip the slow grind of $100 accounts, pass your evaluations on autopilot, and use someone else''s $100,000 to actually pay your rent.'
 featured: true
 ---

@@ -1,5 +1,5 @@
 ---
-title: 53 The Payout Card: When to Secure the Bag
+title: "53 The Payout Card: When to Secure the Bag"
 category: rtfm
 icon: paid
 description: "\"Profit doesn't count until it's in your bank account.\" The Payout\

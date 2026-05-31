@@ -1,5 +1,5 @@
 ---
-title: 27 The Universal Exit Router: Shields & Profit Suppression
+title: "27 The Universal Exit Router: Shields & Profit Suppression"
 category: rtfm
 icon: shield
 description: 'Understanding how the bot abandons trades. The Universal Exit Router dynamically intercepts mechanical limits, tracks choppy structure, enables reverse-detection falling knife protection, and executes Friday fading.'

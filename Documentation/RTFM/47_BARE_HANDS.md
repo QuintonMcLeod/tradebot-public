@@ -1,5 +1,5 @@
 ---
-title: 47 STOP! Don't Trade With Your Bare Hands!
+title: "47 STOP! Don't Trade With Your Bare Hands!"
 category: rtfm
 icon: front_hand
 description: "\"You're showing up to a sword fight with a pool noodle.\" 80-95% of\

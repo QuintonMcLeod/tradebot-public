@@ -1,5 +1,5 @@
 ---
-title: 43 The War Room: Decoding the Log Output
+title: "43 The War Room: Decoding the Log Output"
 category: rtfm
 icon: terminal
 description: "\"I see the Matrix now. It's mostly INFO lines.\" You opened the log\

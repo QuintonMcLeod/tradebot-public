@@ -1,5 +1,5 @@
 ---
-title: 15 What Does This Button Do? The Complete Cockpit Guide
+title: "15 What Does This Button Do? The Complete Cockpit Guide"
 category: rtfm
 icon: tune
 description: "\"What does this button do?\" \u2014 Last words of a former trader.\

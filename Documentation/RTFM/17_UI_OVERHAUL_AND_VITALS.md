@@ -1,5 +1,5 @@
 ---
-title: 17 UI Overhauls & Nurse's Station Vitals
+title: "17 UI Overhauls & Nurse's Station Vitals"
 category: rtfm
 icon: medical_services
 description: Listen to me, you grown adults who refuse to read. We just spent the last two weeks

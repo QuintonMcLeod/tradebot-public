@@ -1,5 +1,5 @@
 ---
-title: 34 The Forex Conductor: The Strategy That Refuses to Lose Gracefully
+title: "34 The Forex Conductor: The Strategy That Refuses to Lose Gracefully"
 category: rtfm
 icon: music_note
 description: '"Take profit? At 2.5R? My dear boy, we don''t DO fixed take profits

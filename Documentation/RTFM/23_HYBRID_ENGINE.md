@@ -1,5 +1,5 @@
 ---
-title: 23 The Hybrid Engine: Multi-Broker Orchestration
+title: "23 The Hybrid Engine: Multi-Broker Orchestration"
 category: rtfm
 icon: hub
 description: '"One broker is a dependency. Two brokers is a strategy. Three brokers

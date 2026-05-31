@@ -1,5 +1,5 @@
 ---
-title: 51 Every Toggle, Every Flag: The Environment Variable Bible
+title: "51 Every Toggle, Every Flag: The Environment Variable Bible"
 category: rtfm
 icon: settings_applications
 description: "The comprehensive reference for every environment variable used by TradeBot\

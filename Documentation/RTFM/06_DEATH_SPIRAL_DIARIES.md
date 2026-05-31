@@ -1,5 +1,5 @@
 ---
-title: 06 The Death Spiral Diaries: 188 Trades, 3 Wins, and $17 of Pain
+title: "06 The Death Spiral Diaries: 188 Trades, 3 Wins, and $17 of Pain"
 category: rtfm
 icon: local_fire_department
 description: A true (and tragically hilarious) account of how a stop-loss shorter
