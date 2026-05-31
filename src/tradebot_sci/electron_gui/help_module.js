@@ -1166,6 +1166,9 @@ window.helpModule = (() => {
         const backBtn = document.getElementById('help-back-btn');
         if (backBtn) backBtn.classList.add('hidden');
 
+        const homeBtn = document.getElementById('help-home-btn');
+        if (homeBtn) homeBtn.classList.add('hidden');
+
         const nextBtn = document.getElementById('help-next-btn');
         if (nextBtn) nextBtn.classList.add('hidden');
 
@@ -1192,22 +1195,38 @@ window.helpModule = (() => {
         const markdownEl = document.getElementById('help-markdown');
         if (titleEl) titleEl.textContent = 'Loading...';
 
-        // Show back button
-        const backBtn = document.getElementById('help-back-btn');
-        if (backBtn) backBtn.classList.remove('hidden');
+        // Show home button
+        const homeBtn = document.getElementById('help-home-btn');
+        if (homeBtn) homeBtn.classList.remove('hidden');
 
-        // Show next button and determine if it should be enabled
+        // Show back button and next button, determine their state based on sequence
+        const backBtn = document.getElementById('help-back-btn');
         const nextBtn = document.getElementById('help-next-btn');
+        
+        const sortedCatalog = [...docCatalog].sort((a, b) => {
+            const aName = a.filename || '';
+            const bName = b.filename || '';
+            const aIsAdr = a.category === 'adr' || aName.toLowerCase().includes('adr');
+            const bIsAdr = b.category === 'adr' || bName.toLowerCase().includes('adr');
+            if (aIsAdr !== bIsAdr) return aIsAdr ? 1 : -1;
+            return aName.localeCompare(bName);
+        });
+        const currentIndex = sortedCatalog.findIndex(d => d.filename === filename);
+
+        if (backBtn) {
+            backBtn.classList.remove('hidden');
+            if (currentIndex > 0) {
+                backBtn.style.opacity = '1';
+                backBtn.style.pointerEvents = 'auto';
+                backBtn.dataset.prevFilename = sortedCatalog[currentIndex - 1].filename;
+            } else {
+                backBtn.style.opacity = '0.3';
+                backBtn.style.pointerEvents = 'none';
+                delete backBtn.dataset.prevFilename;
+            }
+        }
+
         if (nextBtn) {
-            const sortedCatalog = [...docCatalog].sort((a, b) => {
-                const aName = a.filename || '';
-                const bName = b.filename || '';
-                const aIsAdr = a.category === 'adr' || aName.toLowerCase().includes('adr');
-                const bIsAdr = b.category === 'adr' || bName.toLowerCase().includes('adr');
-                if (aIsAdr !== bIsAdr) return aIsAdr ? 1 : -1;
-                return aName.localeCompare(bName);
-            });
-            const currentIndex = sortedCatalog.findIndex(d => d.filename === filename);
             if (currentIndex >= 0 && currentIndex < sortedCatalog.length - 1) {
                 nextBtn.classList.remove('hidden');
                 nextBtn.dataset.nextFilename = sortedCatalog[currentIndex + 1].filename;
@@ -1381,10 +1400,20 @@ window.helpModule = (() => {
         setupKineticScroll();
         setupHelpSearch();
 
+        // Home button
+        const homeBtn = document.getElementById('help-home-btn');
+        if (homeBtn) {
+            homeBtn.addEventListener('click', () => showMagazine());
+        }
+
         // Back button
         const backBtn = document.getElementById('help-back-btn');
         if (backBtn) {
-            backBtn.addEventListener('click', () => showMagazine());
+            backBtn.addEventListener('click', () => {
+                if (backBtn.dataset.prevFilename) {
+                    loadDoc(backBtn.dataset.prevFilename);
+                }
+            });
         }
 
         // Next button

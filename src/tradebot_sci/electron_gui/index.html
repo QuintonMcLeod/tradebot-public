@@ -1536,9 +1536,13 @@
             <!-- Minimal header (shows Back when reading an article) -->
             <div id="help-content-header" class="h-14 flex items-center px-8 border-b"
                 style="border-color: rgba(255,255,255,0.05); background: rgba(0,0,0,0.15); position: relative;">
-                <!-- Left: Back button -->
-                <div class="flex items-center" style="z-index: 1;">
-                    <button id="help-back-btn" class="help-back-btn hidden" title="Back to Knowledge Base">
+                <!-- Left: Navigation buttons -->
+                <div class="flex items-center gap-2" style="z-index: 1;">
+                    <button id="help-home-btn" class="help-back-btn hidden" title="Back to Knowledge Base">
+                        <span class="material-symbols-outlined text-sm">home</span>
+                        <span>Home</span>
+                    </button>
+                    <button id="help-back-btn" class="help-back-btn hidden" title="Previous Article">
                         <span class="material-symbols-outlined text-sm">arrow_back</span>
                         <span>Back</span>
                     </button>
