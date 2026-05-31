@@ -1159,9 +1159,8 @@ window.helpModule = (() => {
         const contentArea = document.getElementById('help-content');
         if (contentArea) {
             setTimeout(() => {
-                const upBtn = document.getElementById('help-scroll-top');
-                if (upBtn) upBtn.click();
-            }, 50);
+                contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+            }, 100);
         }
 
         const backBtn = document.getElementById('help-back-btn');
@@ -1240,9 +1239,8 @@ window.helpModule = (() => {
             const contentArea = document.getElementById('help-content');
             if (contentArea) {
                 setTimeout(() => {
-                    const upBtn = document.getElementById('help-scroll-top');
-                    if (upBtn) upBtn.click();
-                }, 50);
+                    contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+                }, 100);
             }
 
         } catch (err) {
