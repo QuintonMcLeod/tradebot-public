@@ -1159,7 +1159,7 @@ window.helpModule = (() => {
         const contentArea = document.getElementById('help-content');
         if (contentArea) {
             setTimeout(() => {
-                contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+                contentArea.dispatchEvent(new Event('scrollToTop'));
             }, 100);
         }
 
@@ -1239,7 +1239,7 @@ window.helpModule = (() => {
             const contentArea = document.getElementById('help-content');
             if (contentArea) {
                 setTimeout(() => {
-                    contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+                    contentArea.dispatchEvent(new Event('scrollToTop'));
                 }, 100);
             }
 
@@ -1255,7 +1255,7 @@ window.helpModule = (() => {
         const contentArea = document.getElementById('help-content');
         if (btn && contentArea) {
             btn.addEventListener('click', () => {
-                contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+                contentArea.dispatchEvent(new Event('scrollToTop'));
             });
         }
     }
@@ -1302,6 +1302,12 @@ window.helpModule = (() => {
                 target = el.scrollTop;
             }
             wheelActive = false;
+        });
+
+        // Listen for programmatic scrollToTop event
+        el.addEventListener('scrollToTop', () => {
+            target = 0;
+            if (!running) { running = true; step(); }
         });
 
         function step() {
