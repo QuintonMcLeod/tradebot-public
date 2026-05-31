@@ -489,9 +489,22 @@ class StrategyEngine:
             settings=self.settings
         )
         
+        # MFE/MAE Benchmark integration
+        avg_mae_usd = 0.0
+        avg_mfe_usd = 0.0
+        max_mae_usd = 0.0
+        if self.trade_results:
+            stats = self.trade_results.get_stats()
+            avg_mae_usd = stats.get("avg_mae_usd", 0.0)
+            avg_mfe_usd = stats.get("avg_mfe_usd", 0.0)
+            max_mae_usd = stats.get("max_mae_usd", 0.0)
+        
         # Initialize gates here so it can be populated by active sessions
         gates = {
             "active_sessions": [s.id for s in active_sessions if getattr(s, 'id', None)],
+            "avg_mae_usd": avg_mae_usd,
+            "avg_mfe_usd": avg_mfe_usd,
+            "max_mae_usd": max_mae_usd,
         }
         
         session_id = getattr(self._strategy, "SESSION_PROFILE", None)
@@ -737,7 +750,8 @@ class StrategyEngine:
                 profile=self.profile,
                 current_capital=current_capital,
                 trade_history=history,
-                strategy_decision=strategy_exit
+                strategy_decision=strategy_exit,
+                strategy_name=strat_name,
             )
 
 

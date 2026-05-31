@@ -2798,19 +2798,22 @@ class Backtester:
                             # Safety 2: Cap total notional to REALISTIC broker leverage
                             size = _apply_leverage_cap(raw_size, symbol, per_symbol_capital, entry_price, logger, current_position_size=0.0)
 
-                            # DEBUG: dump sizing values
-                            import json as _szj
-                            with open("/tmp/risk_debug.txt", "a") as _szf:
-                                _szf.write(_szj.dumps({
-                                    "SIZING": symbol,
-                                    "profile_risk_per_trade_pct": float(getattr(profile, 'risk_per_trade_pct', -1)),
-                                    "decision_risk_per_trade_pct": float(decision.risk_per_trade_pct) if decision.risk_per_trade_pct else None,
-                                    "computed_risk_pct": risk_pct,
-                                    "max_risk": max_risk,
-                                    "per_symbol_capital": per_symbol_capital,
-                                    "raw_size": raw_size,
-                                    "final_size": size,
-                                }) + "\n")
+                            # Safety 3: Hard per-trade dollar loss cap.
+                            # Prevents kill shots where risk_pct × leverage = oversized loss.
+                            # Reads max_loss_per_trade_dollars from profile (default $150 = 1.5% of $10K).
+                            _max_loss_usd = float(getattr(profile, 'max_loss_per_trade_dollars', 0) or 0)
+                            if _max_loss_usd <= 0:
+                                _max_loss_usd = per_symbol_capital * float(getattr(profile, 'risk_per_trade_pct', 0.015))
+                            _adj_rps = _jpy_adjust_risk(risk_per_share, symbol, entry_price)
+                            if _adj_rps > 0:
+                                _max_size_by_loss = _max_loss_usd / _adj_rps
+                                if size > _max_size_by_loss:
+                                    logger.warning(
+                                        f"[BACKTEST] {symbol}: Hard loss cap applied: "
+                                        f"{size:.0f} → {_max_size_by_loss:.0f} units "
+                                        f"(max loss ${_max_loss_usd:.2f} / rps={_adj_rps:.6f})"
+                                    )
+                                    size = _max_size_by_loss
 
                             if size > 0:
                                 # Build position key: compound for multi-position, simple otherwise
@@ -3041,19 +3044,20 @@ class Backtester:
                         raw_size = max_risk / _jpy_adjust_risk(risk_per_share, _r_sym, entry_price) if risk_per_share > 0 else 0
                         size = _apply_leverage_cap(raw_size, _r_sym, per_symbol_capital, entry_price, logger, current_position_size=0.0)
 
-                        # DEBUG: dump sizing values (ranking path)
-                        import json as _szj2
-                        with open("/tmp/risk_debug.txt", "a") as _szf2:
-                            _szf2.write(_szj2.dumps({
-                                "RANKING_SIZING": _r_sym,
-                                "profile_risk_per_trade_pct": float(getattr(profile, 'risk_per_trade_pct', -1)),
-                                "decision_risk_per_trade_pct": float(_r_dec.risk_per_trade_pct) if _r_dec.risk_per_trade_pct else None,
-                                "computed_risk_pct": _r_risk_pct,
-                                "max_risk": max_risk,
-                                "per_symbol_capital": per_symbol_capital,
-                                "raw_size": raw_size,
-                                "final_size": size,
-                            }) + "\n")
+                        # Hard per-trade dollar loss cap (mirrors main entry path)
+                        _max_loss_usd = float(getattr(profile, 'max_loss_per_trade_dollars', 0) or 0)
+                        if _max_loss_usd <= 0:
+                            _max_loss_usd = per_symbol_capital * float(getattr(profile, 'risk_per_trade_pct', 0.015))
+                        _adj_rps_r = _jpy_adjust_risk(risk_per_share, _r_sym, entry_price)
+                        if _adj_rps_r > 0:
+                            _max_size_by_loss_r = _max_loss_usd / _adj_rps_r
+                            if size > _max_size_by_loss_r:
+                                logger.warning(
+                                    f"[RANKING] {_r_sym}: Hard loss cap applied: "
+                                    f"{size:.0f} → {_max_size_by_loss_r:.0f} units "
+                                    f"(max loss ${_max_loss_usd:.2f})"
+                                )
+                                size = _max_size_by_loss_r
 
                         if size > 0:
                             meta_src = (getattr(_r_dec, 'gates', None) or {}).get('meta_source')

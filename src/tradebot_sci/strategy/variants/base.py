@@ -1,7 +1,7 @@
 from __future__ import annotations
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from tradebot_sci.market.models import MarketSnapshot
-from tradebot_sci.strategy.decisions import AITradeDecision
+from tradebot_sci.strategy.decisions import AITradeDecision, stand_aside_decision
 
 class BaseStrategy:
     """Interface for all bot strategy variants."""
@@ -33,6 +33,61 @@ class BaseStrategy:
         if score >= 32: return "F+"
         if score >= 24: return "F"
         return "F-"
+
+    @staticmethod
+    def score_volume(candles: list, lookback: int = 20, max_pts: float = 15.0) -> Tuple[float, str]:
+        """
+        Score the current candle's volume relative to the recent average.
+        Returns (pts, label) for inclusion in a score_signal breakdown.
+
+        Bands (default max_pts=15):
+          < 40% avg  → 0 pts              (dead — hard gate will also reject)
+          40–100%    → 0 → max_pts*0.53   (below average, linearly scored)
+          100–200%   → max_pts*0.53 → max (above average, rising conviction)
+          > 200%     → max_pts            (surge, full score)
+        """
+        if not candles or len(candles) < 2:
+            return 0.0, "Vol(no-data)"
+        recent = [c.volume for c in candles[-lookback:-1] if getattr(c, "volume", 0) > 0]
+        if not recent:
+            return 0.0, "Vol(no-data)"
+        avg = sum(recent) / len(recent)
+        current = getattr(candles[-1], "volume", 0) or 0.0
+        ratio = current / avg if avg > 0 else 0.0
+        mid = max_pts * 0.533  # 8/15 of max — transition point at 1× avg
+
+        if ratio >= 2.0:
+            pts = max_pts
+        elif ratio >= 1.0:
+            pts = mid + (ratio - 1.0) * (max_pts - mid)   # linear mid→max from 1× to 2×
+        elif ratio >= 0.4:
+            pts = (ratio - 0.4) / 0.6 * mid               # linear 0→mid from 0.4× to 1×
+        else:
+            pts = 0.0
+
+        return round(pts, 1), f"Vol({ratio:.2f}x=+{pts:.0f})"
+
+    def check_volume_gate(self, candles: list, symbol: str, timeframe: str,
+                          lookback: int = 20, critical_ratio: float = 0.40):
+        """
+        Hard-reject only critically thin volume (< critical_ratio of 20-bar avg).
+        Below-average but non-critical volume is handled via score_volume penalty.
+        Returns a stand_aside_decision or None.
+        """
+        if not candles:
+            return None
+        recent = [c.volume for c in candles[-lookback:-1] if getattr(c, "volume", 0) > 0]
+        if not recent:
+            return None
+        avg = sum(recent) / len(recent)
+        current = getattr(candles[-1], "volume", 0) or 0.0
+        ratio = current / avg if avg > 0 else 1.0
+        if ratio < critical_ratio:
+            return stand_aside_decision(
+                symbol, timeframe,
+                f"{self.name}: Critically low volume ({ratio:.2f}x avg) — dead session"
+            )
+        return None
 
     def score_signal(self, snapshot: MarketSnapshot, gates: dict) -> Tuple[float, str, str]:
         """

@@ -634,21 +634,23 @@ def _run_heartbeat_cycle(
             )
             
         # ── Market Close Emergency Liquidation ──
-        try:
-            now_est = datetime.now(ZoneInfo('America/New_York'))
-            from tradebot_sci.runtime.scheduling import is_market_open
-            
-            for sym in getattr(profile_settings, "symbols", []):
-                pos = executor.get_open_position_snapshot(sym) if hasattr(executor, "get_open_position_snapshot") else None
-                if pos and abs(float(pos.get("size", 0.0))) > 0:
-                    if not is_market_open(sym, now_est, settings=profile_settings):
-                        logger.warning(f"[HARD CLOSE] {sym} is held past market hours. Executing emergency liquidation.")
-                        try:
-                            executor.flatten_symbol(sym, exit_reason="market_close_liquidation")
-                        except Exception as close_err:
-                            logger.error(f"[HARD CLOSE] Failed to flatten {sym}: {close_err}")
-        except Exception as e:
-            logger.error(f"[CRASH_GUARD] Error in emergency liquidation: {e}", exc_info=True)
+        _is_replay = hasattr(provider, 'replay_date') and provider.replay_date is not None
+        if not _is_replay:
+            try:
+                now_est = datetime.now(ZoneInfo('America/New_York'))
+                from tradebot_sci.runtime.scheduling import is_market_open
+                
+                for sym in getattr(profile_settings, "symbols", []):
+                    pos = executor.get_open_position_snapshot(sym) if hasattr(executor, "get_open_position_snapshot") else None
+                    if pos and abs(float(pos.get("size", 0.0))) > 0:
+                        if not is_market_open(sym, now_est, settings=profile_settings):
+                            logger.warning(f"[HARD CLOSE] {sym} is held past market hours. Executing emergency liquidation.")
+                            try:
+                                executor.flatten_symbol(sym, exit_reason="market_close_liquidation")
+                            except Exception as close_err:
+                                logger.error(f"[HARD CLOSE] Failed to flatten {sym}: {close_err}")
+            except Exception as e:
+                logger.error(f"[CRASH_GUARD] Error in emergency liquidation: {e}", exc_info=True)
     strike_tracker.advance_cycle()
     return last_holdings_log_ts, last_capital_check_ts
 

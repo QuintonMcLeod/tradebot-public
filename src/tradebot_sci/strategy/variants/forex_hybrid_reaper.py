@@ -21,7 +21,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
     
     Optimized for major pairs (EUR/USD, GBP/USD).
     """
-    def __init__(self, target_r=2.5, **kwargs):
+    def __init__(self, target_r=0.5, **kwargs):
         super().__init__("ForexHybridScalper")
         self.target_r = target_r
         

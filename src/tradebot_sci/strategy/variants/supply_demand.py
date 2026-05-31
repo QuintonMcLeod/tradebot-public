@@ -49,11 +49,11 @@ class SupplyDemandStrategy(BaseStrategy):
         # Use snapshot time for date
         if not snapshot.candles: return None
 
-        # VOLUME GATE: Skip low volume — zone reactions unreliable in dead sessions
-        recent_volumes = [c.volume for c in snapshot.candles[-20:-1] if c.volume > 0]
-        avg_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 1.0
-        if snapshot.candles[-1].volume < avg_volume:
-            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "SND: Low volume")
+        # VOLUME GATE: Hard-reject only critically low volume (< 40% of 20-bar avg).
+        # Non-critical below-average volume is scored down by score_signal, not rejected here.
+        volume_gate = self.check_volume_gate(snapshot.candles, snapshot.symbol, snapshot.timeframe)
+        if volume_gate is not None:
+            return volume_gate
         
         current_date = snapshot.candles[-1].timestamp.strftime("%Y-%m-%d")
         

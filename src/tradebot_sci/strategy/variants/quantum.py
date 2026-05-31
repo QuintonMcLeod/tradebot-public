@@ -42,11 +42,11 @@ class QuantumStrategy(BaseStrategy):
         if len(candles) < self.sma_period + 5:
             return None
 
-        # VOLUME GATE: Skip low volume — no trend in dead sessions
-        recent_volumes = [c.volume for c in candles[-20:-1] if c.volume > 0]
-        avg_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 1.0
-        if candles[-1].volume < avg_volume:
-            return None
+        # VOLUME GATE: Hard-reject only critically low volume (< 40% of 20-bar avg).
+        # Non-critical below-average volume is scored down by score_signal, not rejected here.
+        volume_gate = self.check_volume_gate(candles, snapshot.symbol, snapshot.timeframe)
+        if volume_gate is not None:
+            return None  # Quantum uses None not stand_aside for silent rejection
             
         # 1. Get trend direction from ENGINE consensus (not raw snapshot)
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()

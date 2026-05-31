@@ -485,6 +485,13 @@ class PaperBroker:
             # paper trading.
             if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
                 risk_per_unit = abs(price - decision.stop_loss)
+                
+                # JPY Adjustment (convert quote currency distance to USD)
+                sym_clean = symbol.upper().replace("_", "")
+                if (sym_clean.startswith("USD") or "JPY" in sym_clean) and price > 0:
+                    risk_per_unit = risk_per_unit / price
+                    
+
                 min_stop_distance = price * 0.0010  # 0.10% of entry (~10 pips, harmonized with strategy)
                 if risk_per_unit < min_stop_distance:
                     target_r_cfg = float(getattr(self.profile, 'target_r', 2.5))
@@ -504,6 +511,28 @@ class PaperBroker:
             else:
                 # Fallback: Treat risk_usd as the actual notional size (very conservative for paper)
                 qty = risk_usd / price if price > 0 else 0
+
+            # ── HARD DOLLAR LOSS CAP ────────────────────────────────────
+            # Prevent kill shots: cap position size so max loss if stopped
+            # never exceeds max_loss_per_trade_dollars (default 1.5% of capital).
+            _max_loss_usd = float(getattr(self.profile, 'max_loss_per_trade_dollars', 0) or 0)
+            if _max_loss_usd <= 0:
+                _max_loss_usd = sizing_capital * float(getattr(self.profile, 'risk_per_trade_pct', 0.015))
+            if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
+                _rpu = abs(price - decision.stop_loss)
+                sym_clean = symbol.upper().replace("_", "")
+                if (sym_clean.startswith("USD") or "JPY" in sym_clean) and price > 0:
+                    _rpu = _rpu / price
+                    
+
+                _max_qty = _max_loss_usd / _rpu
+                if qty > _max_qty:
+                    logger.warning(
+                        f"[PAPER] [LOSS CAP] {symbol}: qty {qty:.2f} → {_max_qty:.2f} "
+                        f"(max loss ${_max_loss_usd:.2f} / stop_dist={_rpu:.5f})"
+                    )
+                    qty = _max_qty
+
 
             # [PHASE 2.2] Apply High-Net-Worth / Large Balance Tiered Restrictions
             qty, tier_slip_bps, is_blocked, block_reason = self._apply_high_net_worth_restrictions(
@@ -645,9 +674,6 @@ class PaperBroker:
                 fill_price = price * (1 + friction) if side == "buy" else price * (1 - friction)
                 fee_usd = abs(qty * fill_price) * (fee_pct / 2.0)  # Half on entry
 
-            fee_usd = convert_quote_to_usd(fee_usd, symbol, fill_price, self.market_provider)
-            self.balance -= fee_usd  # Deduct taker fee immediately
-
             stop_loss_val = getattr(decision, "stop_loss", None)
             take_profit_val = getattr(decision, "take_profit", None)
 
@@ -661,6 +687,10 @@ class PaperBroker:
                 )
 
             initial_risk_val = abs(fill_price - stop_loss_val)
+
+            fee_usd = convert_quote_to_usd(fee_usd, symbol, fill_price, self.market_provider)
+            self.balance -= fee_usd  # Deduct taker fee immediately
+
 
             self.positions[symbol] = {
                 "symbol": symbol,
@@ -993,7 +1023,7 @@ class PaperBroker:
     def cancel_all_orders_for_symbol(self, symbol: str) -> None:
         pass
 
-    def flatten_symbol(self, symbol: str) -> None:
+    def flatten_symbol(self, symbol: str, exit_reason: str = "flatten") -> None:
         if symbol in self.positions:
             pos = self.positions.pop(symbol)
             entry_p = pos["entry_price"]
@@ -1048,7 +1078,7 @@ class PaperBroker:
                     opened_at=pos.get("opened_at", ""),
                     duration_seconds=duration_secs,
                     strategy=pos.get("strategy", "unknown"),
-                    exit_reason="manual_cash_out",
+                    exit_reason=exit_reason,
                     side=pos_side,
                     spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
                     mfe_usd=pos.get("mfe_usd", 0.0),
@@ -1434,6 +1464,20 @@ class PaperBroker:
 
             fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
 
+            _router_held_s = 0
+            if "entry_time" in pos:
+                try:
+                    from datetime import datetime
+                    _entry_dt = datetime.fromisoformat(pos["entry_time"])
+                    _now_dt = self._now()
+                    _router_held_s = (_now_dt - _entry_dt).total_seconds()
+                except Exception:
+                    pass
+
+            hold_guard_enabled = getattr(self.profile, 'enable_hold_guard', True)
+            hold_guard_seconds = int(getattr(self.profile, 'hold_guard_seconds', 2700))
+            is_under_hold_guard = (hold_guard_enabled and _router_held_s < hold_guard_seconds)
+
             if side == "long":
                 # SL: use candle LOW (worst intra-bar price against long)
                 check_sl = candle_low if candle_low is not None else price
@@ -1444,8 +1488,11 @@ class PaperBroker:
                 check_tp_bid = check_tp * (1 - friction)
 
                 if sl and check_sl_bid <= sl:
-                    hit = "SL"
-                    exit_price = sl * (1 - friction) if not is_parity else sl
+                    if is_under_hold_guard and sl < entry_p:
+                        logger.info(f"[PAPER] [HOLD GUARD] {symbol}: Mechanical SL hit at {sl} ignored due to {hold_guard_seconds}s hold guard ({_router_held_s:.0f}s elapsed)")
+                    else:
+                        hit = "SL"
+                        exit_price = sl * (1 - friction) if not is_parity else sl
                 elif tp and tp > entry_p and check_tp_bid >= tp:
                     hit = "TP"
                     exit_price = tp # Limit orders fill at exact price without spread penalty
@@ -1461,8 +1508,11 @@ class PaperBroker:
                 check_tp_ask = check_tp * (1 + friction)
 
                 if sl and check_sl_ask >= sl:
-                    hit = "SL"
-                    exit_price = sl * (1 + friction) if not is_parity else sl
+                    if is_under_hold_guard and sl > entry_p:
+                        logger.info(f"[PAPER] [HOLD GUARD] {symbol}: Mechanical SL hit at {sl} ignored due to {hold_guard_seconds}s hold guard ({_router_held_s:.0f}s elapsed)")
+                    else:
+                        hit = "SL"
+                        exit_price = sl * (1 + friction) if not is_parity else sl
                 elif tp and tp < entry_p and check_tp_ask <= tp:
                     hit = "TP"
                     exit_price = tp # Limit orders fill at exact price without spread penalty

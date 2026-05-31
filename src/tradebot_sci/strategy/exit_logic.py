@@ -619,6 +619,7 @@ def _exit_structure_failure(snapshot, pos, current_price, direction):
                 
     return None
 
+
 # Module-level state for trend invalidation confirmation tracking.
 # Maps "{symbol}_{layer}" → count of consecutive bars where direction has flipped.
 _trend_inval_confirm: dict = {}
@@ -659,7 +660,7 @@ def _exit_trend_invalidation(snapshot, pos, current_price, direction, gates, str
     import logging
     logger = logging.getLogger("tradebot_sci")
 
-    exempt_strategies = {"reversal", "counter_reversal", "london_sweep", "golden_pocket", "new_york_drive", "mean_reversion", "forex_conductor"}
+    exempt_strategies = {"reversal", "counter_reversal", "london_sweep", "golden_pocket", "new_york_drive", "mean_reversion", "forex_conductor", "forexhybridscalper", "forex_hybrid_scalper"}
     if strategy_name.lower() in exempt_strategies or any(s in strategy_name.lower() for s in exempt_strategies):
         return None  # Reversal/Transitional strategies are inherently counter-trend and exempt from this kill-shot.
 

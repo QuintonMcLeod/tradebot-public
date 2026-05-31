@@ -92,6 +92,11 @@ class RobotEvolutionStrategy(BaseStrategy):
                 score += pts
                 breakdown.append(f"ATR({atr_pct:.3f}=+{pts:.0f})")
 
+        # 6. Volume Confidence — delegates to BaseStrategy.score_volume() (up to 15 pts).
+        vol_pts, vol_label = self.score_volume(snapshot.candles)
+        score += vol_pts
+        breakdown.append(vol_label)
+
         score = min(100.0, score)
         grade = self.grade_from_score_100(score)
         summary = f"Evolution {score:.0f}/100: {', '.join(breakdown)}" if breakdown else f"Evolution {score:.0f}/100"
@@ -101,11 +106,10 @@ class RobotEvolutionStrategy(BaseStrategy):
         if not snapshot.candles or len(snapshot.candles) < 20:
             return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Insufficient candle history (<20)")
 
-        # VOLUME GATE: Skip low volume — no trend in dead sessions
-        recent_volumes = [c.volume for c in snapshot.candles[-20:-1] if c.volume > 0]
-        avg_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 1.0
-        if snapshot.candles[-1].volume < avg_volume:
-            return stand_aside_decision(snapshot.symbol, snapshot.timeframe, "Evolution: Low volume")
+        # VOLUME GATE: delegates to BaseStrategy.check_volume_gate() — hard-rejects < 40% avg only.
+        volume_gate = self.check_volume_gate(snapshot.candles, snapshot.symbol, snapshot.timeframe)
+        if volume_gate is not None:
+            return volume_gate
             
         htf_candles = snapshot.htf_candles or snapshot.candles
         ltf_candles = snapshot.ltf_candles or snapshot.candles
@@ -126,10 +130,23 @@ class RobotEvolutionStrategy(BaseStrategy):
             
         atr = calculate_atr(snapshot.candles, period=14) or (ntz_range * 0.1)
         
-        # ATR×1.0 stop works better for NTZ — swing stops were too tight (48% WR)
+        # ATR floor: minimum 0.2% of price to avoid degenerate micro-range stops
         atr_floor = current_price * 0.002
         effective_atr = max(atr, atr_floor)
         stop_dist = effective_atr * self.stop_atr_mult
+        
+        # [SPREAD-TO-ATR GUARD]
+        # Reject entry when estimated spread consumes > 25% of the stop distance.
+        # This is the structural fix for trades going immediately negative on entry.
+        # Note: MAE-based stop widening was intentionally removed — it used a
+        # corrupted (mostly-loss) baseline and caused stops to widen into bigger losses.
+        estimated_spread_price = current_price * 0.0002
+        if estimated_spread_price > (stop_dist * 0.25):
+            return stand_aside_decision(
+                snapshot.symbol, snapshot.timeframe,
+                f"Evolution: Spread/Volatility Guard — spread ({estimated_spread_price:.5f}) > 25% of stop ({stop_dist:.5f})"
+            )
+        
         
         rejection_reasons = []
 
@@ -147,11 +164,16 @@ class RobotEvolutionStrategy(BaseStrategy):
         # Long: Sweep of NTZ Low + Bullish Indication (only when trend is long)
         lowest_recent = min(c.low for c in snapshot.candles[-5:])
         
+        # Calculate candle anatomy for Momentum Confirmation
+        body_size = abs(last_bar.close - last_bar.open)
+        lower_wick = min(last_bar.open, last_bar.close) - last_bar.low
+        upper_wick = last_bar.high - max(last_bar.open, last_bar.close)
+        
         # In neutral regime, allow mean-reversion longs at NTZ low without strict HTF direction match
         if is_neutral_regime:
             # Mean reversion: buy at NTZ low with bullish indication
             if indication.direction == "long" and current_price <= ntz.low * 1.001:  # Within 0.1% of NTZ low
-                if last_bar.close > last_bar.open:
+                if last_bar.close > last_bar.open and lower_wick >= body_size * 1.0:
                     stop_loss = lowest_recent - stop_dist
                     target = current_price + (stop_dist * self.target_r)
                     
@@ -169,7 +191,7 @@ class RobotEvolutionStrategy(BaseStrategy):
         
         if htf_dir == "long" and indication.direction == "long":
             if lowest_recent < ntz.low and current_price > ntz.low:
-                if last_bar.close > last_bar.open:
+                if last_bar.close > last_bar.open and lower_wick >= body_size * 1.0:
                     stop_loss = lowest_recent - stop_dist
                     target = current_price + (stop_dist * self.target_r)
                     
@@ -185,7 +207,7 @@ class RobotEvolutionStrategy(BaseStrategy):
                         management_instructions="Target 2R. Managed by Robot Engine.",
                     )
                 else:
-                    rejection_reasons.append("Long setup found but last candle not bullish")
+                    rejection_reasons.append("Long setup found but last candle lacks bullish wick rejection")
             else:
                 rejection_reasons.append(f"Price not sweeping NTZ Low ({ntz.low:.2f}) correctly")
 
@@ -196,7 +218,7 @@ class RobotEvolutionStrategy(BaseStrategy):
         if is_neutral_regime:
             # Mean reversion: sell at NTZ high with bearish indication
             if indication.direction == "short" and current_price >= ntz.high * 0.999:  # Within 0.1% of NTZ high
-                if last_bar.close < last_bar.open:
+                if last_bar.close < last_bar.open and upper_wick >= body_size * 1.0:
                     stop_loss = highest_recent + stop_dist
                     target = current_price - (stop_dist * self.target_r)
                     
@@ -214,7 +236,7 @@ class RobotEvolutionStrategy(BaseStrategy):
         
         if htf_dir == "short" and indication.direction == "short":
             if highest_recent > ntz.high and current_price < ntz.high:
-                if last_bar.close < last_bar.open:
+                if last_bar.close < last_bar.open and upper_wick >= body_size * 1.0:
                     stop_loss = highest_recent + stop_dist
                     target = current_price - (stop_dist * self.target_r)
                     
@@ -230,7 +252,7 @@ class RobotEvolutionStrategy(BaseStrategy):
                         management_instructions="Target 2R. Managed by Robot Engine.",
                     )
                 else:
-                    rejection_reasons.append("Short setup found but last candle not bearish")
+                    rejection_reasons.append("Short setup found but last candle lacks bearish wick rejection")
             else:
                  rejection_reasons.append(f"Price not sweeping NTZ High ({ntz.high:.2f}) correctly")
         

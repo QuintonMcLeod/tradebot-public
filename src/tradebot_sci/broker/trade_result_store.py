@@ -121,16 +121,26 @@ class TradeResultStore:
 
     def get_stats(self) -> dict:
         if not self.results:
-            return {"total_trades": 0, "win_rate": 0.0, "pnl_usd": 0.0}
+            return {"total_trades": 0, "win_rate": 0.0, "pnl_usd": 0.0, "avg_mfe_usd": 0.0, "avg_mae_usd": 0.0, "max_mae_usd": 0.0}
         
         wins = sum(1 for r in self.results if r.is_win)
         total = len(self.results)
         total_pnl = sum(r.pnl_usd for r in self.results)
+        
+        mfe_values = [r.mfe_usd for r in self.results if getattr(r, 'mfe_usd', None) is not None]
+        mae_values = [r.mae_usd for r in self.results if getattr(r, 'mae_usd', None) is not None]
+        avg_mfe = sum(mfe_values) / len(mfe_values) if mfe_values else 0.0
+        avg_mae = sum(mae_values) / len(mae_values) if mae_values else 0.0
+        max_mae = min(mae_values) if mae_values else 0.0
+        
         return {
             "total_trades": total,
             "wins": wins,
             "win_rate": wins / total,
-            "pnl_usd": total_pnl
+            "pnl_usd": total_pnl,
+            "avg_mfe_usd": avg_mfe,
+            "avg_mae_usd": avg_mae,
+            "max_mae_usd": max_mae
         }
 
     def get_stats_for_timeframe(self, timeframe_code: str) -> dict:
@@ -168,14 +178,24 @@ class TradeResultStore:
                     filtered.append(r)
 
         if not filtered:
-            return {"total_trades": 0, "win_rate": 0.0, "pnl_usd": 0.0}
+            return {"total_trades": 0, "win_rate": 0.0, "pnl_usd": 0.0, "avg_mfe_usd": 0.0, "avg_mae_usd": 0.0, "max_mae_usd": 0.0}
 
         wins = sum(1 for r in filtered if r.is_win)
         total = len(filtered)
         total_pnl = sum(r.pnl_usd for r in filtered)
+        
+        mfe_values = [r.mfe_usd for r in filtered if getattr(r, 'mfe_usd', None) is not None]
+        mae_values = [r.mae_usd for r in filtered if getattr(r, 'mae_usd', None) is not None]
+        avg_mfe = sum(mfe_values) / len(mfe_values) if mfe_values else 0.0
+        avg_mae = sum(mae_values) / len(mae_values) if mae_values else 0.0
+        max_mae = min(mae_values) if mae_values else 0.0
+
         return {
             "total_trades": total,
             "wins": wins,
             "win_rate": wins / total,
-            "pnl_usd": total_pnl
+            "pnl_usd": total_pnl,
+            "avg_mfe_usd": avg_mfe,
+            "avg_mae_usd": avg_mae,
+            "max_mae_usd": max_mae
         }
