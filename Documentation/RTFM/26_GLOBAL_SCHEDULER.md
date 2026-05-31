@@ -1,5 +1,5 @@
 ---
-title: 'The Global Scheduler: Precision Timing & Off-Hours'
+title: 26 The Global Scheduler: Precision Timing & Off-Hours
 category: rtfm
 icon: schedule
 description: "\"The bot doesn't have a 9-to-5. It has a 24/7 and a strong opinion\
@@ -8,7 +8,7 @@ description: "\"The bot doesn't have a 9-to-5. It has a 24/7 and a strong opinio
   \ crypto during off-hours and weekends. Maximum coverage, zero wasted scans."
 ---
 
-# 20. The Global Scheduler: Precision Timing & Off-Hours
+# 26. The Global Scheduler: Precision Timing & Off-Hours
 
 <table><tr><td width="170"><img src="img/bot.png" width="150"></td><td><b>THE BOT</b>:<br><em>"I am a machine of infinite patience, but even I need to know when the casino is open."</em></td></tr></table>
 

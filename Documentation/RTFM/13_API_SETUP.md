@@ -1,5 +1,5 @@
 ---
-title: 'Connecting to the World: Every Broker, Every API Key'
+title: 13 Connecting to the World: Every Broker, Every API Key
 category: rtfm
 icon: key
 description: '"The bot is only as smart as its connection." This guide explains specifically
@@ -10,7 +10,7 @@ description: '"The bot is only as smart as its connection." This guide explains 
 size: md
 ---
 
-# 08. Connecting the Wires — API Setup Guide
+# 13. Connecting the Wires — API Setup Guide
 
 <table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"API keys are your weapons. Handle them with care. Store them in .env.secrets. Never commit them to git. Never paste them in Discord. Never email them. If someone asks for your API key, they are not your friend."</em></td></tr></table>
 

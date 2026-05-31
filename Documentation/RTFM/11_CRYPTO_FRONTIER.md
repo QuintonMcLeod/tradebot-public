@@ -1,5 +1,5 @@
 ---
-title: 'The Crypto Frontier: The Wild West of 24/7 Markets'
+title: 11 The Crypto Frontier: The Wild West of 24/7 Markets
 category: rtfm
 icon: currency_bitcoin
 description: "\"Crypto: where stability means it only moved 8% today.\" How crypto\
@@ -9,7 +9,7 @@ description: "\"Crypto: where stability means it only moved 8% today.\" How cryp
   \ Plus the pairs you should actually trade versus the ones from Reddit."
 ---
 
-# 25. The Crypto Frontier — The Wild West of 24/7 Markets
+# 11. The Crypto Frontier — The Wild West of 24/7 Markets
 
 <table><tr><td width="170"><img src="img/pirate.png" width="150"></td><td><b>PIRATE</b>:<br>"Crypto! The wild seas! 24/7 markets, no rules, maximum chaos! 🏴‍☠️"</td></tr></table>
 

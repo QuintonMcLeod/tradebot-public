@@ -1,5 +1,5 @@
 ---
-title: 'The Forex Theater: Sessions, Spreads, and the Global Money Dance'
+title: 10 The Forex Theater: Sessions, Spreads, and the Global Money Dance
 category: rtfm
 icon: public
 description: '"The forex market is a theater. Three acts per day. The actors are central
@@ -9,7 +9,7 @@ description: '"The forex market is a theater. Three acts per day. The actors are
   currency pair. Including why NZD/USD is sensitive to dairy prices.'
 ---
 
-# 26. The Forex Theater — Sessions, Spreads, and the Global Money Dance
+# 10. The Forex Theater — Sessions, Spreads, and the Global Money Dance
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"Welcome to the Forex Theater. Three acts per day. The actors are central banks with printing presses. The audience is $7.5 trillion in daily volume."</td></tr></table>
 

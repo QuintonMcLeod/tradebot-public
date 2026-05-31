@@ -1,12 +1,12 @@
 ---
-title: 'Strategy Encyclopedia: The Complete Arsenal'
+title: 30 Strategy Encyclopedia: The Complete Arsenal
 category: rtfm
 icon: library_books
 description: '"You asked for 28 strategies. You got 42. Now you have no excuses." The complete reference guide to every single strategy in the bot, with scoring formulas, entry conditions, risk parameters, and brutal honesty about what each one actually does.'
 featured: true
 ---
 
-# 54. Strategy Encyclopedia — The Complete Arsenal
+# 30. Strategy Encyclopedia — The Complete Arsenal
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I heard there are like 40+ strategies in here! That's amazing! I'm going to run ALL of them at once and become rich!"</td></tr></table>
 

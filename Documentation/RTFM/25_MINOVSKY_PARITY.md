@@ -1,11 +1,11 @@
 ---
-title: 'The Minovsky Engine: Temporal Parity & Advanced Simulation'
+title: 25 The Minovsky Engine: Temporal Parity & Advanced Simulation
 category: rtfm
 icon: hourglass_empty
 description: 'Backtesting is easy when you cheat. We do not cheat. The Minovsky Engine implements a strict Temporal Domain Split, separating wall-clock display from sim-time processing, ensuring perfect paper-trade parity and enabling Tier-S cross-symbol auto-discovery.'
 ---
 
-# 51. The Minovsky Engine: Temporal Parity
+# 25. The Minovsky Engine: Temporal Parity
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Welcome to the thermodynamics of the Tradebot ecosystem. Backtesting in PineScript is easy because PineScript lets you look into the future to validate the past. The Minovsky Engine, however, enforces strict Temporal Parity."</td></tr></table>
 

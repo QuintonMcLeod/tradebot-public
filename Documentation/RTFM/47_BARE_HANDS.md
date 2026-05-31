@@ -1,5 +1,5 @@
 ---
-title: STOP! Don't Trade With Your Bare Hands!
+title: 47 STOP! Don't Trade With Your Bare Hands!
 category: rtfm
 icon: front_hand
 description: "\"You're showing up to a sword fight with a pool noodle.\" 80-95% of\
@@ -11,7 +11,7 @@ description: "\"You're showing up to a sword fight with a pool noodle.\" 80-95% 
 featured: true
 ---
 
-# STOP! Don't Trade With Your Bare Hands
+# 47. STOP! Don't Trade With Your Bare Hands
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I just opened a brokerage account! I watched like four YouTube videos and I feel like I'm ready. I got my own strategy — I'm gonna buy when it goes up and sell when it goes down!"</td></tr></table>
 

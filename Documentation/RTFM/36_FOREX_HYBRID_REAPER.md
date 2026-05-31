@@ -1,12 +1,12 @@
 ---
-title: Forex Hybrid Scalper
+title: 36 Forex Hybrid Scalper
 category: rtfm
 icon: ssid_chart
 description: 'A structural Frankenstein that bolts HyperScalper trend logic directly into the explosive kinetic triggers of the Rubberband Reaper.'
 featured: true
 ---
 
-# 50. Forex Hybrid Scalper
+# 36. Forex Hybrid Scalper
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Why can't we just run the Rubberband Reaper on EURUSD? It has massive win rates! I want to trade it 24/7!"</td></tr></table>
 

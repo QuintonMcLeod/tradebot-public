@@ -1,5 +1,5 @@
 ---
-title: 'The Hybrid Engine: Multi-Broker Orchestration'
+title: 23 The Hybrid Engine: Multi-Broker Orchestration
 category: rtfm
 icon: hub
 description: '"One broker is a dependency. Two brokers is a strategy. Three brokers
@@ -9,7 +9,7 @@ description: '"One broker is a dependency. Two brokers is a strategy. Three brok
   complexity versus when to keep it simple.'
 ---
 
-# 19. The Hybrid Engine — Multi-Broker Orchestration
+# 23. The Hybrid Engine — Multi-Broker Orchestration
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The Hybrid Engine lets you use one broker for data and another for execution. One broker is a dependency. Two brokers is a strategy. Three brokers is an empire."</td></tr></table>
 

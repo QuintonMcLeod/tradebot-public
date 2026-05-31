@@ -1,5 +1,5 @@
 ---
-title: '36 Weapons of War: The Complete Strategy Arsenal'
+title: 32 36 Weapons of War: The Complete Strategy Arsenal
 category: rtfm
 icon: strategy
 description: "\"One strategy doesn't fit all markets. Choose your weapon wisely \u2014\
@@ -11,7 +11,7 @@ description: "\"One strategy doesn't fit all markets. Choose your weapon wisely 
 featured: true
 ---
 
-# 09. 36 Weapons of War: The Complete Strategy Arsenal
+# 32. 36 Weapons of War: The Complete Strategy Arsenal
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I want to understand the strategies! There's like... thirty-six of them? Which one do I pick? This is like being at a buffet where everything is labeled in a language I don't speak."</td></tr></table>
 

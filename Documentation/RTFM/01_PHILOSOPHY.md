@@ -1,5 +1,5 @@
 ---
-title: 'Born From Late-Stage Capitalism: Why This Bot Exists'
+title: 01 Born From Late-Stage Capitalism: Why This Bot Exists
 category: rtfm
 icon: psychology
 description: 'Welcome to TradeBot SCI Enterprise. It has no fancy marketing name.
@@ -11,7 +11,7 @@ description: 'Welcome to TradeBot SCI Enterprise. It has no fancy marketing name
 featured: true
 ---
 
-# 1. The Philosophy (Or: Why I Build Tools Instead of Crying)
+# 01. The Philosophy (Or: Why I Build Tools Instead of Crying)
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Let me be real with you. The kind of real that makes people pretend they need to use the bathroom at dinner.<br><br>The economy is <b>cooked.</b> Not 'things are temporarily tight' cooked. I mean the thing is burnt to a crisp and the chef is still charging you full price. And the chef is the government, and the food is your bank account."</td></tr></table>
 

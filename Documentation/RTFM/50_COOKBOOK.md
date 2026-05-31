@@ -1,5 +1,5 @@
 ---
-title: 'Recipes for Traders: A Cookbook of Common Tasks'
+title: 50 Recipes for Traders: A Cookbook of Common Tasks
 category: rtfm
 icon: menu_book
 description: '"Give a man a fish, he trades for a day. Teach a man to configure the
@@ -10,7 +10,7 @@ description: '"Give a man a fish, he trades for a day. Teach a man to configure 
 size: md
 ---
 
-# 5. The Cookbook — Step-by-Step Recipes
+# 50. The Cookbook — Step-by-Step Recipes
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Give a man a fish, he trades for a day. Teach a man to configure the bot, he destroys his own account <em>automatically.</em><br><br>I'm kidding. Mostly. These are the recipes. Step by step. Menu options. Buttons. Do exactly what I say. And if you screw this up after reading the cookbook? That's on you. I gave you the ingredients, you still managed to burn the water."</td></tr></table>
 

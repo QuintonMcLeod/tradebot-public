@@ -1,5 +1,5 @@
 ---
-title: 'Under the Hood: Every Function, Every Data Packet'
+title: 21 Under the Hood: Every Function, Every Data Packet
 category: rtfm
 icon: data_object
 description: "\"The devil is in the details. And the bugs.\" If you are debugging\
@@ -9,7 +9,7 @@ description: "\"The devil is in the details. And the bugs.\" If you are debuggin
   \ field, every type, every edge case documented."
 ---
 
-# 3. Functions & Datasets — The Technical Guts
+# 21. Functions & Datasets — The Technical Guts
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"Every function has a purpose. Every data structure has a reason. If you are debugging this machine, you need to know what the data actually looks like. Let me catalog them for you — organ by organ, nerve by nerve."</em></td></tr></table>
 

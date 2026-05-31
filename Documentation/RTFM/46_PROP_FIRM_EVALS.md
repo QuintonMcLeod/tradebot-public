@@ -1,10 +1,10 @@
 ---
-title: '49. Out of the Red: Prop Firms and Escaping the Rat Race'
+title: 46 49. Out of the Red: Prop Firms and Escaping the Rat Race
 description: 'How to use Prop Firms to skip the slow grind of $100 accounts, pass your evaluations on autopilot, and use someone else''s $100,000 to actually pay your rent.'
 featured: true
 ---
 
-# Out of the Red: Prop Firms and Escaping the Rat Race
+# 46. Out of the Red: Prop Firms and Escaping the Rat Race
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Okay, listen to me very carefully. If you are sitting there with $100 in your bank account, and you think you’re going to trade your way to buying a Lamborghini by next Tuesday, you need to wake up. You need to slap yourself in the face, walk to the sink, splash some cold water on it, and wake up. <br><br>Math is math! A 10% return on your little $100 account is ten bucks! Ten dollars! What are you going to do with ten dollars? You can't even buy a combo meal at McDonald's with ten dollars anymore! You're going to trade for an entire month, sweat bullets staring at charts, ruin your sleep schedule, and at the end of the month you can afford exactly ONE extra value meal. Congratulations. You played yourself.<br><br>But what if I told you there's a cheat code? What if I told you that you don't NEED your own money to trade the big boy sizes? I literally just built it into the bot. <b>I added Prop Firms!</b>"</td></tr></table>
 

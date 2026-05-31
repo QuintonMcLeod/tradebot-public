@@ -1,5 +1,5 @@
 ---
-title: What Does This Button Do? The Complete Cockpit Guide
+title: 15 What Does This Button Do? The Complete Cockpit Guide
 category: rtfm
 icon: tune
 description: "\"What does this button do?\" \u2014 Last words of a former trader.\
@@ -9,7 +9,7 @@ description: "\"What does this button do?\" \u2014 Last words of a former trader
   \ settings most people never find."
 ---
 
-# 7. The Cockpit Controls — Configuration Guide
+# 15. The Cockpit Controls — Configuration Guide
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"What does this button do?"</td></tr></table>
 

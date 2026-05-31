@@ -1,5 +1,5 @@
 ---
-title: 'The Night Watch: Sleeping While Your Money Works'
+title: 42 The Night Watch: Sleeping While Your Money Works
 category: rtfm
 icon: bedtime
 description: "\"The market never sleeps. Neither does your anxiety.\" So you've got\
@@ -9,7 +9,7 @@ description: "\"The market never sleeps. Neither does your anxiety.\" So you've 
   \ phone at 3 AM is a sign you need to fix your position sizing, not your alarm."
 ---
 
-# 15. The Night Watch — Overnight & Weekend Positions
+# 42. The Night Watch — Overnight & Weekend Positions
 
 <table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"While you sleep, the bot watches. The night shift runs in silence and discipline. No complaints. No overtime pay."</em></td></tr></table>
 

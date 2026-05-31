@@ -1,5 +1,5 @@
 ---
-title: UI Overhauls & Nurse's Station Vitals
+title: 17 UI Overhauls & Nurse's Station Vitals
 category: rtfm
 icon: medical_services
 description: Listen to me, you grown adults who refuse to read. We just spent the last two weeks
@@ -7,7 +7,7 @@ description: Listen to me, you grown adults who refuse to read. We just spent th
   the universal exit router, and why your bot says Retrying.
 ---
 
-# 47. UI Overhauls & Nurse's Station Vitals
+# 17. UI Overhauls & Nurse's Station Vitals
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Listen up, Rookie. I'm gonna break this down real slow so even you can understand it. We just spent the last two weeks overhauling the UI and the Nurse's Station because guys like you kept crying about 'Where do I click?' and 'Why is my bot dead?' Here is a complete guide to the new UI, the Exit Router, and the Vitals."</td></tr></table>
 

@@ -1,5 +1,5 @@
 ---
-title: "Something Is Wrong \u2014 The Emergency Panic Protocol"
+title: 19 Something Is Wrong \u2014 The Emergency Panic Protocol
 category: rtfm
 icon: emergency
 description: "\"Something is wrong. Make it stop.\" So the bot is screaming in red\
@@ -10,7 +10,7 @@ description: "\"Something is wrong. Make it stop.\" So the bot is screaming in r
 size: md
 ---
 
-# 6. The Panic Button — Troubleshooting Guide
+# 19. The Panic Button — Troubleshooting Guide
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Something is wrong. Make it stop. MAKE IT STOP."</td></tr></table>
 

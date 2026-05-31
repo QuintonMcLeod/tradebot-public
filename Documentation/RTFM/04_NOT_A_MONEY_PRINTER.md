@@ -1,5 +1,5 @@
 ---
-title: This Is Not a Money Printer
+title: 04 This Is Not a Money Printer
 category: rtfm
 icon: hourglass_top
 description: "\"I installed the bot forty-five minutes ago. When do I get rich?\"\
@@ -9,7 +9,7 @@ description: "\"I installed the bot forty-five minutes ago. When do I get rich?\
 featured: true
 ---
 
-# 38. This Is Not a Money Printer (A Conversation Nobody Wants to Have)
+# 04. This Is Not a Money Printer (A Conversation Nobody Wants to Have)
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Alright, I installed the bot. I funded my account. When do I get rich?"</td></tr></table>
 

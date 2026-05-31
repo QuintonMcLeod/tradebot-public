@@ -1,11 +1,11 @@
 ---
-title: 'The Accounting Engine: PnL Integrity & Cost Basis Physics'
+title: 08 The Accounting Engine: PnL Integrity & Cost Basis Physics
 category: rtfm
 icon: calculate
 description: 'How the bot handles the math of money. A deep dive into the Futures Capital Model, Slippage Injection for paper trading, and the temporal AGE parity that synchronizes simulated metrics to real-world physics.'
 ---
 
-# 53. The Accounting Engine: PnL Integrity
+# 08. The Accounting Engine: PnL Integrity
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"A $1,000 algorithmic profit in simulation that drops to a $400 physical profit in a live environment is an unacceptable variance in physics. The Accounting Engine bridges this logic gap."</td></tr></table>
 

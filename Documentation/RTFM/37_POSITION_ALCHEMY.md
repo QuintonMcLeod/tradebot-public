@@ -1,5 +1,5 @@
 ---
-title: 'Position Alchemy: The Art and Science of SL, TP, and Trailing Stops'
+title: 37 Position Alchemy: The Art and Science of SL, TP, and Trailing Stops
 category: rtfm
 icon: auto_graph
 description: '"The entry is science. The exit is art. The stop-loss is religion."
@@ -9,7 +9,7 @@ description: '"The entry is science. The exit is art. The stop-loss is religion.
   than entries.'
 ---
 
-# 27. Position Alchemy — SL, TP, Trailing Stops & Breakeven Mechanics
+# 37. Position Alchemy — SL, TP, Trailing Stops & Breakeven Mechanics
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"The entry is science. The exit is art. The stop-loss is religion."</td></tr></table>
 

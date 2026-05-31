@@ -1,5 +1,5 @@
 ---
-title: 'AI Optimize: The Button That Does Your Homework'
+title: 48 AI Optimize: The Button That Does Your Homework
 category: rtfm
 icon: auto_awesome
 description: '"One button. Zero excuses." What happens when you click AI Optimize,
@@ -7,7 +7,7 @@ description: '"One button. Zero excuses." What happens when you click AI Optimiz
   tuning 47 toggles. Chad has opinions.'
 ---
 
-# AI Optimize: The Button That Does Your Homework
+# 48. AI Optimize: The Button That Does Your Homework
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I just opened the Settings tab and I see 47 toggles, 12 sliders, and a dropdown menu with 21 strategies named 'Rubberband Reaper' and 'Singularity Aggregator.' I don't know what any of this means. I feel like I'm defusing a bomb."</td></tr></table>
 

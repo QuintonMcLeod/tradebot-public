@@ -1,5 +1,5 @@
 ---
-title: 'The Shield Wall: Risk Management Deep Dive'
+title: 45 The Shield Wall: Risk Management Deep Dive
 category: rtfm
 icon: shield
 description: '"The fastest way to go broke is to be right 90% of the time and blow
@@ -9,7 +9,7 @@ description: '"The fastest way to go broke is to be right 90% of the time and bl
   best trade is the catastrophic trade you never took.'
 ---
 
-# 18. The Shield Wall — Risk Management Deep Dive
+# 45. The Shield Wall — Risk Management Deep Dive
 
 <table><tr><td width="170"><img src="img/conductor.png" width="150"></td><td><b>CONDUCTOR</b>:<br>"The Shield Wall is your defense. Every guard exists because someone, somewhere, blew up an account without it. I'm not being dramatic — I'm being historical."</td></tr></table>
 

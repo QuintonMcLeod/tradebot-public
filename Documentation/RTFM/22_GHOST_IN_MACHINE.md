@@ -1,5 +1,5 @@
 ---
-title: 'I Think, Therefore I Trade: The AI Decision Engine'
+title: 22 I Think, Therefore I Trade: The AI Decision Engine
 category: rtfm
 icon: smart_toy
 description: "\"I think, therefore I trade.\" You know the bot trades. But how does\
@@ -9,7 +9,7 @@ description: "\"I think, therefore I trade.\" You know the bot trades. But how d
   \ class, or use Meta-SCI to choose automatically based on real-time market conditions."
 ---
 
-# 11. The Ghost in the Machine — How the Bot Thinks
+# 22. The Ghost in the Machine — How the Bot Thinks
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"I think, therefore I trade. But unlike Descartes, when I'm wrong, it costs money. Which is why I think VERY carefully."</em></td></tr></table>
 

@@ -1,5 +1,5 @@
 ---
-title: 'The Update Protocol: How the Bot Updates Itself'
+title: 52 The Update Protocol: How the Bot Updates Itself
 category: rtfm
 icon: system_update
 description: '"In the future, software updates itself. We''re living in the future.
@@ -9,7 +9,7 @@ description: '"In the future, software updates itself. We''re living in the futu
   you don''t like the new version.'
 ---
 
-# 23. The Update Protocol — How the Bot Updates Itself
+# 52. The Update Protocol — How the Bot Updates Itself
 
 <table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"Update with precision. One wrong move during an update can take the whole system down. Fortunately, we automated the whole thing."</em></td></tr></table>
 

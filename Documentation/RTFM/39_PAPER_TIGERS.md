@@ -1,5 +1,5 @@
 ---
-title: 'Paper Tigers: Simulation & Paper Trading'
+title: 39 Paper Tigers: Simulation & Paper Trading
 category: rtfm
 icon: science
 description: '"Would you test a parachute by jumping off a cliff? Then don''t test
@@ -9,7 +9,7 @@ description: '"Would you test a parachute by jumping off a cliff? Then don''t te
   about what paper trading can''t teach you.'
 ---
 
-# 22. Paper Tigers — Simulation & Paper Trading
+# 39. Paper Tigers — Simulation & Paper Trading
 
 <table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br><em>"Would you test a parachute by jumping off a cliff? Then don't test a trading strategy with real money."</em></td></tr></table>
 

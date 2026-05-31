@@ -1,5 +1,5 @@
 ---
-title: The Bot Is a 20-Year Seasoned Trader
+title: 33 The Bot Is a 20-Year Seasoned Trader
 category: rtfm
 icon: military_tech
 description: "\"You spent 20 years learning to read price action. The bot learned\
@@ -11,7 +11,7 @@ description: "\"You spent 20 years learning to read price action. The bot learne
 featured: true
 ---
 
-# 31. The Bot Is a 20-Year Seasoned Trader
+# 33. The Bot Is a 20-Year Seasoned Trader
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"So this bot... how much experience does it actually have? Because I've been watching YouTube for three months and I feel like I'm getting pretty good—"</td></tr></table>
 

@@ -1,5 +1,5 @@
 ---
-title: 'The War Room: Decoding the Log Output'
+title: 43 The War Room: Decoding the Log Output
 category: rtfm
 icon: terminal
 description: "\"I see the Matrix now. It's mostly INFO lines.\" You opened the log\
@@ -9,7 +9,7 @@ description: "\"I see the Matrix now. It's mostly INFO lines.\" You opened the l
   \ scary versus when they're just the bot talking to itself."
 ---
 
-# 16. The War Room — Decoding the Log Output
+# 43. The War Room — Decoding the Log Output
 
 <table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"Welcome to the War Room. This is where we review the carnage and plan the next assault."</td></tr></table>
 

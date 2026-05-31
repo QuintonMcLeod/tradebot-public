@@ -1,12 +1,12 @@
 ---
-title: 'Market Personalities: Why You Can''t Trade Gold Like Apple'
+title: 09 Market Personalities: Why You Can''t Trade Gold Like Apple
 category: rtfm
 icon: bear
 description: 'A brutally honest breakdown of why every market requires a completely different strategy. The Rookie learns the hard way that you can''t bring a Trend Rider to a Crypto knife fight, and why the Forex market is just an endless game of ping-pong.'
 featured: true
 ---
 
-# 🐻 Market Personalities: Why You Can't Trade Gold Like Apple
+# 09. 🐻 Market Personalities: Why You Can't Trade Gold Like Apple
 
 **Status:** Confirmed by physics, mathematics, and a lot of lost money.
 **Last Updated:** June 2026

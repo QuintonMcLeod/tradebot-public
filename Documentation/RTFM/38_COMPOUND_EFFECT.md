@@ -1,5 +1,5 @@
 ---
-title: 'The Compound Effect: Why Small Accounts Don''t Stay Small'
+title: 38 The Compound Effect: Why Small Accounts Don''t Stay Small
 category: rtfm
 icon: trending_up
 description: "\"Three good days a month. That's all the math needs.\" Take a $50k\
@@ -11,7 +11,7 @@ description: "\"Three good days a month. That's all the math needs.\" Take a $50
 featured: true
 ---
 
-# The Compound Effect: Why Small Accounts Don't Stay Small
+# 38. The Compound Effect: Why Small Accounts Don't Stay Small
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"I only have $2,000 to start. Is that even worth it? My friend says you need at least $25K to make real money trading."</td></tr></table>
 

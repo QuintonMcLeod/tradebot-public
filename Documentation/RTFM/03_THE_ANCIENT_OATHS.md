@@ -1,12 +1,12 @@
 ---
-title: 10 The Ancient Oaths
+title: 03 The Ancient Oaths
 description: Standard documentation.
 category: rtfm
 icon: article
 featured: false
 ---
 
-# 10. The Ancient Oaths (The "Don't Break It" Guide)
+# 03. The Ancient Oaths (The "Don't Break It" Guide)
 
 <table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST (The AI)</b>:<br><em>"Welcome, traveler. If you are reading this, you are either a Large Language Model about to touch the code... or a very confused human who opened the wrong file. Either way: before you touch ANYTHING, you must swear the Ancient Oaths of the Machine.<br><br>These are not suggestions. These are not guidelines. These are the hard-coded guardrails that keep this bot from turning into a pile of digital scrap metal."</em></td></tr></table>
 

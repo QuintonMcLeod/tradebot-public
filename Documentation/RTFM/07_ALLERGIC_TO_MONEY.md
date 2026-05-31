@@ -1,5 +1,5 @@
 ---
-title: 'Allergic to Money: Stop Playing With Me'
+title: 07 Allergic to Money: Stop Playing With Me
 category: rtfm
 icon: money_off
 description: '"You can''t invest a HUNNIT dollars in yourself? But you''d spend $100
@@ -10,7 +10,7 @@ description: '"You can''t invest a HUNNIT dollars in yourself? But you''d spend 
 featured: true
 ---
 
-# Allergic to Money: Stop Playing With Me
+# 07. Allergic to Money: Stop Playing With Me
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I need everybody to stop what they're doing. Put the phone down. Actually — no. Pick the phone BACK UP, because this is the only time you're gonna use it for something that isn't destroying your life.<br><br>Look at me. Through the screen. In my eyes.<br><br><b>Do you HATE money?</b><br><br>No, I'm dead serious right now. I have never in my LIFE seen a group of human beings so violently allergic to financial improvement. I'm watching it happen in real-time. I have a group chat — a WHOLE group chat — full of grown adults. People with kids. People with car payments. People who complain about the price of eggs like eggs personally wronged them. And NOBODY. IS. TALKING.<br><br>Not a question. Not a 'hey, how does this work?' Not even a thumbs-up emoji. NOTHING. It's like I'm broadcasting into a cemetery. I'm out here sending screenshots, posting videos, damn near doing a TED Talk in your DMs, and I get back the energy of a doctor's waiting room at 7 AM.<br><br>You know what that tells me? Y'all don't want money. You are <em>afraid</em> of money. Money shows up at your front door with flowers, chocolates, and a briefcase full of cash, and you look through the peephole and go, 'Nah, I'm good.'"</td></tr></table>
 

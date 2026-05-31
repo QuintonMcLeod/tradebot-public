@@ -1,5 +1,5 @@
 ---
-title: Am I Winning? How to Read Your Performance Metrics
+title: 18 Am I Winning? How to Read Your Performance Metrics
 category: rtfm
 icon: monitoring
 description: "\"If you can't measure it, you can't improve it.\" So the bot is running.\
@@ -9,7 +9,7 @@ description: "\"If you can't measure it, you can't improve it.\" So the bot is r
   \ and when to worry versus when to be patient."
 ---
 
-# 14. Reading the Scoreboard — Performance Metrics Decoded
+# 18. Reading the Scoreboard — Performance Metrics Decoded
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"Numbers don't lie. But they can mislead if you read them wrong. A 70% win rate sounds great until you realize the losses are 3× bigger than the wins. Let me teach you what each metric REALLY means — and more importantly, which ones to ignore."</td></tr></table>
 

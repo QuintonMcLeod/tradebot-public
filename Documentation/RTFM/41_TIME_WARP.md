@@ -1,5 +1,5 @@
 ---
-title: 'The Time Warp: Backtesting, Replay & Paper Trading'
+title: 41 The Time Warp: Backtesting, Replay & Paper Trading
 category: rtfm
 icon: fast_forward
 description: '"Imagine if you could simulate that conversation before you had it."
@@ -10,7 +10,7 @@ description: '"Imagine if you could simulate that conversation before you had it
   no Clear button in real life.'
 ---
 
-# 42. The Time Warp — Backtesting, Replay, and the Art of Fast-Forwarding Your Mistakes
+# 41. The Time Warp — Backtesting, Replay, and the Art of Fast-Forwarding Your Mistakes
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Alright, picture this. Imagine being able to simulate proposing to your wife. Like, you get to see her say 'No' before you actually spend three months salary on a ring! You get to see the disaster before it happens! That's what the Backtester is! Except instead of marital humiliation, it's your actual money! It lets you look into the past and see how stupid you would have been!"</td></tr></table>
 

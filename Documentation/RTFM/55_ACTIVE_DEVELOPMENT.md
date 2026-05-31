@@ -1,5 +1,5 @@
 ---
-title: Your Bot Has a Mechanic (And That's Everything)
+title: 55 Your Bot Has a Mechanic (And That's Everything)
 category: rtfm
 icon: engineering
 description: "\"The bot lost $14 last week. Is it broken?\" No. It's being fixed.
@@ -9,7 +9,7 @@ description: "\"The bot lost $14 last week. Is it broken?\" No. It's being fixed
 featured: true
 ---
 
-# 48. Your Bot Has a Mechanic (And That's Everything)
+# 55. Your Bot Has a Mechanic (And That's Everything)
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"The Conductor strategy lost money this week. Is the bot broken?"</td></tr></table>
 

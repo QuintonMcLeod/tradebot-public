@@ -1,5 +1,5 @@
 ---
-title: 'The Forex Conductor: The Strategy That Refuses to Lose Gracefully'
+title: 34 The Forex Conductor: The Strategy That Refuses to Lose Gracefully
 category: rtfm
 icon: music_note
 description: '"Take profit? At 2.5R? My dear boy, we don''t DO fixed take profits
@@ -11,7 +11,7 @@ description: '"Take profit? At 2.5R? My dear boy, we don''t DO fixed take profit
 featured: true
 ---
 
-# 🎭 The Forex Conductor Strategy — The Strategy That Refuses to Lose Gracefully
+# 34. 🎭 The Forex Conductor Strategy — The Strategy That Refuses to Lose Gracefully
 
 **Status:** 14-day backtest +$25.03 | PF=1.0 | Win Rate: 51.0% | R:R=1:1
 **Last Updated:** March 2026 (v2.9.0 — Reclaiming the Win Rate: Tiered Guillotine Disabled)

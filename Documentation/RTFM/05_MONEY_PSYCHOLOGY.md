@@ -1,5 +1,5 @@
 ---
-title: 'Money Psychology: The 8 Emotional Traps The Bot Prevents'
+title: 05 Money Psychology: The 8 Emotional Traps The Bot Prevents
 category: rtfm
 icon: psychology_alt
 description: "\"The market is designed to do whatever hurts the most people.\" This\
@@ -9,7 +9,7 @@ description: "\"The market is designed to do whatever hurts the most people.\" T
   \ each one works, and how the bot's features specifically prevent each one."
 ---
 
-# 24. Money Psychology — The Emotional Traps the Bot Protects You From
+# 05. Money Psychology — The Emotional Traps the Bot Protects You From
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br><em>"The market is a predator. It wakes up every morning looking for the dumbest, most emotional person in the room so it can take their rent money. And usually, that person is you. Your feelings are the weapon it uses against you."</em></td></tr></table>
 

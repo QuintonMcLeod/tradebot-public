@@ -1,5 +1,5 @@
 ---
-title: 'Inside the Machine: The Complete Skeletal Architecture'
+title: 20 Inside the Machine: The Complete Skeletal Architecture
 category: rtfm
 icon: account_tree
 description: "\"It's alive! ...mostly.\" This document explains the anatomy of the\
@@ -9,7 +9,7 @@ description: "\"It's alive! ...mostly.\" This document explains the anatomy of t
   \ exactly how data flows between them."
 ---
 
-# 2. Inside the Machine: The Complete Skeletal Architecture
+# 20. Inside the Machine: The Complete Skeletal Architecture
 
 <table><tr><td width="170"><img src="img/professor.png" width="150"></td><td><b>PROFESSOR</b>:<br>"If Chapter 1 was the soul — the <em>why</em> — this is the bones. The skeleton. The thing that holds the soul upright so it doesn't collapse into a pile of good intentions and Python exceptions.<br><br>Let me walk you through the anatomy of this machine, piece by piece, organ by organ."</td></tr></table>
 

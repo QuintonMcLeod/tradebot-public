@@ -1,5 +1,5 @@
 ---
-title: 'The Payout Card: When to Secure the Bag'
+title: 53 The Payout Card: When to Secure the Bag
 category: rtfm
 icon: paid
 description: "\"Profit doesn't count until it's in your bank account.\" The Payout\
@@ -8,7 +8,7 @@ description: "\"Profit doesn't count until it's in your bank account.\" The Payo
   \ and CASHOUT."
 ---
 
-# 40. The Payout Mentor: Your Money's Life Coach (Whether You Want One or Not)
+# 53. The Payout Mentor: Your Money's Life Coach (Whether You Want One or Not)
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Yo, what's that card on the analytics page that keeps telling me to take money out?"</td></tr></table>
 
