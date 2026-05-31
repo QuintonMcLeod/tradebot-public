@@ -2518,9 +2518,15 @@ function startLogWatcher(win) {
         }
 
         const buffer = Buffer.alloc(bytesToRead);
-        const fd = fs.openSync(logPath, 'r');
-        fs.readSync(fd, buffer, 0, bytesToRead, position);
-        fs.closeSync(fd);
+        try {
+            const fd = fs.openSync(logPath, 'r');
+            fs.readSync(fd, buffer, 0, bytesToRead, position);
+            fs.closeSync(fd);
+        } catch (err) {
+            console.warn(`[MAIN] Failed to read log file during watch: ${err.message}`);
+            if (err.code === 'ENOENT') fileSize = 0;
+            return;
+        }
         fileSize = newFileSize;
         
         let chunkStr = buffer.toString();
