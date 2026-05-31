@@ -33,7 +33,7 @@ description: Listen to me, you grown adults who refuse to read. We just spent th
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"That's because the bot was rebooting, and the UI was secretly retrying every 5 seconds without telling you. It was basically lying to your face. We changed that. Now, if the connection drops or you hit restart, the Nurse's Station will say:<br><br><code>Connection Lost — Retrying (Attempt 1... 2...)</code><br><br>It’s gonna pulse, and it's gonna keep counting until the Python brain finally wakes up. Stop panicking. Let it reconnect. It takes a second to load all your garbage settings into memory."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"What about when the Forex market closes on Friday? Last weekend my Nurse's Station looked like a Christmas tree. Everything was flashing CRITICAL RED saying 'No Data for 10+ minutes'."</td></tr></table>
+<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"What about when the Forex market closes on Friday? Last weekend my Nurse's Station looked like a pinball machine. Everything was flashing CRITICAL RED saying 'No Data for 10+ minutes'."</td></tr></table>
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Yeah, we taught the bot looking at the `Data Feed` vital to check a calendar. It knows it's the actual weekend now. It'll just politely tell you the market is closed instead of having a panic attack. You're welcome."</td></tr></table>
 

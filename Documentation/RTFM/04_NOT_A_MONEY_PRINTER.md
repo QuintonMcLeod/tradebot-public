@@ -103,7 +103,7 @@ featured: true
 
 <table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"$150 a month?! That's not even my car payment! I thought I was gonna—"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You thought you were gonna make $5,000 a month from a $5,000 account. You thought you were going to <b>double your money every 30 days.</b> You know what that math turns into? That turns $5,000 into FIVE MILLION DOLLARS in one year. You honestly thought my little Python script was going to turn you into a Saudi Prince by next Thanksgiving?<br><br>Come on, man. Look at the table. By month 24, your $5,000 is over $10,000. You <em>doubled your money</em> in two years. The S&P 500 averages 10% a year. You just beat out every index fund on the planet while sitting on your couch eating Doritos, but you're mad because some 19-year-old on TikTok lied to you."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"You thought you were gonna make $5,000 a month from a $5,000 account. You thought you were going to <b>double your money every 30 days.</b> You know what that math turns into? That turns $5,000 into FIVE MILLION DOLLARS in one year. You honestly thought my little Python script was going to turn you into a Saudi Prince by next year?<br><br>Come on, man. Look at the table. By month 24, your $5,000 is over $10,000. You <em>doubled your money</em> in two years. The S&P 500 averages 10% a year. You just beat out every index fund on the planet while sitting on your couch eating Doritos, but you're mad because some 19-year-old on TikTok lied to you."</td></tr></table>
 
 ---
 
@@ -117,7 +117,7 @@ featured: true
 
 ## So What Should I Actually Expect?
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's the honest answer. Frame it. Put it on your wall. Tattoo it on your forearm. Whatever it takes."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Here's the honest answer. Frame it. Put it on your wall. Memorize it. Whatever it takes."</td></tr></table>
 
 - **Week 1:** The bot is calibrating. Treat this week like orientation at a new job. Nobody produces results in orientation. You're filling out paperwork and figuring out where the bathroom is.
   
