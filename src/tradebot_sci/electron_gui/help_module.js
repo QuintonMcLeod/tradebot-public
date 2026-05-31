@@ -1157,7 +1157,13 @@ window.helpModule = (() => {
         renderMagazine();
 
         const contentArea = document.getElementById('help-content');
-        if (contentArea) contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+        if (contentArea) {
+            contentArea.scrollTop = 0;
+            setTimeout(() => {
+                contentArea.scrollTop = 0;
+                contentArea.dispatchEvent(new Event('scroll'));
+            }, 10);
+        }
 
         const backBtn = document.getElementById('help-back-btn');
         if (backBtn) backBtn.classList.add('hidden');
@@ -1233,7 +1239,13 @@ window.helpModule = (() => {
             }
 
             const contentArea = document.getElementById('help-content');
-            if (contentArea) contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+            if (contentArea) {
+                contentArea.scrollTop = 0;
+                setTimeout(() => {
+                    contentArea.scrollTop = 0;
+                    contentArea.dispatchEvent(new Event('scroll'));
+                }, 10);
+            }
 
         } catch (err) {
             console.error('[HELP] Error loading doc:', err);
