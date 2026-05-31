@@ -140,4 +140,10 @@ Trade By SCI is about structure-first patience, not constant action. This bot is
 
 <table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I don't aim for smooth, pretty equity curves. You know who has smooth equity curves? Liars. And index funds. And I don't compete with either.<br><br>I aim for <b>Lumpy Expansion Capture</b>:<br><em>Long periods of nothing → short bursts of violent continuation → repeat.</em><br><br>Think of it like fishing. You're not catching a fish every minute. You're sitting there, being patient, looking at the water, questioning your life choices... and then BOOM. The rod bends. The reel screams. You pull in something real.<br><br>The question isn't 'what did I make today?'<br>The question is: <b>'How many A+ continuation windows did I capture this week?'</b><br><br>If the answer is two or three, you're winning. You just might not know it yet because you're too busy counting daily P&L like it means something."</td></tr></table>
 
+---
 
+## 📖 Continue Reading
+
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Why Tradebot Sci</b>. Try to keep up."</td></tr></table>

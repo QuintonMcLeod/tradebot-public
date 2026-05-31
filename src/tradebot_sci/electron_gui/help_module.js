@@ -1162,6 +1162,9 @@ window.helpModule = (() => {
         const backBtn = document.getElementById('help-back-btn');
         if (backBtn) backBtn.classList.add('hidden');
 
+        const nextBtn = document.getElementById('help-next-btn');
+        if (nextBtn) nextBtn.classList.add('hidden');
+
         // Show search box on magazine landing
         const searchWrap = document.getElementById('help-search-wrap');
         if (searchWrap) searchWrap.style.display = '';
@@ -1188,6 +1191,26 @@ window.helpModule = (() => {
         // Show back button
         const backBtn = document.getElementById('help-back-btn');
         if (backBtn) backBtn.classList.remove('hidden');
+
+        // Show next button and determine if it should be enabled
+        const nextBtn = document.getElementById('help-next-btn');
+        if (nextBtn) {
+            const sortedCatalog = [...docCatalog].sort((a, b) => {
+                const aName = a.filename || '';
+                const bName = b.filename || '';
+                const aIsAdr = a.category === 'adr' || aName.toLowerCase().includes('adr');
+                const bIsAdr = b.category === 'adr' || bName.toLowerCase().includes('adr');
+                if (aIsAdr !== bIsAdr) return aIsAdr ? 1 : -1;
+                return aName.localeCompare(bName);
+            });
+            const currentIndex = sortedCatalog.findIndex(d => d.filename === filename);
+            if (currentIndex >= 0 && currentIndex < sortedCatalog.length - 1) {
+                nextBtn.classList.remove('hidden');
+                nextBtn.dataset.nextFilename = sortedCatalog[currentIndex + 1].filename;
+            } else {
+                nextBtn.classList.add('hidden');
+            }
+        }
 
         // Hide search box when viewing an article
         const searchWrap = document.getElementById('help-search-wrap');
@@ -1348,6 +1371,16 @@ window.helpModule = (() => {
         const backBtn = document.getElementById('help-back-btn');
         if (backBtn) {
             backBtn.addEventListener('click', () => showMagazine());
+        }
+
+        // Next button
+        const nextBtn = document.getElementById('help-next-btn');
+        if (nextBtn) {
+            nextBtn.addEventListener('click', () => {
+                if (nextBtn.dataset.nextFilename) {
+                    loadDoc(nextBtn.dataset.nextFilename);
+                }
+            });
         }
     }
 
