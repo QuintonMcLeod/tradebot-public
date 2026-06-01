@@ -229,6 +229,13 @@ class LedgerDaemon:
             try:
                 with self.ledger_path.open("r", encoding="utf-8") as f:
                     data = json.load(f)
+                
+                # Self-healing: ensure required keys exist for backward compatibility
+                if "current_day" not in data:
+                    data["current_day"] = _empty_day(datetime.now(self.tz).isoformat())
+                if "days" not in data:
+                    data["days"] = []
+                    
                 self._ledger = data
                 logger.info(f"[LEDGER] Loaded existing ledger: {len(data.get('days', []))} historical days")
             except Exception as e:

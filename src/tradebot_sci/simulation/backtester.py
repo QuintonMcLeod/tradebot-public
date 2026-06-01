@@ -102,6 +102,25 @@ def _notional_per_unit(symbol: str, price: float) -> float:
     return price if price > 0 else 1.0
 
 
+def _interpolate_exit_time(candle_start: datetime, candle: Candle, hit_price: float, tf_seconds: int) -> datetime:
+    """Interpolate intra-bar exit time based on how deeply the hit price penetrates the High/Low candle range."""
+    if tf_seconds <= 0 or not candle or candle.high == candle.low:
+        return candle_start
+
+    dist = abs(hit_price - candle.open)
+    total_range = abs(candle.high - candle.low)
+    
+    if total_range == 0:
+        return candle_start
+        
+    ratio = dist / total_range
+    ratio = max(0.01, min(0.99, ratio))
+    
+    offset_seconds = int(tf_seconds * ratio)
+    return candle_start + timedelta(seconds=offset_seconds)
+
+
+
 def _apply_leverage_cap(size: float, symbol: str, capital_base: float, price: float, logger=None, current_position_size: float = 0.0) -> float:
     from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
     import os
@@ -1239,6 +1258,8 @@ class Backtester:
                             exit_price = current_bar.open
                         else:
                             exit_price = pos.stop_price
+                        
+                        _interp_time = _interpolate_exit_time(current_time, current_bar, exit_price, tf_seconds)
                         pnl = _calculate_pnl(pos.entry_price, exit_price, pos.size, pos.direction, symbol=symbol)
                         capital += pnl
                         completed_trades.append(SimulatedTrade(
@@ -1248,7 +1269,7 @@ class Backtester:
                             exit_price=exit_price,
                             size=pos.size,
                             entry_time=pos.entry_time,
-                            exit_time=current_time,
+                            exit_time=_interp_time,
                             pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                             exit_reason="stop",
                             entry_gates=getattr(pos, "entry_gates", None),
@@ -1258,7 +1279,8 @@ class Backtester:
                         ))
                         trade_results_store.add_result(TradeResult(
                             symbol=symbol,
-                            closed_at=current_time.isoformat(),
+                            opened_at=pos.entry_time.isoformat(),
+                            closed_at=_interp_time.isoformat(),
                             pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
                             pnl_usd=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                             mfe_usd=getattr(pos, 'mfe_usd', 0.0),
@@ -1461,6 +1483,8 @@ class Backtester:
                         if pnl <= 0:
                             logger.info(f"[BACKTEST] {symbol} target hit but not profitable; holding.")
                             continue
+                            
+                        _interp_time = _interpolate_exit_time(current_time, current_bar, exit_price, tf_seconds)
                         capital += pnl
                         completed_trades.append(SimulatedTrade(
                             symbol=symbol,
@@ -1469,7 +1493,7 @@ class Backtester:
                             exit_price=exit_price,
                             size=pos.size,
                             entry_time=pos.entry_time,
-                            exit_time=current_time,
+                            exit_time=_interp_time,
                             pnl=pnl + getattr(pos, "cumulative_partial_pnl", 0.0),
                             exit_reason="target",
                             entry_gates=getattr(pos, "entry_gates", None),
@@ -1479,7 +1503,8 @@ class Backtester:
                         ))
                         trade_results_store.add_result(TradeResult(
                             symbol=symbol,
-                            closed_at=current_time.isoformat(),
+                            opened_at=pos.entry_time.isoformat(),
+                            closed_at=_interp_time.isoformat(),
                             pnl_pct=(pnl / (pos.entry_price * pos.size)) if (pos.entry_price * pos.size) != 0 else 0,
                             pnl_usd=pnl,
                             mfe_usd=getattr(pos, 'mfe_usd', 0.0),

@@ -787,41 +787,11 @@ class OandaExchangeBroker(IExchangeBroker):
             logger.warning("[OANDA] Cannot modify SL: not authorized")
             return False
         try:
-            instrument = self._normalize_symbol(symbol)
-            r_pos = oanda_positions.PositionDetails(self.account_id, instrument)
-            self.client.request(r_pos)
-            pos = r_pos.response.get("position", {})
-            long_units = float(pos.get("long", {}).get("units", 0))
-            short_units = float(pos.get("short", {}).get("units", 0))
-            side = "long" if abs(long_units) > abs(short_units) else "short"
-            trade_ids = pos.get(side, {}).get("tradeIDs", [])
-            if not trade_ids:
-                logger.warning(f"[OANDA] modify_stop_loss: no trade IDs for {symbol}")
-                return False
-
-            # Determine price format (JPY pairs use 3 decimals, others use 5)
-            fmt = ".3f" if "JPY" in instrument else ".5f"
-
-            # Modify all open trades for this symbol (usually just 1)
-            for tid in trade_ids:
-                if new_stop is None or new_stop <= 0:
-                    # Pass None to explicitly cancel any physical Stop Loss order
-                    data = {"stopLoss": None}
-                    log_sl_msg = "CANCELLED"
-                else:
-                    data = {"stopLoss": {"price": f"{new_stop:{fmt}}"}}
-                    log_sl_msg = f"{new_stop:{fmt}}"
-                    
-                r_mod = trades.TradeCRCDO(
-                    accountID=self.account_id,
-                    tradeID=tid,
-                    data=data,
-                )
-                self.client.request(r_mod)
-                logger.info(
-                    f"[OANDA] STOP MODIFIED {symbol} trade#{tid}: "
-                    f"new SL={log_sl_msg}"
-                )
+            if new_stop is None or new_stop <= 0:
+                logger.info(f"[OANDA] Physical SL cancel requested for {symbol} - ignored (using soft SL)")
+            else:
+                fmt = ".3f" if "JPY" in symbol.upper() else ".5f"
+                logger.info(f"[OANDA] Physical SL update disabled; relying on soft SL for {symbol} (Target: {new_stop:{fmt}})")
             return True
         except Exception as e:
             logger.error(

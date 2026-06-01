@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <link href="./dist/output.css" rel="stylesheet">
+    <link href="./settings.css" rel="stylesheet">
+    <link href="./trends.css" rel="stylesheet">
+    <link href="./theme-overrides.css" rel="stylesheet">
+    <link href="./analytics.css" rel="stylesheet">
+    <title>Mock Trade History</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <style>
+        body { background: #0f172a; color: #fff; font-family: 'Inter', sans-serif; margin: 20px; }
+        .trade-history-container { background: #1e293b; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 10px; border-bottom: 1px solid #334155; color: #94a3b8; font-size: 12px; text-transform: uppercase; }
+        td { padding: 10px; border-bottom: 1px solid #334155; }
+        .side-badge.long { color: #34d399; background: rgba(52, 211, 153, 0.1); padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+        .side-badge.short { color: #f87171; background: rgba(248, 113, 113, 0.1); padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+    </style>
+</head>
+<body>
+    <div class="trade-history-container">
+        <h2>Trade History - Sub-Candle Interpolation Validation</h2>
+        <br>
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Symbol</th>
+                    <th style="text-align:center;">Side</th>
+                    <th style="text-align:center;">Result</th>
+                    <th style="text-align:right;">PnL</th>
+                    <th style="text-align:right;">Return</th>
+                    <th style="text-align:center;">MFE/MAE</th>
+                    <th style="text-align:right;">Spread</th>
+                    <th>Duration</th>
+                    <th>Strategy</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody id="trade-history-body">
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Need lightweight charts for analytics.js to parse without errors -->
+    <script src="./lightweight-charts.js"></script>
+    <script>
+        // Mock global variables for analytics.js
+        window.api = {
+            invoke: async (channel, ...args) => {
+                if (channel === 'read-ledger') return null;
+                return {};
+            }
+        };
+        // Mock container to avoid null errors
+        document.body.innerHTML += '<div id="capital-timeline-container" style="display:none;"></div>';
+    </script>
+    <script src="./analytics.js"></script>
+    <script>
+        // Wait for script to load
+        setTimeout(() => {
+            const mockTrades = [
+                {
+                    symbol: 'EURUSD',
+                    opened_at: '2026-05-31T10:00:00Z',
+                    closed_at: '2026-05-31T10:04:12Z', // Interpolated exactly 4m 12s inside a 15m candle!
+                    pnl: '125.50',
+                    side: 'long',
+                    pct: 0.25,
+                    mfe_usd: 140.0,
+                    mae_usd: -20.0,
+                    strategy: 'Interpolated TP Hit',
+                    reason: 'target'
+                },
+                {
+                    symbol: 'GBPUSD',
+                    opened_at: '2026-05-31T08:00:00Z',
+                    closed_at: '2026-05-31T08:09:45Z', // Interpolated 9m 45s inside a 15m candle!
+                    pnl: '-75.20',
+                    side: 'short',
+                    pct: -0.15,
+                    mfe_usd: 10.0,
+                    mae_usd: -85.0,
+                    strategy: 'Interpolated SL Hit',
+                    reason: 'stop'
+                },
+                {
+                    symbol: 'USDJPY',
+                    opened_at: '2026-05-31T05:00:00Z',
+                    closed_at: '2026-05-31T05:15:00Z', // Normal end of candle hit without interpolation
+                    pnl: '50.00',
+                    side: 'long',
+                    pct: 0.10,
+                    mfe_usd: 60.0,
+                    mae_usd: -5.0,
+                    strategy: 'End of Bar Close',
+                    reason: 'signal'
+                }
+            ];
+
+            // Render trades directly using the exact function from analytics.js
+            updateTradeHistory(mockTrades);
+        }, 500);
+    </script>
+</body>
+</html>

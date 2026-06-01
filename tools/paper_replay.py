@@ -477,7 +477,7 @@ class ReplayPaperBroker(PaperBroker):
                     exit_px = tp
 
             if hit:
-                self._record_exit(symbol, pos, exit_px, hit, results)
+                self._record_exit(symbol, pos, exit_px, hit, results, candle_open=current_close, candle_high=candle_high, candle_low=candle_low)
 
         # Refresh unrealized PnL using close price
         for sym in list(self.positions.keys()):
@@ -493,7 +493,7 @@ class ReplayPaperBroker(PaperBroker):
 
         return results
 
-    def _record_exit(self, symbol, pos, exit_price, hit, results):
+    def _record_exit(self, symbol, pos, exit_price, hit, results, candle_open=None, candle_high=None, candle_low=None):
         """Override to prevent balance compounding — sizing stays fixed at initial_balance."""
         from tradebot_sci.broker.execution import ExecutionResult, ExecutionStatus
         from tradebot_sci.broker.trade_result_store import TradeResult
@@ -518,6 +518,58 @@ class ReplayPaperBroker(PaperBroker):
 
         pnl_sign = "+" if pnl_usd >= 0 else "-"
         pnl_str  = f"{pnl_sign}${abs(pnl_usd):.2f}"
+        
+        # We need to get duration based on candle start since opened_at is wall-clock
+        duration_secs = 0.0
+        try:
+            entry_dt = datetime.fromisoformat(pos.get("entry_time", pos.get("opened_at", "")))
+            if entry_dt.tzinfo is None:
+                entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+            duration_secs = (self._now() - entry_dt).total_seconds()
+            if duration_secs < 0:
+                duration_secs = 0.0
+        except Exception:
+            pass
+
+        closed_at_str = datetime.now(timezone.utc).isoformat()
+        
+        # INTERPOLATE
+        if hit in ("SL", "TP") and candle_high is not None and candle_low is not None and candle_open is not None:
+            total_range = abs(candle_high - candle_low)
+            if total_range > 0:
+                dist = abs(exit_price - candle_open)
+                ratio = max(0.01, min(0.99, dist / total_range))
+                
+                tf_seconds = 300 # default 5m
+                if hasattr(self, "_provider") and hasattr(self._provider, "_snapshot"):
+                    snap = self._provider._snapshot
+                    if snap and snap.candles and len(snap.candles) >= 2:
+                        tf_seconds = int((snap.candles[-1].timestamp - snap.candles[-2].timestamp).total_seconds())
+                
+                duration_secs += int(tf_seconds * ratio)
+                
+                opened_at_str = pos.get("opened_at", "")
+                if opened_at_str:
+                    try:
+                        entry_dt_wc = datetime.fromisoformat(opened_at_str)
+                        if entry_dt_wc.tzinfo is None:
+                            entry_dt_wc = entry_dt_wc.replace(tzinfo=timezone.utc)
+                        closed_dt = entry_dt_wc + timedelta(seconds=duration_secs)
+                        closed_at_str = closed_dt.isoformat()
+                    except Exception:
+                        pass
+        elif duration_secs > 0:
+            opened_at_str = pos.get("opened_at", "")
+            if opened_at_str:
+                try:
+                    entry_dt_wc = datetime.fromisoformat(opened_at_str)
+                    if entry_dt_wc.tzinfo is None:
+                        entry_dt_wc = entry_dt_wc.replace(tzinfo=timezone.utc)
+                    closed_dt = entry_dt_wc + timedelta(seconds=duration_secs)
+                    closed_at_str = closed_dt.isoformat()
+                except Exception:
+                    pass
+
         logger.info(
             f"[REPLAY] [EXIT] {symbol} {hit}: {pnl_str} "
             f"| side={side} entry={entry_p:.5f} exit={fill_p:.5f} "
@@ -526,18 +578,9 @@ class ReplayPaperBroker(PaperBroker):
 
         if self.trade_results:
             opened_at = pos.get("opened_at", "")
-            duration_secs = None
-            if opened_at:
-                try:
-                    duration_secs = (
-                        datetime.now(timezone.utc) -
-                        datetime.fromisoformat(opened_at.replace("Z", "+00:00"))
-                    ).total_seconds()
-                except Exception:
-                    pass
             self.trade_results.add_result(TradeResult(
                 symbol=symbol,
-                closed_at=datetime.now(timezone.utc).isoformat(),
+                closed_at=closed_at_str,
                 pnl_pct=(pnl_usd / (entry_p * abs(pos["size"])) if entry_p else 0),
                 pnl_usd=pnl_usd,
                 is_win=pnl_usd > 0,
@@ -862,7 +905,7 @@ def _worker_replay_symbol(args: tuple) -> dict:
     provider.set_htf_timeline({sym: htf_timeline})
 
     # In-memory trade store — no disk I/O between workers
-    trade_store = TradeResultStore(path=f"/tmp/_replay_{sym}.json", skip_save=True)
+    trade_store = TradeResultStore(path=f"/tmp/_replay_{sym}.json", skip_save=False)
 
     # ── Replay-specific profile: disable SAR/CR ──────────────────────────
     # The engine's SAR cooldown uses wall-clock datetime.now() — but replay

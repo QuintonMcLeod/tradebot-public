@@ -1546,6 +1546,47 @@ class PaperBroker:
 
                 # Compute trade duration
                 duration_secs, duration_str = self._compute_duration(pos)
+                closed_at_str = self._wall_clock().isoformat()
+                
+                # INTERPOLATION: If hit is SL or TP, simulate intra-bar exit time
+                if hit in ("SL", "TP") and candle_high is not None and candle_low is not None and candle_open is not None:
+                    total_range = abs(candle_high - candle_low)
+                    if total_range > 0:
+                        dist = abs(exit_price - candle_open)
+                        ratio = max(0.01, min(0.99, dist / total_range))
+                        
+                        tf_seconds = 300 # default 5m
+                        if hasattr(self, "market_provider") and hasattr(self.market_provider, "_current_tf_seconds"):
+                            tf_seconds = self.market_provider._current_tf_seconds
+                        elif hasattr(self, "market_provider") and hasattr(self.market_provider, "_snapshot"):
+                            snap = self.market_provider._snapshot
+                            if snap and snap.candles and len(snap.candles) >= 2:
+                                tf_seconds = int((snap.candles[-1].timestamp - snap.candles[-2].timestamp).total_seconds())
+                        
+                        # duration_secs currently represents time up to the START of the current candle
+                        # We add the fractional elapsed time inside this candle
+                        duration_secs += int(tf_seconds * ratio)
+                        
+                        # Also override closed_at if opened_at_str is available (since wall clock is irrelevant in replay)
+                        if opened_at_str:
+                            try:
+                                entry_dt = datetime.fromisoformat(opened_at_str)
+                                if entry_dt.tzinfo is None:
+                                    entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                                closed_dt = entry_dt + timedelta(seconds=duration_secs)
+                                closed_at_str = closed_dt.isoformat()
+                            except Exception:
+                                pass
+                        
+                        # Reformat duration string
+                        mins = int(duration_secs // 60)
+                        secs = int(duration_secs % 60)
+                        if mins >= 60:
+                            hrs = mins // 60
+                            mins = mins % 60
+                            duration_str = f"{hrs}h {mins}m {secs}s"
+                        else:
+                            duration_str = f"{mins}m {secs}s"
 
                 logger.info(
                     f"[PAPER] [EXIT] Paper {hit}: {symbol} {pnl_str} "
@@ -1562,7 +1603,7 @@ class PaperBroker:
                 if self.trade_results:
                     self.trade_results.add_result(TradeResult(
                         symbol=symbol,
-                        closed_at=self._wall_clock().isoformat(),
+                        closed_at=closed_at_str,
                         pnl_pct=pnl_pct,
                         pnl_usd=pnl_usd,
                         is_win=pnl_usd > 0,

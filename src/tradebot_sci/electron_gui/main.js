@@ -1366,7 +1366,25 @@ function setupIpcHandlers() {
             const merged = { ...envData, ...aiConfig };
             const get = (key) => merged[key] || merged[key.toLowerCase()] || merged[key.toUpperCase()] || '';
             const provider = get('provider') || get('TRADE_SCI_PROVIDER') || 'openrouter';
-            const apiKeyRaw = get('TRADE_SCI_API_KEY') || get('TRADE_SCI_GEMINI_KEY') || get('GEMINI_API_KEY') || get('TRADE_SCI_CLAUDE_KEY') || get('ANTHROPIC_API_KEY') || get('TRADE_SCI_DEEPSEEK_KEY') || get('TRADE_SCI_OPENROUTER_KEY') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || '';
+            
+            const providerKeyMap = {
+                'openai': ['CHATGPT_KEY', 'OPENAI_API_KEY'],
+                'gemini': ['TRADE_SCI_GEMINI_KEY', 'GEMINI_API_KEY'],
+                'claude': ['TRADE_SCI_CLAUDE_KEY', 'ANTHROPIC_API_KEY'],
+                'deepseek': ['TRADE_SCI_DEEPSEEK_KEY'],
+                'openrouter': ['TRADE_SCI_OPENROUTER_KEY']
+            };
+            let apiKeyRaw = '';
+            const specificKeys = providerKeyMap[provider] || [];
+            for (const key of specificKeys) {
+                if (get(key)) {
+                    apiKeyRaw = get(key);
+                    break;
+                }
+            }
+            if (!apiKeyRaw) apiKeyRaw = get('TRADE_SCI_API_KEY') || get('api_key') || '';
+            if (!apiKeyRaw) apiKeyRaw = get('TRADE_SCI_GEMINI_KEY') || get('GEMINI_API_KEY') || get('TRADE_SCI_CLAUDE_KEY') || get('ANTHROPIC_API_KEY') || get('TRADE_SCI_DEEPSEEK_KEY') || get('TRADE_SCI_OPENROUTER_KEY') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || '';
+
             const defaultModels = { deepseek: 'deepseek-chat', openai: 'gpt-4o', claude: 'claude-3-5-sonnet-20241022', gemini: 'gemini-2.0-flash', openrouter: 'google/gemini-2.0-flash-001', local: 'llama3' };
             const model = get('model') || get('TRADE_SCI_MODEL_NAME') || defaultModels[provider] || 'deepseek-chat';
             let baseUrl = get('base_url') || get('TRADE_SCI_API_BASE_URL') || '';
@@ -2161,7 +2179,25 @@ Respond in plain English a smart friend would understand. No jargon. Use analogi
             const get = (key) => merged[key] || merged[key.toLowerCase()] || merged[key.toUpperCase()] || '';
             
             const provider = get('provider') || get('TRADE_SCI_PROVIDER') || 'gemini';
-            const apiKeyRaw = get('TRADE_SCI_API_KEY') || get('api_key') || get('TRADE_SCI_GEMINI_KEY') || get('GEMINI_API_KEY') || get('TRADE_SCI_CLAUDE_KEY') || get('ANTHROPIC_API_KEY') || get('TRADE_SCI_DEEPSEEK_KEY') || get('TRADE_SCI_OPENROUTER_KEY') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || '';
+            
+            const providerKeyMap = {
+                'openai': ['CHATGPT_KEY', 'OPENAI_API_KEY'],
+                'gemini': ['TRADE_SCI_GEMINI_KEY', 'GEMINI_API_KEY'],
+                'claude': ['TRADE_SCI_CLAUDE_KEY', 'ANTHROPIC_API_KEY'],
+                'deepseek': ['TRADE_SCI_DEEPSEEK_KEY'],
+                'openrouter': ['TRADE_SCI_OPENROUTER_KEY']
+            };
+            let apiKeyRaw = '';
+            const specificKeys = providerKeyMap[provider] || [];
+            for (const key of specificKeys) {
+                if (get(key)) {
+                    apiKeyRaw = get(key);
+                    break;
+                }
+            }
+            if (!apiKeyRaw) apiKeyRaw = get('TRADE_SCI_API_KEY') || get('api_key') || '';
+            if (!apiKeyRaw) apiKeyRaw = get('TRADE_SCI_GEMINI_KEY') || get('GEMINI_API_KEY') || get('TRADE_SCI_CLAUDE_KEY') || get('ANTHROPIC_API_KEY') || get('TRADE_SCI_DEEPSEEK_KEY') || get('TRADE_SCI_OPENROUTER_KEY') || get('CHATGPT_KEY') || get('OPENAI_API_KEY') || '';
+
             const isPlaceholder = (v) => !v || /example\.com|your_.*_here|placeholder|changeme|xxx/i.test(v);
             const apiKey = isPlaceholder(apiKeyRaw) ? '' : apiKeyRaw;
             
