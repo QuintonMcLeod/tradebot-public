@@ -560,6 +560,8 @@ def process_candidate_cycle(
 
     evaluations.sort(key=_rank_decision)
 
+    cycle_executed_entries = []
+
     for symbol, snapshot, decision, reason in evaluations:
         try:
             if not decision or decision.action in ("stand_aside", "hold", "none"):
@@ -574,6 +576,7 @@ def process_candidate_cycle(
                     if not multi_enabled:
                         max_concurrent = 1
                     open_positions = executor.list_open_position_symbols() if hasattr(executor, 'list_open_position_symbols') else []
+                    open_positions.extend(cycle_executed_entries)
                     
                     # ── CORRELATION FILTER ──────────────────────────
                     enable_correlation_filter = getattr(profile_settings, "enable_correlation_filter", False)
@@ -697,6 +700,8 @@ def process_candidate_cycle(
                 result, outcome = executor.execute_decision(decision)
                 handle_execution_result(outcome, strike_tracker)
                 if result and result.status.value == "executed":
+                    if decision.action in ("enter_long", "enter_short", "go_long", "go_short"):
+                        cycle_executed_entries.append(symbol)
                     success_symbol = symbol
                     fill_score = (decision.score * 100.0) if (decision.score is not None) else 0.0
                     fill_grade = decision.grade if (decision.grade is not None) else "N/A"

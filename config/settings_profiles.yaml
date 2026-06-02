@@ -117,6 +117,22 @@ profiles:
     - GBPJPY 
     - EURJPY 
     - AUDJPY 
+    - EURAUD 
+    - EURNZD 
+    - EURCAD 
+    - EURCHF 
+    - GBPAUD 
+    - GBPNZD 
+    - GBPCHF 
+    - NZDJPY 
+    - CADJPY 
+    - CHFJPY 
+    - AUDCAD 
+    - AUDCHF 
+    - AUDNZD 
+    - NZDCAD 
+    - NZDCHF 
+    - CADCHF 
     candle_timeframe: 5m 
     mtf_timeframe: 1h 
     ltf_timeframe: 5m 

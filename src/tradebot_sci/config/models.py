@@ -1193,6 +1193,10 @@ class TradingProfileSettings(BaseModel):
         default=None,
         description="Maximum number of trade entries allowed per day per symbol.",
     )
+    enable_correlation_filter: bool = Field(
+        default=False,
+        description="Block overlapping base/quote currency trades.",
+    )
     nuclear_overrides_enabled: bool = Field(
         default=False,
         description="Bypass all hard-coded safety ceilings. WARNING: HIGH RISK OF LIQUIDATION.",
