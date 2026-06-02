@@ -658,14 +658,33 @@ def _sync_strategy_sessions(settings: Settings) -> None:
     
     for p_name, profile in settings.profiles.items():
         profile_strats = set()
-        if profile.strategy_variant:
-            profile_strats.add(profile.strategy_variant.lower())
-        if profile.strategies:
-            # PerAssetStrategies is a Pydantic model, convert to dict to iterate values
-            strat_dict = profile.strategies.model_dump()
-            for s in strat_dict.values():
-                if isinstance(s, str) and s:
-                    profile_strats.add(s.lower())
+        
+        # Only add strategies actually mapped to the profile's symbols
+        if profile.symbols:
+            from tradebot_sci.utils.symbol_classifier import classify_symbol
+            for sym in profile.symbols:
+                asset_class = classify_symbol(sym)
+                # AssetClass has a value property, e.g., 'forex', 'crypto'
+                asset_key = asset_class.value if hasattr(asset_class, 'value') else str(asset_class).split('.')[-1].lower()
+                
+                if profile.strategies:
+                    # Check if the asset class is mapped in strategies
+                    s_dict = profile.strategies.model_dump()
+                    strat_for_asset = s_dict.get(asset_key)
+                    if strat_for_asset and isinstance(strat_for_asset, str):
+                        profile_strats.add(strat_for_asset.lower())
+                elif profile.strategy_variant:
+                    profile_strats.add(profile.strategy_variant.lower())
+        else:
+            # Fallback to all if no symbols defined
+            if profile.strategy_variant:
+                profile_strats.add(profile.strategy_variant.lower())
+            if profile.strategies:
+                # PerAssetStrategies is a Pydantic model, convert to dict to iterate values
+                strat_dict = profile.strategies.model_dump()
+                for s in strat_dict.values():
+                    if isinstance(s, str) and s:
+                        profile_strats.add(s.lower())
         
         for variant in profile_strats:
             entry = StrategyEngine.STRATEGY_REGISTRY.get(variant)
