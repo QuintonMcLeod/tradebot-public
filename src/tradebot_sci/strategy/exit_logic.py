@@ -133,6 +133,8 @@ def run_universal_exit_logic(
             strat_decision = _exit_adx_death(snapshot, open_position, current_price, direction, gates)
         elif exit_strategy == "winner_giveback":
             strat_decision = _exit_winner_giveback(snapshot, open_position, current_price, direction, profile)
+        elif exit_strategy == "bollinger_invalidation":
+            strat_decision = _exit_bollinger_invalidation(snapshot, open_position, current_price, direction, profile)
         else:
             # Default: fixed_rr
             strat_decision = _exit_fixed_rr(snapshot, open_position, current_price, direction, target_price)
@@ -897,4 +899,61 @@ def _exit_micro_canary(snapshot: MarketSnapshot, open_position: dict, current_pr
         if c1.close > recent_high and (c1.close - c1.open) > atr_1m * 1.5:
             return _hard_exit(snapshot, open_position, "Micro-Canary Reversal: Massive 1m bullish spike detected")
 
+    return None
+
+def _exit_bollinger_invalidation(snapshot, pos, current_price, direction, profile):
+    """15. Bollinger Invalidation (The Pinned RSI) — 
+    Kills mean-reversion trades if the RSI stays pinned without hooking up.
+    """
+    from tradebot_sci.market.indicators import calculate_rsi
+    
+    strategy_name = pos.get("strategy", "")
+    # Only applies to mean-reversion bollinger strategies
+    target_strategies = {"forex_hybrid_scalper", "forexhybridscalper", "rubberband_reaper"}
+    if not any(s in strategy_name.lower() for s in target_strategies):
+        return None
+        
+    bars_held = _calc_bars_held(pos, snapshot)
+    
+    pin_bars = int(getattr(profile, "bollinger_invalidation_bars", 3))
+    if bars_held < pin_bars:
+        return None
+        
+    closes = [c.close for c in snapshot.candles]
+    if len(closes) < 20: 
+        return None
+        
+    rsi_period = int(getattr(profile, "rsi_period", 7))
+    rsi_overbought = float(getattr(profile, "rsi_overbought", 60))
+    rsi_oversold = float(getattr(profile, "rsi_oversold", 40))
+    
+    # Calculate RSI for the last `pin_bars` candles
+    rsis = []
+    for i in range(pin_bars):
+        slice_closes = closes if i == 0 else closes[:-i]
+        rsi_val = calculate_rsi(slice_closes, rsi_period)
+        if rsi_val is None:
+            return None
+        rsis.append(rsi_val)
+        
+    # rsis is ordered: [current_rsi, prev_rsi, prev_prev_rsi]
+    # We want chronological: [prev_prev_rsi, prev_rsi, current_rsi]
+    rsis.reverse()
+    
+    import logging
+    logger = logging.getLogger("tradebot_sci.exit_logic")
+    
+    if direction == "long":
+        all_oversold = all(r <= rsi_oversold for r in rsis)
+        if all_oversold:
+            if rsis[-1] <= rsis[0]:
+                logger.info(f"[BOLLINGER-INVAL] {snapshot.symbol} LONG Pinned RSI detected. RSIs: {['%.1f' % r for r in rsis]}")
+                return _hard_exit(snapshot, pos, "Bollinger Invalidation: Pinned Oversold RSI (Failed Bounce)")
+    else:
+        all_overbought = all(r >= rsi_overbought for r in rsis)
+        if all_overbought:
+            if rsis[-1] >= rsis[0]:
+                logger.info(f"[BOLLINGER-INVAL] {snapshot.symbol} SHORT Pinned RSI detected. RSIs: {['%.1f' % r for r in rsis]}")
+                return _hard_exit(snapshot, pos, "Bollinger Invalidation: Pinned Overbought RSI (Failed Bounce)")
+                
     return None

@@ -576,17 +576,27 @@ def process_candidate_cycle(
                     if not multi_enabled:
                         max_concurrent = 1
                     open_positions = executor.list_open_position_symbols() if hasattr(executor, 'list_open_position_symbols') else []
+                    
+                    # ── SYNCHRONIZATION FIX: Include local store to prevent correlation leakage ──
+                    if hasattr(executor, 'position_hold_store') and executor.position_hold_store:
+                        for _sym in executor.position_hold_store.records.keys():
+                            if _sym not in open_positions:
+                                open_positions.append(_sym)
+                                
                     open_positions.extend(cycle_executed_entries)
                     
                     # ── CORRELATION FILTER ──────────────────────────
                     enable_correlation_filter = getattr(profile_settings, "enable_correlation_filter", False)
+                    logger.info(f"[CORRELATION DEBUG] evaluating {symbol} | filter_enabled={enable_correlation_filter} | open_positions={open_positions} | cycle_entries={cycle_executed_entries}")
                     if enable_correlation_filter and open_positions:
                         active_currencies = set()
                         for _os in open_positions:
                             active_currencies.update(_extract_currencies(_os))
                             
                         sym_currencies = _extract_currencies(symbol)
-                        if sym_currencies.intersection(active_currencies):
+                        intersection = sym_currencies.intersection(active_currencies)
+                        logger.info(f"[CORRELATION DEBUG] {symbol} currencies={sym_currencies} | active={active_currencies} | intersection={intersection}")
+                        if intersection:
                             logger.info(f"[CYCLE] Trade blocked: {symbol} shares a currency with an active position.")
                             blocked += 1
                             continue
