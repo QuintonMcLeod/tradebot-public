@@ -100,7 +100,7 @@ profiles:
   forex_continuous: 
     strategies: 
       etf: meta_sci 
-      forex: forex_hybrid_scalper 
+      forex: forex_hybrid_reaper 
       futures: silver_vwap 
       metals: forex_hybrid_scalper 
       stocks: robocop 
