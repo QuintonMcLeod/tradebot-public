@@ -1092,18 +1092,14 @@ class OandaExchangeBroker(IExchangeBroker):
 
             effective_stop_dist = stop_dist + spread_cost
 
-            # ── JPY QUOTE CONVERSION ─────────────────────────────────
-            # For JPY-quoted pairs (USDJPY, EURJPY, etc.), stop_dist is
-            # in JPY, but risk_amount is in USD.  Convert stop_dist to
-            # USD-per-unit so the formula gives correct units.
+            # ── JPY QUOTE CONVERSION (REMOVED) ───────────────────────
+            # This logic was deprecated because currency conversion is properly
+            # handled later by converting USD risk to Quote currency.
             is_jpy_quote = "JPY" in decision.symbol.upper()
-            if is_jpy_quote and price > 0:
-                effective_stop_dist = effective_stop_dist / price
 
             logger.debug(
                 f"[OANDA] Spread buffer: raw_stop_dist={stop_dist:.5f} + "
                 f"spread={spread_cost:.5f} = effective={effective_stop_dist:.8f}"
-                f"{' (JPY→USD converted)' if is_jpy_quote else ''}"
             )
 
             # ── CAPITAL STALENESS GUARD ───────────────────────────────
