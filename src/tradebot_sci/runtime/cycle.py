@@ -34,6 +34,19 @@ _WARMUP_HTF_CANDLES = 200  # 200 four-hour candles ≈ 33 days
 # the backtester's behavior.
 _BAR_CLOSE_GATE_ENABLED = os.environ.get("BAR_CLOSE_GATE_ENABLED", "false").lower() in ("true", "1", "yes")
 
+def _extract_currencies(symbol: str) -> set:
+    """Extracts base and quote currencies from standard symbol formats."""
+    sym = symbol.upper().replace('_', '').replace('/', '')
+    if len(sym) == 6:
+        return {sym[:3], sym[3:]}
+    elif sym.endswith("USD"):
+        return {sym[:-3], "USD"}
+    elif sym.endswith("JPY"):
+        return {sym[:-3], "JPY"}
+    elif sym.endswith("USDT"):
+        return {sym[:-4], "USDT"}
+    return {sym}
+
 def _parse_bar_seconds(timeframe: str) -> int:
     """Converts a timeframe string (e.g. '5m', '1h', '4h') to seconds."""
     m = re.match(r'^(\d+)\s*(m|min|mins|h|hour|hours|d|day|days)$', timeframe.lower().strip())
@@ -259,6 +272,7 @@ def build_candidate_list(
     if position_candidates:
         multi_enabled = getattr(profile_settings, "multi_position_enabled", False)
         max_concurrent = _get_dynamic_max_concurrent(profile_settings, now or datetime.now())
+
         if not multi_enabled or len(position_candidates) >= max_concurrent:
             # ── EVICTION SCAN: still scan for new entries to enable swaps ──
             # Even when slots are full, scan the universe so that
@@ -281,11 +295,24 @@ def build_candidate_list(
     # trend detection, and filtering internally — same as the backtester.
     # The previous ICC gate ran score_icc_grade() on NEUTRAL-trend
     # snapshots (before trend detection), blocking most entries.
+    enable_correlation_filter = getattr(profile_settings, "enable_correlation_filter", False)
+    active_currencies = set()
+    if enable_correlation_filter and position_candidates:
+        for sym, _, _, reason in position_candidates:
+            if reason in ("existing position", "active campaign"):
+                active_currencies.update(_extract_currencies(sym))
+
     candidates = position_candidates.copy()
     for symbol in symbols:
         if symbol in [c[0] for c in candidates]: continue
         if strike_tracker and strike_tracker.is_skipped(symbol): continue
         
+        if enable_correlation_filter and active_currencies:
+            sym_currencies = _extract_currencies(symbol)
+            if sym_currencies.intersection(active_currencies):
+                logger.debug(f"[CYCLE] Candidate scan skipped: {symbol} shares a currency with an active position.")
+                continue
+
         try:
             snap = fetch_snapshot(provider, snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller)
             candidates.append((symbol, snap, 0.0, "scan"))
@@ -542,11 +569,25 @@ def process_candidate_cycle(
             if executor:
                 # ── OPPORTUNITY COST EVICTION ──────────────────────────
                 if decision.action in ("enter_long", "enter_short", "go_long", "go_short"):
-                    max_concurrent = getattr(profile_settings, "max_open_positions", None)
-                    if max_concurrent is None:
-                        # Fall back to max_concurrent_positions, then 1 as safe default
-                        max_concurrent = getattr(profile_settings, "max_concurrent_positions", 1) or 1
+                    max_concurrent = getattr(profile_settings, "max_concurrent_positions", 1) or 1
+                    multi_enabled = getattr(profile_settings, "multi_position_enabled", False)
+                    if not multi_enabled:
+                        max_concurrent = 1
                     open_positions = executor.list_open_position_symbols() if hasattr(executor, 'list_open_position_symbols') else []
+                    
+                    # ── CORRELATION FILTER ──────────────────────────
+                    enable_correlation_filter = getattr(profile_settings, "enable_correlation_filter", False)
+                    if enable_correlation_filter and open_positions:
+                        active_currencies = set()
+                        for _os in open_positions:
+                            active_currencies.update(_extract_currencies(_os))
+                            
+                        sym_currencies = _extract_currencies(symbol)
+                        if sym_currencies.intersection(active_currencies):
+                            logger.info(f"[CYCLE] Trade blocked: {symbol} shares a currency with an active position.")
+                            blocked += 1
+                            continue
+                            
                     if len(open_positions) >= max_concurrent:
                         evict_min_hold = int(getattr(profile_settings, 'eviction_min_hold_minutes', 30)) * 60
                         worst_sym = None

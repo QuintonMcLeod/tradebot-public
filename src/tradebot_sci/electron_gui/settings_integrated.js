@@ -141,6 +141,7 @@ const CONFIG_MAP = {
     'TRAILING_STOP_MIN_PROFIT_PCT': ['global', 'trailing_stop_min_profit_pct'],
     'AUTO_FLATTEN_ON_CLOSE': ['global', 'flatten_on_exit'],
     'MULTI_POSITION_ENABLED': ['global', 'multi_position_enabled'],
+    'ENABLE_CORRELATION_FILTER': ['global', 'enable_correlation_filter'],
     'MAX_CONCURRENT_POSITIONS': ['global', 'max_concurrent_positions'],
     'SMART_POSITIONS_ENABLED': ['global', 'smart_positions_enabled'],
     'TARGET_PROFIT_DAILY_PCT': ['global', 'target_profit_daily_pct'],
@@ -319,6 +320,7 @@ const TOOLTIPS = {
 
     // Safety & Shields
     MULTI_POSITION_ENABLED: "The Juggler. Allows the bot to keep multiple different trades open at the exact same time. If turned off, it focuses on just one trade until it finishes.",
+    ENABLE_CORRELATION_FILTER: "Currency Overlap Block. Prevents the bot from taking new trades that share the same base or quote currency as an active trade. Example: If EUR/USD is open, GBP/USD and USD/JPY will be blocked, but AUD/JPY will be allowed.",
     MAX_CONCURRENT_POSITIONS: "How many balls the Juggler can keep in the air. More trades = more chances to win, but also more tied-up money.",
     SMART_POSITIONS_ENABLED: "House Money Safety. Only allows the bot to open a new trade if you already have enough open profit to 'pay for' the risk. This protects your original cash.",
 
@@ -1274,6 +1276,7 @@ const TRADING_DEFAULTS = {
     REVERSAL_RISK_PER_TRADE: '0.045',
     // ── Positions ──
     MULTI_POSITION_ENABLED: 'false',
+    ENABLE_CORRELATION_FILTER: 'false',
     MAX_CONCURRENT_POSITIONS: '1',
     SMART_POSITIONS_ENABLED: 'false',
     AUTO_FLATTEN_ON_CLOSE: 'false',
@@ -5213,6 +5216,7 @@ function renderSafetyTab(container) {
         "<strong>Position Protection</strong><br><br>Software-based stop-losses that protect your open positions even when the broker doesn't support native stops (like most crypto exchanges). These 'synthetic stops' are monitored by the bot and trigger market sells when hit."
     ));
     section.appendChild(createCard('Multi-Position', 'Trade multiple symbols simultaneously', 'MULTI_POSITION_ENABLED', 'toggle'));
+    section.appendChild(createCard('Correlation Filter', 'Block overlapping currencies', 'ENABLE_CORRELATION_FILTER', 'toggle'));
     section.appendChild(createSliderCard('Max Concurrent Positions', 'Maximum open positions', 'MAX_CONCURRENT_POSITIONS', 1, 10, 1, ''));
     section.appendChild(createCard('Smart Positions', 'Fund new risk with open profits', 'SMART_POSITIONS_ENABLED', 'toggle'));
 
