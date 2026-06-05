@@ -160,6 +160,6 @@ Smart Positions: "Open PnL covers new risk?" → Yes → PASS
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"The next path is narrow. One false step and the account falls. Tread carefully."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Prop Firm Evals</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Narrow path = <b>Prop Firm Evals</b>. We built guardrails. Use them."</td></tr></table>

@@ -167,6 +167,6 @@ while True:
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"I'M CHARGING INTO THE NEXT CHAPTER! NOBODY STOP ME!"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Ghost In Machine</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Bull is charging. Everyone clear the path. <b>Ghost In Machine</b> is dead ahead."</td></tr></table>

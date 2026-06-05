@@ -154,6 +154,4 @@ See Chapter 16 (**The War Room**) for the full log-reading guide.
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
-
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Ui Overhaul And Vitals</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST</b>:<br><em>"Your comprehension metrics are... suboptimal. But your persistence metric is adequate. Proceeding to <b>Ui Overhaul And Vitals</b>."</em></td></tr></table>

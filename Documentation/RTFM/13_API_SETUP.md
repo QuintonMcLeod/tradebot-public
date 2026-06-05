@@ -216,6 +216,6 @@ BROKER_MODE=primary
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"WHY ARE WE STILL TALKING?! I WANT TO TRADE! LET ME TRADE!"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Map Toc</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Bull, you can't trade what you don't understand. <b>Map Toc</b> first. THEN you trade."</td></tr></table>

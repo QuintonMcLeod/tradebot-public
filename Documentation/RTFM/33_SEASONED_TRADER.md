@@ -199,6 +199,6 @@ A rookie risks the same amount on every trade like they're playing a slot machin
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Can I ask a stupid question? Actually, never mind, I have seven stupid questions."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Conductor Strategy</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Save them. <b>Conductor Strategy</b> might answer six of them. The seventh one was probably dumb anyway."</td></tr></table>

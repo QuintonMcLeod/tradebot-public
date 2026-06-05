@@ -102,6 +102,6 @@ The **Friction Model** accounts for spreads. If the cost eats too much of the ex
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"I hate to admit it, but that was... useful. I still think we're all doomed, but slightly less doomed."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Crypto Frontier</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"A positive Bear? Mark this day on your calendar. Next: <b>Crypto Frontier</b>. Let's see if we can keep him happy."</td></tr></table>

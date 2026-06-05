@@ -105,6 +105,6 @@ Review the paper ledger (`data/paper_ledger.json`) to see:
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"I'm grumpy. Reading makes me grumpy. Everything makes me grumpy. Next."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Shield Wall</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Grumpy Bear gets <b>Shield Wall</b>. Maybe it'll cheer him up. Probably not."</td></tr></table>

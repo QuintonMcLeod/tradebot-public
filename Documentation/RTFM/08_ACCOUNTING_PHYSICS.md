@@ -43,6 +43,6 @@ To complete the integrity overhaul, the system implements a dedicated `'holdings
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"Bro, I understood like... half of that. The other half sounded like wizard spells. Is that normal?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Market Personalities</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"It's normal. The wizard spells are Python. Next: <b>Market Personalities</b>. You'll get used to it."</td></tr></table>

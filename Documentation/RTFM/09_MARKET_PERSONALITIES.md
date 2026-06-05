@@ -89,6 +89,6 @@ featured: true
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/skeptic.png" width="150"></td><td><b>KAREN</b>:<br>"I've been auditing this documentation for three hours. My eyes hurt. But I'm not stopping."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Forex Theater</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Karen's eyes hurt but her spirit is unbroken. <b>Forex Theater</b> will soothe them. Or make them worse."</td></tr></table>

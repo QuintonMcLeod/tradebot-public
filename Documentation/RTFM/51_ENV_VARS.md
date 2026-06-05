@@ -206,6 +206,6 @@ description: "The comprehensive reference for every environment variable used by
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"I'm... I'm getting tired. Can bulls get tired? Is that allowed?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Update Protocol</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Even bulls need rest. But not yet. <b>Update Protocol</b> first. Then you can nap."</td></tr></table>

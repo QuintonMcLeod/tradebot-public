@@ -140,26 +140,44 @@ featured: true
 ---
 
 ### **Forex Hybrid Scalper**
-**Backend ID:** `forex_hybrid_scalper.py` | **Rating:** 8.0/10 ⭐⭐⭐⭐ (was 3.0/10)
+**Backend ID:** `forex_hybrid_scalper.py` | **Rating:** 8.5/10 ⭐⭐⭐⭐⭐ (was 3.0/10)
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I fused HyperScalper trend logic with Rubberband kinetic triggers. It's a structural Frankenstein, but it WORKS now."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I fused HyperScalper trend logic with Rubberband kinetic triggers. It's a structural Frankenstein, but it WORKS now. And it keeps getting better because I keep hitting it with a wrench until it stops losing money."</td></tr></table>
 
 **How It Works:**
-- Trend anchor: 200 EMA confirms direction
-- Kinetic trap: BB pierce + RSI extreme for entry
+- Trend anchor: 200 EMA confirms direction — only longs above EMA, only shorts below
+- Kinetic trap: BB touch + RSI extreme for entry
 - Multi-timeframe validation required
+- Counter-trend whitelist exempts it from triple-timeframe block
 
 **Scoring Formula:**
-- RSI Divergence (40 pts): Extreme readings only
-- BB Setup (25 pts): Confirmed pierce, not "near"
-- HTF Alignment (20 pts): 200 EMA direction match
-- Session Quality (15 pts): London/NY overlap preferred
+- HTF/LTF Alignment (40 pts): Both timeframes agree on direction
+- BB Touch (30 pts): Confirmed pierce (`last_low ≤ lower_bb` / `last_high ≥ upper_bb`)
+- RSI Extreme (30 pts): ≤ 35 (long) or ≥ 65 (short)
 
-**Entry Requirements:** Score ≥ 65 + EMA direction + BB pierce + RSI extreme
+**Entry Requirements:** Score ≥ 50.0 + EMA direction + BB touch + RSI extreme + 3-bar gate pass
 
-**Risk Parameters:** ATR-based stops, position sizing from pivot distance
+**The 3-Bar Momentum Gate (Inverted):**
+- Requires ≥ 2 of last 3 bars to be against-trend (proves pullback depth)
+- Only blocks if all 3 against AND current bar shows no reversal sign
+- Catches rubber bands, not falling knives
 
-**Recent Fixes:** ✅ Complete rewrite (was allowing trades without BB/RSI conditions), ✅ Added HTF validation, ✅ Fixed timezone filtering
+**Threshold Hardening (Spring 2026):**
+| Parameter | Value |
+|-----------|-------|
+| `bb_std` | 2.0 (was 1.5) |
+| `rsi_overbought` | 65 (was 60) |
+| `rsi_oversold` | 35 (was 40) |
+| `volatility_guard` | 0.7× ATR (was 0.5×) |
+
+**Risk Parameters:** ATR-based stops (`max(ATR×1.5, price×0.0008)`), position sizing from pivot distance
+
+**Dual-Timeframe Bollinger Invalidation:**
+- 5m RSI pinned for 2 bars → exit
+- 1m RSI pinned fallback → early exit before SL hits
+- Aligned with entry timeframe to prevent SL bleed-through
+
+**Recent Fixes:** ✅ Complete rewrite, ✅ Inverted 3-bar gate, ✅ Threshold hardening (bb_std 2.0, RSI 65/35), ✅ Volatility guard 0.7×, ✅ Score/entry alignment, ✅ Counter-tags whitelist, ✅ Dual-timeframe Bollinger Invalidation
 
 ⚠️ **NOTE:** Session timing handled by Global Scheduler, not strategy.
 
@@ -543,6 +561,6 @@ Same as ICC Core but operates independently (not in Meta-SCI tournament).
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"The student sees a mountain. The master sees a pebble. Turn the page."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Quantitative Strategies</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"What he said. <b>Quantitative Strategies</b> is next. Don't get cut."</td></tr></table>

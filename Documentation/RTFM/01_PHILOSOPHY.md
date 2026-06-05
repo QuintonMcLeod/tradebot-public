@@ -144,6 +144,6 @@ Trade By SCI is about structure-first patience, not constant action. This bot is
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/grandma.png" width="150"></td><td><b>GRANDMA</b>:<br>"You've been reading for a while, baby. Let me make you a sandwich. Then we keep going."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Why Tradebot Sci</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"No time for sandwiches, Grandma. <b>Why Tradebot Sci</b> is hot and fresh. Eat later."</td></tr></table>

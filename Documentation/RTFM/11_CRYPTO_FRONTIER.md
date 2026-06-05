@@ -108,6 +108,6 @@ The bot's defense:
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/skeptic.png" width="150"></td><td><b>KAREN</b>:<br>"I've read 5,000 words and I've only found one grammatical error. That's suspiciously good. What's next?"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Live Spread</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"I had an editor. Next: <b>Live Spread</b>. Find more errors. I dare you."</td></tr></table>

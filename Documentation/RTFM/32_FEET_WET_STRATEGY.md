@@ -703,6 +703,6 @@ risk_per_trade_pct: 0.01  # 1% risk only
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/skeptic.png" width="150"></td><td><b>KAREN</b>:<br>"Final audit approaching. I hope the last sections are as tight as the first. My red pen is ready."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Seasoned Trader</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Red pen at the ready. <b>Seasoned Trader</b> — let's see if it bleeds."</td></tr></table>

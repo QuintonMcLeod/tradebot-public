@@ -38,6 +38,6 @@ featured: true
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"The path is long, but each step reveals the mountain's true shape."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Bare Hands</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/ghost.png" width="150"></td><td><b>GHOST</b>:<br><em>"Poetic. Inefficient. But accurate. Next data cluster: <b>Bare Hands</b>."</em></td></tr></table>

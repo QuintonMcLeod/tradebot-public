@@ -126,6 +126,6 @@ featured: true
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"I liked that chapter."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Accounting Physics</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"...So did I. I hate that we agree. Next: <b>Accounting Physics</b>. Let's fight about that one."</td></tr></table>

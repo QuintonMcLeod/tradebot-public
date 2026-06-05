@@ -150,6 +150,6 @@ Lesson Value:      Priceless
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/chad.png" width="150"></td><td><b>CHAD</b>:<br>"That section was elite. Pure alpha. Karen, even you have to admit that was good."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Allergic To Money</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/skeptic.png" width="150"></td><td><b>KAREN</b>:<br>"It was... adequate. Next section, please. <b>Allergic To Money</b>. I'll be watching."</td></tr></table>

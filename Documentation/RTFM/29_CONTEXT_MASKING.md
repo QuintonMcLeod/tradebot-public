@@ -76,6 +76,6 @@ description: '"Wait... so if I tell the bot to risk 1% globally, how the hell do
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/bull.png" width="150"></td><td><b>BULL</b>:<br>"I'M BULLISH ON THIS DOCUMENTATION! TO THE MOON!"</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Strategy Encyclopedia</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/bear.png" width="150"></td><td><b>BEAR</b>:<br>"It's going to crash. Everything crashes. But fine, I'll read <b>Strategy Encyclopedia</b>. Just in case."</td></tr></table>

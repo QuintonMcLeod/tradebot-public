@@ -131,6 +131,6 @@ Then backtesting `BTC/USD` → Uses `rubberband_reaper`. Backtesting `EUR/USD` �
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/ninja.png" width="150"></td><td><b>NINJA</b>:<br><em>"You read too slowly. The candle is burning. Turn the page."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Time Warp</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Ninja says hurry up. <b>Time Warp</b> is waiting. The market doesn't pause for slow readers."</td></tr></table>

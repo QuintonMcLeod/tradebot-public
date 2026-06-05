@@ -215,6 +215,6 @@ The Minovsky Engine uses **indicator warmup** to ensure no trade is ever taken w
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"That seemed too simple. What's the catch? There's always a catch."</td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Context Masking</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"The catch is in <b>Context Masking</b>. That's where it gets complicated. Enjoy the simplicity while it lasts."</td></tr></table>

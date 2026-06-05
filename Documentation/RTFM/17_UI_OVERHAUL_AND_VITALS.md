@@ -49,6 +49,6 @@ description: Listen to me, you grown adults who refuse to read. We just spent th
 
 ## 📖 Continue Reading
 
-<table><tr><td width="170"><img src="img/rookie.png" width="150"></td><td><b>ROOKIE</b>:<br>"Wow, okay I think I get it now. What's next?"</td></tr></table>
+<table><tr><td width="170"><img src="img/monk.png" width="150"></td><td><b>MONK</b>:<br><em>"Do not cling to what you have learned. Let it pass through you like wind through bamboo. The next lesson awaits."</em></td></tr></table>
 
-<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Turn the page. We are going to talk about <b>Reading The Scoreboard</b>. Try to keep up."</td></tr></table>
+<table><tr><td width="170"><img src="img/creator.png" width="150"></td><td><b>CREATOR</b>:<br>"Wind through bamboo. Next: <b>Reading The Scoreboard</b>. Try not to snap."</td></tr></table>
