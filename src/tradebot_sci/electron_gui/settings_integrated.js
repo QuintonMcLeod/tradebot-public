@@ -3563,7 +3563,8 @@ function renderExitLogicTab(container) {
         { id: 'rsi_exhaustion', label: 'RSI Momentum Exhaustion', desc: 'Exits if RSI stays overbought/oversold then diverges.', tooltip: 'Detects when the market has run completely out of breath. It cashes you out before the inevitable reversal hits.' },
         { id: 'bollinger_snap', label: 'Bollinger Band Snap-Back', desc: 'Exits when price violently snaps the outer bands.', tooltip: 'If the price spikes so hard it breaks the normal boundaries of reality, this exits instantly to capture that freak spike before it violently snaps back.' },
         { id: 'ratchet_milestone', label: 'The Ratchet', desc: 'Locks in 25% profit at escalating rigid milestones.', tooltip: 'Every time the trade hits a new major profit milestone, it permanently secures a chunk of cash. A true ratchet only goes one way: up.' },
-        { id: 'adx_death', label: 'ADX Trend Death', desc: 'Exits immediately if trend strength (ADX) collapses.', tooltip: 'Monitors the absolute strength of the trend. The second the market loses its conviction and goes limp, this ejects you.' }
+        { id: 'adx_death', label: 'ADX Trend Death', desc: 'Exits immediately if trend strength (ADX) collapses.', tooltip: 'Monitors the absolute strength of the trend. The second the market loses its conviction and goes limp, this ejects you.' },
+        { id: 'bollinger_invalidation', label: 'Bollinger Invalidation Guard', desc: 'Kills mean-reversion trades if RSI stays pinned.', tooltip: 'If a bounce setup fails and the RSI continuously pins lower without hooking back up, this guard automatically kills the trade before it hits your full stop-loss. An essential safety net for mean-reversion strategies.' }
     ];
 
     if (!configData.profiles) configData.profiles = {};

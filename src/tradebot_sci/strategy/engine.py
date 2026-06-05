@@ -1325,8 +1325,9 @@ class StrategyEngine:
             
             # Explicitly whitelist known counter-trend / mean-reverting algorithms
             counter_tags = (
-                "mean_reversion", "londonsweep", "london_sweep", "goldenpocket", "golden_pocket", 
-                "newyorkdrive", "new_york_drive", "counter", "reversal", "rubberband", "choppiness", "supply_demand", "yoyo"
+                "mean_reversion", "londonsweep", "london_sweep", "goldenpocket", "golden_pocket",
+                "newyorkdrive", "new_york_drive", "counter", "reversal", "rubberband", "choppiness", "supply_demand", "yoyo",
+                "forexhybridscalper", "forex_hybrid_scalper", "hybrid_scalper", "hybridreaper"
             )
             is_counter_trend_strat = any(tag.lower() in (decision.strategy_name or "").lower() for tag in counter_tags)
             

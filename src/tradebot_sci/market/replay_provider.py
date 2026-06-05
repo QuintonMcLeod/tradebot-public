@@ -83,17 +83,25 @@ class ReplayMarketProvider:
         # Previously used only a reference symbol, but if some symbols have
         # extra data from live trading, the replay could pick a day where
         # most symbols have 0 candles (only 2/6 symbols showing in panel).
+        # Cache loaded candles to avoid parsing 30k JSON strings repeatedly
+        loaded_5m: Dict[str, List[Candle]] = {}
+        loaded_5m_by_day: Dict[str, Dict[str, List[Candle]]] = {}
         per_symbol_days: Dict[str, set] = {}
         for sym, path in available.items():
             sym_candles = self._load_json_candles(path)
+            loaded_5m[sym] = sym_candles
             day_set = set()
+            by_day = {}
             for c in sym_candles:
                 # Mon-Thu only (weekday 0-3). Fridays excluded because
                 # the Conductor's Friday 5PM close fires immediately.
                 if c.timestamp.weekday() < 4:
                     day_key = c.timestamp.strftime("%Y-%m-%d")
                     day_set.add(day_key)
+                # Keep track of by-day lists for fast lookup
+                by_day.setdefault(c.timestamp.strftime("%Y-%m-%d"), []).append(c)
             per_symbol_days[sym] = day_set
+            loaded_5m_by_day[sym] = by_day
 
         # Use a majority threshold instead of strict ALL-symbol intersection.
         # One symbol with limited data (e.g., WTICOUSD with 5 days) should not
@@ -119,16 +127,16 @@ class ReplayMarketProvider:
 
         # Filter: need at least 100 candles on the day for reference symbol
         ref_sym = next(iter(available))
-        ref_candles = self._load_json_candles(available[ref_sym])
+        ref_candles = loaded_5m[ref_sym]
         if not ref_candles:
             logger.error("[REPLAY] Reference symbol %s has no candles", ref_sym)
             return
 
         day_groups: Dict[str, List[Candle]] = {}
-        for c in ref_candles:
-            day_key = c.timestamp.strftime("%Y-%m-%d")
-            if day_key in common_days:
-                day_groups.setdefault(day_key, []).append(c)
+        ref_by_day = loaded_5m_by_day[ref_sym]
+        for d in common_days:
+            if d in ref_by_day:
+                day_groups[d] = ref_by_day[d]
 
         valid_days = [d for d, clist in day_groups.items() if len(clist) >= 100]
         if not valid_days:
@@ -137,10 +145,9 @@ class ReplayMarketProvider:
                           "Falling back to reference symbol %s days.",
                           len(available), ref_sym)
             day_groups = {}
-            for c in ref_candles:
-                day_key = c.timestamp.strftime("%Y-%m-%d")
-                if c.timestamp.weekday() < 4:
-                    day_groups.setdefault(day_key, []).append(c)
+            for day_key, clist in ref_by_day.items():
+                if clist and clist[0].timestamp.weekday() < 4:
+                    day_groups[day_key] = clist
             valid_days = [d for d, clist in day_groups.items() if len(clist) >= 100]
 
         if not valid_days:
@@ -161,10 +168,8 @@ class ReplayMarketProvider:
             for d in valid_days:
                 day_trend_score = 0.0
                 sym_scored = 0
-                for sym, path in available.items():
-                    sym_candles = self._load_json_candles(path)
-                    day_c = [c for c in sym_candles
-                             if c.timestamp.strftime("%Y-%m-%d") == d]
+                for sym in available.keys():
+                    day_c = loaded_5m_by_day[sym].get(d, [])
                     if len(day_c) < 20:
                         continue
                     h = max(float(c.high) for c in day_c)
@@ -206,7 +211,10 @@ class ReplayMarketProvider:
                 path = self.data_dir / f"{sym}_{tf}.json"
                 if not path.exists():
                     continue
-                all_candles = self._load_json_candles(path)
+                if tf == "5m" and sym in loaded_5m:
+                    all_candles = loaded_5m[sym]
+                else:
+                    all_candles = self._load_json_candles(path)
                 # Keep everything up to and including the replay day
                 self._candles[sym][tf] = [
                     c for c in all_candles if c.timestamp < day_end

@@ -64,7 +64,7 @@ def run_universal_exit_logic(
     #
     # This mirrors the backtester fix where the Universal Exit Router runs
     # at the per-bar level BEFORE the hardcoded stop check.
-    _EMERGENCY_STRATEGIES = {"trend_invalidation", "structure_failure", "micro_canary"}
+    _EMERGENCY_STRATEGIES = {"trend_invalidation", "structure_failure", "micro_canary", "bollinger_invalidation"}
     for exit_strategy in active_strategies:
         exit_strategy_key = str(exit_strategy).lower()
         if exit_strategy_key not in _EMERGENCY_STRATEGIES:
@@ -76,6 +76,8 @@ def run_universal_exit_logic(
             strat_decision = _exit_structure_failure(snapshot, open_position, current_price, direction)
         elif exit_strategy_key == "micro_canary":
             strat_decision = _exit_micro_canary(snapshot, open_position, current_price, direction, profile, r_multiple)
+        elif exit_strategy_key == "bollinger_invalidation":
+            strat_decision = _exit_bollinger_invalidation(snapshot, open_position, current_price, direction, profile)
         if strat_decision and getattr(strat_decision, "action", None) == "close_position":
             return strat_decision
 
@@ -133,8 +135,6 @@ def run_universal_exit_logic(
             strat_decision = _exit_adx_death(snapshot, open_position, current_price, direction, gates)
         elif exit_strategy == "winner_giveback":
             strat_decision = _exit_winner_giveback(snapshot, open_position, current_price, direction, profile)
-        elif exit_strategy == "bollinger_invalidation":
-            strat_decision = _exit_bollinger_invalidation(snapshot, open_position, current_price, direction, profile)
         else:
             # Default: fixed_rr
             strat_decision = _exit_fixed_rr(snapshot, open_position, current_price, direction, target_price)
@@ -169,6 +169,35 @@ def run_universal_exit_logic(
                     decision = strat_decision
 
     return decision
+
+def _parse_entry_time(entry_ts_str: str):
+    from datetime import datetime, timezone
+    entry_ts_str = str(entry_ts_str)
+    # Handle standard ISO strings
+    if "Z" in entry_ts_str:
+        entry_ts_str = entry_ts_str.replace("Z", "+00:00")
+    if "." in entry_ts_str:
+        # Truncate nanoseconds to microseconds (max 6 digits) for fromisoformat
+        base, rest = entry_ts_str.split(".", 1)
+        if "+" in rest:
+            micro, tz = rest.split("+", 1)
+            entry_ts_str = f"{base}.{micro[:6]}+{tz}"
+        elif "-" in rest:
+            micro, tz = rest.split("-", 1)
+            entry_ts_str = f"{base}.{micro[:6]}-{tz}"
+        else:
+            entry_ts_str = f"{base}.{rest[:6]}"
+    
+    # Check if it's purely numeric (epoch timestamp)
+    try:
+        ts_float = float(entry_ts_str)
+        entry_dt = datetime.fromtimestamp(ts_float, tz=timezone.utc)
+    except ValueError:
+        entry_dt = datetime.fromisoformat(entry_ts_str)
+        
+    if entry_dt.tzinfo is None:
+        entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+    return entry_dt
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ── The 11 Exit Strategies ───────────────────────────────────────────────────
@@ -573,10 +602,7 @@ def _exit_structure_failure(snapshot, pos, current_price, direction):
         
     try:
         from datetime import timezone
-        import dateutil.parser
-        entry_dt = dateutil.parser.parse(str(entry_ts_str))
-        if entry_dt.tzinfo is None:
-            entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+        entry_dt = _parse_entry_time(entry_ts_str)
             
         trade_candles = []
         for c in snapshot.candles:
@@ -846,11 +872,8 @@ def _calc_bars_held(pos: dict, snapshot) -> int:
         entry_ts_str = pos.get("entry_time")
         if entry_ts_str and snapshot.candles:
             try:
-                from datetime import datetime, timezone
-                import dateutil.parser
-                entry_dt = dateutil.parser.parse(str(entry_ts_str))
-                if entry_dt.tzinfo is None:
-                    entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                from datetime import timezone
+                entry_dt = _parse_entry_time(entry_ts_str)
                 now_dt = snapshot.candles[-1].timestamp
                 if now_dt.tzinfo is None:
                     now_dt = now_dt.replace(tzinfo=timezone.utc)
@@ -859,9 +882,12 @@ def _calc_bars_held(pos: dict, snapshot) -> int:
                     bar_seconds = abs((snapshot.candles[-1].timestamp - snapshot.candles[-2].timestamp).total_seconds())
                     if bar_seconds > 0:
                         bars_held = int(elapsed_seconds / bar_seconds)
-            except Exception:
+            except Exception as e:
+                import logging
+                logger = logging.getLogger("tradebot_sci.exit_logic")
+                logger.error(f"[_calc_bars_held] Exception for {pos.get('symbol')}: {e}")
                 pass
-    return bars_held
+    return max(0, bars_held)
 
 
 def _exit_micro_canary(snapshot: MarketSnapshot, open_position: dict, current_price: float, direction: str, profile: Any, r_multiple: float) -> Optional[AITradeDecision]:
@@ -908,6 +934,7 @@ def _exit_bollinger_invalidation(snapshot, pos, current_price, direction, profil
     from tradebot_sci.market.indicators import calculate_rsi
     
     strategy_name = pos.get("strategy", "")
+    
     # Only applies to mean-reversion bollinger strategies
     target_strategies = {"forex_hybrid_scalper", "forexhybridscalper", "rubberband_reaper"}
     if not any(s in strategy_name.lower() for s in target_strategies):
@@ -915,45 +942,53 @@ def _exit_bollinger_invalidation(snapshot, pos, current_price, direction, profil
         
     bars_held = _calc_bars_held(pos, snapshot)
     
-    pin_bars = int(getattr(profile, "bollinger_invalidation_bars", 3))
+    pin_bars = int(getattr(profile, "bollinger_invalidation_bars", 2))
     if bars_held < pin_bars:
         return None
         
-    closes = [c.close for c in snapshot.candles]
-    if len(closes) < 20: 
+    # ── 5m-based invalidation (primary) ──
+    closes_5m = [c.close for c in snapshot.candles]
+    if len(closes_5m) < 20: 
         return None
         
     rsi_period = int(getattr(profile, "rsi_period", 7))
-    rsi_overbought = float(getattr(profile, "rsi_overbought", 60))
-    rsi_oversold = float(getattr(profile, "rsi_oversold", 40))
+    rsi_overbought = float(getattr(profile, "rsi_overbought", 65))
+    rsi_oversold = float(getattr(profile, "rsi_oversold", 35))
     
-    # Calculate RSI for the last `pin_bars` candles
-    rsis = []
-    for i in range(pin_bars):
-        slice_closes = closes if i == 0 else closes[:-i]
-        rsi_val = calculate_rsi(slice_closes, rsi_period)
-        if rsi_val is None:
+    def _check_pinned_rsi(closes, pin_bars, direction, rsi_period, rsi_overbought, rsi_oversold, label):
+        if len(closes) < pin_bars + rsi_period + 1:
             return None
-        rsis.append(rsi_val)
-        
-    # rsis is ordered: [current_rsi, prev_rsi, prev_prev_rsi]
-    # We want chronological: [prev_prev_rsi, prev_rsi, current_rsi]
-    rsis.reverse()
+        rsis = []
+        for i in range(pin_bars):
+            slice_closes = closes if i == 0 else closes[:-i]
+            rsi_val = calculate_rsi(slice_closes, rsi_period)
+            if rsi_val is None:
+                return None
+            rsis.append(rsi_val)
+        rsis.reverse()  # chronological order
+        if direction == "long":
+            all_oversold = all(r <= rsi_oversold for r in rsis)
+            if all_oversold and rsis[-1] <= (rsis[0] + 5.0):
+                logger.info(f"[BOLLINGER-INVAL] {snapshot.symbol} {label} LONG Pinned RSI detected. RSIs: {['%.1f' % r for r in rsis]}")
+                return _hard_exit(snapshot, pos, f"Bollinger Invalidation: Pinned Oversold RSI ({label})", is_emergency=True)
+        else:
+            all_overbought = all(r >= rsi_overbought for r in rsis)
+            if all_overbought and rsis[-1] >= (rsis[0] - 5.0):
+                logger.info(f"[BOLLINGER-INVAL] {snapshot.symbol} {label} SHORT Pinned RSI detected. RSIs: {['%.1f' % r for r in rsis]}")
+                return _hard_exit(snapshot, pos, f"Bollinger Invalidation: Pinned Overbought RSI ({label})", is_emergency=True)
+        return None
     
-    import logging
-    logger = logging.getLogger("tradebot_sci.exit_logic")
+    # Try 5m first
+    decision = _check_pinned_rsi(closes_5m, pin_bars, direction, rsi_period, rsi_overbought, rsi_oversold, "5m")
+    if decision:
+        return decision
     
-    if direction == "long":
-        all_oversold = all(r <= rsi_oversold for r in rsis)
-        if all_oversold:
-            if rsis[-1] <= rsis[0]:
-                logger.info(f"[BOLLINGER-INVAL] {snapshot.symbol} LONG Pinned RSI detected. RSIs: {['%.1f' % r for r in rsis]}")
-                return _hard_exit(snapshot, pos, "Bollinger Invalidation: Pinned Oversold RSI (Failed Bounce)")
-    else:
-        all_overbought = all(r >= rsi_overbought for r in rsis)
-        if all_overbought:
-            if rsis[-1] >= rsis[0]:
-                logger.info(f"[BOLLINGER-INVAL] {snapshot.symbol} SHORT Pinned RSI detected. RSIs: {['%.1f' % r for r in rsis]}")
-                return _hard_exit(snapshot, pos, "Bollinger Invalidation: Pinned Overbought RSI (Failed Bounce)")
+    # ── 1m-based fast invalidation (same timeframe as strategy entry) ──
+    micro_candles = getattr(snapshot, "micro_candles", []) or getattr(snapshot, "exec_candles", [])
+    if micro_candles and len(micro_candles) >= pin_bars + rsi_period + 1:
+        closes_1m = [c.close for c in micro_candles]
+        decision = _check_pinned_rsi(closes_1m, pin_bars, direction, rsi_period, rsi_overbought, rsi_oversold, "1m")
+        if decision:
+            return decision
                 
     return None

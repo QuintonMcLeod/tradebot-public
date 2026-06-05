@@ -581,7 +581,9 @@ def process_candidate_cycle(
                     if hasattr(executor, 'position_hold_store') and executor.position_hold_store:
                         for _sym in executor.position_hold_store.records.keys():
                             if _sym not in open_positions:
-                                open_positions.append(_sym)
+                                _rec = executor.position_hold_store.get(_sym)
+                                if _rec is not None and _rec.size is not None and abs(_rec.size) > 1e-8:
+                                    open_positions.append(_sym)
                                 
                     open_positions.extend(cycle_executed_entries)
                     

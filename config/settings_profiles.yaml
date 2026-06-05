@@ -140,6 +140,9 @@ profiles:
     xtf_timeframe: 1m 
     risk_dynamic_auto: false 
     continuous_mode: true 
+    bollinger_invalidation_bars: 2 
+    rsi_overbought: 65 
+    rsi_oversold: 35 
   forex_crypto_hybrid: 
     symbols: 
     - EURUSD 
