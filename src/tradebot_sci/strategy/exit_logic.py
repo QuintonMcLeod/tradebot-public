@@ -17,7 +17,9 @@ def run_universal_exit_logic(
     """
     Centralized Universal Exit Router.
     Strips exit responsibilities away from individual strategies and enforces
-    one of 11 user-selected granular mathematically proven exit methodologies.
+    one of 16 user-selected granular mathematically proven exit methodologies.
+    I corrected the count from 11 — Gemini under-counted because it never
+    finished labeling all the functions it created.
     """
     if not snapshot.candles or not open_position:
         return None
@@ -118,7 +120,8 @@ def run_universal_exit_logic(
         elif exit_strategy == "scale_breakeven":
             strat_decision = _exit_scale_breakeven(snapshot, open_position, current_price, direction, r_multiple, stop_price, entry_price, profile)
         elif exit_strategy == "parabolic_sar":
-            strat_decision = _exit_parabolic_sar(snapshot, open_position, current_price, direction)
+            # Key kept for backward compat with saved profiles. See _exit_3bar_swing.
+            strat_decision = _exit_3bar_swing(snapshot, open_position, current_price, direction)
         elif exit_strategy == "ma_crossover":
             strat_decision = _exit_ma_crossover(snapshot, open_position, current_price, direction)
         elif exit_strategy == "time_decay":
@@ -216,7 +219,7 @@ def _hard_exit(snapshot, pos, reason, is_emergency=False):
     return dec
 
 def _exit_fixed_rr(snapshot, pos, current_price, direction, target_price):
-    """5. Fixed Risk-Reward (The Sniper) - Touch the target line or die trying."""
+    """1. Fixed Risk-Reward (The Sniper) - Touch the target line or die trying."""
     if target_price <= 0:
         return None
     if direction == "long" and current_price >= target_price:
@@ -226,7 +229,7 @@ def _exit_fixed_rr(snapshot, pos, current_price, direction, target_price):
     return None
 
 def _exit_chandelier(snapshot, pos, current_price, direction, profile, gates=None):
-    """1. Chandelier Trailing - Highest high / Lowest low minus X ATR."""
+    """2. Chandelier Trailing - Highest high / Lowest low minus X ATR."""
     if gates is None: gates = {}
     atr_mult = float(getattr(profile, "chandelier_atr_mult", 2.0))
     atr = calculate_atr(snapshot.candles, period=14) or (current_price * 0.001)
@@ -311,7 +314,7 @@ def _exit_chandelier(snapshot, pos, current_price, direction, profile, gates=Non
     return None
 
 def _exit_scale_breakeven(snapshot, pos, current_price, direction, r_multiple, current_stop, entry_price, profile=None):
-    """2. Scale & Breakeven - Move to BE at dynamic arm_r (default 0.35R) with spread buffer."""
+    """3. Scale & Breakeven - Move to BE at dynamic arm_r (default 0.35R) with spread buffer."""
     arm_r = float(getattr(profile, "scale_breakeven_arm_r", 0.35)) if profile else 0.35
     if r_multiple >= arm_r:
         # [PHASE 1.2] Apply cost-basis buffer (spread + commissions)
@@ -328,19 +331,29 @@ def _exit_scale_breakeven(snapshot, pos, current_price, direction, r_multiple, c
                 return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Breakeven Lock (1R+ Hit) +Buffer", stop_loss=be_price)
     return None
 
-def _exit_parabolic_sar(snapshot, pos, current_price, direction):
-    """3. Parabolic SAR Exit - Bails on momentum break. (Simplified via 3-bar swing break)"""
+def _exit_3bar_swing(snapshot, pos, current_price, direction):
+    """4. Three-Bar Swing Break — Exits when the last 3 bars all close against position direction.
+    
+    NOTE: This was originally labeled 'Parabolic SAR Exit' but it does NOT use
+    the Parabolic SAR indicator at all. It uses a simple 3-bar momentum break.
+    I kept the old strategy key 'parabolic_sar' for backward compatibility with
+    saved profiles, but the name now reflects what it actually does.
+    """
     if len(snapshot.candles) < 4: return None
     c1, c2, c3 = snapshot.candles[-1], snapshot.candles[-2], snapshot.candles[-3]
     
     if direction == "long" and c1.close < c2.low and c2.low < c3.low:
-        return _hard_exit(snapshot, pos, "Parabolic Momentum Break (Long Exhaustion)")
+        return _hard_exit(snapshot, pos, "3-Bar Swing Break (Long Exhaustion)")
     if direction == "short" and c1.close > c2.high and c2.high > c3.high:
-        return _hard_exit(snapshot, pos, "Parabolic Momentum Break (Short Exhaustion)")
+        return _hard_exit(snapshot, pos, "3-Bar Swing Break (Short Exhaustion)")
     return None
 
+
+# Backward compatibility alias — old profiles still reference 'parabolic_sar'
+_exit_parabolic_sar = _exit_3bar_swing
+
 def _exit_ma_crossover(snapshot, pos, current_price, direction):
-    """4. Moving Average Crossover - 9 EMA crosses 21 EMA."""
+    """5. Moving Average Crossover - 9 EMA crosses 21 EMA."""
     if len(snapshot.candles) < 22: return None
     closes = [c.close for c in snapshot.candles[-30:]]
     
@@ -500,7 +513,7 @@ def _exit_ratchet(snapshot, pos, current_price, direction, r_multiple, current_s
     return None
 
 def _exit_adx_death(snapshot, pos, current_price, direction, gates):
-    """11. ADX Death - Immediate abortion if trend strength drops < 20"""
+    """10. ADX Death - Immediate abortion if trend strength drops < 20"""
     ltf_adx = gates.get("ltf_adx", 0)
     # Require at least 4 bars held to let ADX stabilize from the initial breakout
     if ltf_adx > 0 and ltf_adx < 20:
@@ -509,7 +522,7 @@ def _exit_adx_death(snapshot, pos, current_price, direction, gates):
     return None
 
 def _exit_winner_giveback(snapshot, pos, current_price, direction, profile):
-    """14. Winner Giveback Protection (MFE Trailing) —
+    """11. Winner Giveback Protection (MFE Trailing) —
     Proactively protects profit after reaching a high-water mark.
 
     Logic: If MFE > arm_r dollars, exit if current PnL drops below a
@@ -891,8 +904,7 @@ def _calc_bars_held(pos: dict, snapshot) -> int:
 
 
 def _exit_micro_canary(snapshot: MarketSnapshot, open_position: dict, current_price: float, direction: str, profile: Any, r_multiple: float) -> Optional[AITradeDecision]:
-    """
-    Micro-Canary Early Warning Exit
+    """15. Micro-Canary Early Warning Exit
     Uses extra-low timeframe (1m) candles to detect microscopic structural collapse 
     before the 5m candle closes. Allows greedy exits to front-run massive reversals.
     """
@@ -928,7 +940,7 @@ def _exit_micro_canary(snapshot: MarketSnapshot, open_position: dict, current_pr
     return None
 
 def _exit_bollinger_invalidation(snapshot, pos, current_price, direction, profile):
-    """15. Bollinger Invalidation (The Pinned RSI) — 
+    """16. Bollinger Invalidation (The Pinned RSI) — 
     Kills mean-reversion trades if the RSI stays pinned without hooking up.
     """
     from tradebot_sci.market.indicators import calculate_rsi

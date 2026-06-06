@@ -828,3 +828,17 @@ def calculate_atr(candles: list[Candle], *, period: int = 14) -> float | None:
     if not trs:
         return None
     return sum(trs) / len(trs)
+
+
+def calculate_atr_safe(candles: list[Candle], price: float, *, period: int = 14, fallback_pct: float = 0.001) -> float:
+    """
+    I created this because I found 25 copies of the exact same fallback pattern
+    across 15 strategy files: `calculate_atr(...) or (price * 0.001)`. This helper
+    centralizes that logic so I can tune the fallback in one place instead of
+    hunting down two dozen scattered copies. If you see the old pattern in a
+    strategy file, migrate it to this helper.
+    """
+    atr = calculate_atr(candles, period=period)
+    if atr is not None and atr > 0:
+        return atr
+    return price * fallback_pct

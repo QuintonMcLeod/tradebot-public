@@ -356,8 +356,11 @@ class PaperBroker:
         effective_max_notional = min(max_symbol_notional, sizing_capital * effective_leverage, self.balance * effective_leverage)
         
         # Calculate maximum additional notional allowed
+        # I convert price to USD-equivalent so cross-pairs (EURJPY, EURCAD, GBPCHF)
+        # don't get silently oversized because their quote currency is not USD.
+        usd_price = convert_quote_to_usd(price, symbol, price, self.market_provider)
         remaining_notional = max(0.0, effective_max_notional - existing_notional)
-        max_add_qty = remaining_notional / price if price > 0 else 0.0
+        max_add_qty = remaining_notional / usd_price if usd_price > 0 else 0.0
 
         if qty > max_add_qty:
             if max_add_qty <= 0:
@@ -379,7 +382,7 @@ class PaperBroker:
             
             logger.warning(
                 f"[PAPER] [TIERED SIZING CAP] {symbol}: qty {qty:.4f} -> {max_add_qty:.4f} "
-                f"(notional ${qty * price:,.0f} + existing ${existing_notional:,.0f} exceeds {tier_name} cap ${max_symbol_notional:,.0f} at {effective_leverage}x leverage)",
+                f"(notional ${qty * usd_price:,.0f} + existing ${existing_notional:,.0f} exceeds {tier_name} cap ${max_symbol_notional:,.0f} at {effective_leverage}x leverage)",
                 extra={"broker": "paper", "symbol": symbol, "event": "tiered_sizing_cap", "original_qty": qty, "capped_qty": max_add_qty, "tier": tier_name}
             )
             qty = max_add_qty
@@ -486,9 +489,12 @@ class PaperBroker:
             if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
                 risk_per_unit = abs(price - decision.stop_loss)
                 
-                # JPY Adjustment (convert quote currency distance to USD)
+                # Quote-currency adjustment (convert stop distance to USD)
+                # I expanded this from JPY-only to include CAD and CHF cross-pairs.
+                # Previously, EURCAD/GBPCHF stops were treated as USD-denominated,
+                # causing silently oversized positions.
                 sym_clean = symbol.upper().replace("_", "")
-                if (sym_clean.startswith("USD") or "JPY" in sym_clean) and price > 0:
+                if (sym_clean.startswith("USD") or any(q in sym_clean for q in ("JPY", "CAD", "CHF"))) and price > 0:
                     risk_per_unit = risk_per_unit / price
                     
 
@@ -521,7 +527,7 @@ class PaperBroker:
             if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
                 _rpu = abs(price - decision.stop_loss)
                 sym_clean = symbol.upper().replace("_", "")
-                if (sym_clean.startswith("USD") or "JPY" in sym_clean) and price > 0:
+                if (sym_clean.startswith("USD") or any(q in sym_clean for q in ("JPY", "CAD", "CHF"))) and price > 0:
                     _rpu = _rpu / price
                     
 
@@ -941,7 +947,11 @@ class PaperBroker:
                     qty = risk_usd / price if price > 0 else 0
                 
                 # [PHASE 2.2] Apply High-Net-Worth / Large Balance Tiered Restrictions
-                existing_notional = pos["qty"] * price
+                # I convert existing position notional to USD — previously this was
+                # raw quote-currency notional, causing leverage caps to be wrong on
+                # EURJPY/EURCAD/GBPCHF etc.
+                _usd_price = convert_quote_to_usd(price, symbol, price, self.market_provider)
+                existing_notional = pos["qty"] * _usd_price
                 sizing_capital = self.get_total_equity()
                 qty, tier_slip_bps, is_blocked, block_reason = self._apply_high_net_worth_restrictions(
                     symbol, action, price, sizing_capital, qty, decision, existing_notional=existing_notional

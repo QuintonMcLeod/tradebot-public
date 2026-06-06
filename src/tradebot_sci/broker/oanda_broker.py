@@ -44,6 +44,9 @@ class OandaExchangeBroker(IExchangeBroker):
     # Pip value multiplier: 0.0001 for most pairs, 0.01 for JPY pairs
     PIP_VALUE_STANDARD = 0.0001
     PIP_VALUE_JPY = 0.01
+    
+    # Safety flag — lets cycle.py guard against live/paper broker mismatch
+    is_paper: bool = False
 
     def __init__(
         self,
@@ -307,8 +310,8 @@ class OandaExchangeBroker(IExchangeBroker):
 
                             pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
                             est_spread = abs(initial_units) * self.get_live_spread(sym) * pip_value * 2
-                            if "JPY" in sym.upper() and price > 0:
-                                est_spread *= 0.01  # Fixed decimal multiplier for JPY pairs
+                            # NOTE: I removed the extra *0.01 here. PIP_VALUE_JPY is already 0.01,
+                            # so multiplying again made JPY spread estimates 100x too small.
                             duration_str = self._format_duration(ct.get("openTime"))
 
                             pnl_sign = '+' if pnl >= 0 else '-'
@@ -614,8 +617,8 @@ class OandaExchangeBroker(IExchangeBroker):
                 # Estimate round-trip spread cost for transparency
                 pip_value = self.PIP_VALUE_JPY if "JPY" in symbol.upper() else self.PIP_VALUE_STANDARD
                 est_spread_cost = units * self.get_live_spread(symbol) * pip_value * 2  # x2 for entry + exit
-                if "JPY" in symbol.upper() and avg_price > 0:
-                    est_spread_cost *= 0.01  # Fixed decimal multiplier for JPY pairs
+                # NOTE: I removed the extra *0.01 here. PIP_VALUE_JPY is already 0.01,
+                # so multiplying again made JPY spread estimates 100x too small.
 
                 # Compute duration from tracked position entry time
                 prev_pos = self._tracked_positions.get(symbol, {})
@@ -1199,7 +1202,7 @@ class OandaExchangeBroker(IExchangeBroker):
                     elif is_chf_quote:
                         usd_to_quote_rate = getattr(oanda_provider, '_last_usdchf', 0.90) or 0.90
                 except Exception:
-                    usd_to_quote_rate = 150.0 if is_jpy_quote else (1.35 if is_cad_quote else 1.0)
+                    usd_to_quote_rate = 150.0 if is_jpy_quote else (1.35 if is_cad_quote else (0.90 if is_chf_quote else 1.0))
             
             risk_amount_in_quote = risk_amount * usd_to_quote_rate
             
@@ -1219,19 +1222,48 @@ class OandaExchangeBroker(IExchangeBroker):
                 if is_usd_base:
                     notional_per_unit = 1.0
                 elif is_jpy_quote:
-                    usdjpy_rate = 157.0
+                    usdjpy_rate = 150.0
                     try:
                         from tradebot_sci.market import oanda_provider
-                        usdjpy_rate = getattr(oanda_provider, '_last_usdjpy', 157.0) or 157.0
+                        usdjpy_rate = getattr(oanda_provider, '_last_usdjpy', 150.0) or 150.0
                     except Exception:
                         pass
                     notional_per_unit = price / usdjpy_rate if usdjpy_rate > 0 else price
+                elif is_cad_quote:
+                    usdcad_rate = 1.35
+                    try:
+                        from tradebot_sci.market import oanda_provider
+                        usdcad_rate = getattr(oanda_provider, '_last_usdcad', 1.35) or 1.35
+                    except Exception:
+                        pass
+                    notional_per_unit = price / usdcad_rate if usdcad_rate > 0 else price
+                elif is_chf_quote:
+                    usdchf_rate = 0.90
+                    try:
+                        from tradebot_sci.market import oanda_provider
+                        usdchf_rate = getattr(oanda_provider, '_last_usdchf', 0.90) or 0.90
+                    except Exception:
+                        pass
+                    notional_per_unit = price / usdchf_rate if usdchf_rate > 0 else price
                 else:
                     notional_per_unit = price if price > 0 else 1.0
 
                 # ── MULTI-POSITION LEVERAGE HEADROOM ──
                 # Sum notional value of all existing open positions, then subtract
                 # from the total leverage cap to avoid over-exposing the account.
+                # I ensure all cross rates are available with fallbacks so every
+                # open position gets its notional converted to USD correctly.
+                _usdjpy = 150.0
+                _usdcad = 1.35
+                _usdchf = 0.90
+                try:
+                    from tradebot_sci.market import oanda_provider
+                    _usdjpy = getattr(oanda_provider, '_last_usdjpy', 150.0) or 150.0
+                    _usdcad = getattr(oanda_provider, '_last_usdcad', 1.35) or 1.35
+                    _usdchf = getattr(oanda_provider, '_last_usdchf', 0.90) or 0.90
+                except Exception:
+                    pass
+
                 existing_notional = 0.0
                 try:
                     for sym, pos_info in self._tracked_positions.items():
@@ -1241,7 +1273,11 @@ class OandaExchangeBroker(IExchangeBroker):
                         if pos_sym.startswith("USD"):
                             existing_notional += pos_size * 1.0
                         elif pos_sym.endswith("JPY"):
-                            existing_notional += pos_size * (pos_price / usdjpy_rate) if usdjpy_rate > 0 else pos_size
+                            existing_notional += pos_size * (pos_price / _usdjpy) if _usdjpy > 0 else pos_size
+                        elif pos_sym.endswith("CAD"):
+                            existing_notional += pos_size * (pos_price / _usdcad) if _usdcad > 0 else pos_size
+                        elif pos_sym.endswith("CHF"):
+                            existing_notional += pos_size * (pos_price / _usdchf) if _usdchf > 0 else pos_size
                         else:
                             existing_notional += pos_size * pos_price
                 except Exception as e:
@@ -1593,10 +1629,8 @@ class OandaExchangeBroker(IExchangeBroker):
                     pip_value = self.PIP_VALUE_JPY if "JPY" in sym.upper() else self.PIP_VALUE_STANDARD
                     units = abs(prev.get("size", 0))
                     est_spread = units * self.get_live_spread(sym) * pip_value * 2
-                    if "JPY" in sym.upper():
-                        _ep = prev.get("avg_price", 0) or prev.get("entry_price", 0)
-                        if _ep > 0:
-                            est_spread *= 0.01  # Fixed decimal multiplier for JPY pairs
+                    # NOTE: I removed the extra *0.01 here. PIP_VALUE_JPY is already 0.01,
+                    # so multiplying again made JPY spread estimates 100x too small.
 
                     entry_time_str = prev.get("entry_time")
                     duration_str, duration_secs = self._compute_duration(entry_time_str)

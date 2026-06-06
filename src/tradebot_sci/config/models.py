@@ -15,6 +15,11 @@ class BaseModel(PydanticBaseModel):
     """
     Universal base model that automatically normalizes config percentage
     values that users mistakenly enter as whole numbers (e.g., 50 -> 0.50).
+    
+    I only normalize keys that are *unambiguously* percentages by naming
+    convention. I removed structure_score_threshold from this list because
+    it is a raw score (0-100 scale), not a percentage — silently dividing
+    it by 100 would break ICC entry logic entirely.
     """
     @model_validator(mode="before")
     @classmethod
@@ -24,27 +29,36 @@ class BaseModel(PydanticBaseModel):
             
         fractional_names = [
             "icc_auto_entry_min_htf_strength",
-            "trend_strength_floor", 
-            "structure_score_threshold", 
+            "trend_strength_floor",
             "reversal_risk_per_trade"
         ]
         
-        # Valid > 1.0 things that might end up matched
-        exclude_keys = [
-            "target_r", "guillotine_r_threshold", "tier1_r_threshold", 
-            "tier2_r_threshold", "reversal_tp_r", "conductor_pyramid_start_r", 
-            "target_risk_multiplier", "risk_reward_ratio", "stop_atr_multiplier", 
-            "chandelier_atr_mult", "icc_entry_score_threshold", "icc_high_score_override_threshold", 
-            "icc_score_continuation_points", "icc_score_sweep_points", 
-            "icc_score_htf_ltf_align_points", "icc_score_strong_htf_points", 
-            "icc_score_phase_points", "icc_score_indication_points"
-        ]
+        # Defensive exclusion list for fields that happen to match suffix
+        # patterns but are NOT percentages (e.g. score thresholds, multipliers).
+        exclude_keys = {
+            "target_r", "guillotine_r_threshold", "tier1_r_threshold",
+            "tier2_r_threshold", "reversal_tp_r", "conductor_pyramid_start_r",
+            "target_risk_multiplier", "risk_reward_ratio", "stop_atr_multiplier",
+            "chandelier_atr_mult", "icc_entry_score_threshold", "icc_high_score_override_threshold",
+            "icc_score_continuation_points", "icc_score_sweep_points",
+            "icc_score_htf_ltf_align_points", "icc_score_strong_htf_points",
+            "icc_score_phase_points", "icc_score_indication_points",
+            # Raw score thresholds — NOT percentages
+            "structure_score_threshold",
+        }
         
         for k, v in data.items():
             if isinstance(v, (int, float)) and v > 1.0:
                 if k.endswith("_pct") or k.endswith("_fraction") or k.endswith("_risk_per_trade") or k in fractional_names:
                     if k not in exclude_keys:
-                        data[k] = float(v) / 100.0
+                        normalized = float(v) / 100.0
+                        logger.warning(
+                            "[CONFIG] I normalized '%s' from %s -> %s "
+                            "(looked like a whole-number percentage). "
+                            "If this was intentional as a raw value, rename the key.",
+                            k, v, normalized
+                        )
+                        data[k] = normalized
         return data
 
 
@@ -384,11 +398,11 @@ class TradingProfileSettings(BaseModel):
     )
     trend_ichimoku_enabled: bool = Field(
         default_factory=lambda: os.getenv("TREND_ICHIMOKU_ENABLED", "false").lower() == "true",
-        description="Enable Ichimoku Cloud direction gate.",
+        description="[LEGACY] Enable Ichimoku Cloud direction gate. This indicator is fully implemented but no active strategy uses it for entry/exit decisions. It votes in trend_consensus but its signal is drowned out by 9 other indicators. Kept for backward compatibility.",
     )
     trend_parabolic_sar_enabled: bool = Field(
         default_factory=lambda: os.getenv("TREND_PARABOLIC_SAR_ENABLED", "false").lower() == "true",
-        description="Enable Parabolic SAR direction gate.",
+        description="[LEGACY] Enable Parabolic SAR direction gate. The 'Parabolic SAR Exit' in exit_logic.py is actually a 3-bar swing break — it does NOT use this indicator. No active strategy consumes SAR data directly. Kept for backward compatibility.",
     )
     trend_vwap_enabled: bool = Field(
         default_factory=lambda: os.getenv("TREND_VWAP_ENABLED", "false").lower() == "true",
@@ -396,7 +410,7 @@ class TradingProfileSettings(BaseModel):
     )
     trend_hull_ma_enabled: bool = Field(
         default_factory=lambda: os.getenv("TREND_HULL_MA_ENABLED", "false").lower() == "true",
-        description="Enable Hull Moving Average direction gate.",
+        description="[LEGACY] Enable Hull Moving Average direction gate. Fully implemented but no active strategy references Hull MA for entry or exit. It votes in trend_consensus but contributes little marginal signal. Kept for backward compatibility.",
     )
     
     # ── Trend Indicator Parameters ───────────────────────────────────

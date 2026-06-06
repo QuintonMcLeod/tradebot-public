@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import logging
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict
@@ -771,7 +772,11 @@ def load_settings() -> Settings:
     # Auto-migrate legacy config if needed
     _auto_migrate_legacy_config()
     
-    # 2. Check for new config.json (preferred)
+    # 2a. Split-brain safety guard: if the GUI wrote YAML more recently than
+    #     JSON, re-migrate so the bot doesn't run stale settings.
+    _sync_yaml_to_json_if_stale()
+    
+    # 2b. Check for new config.json (preferred)
     if CONFIG_JSON_FILE.exists():
         logger.info("[CONFIG] Loading from config.json")
         config = _load_json(CONFIG_JSON_FILE)
@@ -866,8 +871,40 @@ def reload_settings() -> Settings:
     return get_settings()
 
 
+def _sync_yaml_to_json_if_stale() -> None:
+    """
+    I added this because the GUI still writes settings_profiles.yaml directly,
+    while the bot reads config.json. This creates a split-brain where GUI
+    changes never reach the bot. If YAML is newer than JSON, I re-migrate
+    so the bot always runs the latest configuration.
+    
+    This is a transitional band-aid until the GUI is fully migrated to JSON.
+    """
+    yaml_files = [
+        LEGACY_PROFILE_SETTINGS_FILE,
+        LEGACY_BASE_SETTINGS_FILE,
+    ]
+    if not CONFIG_JSON_FILE.exists():
+        return
+    json_mtime = CONFIG_JSON_FILE.stat().st_mtime
+    for yf in yaml_files:
+        if yf.exists() and yf.stat().st_mtime > json_mtime:
+            logger.warning(
+                "[CONFIG] YAML file %s is newer than config.json (%s > %s). "
+                "Re-migrating to prevent split-brain.",
+                yf.name,
+                datetime.fromtimestamp(yf.stat().st_mtime).isoformat(),
+                datetime.fromtimestamp(json_mtime).isoformat(),
+            )
+            _auto_migrate_legacy_config()
+            break
+
+
 def save_settings_to_json(settings_dict: Dict[str, Any]) -> None:
-    """Save settings dictionary back to config.json atomically."""
+    """Save settings dictionary back to config.json atomically.
+    I also mirror to YAML so the GUI (which still reads YAML) stays in sync.
+    This is transitional until the GUI fully migrates to JSON.
+    """
     tmp_file = CONFIG_JSON_FILE.with_suffix('.json.tmp')
     try:
         with open(tmp_file, "w", encoding="utf-8") as f:
@@ -881,6 +918,30 @@ def save_settings_to_json(settings_dict: Dict[str, Any]) -> None:
         if tmp_file.exists():
             tmp_file.unlink()
         raise
+    
+    # Mirror to YAML so GUI doesn't read stale data
+    try:
+        import yaml
+        # Extract profiles and base settings from the JSON dict
+        profiles_data = settings_dict.get("profiles", {})
+        yaml_profiles = {"profiles": {}}
+        for pname, pdata in profiles_data.items():
+            if isinstance(pdata, dict):
+                yaml_profiles["profiles"][pname] = pdata
+            else:
+                yaml_profiles["profiles"][pname] = pdata if isinstance(pdata, dict) else {}
+        
+        base_settings = {k: v for k, v in settings_dict.items() if k != "profiles"}
+        
+        if LEGACY_PROFILE_SETTINGS_FILE.parent.exists():
+            with open(LEGACY_PROFILE_SETTINGS_FILE, "w", encoding="utf-8") as f:
+                yaml.dump(yaml_profiles, f, default_flow_style=False, allow_unicode=True)
+        if LEGACY_BASE_SETTINGS_FILE.parent.exists():
+            with open(LEGACY_BASE_SETTINGS_FILE, "w", encoding="utf-8") as f:
+                yaml.dump(base_settings, f, default_flow_style=False, allow_unicode=True)
+        logger.debug("[CONFIG] Mirrored settings to YAML for GUI compatibility")
+    except Exception as e:
+        logger.warning("[CONFIG] Failed to mirror settings to YAML: %s", e)
 
 
 def load_config_json() -> Dict[str, Any]:

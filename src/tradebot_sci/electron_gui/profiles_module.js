@@ -773,7 +773,7 @@ window.profilesModule = (function () {
                     // Count what changed
                     const trendEnabled = Object.entries(rec).filter(([k, v]) => k.startsWith('TREND_') && k.endsWith('_ENABLED') && v === true).map(([k]) => k.replace('TREND_', '').replace('_ENABLED', ''));
                     const perfFoundation = Object.entries(rec).filter(([k, v]) => k.startsWith('PERFORMANCE_MODE_') && !['SNIPER', 'REGIME_SYNC', 'HOUSE_MONEY', 'WHALE', 'CONTRARIAN', 'SURFER', 'HYDRA', 'COIL', 'ALPHA', 'GAMMA', 'SENTIMENT', 'GHOST', 'PHOENIX', 'RUNNER'].some(m => k.includes(m)) && v === true).map(([k]) => k.replace('PERFORMANCE_MODE_', ''));
-                    const perfMultipliers = Object.entries(rec).filter(([k, v]) => k.startsWith('PERFORMANCE_MODE_') && ['SNIPER', 'REGIME_SYNC', 'HOUSE_MONEY', 'WHALE', 'CONTRARIAN', 'SURFER', 'HYDRA', 'COIL', 'ALPHA', 'GAMMA', 'SENTIMENT', 'GHOST', 'PHOENIX', 'RUNNER'].some(m => k.includes(m)) && v === true).map(([k]) => k.replace('PERFORMANCE_MODE_', ''));
+                    const perfMultipliers = Object.entries(rec).filter(([k, v]) => k.startsWith('PERFORMANCE_MODE_') && ['SNIPER', 'REGIME_SYNC', 'HOUSE_MONEY', 'WHALE', 'CONTRARIAN', 'SURFER', 'HYDRA', 'COIL', 'ALPHA', 'GAMMA', 'SENTIMENT', 'PHOENIX', 'RUNNER'].some(m => k.includes(m)) && v === true).map(([k]) => k.replace('PERFORMANCE_MODE_', ''));
 
                     const timeStr = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
                     resultEl.innerHTML = `

@@ -7,6 +7,11 @@ Entry Logic (ICT methodology):
     4. Enter on pullback to OTE zone (50-78.6% of displacement)
 
 This is the vanilla, unmodified Trade By Sci ICC methodology.
+
+IMPORTANT: There is a near-duplicate of this file at icc_core_standalone.py.
+Any bug fix here MUST be applied there too (or better yet, refactor both
+into a single base class with parameters). The standalone version differs
+mainly in ATR stop multiplier (2.0x vs 1.5x) and pyramid threshold (0.3R vs 0.5R).
 """
 from __future__ import annotations
 import logging

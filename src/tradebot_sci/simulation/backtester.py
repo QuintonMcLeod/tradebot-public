@@ -79,12 +79,14 @@ logger = logging.getLogger(__name__)
 
 def _jpy_adjust_risk(risk_per_share: float, symbol: str, price: float) -> float:
     """Convert quote-currency-denominated stop distance to USD per-unit.
-    For quote currencies (USDJPY, EURJPY, USDCHF), stop_dist is NOT in USD.
-    Divide by price to get USD per-unit risk."""
+    For quote currencies (USDJPY, EURJPY, USDCAD, USDCHF), stop_dist is NOT in USD.
+    Divide by price to get USD per-unit risk.
+    I expanded this to include CAD and CHF cross-pairs — previously only JPY
+    was handled, causing silently oversized positions on EURCAD/GBPCHF etc."""
     sym = symbol.upper().replace("_", "")
     if sym.startswith("USD") and price > 0:
         return risk_per_share / price
-    elif "JPY" in sym and price > 0:
+    elif any(q in sym for q in ("JPY", "CAD", "CHF")) and price > 0:
         return risk_per_share / price
     return risk_per_share
 
@@ -92,13 +94,20 @@ def _jpy_adjust_risk(risk_per_share: float, symbol: str, price: float) -> float:
 def _notional_per_unit(symbol: str, price: float) -> float:
     """Get USD notional value per unit for leverage cap calculations.
     For USD-base pairs (USDJPY, USDCHF), 1 unit = $1.
-    For other pairs (EURUSD, GBPUSD), 1 unit = price in USD."""
+    For other pairs (EURUSD, GBPUSD), 1 unit = price in USD.
+    I added CAD and CHF cross-pair handling — previously these fell through
+    to `return price`, treating CAD/CHF prices as USD and inflating notional."""
     sym = symbol.upper().replace("_", "")
     if sym.startswith("USD"):
         return 1.0
+    # Cross pairs: price is in quote currency; divide by USD/quote rate
+    # to approximate USD notional per unit.
     if "JPY" in sym and price > 0:
-        # Approximate base currency USD value by dividing JPY price by USDJPY (~150.0)
         return price / 150.0
+    if "CAD" in sym and price > 0:
+        return price / 1.35
+    if "CHF" in sym and price > 0:
+        return price / 0.90
     return price if price > 0 else 1.0
 
 
@@ -169,7 +178,7 @@ def _calculate_pnl(entry_price: float, exit_price: float, size: float, direction
     sym = symbol.upper().replace("_", "")
     if sym.startswith("USD") and exit_price > 0:
         raw_pnl = raw_pnl / exit_price
-    elif "JPY" in sym and exit_price > 0:
+    elif any(q in sym for q in ("JPY", "CAD", "CHF")) and exit_price > 0:
         raw_pnl = raw_pnl / exit_price
     
     # Deduct round-trip fees (spread + commission) + simulated slippage

@@ -98,6 +98,10 @@ class ICCCoreStandaloneStrategy(BaseStrategy):
     The ensemble version needs wide stops because SAR reversals depend
     on ICC Core stop-outs as trigger signals. This standalone version
     can be freely tuned without affecting the Meta-SCI ensemble.
+    
+    IMPORTANT: This file is ~95% identical to icc_core.py. Any bug fix here
+    MUST be applied there too. The long-term fix is to refactor both into a
+    single base class with configurable ATR multiplier and pyramid threshold.
     """
 
     def __init__(self):

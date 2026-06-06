@@ -28,6 +28,15 @@ _warmed_up_symbols: set[str] = set()
 _WARMUP_LTF_CANDLES = 2016
 _WARMUP_HTF_CANDLES = 200  # 200 four-hour candles ≈ 33 days
 
+# ── Cross-cycle snapshot cache ──
+# I moved this from inside build_candidate_list (where it was recreated empty
+# every cycle, providing zero benefit) to module level with a 30-second TTL.
+# This avoids re-fetching the same candles from the provider multiple times
+# per minute while still ensuring we don't serve stale data.
+_snapshot_cache: Dict[tuple, MarketSnapshot] = {}
+_snapshot_cache_ts: Dict[tuple, float] = {}
+_SNAPSHOT_CACHE_TTL_SECONDS = 30.0
+
 # ── Bar-Close Confirmation Gate ──
 # When enabled, strips incomplete (still-forming) candles before strategy
 # evaluation — ensuring the live bot signals on closed bars only, matching
@@ -93,7 +102,8 @@ def fetch_snapshot(
     timeframe: str, 
     profile_settings: Any, 
     market_settings: Any, 
-    ws_controller: Optional[RuntimeController] = None
+    ws_controller: Optional[RuntimeController] = None,
+    cache_ts: Optional[Dict[tuple, float]] = None
 ) -> MarketSnapshot:
     """Fetches high/low timeframe candles and builds a snapshot.
 
@@ -168,6 +178,8 @@ def fetch_snapshot(
             mtf_timeframe=mtf_timeframe,
             ltf_timeframe=ltf_timeframe,
         )
+        if cache_ts is not None:
+            cache_ts[key] = time.time()
 
         # Record snapshot for replay backtesting — but ONLY from live data.
         # Synthetic/Replay providers generate fake prices (e.g., EURJPY at 1.55
@@ -230,7 +242,17 @@ def build_candidate_list(
 ) -> Tuple[List[Tuple[str, MarketSnapshot, float, str]], bool]:
     """Scans the universe and identifies positions to manage or new setups to trade."""
     logger.info(f"[CYCLE] Building candidate list for {len(symbols)} symbols")
-    snapshot_cache: Dict[tuple, MarketSnapshot] = {}
+    
+    # Evict stale entries from the module-level snapshot cache so we don't
+    # serve ancient data. The cache key includes timeframes, so this mainly
+    # catches cases where the same symbol is scanned multiple times per cycle.
+    global _snapshot_cache, _snapshot_cache_ts
+    _now_ts = time.time()
+    for _key in list(_snapshot_cache.keys()):
+        if _now_ts - _snapshot_cache_ts.get(_key, 0) > _SNAPSHOT_CACHE_TTL_SECONDS:
+            del _snapshot_cache[_key]
+            _snapshot_cache_ts.pop(_key, None)
+    
     symbols = [symbol for symbol in symbols if symbol in engines]
     
     # 1. Handle Active Order Symbols (Campaign Blocking)
@@ -252,7 +274,7 @@ def build_candidate_list(
             if not multi_enabled:
                 symbol = active_order_symbols[0]
                 try:
-                    snap = fetch_snapshot(provider, snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller)
+                    snap = fetch_snapshot(provider, _snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller, cache_ts=_snapshot_cache_ts)
                     return [(symbol, snap, 0.0, "active campaign")], True
                 except Exception:
                     return [], True
@@ -264,7 +286,7 @@ def build_candidate_list(
             pos = executor.get_open_position_snapshot(symbol)
             if pos and abs(pos.get("size", 0)) > 1e-8 and not pos.get("is_dust", False):
                 try:
-                    snap = fetch_snapshot(provider, snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller)
+                    snap = fetch_snapshot(provider, _snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller, cache_ts=_snapshot_cache_ts)
                     position_candidates.append((symbol, snap, 0.0, "existing position"))
                 except Exception:
                     continue
@@ -281,7 +303,7 @@ def build_candidate_list(
                 if symbol in [c[0] for c in position_candidates]: continue
                 if strike_tracker and strike_tracker.is_skipped(symbol): continue
                 try:
-                    snap = fetch_snapshot(provider, snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller)
+                    snap = fetch_snapshot(provider, _snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller, cache_ts=_snapshot_cache_ts)
                     position_candidates.append((symbol, snap, 0.0, "eviction_scan"))
                 except Exception:
                     continue
@@ -314,7 +336,7 @@ def build_candidate_list(
                 continue
 
         try:
-            snap = fetch_snapshot(provider, snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller)
+            snap = fetch_snapshot(provider, _snapshot_cache, symbol, timeframe, profile_settings, market_settings, ws_controller, cache_ts=_snapshot_cache_ts)
             candidates.append((symbol, snap, 0.0, "scan"))
         except Exception as e:
             logger.error(f"[CYCLE] Error fetching snapshot for {symbol}: {e}")
@@ -487,6 +509,29 @@ def process_candidate_cycle(
         try:
             liq_cap = executor.get_liquid_capital(symbol) if executor else None
             total_equity = executor.get_total_equity() if executor and hasattr(executor, "get_total_equity") else (liq_cap or 0.0)
+            
+            # ── BROKER MODE SAFETY GUARD ──
+            # I added this after discovering that executor can be dynamically
+            # reassigned in loop.py (hot-reload, Sabbath toggle, etc.). If a live
+            # broker somehow gets injected while execute_trades is False, we
+            # could send real orders during what should be paper-only mode.
+            # This guard is defense-in-depth: it verifies the broker identity
+            # before every decision cycle.
+            is_paper_broker = getattr(executor, 'is_paper', False)
+            execute_trades = getattr(getattr(settings, 'runtime', None), 'execute_trades', False)
+            if not execute_trades and not is_paper_broker:
+                logger.critical(
+                    "[BROKER GUARD] BLOCKED: execute_trades=False but executor is not a "
+                    "PaperBroker (is_paper=%s). This would have sent LIVE orders in "
+                    "paper mode. Skipping %s for this cycle.",
+                    is_paper_broker, symbol
+                )
+                skipped += 1
+                continue
+            if executor is None:
+                logger.error("[BROKER GUARD] Executor is None — skipping %s", symbol)
+                skipped += 1
+                continue
             
             engines[symbol]._broker = executor
             decision = engines[symbol].decide(

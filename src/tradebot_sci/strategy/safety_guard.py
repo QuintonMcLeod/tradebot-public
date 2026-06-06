@@ -1313,12 +1313,12 @@ class SafetyGuard:
                     decision.risk_per_trade_pct *= 2.0
                     decision.notes = (decision.notes or "") + " | Coil Breakout (2.0x)"
 
-        # F. HARMONIC GHOST (Liquidity Magnet)
-        if "ghost" in modes and snapshot.candles:
-            last_price = snapshot.candles[-1].close
-            if abs(last_price - round(last_price)) < (last_price * 0.001):
-                decision.risk_per_trade_pct *= 1.5
-                decision.notes = (decision.notes or "") + " | Ghost Level (1.5x)"
+        # F. HARMONIC GHOST — REMOVED
+        # I removed this mode because it was numerology: it boosted risk 1.5x whenever
+        # price was within 0.1% of a whole number (e.g. 1.000, 150.000). There is zero
+        # statistical edge in "psychological levels" at this granularity — price is near
+        # a round number roughly 50% of the time on most forex pairs. It was essentially
+        # a coin-flip risk boost with no trading logic behind it.
 
         # G. AI SENTIMENT CONFIRMATION (Hype)
         if "sentiment" in modes and ai_client:
@@ -1405,26 +1405,33 @@ class SafetyGuard:
                 decision.notes = (decision.notes or "") + f" | [SPREAD SCALING] Applied {scale_factor}x due to {spread_bps:.2f} bps spread"
                 logger.info(f"[SPREAD SCALING] {symbol} spread is {spread_bps:.2f} bps (> {matched_limit} limit), scaling risk by {scale_factor}x to {decision.risk_per_trade_pct*100:.3f}%")
 
-        # L. STABILITY OVERRIDE (Final Clamp)
-        if "stability" in modes:
-            # Enforce max 1% regardless of boosters
-            if decision.risk_per_trade_pct > 0.01:
-                decision.risk_per_trade_pct = 0.01
-                decision.notes = (decision.notes or "") + " | Stability Override (Capped @ 1%)"
-            
-            # Enhance Score Requirement (Veto if score below 75 in stability mode)
-            if score < 75.0:
-                 logger.warning(f"[STABILITY] Vetoing {decision.symbol} entry: Score {score} < 75 (Stability Enabled)")
-                 return stand_aside_decision(decision.symbol, decision.timeframe, f"Stability Veto: Score {score} < 75")
-
+        # -------------------------------------------------------------
+        # 2b. RUNNING CAP — I clamp after each major multiplier so they
+        #     can't silently compound to absurd levels. This is defense
+        #     in depth: even if 5 boosters fire, we never exceed the
+        #     nuclear cap mid-stream.
+        # -------------------------------------------------------------
+        risk_cap = 0.10
+        if hasattr(snapshot, 'profile') and snapshot.profile:
+            if getattr(snapshot.profile, 'nuclear_overrides_enabled', False):
+                risk_cap = getattr(snapshot.profile, 'max_risk_cap_override', 0.10)
+        
+        def _apply_multiplier(label: str, factor: float):
+            """I apply a risk multiplier but enforce the running cap immediately."""
+            decision.risk_per_trade_pct *= factor
+            if decision.risk_per_trade_pct > risk_cap:
+                decision.risk_per_trade_pct = risk_cap
+                decision.notes = (decision.notes or "") + f" | {label} (capped @ {risk_cap*100:.1f}%)"
+                logger.warning(f"[RISK CAP] {decision.symbol}: {label} would exceed {risk_cap*100:.1f}%, clamped mid-stream")
+            else:
+                decision.notes = (decision.notes or "") + f" | {label} ({factor}x)"
+        
         # K. THE NEWS SURFER (Volatility Compression)
         if "surfer" in modes and snapshot.candles:
-            # Logic: If ATR is dropping (Correction) but Strategy signals Entry (Breakout imminent)
             recent_atr = calculate_atr(snapshot.candles[-5:], period=5)
             med_atr = calculate_atr(snapshot.candles[-20:], period=20)
             if recent_atr and med_atr and recent_atr < (med_atr * 0.8):
-                decision.risk_per_trade_pct *= 2.0
-                decision.notes = (decision.notes or "") + " | News/Compression Breakout (2.0x)"
+                _apply_multiplier("News/Compression Breakout", 2.0)
         
         # H. HOUSE MONEY (Leveled Up)
         if "house_money" in modes:
@@ -1437,20 +1444,24 @@ class SafetyGuard:
                     pnl_r = ((curr - entry) if pos.get("side")=="long" else (entry - curr)) / abs(entry - stop)
                     if pnl_r >= 2.0: financed = True; break
             if financed:
-                decision.risk_per_trade_pct *= 1.5
-                decision.notes = (decision.notes or "") + " | House Money (1.5x)"
+                _apply_multiplier("House Money", 1.5)
+
+        # L. STABILITY OVERRIDE (TRUE Final Clamp)
+        # I moved this to the very end so it cannot be bypassed by Surfer
+        # or House Money. If stability mode is on, 1% is the absolute ceiling.
+        if "stability" in modes:
+            if decision.risk_per_trade_pct > 0.01:
+                decision.risk_per_trade_pct = 0.01
+                decision.notes = (decision.notes or "") + " | Stability Override (Capped @ 1%)"
+            
+            # Enhance Score Requirement (Veto if score below 75 in stability mode)
+            if score < 75.0:
+                 logger.warning(f"[STABILITY] Vetoing {decision.symbol} entry: Score {score} < 75 (Stability Enabled)")
+                 return stand_aside_decision(decision.symbol, decision.timeframe, f"Stability Veto: Score {score} < 75")
 
         # -------------------------------------------------------------
-        # 3. THE CLAMP (Nuclear Limiter)
+        # 3. THE CLAMP (Nuclear Limiter — Final Safety Net)
         # -------------------------------------------------------------
-        risk_cap = 0.10 # Default hard wall
-        if hasattr(snapshot, 'profile') and snapshot.profile:
-            if getattr(snapshot.profile, 'nuclear_overrides_enabled', False):
-                risk_cap = getattr(snapshot.profile, 'max_risk_cap_override', 0.10)
-                # Only log warning if we are actually capped or nearing it
-                if decision.risk_per_trade_pct > 0.10:
-                    logger.warning(f"☢️ [NUCLEAR] Risk scaling allowed up to {risk_cap*100:.1f}%")
-
         if decision.risk_per_trade_pct > risk_cap:
             decision.risk_per_trade_pct = risk_cap
             decision.notes = (decision.notes or "") + " | [CLAMPED]"
