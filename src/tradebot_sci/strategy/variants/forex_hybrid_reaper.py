@@ -8,6 +8,7 @@ from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.strategy.variants.base import BaseStrategy
 from tradebot_sci.market.indicators import calculate_ema
 from tradebot_sci.strategy.icc_signals import calculate_atr
+from tradebot_sci.strategy.dynamic_scoring import get_adjusted_threshold
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +169,22 @@ class ForexHybridReaperStrategy(BaseStrategy):
         # Generate strategic score to evaluate holistic setup quality
         score, grade, summary = self.score_signal(snapshot, gates)
 
-        logger.info(f"[HybridReaper Debug {snapshot.symbol}] Close={last_close:.5f} | EMA={trend_ema:.5f} | GlobalRSI={rsi:.1f} | GlobalLBB={lower_bb:.5f} | GlobalUBB={upper_bb:.5f} | HTF={htf_dir} | Score={score:.1f}")
+        # ── Dynamic Symbol Scoring ──
+        # Auto-adjusts the entry threshold per-symbol based on recent performance.
+        # If a pair is bleeding (3+ losses), threshold rises. If it's winning,
+        # threshold drops. This prevents runaway bleeding on specific pairs.
+        base_threshold = 60.0
+        profile_for_scoring = getattr(self, '_profile', None)
+        adjusted_threshold = get_adjusted_threshold(
+            snapshot.symbol, base_threshold, profile_for_scoring
+        )
+
+        logger.info(
+            f"[HybridReaper Debug {snapshot.symbol}] Close={last_close:.5f} | "
+            f"EMA={trend_ema:.5f} | GlobalRSI={rsi:.1f} | GlobalLBB={lower_bb:.5f} | "
+            f"GlobalUBB={upper_bb:.5f} | HTF={htf_dir} | Score={score:.1f} | "
+            f"Threshold={adjusted_threshold:.0f}"
+        )
 
         # ---------------------------------------------------------
         # 4. 3-Bar Momentum Gate (Anti-Exhaustion)
@@ -201,7 +217,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
                 return None
 
         # LONG: Price > 200 EMA + Strict BB/RSI Touch + Minimum Score (no OR condition)
-        if last_close > trend_ema and rsi <= oversold_thresh and last_close <= lower_bb and score >= 60.0:
+        if last_close > trend_ema and rsi <= oversold_thresh and last_close <= lower_bb and score >= adjusted_threshold:
             stop_dist = max(current_atr * 1.5, last_close * 0.0008)  # Safe floor distance
             stop_loss = last_close - stop_dist
             tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
@@ -220,7 +236,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
             )
 
         # SHORT: Price < 200 EMA + Strict BB/RSI Touch + Minimum Score (no OR condition)
-        if last_close < trend_ema and rsi >= overbought_thresh and last_close >= upper_bb and score >= 60.0:
+        if last_close < trend_ema and rsi >= overbought_thresh and last_close >= upper_bb and score >= adjusted_threshold:
             stop_dist = max(current_atr * 1.5, last_close * 0.0008)
             stop_loss = last_close + stop_dist
             tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r

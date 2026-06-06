@@ -1517,6 +1517,64 @@ class PerformanceSettings(BaseModel):
         default_factory=lambda: os.getenv("TRAILING_STOP_ENABLED", "True").lower() == "true"
     )
 
+    # ── Dynamic Symbol Scoring ──────────────────────────────────────────
+    # Auto-adjusts entry score thresholds per-symbol based on recent
+    # trade performance. If a symbol bleeds 3+ consecutive losses,
+    # the score requirement rises (harder to enter). If it wins
+    # consistently, the requirement drops (easier to enter).
+    dynamic_symbol_scoring_enabled: bool = Field(
+        default=False,
+        description="Enable per-symbol dynamic score adjustment based on recent trade history."
+    )
+    dynamic_score_lookback: int = Field(
+        default=10,
+        ge=3,
+        le=50,
+        description="Number of recent trades to analyze per symbol for scoring adjustments."
+    )
+    dynamic_score_loss_streak: int = Field(
+        default=3,
+        ge=2,
+        le=10,
+        description="Consecutive loss streak that triggers a score penalty."
+    )
+    dynamic_score_min_winrate: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Win-rate floor. Below this, score requirement is raised."
+    )
+    dynamic_score_boost_winrate: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description="Win-rate ceiling. Above this, score requirement is lowered."
+    )
+    dynamic_score_penalty: float = Field(
+        default=15.0,
+        ge=0.0,
+        le=40.0,
+        description="Points ADDED to score threshold when symbol is underperforming."
+    )
+    dynamic_score_reward: float = Field(
+        default=10.0,
+        ge=0.0,
+        le=40.0,
+        description="Points SUBTRACTED from score threshold when symbol is outperforming."
+    )
+    dynamic_score_max_threshold: float = Field(
+        default=85.0,
+        ge=50.0,
+        le=100.0,
+        description="Hard ceiling for adjusted score threshold."
+    )
+    dynamic_score_min_threshold: float = Field(
+        default=45.0,
+        ge=20.0,
+        le=60.0,
+        description="Hard floor for adjusted score threshold."
+    )
+
 
 class RiskSettings(BaseModel):
     """

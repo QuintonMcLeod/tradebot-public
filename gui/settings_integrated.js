@@ -91,6 +91,16 @@ const CONFIG_MAP = {
     // Performance
     'PERFORMANCE_MODE': ['performance', 'performance_mode'],
     'TRAILING_STOP_ENABLED': ['performance', 'trailing_stop_enabled'],
+    'DYNAMIC_SYMBOL_SCORING_ENABLED': ['performance', 'dynamic_symbol_scoring_enabled'],
+    'DYNAMIC_SCORE_LOOKBACK': ['performance', 'dynamic_score_lookback'],
+    'DYNAMIC_SCORE_LOSS_STREAK': ['performance', 'dynamic_score_loss_streak'],
+    'DYNAMIC_SCORE_MIN_WINRATE': ['performance', 'dynamic_score_min_winrate'],
+    'DYNAMIC_SCORE_BOOST_WINRATE': ['performance', 'dynamic_score_boost_winrate'],
+    'DYNAMIC_SCORE_PENALTY': ['performance', 'dynamic_score_penalty'],
+    'DYNAMIC_SCORE_REWARD': ['performance', 'dynamic_score_reward'],
+    'DYNAMIC_SCORE_MAX_THRESHOLD': ['performance', 'dynamic_score_max_threshold'],
+    'DYNAMIC_SCORE_MIN_THRESHOLD': ['performance', 'dynamic_score_min_threshold'],
+
     'PYRAMID_CAP_OVERRIDE': ['performance', 'pyramid_cap_override'],
     'COMPOUNDING_CAP_OVERRIDE': ['performance', 'compounding_cap_override'],
     // Asset Strategies (global SSOT — read by loader.py)
@@ -326,6 +336,15 @@ const TOOLTIPS = {
     // Exit Settings
     EXIT_ON_HTF_FLIP_ONLY_IF_LOSING: "Mercy Rule. If the big-picture trend suddenly reverses while your trade is losing, the bot kills the trade instantly. But if you are winning, it lets the trade ride a bit longer to see if it recovers.",
     AUTO_FLATTEN_ON_CLOSE: "The End-of-Day Wash. Automatically closes ALL your trades when the daily trading session ends, so you never hold risk while you sleep.",
+    DYNAMIC_SYMBOL_SCORING_ENABLED: "<strong>Smart Symbol Filter.</strong> If a specific pair (like AUDJPY) starts bleeding losses, the bot automatically raises the quality bar for that pair only. It won't touch pairs that are winning. This prevents runaway bleeding without killing good opportunities elsewhere.",
+    DYNAMIC_SCORE_LOOKBACK: "How many recent trades per symbol should the bot remember when deciding whether to raise or lower the score bar? Default 10.",
+    DYNAMIC_SCORE_LOSS_STREAK: "How many consecutive losses on one symbol before the bot says 'enough' and makes it harder to trade that symbol? Default 3.",
+    DYNAMIC_SCORE_MIN_WINRATE: "If a symbol's win rate over the lookback window drops below this, the score requirement rises. Default 30%.",
+    DYNAMIC_SCORE_BOOST_WINRATE: "If a symbol's win rate over the lookback window climbs above this, the score requirement drops to catch more winners. Default 70%.",
+    DYNAMIC_SCORE_PENALTY: "How many points to ADD to the score threshold when a symbol is underperforming. Default 15 (so 60 becomes 75).",
+    DYNAMIC_SCORE_REWARD: "How many points to SUBTRACT from the score threshold when a symbol is outperforming. Default 10 (so 60 becomes 50).",
+    DYNAMIC_SCORE_MAX_THRESHOLD: "The highest the adjusted threshold can go. Default 85 — even a bleeding symbol won't require perfection.",
+    DYNAMIC_SCORE_MIN_THRESHOLD: "The lowest the adjusted threshold can go. Default 45 — prevents the bot from accepting total junk even on hot symbols.",
     TRAILING_STOP_ENABLED: "The Profit Chaser. A safety net that automatically follows the price upward. As you make more profit, the safety net moves up to lock it in!",
     TRAILING_STOP_MIN_PROFIT_PCT: "Breathing Room. Wait until the trade is AT LEAST this much in profit before starting the Profit Chaser.",
     STOP_ATR_MULTIPLIER: "<strong>The 'Safe Distance' Calculator.</strong> Markets naturally wiggle up and down a little bit. A 1.5 multiplier places your safety net 1.5x outside that normal wiggle room. Tight (1.0) = you might get shaken out by a random wiggle. Looser (2.5) = you survive the wiggles, but lose more if you are totally wrong.",
@@ -1263,6 +1282,16 @@ const STRATEGY_PRESETS = {
         RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '6',
         RISK_REWARD_RATIO: '3.0',
         SCALE_OUT_FRACTION: '0.50',
@@ -1279,6 +1308,16 @@ const STRATEGY_PRESETS = {
         RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '50',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -1287,6 +1326,16 @@ const STRATEGY_PRESETS = {
         RISK_PER_TRADE_PCT: '0.025',  // Backtested optimal: +$11 at 2.5% (only profitable level)
         STOP_AND_REVERSE_ENABLED: 'false', // SAR hurts BE
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '3',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -1296,6 +1345,16 @@ const STRATEGY_PRESETS = {
         RISK_PER_TRADE_PCT: '0.005',  // Backtested optimal: -$55 at 0.5% (1.17 R:R, best loss level)
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '1',
         RISK_REWARD_RATIO: '1.5',
         SCALE_OUT_FRACTION: '0.95',
@@ -1307,6 +1366,16 @@ const STRATEGY_PRESETS = {
         REVERSAL_COST_AWARE_TP: 'true',
         REVERSAL_RISK_PER_TRADE: '0.045',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '50',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -1329,6 +1398,16 @@ const STRATEGY_PRESETS = {
         RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '3',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -1337,6 +1416,16 @@ const STRATEGY_PRESETS = {
         RISK_PER_TRADE_PCT: '0.015',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '1',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -1349,6 +1438,16 @@ const STRATEGY_PRESETS = {
         REVERSAL_COST_AWARE_TP: 'true',
         REVERSAL_RISK_PER_TRADE: '0.02',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '50',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -1370,6 +1469,16 @@ const STRATEGY_PRESETS = {
         RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '50',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -1381,6 +1490,16 @@ const STRATEGY_PRESETS = {
         REVERSAL_COST_AWARE_TP: 'true',
         REVERSAL_RISK_PER_TRADE: '0.016',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '50',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -1390,6 +1509,16 @@ const STRATEGY_PRESETS = {
         RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '50',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -1398,6 +1527,16 @@ const STRATEGY_PRESETS = {
         RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '3',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -1415,6 +1554,16 @@ const STRATEGY_PRESETS = {
         RISK_PER_TRADE_PCT: '0.01',
         STOP_AND_REVERSE_ENABLED: 'false',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '3',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.50',
@@ -1435,6 +1584,16 @@ const STRATEGY_PRESETS = {
         REVERSAL_COST_AWARE_TP: 'true',
         REVERSAL_RISK_PER_TRADE: '0.045',
         TRAILING_STOP_ENABLED: 'true',
+        DYNAMIC_SYMBOL_SCORING_ENABLED: 'false',
+        DYNAMIC_SCORE_LOOKBACK: '10',
+        DYNAMIC_SCORE_LOSS_STREAK: '3',
+        DYNAMIC_SCORE_MIN_WINRATE: '0.30',
+        DYNAMIC_SCORE_BOOST_WINRATE: '0.70',
+        DYNAMIC_SCORE_PENALTY: '15',
+        DYNAMIC_SCORE_REWARD: '10',
+        DYNAMIC_SCORE_MAX_THRESHOLD: '85',
+        DYNAMIC_SCORE_MIN_THRESHOLD: '45',
+
         MAX_PYRAMID_ENTRIES: '50',
         RISK_REWARD_RATIO: '2.0',
         SCALE_OUT_FRACTION: '0.95',
@@ -4675,6 +4834,21 @@ function renderPerformanceTab(container) {
     // Daily Loss Limit slider is in Strategy Workshop → Global Risk tab
 
     // REMOVED: 4 dead placeholders — WEEKLY/MONTHLY profit/loss targets not implemented (Audit P10)
+
+    section.appendChild(createDivider());
+    section.appendChild(createSectionHeader('Dynamic Symbol Scoring', 'psychology',
+        "<strong>Dynamic Symbol Scoring</strong><br><br>Auto-adjusts entry quality requirements per-symbol based on recent performance. If AUDJPY is bleeding, it gets a higher score bar. If EURUSD is printing wins, it gets a lower score bar. Prevents death-by-a-thousand-cuts on specific pairs while riding winners."
+    ));
+
+    section.appendChild(createCard('Enable Dynamic Scoring', 'Auto-adjust score thresholds per-symbol', 'DYNAMIC_SYMBOL_SCORING_ENABLED', 'toggle'));
+    section.appendChild(createSliderCard('Lookback Window', 'Recent trades to analyze per symbol', 'DYNAMIC_SCORE_LOOKBACK', 3, 50, 1, 'trades', { default: '10' }));
+    section.appendChild(createSliderCard('Loss Streak Trigger', 'Consecutive losses before penalty', 'DYNAMIC_SCORE_LOSS_STREAK', 2, 10, 1, 'losses', { default: '3' }));
+    section.appendChild(createSliderCard('Min Win Rate', 'Below this = raise threshold', 'DYNAMIC_SCORE_MIN_WINRATE', 0, 1, 0.05, '', { default: '0.30', pctFormat: true }));
+    section.appendChild(createSliderCard('Boost Win Rate', 'Above this = lower threshold', 'DYNAMIC_SCORE_BOOST_WINRATE', 0, 1, 0.05, '', { default: '0.70', pctFormat: true }));
+    section.appendChild(createSliderCard('Penalty Points', 'Added to threshold when losing', 'DYNAMIC_SCORE_PENALTY', 0, 40, 1, 'pts', { default: '15' }));
+    section.appendChild(createSliderCard('Reward Points', 'Subtracted from threshold when winning', 'DYNAMIC_SCORE_REWARD', 0, 40, 1, 'pts', { default: '10' }));
+    section.appendChild(createSliderCard('Max Threshold', 'Ceiling for adjusted score', 'DYNAMIC_SCORE_MAX_THRESHOLD', 50, 100, 1, 'pts', { default: '85' }));
+    section.appendChild(createSliderCard('Min Threshold', 'Floor for adjusted score', 'DYNAMIC_SCORE_MIN_THRESHOLD', 20, 60, 1, 'pts', { default: '45' }));
 
     container.appendChild(section);
 }
