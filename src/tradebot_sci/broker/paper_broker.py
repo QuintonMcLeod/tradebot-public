@@ -695,6 +695,32 @@ class PaperBroker:
             initial_risk_val = abs(fill_price - stop_loss_val)
 
             fee_usd = convert_quote_to_usd(fee_usd, symbol, fill_price, self.market_provider)
+
+            # ── SPREAD-COST GUARD ──
+            # If estimated round-trip spread+fee exceeds 30% of the intended risk,
+            # the trade starts so far underwater it will likely bleed to time decay.
+            # This specifically blocks the NZDUSD/EURNZD pattern where wide spreads
+            # consumed nearly 100% of the risk budget.
+            round_trip_cost_usd = fee_usd * 2.0
+            max_spread_pct = float(getattr(self.profile, "spread_gate_max_pct", 0.30))
+            max_cost_for_risk = risk_usd * max_spread_pct
+            if round_trip_cost_usd > max_cost_for_risk and risk_usd > 0:
+                logger.warning(
+                    f"[PAPER] [BLOCKED] {symbol}: round-trip spread cost "
+                    f"${round_trip_cost_usd:.2f} ({round_trip_cost_usd/risk_usd:.0%} of risk) "
+                    f"exceeds gate limit {max_spread_pct:.0%} (${max_cost_for_risk:.2f}). Skipping.",
+                    extra={"broker": "paper", "symbol": symbol, "event": "spread_gate_blocked",
+                           "round_trip_cost": round_trip_cost_usd, "risk_usd": risk_usd,
+                           "max_spread_pct": max_spread_pct}
+                )
+                self._update_status("warning", f"Spread gate blocked {symbol}")
+                return (
+                    ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol,
+                        f"Spread cost {round_trip_cost_usd/risk_usd:.0%} of risk > {max_spread_pct:.0%} limit"),
+                    ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol,
+                        f"Spread gate: ${round_trip_cost_usd:.2f} > {max_spread_pct:.0%} of risk")
+                )
+
             self.balance -= fee_usd  # Deduct taker fee immediately
 
 
@@ -972,8 +998,30 @@ class PaperBroker:
                     fee_usd = abs(qty * fill_price) * (fee_pct / 2.0)
 
                 fee_usd = convert_quote_to_usd(fee_usd, symbol, fill_price, self.market_provider)
+
+                # ── SPREAD-COST GUARD (pyramid path) ──
+                round_trip_cost_usd = fee_usd * 2.0
+                max_spread_pct = float(getattr(self.profile, "spread_gate_max_pct", 0.30))
+                max_cost_for_risk = risk_usd * max_spread_pct
+                if round_trip_cost_usd > max_cost_for_risk and risk_usd > 0:
+                    logger.warning(
+                        f"[PAPER] [BLOCKED PYRAMID] {symbol}: round-trip spread cost "
+                        f"${round_trip_cost_usd:.2f} ({round_trip_cost_usd/risk_usd:.0%} of risk) "
+                        f"exceeds gate limit {max_spread_pct:.0%}. Skipping add.",
+                        extra={"broker": "paper", "symbol": symbol, "event": "spread_gate_blocked_pyramid",
+                               "round_trip_cost": round_trip_cost_usd, "risk_usd": risk_usd,
+                               "max_spread_pct": max_spread_pct}
+                    )
+                    self._update_status("warning", f"Spread gate blocked pyramid {symbol}")
+                    return (
+                        ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol,
+                            f"Spread cost {round_trip_cost_usd/risk_usd:.0%} of risk > {max_spread_pct:.0%} limit"),
+                        ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol,
+                            f"Spread gate: ${round_trip_cost_usd:.2f} > {max_spread_pct:.0%} of risk")
+                    )
+
                 self.balance -= fee_usd
-                
+
                 # Update position sizing and avg_price
                 old_qty = pos["qty"]
                 old_avg = pos["avg_price"]

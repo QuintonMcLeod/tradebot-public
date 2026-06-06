@@ -27,7 +27,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
         
         # Rubberband Reaper default kinetics parameters
         self.bb_period = int(kwargs.get('bb_period', 20))
-        self.bb_std = float(kwargs.get('bb_std', 2.0))
+        self.bb_std = float(kwargs.get('bb_std', 1.5))
         self.rsi_period = int(kwargs.get('rsi_period', 7))
         self.rsi_overbought = float(kwargs.get('rsi_overbought', 65))
         self.rsi_oversold = float(kwargs.get('rsi_oversold', 35))
@@ -77,15 +77,16 @@ class ForexHybridReaperStrategy(BaseStrategy):
             score += 20.0
             breakdown.append(f"LTF-Align(+20)")
             
-        # 2. Bollinger Band Position (30 pts) - STRICT: only full pierce gets points
-        last_low = snapshot.candles[-1].low if snapshot.candles else last_close
-        last_high = snapshot.candles[-1].high if snapshot.candles else last_close
+        # 2. Bollinger Band Position (30 pts) - STRICT: only full close pierce gets points
+        # I reverted from wick-pierce (last_low/high) back to close-pierce because
+        # wick pierce was too permissive — it let in low-quality setups on wide-spread
+        # pairs (NZDUSD/EURNZD) that immediately bled spread cost.
         if is_long_bias:
-            if last_low <= lower_bb:
+            if last_close <= lower_bb:
                 score += 30.0
                 breakdown.append("BB-Pierced(+30)")
         else:
-            if last_high >= upper_bb:
+            if last_close >= upper_bb:
                 score += 30.0
                 breakdown.append("BB-Pierced(+30)")
                     
@@ -133,8 +134,8 @@ class ForexHybridReaperStrategy(BaseStrategy):
         avg_atr_20 = sum(atr_history[-20:]) / 20.0
         current_atr = calculate_atr(candles, period=14)
         
-        if not current_atr or current_atr < (avg_atr_20 * 0.7):
-            logger.info(f"[ForexHybridReaper] {snapshot.symbol} BLOCKED: Volatility Guard. ATR ({current_atr:.5f}) < 70% of 20-period average ({avg_atr_20:.5f})")
+        if not current_atr or current_atr < (avg_atr_20 * 0.5):
+            logger.info(f"[ForexHybridReaper] {snapshot.symbol} BLOCKED: Volatility Guard. ATR ({current_atr:.5f}) < 50% of 20-period average ({avg_atr_20:.5f})")
             return None
 
         # ---------------------------------------------------------
@@ -169,53 +170,38 @@ class ForexHybridReaperStrategy(BaseStrategy):
 
         logger.info(f"[HybridReaper Debug {snapshot.symbol}] Close={last_close:.5f} | EMA={trend_ema:.5f} | GlobalRSI={rsi:.1f} | GlobalLBB={lower_bb:.5f} | GlobalUBB={upper_bb:.5f} | HTF={htf_dir} | Score={score:.1f}")
 
-        last_low = candles[-1].low
-        last_high = candles[-1].high
-
         # ---------------------------------------------------------
-        # 4. 3-Bar Momentum Gate (Pullback Depth + Reversal Confirmation)
+        # 4. 3-Bar Momentum Gate (Anti-Exhaustion)
         # ---------------------------------------------------------
-        # For a pullback strategy we NEED against-trend bars to create the setup.
-        # We require at least 2 of the last 3 completed bars to be against the
-        # trend to prove the pullback is deep enough. We only block if all 3
-        # are against AND the current bar shows no reversal sign (freefall).
+        # Block entry if all 3 recent bars moved against the proposed direction.
+        # BB+RSI can fire at the TAIL of an exhausted move (price pierced BB then
+        # reversed). If the last 3 closes are already running against us, the
+        # bounce has not materialized — skip and wait for actual reversal.
+        #
+        # I reverted the 13:19 "shallow pullback" logic because it allowed entries
+        # at the tail of exhausted moves, producing time-decay losses on NZD pairs.
         is_long_setup = last_close > trend_ema
         if len(closes) >= 5:
+            # Shift the lookback by 1 to only evaluate fully CLOSED candles.
+            # i=2: closes[-2] - closes[-3] (last completed candle)
             deltas = [closes[-i] - closes[-i-1] for i in range(2, 5)]  # last 3 completed bar moves
-            against_long_count = sum(1 for d in deltas if d < 0)
-            against_short_count = sum(1 for d in deltas if d > 0)
-            current_bar_bullish = closes[-1] > snapshot.candles[-1].open
-            current_bar_bearish = closes[-1] < snapshot.candles[-1].open
-
-            if is_long_setup:
-                if against_long_count < 2:
-                    logger.info(
-                        f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar gate — "
-                        f"pullback too shallow ({against_long_count}/3 down bars)"
-                    )
-                    return None
-                if against_long_count == 3 and not current_bar_bullish:
-                    logger.info(
-                        f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar gate — "
-                        f"freefall into long setup with no reversal candle"
-                    )
-                    return None
-            else:
-                if against_short_count < 2:
-                    logger.info(
-                        f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar gate — "
-                        f"pullback too shallow ({against_short_count}/3 up bars)"
-                    )
-                    return None
-                if against_short_count == 3 and not current_bar_bearish:
-                    logger.info(
-                        f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar gate — "
-                        f"freefall into short setup with no reversal candle"
-                    )
-                    return None
+            all_against_long  = all(d < 0 for d in deltas)  # 3 consecutive down bars
+            all_against_short = all(d > 0 for d in deltas)  # 3 consecutive up bars
+            if is_long_setup and all_against_long:
+                logger.info(
+                    f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar momentum gate — "
+                    f"3 consecutive down bars into long setup (exhaustion, not reversal)"
+                )
+                return None
+            if not is_long_setup and all_against_short:
+                logger.info(
+                    f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar momentum gate — "
+                    f"3 consecutive up bars into short setup (exhaustion, not reversal)"
+                )
+                return None
 
         # LONG: Price > 200 EMA + Strict BB/RSI Touch + Minimum Score (no OR condition)
-        if last_close > trend_ema and rsi <= oversold_thresh and last_low <= lower_bb and score >= 50.0:
+        if last_close > trend_ema and rsi <= oversold_thresh and last_close <= lower_bb and score >= 60.0:
             stop_dist = max(current_atr * 1.5, last_close * 0.0008)  # Safe floor distance
             stop_loss = last_close - stop_dist
             tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
@@ -234,7 +220,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
             )
 
         # SHORT: Price < 200 EMA + Strict BB/RSI Touch + Minimum Score (no OR condition)
-        if last_close < trend_ema and rsi >= overbought_thresh and last_high >= upper_bb and score >= 50.0:
+        if last_close < trend_ema and rsi >= overbought_thresh and last_close >= upper_bb and score >= 60.0:
             stop_dist = max(current_atr * 1.5, last_close * 0.0008)
             stop_loss = last_close + stop_dist
             tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
