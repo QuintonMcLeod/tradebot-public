@@ -3,7 +3,7 @@ import json
 import time
 import os
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Iterable
+from typing import List, Dict, Any, Iterable, Optional
 
 from tradebot_sci.broker.execution import ExecutionOutcome, ExecutionResult, ExecutionStatus, ExecutionOutcomeType
 from tradebot_sci.strategy.decisions import AITradeDecision
@@ -13,6 +13,7 @@ from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass, co
 from tradebot_sci.strategy.safety_guard import SafetyGuard
 
 logger = logging.getLogger(__name__)
+logger.critical("[PAPER_BROKER_V2] Loaded defensive close_all_positions build")
 
 PAPER_STATE_FILE = str(_paths.DATA_DIR / "paper_state.json")
 
@@ -67,6 +68,30 @@ class PaperBroker:
             slip_pct = slip_bps / 10000.0
             friction = (spread_pct / 2.0) + slip_pct
             return fee_pct, spread_pct, slip_pct, friction, False
+
+    def _compute_spread_cost(self, pos: dict, exit_price: float, close_qty: float | None = None) -> float:
+        """Compute total estimated round-trip trading cost (spread + slippage + fees) in USD.
+
+        This captures the full friction cost so the UI can display a meaningful
+        spread column even when config fee_bps is 0 (forex spread-only mode).
+        """
+        fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
+        symbol = pos.get("symbol", "")
+        qty = close_qty if close_qty is not None else abs(pos.get("qty", pos.get("size", 0)))
+        entry_price = pos.get("entry_price", exit_price)
+
+        if is_parity:
+            # Parity mode: only explicit fees count
+            avg_price = (entry_price + exit_price) / 2
+            total = qty * avg_price * fee_pct * 2
+        else:
+            # Full friction: round-trip spread + slippage + fees
+            avg_price = (entry_price + exit_price) / 2
+            rt_spread_slip = qty * avg_price * (spread_pct + 2 * slip_pct)
+            rt_fees = qty * avg_price * fee_pct * 2
+            total = rt_spread_slip + rt_fees
+
+        return convert_quote_to_usd(total, symbol, exit_price, self.market_provider)
 
     # Hard leverage cap for paper trading.
     # Profile target_leverage (e.g. 50x) is for OANDA forex — way too high for
@@ -142,7 +167,7 @@ class PaperBroker:
         except Exception as e:
             logger.warning(f"[PAPER] Failed to save state: {e}")
 
-    def _get_current_price(self, symbol: str) -> float:
+    def _get_current_price(self, symbol: str, fallback: Optional[float] = None) -> float:
         if self.market_provider:
             try:
                 ticker = self.market_provider.get_ticker(symbol)
@@ -150,6 +175,10 @@ class PaperBroker:
                     return float(ticker.last)
             except Exception as e:
                 logger.warning(f"[PAPER] Could not fetch price for {symbol}: {e}")
+        if fallback is not None:
+            logger.critical(f"[PAPER] PRICE FALLBACK for {symbol}: using caller-provided fallback {fallback:.5f}")
+            return fallback
+        logger.critical(f"[PAPER] PRICE FALLBACK for {symbol}: using hardcoded 100.0")
         return 100.0 # Fallback
 
     def _now(self) -> datetime:
@@ -240,6 +269,21 @@ class PaperBroker:
                 duration_str = f"{secs}s"
 
         return duration_secs, duration_str
+
+    def _audit_balance_change(self, delta: float, reason: str, symbol: str = "") -> None:
+        """Raw file audit that bypasses Python logging (currently broken on deleted inodes).
+        
+        Every balance mutation is appended to /tmp/broker_audit.log with a timestamp,
+        the delta, the new balance, the reason, and the symbol.  This gives us a
+        tamper-resistant trail we can grep even if the normal log rotation eats messages.
+        """
+        self.balance += delta
+        try:
+            with open("/tmp/broker_audit.log", "a") as f:
+                ts = datetime.now(timezone.utc).isoformat()
+                f.write(f"{ts} | BALANCE | delta={delta:+.4f} new={self.balance:.4f} reason={reason} symbol={symbol}\n")
+        except Exception:
+            pass
 
     def get_liquid_capital(self, symbol: str | None = None) -> float:
         """Return sizing capital (initial balance) to prevent compounding snowball.
@@ -726,7 +770,7 @@ class PaperBroker:
                         f"Spread gate: ${round_trip_cost_usd:.2f} > {max_spread_pct:.0%} of risk")
                 )
 
-            self.balance -= fee_usd  # Deduct taker fee immediately
+            self._audit_balance_change(-fee_usd, "entry_fee", symbol)
 
 
             self.positions[symbol] = {
@@ -796,13 +840,13 @@ class PaperBroker:
                 pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_gross)
                 
                 pnl_usd = pnl_gross - fee_usd
-                self.balance += pnl_usd
+                self._audit_balance_change(pnl_usd, "full_close", symbol)
 
                 duration_secs, duration_str = self._compute_duration(pos)
                 pnl_sign = "+" if pnl_usd >= 0 else "-"
                 pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
                 pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if pos["size"] else 0.0
-                spread_cost = pos.get("entry_fee", 0.0) + fee_usd
+                spread_cost = self._compute_spread_cost(pos, exit_p)
                 exit_reason = decision.notes or "paper_close"
 
                 logger.info(
@@ -831,7 +875,7 @@ class PaperBroker:
                         strategy=pos.get("strategy", "unknown"),
                         exit_reason=decision.notes or "paper_close",
                         side=pos_side,
-                        spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
+                        spread_cost=self._compute_spread_cost(pos, exit_p),
                         mfe_usd=pos.get("mfe_usd", 0.0),
                         mae_usd=pos.get("mae_usd", 0.0),
                     ))
@@ -883,13 +927,13 @@ class PaperBroker:
                 pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_gross)
                 
                 pnl_usd = pnl_gross - fee_usd
-                self.balance += pnl_usd
+                self._audit_balance_change(pnl_usd, "scale_out", symbol)
 
                 duration_secs, duration_str = self._compute_duration(pos)
                 pnl_sign = "+" if pnl_usd >= 0 else "-"
                 pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
                 pnl_pct = (pnl_usd / (entry_p * close_qty)) * 100 if close_qty else 0.0
-                spread_cost = (pos.get("entry_fee", 0.0) * scale_frac) + fee_usd
+                spread_cost = self._compute_spread_cost(pos, exit_p, close_qty)
                 exit_reason = decision.notes or "paper_scale_out"
 
                 logger.info(
@@ -920,7 +964,7 @@ class PaperBroker:
                         strategy=pos.get("strategy", "unknown"),
                         exit_reason=decision.notes or "paper_scale_out",
                         side=pos_side,
-                        spread_cost=(pos.get("entry_fee", 0.0) * scale_frac) + fee_usd,
+                        spread_cost=self._compute_spread_cost(pos, exit_p, close_qty),
                         mfe_usd=pos.get("mfe_usd", 0.0),
                         mae_usd=pos.get("mae_usd", 0.0),
                     ))
@@ -1029,7 +1073,7 @@ class PaperBroker:
                             f"Spread gate: ${round_trip_cost_usd:.2f} > {max_spread_pct:.0%} of risk")
                     )
 
-                self.balance -= fee_usd
+                self._audit_balance_change(-fee_usd, "scale_in_fee", symbol)
 
                 # Update position sizing and avg_price
                 old_qty = pos["qty"]
@@ -1109,7 +1153,7 @@ class PaperBroker:
             pnl_gross = convert_quote_to_usd(pnl_gross_raw, symbol, exit_p, self.market_provider)
             fee_usd = convert_quote_to_usd(fee_usd, symbol, exit_p, self.market_provider)
             pnl_usd = pnl_gross - fee_usd
-            self.balance += pnl_usd
+            self._audit_balance_change(pnl_usd, "flatten", symbol)
 
             duration_secs, duration_str = self._compute_duration(pos)
             if pnl_usd > 0:
@@ -1120,8 +1164,7 @@ class PaperBroker:
             pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 and pos["size"] != 0 else 0.0
             pnl_sign = "+" if pnl_usd >= 0 else "-"
             pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
-            entry_fee = abs(pos.get("entry_fee", 0))
-            spread_cost = entry_fee + fee_usd
+            spread_cost = self._compute_spread_cost(pos, exit_p)
 
             logger.info(
                 f"[PAPER] [EXIT] Paper Manual Cash-Out: {symbol} {pnl_str} "
@@ -1147,7 +1190,7 @@ class PaperBroker:
                     strategy=pos.get("strategy", "unknown"),
                     exit_reason=exit_reason,
                     side=pos_side,
-                    spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
+                    spread_cost=self._compute_spread_cost(pos, exit_p),
                     mfe_usd=pos.get("mfe_usd", 0.0),
                     mae_usd=pos.get("mae_usd", 0.0),
                 ))
@@ -1164,81 +1207,172 @@ class PaperBroker:
         Called by loop.py when day-chaining to prevent stale positions
         from the previous replay day leaking into the next day's data.
         Records each closure in the trade result store with proper PnL.
+
+        DEFENSIVE: each position is wrapped in its own try/except so a
+        single bad position cannot abort the batch and leave other closes
+        unrecorded (which causes silent balance drift).
         """
         symbols_to_close = list(self.positions.keys())
         if not symbols_to_close:
             return
 
+        balance_at_start = self.balance
+        total_closed_pnl = 0.0
+        closed_count = 0
+        failed_symbols: list[str] = []
+
+        # Log the full batch snapshot up front for forensic debugging
+        logger.info(
+            f"[PAPER] [DAY-CHAIN-BATCH] Closing {len(symbols_to_close)} positions "
+            f"for reason='{reason}': {symbols_to_close} | balance_before={balance_at_start:.2f}"
+        )
+
         for symbol in symbols_to_close:
+            if symbol not in self.positions:
+                # Position may have been removed by a concurrent evaluation path
+                logger.warning(f"[PAPER] [DAY-CHAIN-BATCH] {symbol} no longer in positions during batch close; skipping")
+                continue
             pos = self.positions.pop(symbol)
             try:
-                price = self._get_current_price(symbol)
-            except Exception:
-                price = pos.get("current_price", pos.get("entry_price", 0))
-
-            entry_p = pos.get("entry_price", 0)
-            # BUGFIX: Convert quote-currency P&L to USD for cross-pairs (JPY/CAD/CHF)
-            pnl_gross_raw = (price - entry_p) * pos["size"]
-            fee_raw = abs(pos.get("qty", abs(pos["size"])) * price) * self._get_taker_fee(symbol)
-            pnl_usd_raw = pnl_gross_raw - fee_raw
-            # pnl_pct stays in quote-currency terms (consistent with notional denominator)
-            pnl_pct = (pnl_usd_raw / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
-            # Convert realized P&L to USD for balance update
-            pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, price, self.market_provider)
-            fee_usd = convert_quote_to_usd(fee_raw, symbol, price, self.market_provider)
-            balance_before = self.balance
-            self.balance += pnl_usd
-            logger.info(
-                f"[PAPER] [DAY-CHAIN-TRACE] {symbol}: size={pos.get('qty',0):.2f} entry={entry_p:.5f} exit={price:.5f} "
-                f"raw_pnl={pnl_usd_raw:.4f} conv_pnl={pnl_usd:.2f} balance_before={balance_before:.2f} balance_after={self.balance:.2f}"
-            )
-
-            side = pos.get("side", "long")
-
-            # Compute duration
-            duration_secs = None
-            entry_time_str = pos.get("entry_time", pos.get("opened_at", ""))
-            if entry_time_str:
                 try:
-                    entry_dt = datetime.fromisoformat(entry_time_str)
-                    duration_secs = (self._now() - entry_dt).total_seconds()
-                    if duration_secs < 0:
-                        duration_secs = abs(duration_secs)
+                    entry_p_fallback = pos.get("entry_price")
+                    price = self._get_current_price(symbol, fallback=entry_p_fallback)
                 except Exception:
-                    pass
+                    price = pos.get("current_price", pos.get("entry_price", 0))
 
-            pnl_sign = "+" if pnl_usd >= 0 else "-"
+                entry_p = pos.get("entry_price", 0)
+                qty = pos.get("qty", abs(pos.get("size", 0)))
+                side = pos.get("side", "long")
+                position_size = pos.get("size", 0)
+
+                # Default values for trace logging even if sanity guard fires
+                pnl_usd_raw = 0.0
+                pnl_usd = 0.0
+                fee_usd = 0.0
+                pnl_pct = 0.0
+                exit_p = price  # default for logging
+
+                # Sanity guard: if the position lacks critical fields, log and skip math
+                if entry_p is None or position_size is None or abs(position_size) < 1e-12 or qty is None:
+                    logger.error(
+                        f"[PAPER] [DAY-CHAIN-BATCH] {symbol} malformed position entry_p={entry_p} "
+                        f"size={position_size} qty={qty}; closing at zero PnL to prevent corruption"
+                    )
+                else:
+                    # BUGFIX: Convert quote-currency P&L to USD for cross-pairs (JPY/CAD/CHF)
+                    fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
+                    if is_parity:
+                        exit_p = price
+                        fee_raw = abs(qty * price) * self._get_taker_fee(symbol)
+                    else:
+                        exit_p = price * (1 - friction) if side == "long" else price * (1 + friction)
+                        fee_raw = abs(qty * exit_p) * fee_pct
+                    pnl_gross_raw = (exit_p - entry_p) * position_size
+                    pnl_usd_raw = pnl_gross_raw - fee_raw
+                    # pnl_pct stays in quote-currency terms (consistent with notional denominator)
+                    pnl_pct = (pnl_usd_raw / (entry_p * abs(position_size))) * 100 if entry_p > 0 else 0.0
+                    # Convert realized P&L to USD for balance update
+                    pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, price, self.market_provider)
+                    fee_usd = convert_quote_to_usd(fee_raw, symbol, price, self.market_provider)
+
+                # Panic guard: single trade should not wipe out >50% of account
+                if abs(pnl_usd) > self.balance * 0.5 and self.balance > 0:
+                    logger.error(
+                        f"[PAPER] [DAY-CHAIN-BATCH] {symbol} PANIC GUARD: proposed PnL ${pnl_usd:.2f} "
+                        f"> 50% of balance ${self.balance:.2f}. price={price:.5f} entry={entry_p:.5f} "
+                        f"size={position_size}. Suspending PnL application for manual review."
+                    )
+                    pnl_usd = 0.0
+                    fee_usd = 0.0
+
+                balance_before = self.balance
+                self._audit_balance_change(pnl_usd, "day_chain_reset", symbol)
+                total_closed_pnl += pnl_usd
+                closed_count += 1
+                logger.info(
+                    f"[PAPER] [DAY-CHAIN-TRACE] {symbol}: size={qty:.2f} entry={entry_p:.5f} exit={exit_p:.5f} "
+                    f"raw_pnl={pnl_usd_raw:.4f} conv_pnl={pnl_usd:.2f} balance_before={balance_before:.2f} balance_after={self.balance:.2f}"
+                )
+
+                # Compute duration
+                duration_secs = None
+                entry_time_str = pos.get("entry_time", pos.get("opened_at", ""))
+                if entry_time_str:
+                    try:
+                        entry_dt = datetime.fromisoformat(entry_time_str)
+                        duration_secs = (self._now() - entry_dt).total_seconds()
+                        if duration_secs < 0:
+                            duration_secs = abs(duration_secs)
+                    except Exception:
+                        pass
+
+                pnl_sign = "+" if pnl_usd >= 0 else "-"
+                logger.info(
+                    f"[PAPER] [DAY-CHAIN] {symbol}: Closed {side} {pnl_sign}${abs(pnl_usd):.2f} "
+                    f"({reason})"
+                )
+
+                if self.trade_results:
+                    try:
+                        self.trade_results.add_result(TradeResult(
+                            symbol=symbol,
+                            closed_at=self._wall_clock().isoformat(),
+                            pnl_pct=pnl_pct,
+                            pnl_usd=pnl_usd,
+                            is_win=pnl_usd > 0,
+                            tier="100%",
+                            capital_at_close=self.balance,
+                            opened_at=pos.get("opened_at", ""),
+                            duration_seconds=duration_secs,
+                            strategy=pos.get("strategy", "unknown"),
+                            exit_reason=reason,
+                            side=side,
+                            spread_cost=self._compute_spread_cost(pos, price),
+                            mfe_usd=pos.get("mfe_usd", 0.0),
+                            mae_usd=pos.get("mae_usd", 0.0),
+                        ))
+                    except Exception as tr_err:
+                        logger.error(
+                            f"[PAPER] [DAY-CHAIN-BATCH] {symbol} FAILED to record trade result: {tr_err}. "
+                            f"Balance was updated by ${pnl_usd:.2f} but trade result is MISSING."
+                        )
+                        failed_symbols.append(symbol)
+
+                if self.position_hold_store:
+                    try:
+                        self.position_hold_store.remove(symbol)
+                    except Exception as phs_err:
+                        logger.warning(f"[PAPER] [DAY-CHAIN-BATCH] {symbol} failed to remove hold record: {phs_err}")
+
+                SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, pnl_usd=pnl_usd, sim_time=self._now())
+
+            except Exception as close_err:
+                logger.exception(
+                    f"[PAPER] [DAY-CHAIN-BATCH] {symbol} EXCEPTION during close_all_positions: {close_err}. "
+                    f"Position was popped but close may be incomplete."
+                )
+                failed_symbols.append(symbol)
+
+        # Final reconciliation: detect if balance drifted without traceable trades
+        balance_delta = self.balance - balance_at_start
+        if abs(balance_delta - total_closed_pnl) > 0.01:
+            logger.error(
+                f"[PAPER] [DAY-CHAIN-RECONCILE] BATCH BALANCE MISMATCH: "
+                f"balance_delta=${balance_delta:.2f} sum_closed_pnl=${total_closed_pnl:.2f} "
+                f"diff=${balance_delta - total_closed_pnl:.2f} | "
+                f"closed={closed_count} failed={failed_symbols}"
+            )
+        else:
             logger.info(
-                f"[PAPER] [DAY-CHAIN] {symbol}: Closed {side} {pnl_sign}${abs(pnl_usd):.2f} "
-                f"({reason})"
+                f"[PAPER] [DAY-CHAIN-RECONCILE] Batch ok: closed={closed_count} "
+                f"sum_pnl=${total_closed_pnl:.2f} balance_delta=${balance_delta:.2f} "
+                f"balance_after={self.balance:.2f}"
             )
 
-            if self.trade_results:
-                self.trade_results.add_result(TradeResult(
-                    symbol=symbol,
-                    closed_at=self._wall_clock().isoformat(),
-                    pnl_pct=pnl_pct,
-                    pnl_usd=pnl_usd,
-                    is_win=pnl_usd > 0,
-                    tier="100%",
-                    capital_at_close=self.balance,
-                    opened_at=pos.get("opened_at", ""),
-                    duration_seconds=duration_secs,
-                    strategy=pos.get("strategy", "unknown"),
-                    exit_reason=reason,
-                    side=side,
-                    spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
-                    mfe_usd=pos.get("mfe_usd", 0.0),
-                    mae_usd=pos.get("mae_usd", 0.0),
-                ))
-
-        for sym in symbols_to_close:
-            if self.position_hold_store:
-                self.position_hold_store.remove(sym)
         self._exit_cooldowns.clear()  # Reset cooldowns for new day
         self._save_state()
         self.refresh_account_summary()
-        logger.info(f"[PAPER] [DAY-CHAIN] Closed {len(symbols_to_close)} positions for day chain")
+        logger.info(f"[PAPER] [DAY-CHAIN] Closed {closed_count}/{len(symbols_to_close)} positions for day chain")
 
     def should_block_for_hold(self, symbol, decision, open_position):
         return False, None, None
@@ -1263,7 +1397,8 @@ class PaperBroker:
 
             pos = self.positions[symbol]
             try:
-                price = self._get_current_price(symbol)
+                _entry_for_fallback = pos.get("entry_price")
+                price = self._get_current_price(symbol, fallback=_entry_for_fallback)
             except Exception:
                 continue
 
@@ -1476,7 +1611,15 @@ class PaperBroker:
                                     pnl_pct = (pnl_usd_raw / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                                     pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, _exit_price, self.market_provider)
                                     fee_usd = convert_quote_to_usd(fee_raw, symbol, _exit_price, self.market_provider)
-                                    self.balance += pnl_usd
+                                    # PANIC GUARD: universal exit router must not wipe out the account
+                                    if abs(pnl_usd) > self.balance * 0.5 and self.balance > 0:
+                                        logger.error(
+                                            f"[PAPER] [EXIT-ROUTER-PANIC] {symbol}: proposed PnL ${pnl_usd:.2f} > 50% of balance "
+                                            f"${self.balance:.2f}. exit_price={_exit_price:.5f} entry={entry_p:.5f} size={pos.get('size',0)}. Zeroing PnL."
+                                        )
+                                        pnl_usd = 0.0
+                                        fee_usd = 0.0
+                                    self._audit_balance_change(pnl_usd, "universal_exit_router", symbol)
                                     
                                     # Duration
                                     duration_secs, duration_str = self._compute_duration(pos)
@@ -1488,8 +1631,7 @@ class PaperBroker:
                                     pnl_sign = "+" if pnl_usd >= 0 else "-"
                                     pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
                                     
-                                    entry_fee = abs(pos.get("entry_fee", 0))
-                                    spread_cost = entry_fee + fee_usd
+                                    spread_cost = self._compute_spread_cost(pos, _exit_price)
         
                                     logger.info(
                                         f"[PAPER] [EXIT] Paper INVALIDATION: {symbol} {pnl_str} "
@@ -1514,7 +1656,7 @@ class PaperBroker:
                                             strategy=pos.get("strategy", "unknown"),
                                             exit_reason=_router_reason,
                                             side=side,
-                                            spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
+                                            spread_cost=self._compute_spread_cost(pos, _exit_price),
                                             mfe_usd=pos.get("mfe_usd", 0.0),
                                             mae_usd=pos.get("mae_usd", 0.0),
                                         ))
@@ -1623,20 +1765,27 @@ class PaperBroker:
                 pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, exit_price, self.market_provider)
                 fee_usd = convert_quote_to_usd(fee_raw, symbol, exit_price, self.market_provider)
                 
+                # PANIC GUARD: mechanical SL/TP must not wipe out the account
+                if abs(pnl_usd) > self.balance * 0.5 and self.balance > 0:
+                    logger.error(
+                        f"[PAPER] [SLTP-PANIC] {symbol}: proposed PnL ${pnl_usd:.2f} > 50% of balance "
+                        f"${self.balance:.2f}. exit={exit_price:.5f} entry={entry_p:.5f} size={pos.get('size',0)}. Zeroing PnL."
+                    )
+                    pnl_usd = 0.0
+                    fee_usd = 0.0
+
                 if pnl_usd > 0:
                     pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd)
                 else:
                     pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_usd)
 
-                self.balance += pnl_usd
+                self._audit_balance_change(pnl_usd, f"mechanical_{hit.lower()}", symbol)
                 # Format PnL as +$X.XX or -$X.XX (sign BEFORE dollar)
                 # so the LedgerDaemon RE_EXIT regex can parse it for analytics.
                 pnl_sign = "+" if pnl_usd >= 0 else "-"
                 pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
 
-                # Spread cost = entry fee + exit fee (round-trip friction)
-                entry_fee = abs(pos.get("entry_fee", 0))
-                spread_cost = entry_fee + fee_usd
+                spread_cost = self._compute_spread_cost(pos, exit_price)
 
                 # Compute trade duration
                 duration_secs, duration_str = self._compute_duration(pos)
@@ -1708,7 +1857,7 @@ class PaperBroker:
                         strategy=pos.get("strategy", "unknown"),
                         exit_reason=f"paper_{hit.lower()}" if hit else "paper_exit",
                         side=side,
-                        spread_cost=pos.get("entry_fee", 0.0) + fee_usd,
+                        spread_cost=self._compute_spread_cost(pos, exit_price),
                         mfe_usd=pos.get("mfe_usd", 0.0),
                         mae_usd=pos.get("mae_usd", 0.0),
                     ))

@@ -580,6 +580,7 @@ def _run_heartbeat_cycle(
     consecutive_errors: int,
     last_holdings_log_ts: float,
     last_capital_check_ts: float,
+    replay_provider=None,
 ) -> tuple[float, float]:
     """Run per-loop heartbeat: holdings snapshot, capital pulse, synthetic stops.
 
@@ -620,6 +621,22 @@ def _run_heartbeat_cycle(
             except Exception as e:
                 logger.warning(f"[HEARTBEAT] Failed to check capital: {e}")
                 last_capital_check_ts = now_ts + 30
+
+    # ── Replay Day-Transition Guard ──
+    # If the replay provider has exhausted today's data, close ALL paper positions
+    # BEFORE evaluate_synthetic_stops() gets a chance to use stale/bad prices.
+    # This prevents the universal exit router from calculating catastrophic PnL
+    # when _get_current_price() falls back to 100.0 during the transition.
+    if (
+        replay_provider is not None
+        and getattr(replay_provider, "replay_date", None) is not None
+        and replay_provider.is_replay_complete
+        and executor_paper
+    ):
+        try:
+            executor_paper.close_all_positions("Day Chain Reset")
+        except Exception as e:
+            logger.warning("[REPLAY] Day-chain pre-guard close_all_positions failed: %s", e)
 
     if executor:
         try:
@@ -1835,6 +1852,7 @@ def run_bot(
                 consecutive_errors=consecutive_error_iterations,
                 last_holdings_log_ts=last_holdings_log_ts,
                 last_capital_check_ts=last_capital_check_ts,
+                replay_provider=replay_provider,
             )
             # ── Prop Firm Evaluation Monitor ──
             # (Execute BEFORE broadcast so UI receives populated state dictionary immediately)

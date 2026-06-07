@@ -623,15 +623,22 @@ class StrategyEngine:
                     if not opened_at:
                         from datetime import datetime as dt, timezone as tz
                         opened_at = dt.now(tz.utc)
-                    
-                    self._broker.position_hold_store.upsert(
-                        symbol=self.symbol,
-                        opened_at=opened_at,
-                        entry_price=entry_p,
-                        size=size,
-                        strategy=strategy
-                    )
-                    hold_rec = self._broker.position_hold_store.get(self.symbol)
+
+                    # Don't persist phantom hold records with missing critical fields
+                    if entry_p is None or (isinstance(entry_p, (int, float)) and entry_p <= 0) or size is None or abs(size) < 1e-12:
+                        logger.warning(
+                            f"[ENGINE HOLD GUARD] {self.symbol}: skipping hold-record creation — "
+                            f"entry_p={entry_p} size={size} (invalid/missing)"
+                        )
+                    else:
+                        self._broker.position_hold_store.upsert(
+                            symbol=self.symbol,
+                            opened_at=opened_at,
+                            entry_price=entry_p,
+                            size=size,
+                            strategy=strategy
+                        )
+                        hold_rec = self._broker.position_hold_store.get(self.symbol)
 
                 if hold_rec:
                     floating_gross = None

@@ -15,6 +15,9 @@ if src_path not in sys.path:
     sys.path.insert(0, src_path)
 print(f"Running with sys.path[0]={sys.path[0]}")
 
+import tradebot_sci.broker.paper_broker as _pb_debug
+print(f"[DEBUG] paper_broker loaded from: {_pb_debug.__file__}")
+print(f"[DEBUG] has DAY-CHAIN-BATCH: {'DAY-CHAIN-BATCH' in _pb_debug.PaperBroker.close_all_positions.__code__.co_consts}")
 from tradebot_sci.runtime.loop import run_bot
 
 

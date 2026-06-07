@@ -447,7 +447,7 @@ BOT_CMD="PYTHONPATH=src TRADEBOT_INSTANCE_ID=\"$INSTANCE_ID\" "
 [[ -n "$TRADING_CONFIRMATION" ]]  && BOT_CMD+="TRADING_CONFIRMATION=\"$TRADING_CONFIRMATION\" "
 [[ -n "$MARKET_DATA_MODE" ]] && BOT_CMD+="MARKET_DATA_MODE=\"$MARKET_DATA_MODE\" "
 [[ -n "$BROKER_MODE" ]] && BOT_CMD+="BROKER_MODE=\"$BROKER_MODE\" "
-BOT_CMD+="$PYTHON_EXE scripts/run_dev_bot.py ${BOT_ARGS[*]}"
+BOT_CMD+="$PYTHON_EXE scripts/run_dev_bot.py ${BOT_ARGS[*]:-}"
 
 export SESSION_NAME
 export LOG_FILE
@@ -464,13 +464,15 @@ if [[ -n "$COMMENTARY_MODE" ]]; then
   export COMMENTARY_LLM="$COMMENTARY_MODE"
 fi
 
-for kv in "${EXTRA_ENVS[@]}"; do
-  if [[ "$kv" != *=* ]]; then
-    echo "ERROR: --env must be KEY=VALUE (got '$kv')" >&2
-    exit 2
-  fi
-  export "${kv?}"
-done
+if [[ ${#EXTRA_ENVS[@]} -gt 0 ]]; then
+  for kv in "${EXTRA_ENVS[@]}"; do
+    if [[ "$kv" != *=* ]]; then
+      echo "ERROR: --env must be KEY=VALUE (got '$kv')" >&2
+      exit 2
+    fi
+    export "${kv?}"
+  done
+fi
 
 export BOT_CMD
 
@@ -526,7 +528,7 @@ restart_tmux() {
 	      saved_exec="$(tmux show-environment -t "$SESSION_NAME" TRADEBOT_EXECUTE_TRADES 2>/dev/null | sed -n 's/^TRADEBOT_EXECUTE_TRADES=//p' || true)"
 	      if [[ -n "$saved_exec" ]]; then
 	        EXECUTE_TRADES="$saved_exec"
-	        BOT_CMD="PROFILE_NAME=\"$PROFILE_NAME\" PYTHONPATH=src TRADEBOT_INSTANCE_ID=\"$INSTANCE_ID\" EXECUTE_TRADES=\"$EXECUTE_TRADES\" TRADING_CONFIRMATION=YES MARKET_DATA_MODE=\"${MARKET_DATA_MODE:-}\" BROKER_MODE=\"${BROKER_MODE:-}\" $PYTHON_EXE scripts/run_dev_bot.py ${BOT_ARGS[*]}"
+	        BOT_CMD="PROFILE_NAME=\"$PROFILE_NAME\" PYTHONPATH=src TRADEBOT_INSTANCE_ID=\"$INSTANCE_ID\" EXECUTE_TRADES=\"$EXECUTE_TRADES\" TRADING_CONFIRMATION=YES MARKET_DATA_MODE=\"${MARKET_DATA_MODE:-}\" BROKER_MODE=\"${BROKER_MODE:-}\" $PYTHON_EXE scripts/run_dev_bot.py ${BOT_ARGS[*]:-}"
 	      fi
 	    fi
 	  fi
@@ -661,7 +663,9 @@ if [[ "$DRY_RUN" == "true" ]]; then
   echo "LOG_FILE=$LOG_FILE"
   [[ -n "${COMMENTARY_LLM:-}" ]] && echo "COMMENTARY_LLM=$COMMENTARY_LLM"
   echo "COMMENTARY_LLM_MIN_SECONDS=$COMMENTARY_LLM_MIN_SECONDS"
-  for kv in "${EXTRA_ENVS[@]}"; do echo "ENV $kv"; done
+  if [[ ${#EXTRA_ENVS[@]} -gt 0 ]]; then
+    for kv in "${EXTRA_ENVS[@]}"; do echo "ENV $kv"; done
+  fi
   echo "BOT_CMD=$BOT_CMD"
   [[ "$GUI" == "true" ]] && echo "GUI=true"
   echo "./scripts/run_tmux_dashboard.sh"
