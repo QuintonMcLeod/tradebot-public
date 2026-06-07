@@ -1551,7 +1551,7 @@ class PerformanceSettings(BaseModel):
         description="Win-rate ceiling. Above this, score requirement is lowered."
     )
     dynamic_score_penalty: float = Field(
-        default=15.0,
+        default=8.0,
         ge=0.0,
         le=40.0,
         description="Points ADDED to score threshold when symbol is underperforming."
@@ -1563,7 +1563,7 @@ class PerformanceSettings(BaseModel):
         description="Points SUBTRACTED from score threshold when symbol is outperforming."
     )
     dynamic_score_max_threshold: float = Field(
-        default=85.0,
+        default=70.0,
         ge=50.0,
         le=100.0,
         description="Hard ceiling for adjusted score threshold."

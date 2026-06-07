@@ -21,6 +21,7 @@ class CryptoVWAPReversionStrategy(BaseStrategy):
     ⚠️ Designed for crypto markets. May not perform well on forex or equities.
     """
     ASSET_TAG = "crypto"
+    score_threshold = 60.0
 
     def __init__(self, ema_period=20, rsi_period=14,
                  rsi_long_threshold=40, rsi_short_threshold=60,
@@ -136,7 +137,7 @@ class CryptoVWAPReversionStrategy(BaseStrategy):
         summary = f"VWAP-Revert {score:.0f}/100: {', '.join(breakdown)}" if breakdown else "VWAP-Revert: No signal"
 
         # LONG: Price below VWAP + EMA trending up + RSI < threshold + minimum score
-        if htf_dir in ("long", "neutral") and deviation < -self.vwap_deviation_pct and ema_rising and rsi < self.rsi_long_threshold and score >= 60:
+        if htf_dir in ("long", "neutral") and deviation < -self.vwap_deviation_pct and ema_rising and rsi < self.rsi_long_threshold and score >= self.score_threshold:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close - stop_dist
             target = vwap + (vwap - last_close) * 0.5
@@ -157,7 +158,7 @@ class CryptoVWAPReversionStrategy(BaseStrategy):
             )
 
         # SHORT: Price above VWAP + EMA trending down + RSI > threshold + minimum score
-        if htf_dir in ("short", "neutral") and deviation > self.vwap_deviation_pct and ema_falling and rsi > self.rsi_short_threshold and score >= 60:
+        if htf_dir in ("short", "neutral") and deviation > self.vwap_deviation_pct and ema_falling and rsi > self.rsi_short_threshold and score >= self.score_threshold:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close + stop_dist
             target = vwap - (last_close - vwap) * 0.5

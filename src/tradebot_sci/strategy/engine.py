@@ -654,8 +654,17 @@ class StrategyEngine:
                         hold_rec.mfe_usd = max(hold_rec.mfe_usd or 0.0, floating_gross)
                         hold_rec.mae_usd = min(hold_rec.mae_usd or 0.0, floating_gross)
                         self._broker.position_hold_store.save()
-                        open_position["mfe_usd"] = hold_rec.mfe_usd
-                        open_position["mae_usd"] = hold_rec.mae_usd
+                        # Guard: only copy hold-record MFE/MAE if it belongs to THIS position
+                        # (matching entry_price prevents stale records from old trades leaking in)
+                        _hold_entry = getattr(hold_rec, "entry_price", None)
+                        _pos_entry = open_position.get("entry_price")
+                        if _hold_entry is not None and _pos_entry is not None and abs(float(_hold_entry) - float(_pos_entry)) < 1e-9:
+                            open_position["mfe_usd"] = hold_rec.mfe_usd
+                            open_position["mae_usd"] = hold_rec.mae_usd
+                        else:
+                            # Stale hold record — seed from current floating gross
+                            open_position["mfe_usd"] = max(open_position.get("mfe_usd", 0.0), floating_gross)
+                            open_position["mae_usd"] = min(open_position.get("mae_usd", 0.0), floating_gross)
                         if getattr(hold_rec, "risk_usd", None) is not None:
                             open_position["risk_usd"] = float(hold_rec.risk_usd)
                         if getattr(hold_rec, "initial_risk", None) is not None:
@@ -1281,8 +1290,33 @@ class StrategyEngine:
                 )
 
         if decision:
+            # Preserve strategy's internal score before engine overwrites it
+            _internal_score = getattr(decision, 'score', None)
+
             decision.score = strat_score
             decision.grade = strat_grade
+
+            # [DYNAMIC SCORING] Universal per-symbol threshold adjustment
+            # If a symbol is bleeding (loss streak or low win rate), raise the bar.
+            # If it's hot, lower it. Applies to ALL score-based strategies.
+            base_threshold = getattr(self._strategy, 'score_threshold', None)
+            if base_threshold is not None and decision.action in ("enter_long", "enter_short", "scale_in"):
+                from tradebot_sci.strategy.dynamic_scoring import get_adjusted_threshold
+                profile_for_scoring = getattr(self.settings, 'performance', None) if self.settings else None
+                if profile_for_scoring is None:
+                    profile_for_scoring = self.profile
+                adjusted = get_adjusted_threshold(self.symbol, base_threshold, profile_for_scoring)
+                # Use strategy's internal score if it set one, otherwise strat_score
+                effective_score = _internal_score if _internal_score is not None else strat_score
+                if effective_score < adjusted:
+                    reason = f"Dynamic Scoring: score {effective_score:.1f} < adjusted threshold {adjusted:.1f}"
+                    logger.info(f"[DYNAMIC_SCORE] {self.symbol} {reason}")
+                    from tradebot_sci.strategy.decisions import stand_aside_decision
+                    from tradebot_sci.runtime.rejection_journal import rejection_journal
+                    rejection_journal.log(self.symbol, timeframe, "DynamicScoring", reason)
+                    decision = stand_aside_decision(snapshot.symbol, snapshot.timeframe, reason)
+                    decision.score = strat_score
+                    decision.grade = strat_grade
 
             # [META-SCI] Propagate the winning sub-strategy name (e.g. "bullish_trending")
             # so the GUI shows the actual strategy instead of the conglomerate "meta_sci".

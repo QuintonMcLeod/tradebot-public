@@ -27,7 +27,8 @@ class RoboCopStrategy(BaseStrategy):
     - Higher risk: 2% per trade
     - Strong trend gate: htf_strength >= 0.3
     """
-    
+    score_threshold = 70.0
+
     def __init__(self, **kwargs):
         super().__init__("RoboCop")
         self.target_r = float(kwargs.get('target_r', 3.0))
@@ -113,11 +114,11 @@ class RoboCopStrategy(BaseStrategy):
             )
 
         # FILTER: Minimum Score 70 (hardened from 60)
-        if score < 70.0:
+        if score < self.score_threshold:
             return stand_aside_decision(
-                snapshot.symbol, 
-                snapshot.timeframe, 
-                f"Sniper: Low Score {score:.0f}/70 ({', '.join(score_breakdown)})"
+                snapshot.symbol,
+                snapshot.timeframe,
+                f"Sniper: Low Score {score:.0f}/{self.score_threshold:.0f} ({', '.join(score_breakdown)})"
             )
 
         # --- EXECUTION LOGIC (If Score >= 60) ---

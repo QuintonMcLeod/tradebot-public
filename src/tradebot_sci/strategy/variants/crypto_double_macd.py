@@ -21,6 +21,7 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
     ⚠️ Designed for crypto markets. May not perform well on forex or equities.
     """
     ASSET_TAG = "crypto"
+    score_threshold = 60.0
 
     def __init__(self,
                  slow_fast=26, slow_slow=52, slow_signal=18,
@@ -152,7 +153,7 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
 
         # --- Initial Entry ---
         # LONG: Slow MACD histogram > 0 (uptrend) + Fast MACD bullish crossover + RSI in pullback zone
-        if htf_dir in ("long", "neutral") and slow_hist > 0 and fast_bull_cross and rsi < self.rsi_pullback_high and score >= 60:
+        if htf_dir in ("long", "neutral") and slow_hist > 0 and fast_bull_cross and rsi < self.rsi_pullback_high and score >= self.score_threshold:
             stop_dist = atr * 1.0  # Tight for scalping
             stop_loss = last_close - stop_dist
 
@@ -170,7 +171,7 @@ class CryptoDoubleMACDStrategy(BaseStrategy):
             )
 
         # SHORT: Slow MACD histogram < 0 (downtrend) + Fast MACD bearish crossover + RSI in pullback zone
-        if htf_dir in ("short", "neutral") and slow_hist < 0 and fast_bear_cross and rsi > self.rsi_pullback_low and score >= 60:
+        if htf_dir in ("short", "neutral") and slow_hist < 0 and fast_bear_cross and rsi > self.rsi_pullback_low and score >= self.score_threshold:
             stop_dist = atr * 1.0
             stop_loss = last_close + stop_dist
 

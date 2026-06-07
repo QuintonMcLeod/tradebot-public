@@ -83,6 +83,11 @@ class PaperBroker:
         self._exit_cooldowns = {}  # symbol -> timestamp of last exit
         self._emergency_stop_timers = {}  # [NEW] symbol -> epoch_time
         self.REENTRY_COOLDOWN = float(os.getenv("PAPER_REENTRY_COOLDOWN", "300"))  # 5 min default
+        
+        # MFE/MAE tracking for Winner Giveback & exit logic (mirrors OANDA/IBKR)
+        from tradebot_sci.broker.position_hold_store import PositionHoldStore
+        _phs_path = str(_paths.DATA_DIR / "paper_position_holds.json")
+        self.position_hold_store = PositionHoldStore(_phs_path)
 
         # Load persisted state or fall back to initial balance
         default_balance = float(os.getenv("PAPER_BALANCE", initial_balance))
@@ -832,6 +837,8 @@ class PaperBroker:
                     ))
 
                 self._exit_cooldowns[symbol] = time.time()
+                if self.position_hold_store:
+                    self.position_hold_store.remove(symbol)
                 SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, sim_time=self._now())
                 self._save_state()
                 self.refresh_account_summary()
@@ -922,6 +929,8 @@ class PaperBroker:
                 if remain_qty < 1e-6:
                     del self.positions[symbol]
                     self._exit_cooldowns[symbol] = time.time()
+                    if self.position_hold_store:
+                        self.position_hold_store.remove(symbol)
                 else:
                     pos["qty"] = remain_qty
                     pos["size"] = remain_qty if pos_side == "long" else -remain_qty
@@ -1144,6 +1153,8 @@ class PaperBroker:
                 ))
 
             self._exit_cooldowns[symbol] = time.time()
+            if self.position_hold_store:
+                self.position_hold_store.remove(symbol)
             self._save_state()
             self.refresh_account_summary()
 
@@ -1166,12 +1177,22 @@ class PaperBroker:
                 price = pos.get("current_price", pos.get("entry_price", 0))
 
             entry_p = pos.get("entry_price", 0)
-            pnl_usd = (price - entry_p) * pos["size"]
-            fee_usd = abs(pos.get("qty", abs(pos["size"])) * price) * self._get_taker_fee(symbol)
-            pnl_usd -= fee_usd
+            # BUGFIX: Convert quote-currency P&L to USD for cross-pairs (JPY/CAD/CHF)
+            pnl_gross_raw = (price - entry_p) * pos["size"]
+            fee_raw = abs(pos.get("qty", abs(pos["size"])) * price) * self._get_taker_fee(symbol)
+            pnl_usd_raw = pnl_gross_raw - fee_raw
+            # pnl_pct stays in quote-currency terms (consistent with notional denominator)
+            pnl_pct = (pnl_usd_raw / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
+            # Convert realized P&L to USD for balance update
+            pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, price, self.market_provider)
+            fee_usd = convert_quote_to_usd(fee_raw, symbol, price, self.market_provider)
+            balance_before = self.balance
             self.balance += pnl_usd
+            logger.info(
+                f"[PAPER] [DAY-CHAIN-TRACE] {symbol}: size={pos.get('qty',0):.2f} entry={entry_p:.5f} exit={price:.5f} "
+                f"raw_pnl={pnl_usd_raw:.4f} conv_pnl={pnl_usd:.2f} balance_before={balance_before:.2f} balance_after={self.balance:.2f}"
+            )
 
-            pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
             side = pos.get("side", "long")
 
             # Compute duration
@@ -1211,6 +1232,9 @@ class PaperBroker:
                     mae_usd=pos.get("mae_usd", 0.0),
                 ))
 
+        for sym in symbols_to_close:
+            if self.position_hold_store:
+                self.position_hold_store.remove(sym)
         self._exit_cooldowns.clear()  # Reset cooldowns for new day
         self._save_state()
         self.refresh_account_summary()
@@ -1246,6 +1270,7 @@ class PaperBroker:
             # ── Get OHLC of the most recent candle for intra-bar evaluation ──
             candle_high = None
             candle_low = None
+            candle_open = None
             candles_for_router = None
             if market_provider:
                 try:
@@ -1254,6 +1279,10 @@ class PaperBroker:
                         last_candle = candles_for_router[-1]
                         candle_high = float(last_candle.high)
                         candle_low = float(last_candle.low)
+                        try:
+                            candle_open = float(last_candle.open)
+                        except Exception:
+                            candle_open = None
                 except Exception:
                     pass
 
@@ -1440,9 +1469,13 @@ class PaperBroker:
                                     # Exit router wants to close via strategy — do it at bar close price
                                     _exit_price = candles_for_router[-1].close if candles_for_router else price
                                     entry_p = pos.get("entry_price", 0)
-                                    pnl_usd = (_exit_price - entry_p) * pos["size"]
-                                    fee_usd = abs(pos.get("qty", abs(pos["size"])) * _exit_price) * self._get_taker_fee(symbol)
-                                    pnl_usd -= fee_usd
+                                    # BUGFIX: Convert quote-currency P&L to USD for cross-pairs (JPY/CAD/CHF)
+                                    pnl_gross_raw = (_exit_price - entry_p) * pos["size"]
+                                    fee_raw = abs(pos.get("qty", abs(pos["size"])) * _exit_price) * self._get_taker_fee(symbol)
+                                    pnl_usd_raw = pnl_gross_raw - fee_raw
+                                    pnl_pct = (pnl_usd_raw / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
+                                    pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, _exit_price, self.market_provider)
+                                    fee_usd = convert_quote_to_usd(fee_raw, symbol, _exit_price, self.market_provider)
                                     self.balance += pnl_usd
                                     
                                     # Duration
@@ -1452,8 +1485,6 @@ class PaperBroker:
                                         pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd)
                                     else:
                                         pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_usd)
-
-                                    pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                                     pnl_sign = "+" if pnl_usd >= 0 else "-"
                                     pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
                                     
@@ -1490,6 +1521,8 @@ class PaperBroker:
         
                                     del self.positions[symbol]
                                     self._exit_cooldowns[symbol] = time.time()
+                                    if self.position_hold_store:
+                                        self.position_hold_store.remove(symbol)
                                     SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, sim_time=self._now())
                                     self._save_state()
                                     self.refresh_account_summary()
@@ -1579,19 +1612,22 @@ class PaperBroker:
 
             if hit:
                 # exit_price already set to exact SL/TP level from OHLC evaluation above
-                pnl_usd = (exit_price - entry_p) * pos["size"]
+                # BUGFIX: Convert quote-currency P&L to USD for cross-pairs (JPY/CAD/CHF)
+                pnl_gross_raw = (exit_price - entry_p) * pos["size"]
                 if is_parity:
-                    fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * self._get_taker_fee(symbol)
+                    fee_raw = abs(pos.get("qty", abs(pos["size"])) * exit_price) * self._get_taker_fee(symbol)
                 else:
-                    fee_usd = abs(pos.get("qty", abs(pos["size"])) * exit_price) * (fee_pct / 2.0)
-                pnl_usd -= fee_usd
+                    fee_raw = abs(pos.get("qty", abs(pos["size"])) * exit_price) * (fee_pct / 2.0)
+                pnl_usd_raw = pnl_gross_raw - fee_raw
+                pnl_pct = (pnl_usd_raw / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
+                pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, exit_price, self.market_provider)
+                fee_usd = convert_quote_to_usd(fee_raw, symbol, exit_price, self.market_provider)
                 
                 if pnl_usd > 0:
                     pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd)
                 else:
                     pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_usd)
 
-                pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                 self.balance += pnl_usd
                 # Format PnL as +$X.XX or -$X.XX (sign BEFORE dollar)
                 # so the LedgerDaemon RE_EXIT regex can parse it for analytics.
@@ -1679,6 +1715,8 @@ class PaperBroker:
 
                 del self.positions[symbol]
                 self._exit_cooldowns[symbol] = time.time()  # Start re-entry cooldown
+                if self.position_hold_store:
+                    self.position_hold_store.remove(symbol)
                 SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, pnl_usd=pnl_usd, sim_time=self._now())
                 self._save_state()
                 self.refresh_account_summary()
@@ -1729,7 +1767,4 @@ class PaperBroker:
     def sync_profile(self, profile):
         self.profile = profile
 
-    @property
-    def position_hold_store(self):
-        return None
 

@@ -8,6 +8,10 @@ class BaseStrategy:
     
     SESSION_PROFILE: str | None = None # e.g. "london_open", "us_open"
     
+    # Override in score-based strategies (e.g. 60.0 or 70.0).
+    # Set to None if this strategy does NOT use a score threshold for entry.
+    score_threshold: float | None = None
+
     def __init__(self, name: str):
         self.name = name
         self.profile_risk_pct: float | None = None  # Set by Meta-SCI or engine

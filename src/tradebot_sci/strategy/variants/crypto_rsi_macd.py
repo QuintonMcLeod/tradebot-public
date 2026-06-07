@@ -21,6 +21,7 @@ class CryptoRSIMACDStrategy(BaseStrategy):
     ⚠️ Designed for crypto markets. May not perform well on forex or equities.
     """
     ASSET_TAG = "crypto"  # Warn: crypto-suited strategy
+    score_threshold = 60.0
 
     def __init__(self, macd_fast=8, macd_slow=21, macd_signal=5,
                  rsi_period=10, rsi_overbought=70, rsi_oversold=30):
@@ -140,7 +141,7 @@ class CryptoRSIMACDStrategy(BaseStrategy):
 
         # --- Initial Entry ---
         # LONG: RSI oversold + MACD bullish crossover + minimum score threshold
-        if htf_dir in ("long", "neutral") and rsi < self.rsi_oversold and bullish_cross and score >= 60:
+        if htf_dir in ("long", "neutral") and rsi < self.rsi_oversold and bullish_cross and score >= self.score_threshold:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close - stop_dist
             take_profit = last_close + (stop_dist * 2.0)
@@ -159,7 +160,7 @@ class CryptoRSIMACDStrategy(BaseStrategy):
             )
 
         # SHORT: RSI overbought + MACD bearish crossover + minimum score threshold
-        if htf_dir in ("short", "neutral") and rsi > self.rsi_overbought and bearish_cross and score >= 60:
+        if htf_dir in ("short", "neutral") and rsi > self.rsi_overbought and bearish_cross and score >= self.score_threshold:
             stop_dist = atr * UserConfig.STOP_ATR_MULTIPLIER
             stop_loss = last_close + stop_dist
             take_profit = last_close - (stop_dist * 2.0)

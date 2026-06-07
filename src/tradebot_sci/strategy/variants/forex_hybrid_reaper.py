@@ -8,11 +8,10 @@ from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.strategy.variants.base import BaseStrategy
 from tradebot_sci.market.indicators import calculate_ema
 from tradebot_sci.strategy.icc_signals import calculate_atr
-from tradebot_sci.strategy.dynamic_scoring import get_adjusted_threshold
-
 logger = logging.getLogger(__name__)
 
 class ForexHybridReaperStrategy(BaseStrategy):
+    score_threshold = 60.0
     SESSION_PROFILE = ["forex_hybrid_scalper:hybrid_overlap", "forex_hybrid_scalper:london_open", "forex_hybrid_scalper:asian_open"]
     """
     Forex Hybrid Scalper — Router inspired high-frequency 5m Forex strategy.
@@ -22,7 +21,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
     
     Optimized for major pairs (EUR/USD, GBP/USD).
     """
-    def __init__(self, target_r=0.5, **kwargs):
+    def __init__(self, target_r=1.5, **kwargs):
         super().__init__("ForexHybridScalper")
         self.target_r = target_r
         
@@ -30,8 +29,8 @@ class ForexHybridReaperStrategy(BaseStrategy):
         self.bb_period = int(kwargs.get('bb_period', 20))
         self.bb_std = float(kwargs.get('bb_std', 1.5))
         self.rsi_period = int(kwargs.get('rsi_period', 7))
-        self.rsi_overbought = float(kwargs.get('rsi_overbought', 65))
-        self.rsi_oversold = float(kwargs.get('rsi_oversold', 35))
+        self.rsi_overbought = float(kwargs.get('rsi_overbought', 60))
+        self.rsi_oversold = float(kwargs.get('rsi_oversold', 40))
         
         # Hyper Scalper default trend parameters
         self.trend_ema_period = int(kwargs.get('trend_ema', 200))
@@ -78,16 +77,19 @@ class ForexHybridReaperStrategy(BaseStrategy):
             score += 20.0
             breakdown.append(f"LTF-Align(+20)")
             
-        # 2. Bollinger Band Position (30 pts) - STRICT: only full close pierce gets points
-        # I reverted from wick-pierce (last_low/high) back to close-pierce because
-        # wick pierce was too permissive — it let in low-quality setups on wide-spread
-        # pairs (NZDUSD/EURNZD) that immediately bled spread cost.
+        # 2. Bollinger Band Position (30 pts) — wick pierce captures the true
+        # exhaustion point. A wick beyond the band means sellers/buyers were
+        # aggressively rejected, which is exactly what a mean-reversion scalper
+        # wants to catch. Close-pierce misses the entry and forces us to buy
+        # the recovery (higher risk, lower reward).
+        last_low = snapshot.candles[-1].low if snapshot.candles else last_close
+        last_high = snapshot.candles[-1].high if snapshot.candles else last_close
         if is_long_bias:
-            if last_close <= lower_bb:
+            if last_low <= lower_bb:
                 score += 30.0
                 breakdown.append("BB-Pierced(+30)")
         else:
-            if last_close >= upper_bb:
+            if last_high >= upper_bb:
                 score += 30.0
                 breakdown.append("BB-Pierced(+30)")
                     
@@ -169,21 +171,14 @@ class ForexHybridReaperStrategy(BaseStrategy):
         # Generate strategic score to evaluate holistic setup quality
         score, grade, summary = self.score_signal(snapshot, gates)
 
-        # ── Dynamic Symbol Scoring ──
-        # Auto-adjusts the entry threshold per-symbol based on recent performance.
-        # If a pair is bleeding (3+ losses), threshold rises. If it's winning,
-        # threshold drops. This prevents runaway bleeding on specific pairs.
-        base_threshold = 60.0
-        profile_for_scoring = getattr(self, '_profile', None)
-        adjusted_threshold = get_adjusted_threshold(
-            snapshot.symbol, base_threshold, profile_for_scoring
-        )
+        last_low = candles[-1].low
+        last_high = candles[-1].high
 
         logger.info(
             f"[HybridReaper Debug {snapshot.symbol}] Close={last_close:.5f} | "
-            f"EMA={trend_ema:.5f} | GlobalRSI={rsi:.1f} | GlobalLBB={lower_bb:.5f} | "
-            f"GlobalUBB={upper_bb:.5f} | HTF={htf_dir} | Score={score:.1f} | "
-            f"Threshold={adjusted_threshold:.0f}"
+            f"Low={last_low:.5f} | High={last_high:.5f} | EMA={trend_ema:.5f} | "
+            f"GlobalRSI={rsi:.1f} | GlobalLBB={lower_bb:.5f} | GlobalUBB={upper_bb:.5f} | "
+            f"HTF={htf_dir} | Score={score:.1f}"
         )
 
         # ---------------------------------------------------------
@@ -216,9 +211,11 @@ class ForexHybridReaperStrategy(BaseStrategy):
                 )
                 return None
 
-        # LONG: Price > 200 EMA + Strict BB/RSI Touch + Minimum Score (no OR condition)
-        if last_close > trend_ema and rsi <= oversold_thresh and last_close <= lower_bb and score >= adjusted_threshold:
-            stop_dist = max(current_atr * 1.5, last_close * 0.0008)  # Safe floor distance
+        # LONG: Price > 200 EMA + Wick pierce BB + RSI oversold + Minimum Score
+        if last_close > trend_ema and rsi <= oversold_thresh and last_low <= lower_bb and score >= self.score_threshold:
+            # TIGHT SL: ATR×1.0 or 5-pip floor (whichever is larger).
+            # This is a scalper — we need to be wrong fast and right faster.
+            stop_dist = max(current_atr * 1.0, last_close * 0.0005)
             stop_loss = last_close - stop_dist
             tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
             target = last_close + (stop_dist * tr)
@@ -228,16 +225,16 @@ class ForexHybridReaperStrategy(BaseStrategy):
                 bias="long", phase="correction", action="enter_long",
                 entry_price=last_close, stop_loss=stop_loss, take_profit=target,
                 risk_per_trade_pct=self.get_risk_pct(),
-                structure_summary=f"HybridReaper Long (RSI={rsi:.1f}, BBTouch, Score={score:.0f})",
+                structure_summary=f"HybridReaper Long (RSI={rsi:.1f}, WickBB, Score={score:.0f})",
                 invalidation_conditions="Close below stop loss.",
-                management_instructions=f"Target {self.target_r}R.",
+                management_instructions=f"Target {self.target_r}R. Tight SL {stop_dist:.5f}.",
                 urgency="high",
                 strategy_name=self.name
             )
 
-        # SHORT: Price < 200 EMA + Strict BB/RSI Touch + Minimum Score (no OR condition)
-        if last_close < trend_ema and rsi >= overbought_thresh and last_close >= upper_bb and score >= adjusted_threshold:
-            stop_dist = max(current_atr * 1.5, last_close * 0.0008)
+        # SHORT: Price < 200 EMA + Wick pierce BB + RSI overbought + Minimum Score
+        if last_close < trend_ema and rsi >= overbought_thresh and last_high >= upper_bb and score >= self.score_threshold:
+            stop_dist = max(current_atr * 1.0, last_close * 0.0005)
             stop_loss = last_close + stop_dist
             tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
             target = last_close - (stop_dist * tr)
@@ -247,9 +244,9 @@ class ForexHybridReaperStrategy(BaseStrategy):
                 bias="short", phase="correction", action="enter_short",
                 entry_price=last_close, stop_loss=stop_loss, take_profit=target,
                 risk_per_trade_pct=self.get_risk_pct(),
-                structure_summary=f"HybridReaper Short (RSI={rsi:.1f}, BBTouch, Score={score:.0f})",
+                structure_summary=f"HybridReaper Short (RSI={rsi:.1f}, WickBB, Score={score:.0f})",
                 invalidation_conditions="Close above stop loss.",
-                management_instructions=f"Target {self.target_r}R.",
+                management_instructions=f"Target {self.target_r}R. Tight SL {stop_dist:.5f}.",
                 urgency="high",
                 strategy_name=self.name
             )

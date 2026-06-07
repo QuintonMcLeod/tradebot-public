@@ -122,7 +122,7 @@ def _consecutive_losses(symbol: str, lookback: int) -> int:
 def get_adjusted_threshold(
     symbol: str,
     base_threshold: float,
-    profile_settings,
+    profile_settings = None,
 ) -> float:
     """Return the dynamically adjusted score threshold for a symbol.
 
@@ -133,14 +133,22 @@ def get_adjusted_threshold(
     base_threshold : float
         The strategy's raw score requirement (e.g. 60.0).
     profile_settings :
-        The active profile / settings object containing the dynamic-scoring
-        configuration fields.
+        Optional profile / settings object. If None, reads from global
+        get_settings() automatically.
 
     Returns
     -------
     float
         The adjusted threshold, clamped to [min_threshold, max_threshold].
     """
+    # If no profile_settings provided, read from global settings
+    if profile_settings is None:
+        try:
+            from tradebot_sci.config.loader import get_settings
+            profile_settings = get_settings().performance
+        except Exception:
+            return base_threshold
+
     if not getattr(profile_settings, "dynamic_symbol_scoring_enabled", False):
         return base_threshold
 

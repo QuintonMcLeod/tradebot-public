@@ -926,8 +926,8 @@ class SafetyGuard:
                  return close_position_decision(snapshot.symbol, snapshot.timeframe,
                                                 reason=f"Greedy Exit Timeout ({hours_held:.1f}h)")
 
-             # Phase 2: Tighten trail multiplier (linear decay from 2.5 to 1.0 ATR)
-             trail_multiplier = 2.5  # Phase 1 default (relaxed from 1.5 to prevent churn)
+             # Phase 2: Tighten trail multiplier (linear decay from 1.5 to 0.5 ATR)
+             trail_multiplier = 1.5  # Phase 1 default — tight enough for scalping
              if greedy_max_hours > 0 and hours_held > greedy_max_hours * 0.5:
                  progress = (hours_held - greedy_max_hours * 0.5) / (greedy_max_hours * 0.5)
                  trail_multiplier = max(0.5, 1.5 - (1.0 * min(progress, 1.0)))
@@ -945,8 +945,10 @@ class SafetyGuard:
              
              if direction == "long":
                  potential_stop = current_price - trail_dist
-                 # FLOOR: Only lock to breakeven after trade proves itself (0.5R+)
-                 if r_multiple >= 0.5:
+                 # FLOOR: Lock to breakeven once trade shows ANY profit (0.3R+).
+                 # For a scalper, 0.3R is often the first meaningful pullback —
+                 # we want to be flat, not give back spread + slippage.
+                 if r_multiple >= 0.3:
                      potential_stop = max(potential_stop, entry_price)
                  # The breakeven trailing stop logic beneath this block securely locks profits 
                  # to `entry_price` once 0.5R is reached, purely based on market conditions,
@@ -965,8 +967,8 @@ class SafetyGuard:
                            )
              else: # short
                  potential_stop = current_price + trail_dist
-                 # FLOOR: Only lock to breakeven after trade proves itself (0.5R+)
-                 if r_multiple >= 0.5:
+                 # FLOOR: Lock to breakeven once trade shows ANY profit (0.3R+).
+                 if r_multiple >= 0.3:
                      potential_stop = min(potential_stop, entry_price)
                  # The trailing stop will lock to the exact breakeven `entry_price` floor automatically.
                  # Only move DOWN
