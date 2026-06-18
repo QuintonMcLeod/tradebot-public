@@ -1,3 +1,4 @@
+import sys; print("EXIT_LOGIC_LOADED_FROM=" + __file__, file=sys.stderr, flush=True)
 import logging
 from typing import Optional, Dict, Any
 from tradebot_sci.market.models import MarketSnapshot
@@ -125,7 +126,7 @@ def run_universal_exit_logic(
         elif exit_strategy == "ma_crossover":
             strat_decision = _exit_ma_crossover(snapshot, open_position, current_price, direction)
         elif exit_strategy == "time_decay":
-            strat_decision = _exit_time_decay(snapshot, open_position, current_price, direction, profile)
+            strat_decision = _exit_time_decay(snapshot, open_position, current_price, direction, profile, strategy_name)
         elif exit_strategy == "swing_trailing":
             strat_decision = _exit_swing_trailing(snapshot, open_position, current_price, direction, profile, stop_price)
         elif exit_strategy == "rsi_exhaustion":
@@ -375,7 +376,7 @@ def _exit_ma_crossover(snapshot, pos, current_price, direction):
         return _hard_exit(snapshot, pos, "Golden Cross (9 EMA > 21 EMA against short)")
     return None
 
-def _exit_time_decay(snapshot, pos, current_price, direction, profile):
+def _exit_time_decay(snapshot, pos, current_price, direction, profile, strategy_name="unknown"):
     """6. Time-Decay (The Impatient) - Exits after X bars.
 
     IMPORTANT: This function uses candle bar count (sim_time domain) to determine
@@ -386,8 +387,21 @@ def _exit_time_decay(snapshot, pos, current_price, direction, profile):
     Primary method: count elapsed bars since the candle whose timestamp matches
     (or first exceeds) the stored entry_time.
     Fallback: use _calc_bars_held() which also operates in candle-bar space.
+
+    Strategy override: If the strategy has `time_decay_override`, use that instead
+    of the profile default. This lets per-strategy configs (e.g. forex scalper at
+    12 bars) coexist with other strategies under the same profile.
     """
-    decay_bars = int(getattr(profile, "time_decay_bars", 24))
+    # Check for per-strategy override first, then fall back to profile default
+    strategy_override = None
+    is_hybrid = strategy_name and "forexhybridscalper" in strategy_name.lower()
+    if is_hybrid:
+        # Trend-mode holds need room to work; disable artificial time-decay.
+        if pos.get("regime") == "trend":
+            strategy_override = 100000  # effectively disabled for trend pullback entries
+        else:
+            strategy_override = 12  # Forex scalper: 12 bars (1 hour) max hold
+    decay_bars = strategy_override if strategy_override else int(getattr(profile, "time_decay_bars", 24))
 
     # ── Primary: measure in candle-bar space (replay-safe) ──────────────────
     # Use _calc_bars_held which computes elapsed_seconds / bar_interval using
@@ -396,6 +410,12 @@ def _exit_time_decay(snapshot, pos, current_price, direction, profile):
 
     if bars_held > 0:
         if bars_held >= decay_bars:
+            logger.info(
+                f"[TIME-DECAY-EXIT] {pos.get('symbol', '?')}: bars_held={bars_held} "
+                f">= decay_bars={decay_bars} | entry_time={pos.get('entry_time')} "
+                f"| snap_time={getattr(snapshot.candles[-1] if snapshot.candles else None, 'timestamp', None)} "
+                f"| timeframe={getattr(snapshot, 'timeframe', None)}"
+            )
             return _hard_exit(snapshot, pos, f"Time Decay Reached ({decay_bars} bars)")
         return None
 
@@ -879,8 +899,15 @@ def _clear_confirm(symbol: str):
 
 
 def _calc_bars_held(pos: dict, snapshot) -> int:
-    """Estimate how many bars the trade has been open."""
-    bars_held = pos.get("bars_held", 0)
+    """Estimate how many bars the trade has been open.
+
+    Uses the snapshot's declared timeframe to determine bar interval.
+    Deriving bar_seconds from the last two candle timestamps is fragile
+    when candles have irregular microsecond offsets or when the last two
+    bars come from different sessions; the explicit timeframe is the
+    authoritative source of truth.
+    """
+    bars_held = pos.get("bars_held") or 0
     if bars_held == 0:
         entry_ts_str = pos.get("entry_time")
         if entry_ts_str and snapshot.candles:
@@ -891,16 +918,54 @@ def _calc_bars_held(pos: dict, snapshot) -> int:
                 if now_dt.tzinfo is None:
                     now_dt = now_dt.replace(tzinfo=timezone.utc)
                 elapsed_seconds = (now_dt - entry_dt).total_seconds()
-                if len(snapshot.candles) >= 2:
-                    bar_seconds = abs((snapshot.candles[-1].timestamp - snapshot.candles[-2].timestamp).total_seconds())
-                    if bar_seconds > 0:
-                        bars_held = int(elapsed_seconds / bar_seconds)
+
+                # Prefer the snapshot's declared timeframe for bar interval
+                bar_seconds = _tf_to_seconds(getattr(snapshot, "timeframe", None))
+                if bar_seconds <= 0 and len(snapshot.candles) >= 2:
+                    # Fallback: derive from last two candles
+                    bar_seconds = abs(
+                        (snapshot.candles[-1].timestamp - snapshot.candles[-2].timestamp).total_seconds()
+                    )
+                # Sanity clamp: no smaller than 1s, no larger than 1 day
+                if bar_seconds <= 0:
+                    bar_seconds = 300.0
+                bar_seconds = max(1.0, min(86400.0, bar_seconds))
+
+                if bar_seconds > 0:
+                    bars_held = int(elapsed_seconds / bar_seconds)
             except Exception as e:
                 import logging
                 logger = logging.getLogger("tradebot_sci.exit_logic")
                 logger.error(f"[_calc_bars_held] Exception for {pos.get('symbol')}: {e}")
                 pass
     return max(0, bars_held)
+
+
+def _tf_to_seconds(timeframe: str | None) -> float:
+    """Convert timeframe string (e.g. '5m', '1h', '4h') to seconds."""
+    if not timeframe or not isinstance(timeframe, str):
+        return 0.0
+    tf = timeframe.strip().lower()
+    import re
+    m = re.match(r"^(\d+)\s*([a-z]+)$", tf)
+    if not m:
+        return 0.0
+    val_str, unit = m.groups()
+    try:
+        val = int(val_str)
+    except ValueError:
+        return 0.0
+    if unit.startswith("m") or unit.startswith("min"):
+        return val * 60.0
+    if unit.startswith("h") or unit.startswith("hour"):
+        return val * 3600.0
+    if unit.startswith("d") or unit.startswith("day"):
+        return val * 86400.0
+    if unit.startswith("s") or unit.startswith("sec"):
+        return float(val)
+    if unit.startswith("w") or unit.startswith("week"):
+        return val * 604800.0
+    return 0.0
 
 
 def _exit_micro_canary(snapshot: MarketSnapshot, open_position: dict, current_price: float, direction: str, profile: Any, r_multiple: float) -> Optional[AITradeDecision]:
@@ -951,6 +1016,10 @@ def _exit_bollinger_invalidation(snapshot, pos, current_price, direction, profil
     target_strategies = {"forex_hybrid_scalper", "forexhybridscalper", "rubberband_reaper"}
     if not any(s in strategy_name.lower() for s in target_strategies):
         return None
+
+    # Skip for trend-mode positions; they are meant to hold through RSI pins.
+    if pos.get("regime") == "trend":
+        return None
         
     bars_held = _calc_bars_held(pos, snapshot)
     
@@ -982,12 +1051,12 @@ def _exit_bollinger_invalidation(snapshot, pos, current_price, direction, profil
             all_oversold = all(r <= rsi_oversold for r in rsis)
             if all_oversold and rsis[-1] <= (rsis[0] + 5.0):
                 logger.info(f"[BOLLINGER-INVAL] {snapshot.symbol} {label} LONG Pinned RSI detected. RSIs: {['%.1f' % r for r in rsis]}")
-                return _hard_exit(snapshot, pos, f"Bollinger Invalidation: Pinned Oversold RSI ({label})", is_emergency=True)
+                return _hard_exit(snapshot, pos, f"Bollinger Invalidation: Pinned Oversold RSI ({label})", is_emergency=False)
         else:
             all_overbought = all(r >= rsi_overbought for r in rsis)
             if all_overbought and rsis[-1] >= (rsis[0] - 5.0):
                 logger.info(f"[BOLLINGER-INVAL] {snapshot.symbol} {label} SHORT Pinned RSI detected. RSIs: {['%.1f' % r for r in rsis]}")
-                return _hard_exit(snapshot, pos, f"Bollinger Invalidation: Pinned Overbought RSI ({label})", is_emergency=True)
+                return _hard_exit(snapshot, pos, f"Bollinger Invalidation: Pinned Overbought RSI ({label})", is_emergency=False)
         return None
     
     # Try 5m first

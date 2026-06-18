@@ -700,8 +700,20 @@ class SafetyGuard:
         try:
             active_profile = settings.get_active_profile()
             max_hold_h = float(getattr(active_profile, "max_hold_hours", 0.0) or 0.0)
+            trend_hold_mult = float(getattr(active_profile, "trend_mode_hold_multiplier", 8.0) or 8.0)
         except Exception:
             max_hold_h = 0.0
+            trend_hold_mult = 8.0
+
+        # Regime-aware hold time: trend-mode positions need room to ride the wave.
+        if open_position.get("regime") == "trend" and max_hold_h > 0:
+            orig_max = max_hold_h
+            max_hold_h *= max(trend_hold_mult, 1.0)
+            logger.info(
+                f"[SAFETY] Day Trade Enforcer: {snapshot.symbol} TREND MODE — "
+                f"extending hold window {orig_max:.1f}h -> {max_hold_h:.1f}h "
+                f"(multiplier={trend_hold_mult:.1f})"
+            )
 
         if max_hold_h > 0 and entry_time and isinstance(entry_time, datetime):
             now_tz = sim_time or datetime.now(entry_time.tzinfo or ZoneInfo("UTC"))

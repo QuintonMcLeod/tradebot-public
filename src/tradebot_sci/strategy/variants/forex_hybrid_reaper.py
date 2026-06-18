@@ -6,7 +6,7 @@ from typing import Optional
 from tradebot_sci.market.models import MarketSnapshot
 from tradebot_sci.strategy.decisions import AITradeDecision
 from tradebot_sci.strategy.variants.base import BaseStrategy
-from tradebot_sci.market.indicators import calculate_ema
+from tradebot_sci.market.indicators import calculate_ema, calculate_rsi
 from tradebot_sci.strategy.icc_signals import calculate_atr
 logger = logging.getLogger(__name__)
 
@@ -14,245 +14,337 @@ class ForexHybridReaperStrategy(BaseStrategy):
     score_threshold = 60.0
     SESSION_PROFILE = ["forex_hybrid_scalper:hybrid_overlap", "forex_hybrid_scalper:london_open", "forex_hybrid_scalper:asian_open"]
     """
-    Forex Hybrid Scalper — Router inspired high-frequency 5m Forex strategy.
-    Combines HyperScalper's trend filter (EMA 200) with Rubberband Reaper's 
-    kinetic entry signals (RSI + Bollinger Bands), wrapped in strict 
-    session and volatility guards to avoid Asian chop.
-    
-    Optimized for major pairs (EUR/USD, GBP/USD).
+    Forex Hybrid Reaper — regime-router.
+
+    Strong HTF trend  -> trend-following pullback (ride the wave).
+    Choppy / neutral  -> mean-reversion scalp.
     """
-    def __init__(self, target_r=1.5, **kwargs):
+    def __init__(self, target_r=1.0, **kwargs):
         super().__init__("ForexHybridScalper")
         self.target_r = target_r
-        
-        # Rubberband Reaper default kinetics parameters
+
+        # Bollinger / RSI parameters
         self.bb_period = int(kwargs.get('bb_period', 20))
         self.bb_std = float(kwargs.get('bb_std', 1.5))
         self.rsi_period = int(kwargs.get('rsi_period', 7))
         self.rsi_overbought = float(kwargs.get('rsi_overbought', 60))
         self.rsi_oversold = float(kwargs.get('rsi_oversold', 40))
-        
-        # Hyper Scalper default trend parameters
-        self.trend_ema_period = int(kwargs.get('trend_ema', 200))
-        
-        logger.debug(f"Loaded ForexHybridReaper with TargetR={self.target_r}, TrendEMA={self.trend_ema_period}")
 
-    def score_signal(self, snapshot: MarketSnapshot, gates: dict = None) -> tuple[float, str, str]:
-        """Hybrid Reaper specific scoring: HTF/LTF Alignment (40) + BB Position (30) + RSI Extremity (30)."""
+        # Trend filter
+        self.trend_ema_period = int(kwargs.get('trend_ema', 200))
+
+        # Regime switch: strong HTF trend vs neutral/chop
+        self.trend_adx_min = float(kwargs.get('trend_adx_min', 20.0))
+
+        # Trend-mode parameters (ride the wave)
+        self.trend_stop_atr_mult = float(kwargs.get('trend_stop_atr_mult', 2.5))
+        self.trend_stop_floor = float(kwargs.get('trend_stop_floor', 0.0020))
+        self.trend_target_r = float(kwargs.get('trend_target_r', 4.0))
+        self.trend_rsi_long_min = float(kwargs.get('trend_rsi_long_min', 40.0))
+        self.trend_rsi_long_max = float(kwargs.get('trend_rsi_long_max', 55.0))
+        self.trend_rsi_short_min = float(kwargs.get('trend_rsi_short_min', 45.0))
+        self.trend_rsi_short_max = float(kwargs.get('trend_rsi_short_max', 60.0))
+
+        # Range-mode parameters (scalp)
+        self.range_stop_atr_mult = float(kwargs.get('range_stop_atr_mult', 1.5))
+        self.range_stop_floor = float(kwargs.get('range_stop_floor', 0.0008))
+        self.range_target_r = float(kwargs.get('range_target_r', 1.0))
+
+        # Shared filters
+        self.price_hook_required = bool(kwargs.get('price_hook_required', True))
+        self.rsi_hook_required = bool(kwargs.get('rsi_hook_required', True))
+
+        logger.debug(
+            f"Loaded ForexHybridReaper router trendADX>={self.trend_adx_min}"
+        )
+
+    def _price_hook(self, closes: list[float]) -> tuple[bool, bool]:
+        if len(closes) < 2:
+            return False, False
+        return closes[-1] > closes[-2], closes[-1] < closes[-2]
+
+    def _rsi_hook(self, closes: list[float]) -> tuple[bool, bool]:
+        if len(closes) < 2:
+            return False, False
+        cur = calculate_rsi(closes, self.rsi_period)
+        prev = calculate_rsi(closes[:-1], self.rsi_period)
+        if cur is None or prev is None:
+            return False, False
+        return cur > prev, cur < prev
+
+    def _three_bar_pullback(self, closes: list[float], is_long: bool) -> bool:
+        """True if the last 3 completed bars moved against the intended direction."""
+        if len(closes) < 5:
+            return False
+        deltas = [closes[-i] - closes[-i-1] for i in range(2, 5)]
+        if is_long:
+            return all(d < 0 for d in deltas)
+        return all(d > 0 for d in deltas)
+
+    def _three_bar_exhaustion(self, closes: list[float], is_long: bool) -> bool:
+        """True if the last 3 bars (including current) are all against the setup."""
+        if len(closes) < 4:
+            return False
+        deltas = [closes[-i] - closes[-i-1] for i in range(1, 4)]
+        if is_long:
+            return all(d < 0 for d in deltas)
+        return all(d > 0 for d in deltas)
+
+    def score_signal(self, snapshot: MarketSnapshot, gates: dict, regime: str | None = None) -> tuple[float, str, str]:
         gates = gates or {}
         closes = [c.close for c in snapshot.candles]
-        
-        # If we don't have enough data to calculate EMA, default F
-        if len(closes) < getattr(self, 'trend_ema_period', 200):
-            return 0.0, "-", "HybridScalper: Insufficient data"
+        if len(closes) < self.trend_ema_period:
+            return 0.0, "-", "HybridReaper: Insufficient data"
 
         last_close = closes[-1]
-        
-        exec_bollinger = gates.get("exec_bollinger", {})
-        lower_bb = exec_bollinger.get("lower", float('-inf'))
-        upper_bb = exec_bollinger.get("upper", float('inf'))
-        
-        rsi = gates.get("exec_rsi", 50.0)
-        
-        # Default Profile Fallbacks if available
-        overbought_thresh = float(getattr(self._profile, 'rsi_overbought', self.rsi_overbought)) if getattr(self, '_profile', None) else self.rsi_overbought
-        oversold_thresh = float(getattr(self._profile, 'rsi_oversold', self.rsi_oversold)) if getattr(self, '_profile', None) else self.rsi_oversold
         trend_ema = calculate_ema(closes, self.trend_ema_period)
-        
-        score = 0.0
-        breakdown = []
-        
-        # Determine internal strategy bias
         is_long_bias = last_close > trend_ema
         strat_bias = "long" if is_long_bias else "short"
-        
-        # 1. Global HTF / LTF Alignment (40 pts)
+
+        exec_bollinger = gates.get("exec_bollinger", {})
+        lower_bb = exec_bollinger.get("lower", float('-inf'))
+        mid_bb = exec_bollinger.get("middle", last_close)
+        upper_bb = exec_bollinger.get("upper", float('inf'))
+        rsi = gates.get("exec_rsi", 50.0)
+
         htf_dir = str(gates.get("htf_dir", "neutral")).lower()
         ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
-        
+
+        if regime is None:
+            htf_adx = gates.get("htf_adx", 0) or 0
+            ltf_adx = gates.get("ltf_adx", 0) or 0
+            adx = max(htf_adx, ltf_adx)
+            regime = "trend" if (htf_dir in ("long", "short") and adx >= self.trend_adx_min) else "range"
+
+        score = 0.0
+        breakdown = []
+
+        # 1. HTF/LTF alignment (40 pts)
         if htf_dir == strat_bias:
             score += 20.0
-            breakdown.append(f"HTF-Align(+20)")
+            breakdown.append("HTF-Align(+20)")
         if ltf_dir == strat_bias:
             score += 20.0
-            breakdown.append(f"LTF-Align(+20)")
-            
-        # 2. Bollinger Band Position (30 pts) — wick pierce captures the true
-        # exhaustion point. A wick beyond the band means sellers/buyers were
-        # aggressively rejected, which is exactly what a mean-reversion scalper
-        # wants to catch. Close-pierce misses the entry and forces us to buy
-        # the recovery (higher risk, lower reward).
-        last_low = snapshot.candles[-1].low if snapshot.candles else last_close
-        last_high = snapshot.candles[-1].high if snapshot.candles else last_close
-        if is_long_bias:
-            if last_low <= lower_bb:
-                score += 30.0
-                breakdown.append("BB-Pierced(+30)")
+            breakdown.append("LTF-Align(+20)")
+
+        if regime == "trend":
+            # 2. Pullback to value zone (30 pts)
+            if is_long_bias:
+                if lower_bb <= last_close <= mid_bb:
+                    score += 30.0
+                    breakdown.append("BB-Pullback(+30)")
+            else:
+                if mid_bb <= last_close <= upper_bb:
+                    score += 30.0
+                    breakdown.append("BB-Pullback(+30)")
+
+            # 3. RSI in healthy pullback zone (30 pts)
+            if is_long_bias:
+                if self.trend_rsi_long_min <= rsi <= self.trend_rsi_long_max:
+                    score += 30.0
+                    breakdown.append(f"RSI-Pullback({rsi:.1f}=+30)")
+            else:
+                if self.trend_rsi_short_min <= rsi <= self.trend_rsi_short_max:
+                    score += 30.0
+                    breakdown.append(f"RSI-Pullback({rsi:.1f}=+30)")
         else:
-            if last_high >= upper_bb:
-                score += 30.0
-                breakdown.append("BB-Pierced(+30)")
-                    
-        # 3. RSI Extremity (30 pts) - STRICT: only extreme gets points
-        if is_long_bias:
-            if rsi <= oversold_thresh:
+            # Range mode: close-pierce / bounce off outer band (30 pts)
+            prev_close = closes[-2] if len(closes) >= 2 else last_close
+            recent = snapshot.candles[-3:] if len(snapshot.candles) >= 3 else snapshot.candles
+            if is_long_bias:
+                if (prev_close <= lower_bb or any(c.low <= lower_bb for c in recent)) and last_close > lower_bb:
+                    score += 30.0
+                    breakdown.append("BB-Bounce(+30)")
+            else:
+                if (prev_close >= upper_bb or any(c.high >= upper_bb for c in recent)) and last_close < upper_bb:
+                    score += 30.0
+                    breakdown.append("BB-Bounce(+30)")
+
+            # Range mode: RSI extreme (30 pts)
+            overbought = float(getattr(self._profile, 'rsi_overbought', self.rsi_overbought)) if getattr(self, '_profile', None) else self.rsi_overbought
+            oversold = float(getattr(self._profile, 'rsi_oversold', self.rsi_oversold)) if getattr(self, '_profile', None) else self.rsi_oversold
+            if is_long_bias and rsi <= oversold:
                 score += 30.0
                 breakdown.append(f"RSI-OS({rsi:.1f}=+30)")
-        else:
-            if rsi >= overbought_thresh:
+            if not is_long_bias and rsi >= overbought:
                 score += 30.0
                 breakdown.append(f"RSI-OB({rsi:.1f}=+30)")
 
         score = min(100.0, score)
         grade = self.grade_from_score_100(score)
-        summary = f"HybridScalper {score:.0f}/100: {', '.join(breakdown)}"
+        summary = f"HybridReaper[{regime}] {score:.0f}/100: {', '.join(breakdown)}"
         return score, grade, summary
 
-
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict, open_position: Optional[dict] = None, **kwargs) -> Optional[AITradeDecision]:
+        if gates.get("is_synthetic_override") is True:
+            return None
+
         candles = snapshot.candles
-        if len(candles) < self.trend_ema_period:
+        if len(candles) < self.trend_ema_period or len(candles) < 40:
             return None
-        
-        # ---------------------------------------------------------
-        # 1. Volatility Guard (Avoid chop/flat markets)
-        # ---------------------------------------------------------
-        # Requirement: calculate_atr value must NOT be 30% below 
-        # its 20-period average.
-        if len(candles) < 40:
-            return None
-            
-        # Re-using the exact calculate_atr function logic natively
-        # Calculating the SMA of the ATR over the last 20 periods
-        atr_history = []
-        # Build ATR series once: walk forward so each slice is O(period) not O(n)
-        for i in range(14, len(candles)):
-            a = calculate_atr(candles[:i+1], period=14)
-            if a:
-                atr_history.append(a)
-        
+
+        # Volatility guard
+        atr_history = [calculate_atr(candles[:i+1], period=14) for i in range(14, len(candles))]
+        atr_history = [a for a in atr_history if a]
         if len(atr_history) < 20:
             return None
-            
         avg_atr_20 = sum(atr_history[-20:]) / 20.0
         current_atr = calculate_atr(candles, period=14)
-        
         if not current_atr or current_atr < (avg_atr_20 * 0.5):
-            logger.info(f"[ForexHybridReaper] {snapshot.symbol} BLOCKED: Volatility Guard. ATR ({current_atr:.5f}) < 50% of 20-period average ({avg_atr_20:.5f})")
             return None
 
-        # ---------------------------------------------------------
-        # 3. Hybrid Entry Logic (STRICT CONSISTENCY POLICY)
-        # ---------------------------------------------------------
         closes = [c.close for c in candles]
-        
-        # We retain EMA filter since 200 EMA is structural to the specific trend logic
         trend_ema = calculate_ema(closes, self.trend_ema_period)
         last_close = closes[-1]
-        
-        # Sourced securely from dual-purpose consensus extraction (Decoupled execution timeframe).
+        is_long_setup = last_close > trend_ema
+
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        htf_adx = gates.get("htf_adx", 0) or 0
+        ltf_adx = gates.get("ltf_adx", 0) or 0
+        adx = max(htf_adx, ltf_adx)
+
+        # Regime routing
+        # Trend only when HTF is clearly directional AND ADX confirms strength
+        in_strong_trend = htf_dir in ("long", "short") and adx >= self.trend_adx_min
+        regime = "trend" if in_strong_trend else "range"
+
+        # In range mode, never fade a strong HTF trend. If HTF is strongly
+        # directional but ADX is below threshold, stand aside.
+        if regime == "range" and htf_dir in ("long", "short"):
+            logger.info(f"[ForexHybridReaper] {snapshot.symbol} BLOCKED: range mode cannot fade HTF={htf_dir}")
+            return None
+
         exec_bollinger = gates.get("exec_bollinger", {})
         lower_bb = exec_bollinger.get("lower", float('-inf'))
         mid_bb = exec_bollinger.get("middle", last_close)
         upper_bb = exec_bollinger.get("upper", float('inf'))
-        
         rsi = gates.get("exec_rsi", 50.0)
-        
-        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
-        
-        # Override local thresholds with any potential Profile overrides provided in UI
-        overbought_thresh = float(getattr(self._profile, 'rsi_overbought', self.rsi_overbought)) if getattr(self, '_profile', None) else self.rsi_overbought
-        oversold_thresh = float(getattr(self._profile, 'rsi_oversold', self.rsi_oversold)) if getattr(self, '_profile', None) else self.rsi_oversold
-        
-        # Guard: No scale-ins for simple strategy unless specified by open_position logic
+
         if open_position:
             return None
-            
-        # Generate strategic score to evaluate holistic setup quality
-        score, grade, summary = self.score_signal(snapshot, gates)
 
-        last_low = candles[-1].low
-        last_high = candles[-1].high
+        score, grade, summary = self.score_signal(snapshot, gates, regime)
 
         logger.info(
-            f"[HybridReaper Debug {snapshot.symbol}] Close={last_close:.5f} | "
-            f"Low={last_low:.5f} | High={last_high:.5f} | EMA={trend_ema:.5f} | "
-            f"GlobalRSI={rsi:.1f} | GlobalLBB={lower_bb:.5f} | GlobalUBB={upper_bb:.5f} | "
-            f"HTF={htf_dir} | Score={score:.1f}"
+            f"[HybridReaper Debug {snapshot.symbol}] Regime={regime} | Close={last_close:.5f} | "
+            f"EMA={trend_ema:.5f} | RSI={rsi:.1f} | LBB={lower_bb:.5f} | UBB={upper_bb:.5f} | "
+            f"HTF={htf_dir} | ADX={adx:.1f} | Score={score:.1f}"
         )
 
-        # ---------------------------------------------------------
-        # 4. 3-Bar Momentum Gate (Anti-Exhaustion)
-        # ---------------------------------------------------------
-        # Block entry if all 3 recent bars moved against the proposed direction.
-        # BB+RSI can fire at the TAIL of an exhausted move (price pierced BB then
-        # reversed). If the last 3 closes are already running against us, the
-        # bounce has not materialized — skip and wait for actual reversal.
-        #
-        # I reverted the 13:19 "shallow pullback" logic because it allowed entries
-        # at the tail of exhausted moves, producing time-decay losses on NZD pairs.
-        is_long_setup = last_close > trend_ema
-        if len(closes) >= 5:
-            # Shift the lookback by 1 to only evaluate fully CLOSED candles.
-            # i=2: closes[-2] - closes[-3] (last completed candle)
-            deltas = [closes[-i] - closes[-i-1] for i in range(2, 5)]  # last 3 completed bar moves
-            all_against_long  = all(d < 0 for d in deltas)  # 3 consecutive down bars
-            all_against_short = all(d > 0 for d in deltas)  # 3 consecutive up bars
-            if is_long_setup and all_against_long:
-                logger.info(
-                    f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar momentum gate — "
-                    f"3 consecutive down bars into long setup (exhaustion, not reversal)"
-                )
+        price_long_hook, price_short_hook = self._price_hook(closes)
+        rsi_long_hook, rsi_short_hook = self._rsi_hook(closes)
+
+        if self.price_hook_required:
+            if is_long_setup and not price_long_hook:
+                logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: no price long hook")
                 return None
-            if not is_long_setup and all_against_short:
-                logger.info(
-                    f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar momentum gate — "
-                    f"3 consecutive up bars into short setup (exhaustion, not reversal)"
-                )
+            if not is_long_setup and not price_short_hook:
+                logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: no price short hook")
                 return None
 
-        # LONG: Price > 200 EMA + Wick pierce BB + RSI oversold + Minimum Score
-        if last_close > trend_ema and rsi <= oversold_thresh and last_low <= lower_bb and score >= self.score_threshold:
-            # TIGHT SL: ATR×1.0 or 5-pip floor (whichever is larger).
-            # This is a scalper — we need to be wrong fast and right faster.
-            stop_dist = max(current_atr * 1.0, last_close * 0.0005)
-            stop_loss = last_close - stop_dist
-            tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
-            target = last_close + (stop_dist * tr)
-            
-            return AITradeDecision(
-                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                bias="long", phase="correction", action="enter_long",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=target,
-                risk_per_trade_pct=self.get_risk_pct(),
-                structure_summary=f"HybridReaper Long (RSI={rsi:.1f}, WickBB, Score={score:.0f})",
-                invalidation_conditions="Close below stop loss.",
-                management_instructions=f"Target {self.target_r}R. Tight SL {stop_dist:.5f}.",
-                urgency="high",
-                strategy_name=self.name
-            )
+        if self.rsi_hook_required:
+            if is_long_setup and not rsi_long_hook:
+                logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: no RSI long hook")
+                return None
+            if not is_long_setup and not rsi_short_hook:
+                logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: no RSI short hook")
+                return None
 
-        # SHORT: Price < 200 EMA + Wick pierce BB + RSI overbought + Minimum Score
-        if last_close < trend_ema and rsi >= overbought_thresh and last_high >= upper_bb and score >= self.score_threshold:
-            stop_dist = max(current_atr * 1.0, last_close * 0.0005)
-            stop_loss = last_close + stop_dist
-            tr = float(getattr(self._profile, "target_r", self.target_r)) if getattr(self, "_profile", None) else self.target_r
-            target = last_close - (stop_dist * tr)
-            
-            return AITradeDecision(
-                symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                bias="short", phase="correction", action="enter_short",
-                entry_price=last_close, stop_loss=stop_loss, take_profit=target,
-                risk_per_trade_pct=self.get_risk_pct(),
-                structure_summary=f"HybridReaper Short (RSI={rsi:.1f}, WickBB, Score={score:.0f})",
-                invalidation_conditions="Close above stop loss.",
-                management_instructions=f"Target {self.target_r}R. Tight SL {stop_dist:.5f}.",
-                urgency="high",
-                strategy_name=self.name
-            )
+        if regime == "trend":
+            # Trend mode: 3-bar pullback completed, current bar hooks back
+            if not self._three_bar_pullback(closes, is_long_setup):
+                logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: trend pullback not present")
+                return None
+
+            stop_dist = max(current_atr * self.trend_stop_atr_mult, last_close * self.trend_stop_floor)
+            tr = self.trend_target_r
+            recent_candles = candles[-3:] if len(candles) >= 3 else candles
+
+            if (is_long_setup and
+                self.trend_rsi_long_min <= rsi <= self.trend_rsi_long_max and
+                lower_bb <= last_close <= mid_bb and
+                score >= self.score_threshold):
+
+                stop_loss = max(min(c.low for c in recent_candles) - current_atr * 0.5,
+                                last_close - stop_dist)
+                target = last_close + (last_close - stop_loss) * tr
+                return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="long", phase="continuation", action="enter_long",
+                    entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                    risk_per_trade_pct=self.get_risk_pct(),
+                    structure_summary=f"HybridReaper Trend Long (RSI={rsi:.1f}, Pullback, Score={score:.0f})",
+                    invalidation_conditions="Close below stop loss.",
+                    management_instructions=f"Trend mode. Target {tr}R.",
+                    urgency="high", strategy_name=self.name, regime="trend"
+                )
+
+            if (not is_long_setup and
+                self.trend_rsi_short_min <= rsi <= self.trend_rsi_short_max and
+                mid_bb <= last_close <= upper_bb and
+                score >= self.score_threshold):
+
+                stop_loss = min(max(c.high for c in recent_candles) + current_atr * 0.5,
+                                last_close + stop_dist)
+                target = last_close - (stop_loss - last_close) * tr
+                return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="short", phase="continuation", action="enter_short",
+                    entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                    risk_per_trade_pct=self.get_risk_pct(),
+                    structure_summary=f"HybridReaper Trend Short (RSI={rsi:.1f}, Pullback, Score={score:.0f})",
+                    invalidation_conditions="Close above stop loss.",
+                    management_instructions=f"Trend mode. Target {tr}R.",
+                    urgency="high", strategy_name=self.name, regime="trend"
+                )
+
+        else:
+            # Range mode: never enter against a strong HTF trend (blocked above).
+            # Only scalp when HTF is neutral/mild.
+            if self._three_bar_exhaustion(closes, is_long_setup):
+                logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar exhaustion")
+                return None
+
+            stop_dist = max(current_atr * self.range_stop_atr_mult, last_close * self.range_stop_floor)
+            tr = float(getattr(self._profile, "target_r", self.range_target_r)) if getattr(self, "_profile", None) else self.range_target_r
+            prev_close = closes[-2] if len(closes) >= 2 else last_close
+            recent = candles[-3:] if len(candles) >= 3 else candles
+            touched_lower = prev_close <= lower_bb or any(c.low <= lower_bb for c in recent)
+            touched_upper = prev_close >= upper_bb or any(c.high >= upper_bb for c in recent)
+            overbought = float(getattr(self._profile, 'rsi_overbought', self.rsi_overbought)) if getattr(self, '_profile', None) else self.rsi_overbought
+            oversold = float(getattr(self._profile, 'rsi_oversold', self.rsi_oversold)) if getattr(self, '_profile', None) else self.rsi_oversold
+
+            if (is_long_setup and rsi <= oversold and touched_lower and last_close > lower_bb and
+                score >= self.score_threshold):
+                stop_loss = last_close - stop_dist
+                target = last_close + stop_dist * tr
+                return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="long", phase="correction", action="enter_long",
+                    entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                    risk_per_trade_pct=self.get_risk_pct(),
+                    structure_summary=f"HybridReaper Range Long (RSI={rsi:.1f}, Bounce, Score={score:.0f})",
+                    invalidation_conditions="Close below stop loss.",
+                    management_instructions=f"Range mode. Target {tr}R.",
+                    urgency="high", strategy_name=self.name, regime="range"
+                )
+
+            if (not is_long_setup and rsi >= overbought and touched_upper and last_close < upper_bb and
+                score >= self.score_threshold):
+                stop_loss = last_close + stop_dist
+                target = last_close - stop_dist * tr
+                return AITradeDecision(
+                    symbol=snapshot.symbol, timeframe=snapshot.timeframe,
+                    bias="short", phase="correction", action="enter_short",
+                    entry_price=last_close, stop_loss=stop_loss, take_profit=target,
+                    risk_per_trade_pct=self.get_risk_pct(),
+                    structure_summary=f"HybridReaper Range Short (RSI={rsi:.1f}, Bounce, Score={score:.0f})",
+                    invalidation_conditions="Close above stop loss.",
+                    management_instructions=f"Range mode. Target {tr}R.",
+                    urgency="high", strategy_name=self.name, regime="range"
+                )
 
         return None
 
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict, gates: dict, **kwargs) -> Optional[AITradeDecision]:
-        """All exits managed by structural lifecycle/safety guards."""
         return None

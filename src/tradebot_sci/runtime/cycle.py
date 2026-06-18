@@ -576,7 +576,7 @@ def process_candidate_cycle(
                         gates_str = json.dumps(_safe, default=str)
                     except Exception:
                         pass
-                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} strategy={d_strat_name} strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} reason={reason_log} | gates={gates_str}")
+                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} strategy={d_strat_name} strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} reason={reason_log}")
                 
                 # ── Propagate stop modifications from hold decisions ──
                 _d_sl = getattr(decision, "stop_loss", None) if decision else None
@@ -778,7 +778,7 @@ def process_candidate_cycle(
                         f"score={fill_score:.1f} grade={fill_grade} "
                         f"strategy={fill_strat_name} strat_score={fill_strat_score:.1f} "
                         f"strat_grade={fill_strat_grade} "
-                        f"reason=FILL executed @ {decision.entry_price or 'market'} | gates={gates_str}"
+                        f"reason=FILL executed @ {decision.entry_price or 'market'}"
                     )
                     from tradebot_sci.strategy.safety_guard import SafetyGuard
                     SafetyGuard.notify_entry(symbol)

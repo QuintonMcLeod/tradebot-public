@@ -44,6 +44,7 @@ from tradebot_sci.strategy.engine import StrategyEngine
 from tradebot_sci.runtime.cycle import process_candidate_cycle
 from tradebot_sci.config.loader import get_settings, load_config_json
 from tradebot_sci.runtime.sabbath import SabbathContext
+from tradebot_sci.utils.symbol_classifier import convert_quote_to_usd
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -350,6 +351,8 @@ class ReplayPaperBroker(PaperBroker):
         # Record as a trade event in the trade store
         if self.trade_results:
             opened_at = pos.get("opened_at", "")
+            mfe_usd = pos.get("mfe_usd", 0.0)
+            mae_usd = pos.get("mae_usd", 0.0)
             self.trade_results.add_result(TradeResult(
                 symbol=symbol,
                 closed_at=datetime.now(timezone.utc).isoformat(),
@@ -362,6 +365,11 @@ class ReplayPaperBroker(PaperBroker):
                 strategy=pos.get("strategy", "unknown"),
                 exit_reason=exit_reason,
                 side=side,
+                mfe_usd=mfe_usd,
+                mae_usd=mae_usd,
+                entry_price=entry_p,
+                exit_price=fill_p,
+                size=close_size,
             ))
 
         if abs(remain_size) < 1e-8:
@@ -427,7 +435,11 @@ class ReplayPaperBroker(PaperBroker):
             logger.debug(f"[REPLAY] {symbol}: SL trailed {old_sl} → {new_sl:.5f}")
 
     def evaluate_synthetic_stops(self, market_provider, timeframe):
-        """Override to evaluate SL/TP at the candle's high/low, not just close."""
+        """Override to evaluate SL/TP at the candle's high/low, not just close.
+        
+        Also tracks MFE/MAE and enforces the 24-hour negative hold guard so
+        replay behaviour matches live paper trading.
+        """
         results = []
         for symbol in list(self.positions.keys()):
             pos = self.positions[symbol]
@@ -453,14 +465,64 @@ class ReplayPaperBroker(PaperBroker):
             hit = None
             exit_px = current_close
 
+            # ── MFE / MAE tracking (parity with PaperBroker) ─────────────
+            if side == "long":
+                best_price  = max(current_close, candle_high) if candle_high is not None else current_close
+                worst_price = min(current_close, candle_low)  if candle_low  is not None else current_close
+                curr_mfe = best_price - entry_p
+                curr_mae = worst_price - entry_p
+            else:
+                best_price  = min(current_close, candle_low)  if candle_low  is not None else current_close
+                worst_price = max(current_close, candle_high) if candle_high is not None else current_close
+                curr_mfe = entry_p - best_price
+                curr_mae = entry_p - worst_price
+
+            floating_fav = curr_mfe * abs(pos["size"])
+            floating_adv = curr_mae * abs(pos["size"])
+            pos["mfe"] = max(pos.get("mfe", 0.0), curr_mfe)
+            pos["mae"] = min(pos.get("mae", 0.0), curr_mae)
+            floating_fav_usd = convert_quote_to_usd(floating_fav, symbol, current_close, self.market_provider)
+            floating_adv_usd = convert_quote_to_usd(floating_adv, symbol, current_close, self.market_provider)
+            pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), floating_fav_usd)
+            pos["mae_usd"] = min(pos.get("mae_usd", 0.0), floating_adv_usd)
+
+            # ── Negative Hold Guard (parity with PaperBroker) ────────────
+            _router_held_s = 0.0
+            if "entry_time" in pos:
+                try:
+                    _entry_dt = datetime.fromisoformat(pos["entry_time"])
+                    if _entry_dt.tzinfo is None:
+                        _entry_dt = _entry_dt.replace(tzinfo=timezone.utc)
+                    _now_dt = self._now()
+                    if _now_dt.tzinfo is None:
+                        _now_dt = _now_dt.replace(tzinfo=timezone.utc)
+                    _router_held_s = max(0.0, (_now_dt - _entry_dt).total_seconds())
+                except Exception:
+                    pass
+
+            fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
+            enable_negative_hold_guard = getattr(self.profile, 'enable_negative_hold_guard', True)
+            negative_hold_seconds = int(getattr(self.profile, 'negative_hold_seconds', 2700))
+            _worst_price = candle_low if (side == "long" and candle_low is not None) else (
+                candle_high if (side == "short" and candle_high is not None) else current_close
+            )
+            unrealized_pnl_raw_sl = (_worst_price - entry_p) * pos["size"]
+            unrealized_pnl_usd_sl = convert_quote_to_usd(unrealized_pnl_raw_sl, symbol, _worst_price, self.market_provider)
+            est_spread_usd_sl = abs(pos.get("qty", abs(pos["size"])) * _worst_price) * (fee_pct / 2.0 if not is_parity else self._get_taker_fee(symbol))
+            is_negative_sl = (unrealized_pnl_usd_sl - est_spread_usd_sl) < 0
+            is_under_neg_hold = (enable_negative_hold_guard and is_negative_sl and _router_held_s < negative_hold_seconds)
+
             if side == "long":
                 # SL: use candle LOW (worst intra-bar price against long)
                 check_sl = candle_low if candle_low is not None else current_close
                 # TP: use candle HIGH (best intra-bar price for long)
                 check_tp = candle_high if candle_high is not None else current_close
                 if sl and check_sl <= sl:
-                    hit    = "SL"
-                    exit_px = sl  # exit at SL level, not close
+                    if is_under_neg_hold and sl < entry_p:
+                        logger.info(f"[REPLAY] [HOLD GUARD] {symbol}: Mechanical SL hit at {sl} ignored due to {negative_hold_seconds}s negative hold ({_router_held_s:.0f}s elapsed)")
+                    else:
+                        hit    = "SL"
+                        exit_px = sl  # exit at SL level, not close
                 elif tp and tp > entry_p and check_tp >= tp:
                     hit    = "TP"
                     exit_px = tp  # exit exactly at TP level
@@ -470,8 +532,11 @@ class ReplayPaperBroker(PaperBroker):
                 # TP: use candle LOW (best intra-bar price for short)
                 check_tp = candle_low if candle_low is not None else current_close
                 if sl and check_sl >= sl:
-                    hit    = "SL"
-                    exit_px = sl
+                    if is_under_neg_hold and sl > entry_p:
+                        logger.info(f"[REPLAY] [HOLD GUARD] {symbol}: Mechanical SL hit at {sl} ignored due to {negative_hold_seconds}s negative hold ({_router_held_s:.0f}s elapsed)")
+                    else:
+                        hit    = "SL"
+                        exit_px = sl
                 elif tp and tp < entry_p and check_tp <= tp:
                     hit    = "TP"
                     exit_px = tp
@@ -570,9 +635,12 @@ class ReplayPaperBroker(PaperBroker):
                 except Exception:
                     pass
 
+        mfe_usd = pos.get("mfe_usd", 0.0)
+        mae_usd = pos.get("mae_usd", 0.0)
         logger.info(
             f"[REPLAY] [EXIT] {symbol} {hit}: {pnl_str} "
             f"| side={side} entry={entry_p:.5f} exit={fill_p:.5f} "
+            f"| MFE=${mfe_usd:+.2f} MAE=${mae_usd:+.2f}"
             f"| pnl=${self._total_pnl:+.2f} bal=${running_balance:.2f}"
         )
 
@@ -591,6 +659,11 @@ class ReplayPaperBroker(PaperBroker):
                 strategy=pos.get("strategy", "unknown"),
                 exit_reason=f"replay_{hit.lower()}",
                 side=side,
+                mfe_usd=mfe_usd,
+                mae_usd=mae_usd,
+                entry_price=entry_p,
+                exit_price=fill_p,
+                size=pos.get("size"),
             ))
 
         del self.positions[symbol]
@@ -1068,6 +1141,8 @@ def _worker_replay_symbol(args: tuple) -> dict:
             "side":        getattr(r, "side", "?"),
             "exit_reason": getattr(r, "exit_reason", ""),
             "strategy":    getattr(r, "strategy", ""),
+            "mfe_usd":     float(getattr(r, "mfe_usd", 0.0) or 0.0),
+            "mae_usd":     float(getattr(r, "mae_usd", 0.0) or 0.0),
         })
 
     return {
@@ -1300,6 +1375,8 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
                 "pnl":    round(t["pnl_usd"], 2),
                 "reason": t["exit_reason"],
                 "strategy": t.get("strategy", ""),
+                "mfe_usd": round(t.get("mfe_usd", 0.0), 2),
+                "mae_usd": round(t.get("mae_usd", 0.0), 2),
             }
             for t in all_trades
         ],

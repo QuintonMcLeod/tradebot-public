@@ -92,7 +92,7 @@ class StrategyEngine:
     # Aggregator is excluded (it has no own-position semantic).
     # ForexConductor previously had a duplicate SAR path; it now receives
     # sar_dir via gates["sar_dir"] and computes ATR-based SL/TP itself.
-    _SAR_EXCLUDED = {"aggregator"}
+    _SAR_EXCLUDED = {"aggregator", "forex_hybrid_scalper", "forex_hybrid_reaper"}
     _sar_pending: dict[str, str] = {}  # symbol → reversal direction
     _cr_pending:  dict[str, str] = {}  # symbol → CR direction (back to original)
     _sar_cooldown_until: dict[str, object] = {}  # symbol → datetime; blocks spirals
@@ -483,7 +483,7 @@ class StrategyEngine:
             now_for_sched = now_for_sched.replace(tzinfo=timezone.utc)
             
         # Get list of ALL active sessions for this timestamp
-        _, _, active_sessions = get_schedule_status(
+        _, can_paper_trade, active_sessions = get_schedule_status(
             profile_name=self.profile.name,
             now=now_for_sched,
             settings=self.settings
@@ -510,8 +510,8 @@ class StrategyEngine:
         session_id = getattr(self._strategy, "SESSION_PROFILE", None)
         session_ok = True
         session_gate_enabled = False
-        if self.settings and hasattr(self.settings, "safety"):
-            session_gate_enabled = getattr(self.settings.safety, "session_gate_enabled", False)
+        if self.settings and hasattr(self.settings, "risk"):
+            session_gate_enabled = getattr(self.settings.risk, "session_gate_enabled", False)
 
         if session_gate_enabled and session_id:
             if isinstance(session_id, list):
@@ -666,8 +666,9 @@ class StrategyEngine:
                         _hold_entry = getattr(hold_rec, "entry_price", None)
                         _pos_entry = open_position.get("entry_price")
                         if _hold_entry is not None and _pos_entry is not None and abs(float(_hold_entry) - float(_pos_entry)) < 1e-9:
-                            open_position["mfe_usd"] = hold_rec.mfe_usd
-                            open_position["mae_usd"] = hold_rec.mae_usd
+                            # Preserve intra-bar MFE/MAE that evaluate_synthetic_stops captured
+                            open_position["mfe_usd"] = max(open_position.get("mfe_usd", 0.0), hold_rec.mfe_usd or 0.0)
+                            open_position["mae_usd"] = min(open_position.get("mae_usd", 0.0), hold_rec.mae_usd or 0.0)
                         else:
                             # Stale hold record — seed from current floating gross
                             open_position["mfe_usd"] = max(open_position.get("mfe_usd", 0.0), floating_gross)
@@ -746,6 +747,9 @@ class StrategyEngine:
                 # Trade is negative if net profit (gross PnL minus spread) is underwater
                 is_negative = (floating_pnl_usd - est_spread_usd) < 0
 
+            # For scalping: block ALL non-emergency exits (including mechanical SL)
+            # while the trade is underwater and younger than negative_hold_seconds.
+            # This gives price 24h to bounce before any stop can fire.
             neg_hold_blocked = (
                 enable_negative_hold_guard
                 and is_negative
@@ -1197,6 +1201,19 @@ class StrategyEngine:
         # for the forced reversal entry rather than relying on None SL/TP.
         gates["profile"] = self.profile
         gates["sar_dir"] = sar_dir  # None if no SAR pending
+
+        # ── Live spread data for entry filtering ──
+        # Forex scalper uses tight stops; widened spread can stop us out
+        # immediately.  Provide actual bid/ask spread when available.
+        try:
+            _ticker = self.market_provider.get_ticker(self.symbol)
+            if _ticker and _ticker.bid and _ticker.ask:
+                gates["current_spread"] = abs(_ticker.ask - _ticker.bid)
+            else:
+                gates["current_spread"] = None
+        except Exception:
+            gates["current_spread"] = None
+
         decision = self._strategy.check_entry_signal(
             snapshot,
             gates,

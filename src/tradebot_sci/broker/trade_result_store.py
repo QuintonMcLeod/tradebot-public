@@ -30,6 +30,7 @@ class TradeResult:
     trade_id: str | None = None          # Exchange trade/order ID
     size: float | None = None            # Position size/units
     entry_price: float | None = None     # Average entry price
+    exit_price: float | None = None      # Average exit price
 
     def to_dict(self) -> dict:
         d = {k: v for k, v in self.__dict__.items()}
@@ -65,7 +66,8 @@ class TradeResult:
             mae_usd=float(data["mae_usd"]) if data.get("mae_usd") is not None else None,
             trade_id=data.get("trade_id"),
             size=float(data["size"]) if data.get("size") is not None else None,
-            entry_price=float(data["entry_price"]) if data.get("entry_price") is not None else None
+            entry_price=float(data["entry_price"]) if data.get("entry_price") is not None else None,
+            exit_price=float(data["exit_price"]) if data.get("exit_price") is not None else None
         )
 
 class TradeResultStore:

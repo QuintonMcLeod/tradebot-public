@@ -852,6 +852,13 @@ class TradingProfileSettings(BaseModel):
         description="Maximum hours to hold before Day Trade Enforcer activates (0 disables). "
                     "Grace period starts at 70%, emergency exit at 100%, hard kill at 130%.",
     )
+    trend_mode_hold_multiplier: float = Field(
+        default=8.0,
+        ge=1.0,
+        description="Multiplier for max_hold_hours when a position is tagged as trend regime. "
+                    "Allows trend-following positions room to ride the wave. Default 8x gives "
+                    "trend-mode positions a full intraday window even when base max_hold_hours is tight.",
+    )
     # trailing_stop_enabled: REMOVED — lives exclusively in PerformanceSettings (models.py:979)
     # to prevent split-brain between PositionExitConfig (default=False) and PerformanceSettings (default=True)
     trailing_stop_min_profit_pct: float = Field(

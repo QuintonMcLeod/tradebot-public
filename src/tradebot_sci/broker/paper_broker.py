@@ -69,29 +69,123 @@ class PaperBroker:
             friction = (spread_pct / 2.0) + slip_pct
             return fee_pct, spread_pct, slip_pct, friction, False
 
+    # ── Pip-based helpers for realistic forex spread/sizing ────────────────
+    def _get_pip_size(self, symbol: str) -> float:
+        """Return pip size for a symbol. JPY pairs = 0.01, others = 0.0001."""
+        sym = symbol.upper().replace("_", "").replace("/", "")
+        if "JPY" in sym:
+            return 0.01
+        return 0.0001
+
+    def _price_to_pips(self, price_diff: float, symbol: str) -> float:
+        """Convert a price difference to pips."""
+        pip_size = self._get_pip_size(symbol)
+        return price_diff / pip_size if pip_size > 0 else 0.0
+
+    def _pips_to_price(self, pips: float, symbol: str) -> float:
+        """Convert pips to price difference."""
+        return pips * self._get_pip_size(symbol)
+
+    def _get_pip_value_usd(self, symbol: str, price: float) -> float:
+        """Return the USD value of 1 pip for 1 unit of the symbol.
+
+        For EURUSD: 1 pip = $0.0001 per unit.
+        For USDJPY: 1 pip = 0.01 JPY per unit → 0.01 / USDJPY USD.
+        For cross pairs: converts quote currency pip to USD via rate lookup.
+        """
+        sym = symbol.upper().replace("_", "").replace("/", "")
+        pip_size = self._get_pip_size(symbol)
+
+        # Pairs ending in USD: pip is already USD-denominated
+        if sym.endswith("USD"):
+            return pip_size
+
+        # USD-base pairs (USDJPY, USDCAD, USDCHF): pip is in quote currency
+        if sym.startswith("USD"):
+            return pip_size / price if price > 0 else 0.0
+
+        # Cross pairs
+        base = sym[:3]
+        quote = sym[3:]
+
+        if quote == "USD":
+            return pip_size
+        elif quote == "JPY":
+            usdjpy = self._get_current_price("USD_JPY") if self.market_provider else None
+            if usdjpy and usdjpy > 0:
+                return pip_size / usdjpy
+            return pip_size / 150.0
+        elif quote == "CAD":
+            usdcad = self._get_current_price("USD_CAD") if self.market_provider else None
+            if usdcad and usdcad > 0:
+                return pip_size / usdcad
+            return pip_size / 1.35
+        elif quote == "CHF":
+            usdchf = self._get_current_price("USD_CHF") if self.market_provider else None
+            if usdchf and usdchf > 0:
+                return pip_size / usdchf
+            return pip_size / 0.90
+        elif quote == "NZD":
+            nzdusd = self._get_current_price("NZD_USD") if self.market_provider else None
+            if nzdusd and nzdusd > 0:
+                return pip_size * nzdusd
+            return pip_size * 0.60
+        elif quote == "AUD":
+            audusd = self._get_current_price("AUD_USD") if self.market_provider else None
+            if audusd and audusd > 0:
+                return pip_size * audusd
+            return pip_size * 0.65
+        elif quote == "GBP":
+            gbpusd = self._get_current_price("GBP_USD") if self.market_provider else None
+            if gbpusd and gbpusd > 0:
+                return pip_size * gbpusd
+            return pip_size * 1.25
+        elif quote == "EUR":
+            eurusd = self._get_current_price("EUR_USD") if self.market_provider else None
+            if eurusd and eurusd > 0:
+                return pip_size * eurusd
+            return pip_size * 1.10
+
+        return pip_size / price if price > 0 else 0.0
+
     def _compute_spread_cost(self, pos: dict, exit_price: float, close_qty: float | None = None) -> float:
         """Compute total estimated round-trip trading cost (spread + slippage + fees) in USD.
 
-        This captures the full friction cost so the UI can display a meaningful
-        spread column even when config fee_bps is 0 (forex spread-only mode).
+        Uses realistic pip-based mechanics:
+          Spread Cost = round_trip_pips * pip_value_usd * position_size
+        This avoids the old percentage-of-notional model that produced
+        artificially high costs on high-priced pairs like USDJPY.
         """
         fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
         symbol = pos.get("symbol", "")
         qty = close_qty if close_qty is not None else abs(pos.get("qty", pos.get("size", 0)))
         entry_price = pos.get("entry_price", exit_price)
+        avg_price = (entry_price + exit_price) / 2.0 if (entry_price and exit_price) else (entry_price or exit_price or 0.0)
+
+        if avg_price <= 0 or qty <= 0:
+            return 0.0
 
         if is_parity:
-            # Parity mode: only explicit fees count
-            avg_price = (entry_price + exit_price) / 2
+            # Parity mode: only explicit fees count (still in quote currency, convert to USD)
             total = qty * avg_price * fee_pct * 2
-        else:
-            # Full friction: round-trip spread + slippage + fees
-            avg_price = (entry_price + exit_price) / 2
-            rt_spread_slip = qty * avg_price * (spread_pct + 2 * slip_pct)
-            rt_fees = qty * avg_price * fee_pct * 2
-            total = rt_spread_slip + rt_fees
+            return convert_quote_to_usd(total, symbol, exit_price, self.market_provider)
 
-        return convert_quote_to_usd(total, symbol, exit_price, self.market_provider)
+        # Pip-based spread + slippage cost
+        pip_size = self._get_pip_size(symbol)
+        spread_pips = (avg_price * spread_pct) / pip_size if pip_size > 0 else 0.0
+        slip_pips = (avg_price * slip_pct) / pip_size if pip_size > 0 else 0.0
+        rt_pips = spread_pips + 2.0 * slip_pips  # round-trip
+
+        pip_value_usd = self._get_pip_value_usd(symbol, avg_price)
+        spread_cost_usd = qty * rt_pips * pip_value_usd
+
+        # Add explicit fees if any
+        if fee_pct > 0:
+            fee_quote = qty * avg_price * fee_pct * 2
+            fee_usd = convert_quote_to_usd(fee_quote, symbol, exit_price, self.market_provider)
+            spread_cost_usd += fee_usd
+
+        return spread_cost_usd
 
     # Hard leverage cap for paper trading.
     # Profile target_leverage (e.g. 50x) is for OANDA forex — way too high for
@@ -527,44 +621,41 @@ class PaperBroker:
             else:
                 risk_usd = sizing_capital * float(risk_pct)
             
-            # ── Minimum Stop Distance (parity with backtester) ──────────
-            # The backtester enforces a 0.15% minimum stop so that strategy
-            # entries with absurdly tight stops (3-7 pips on EURUSD when
-            # ATR-minimum should be ~18 pips) are widened to realistic
-            # distances.  Without this, 5m candle noise hits the stop in
-            # 1-2 bars (10 minutes), producing a 86% "Hard Stop Loss Hit"
-            # ratio.  This is the #1 parity gap between backtester and
-            # paper trading.
+            # ── Pip-Based Position Sizing ───────────────────────────────
+            # Position Size = Risk Amount / (Stop Loss Distance in Pips * Pip Value in USD)
+            # This replaces the old price-diff model that mishandled JPY/CAD/CHF
+            # pairs and produced absurd position sizes when stops were widened.
             if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
-                risk_per_unit = abs(price - decision.stop_loss)
-                
-                # Quote-currency adjustment (convert stop distance to USD)
-                # I expanded this from JPY-only to include CAD and CHF cross-pairs.
-                # Previously, EURCAD/GBPCHF stops were treated as USD-denominated,
-                # causing silently oversized positions.
-                sym_clean = symbol.upper().replace("_", "")
-                if (sym_clean.startswith("USD") or any(q in sym_clean for q in ("JPY", "CAD", "CHF"))) and price > 0:
-                    risk_per_unit = risk_per_unit / price
-                    
+                stop_pips = self._price_to_pips(abs(price - decision.stop_loss), symbol)
+                pip_value = self._get_pip_value_usd(symbol, price)
 
-                min_stop_distance = price * 0.0010  # 0.10% of entry (~10 pips, harmonized with strategy)
-                if risk_per_unit < min_stop_distance:
+                if pip_value > 0 and stop_pips > 0:
+                    qty = risk_usd / (stop_pips * pip_value)
+                else:
+                    qty = 0.0
+
+                # Minimum stop distance in pips (0.10% of price, harmonized with strategy)
+                min_stop_pips = self._price_to_pips(price * 0.0010, symbol)
+                if stop_pips < min_stop_pips:
                     target_r_cfg = float(getattr(self.profile, 'target_r', 2.5))
                     logger.warning(
                         f"[PAPER] [STOP-WIDEN] {symbol}: Stop too tight "
-                        f"(${risk_per_unit:.5f} < ${min_stop_distance:.5f}), "
+                        f"({stop_pips:.1f} pips < {min_stop_pips:.1f} pips), "
                         f"widening to minimum (rescaling TP to {target_r_cfg}R)"
                     )
-                    risk_per_unit = min_stop_distance
+                    stop_pips = min_stop_pips
+                    # Recalculate qty with the widened stop so risk stays constant
+                    if pip_value > 0:
+                        qty = risk_usd / (stop_pips * pip_value)
+                    price_diff = self._pips_to_price(min_stop_pips, symbol)
                     if action == "enter_long":
-                        decision.stop_loss = price - min_stop_distance
-                        decision.take_profit = price + (min_stop_distance * target_r_cfg)
+                        decision.stop_loss = price - price_diff
+                        decision.take_profit = price + (price_diff * target_r_cfg)
                     else:
-                        decision.stop_loss = price + min_stop_distance
-                        decision.take_profit = price - (min_stop_distance * target_r_cfg)
-                qty = risk_usd / risk_per_unit
+                        decision.stop_loss = price + price_diff
+                        decision.take_profit = price - (price_diff * target_r_cfg)
             else:
-                # Fallback: Treat risk_usd as the actual notional size (very conservative for paper)
+                # Fallback: size by notional (very conservative)
                 qty = risk_usd / price if price > 0 else 0
 
             # ── HARD DOLLAR LOSS CAP ────────────────────────────────────
@@ -574,19 +665,16 @@ class PaperBroker:
             if _max_loss_usd <= 0:
                 _max_loss_usd = sizing_capital * float(getattr(self.profile, 'risk_per_trade_pct', 0.015))
             if decision.stop_loss and abs(price - decision.stop_loss) > 1e-6:
-                _rpu = abs(price - decision.stop_loss)
-                sym_clean = symbol.upper().replace("_", "")
-                if (sym_clean.startswith("USD") or any(q in sym_clean for q in ("JPY", "CAD", "CHF"))) and price > 0:
-                    _rpu = _rpu / price
-                    
-
-                _max_qty = _max_loss_usd / _rpu
-                if qty > _max_qty:
-                    logger.warning(
-                        f"[PAPER] [LOSS CAP] {symbol}: qty {qty:.2f} → {_max_qty:.2f} "
-                        f"(max loss ${_max_loss_usd:.2f} / stop_dist={_rpu:.5f})"
-                    )
-                    qty = _max_qty
+                _stop_pips = self._price_to_pips(abs(price - decision.stop_loss), symbol)
+                _pip_value = self._get_pip_value_usd(symbol, price)
+                if _pip_value > 0 and _stop_pips > 0:
+                    _max_qty = _max_loss_usd / (_stop_pips * _pip_value)
+                    if qty > _max_qty:
+                        logger.warning(
+                            f"[PAPER] [LOSS CAP] {symbol}: qty {qty:.2f} → {_max_qty:.2f} "
+                            f"(max loss ${_max_loss_usd:.2f} / {_stop_pips:.1f} pips * ${_pip_value:.6f})"
+                        )
+                        qty = _max_qty
 
 
             # [PHASE 2.2] Apply High-Net-Worth / Large Balance Tiered Restrictions
@@ -788,12 +876,14 @@ class PaperBroker:
                 "opened_at": self._wall_clock().isoformat(),
                 "entry_time": self._now().isoformat(),
                 "stop_loss": stop_loss_val,
+                "original_stop_loss": stop_loss_val,
                 "take_profit": getattr(decision, "take_profit", None),
                 "entry_fee": fee_usd,
                 "strategy": getattr(decision, "strategy_name", None) or "unknown",
                 "risk_usd": risk_usd,
                 "mfe_usd": 0.0,
                 "mae_usd": 0.0,
+                "regime": getattr(decision, "regime", "") or "",
             }
             logger.info(
                 f"[PAPER] [FILL] {symbol} {qty:.4f} @ {fill_price:.5f} "
@@ -828,10 +918,9 @@ class PaperBroker:
                     exit_p = price * (1 - friction) if pos_side == "long" else price * (1 + friction)
                     fee_usd = abs(pos["qty"] * exit_p) * (fee_pct / 2.0)
 
-                if pos_side == "long":
-                    pnl_gross_raw = (exit_p - entry_p) * pos["size"]
-                else:
-                    pnl_gross_raw = (entry_p - exit_p) * pos["size"]
+                # Unified PnL formula: (exit - entry) * signed_size
+                # Correct for both long (size > 0) and short (size < 0).
+                pnl_gross_raw = (exit_p - entry_p) * pos["size"]
 
                 pnl_gross = convert_quote_to_usd(pnl_gross_raw, symbol, exit_p, self.market_provider)
                 fee_usd = convert_quote_to_usd(fee_usd, symbol, exit_p, self.market_provider)
@@ -878,6 +967,9 @@ class PaperBroker:
                         spread_cost=self._compute_spread_cost(pos, exit_p),
                         mfe_usd=pos.get("mfe_usd", 0.0),
                         mae_usd=pos.get("mae_usd", 0.0),
+                        size=pos.get("size"),
+                        entry_price=entry_p,
+                        exit_price=exit_p,
                     ))
 
                 self._exit_cooldowns[symbol] = time.time()
@@ -967,6 +1059,9 @@ class PaperBroker:
                         spread_cost=self._compute_spread_cost(pos, exit_p, close_qty),
                         mfe_usd=pos.get("mfe_usd", 0.0),
                         mae_usd=pos.get("mae_usd", 0.0),
+                        size=-close_qty if pos_side == "long" else close_qty,
+                        entry_price=entry_p,
+                        exit_price=exit_p,
                     ))
 
                 # Update or remove position
@@ -1193,6 +1288,9 @@ class PaperBroker:
                     spread_cost=self._compute_spread_cost(pos, exit_p),
                     mfe_usd=pos.get("mfe_usd", 0.0),
                     mae_usd=pos.get("mae_usd", 0.0),
+                    size=pos.get("size"),
+                    entry_price=pos.get("entry_price"),
+                    exit_price=exit_p,
                 ))
 
             self._exit_cooldowns[symbol] = time.time()
@@ -1233,25 +1331,35 @@ class PaperBroker:
                 logger.warning(f"[PAPER] [DAY-CHAIN-BATCH] {symbol} no longer in positions during batch close; skipping")
                 continue
             pos = self.positions.pop(symbol)
+            
+            # Extract position data upfront so we have it even if computation crashes
+            entry_p = pos.get("entry_price", 0)
+            qty = pos.get("qty", abs(pos.get("size", 0)))
+            side = pos.get("side", "long")
+            position_size = pos.get("size", 0)
+            opened_at = pos.get("opened_at", "")
+            strategy = pos.get("strategy", "unknown")
+            mfe_usd = pos.get("mfe_usd", 0.0)
+            mae_usd = pos.get("mae_usd", 0.0)
+            
+            # Defaults — if anything below crashes we still record the trade with these
+            pnl_usd_raw = 0.0
+            pnl_usd = 0.0
+            fee_usd = 0.0
+            pnl_pct = 0.0
+            price = pos.get("current_price", entry_p) if entry_p else 0.0
+            exit_p = price
+            duration_secs = None
+            spread_cost = 0.0
+            compute_error = None
+            
             try:
                 try:
-                    entry_p_fallback = pos.get("entry_price")
-                    price = self._get_current_price(symbol, fallback=entry_p_fallback)
+                    price = self._get_current_price(symbol, fallback=entry_p)
                 except Exception:
-                    price = pos.get("current_price", pos.get("entry_price", 0))
-
-                entry_p = pos.get("entry_price", 0)
-                qty = pos.get("qty", abs(pos.get("size", 0)))
-                side = pos.get("side", "long")
-                position_size = pos.get("size", 0)
-
-                # Default values for trace logging even if sanity guard fires
-                pnl_usd_raw = 0.0
-                pnl_usd = 0.0
-                fee_usd = 0.0
-                pnl_pct = 0.0
-                exit_p = price  # default for logging
-
+                    price = pos.get("current_price", entry_p) if entry_p else 0.0
+                exit_p = price
+                
                 # Sanity guard: if the position lacks critical fields, log and skip math
                 if entry_p is None or position_size is None or abs(position_size) < 1e-12 or qty is None:
                     logger.error(
@@ -1259,7 +1367,6 @@ class PaperBroker:
                         f"size={position_size} qty={qty}; closing at zero PnL to prevent corruption"
                     )
                 else:
-                    # BUGFIX: Convert quote-currency P&L to USD for cross-pairs (JPY/CAD/CHF)
                     fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
                     if is_parity:
                         exit_p = price
@@ -1269,11 +1376,14 @@ class PaperBroker:
                         fee_raw = abs(qty * exit_p) * fee_pct
                     pnl_gross_raw = (exit_p - entry_p) * position_size
                     pnl_usd_raw = pnl_gross_raw - fee_raw
-                    # pnl_pct stays in quote-currency terms (consistent with notional denominator)
                     pnl_pct = (pnl_usd_raw / (entry_p * abs(position_size))) * 100 if entry_p > 0 else 0.0
-                    # Convert realized P&L to USD for balance update
                     pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, price, self.market_provider)
                     fee_usd = convert_quote_to_usd(fee_raw, symbol, price, self.market_provider)
+                    try:
+                        spread_cost = self._compute_spread_cost(pos, price)
+                    except Exception as sc_err:
+                        logger.warning(f"[PAPER] [DAY-CHAIN-BATCH] {symbol} spread cost compute failed: {sc_err}")
+                        spread_cost = 0.0
 
                 # Panic guard: single trade should not wipe out >50% of account
                 if abs(pnl_usd) > self.balance * 0.5 and self.balance > 0:
@@ -1295,8 +1405,7 @@ class PaperBroker:
                 )
 
                 # Compute duration
-                duration_secs = None
-                entry_time_str = pos.get("entry_time", pos.get("opened_at", ""))
+                entry_time_str = pos.get("entry_time", opened_at)
                 if entry_time_str:
                     try:
                         entry_dt = datetime.fromisoformat(entry_time_str)
@@ -1312,32 +1421,6 @@ class PaperBroker:
                     f"({reason})"
                 )
 
-                if self.trade_results:
-                    try:
-                        self.trade_results.add_result(TradeResult(
-                            symbol=symbol,
-                            closed_at=self._wall_clock().isoformat(),
-                            pnl_pct=pnl_pct,
-                            pnl_usd=pnl_usd,
-                            is_win=pnl_usd > 0,
-                            tier="100%",
-                            capital_at_close=self.balance,
-                            opened_at=pos.get("opened_at", ""),
-                            duration_seconds=duration_secs,
-                            strategy=pos.get("strategy", "unknown"),
-                            exit_reason=reason,
-                            side=side,
-                            spread_cost=self._compute_spread_cost(pos, price),
-                            mfe_usd=pos.get("mfe_usd", 0.0),
-                            mae_usd=pos.get("mae_usd", 0.0),
-                        ))
-                    except Exception as tr_err:
-                        logger.error(
-                            f"[PAPER] [DAY-CHAIN-BATCH] {symbol} FAILED to record trade result: {tr_err}. "
-                            f"Balance was updated by ${pnl_usd:.2f} but trade result is MISSING."
-                        )
-                        failed_symbols.append(symbol)
-
                 if self.position_hold_store:
                     try:
                         self.position_hold_store.remove(symbol)
@@ -1347,11 +1430,47 @@ class PaperBroker:
                 SafetyGuard.register_trade_completion(symbol, pnl_usd > 0, pnl_usd=pnl_usd, sim_time=self._now())
 
             except Exception as close_err:
+                compute_error = str(close_err)
                 logger.exception(
                     f"[PAPER] [DAY-CHAIN-BATCH] {symbol} EXCEPTION during close_all_positions: {close_err}. "
                     f"Position was popped but close may be incomplete."
                 )
                 failed_symbols.append(symbol)
+            finally:
+                # ── GUARANTEE: trade result is ALWAYS recorded ──
+                # No matter what crashed above, the position was popped and we
+                # MUST leave a trace in the trade ledger so it is never "dropped".
+                if self.trade_results:
+                    try:
+                        exit_reason = reason if compute_error is None else f"{reason} (ERROR: {compute_error})"
+                        self.trade_results.add_result(TradeResult(
+                            symbol=symbol,
+                            closed_at=self._wall_clock().isoformat(),
+                            pnl_pct=pnl_pct,
+                            pnl_usd=pnl_usd,
+                            is_win=pnl_usd > 0,
+                            tier="100%",
+                            capital_at_close=self.balance,
+                            opened_at=opened_at,
+                            duration_seconds=duration_secs,
+                            strategy=strategy,
+                            exit_reason=exit_reason,
+                            side=side,
+                            spread_cost=spread_cost,
+                            mfe_usd=mfe_usd,
+                            mae_usd=mae_usd,
+                            size=position_size,
+                            entry_price=entry_p,
+                            exit_price=exit_p,
+                        ))
+                    except Exception as tr_err:
+                        # Absolute last resort: write directly to audit log so
+                        # the trade is not completely invisible.
+                        logger.critical(
+                            f"[PAPER] [DAY-CHAIN-BATCH] {symbol} CRITICAL: Trade result could not be saved: {tr_err}. "
+                            f"Emergency trace — symbol={symbol} side={side} entry={entry_p} exit={exit_p} "
+                            f"pnl_usd={pnl_usd} opened_at={opened_at}"
+                        )
 
         # Final reconciliation: detect if balance drifted without traceable trades
         balance_delta = self.balance - balance_at_start
@@ -1457,6 +1576,147 @@ class PaperBroker:
             pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), floating_fav_usd)
             pos["mae_usd"] = min(pos.get("mae_usd", 0.0), floating_adv_usd)
             pos["unrealized_pnl"] = unrealized_pnl_usd
+
+            # ════════════════════════════════════════════════════════════════
+            # BREAKEVEN GUARD — move SL to +0.1R once price hits +1.0R
+            # ════════════════════════════════════════════════════════════════
+            # Only for forex hybrid scalper/reaper. Protects MFE by ensuring
+            # trades that stall after an initial favorable move don't turn into
+            # full losers.  Does NOT trail dynamically — just one BE move.
+            _strategy_name = pos.get("strategy", "").lower()
+            if _strategy_name in ("forexhybridscalper", "forexhybridreaper"):
+                if not pos.get("breakeven_applied"):
+                    _orig_sl = pos.get("original_stop_loss")
+                    if _orig_sl and entry_p and _orig_sl != entry_p:
+                        _risk_dist = abs(entry_p - _orig_sl)
+                        _curr_r = curr_mfe / _risk_dist if _risk_dist > 0 else 0.0
+                        if _curr_r >= 1.0:
+                            if side == "long":
+                                _new_sl = entry_p + (_risk_dist * 0.1)
+                            else:
+                                _new_sl = entry_p - (_risk_dist * 0.1)
+                            # Only move SL if it improves our risk (tighter for longs,
+                            # higher for shorts) and doesn't exceed current price
+                            _old_sl = pos.get("stop_loss")
+                            if side == "long" and _new_sl > _old_sl and _new_sl < price:
+                                pos["stop_loss"] = _new_sl
+                                pos["breakeven_applied"] = True
+                                logger.info(
+                                    f"[PAPER] [BE] {symbol} Breakeven triggered at +{_curr_r:.2f}R | "
+                                    f"SL {_old_sl:.5f} → {_new_sl:.5f} (entry={entry_p:.5f})"
+                                )
+                            elif side == "short" and _new_sl < _old_sl and _new_sl > price:
+                                pos["stop_loss"] = _new_sl
+                                pos["breakeven_applied"] = True
+                                logger.info(
+                                    f"[PAPER] [BE] {symbol} Breakeven triggered at +{_curr_r:.2f}R | "
+                                    f"SL {_old_sl:.5f} → {_new_sl:.5f} (entry={entry_p:.5f})"
+                                )
+
+            # ════════════════════════════════════════════════════════════════
+            # STALL DETECTOR — hard exit if +0.5R reached but momentum died
+            # ════════════════════════════════════════════════════════════════
+            # For forex scalper only. If price hits +0.5R, stalls for 6+ bars,
+            # and returns to breakeven, the mean-reversion bounce thesis is
+            # invalidated. Exit immediately — don't wait for the full SL hit.
+            if _strategy_name in ("forexhybridscalper", "forexhybridreaper"):
+                _orig_sl = pos.get("original_stop_loss")
+                if _orig_sl and entry_p and _orig_sl != entry_p:
+                    _risk_dist = abs(entry_p - _orig_sl)
+                    _curr_r = curr_mfe / _risk_dist if _risk_dist > 0 else 0.0
+                    # Track if we ever hit +0.5R
+                    if _curr_r >= 0.5 and not pos.get("stall_half_r_reached"):
+                        pos["stall_half_r_reached"] = True
+                        logger.info(
+                            f"[PAPER] [STALL-TRACK] {symbol} Hit +{_curr_r:.2f}R, "
+                            f"stall detector armed (6-bar timer starts)"
+                        )
+                    # If armed and 6+ bars held and price back near entry
+                    if pos.get("stall_half_r_reached") and candles_for_router:
+                        _entry_ts_str = pos.get("entry_time", "")
+                        if _entry_ts_str:
+                            try:
+                                from datetime import timezone
+                                _entry_dt_stall = datetime.fromisoformat(_entry_ts_str)
+                                if _entry_dt_stall.tzinfo is None:
+                                    _entry_dt_stall = _entry_dt_stall.replace(tzinfo=timezone.utc)
+                                _last_candle = candles_for_router[-1]
+                                _now_dt_stall = _last_candle.timestamp
+                                if _now_dt_stall.tzinfo is None:
+                                    _now_dt_stall = _now_dt_stall.replace(tzinfo=timezone.utc)
+                                _elapsed_s = (_now_dt_stall - _entry_dt_stall).total_seconds()
+                                # 5m bars = 300s
+                                _bars_held = int(_elapsed_s / 300.0)
+                                # Current distance from entry in R terms
+                                _curr_dist_from_entry = abs(price - entry_p) / _risk_dist if _risk_dist > 0 else 999
+                                if _bars_held >= 6 and _curr_dist_from_entry <= 0.2:
+                                    logger.info(
+                                        f"[PAPER] [STALL-EXIT] {symbol} HARD EXIT: "
+                                        f"+0.5R was reached, but after {_bars_held} bars "
+                                        f"price returned to within {_curr_dist_from_entry:.2f}R of entry. "
+                                        f"Thesis invalidated."
+                                    )
+                                    # Hard exit at current price
+                                    _exit_p = price
+                                    pnl_gross_raw = (_exit_p - entry_p) * pos["size"]
+                                    fee_pct_sd, spread_pct_sd, slip_pct_sd, friction_sd, is_parity_sd = self._get_paper_friction()
+                                    if is_parity_sd:
+                                        fee_raw_sd = abs(pos.get("qty", abs(pos["size"])) * _exit_p) * self._get_taker_fee(symbol)
+                                    else:
+                                        fee_raw_sd = abs(pos.get("qty", abs(pos["size"])) * _exit_p) * (fee_pct_sd / 2.0)
+                                    pnl_usd_raw_sd = pnl_gross_raw - fee_raw_sd
+                                    pnl_usd_sd = convert_quote_to_usd(pnl_usd_raw_sd, symbol, _exit_p, self.market_provider)
+                                    fee_usd_sd = convert_quote_to_usd(fee_raw_sd, symbol, _exit_p, self.market_provider)
+                                    if pnl_usd_sd > 0:
+                                        pos["mfe_usd"] = max(pos.get("mfe_usd", 0.0), pnl_usd_sd)
+                                    else:
+                                        pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_usd_sd)
+                                    self._audit_balance_change(pnl_usd_sd, "stall_detector_exit", symbol)
+                                    duration_secs_sd, duration_str_sd = self._compute_duration(pos)
+                                    pnl_pct_sd = (pnl_usd_raw_sd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
+                                    spread_cost_sd = self._compute_spread_cost(pos, _exit_p)
+                                    logger.info(
+                                        f"[PAPER] [EXIT] Paper STALL: {symbol} {pnl_usd_sd:+.2f} "
+                                        f"(Pct={pnl_pct_sd:.2f}%) position={side.upper()} | "
+                                        f"Entry={entry_p:.5f} Exit={_exit_p:.5f} | "
+                                        f"Duration={duration_str_sd} | "
+                                        f"MFE=${pos.get('mfe_usd', 0.0):.2f} MAE=${pos.get('mae_usd', 0.0):.2f}"
+                                    )
+                                    if self.trade_results:
+                                        self.trade_results.add_result(TradeResult(
+                                            symbol=symbol,
+                                            closed_at=self._wall_clock().isoformat(),
+                                            pnl_pct=pnl_pct_sd,
+                                            pnl_usd=pnl_usd_sd,
+                                            is_win=pnl_usd_sd > 0,
+                                            tier="100%",
+                                            capital_at_close=self.balance,
+                                            opened_at=pos.get("opened_at", ""),
+                                            duration_seconds=duration_secs_sd,
+                                            strategy=pos.get("strategy", "unknown"),
+                                            exit_reason="stall_detector",
+                                            side=side,
+                                            spread_cost=spread_cost_sd,
+                                            mfe_usd=pos.get("mfe_usd", 0.0),
+                                            mae_usd=pos.get("mae_usd", 0.0),
+                                            size=pos.get("size"),
+                                            entry_price=entry_p,
+                                            exit_price=_exit_p,
+                                        ))
+                                    del self.positions[symbol]
+                                    self._exit_cooldowns[symbol] = time.time()
+                                    if self.position_hold_store:
+                                        self.position_hold_store.remove(symbol)
+                                    SafetyGuard.register_trade_completion(symbol, pnl_usd_sd > 0, sim_time=self._now())
+                                    self._save_state()
+                                    self.refresh_account_summary()
+                                    results.append(ExecutionResult(
+                                        ExecutionStatus.EXIT_SIGNAL, symbol,
+                                        f"Paper STALL exit PnL={pnl_usd_sd:.2f}"
+                                    ))
+                                    continue  # Skip to next symbol
+                            except Exception:
+                                pass
 
             # ════════════════════════════════════════════════════════════════
             # UNIVERSAL EXIT ROUTER — runs AFTER mechanical SL/TP
@@ -1581,10 +1841,23 @@ class PaperBroker:
                                     if unrealized_pnl_usd > 0 and unrealized_pnl_usd < est_spread_usd_for_router:
                                         spread_profit_blocked = True
 
-                                if (position_is_young or spread_profit_blocked) and not is_emergency:
+                                # ── Negative Hold Guard (parity with engine.py) ──
+                                enable_negative_hold_guard = getattr(self.profile, 'enable_negative_hold_guard', True)
+                                negative_hold_seconds = int(getattr(self.profile, 'negative_hold_seconds', 2700))
+                                is_negative = (unrealized_pnl_usd - est_spread_usd_for_router) < 0
+                                neg_hold_blocked = (
+                                    enable_negative_hold_guard
+                                    and is_negative
+                                    and _router_held_s < negative_hold_seconds
+                                )
+
+                                if (position_is_young or spread_profit_blocked or neg_hold_blocked) and not is_emergency:
                                     if spread_profit_blocked:
                                         block_reason = "spread profit guard"
                                         block_limit_str = f"PnL ${unrealized_pnl_usd:.2f} < Est. Spread Cost ${est_spread_usd_for_router:.2f}"
+                                    elif neg_hold_blocked:
+                                        block_reason = "negative hold"
+                                        block_limit_str = f"age {_router_held_s:.0f}s < {negative_hold_seconds}s (negative PnL)"
                                     else:
                                         block_reason = "hold guard"
                                         block_limit_str = f"age {_router_held_s:.0f}s < {hold_guard_seconds}s"
@@ -1596,10 +1869,10 @@ class PaperBroker:
                                     )
                                     # Fall through to mechanical stops (do not exit here)
                                 else:
-                                    if is_emergency and (position_is_young or spread_profit_blocked):
+                                    if is_emergency and (position_is_young or spread_profit_blocked or neg_hold_blocked):
                                         logger.info(
                                             f"[PAPER HOLD GUARD] {symbol} EMERGENCY EXIT allowed — "
-                                            f"bypassed hold/spread profit guards"
+                                            f"bypassed hold/spread profit/negative hold guards"
                                         )
                                     # Exit router wants to close via strategy — do it at bar close price
                                     _exit_price = candles_for_router[-1].close if candles_for_router else price
@@ -1659,6 +1932,9 @@ class PaperBroker:
                                             spread_cost=self._compute_spread_cost(pos, _exit_price),
                                             mfe_usd=pos.get("mfe_usd", 0.0),
                                             mae_usd=pos.get("mae_usd", 0.0),
+                                            size=pos.get("size"),
+                                            entry_price=pos.get("entry_price"),
+                                            exit_price=_exit_price,
                                         ))
         
                                     del self.positions[symbol]
@@ -1700,16 +1976,40 @@ class PaperBroker:
             _router_held_s = 0
             if "entry_time" in pos:
                 try:
-                    from datetime import datetime
+                    from datetime import datetime, timezone
                     _entry_dt = datetime.fromisoformat(pos["entry_time"])
+                    if _entry_dt.tzinfo is None:
+                        _entry_dt = _entry_dt.replace(tzinfo=timezone.utc)
                     _now_dt = self._now()
-                    _router_held_s = (_now_dt - _entry_dt).total_seconds()
+                    if _now_dt.tzinfo is None:
+                        _now_dt = _now_dt.replace(tzinfo=timezone.utc)
+                    _router_held_s = max(0.0, (_now_dt - _entry_dt).total_seconds())
                 except Exception:
                     pass
 
             hold_guard_enabled = getattr(self.profile, 'enable_hold_guard', True)
             hold_guard_seconds = int(getattr(self.profile, 'hold_guard_seconds', 2700))
             is_under_hold_guard = (hold_guard_enabled and _router_held_s < hold_guard_seconds)
+
+            # ── Negative Hold Guard (parity with engine.py) ──
+            # For the scalping strategy: mechanical SL must NEVER fire while a trade
+            # has been continuously underwater for less than 24 hours. The guard gives
+            # price time to bounce before any SL is set or triggered. Only after the
+            # full negative_hold_seconds (86400) have elapsed may a mechanical SL hit
+            # proceed. This blocks BOTH fixed and trailing SL until the hold expires.
+            enable_negative_hold_guard = getattr(self.profile, 'enable_negative_hold_guard', True)
+            negative_hold_seconds = int(getattr(self.profile, 'negative_hold_seconds', 2700))
+            # For negative-hold evaluation, use the worst intra-bar price (low for longs,
+            # high for shorts) so that an intra-bar SL hit is always counted as negative
+            # even if the candle close recovers above entry.
+            _worst_price = candle_low if (side == "long" and candle_low is not None) else (
+                candle_high if (side == "short" and candle_high is not None) else price
+            )
+            unrealized_pnl_raw_sl = (_worst_price - entry_p) * pos["size"]
+            unrealized_pnl_usd_sl = convert_quote_to_usd(unrealized_pnl_raw_sl, symbol, _worst_price, self.market_provider)
+            est_spread_usd_sl = abs(pos.get("qty", abs(pos["size"])) * _worst_price) * (fee_pct / 2.0 if not is_parity else self._get_taker_fee(symbol))
+            is_negative_sl = (unrealized_pnl_usd_sl - est_spread_usd_sl) < 0
+            is_under_neg_hold = (enable_negative_hold_guard and is_negative_sl and _router_held_s < negative_hold_seconds)
 
             if side == "long":
                 # SL: use candle LOW (worst intra-bar price against long)
@@ -1721,8 +2021,10 @@ class PaperBroker:
                 check_tp_bid = check_tp * (1 - friction)
 
                 if sl and check_sl_bid <= sl:
-                    if is_under_hold_guard and sl < entry_p:
-                        logger.info(f"[PAPER] [HOLD GUARD] {symbol}: Mechanical SL hit at {sl} ignored due to {hold_guard_seconds}s hold guard ({_router_held_s:.0f}s elapsed)")
+                    if (is_under_hold_guard or is_under_neg_hold) and sl < entry_p:
+                        guard_reason = "negative hold" if is_under_neg_hold else "hold guard"
+                        guard_limit = negative_hold_seconds if is_under_neg_hold else hold_guard_seconds
+                        logger.info(f"[PAPER] [HOLD GUARD] {symbol}: Mechanical SL hit at {sl} ignored due to {guard_limit}s {guard_reason} ({_router_held_s:.0f}s elapsed)")
                     else:
                         hit = "SL"
                         exit_price = sl * (1 - friction) if not is_parity else sl
@@ -1741,8 +2043,10 @@ class PaperBroker:
                 check_tp_ask = check_tp * (1 + friction)
 
                 if sl and check_sl_ask >= sl:
-                    if is_under_hold_guard and sl > entry_p:
-                        logger.info(f"[PAPER] [HOLD GUARD] {symbol}: Mechanical SL hit at {sl} ignored due to {hold_guard_seconds}s hold guard ({_router_held_s:.0f}s elapsed)")
+                    if (is_under_hold_guard or is_under_neg_hold) and sl > entry_p:
+                        guard_reason = "negative hold" if is_under_neg_hold else "hold guard"
+                        guard_limit = negative_hold_seconds if is_under_neg_hold else hold_guard_seconds
+                        logger.info(f"[PAPER] [HOLD GUARD] {symbol}: Mechanical SL hit at {sl} ignored due to {guard_limit}s {guard_reason} ({_router_held_s:.0f}s elapsed)")
                     else:
                         hit = "SL"
                         exit_price = sl * (1 + friction) if not is_parity else sl
@@ -1790,6 +2094,7 @@ class PaperBroker:
                 # Compute trade duration
                 duration_secs, duration_str = self._compute_duration(pos)
                 closed_at_str = self._wall_clock().isoformat()
+                opened_at_str = pos.get("opened_at", "")
                 
                 # INTERPOLATION: If hit is SL or TP, simulate intra-bar exit time
                 if hit in ("SL", "TP") and candle_high is not None and candle_low is not None and candle_open is not None:
@@ -1860,6 +2165,9 @@ class PaperBroker:
                         spread_cost=self._compute_spread_cost(pos, exit_price),
                         mfe_usd=pos.get("mfe_usd", 0.0),
                         mae_usd=pos.get("mae_usd", 0.0),
+                        size=pos.get("size"),
+                        entry_price=pos.get("entry_price"),
+                        exit_price=exit_price,
                     ))
 
                 del self.positions[symbol]

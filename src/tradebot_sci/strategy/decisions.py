@@ -49,6 +49,7 @@ class AITradeDecision(BaseModel):
     grade: Optional[str] = None
     strategy_name: Optional[str] = None  # Sub-strategy that generated this decision (e.g. "trend_rider")
     meta_source: Optional[str] = None    # Alias for multi-position keying
+    regime: str = ""                     # Optional regime tag (e.g. "range", "trend") for exit routing
 
 
     def validate_and_fix_rr(self, min_rr: float = 0.4) -> "AITradeDecision":

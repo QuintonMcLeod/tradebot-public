@@ -19,6 +19,9 @@ import tradebot_sci.broker.paper_broker as _pb_debug
 print(f"[DEBUG] paper_broker loaded from: {_pb_debug.__file__}")
 print(f"[DEBUG] has DAY-CHAIN-BATCH: {'DAY-CHAIN-BATCH' in _pb_debug.PaperBroker.close_all_positions.__code__.co_consts}")
 from tradebot_sci.runtime.loop import run_bot
+import tradebot_sci.strategy.exit_logic as _el_debug
+print(f"[DEBUG] exit_logic loaded from: {_el_debug.__file__}")
+print("[DEBUG] exit_logic has TIME-DECAY-EXIT-DEBUG:", any("TIME-DECAY-EXIT-DEBUG" in str(c) for c in _el_debug._exit_time_decay.__code__.co_consts))
 
 
 def main() -> None:

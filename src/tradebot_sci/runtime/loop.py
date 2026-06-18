@@ -623,20 +623,21 @@ def _run_heartbeat_cycle(
                 last_capital_check_ts = now_ts + 30
 
     # ── Replay Day-Transition Guard ──
-    # If the replay provider has exhausted today's data, close ALL paper positions
-    # BEFORE evaluate_synthetic_stops() gets a chance to use stale/bad prices.
-    # This prevents the universal exit router from calculating catastrophic PnL
-    # when _get_current_price() falls back to 100.0 during the transition.
+    # Positions are now carried over to the next replay day instead of being
+    # force-closed. Force-closing at day boundaries was producing negative PnL
+    # trades that bled the account dry over time. Carrying positions is more
+    # realistic and avoids this death-by-a-thousand-cuts.
     if (
         replay_provider is not None
         and getattr(replay_provider, "replay_date", None) is not None
         and replay_provider.is_replay_complete
         and executor_paper
     ):
-        try:
-            executor_paper.close_all_positions("Day Chain Reset")
-        except Exception as e:
-            logger.warning("[REPLAY] Day-chain pre-guard close_all_positions failed: %s", e)
+        # Clear wall-clock cooldowns so re-entry is not artificially blocked
+        # when the replay jumps to a new calendar day.
+        executor_paper._exit_cooldowns.clear()
+        logger.info("[REPLAY] Day transition — carrying over %d open positions to next day",
+                    len(executor_paper.positions))
 
     if executor:
         try:
@@ -1970,11 +1971,15 @@ def run_bot(
                         logger.info("[REPLAY] Day complete! Chaining to next day: %s (%s)",
                                     _next.strftime('%Y-%m-%d'), _next.strftime('%A'))
                         try:
-                            # ── Close all open positions before switching days ──
-                            # Positions from day N use day N's candle data.
-                            # Carrying them into day N+1 produces nonsensical PnL.
+                            # ── Carry open positions into next day ──
+                            # Force-closing at day boundaries produced negative PnL
+                            # trades that bled the account. Positions now persist
+                            # across replay days, using the new day's prices.
                             if executor_paper:
-                                executor_paper.close_all_positions("Day Chain Reset")
+                                executor_paper._exit_cooldowns.clear()
+                                logger.info("[REPLAY] Carrying %d open positions into %s",
+                                            len(executor_paper.positions),
+                                            _next.strftime('%Y-%m-%d'))
 
                             # ── Reset all module-level strategy state ──
                             # Without this, cooldowns, loss streaks, trend

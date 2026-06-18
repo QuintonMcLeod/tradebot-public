@@ -106,6 +106,8 @@ profiles:
       stocks: robocop 
       crypto: forex_hybrid_scalper 
     strategy_variant: forex_hybrid_scalper 
+    target_r: 1.0
+    time_decay_bars: 24
     symbols: 
     - EURUSD 
     - GBPUSD 
