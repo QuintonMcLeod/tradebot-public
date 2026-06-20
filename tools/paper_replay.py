@@ -79,12 +79,15 @@ def _dict_to_candle(d: dict) -> Candle:
     )
 
 
-def _resample_ltf_to_htf(ltf_candles: list, period_minutes: int = 60) -> list:
+def _resample_ltf_to_htf(ltf_candles: list, period_minutes: int = 240) -> list:
     """Resample LTF (5m) candles into HTF candles by bucketing timestamps.
 
     The recorded data only stores ~31 HTF candles per symbol (snapshot only).
-    This produces 200+ accurate 1h candles from the 967 LTF candles, giving
+    This produces 200+ accurate 4h candles from the 967 LTF candles, giving
     ADX/EMA/MACD enough history to compute on the higher timeframe.
+
+    NOTE: 4h matches the live OANDA HTF timeframe used in runtime/cycle.py so
+    replay regime detection (htf_dir/htf_adx) aligns with live trading.
     """
     if not ltf_candles:
         return []
@@ -221,6 +224,9 @@ class ReplayPaperBroker(PaperBroker):
     def __init__(self, profile_settings, provider: ReplayMarketProvider,
                  trade_results=None, initial_balance: float = 5700.0):
         self._provider = provider
+        # Replay does not use the live position hold store; set sentinel before
+        # parent init so the property setter can ignore the live store assignment.
+        self._position_hold_store = None
         super().__init__(
             profile_settings=profile_settings,
             market_provider=provider,
@@ -513,33 +519,43 @@ class ReplayPaperBroker(PaperBroker):
             is_under_neg_hold = (enable_negative_hold_guard and is_negative_sl and _router_held_s < negative_hold_seconds)
 
             if side == "long":
-                # SL: use candle LOW (worst intra-bar price against long)
+                # SL/TP checks must apply spread+slippage friction to match live paper.
+                # Live uses bid prices for long exits: price * (1 - friction).
                 check_sl = candle_low if candle_low is not None else current_close
-                # TP: use candle HIGH (best intra-bar price for long)
                 check_tp = candle_high if candle_high is not None else current_close
-                if sl and check_sl <= sl:
+                check_sl_bid = check_sl * (1 - friction)
+                check_tp_bid = check_tp * (1 - friction)
+
+                if sl and check_sl_bid <= sl:
                     if is_under_neg_hold and sl < entry_p:
                         logger.info(f"[REPLAY] [HOLD GUARD] {symbol}: Mechanical SL hit at {sl} ignored due to {negative_hold_seconds}s negative hold ({_router_held_s:.0f}s elapsed)")
                     else:
                         hit    = "SL"
-                        exit_px = sl  # exit at SL level, not close
-                elif tp and tp > entry_p and check_tp >= tp:
+                        # Parity mode: exact SL. Otherwise model bid fill through spread.
+                        exit_px = sl if is_parity else sl * (1 - friction)
+                elif tp and tp > entry_p and check_tp_bid >= tp:
                     hit    = "TP"
-                    exit_px = tp  # exit exactly at TP level
+                    exit_px = tp  # Limit orders fill at exact price without spread penalty
+                elif tp and tp <= entry_p:
+                    logger.warning(f"[REPLAY] [GHOST GUARD] {symbol}: TP {tp} <= entry {entry_p} for LONG — ignoring TP")
             else:  # short
-                # SL: use candle HIGH (worst intra-bar price against short)
+                # Live uses ask prices for short exits: price * (1 + friction).
                 check_sl = candle_high if candle_high is not None else current_close
-                # TP: use candle LOW (best intra-bar price for short)
                 check_tp = candle_low if candle_low is not None else current_close
-                if sl and check_sl >= sl:
+                check_sl_ask = check_sl * (1 + friction)
+                check_tp_ask = check_tp * (1 + friction)
+
+                if sl and check_sl_ask >= sl:
                     if is_under_neg_hold and sl > entry_p:
                         logger.info(f"[REPLAY] [HOLD GUARD] {symbol}: Mechanical SL hit at {sl} ignored due to {negative_hold_seconds}s negative hold ({_router_held_s:.0f}s elapsed)")
                     else:
                         hit    = "SL"
-                        exit_px = sl
-                elif tp and tp < entry_p and check_tp <= tp:
+                        exit_px = sl if is_parity else sl * (1 + friction)
+                elif tp and tp < entry_p and check_tp_ask <= tp:
                     hit    = "TP"
-                    exit_px = tp
+                    exit_px = tp  # Limit orders fill at exact price without spread penalty
+                elif tp and tp >= entry_p:
+                    logger.warning(f"[REPLAY] [GHOST GUARD] {symbol}: TP {tp} >= entry {entry_p} for SHORT — ignoring TP")
 
             if hit:
                 self._record_exit(symbol, pos, exit_px, hit, results, candle_open=current_close, candle_high=candle_high, candle_low=candle_low)
@@ -565,14 +581,21 @@ class ReplayPaperBroker(PaperBroker):
 
         side    = pos.get("side", "long")
         entry_p = pos.get("entry_price", 0)
-        friction = self.HALF_SPREAD_PCT + self.SLIPPAGE_PCT
-        if side == "long":
-            fill_p = exit_price * (1 - friction)
+        fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
+
+        if is_parity:
+            # Parity mode: no artificial spread, only explicit taker fees (matches backtester/live).
+            fill_p = exit_price
+            fee_usd = abs(pos.get("qty", abs(pos["size"])) * fill_p) * self._get_taker_fee(symbol)
         else:
-            fill_p = exit_price * (1 + friction)
+            # Custom paper mode: model spread+slippage on the exit fill.
+            if side == "long":
+                fill_p = exit_price * (1 - friction)
+            else:
+                fill_p = exit_price * (1 + friction)
+            fee_usd = abs(pos.get("qty", abs(pos["size"])) * fill_p) * (fee_pct / 2.0)
 
         pnl_usd = (fill_p - entry_p) * pos["size"]
-        fee_usd = abs(pos.get("qty", abs(pos["size"])) * fill_p) * self._get_taker_fee(symbol)
         pnl_usd -= fee_usd
 
         # Track cumulative PnL without compounding the sizing balance
@@ -690,7 +713,11 @@ class ReplayPaperBroker(PaperBroker):
 
     @property
     def position_hold_store(self):
-        return None  # No hold store in replay — keep it simple
+        return getattr(self, '_position_hold_store', None)  # No hold store in replay
+
+    @position_hold_store.setter
+    def position_hold_store(self, value):
+        self._position_hold_store = None  # Ignore live store assignment
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1217,7 +1244,7 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
         ltf_raw_by_sym[sym] = list(ltf_all.values())
         # Resample LTF → HTF so workers get rich HTF indicator history
         ltf_tmp = sorted([_dict_to_candle(c) for c in ltf_all.values()], key=lambda c: c.timestamp)
-        htf_resampled = _resample_ltf_to_htf(ltf_tmp, period_minutes=60)
+        htf_resampled = _resample_ltf_to_htf(ltf_tmp, period_minutes=240)
         if len(htf_resampled) >= 15:
             htf_raw_by_sym[sym] = [
                 {"t": c.timestamp.isoformat(), "o": c.open, "h": c.high,
