@@ -1120,7 +1120,7 @@ def _worker_replay_symbol(args: tuple) -> dict:
         try:
             process_candidate_cycle(
                 executor=broker, engines=engines,
-                profile=None, profile_settings=profile,
+                profile=None, profile_settings=replay_profile,
                 settings=settings, strike_tracker=None,
                 candidates=candidates, stop_after_submit=False,
             )

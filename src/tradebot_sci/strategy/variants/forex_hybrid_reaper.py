@@ -20,7 +20,7 @@ class ForexHybridReaperStrategy(BaseStrategy):
     Choppy / neutral  -> mean-reversion scalp.
     """
     def __init__(self, target_r=1.0, **kwargs):
-        super().__init__("ForexHybridScalper")
+        super().__init__("ForexHybridReaper")
         self.target_r = target_r
 
         # Bollinger / RSI parameters
