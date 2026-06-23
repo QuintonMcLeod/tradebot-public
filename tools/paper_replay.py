@@ -1017,8 +1017,8 @@ def _worker_replay_symbol(args: tuple) -> dict:
     # This creates a systematic 0% WR that has nothing to do with strategy quality.
     # Solution: disable SAR+CR in replay so we measure the BASE strategy performance.
     update_args = {
-        "stop_and_reverse_enabled": True,
-        "counter_reversal_enabled": True,
+        "stop_and_reverse_enabled": False,
+        "counter_reversal_enabled": False,
     }
     if args_strategy:
         update_args["strategy_variant"] = args_strategy

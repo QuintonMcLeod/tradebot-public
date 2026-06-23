@@ -82,10 +82,13 @@ class ForexHybridReaperStrategy(BaseStrategy):
         return all(d > 0 for d in deltas)
 
     def _three_bar_exhaustion(self, closes: list[float], is_long: bool) -> bool:
-        """True if the last 3 bars (including current) are all against the setup."""
-        if len(closes) < 4:
+        """True if the 3 bars before current are all against the setup (exhaustion).
+
+        Range-mode entries need this exhaustion before the current bar hooks back.
+        """
+        if len(closes) < 5:
             return False
-        deltas = [closes[-i] - closes[-i-1] for i in range(1, 4)]
+        deltas = [closes[-i-1] - closes[-i-2] for i in range(1, 4)]
         if is_long:
             return all(d < 0 for d in deltas)
         return all(d > 0 for d in deltas)
@@ -265,7 +268,9 @@ class ForexHybridReaperStrategy(BaseStrategy):
                 lower_bb <= last_close <= mid_bb and
                 score >= self.score_threshold):
 
-                stop_loss = max(min(c.low for c in recent_candles) - current_atr * 0.5,
+                # Use the wider (lower) of structure support or the ATR-based floor;
+                # never let the recent-candle override produce a stop inside the spread.
+                stop_loss = min(min(c.low for c in recent_candles) - current_atr * 0.5,
                                 last_close - stop_dist)
                 target = last_close + (last_close - stop_loss) * tr
                 return AITradeDecision(
@@ -284,7 +289,9 @@ class ForexHybridReaperStrategy(BaseStrategy):
                 mid_bb <= last_close <= upper_bb and
                 score >= self.score_threshold):
 
-                stop_loss = min(max(c.high for c in recent_candles) + current_atr * 0.5,
+                # Use the wider (higher) of structure resistance or the ATR-based floor;
+                # never let the recent-candle override produce a stop inside the spread.
+                stop_loss = max(max(c.high for c in recent_candles) + current_atr * 0.5,
                                 last_close + stop_dist)
                 target = last_close - (stop_loss - last_close) * tr
                 return AITradeDecision(
@@ -301,8 +308,8 @@ class ForexHybridReaperStrategy(BaseStrategy):
         else:
             # Range mode: never enter against a strong HTF trend (blocked above).
             # Only scalp when HTF is neutral/mild.
-            if self._three_bar_exhaustion(closes, is_long_setup):
-                logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: 3-bar exhaustion")
+            if not self._three_bar_exhaustion(closes, is_long_setup):
+                logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: no 3-bar exhaustion")
                 return None
 
             stop_dist = max(current_atr * self.range_stop_atr_mult, last_close * self.range_stop_floor)
