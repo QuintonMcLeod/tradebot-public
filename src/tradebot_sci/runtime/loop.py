@@ -3105,3 +3105,8 @@ def _is_sabbath_now(dt, profile_settings, override=None):
     return active, end_ts
 
 # Legacy helpers moved or removed
+
+
+# Alias for entry-point compatibility
+def main():
+    run_bot()

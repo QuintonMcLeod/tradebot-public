@@ -1049,6 +1049,18 @@ const STRATEGIES = {
         stats: { timeframe: "5m", sessions: "London/NY Overlap", indicators: "EMA200, BB(20,2.5), RSI(7)"},
         sessionProfile: ["hybrid_overlap", "london_open"]
     },
+    forex_structure_breakout: {
+        name: 'Forex Structure Breakout',
+        icon: 'trending_up',
+        shortDesc: 'Trend-following breakout with structure stops',
+        assetClass: "forex",
+        description: "Waits for the market to clearly show which way it wants to go, then jumps in only when price breaks past a recent high or low. Think of it like waiting for a train to actually start moving before hopping on — no guessing, no fighting the trend. It uses volume and trend-strength checks to avoid fake-outs, and places stops safely outside the market's normal noise.",
+        style: "Trend Breakout",
+        risk: "Medium",
+        bestFor: "Forex: trending pairs, London/NY sessions",
+        stats: { target: "2.5R", adx: ">=20", volume: ">=1.0x", stop: "Structure + ATR" },
+        sessionProfile: ["london_open", "us_open"]
+    },
 
     trend_rider: {
         name: 'Trend Rider',
@@ -6067,6 +6079,7 @@ function renderStrategyToolbox(container) {
         { id: 'meta_sci', label: 'Meta-SCI Alpha', icon: 'hub', color: '#14b8a6' },
         { id: 'forex_conductor', label: 'Forex Conductor', icon: 'route', color: '#f59e0b' },
         { id: 'forex_hybrid_reaper', label: 'Forex Hybrid Scalper', icon: 'ssid_chart', color: '#f97316' },
+        { id: 'forex_structure_breakout', label: 'Structure Breakout', icon: 'trending_up', color: '#10b981' },
         { id: 'trend_rider', label: 'Trend Rider', icon: 'trending_up', color: '#10b981' },
         { id: 'session_momentum', label: 'Session Momentum', icon: 'schedule_send', color: '#f43f5e' },
         { id: 'bearish_engulfing', label: 'Engulfing Reversal', icon: 'candlestick_chart', color: '#d946ef' },
@@ -6474,6 +6487,53 @@ function renderStrategyToolbox(container) {
         gridC.appendChild(createSliderCard('RSI Oversold', 'Long trigger', 'RSI_OVERSOLD', 5, 40, 1, '', { 
             default: '40',
             tooltip: "The 'Too Cold' limit. When the speed crashes this low, the bot assumes panic is over and it's time to safely buy the dip."
+        }));
+        section.appendChild(gridC);
+
+    } else if (toolboxTab === 'forex_structure_breakout') {
+        const stratInfo = STRATEGIES.forex_structure_breakout;
+        section.appendChild(createSectionHeader(`${stratInfo.name} Configuration`, 'trending_up',
+            "<strong>Forex Structure Breakout</strong><br><br>Only trades when price breaks past a recent swing high or low — in the SAME direction the big-picture trend is already moving. No guessing, no fighting the market. Stops sit safely beyond the swing point so random noise doesn't knock you out."
+        ));
+
+        section.appendChild(createWarningBox(`
+            <strong>Trend-Only Breakouts:</strong><br>
+            This strategy ONLY enters when HTF (big picture) and breakout direction align. It refuses to trade against the trend. Volume and ADX filters block fake-outs.
+        `));
+
+        const gridA = document.createElement('div');
+        gridA.className = 'card-grid';
+        gridA.appendChild(createSliderCard('Target R:R', 'Reward multiplier', 'TARGET_R', 1.0, 5.0, 0.1, 'R', {
+            default: '2.5',
+            tooltip: "How much profit you want for every dollar risked. 2.5 means you aim to win $2.50 for each $1 you might lose."
+        }));
+        gridA.appendChild(createSliderCard('ADX Minimum', 'Trend strength floor', 'ADX_MIN', 10, 40, 1, '', {
+            default: '20',
+            tooltip: "The 'trend strength' meter. Below 20 means the market is sleepy and sideways — the bot refuses to trade. Above 25 means a strong, clear trend."
+        }));
+        section.appendChild(gridA);
+
+        const gridB = document.createElement('div');
+        gridB.className = 'card-grid';
+        gridB.appendChild(createSliderCard('Breakout Lookback', 'Bars to scan for swing points', 'BREAKOUT_LOOKBACK', 5, 30, 1, 'bars', {
+            default: '10',
+            tooltip: "How far back the bot looks to find the last significant high or low. More bars = older swings = bigger, safer breaks."
+        }));
+        gridB.appendChild(createSliderCard('Stop Floor %', 'Minimum stop width', 'STOP_FLOOR_PCT', 0.0001, 0.002, 0.0001, '', {
+            default: '0.0005',
+            tooltip: "The absolute minimum distance for a stop loss. 0.0005 is about 5 pips — prevents the bot from placing stops so tight that a tiny twitch knocks you out."
+        }));
+        section.appendChild(gridB);
+
+        const gridC = document.createElement('div');
+        gridC.className = 'card-grid';
+        gridC.appendChild(createSliderCard('Volume Min Ratio', 'Volume confirmation threshold', 'VOLUME_MIN_RATIO', 0.5, 3.0, 0.1, 'x', {
+            default: '1.0',
+            tooltip: "How much MORE volume the breakout candle needs compared to average. 1.0 means 'at least normal volume.' 1.5 means 'must be 50% busier than usual.' Higher = fewer fake-outs but fewer trades."
+        }));
+        gridC.appendChild(createSliderCard('Score Threshold', 'Minimum entry score', 'SCORE_THRESHOLD', 40, 90, 5, 'pts', {
+            default: '65',
+            tooltip: "The minimum 'grade' a trade setup must earn before the bot pulls the trigger. Higher scores mean pickier, higher-quality entries."
         }));
         section.appendChild(gridC);
 

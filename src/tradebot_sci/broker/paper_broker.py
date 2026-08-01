@@ -477,12 +477,17 @@ class PaperBroker:
                     f"widening to tier minimum (rescaling TP to {target_r_cfg}R)"
                 )
                 risk_per_unit = min_stop_distance
-                if action in ("enter_long", "scale_in_long", "buy"):
-                    decision.stop_loss = price - min_stop_distance
-                    decision.take_profit = price + (min_stop_distance * target_r_cfg)
-                else:
-                    decision.stop_loss = price + min_stop_distance
-                    decision.take_profit = price - (min_stop_distance * target_r_cfg)
+                strategy_sl = getattr(decision, "stop_loss", None)
+                strategy_tp = getattr(decision, "take_profit", None)
+                has_valid_sl = strategy_sl is not None and strategy_sl != price
+                has_valid_tp = strategy_tp is not None and strategy_tp != price
+                if not (has_valid_sl and has_valid_tp):
+                    if action in ("enter_long", "scale_in_long", "buy"):
+                        decision.stop_loss = price - min_stop_distance
+                        decision.take_profit = price + (min_stop_distance * target_r_cfg)
+                    else:
+                        decision.stop_loss = price + min_stop_distance
+                        decision.take_profit = price - (min_stop_distance * target_r_cfg)
                 
                 # If we widened the stop, recompute qty to maintain risk_usd if possible
                 risk_usd = getattr(decision, "risk_per_trade_dollars", 0.0)
@@ -648,12 +653,17 @@ class PaperBroker:
                     if pip_value > 0:
                         qty = risk_usd / (stop_pips * pip_value)
                     price_diff = self._pips_to_price(min_stop_pips, symbol)
-                    if action == "enter_long":
-                        decision.stop_loss = price - price_diff
-                        decision.take_profit = price + (price_diff * target_r_cfg)
-                    else:
-                        decision.stop_loss = price + price_diff
-                        decision.take_profit = price - (price_diff * target_r_cfg)
+                    strategy_sl = getattr(decision, "stop_loss", None)
+                    strategy_tp = getattr(decision, "take_profit", None)
+                    has_valid_sl = strategy_sl is not None and strategy_sl != price
+                    has_valid_tp = strategy_tp is not None and strategy_tp != price
+                    if not (has_valid_sl and has_valid_tp):
+                        if action == "enter_long":
+                            decision.stop_loss = price - price_diff
+                            decision.take_profit = price + (price_diff * target_r_cfg)
+                        else:
+                            decision.stop_loss = price + price_diff
+                            decision.take_profit = price - (price_diff * target_r_cfg)
             else:
                 # Fallback: size by notional (very conservative)
                 qty = risk_usd / price if price > 0 else 0
@@ -808,7 +818,7 @@ class PaperBroker:
                 )
 
             fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction(tier_slip_bps)
-            if is_parity:
+            if is_parity or fee_pct == 0.0:
                 # Parity Mode: use backtester equivalent fees and NO artificial spread
                 fill_price = price
                 fee_usd = abs(qty * fill_price) * self._get_taker_fee(symbol)
@@ -911,7 +921,7 @@ class PaperBroker:
                 pos_side = pos.get("side", "long")
 
                 fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
-                if is_parity:
+                if is_parity or fee_pct == 0.0:
                     exit_p = price
                     fee_usd = abs(pos["qty"] * exit_p) * self._get_taker_fee(symbol)
                 else:
@@ -1004,7 +1014,7 @@ class PaperBroker:
                 remain_qty = abs(pos["qty"]) - close_qty
 
                 fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
-                if is_parity:
+                if is_parity or fee_pct == 0.0:
                     exit_p = price
                     fee_usd = close_qty * exit_p * self._get_taker_fee(symbol)
                 else:
@@ -1138,7 +1148,7 @@ class PaperBroker:
                     )
 
                 fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction(tier_slip_bps)
-                if is_parity:
+                if is_parity or fee_pct == 0.0:
                     fill_price = price
                     fee_usd = abs(qty * fill_price) * self._get_taker_fee(symbol)
                 else:
@@ -1237,7 +1247,7 @@ class PaperBroker:
             price = self._get_current_price(symbol)
 
             fee_pct, spread_pct, slip_pct, friction, is_parity = self._get_paper_friction()
-            if is_parity:
+            if is_parity or fee_pct == 0.0:
                 exit_p = price
                 fee_usd = abs(pos["qty"] * exit_p) * self._get_taker_fee(symbol)
             else:

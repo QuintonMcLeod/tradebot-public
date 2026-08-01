@@ -93,7 +93,8 @@ window.profilesModule = (function () {
         { value: 'qs_3_10_trend', label: 'QS 3/10 Trend Follower' },
         { value: 'qs_tqqq_btal', label: 'QS TQQQ/BTAL Rebalancer' },
         { value: 'qs_choppiness', label: 'QS Choppiness Index' },
-        { value: 'qs_first_day_month', label: 'QS Seasonal First DOM' }
+        { value: 'qs_first_day_month', label: 'QS Seasonal First DOM' },
+        { value: 'forex_structure_breakout', label: 'Forex Structure Breakout' }
     ];
 
     const TIMEFRAME_OPTIONS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];

@@ -38,8 +38,10 @@ logging.basicConfig(
 logger = logging.getLogger("backfill")
 
 # ── Config ────────────────────────────────────────────────────────────────────
-_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "tradebot-sci"
-_CANDLE_DIR = _CONFIG_DIR / "data" / "candle_history"
+# Use the same data directory as the live bot / replay so cached candles are found
+# automatically. This resolves to e.g. ~/.config/tradebot-sci-gui/local/data
+from tradebot_sci.paths import DATA_DIR
+_CANDLE_DIR = DATA_DIR / "candle_history"
 
 # Oanda API limits: max 5000 candles per request for M5
 _BATCH_SIZE  = 5000
@@ -205,10 +207,24 @@ def write_observations(sym: str, by_date: dict[str, list[dict]]) -> int:
     return total
 
 
-def backfill_symbol(client, sym: str, days: int) -> int:
+def _existing_dates(sym: str) -> set[str]:
+    sym_dir = _CANDLE_DIR / sym
+    if not sym_dir.exists():
+        return set()
+    dates = set()
+    for p in sym_dir.glob(f"{sym}_*.jsonl"):
+        try:
+            dates.add(p.stem.split("_", 1)[1])
+        except IndexError:
+            continue
+    return dates
+
+
+def backfill_symbol(client, sym: str, from_dt: datetime, to_dt: datetime,
+                    skip_existing: bool = False) -> int:
     oanda_sym = _normalize_symbol(sym)
-    to_dt   = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    from_dt = to_dt - timedelta(days=days)
+
+    existing = _existing_dates(sym) if skip_existing else set()
 
     logger.info(f"[{sym}] Fetching LTF {_LTF_TF} from {from_dt.date()} → {to_dt.date()}")
     ltf = fetch_candles_range(client, oanda_sym, _LTF_TF, from_dt, to_dt)
@@ -223,23 +239,56 @@ def backfill_symbol(client, sym: str, days: int) -> int:
     logger.info(f"[{sym}] Got {len(htf)} HTF candles")
 
     by_date = build_observations(sym, ltf, htf)
-    total   = write_observations(sym, by_date)
+
+    if skip_existing and existing:
+        by_date = {d: obs for d, obs in by_date.items() if d not in existing}
+        if not by_date:
+            logger.info(f"[{sym}] All dates already cached — skipping write")
+            return 0
+        logger.info(f"[{sym}] Skipping {len(existing)} cached dates")
+
+    total = write_observations(sym, by_date)
     logger.info(f"[{sym}] ✅ Wrote {total} observations across {len(by_date)} days")
     return total
 
 
 def main():
     parser = argparse.ArgumentParser(description="Backfill candle_history for paper_replay.py")
-    parser.add_argument("--days",    type=int, default=90,
-                        help="Days of history to fetch (default: 90)")
-    parser.add_argument("--symbols", type=str, default=None,
+    parser.add_argument("--days",        type=int, default=None,
+                        help="Days of history ending now (alternative to --start-date/--end-date)")
+    parser.add_argument("--start-date",  type=str, default=None,
+                        help="Start date YYYY-MM-DD")
+    parser.add_argument("--end-date",    type=str, default=None,
+                        help="End date YYYY-MM-DD (default: today)")
+    parser.add_argument("--symbols",     type=str, default=None,
                         help="Comma-separated symbols (default: all forex pairs)")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="Skip dates already present in the cache")
     args = parser.parse_args()
+
+    # Resolve date range
+    if args.days is not None and (args.start_date or args.end_date):
+        logger.error("[BACKFILL] Use either --days or --start-date/--end-date, not both")
+        sys.exit(1)
+
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    if args.days is not None:
+        to_dt = now
+        from_dt = to_dt - timedelta(days=args.days)
+    else:
+        if args.end_date:
+            to_dt = datetime.strptime(args.end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc, hour=23, minute=59)
+        else:
+            to_dt = now
+        if args.start_date:
+            from_dt = datetime.strptime(args.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        else:
+            from_dt = to_dt - timedelta(days=90)
 
     syms = ([s.strip().upper() for s in args.symbols.split(",")]
             if args.symbols else _DEFAULT_SYMBOLS)
 
-    logger.info(f"[BACKFILL] Starting — {args.days} days for {len(syms)} symbols: {syms}")
+    logger.info(f"[BACKFILL] Starting — {from_dt.date()} → {to_dt.date()} for {len(syms)} symbols: {syms}")
     logger.info(f"[BACKFILL] Output: {_CANDLE_DIR}")
 
     # Load credentials from tradebot settings
@@ -267,14 +316,14 @@ def main():
     grand_total = 0
     for sym in syms:
         try:
-            n = backfill_symbol(client, sym, args.days)
+            n = backfill_symbol(client, sym, from_dt, to_dt, skip_existing=args.skip_existing)
             grand_total += n
         except Exception as exc:
             logger.error(f"[{sym}] FAILED: {exc}")
 
     elapsed = time.time() - start_real
     logger.info(f"[BACKFILL] Done in {elapsed:.1f}s — {grand_total:,} total observations written")
-    logger.info(f"[BACKFILL] Run `python tools/paper_replay.py --days {args.days}` to replay")
+    logger.info(f"[BACKFILL] Run `python tools/paper_replay.py --start-date {from_dt.date()} --end-date {to_dt.date()}` to replay")
 
 
 if __name__ == "__main__":

@@ -92,7 +92,6 @@ class StrategyEngine:
     # Aggregator is excluded (it has no own-position semantic).
     # ForexConductor previously had a duplicate SAR path; it now receives
     # sar_dir via gates["sar_dir"] and computes ATR-based SL/TP itself.
-    _SAR_EXCLUDED = {"aggregator", "forex_hybrid_scalper", "forex_hybrid_reaper"}
     _sar_pending: dict[str, str] = {}  # symbol → reversal direction
     _cr_pending:  dict[str, str] = {}  # symbol → CR direction (back to original)
     _sar_cooldown_until: dict[str, object] = {}  # symbol → datetime; blocks spirals
@@ -149,8 +148,10 @@ class StrategyEngine:
         "crypto_grid":          ("tradebot_sci.strategy.variants.crypto_grid",          "CryptoGridStrategy"),
         "aggregator":           ("tradebot_sci.strategy.variants.aggregator",           "AggregatorStrategy"),
         "forex_conductor":      ("tradebot_sci.strategy.variants.forex_conductor",      "ForexConductorStrategy"),
-        "forex_hybrid_scalper": ("tradebot_sci.strategy.variants.forex_hybrid_reaper",  "ForexHybridReaperStrategy"),
         "forex_hybrid_reaper":  ("tradebot_sci.strategy.variants.forex_hybrid_reaper",  "ForexHybridReaperStrategy"),
+        "forex_hybrid_reaper_breakout": ("tradebot_sci.strategy.variants.forex_hybrid_reaper_breakout", "ForexHybridReaperStrategy"),
+        "forex_hybrid_breakout": ("tradebot_sci.strategy.variants.forex_hybrid_breakout", "ForexHybridBreakout"),
+        "forex_structure_breakout": ("tradebot_sci.strategy.variants.forex_structure_breakout", "ForexStructureBreakout"),
         "qs_sma_filter":        ("tradebot_sci.strategy.variants.qs_sma_filter",        "QS_SMAFilterStrategy"),
         "qs_golden_cross":      ("tradebot_sci.strategy.variants.qs_golden_cross",      "QS_GoldenCrossStrategy"),
         "qs_rsi_mean_reversion":("tradebot_sci.strategy.variants.qs_rsi_mean_reversion","QS_RSIMeanReversionStrategy"),
@@ -266,7 +267,9 @@ class StrategyEngine:
         execution_capabilities: dict | None = None,
         current_bar_time: datetime | None = None,
         current_capital: float | None = None,
+        trade_history: list | None = None,
     ) -> AITradeDecision:
+        print(f"[DECIDE_CALLED] {self.symbol}")
         """
         The Main Entry Point.
         Ask the strategy for a decision and return it with minimal validation.
@@ -1385,7 +1388,6 @@ class StrategyEngine:
             counter_tags = (
                 "mean_reversion", "londonsweep", "london_sweep", "goldenpocket", "golden_pocket",
                 "newyorkdrive", "new_york_drive", "counter", "reversal", "rubberband", "choppiness", "supply_demand", "yoyo",
-                "forexhybridscalper", "forex_hybrid_scalper", "hybrid_scalper", "hybridreaper"
             )
             is_counter_trend_strat = any(tag.lower() in (decision.strategy_name or "").lower() for tag in counter_tags)
             
@@ -1396,12 +1398,12 @@ class StrategyEngine:
                     pos_size = open_position.get("size", 0)
                     effective_action = "enter_long" if pos_size > 0 else "enter_short"
                 
-                # Check Triple-Timeframe Alignment: All three timeframes MUST explicitly agree with the entry direction
+                # Check HTF Alignment: Entry must align with higher-timeframe trend direction
                 req_dir = "long" if effective_action == "enter_long" else "short"
-                triple_aligned = (htf_dir == req_dir and ltf_dir == req_dir and exec_dir == req_dir)
+                htf_aligned = (htf_dir == req_dir)
                 
-                if not triple_aligned:
-                    reason = f"Triple-Timeframe Blocked: {effective_action} violates alignment (HTF={htf_dir}, LTF={ltf_dir}, EXEC={exec_dir})"
+                if not htf_aligned:
+                    reason = f"HTF-Trend Blocked: {effective_action} violates alignment (HTF={htf_dir}, LTF={ltf_dir}, EXEC={exec_dir})"
                     logger.info(f"[TREND_GUARD] {self.symbol} {reason}")
                     from tradebot_sci.strategy.decisions import stand_aside_decision
                     from tradebot_sci.runtime.rejection_journal import rejection_journal

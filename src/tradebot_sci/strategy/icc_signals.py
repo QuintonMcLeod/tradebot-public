@@ -89,6 +89,72 @@ class CorrectionSignal:
         )
 
 
+
+
+def calculate_adx(candles, period=14):
+    """
+    Calculate Average Directional Index (ADX) from candle data.
+    Formula: True Range → +DM/-DM → Smoothed → DX → ADX
+    Returns the ADX value (0-100).
+    """
+    if len(candles) < period * 2:
+        return 0.0
+
+    highs = [c.high for c in candles]
+    lows = [c.low for c in candles]
+    closes = [c.close for c in candles]
+
+    tr = [0.0] * len(candles)
+    plus_dm = [0.0] * len(candles)
+    minus_dm = [0.0] * len(candles)
+
+    for i in range(1, len(candles)):
+        tr[i] = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1])
+        )
+        up_move = highs[i] - highs[i - 1]
+        down_move = lows[i - 1] - lows[i]
+        if up_move > down_move and up_move > 0:
+            plus_dm[i] = up_move
+        else:
+            plus_dm[i] = 0.0
+        if down_move > up_move and down_move > 0:
+            minus_dm[i] = down_move
+        else:
+            minus_dm[i] = 0.0
+
+    # Wilder smoothing
+    def wilder_smooth(values, period):
+        smoothed = [0.0] * len(values)
+        first_sum = sum(values[1:period + 1])
+        smoothed[period] = first_sum
+        for i in range(period + 1, len(values)):
+            smoothed[i] = smoothed[i - 1] - (smoothed[i - 1] / period) + values[i]
+        return smoothed
+
+    atr = wilder_smooth(tr, period)
+    smoothed_plus_dm = wilder_smooth(plus_dm, period)
+    smoothed_minus_dm = wilder_smooth(minus_dm, period)
+
+    plus_di = [0.0] * len(candles)
+    minus_di = [0.0] * len(candles)
+    dx = [0.0] * len(candles)
+
+    for i in range(period, len(candles)):
+        if atr[i] > 0:
+            plus_di[i] = 100.0 * smoothed_plus_dm[i] / atr[i]
+            minus_di[i] = 100.0 * smoothed_minus_dm[i] / atr[i]
+        sum_di = plus_di[i] + minus_di[i]
+        if sum_di > 0:
+            dx[i] = 100.0 * abs(plus_di[i] - minus_di[i]) / sum_di
+        else:
+            dx[i] = 0.0
+
+    adx = wilder_smooth(dx, period)
+    return adx[-1] if adx else 0.0
+
 def next_structure_target(
     candles: list[Candle],
     direction: str,

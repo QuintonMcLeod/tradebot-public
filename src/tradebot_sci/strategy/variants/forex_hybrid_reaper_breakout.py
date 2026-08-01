@@ -40,18 +40,18 @@ class ForexHybridReaperStrategy(BaseStrategy):
         self.trend_stop_atr_mult = float(kwargs.get('trend_stop_atr_mult', 2.5))
         self.trend_stop_floor = float(kwargs.get('trend_stop_floor', 0.0020))
         self.trend_target_r = float(kwargs.get('trend_target_r', 4.0))
-        self.trend_rsi_long_min = float(kwargs.get('trend_rsi_long_min', 40.0))
-        self.trend_rsi_long_max = float(kwargs.get('trend_rsi_long_max', 55.0))
-        self.trend_rsi_short_min = float(kwargs.get('trend_rsi_short_min', 45.0))
-        self.trend_rsi_short_max = float(kwargs.get('trend_rsi_short_max', 60.0))
+        self.trend_rsi_long_min = float(kwargs.get('trend_rsi_long_min', 30.0))
+        self.trend_rsi_long_max = float(kwargs.get('trend_rsi_long_max', 45.0))
+        self.trend_rsi_short_min = float(kwargs.get('trend_rsi_short_min', 55.0))
+        self.trend_rsi_short_max = float(kwargs.get('trend_rsi_short_max', 70.0))
+
+        # Breakout mode parameters (optional)
+        self.breakout_distance_pct = float(kwargs.get('breakout_distance_pct', 0.0))  # 0 = disabled
 
         # Range-mode parameters (scalp)
         self.range_stop_atr_mult = float(kwargs.get('range_stop_atr_mult', 1.5))
         self.range_stop_floor = float(kwargs.get('range_stop_floor', 0.0008))
         self.range_target_r = float(kwargs.get('range_target_r', 1.0))
-
-        # Breakout mode parameters (optional)
-        self.breakout_distance_pct = float(kwargs.get('breakout_distance_pct', 0.0))  # 0 = disabled
 
         # Shared filters
         self.price_hook_required = bool(kwargs.get('price_hook_required', True))
@@ -95,6 +95,28 @@ class ForexHybridReaperStrategy(BaseStrategy):
         if is_long:
             return all(d < 0 for d in deltas)
         return all(d > 0 for d in deltas)
+
+    def _strong_momentum(self, candle) -> bool:
+        """True when the current candle body is more than 50% of its full range."""
+        range_ = candle.high - candle.low
+        if range_ <= 0:
+            return False
+        body = abs(candle.close - candle.open)
+        return body > range_ * 0.5
+
+    def _structure_break(self, candles: list, is_long: bool) -> bool:
+        """True when the current close breaks beyond the prior 3-bar structure.
+
+        For longs: close > highest high of the previous 3 completed bars.
+        For shorts: close < lowest low of the previous 3 completed bars.
+        """
+        if len(candles) < 4:
+            return False
+        prior_bars = candles[-4:-1]
+        current_close = candles[-1].close
+        if is_long:
+            return current_close > max(c.high for c in prior_bars)
+        return current_close < min(c.low for c in prior_bars)
 
     def score_signal(self, snapshot: MarketSnapshot, gates: dict, regime: str | None = None) -> tuple[float, str, str]:
         gates = gates or {}
@@ -262,6 +284,14 @@ class ForexHybridReaperStrategy(BaseStrategy):
                 logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: trend pullback not present")
                 return None
 
+            current_candle = candles[-1]
+            if not self._strong_momentum(current_candle):
+                logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: no strong momentum candle")
+                return None
+            if not self._structure_break(candles, is_long_setup):
+                logger.info(f"[HybridReaper] {snapshot.symbol} BLOCKED: no structure break")
+                return None
+
             stop_dist = max(current_atr * self.trend_stop_atr_mult, last_close * self.trend_stop_floor)
             tr = self.trend_target_r
             recent_candles = candles[-3:] if len(candles) >= 3 else candles
@@ -354,55 +384,41 @@ class ForexHybridReaperStrategy(BaseStrategy):
                     urgency="high", strategy_name=self.name, regime="range"
                 )
 
-        # ── Breakout Mode (if enabled) ────────────────────────
-        if self.breakout_distance_pct > 0 and current_atr > 0 and len(candles) >= 5:
-            print(f"[BREAKOUT DEBUG] breakout_distance_pct={self.breakout_distance_pct}, candles={len(candles)}, atr={current_atr:.5f}", flush=True)
-            current_high = candles[-1].high
-            current_low = candles[-1].low
-            recent_high = max(c.high for c in candles[-6:-1])
-            recent_low = min(c.low for c in candles[-6:-1])
-            breakout_dist = last_close * self.breakout_distance_pct / 100
-            print(f"[BREAKOUT DEBUG] high={current_high:.5f}, recent_high={recent_high:.5f}, breakout_dist={breakout_dist:.5f}, threshold={recent_high + breakout_dist:.5f}", flush=True)
-            print(f"[BREAKOUT DEBUG] low={current_low:.5f}, recent_low={recent_low:.5f}, threshold={recent_low - breakout_dist:.5f}", flush=True)
-            logger.info(f"[DEBUG] Breakout check: last_close={last_close:.5f}, high={current_high:.5f}, low={current_low:.5f}, recent_high={recent_high:.5f}, recent_low={recent_low:.5f}, breakout_dist={breakout_dist:.5f}")
-            recent_high = max(c.high for c in candles[-6:-1])  # last 5 completed candles
-            recent_low = min(c.low for c in candles[-6:-1])
+        # ── Breakout Mode ──────────────────────────────────────
+        print(f"[DEBUG] Breakout check: candles={len(candles)}, atr={current_atr}, close={last_close}, score={score}", )
+        if current_atr > 0 and len(candles) >= 5:
+            recent_high = max(c.high for c in candles[-5:])
+            recent_low = min(c.low for c in candles[-5:])
             breakout_dist = last_close * self.breakout_distance_pct / 100
             
-            current_high = candles[-1].high
-            current_low = candles[-1].low
-            
-            if current_high > recent_high + breakout_dist:
-                print(f"[BREAKOUT TRIGGERED] LONG! {snapshot.symbol} high={current_high:.5f} > threshold={recent_high + breakout_dist:.5f}", flush=True)
-                entry_price = last_close  # TEST: use close price
+            if last_close > recent_high + breakout_dist:
                 stop_loss = recent_low - current_atr * 0.5
-                stop_loss = min(stop_loss, entry_price - current_atr * 2)
-                target = entry_price + (entry_price - stop_loss) * self.trend_target_r
+                stop_loss = min(stop_loss, last_close - current_atr * 2)
+                target = last_close + (last_close - stop_loss) * self.trend_target_r
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="long", phase="continuation", action="enter_long",
-                    entry_price=entry_price, stop_loss=stop_loss, take_profit=target,
+                    bias="long", phase="breakout", action="enter_long",
+                    entry_price=last_close, stop_loss=stop_loss, take_profit=target,
                     risk_per_trade_pct=self.get_risk_pct(),
-                    structure_summary=f"HybridReaper Breakout Long (Break={self.breakout_distance_pct:.2f}%)",
+                    structure_summary=f"HybridReaper Breakout Long (Score={score:.0f}, Break={self.breakout_distance_pct:.2f}%)",
                     invalidation_conditions="Close below stop loss.",
                     management_instructions=f"Breakout mode. Target {self.trend_target_r}R.",
-                    urgency="high", strategy_name=self.name, regime="trend"
+                    urgency="high", strategy_name=self.name, regime="breakout"
                 )
             
-            if current_low < recent_low - breakout_dist:
-                entry_price = last_close  # TEST: use close price
+            if last_close < recent_low - breakout_dist:
                 stop_loss = recent_high + current_atr * 0.5
-                stop_loss = max(stop_loss, entry_price + current_atr * 2)
-                target = entry_price - (stop_loss - entry_price) * self.trend_target_r
+                stop_loss = max(stop_loss, last_close + current_atr * 2)
+                target = last_close - (stop_loss - last_close) * self.trend_target_r
                 return AITradeDecision(
                     symbol=snapshot.symbol, timeframe=snapshot.timeframe,
-                    bias="short", phase="continuation", action="enter_short",
-                    entry_price=entry_price, stop_loss=stop_loss, take_profit=target,
+                    bias="short", phase="breakout", action="enter_short",
+                    entry_price=last_close, stop_loss=stop_loss, take_profit=target,
                     risk_per_trade_pct=self.get_risk_pct(),
-                    structure_summary=f"HybridReaper Breakout Short (Break={self.breakout_distance_pct:.2f}%)",
+                    structure_summary=f"HybridReaper Breakout Short (Score={score:.0f}, Break={self.breakout_distance_pct:.2f}%)",
                     invalidation_conditions="Close above stop loss.",
                     management_instructions=f"Breakout mode. Target {self.trend_target_r}R.",
-                    urgency="high", strategy_name=self.name, regime="trend"
+                    urgency="high", strategy_name=self.name, regime="breakout"
                 )
         
         return None

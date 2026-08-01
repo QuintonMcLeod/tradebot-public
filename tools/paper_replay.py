@@ -54,7 +54,7 @@ logging.basicConfig(
 )
 # Quieten noisy internal loggers
 for _noisy in ("tradebot_sci", "httpcore", "httpx"):
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
+    logging.getLogger(_noisy).setLevel(logging.INFO)
 
 logger = logging.getLogger("paper_replay")
 
@@ -931,7 +931,7 @@ def obs_to_snapshot(obs: dict) -> Optional[MarketSnapshot]:
 
 def _worker_replay_symbol(args: tuple) -> dict:
     """Runs the full replay for ONE symbol in an isolated subprocess.
-    Args: (sym, all_obs, ltf_raw, htf_raw, initial_balance, speed, src_path, strategy)
+    Args: (sym, all_obs, ltf_raw, htf_raw, initial_balance, speed, src_path, strategy, sim_start_dt, strategy_kwargs)
     All state is local — no shared memory contention.
     Returns a plain dict (picklable).
     """
@@ -940,19 +940,31 @@ def _worker_replay_symbol(args: tuple) -> dict:
     from pathlib import Path
     import json
 
-    if len(args) == 9:
-        sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path, args_strategy, sim_start_dt = args
-    elif len(args) == 8:
+    args_strategy = None
+    sim_start_dt = None
+    strategy_kwargs = {}
+    end_dt = None
+    if len(args) >= 12:
+        sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path, args_strategy, sim_start_dt, end_dt, strategy_kwargs = args[:12]
+    elif len(args) == 11:
+        sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path, args_strategy, sim_start_dt, end_dt, strategy_kwargs = args
+    elif len(args) == 10:
+        sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path, args_strategy, sim_start_dt, strategy_kwargs = args
+    elif len(args) == 9:
         sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path, args_strategy = args
-        sim_start_dt = None
+    elif len(args) == 8:
+        sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path = args
     else:
         sym, obs_list, ltf_raw, htf_raw, initial_balance, speed, src_path = args
-        args_strategy = None
-        sim_start_dt = None
     src_path = str(Path(__file__).resolve().parents[1] / "src")
 
     if src_path not in sys.path:
         sys.path.insert(0, src_path)
+    
+    # Clear cached tradebot_sci modules so child process loads fresh code
+    for _mod in list(sys.modules.keys()):
+        if _mod.startswith('tradebot_sci'):
+            del sys.modules[_mod]
         
     # Worker processes are silent — all output goes through main process
     logging.basicConfig(level=logging.DEBUG, format="%(message)s")
@@ -983,6 +995,9 @@ def _worker_replay_symbol(args: tuple) -> dict:
     from tradebot_sci.strategy.engine import StrategyEngine
     from tradebot_sci.runtime.cycle import process_candidate_cycle
     from tradebot_sci.config.loader import get_settings
+    
+    import tradebot_sci.strategy.engine as _engine_mod
+    print(f"[WORKER] Engine module loaded from: {_engine_mod.__file__}")
 
     settings = get_settings()
     profile  = settings.get_active_profile()
@@ -1022,7 +1037,19 @@ def _worker_replay_symbol(args: tuple) -> dict:
     }
     if args_strategy:
         update_args["strategy_variant"] = args_strategy
-        update_args["strategies"] = None
+        # Override ALL per-asset-class strategies so the CLI --strategy flag actually works
+        from tradebot_sci.config.models import PerAssetStrategies
+        update_args["strategies"] = PerAssetStrategies(
+            crypto=args_strategy,
+            forex=args_strategy,
+            stocks=args_strategy,
+            etf=args_strategy,
+            metals=args_strategy,
+            futures=args_strategy,
+            meta_sci=args_strategy,
+        )
+    if strategy_kwargs:
+        update_args.update(strategy_kwargs)
 
     try:
         replay_profile = profile.model_copy(update=update_args)
@@ -1084,6 +1111,8 @@ def _worker_replay_symbol(args: tuple) -> dict:
 
             if sim_start_dt and tick_dt < sim_start_dt:
                 continue
+            if end_dt and tick_dt > end_dt:
+                continue
 
             # Full rolling window: last 500 LTF candles up to this tick
             ltf_idx = _bisect.bisect_right(ltf_timestamps, tick_dt)
@@ -1117,6 +1146,7 @@ def _worker_replay_symbol(args: tuple) -> dict:
         tick_count += 1
         broker.evaluate_synthetic_stops(provider, snap.timeframe)
         candidates = [(sym, provider._snapshot or snap, 0.0, "replay")]
+        print(f"[REPLAY_DEBUG] About to call process_candidate_cycle for {sym}")
         try:
             process_candidate_cycle(
                 executor=broker, engines=engines,
@@ -1175,7 +1205,7 @@ def _worker_replay_symbol(args: tuple) -> dict:
     return {
         "sym":       sym,
         "trades":    trades,
-        "total_pnl": broker._total_pnl,
+        "total_pnl": sum(t["pnl_usd"] for t in trades),
         "ticks":     tick_count,
         "elapsed":   elapsed,
         "error":     None,
@@ -1189,7 +1219,9 @@ def _worker_replay_symbol(args: tuple) -> dict:
 def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balance: float,
                symbols_filter: Optional[list] = None,
                max_workers: Optional[int] = None,
-               strategy: Optional[str] = None) -> dict:
+               strategy: Optional[str] = None,
+               strategy_kwargs: Optional[dict] = None,
+               api_fallback: bool = False) -> dict:
     # ── Bootstrap ────────────────────────────────────────────────────────────
     settings = get_settings()
     profile_name = getattr(settings, "profile", "forex_continuous")
@@ -1200,6 +1232,15 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
         sys.exit(1)
 
     available_syms = sorted([d.name for d in _CANDLE_DIR.iterdir() if d.is_dir()])
+    
+    # If no CLI --symbols filter, use the active profile's configured symbols list
+    if not symbols_filter:
+        active_profile = settings.get_active_profile()
+        profile_symbols = getattr(active_profile, "symbols", None)
+        if profile_symbols:
+            symbols_filter = profile_symbols
+            logger.info(f"[REPLAY] Using profile symbols: {len(symbols_filter)} pairs")
+    
     if symbols_filter:
         available_syms = [s for s in available_syms if s in symbols_filter]
     if not available_syms:
@@ -1210,7 +1251,7 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
 
     # ── Load observations ──────────────────────────────────────────────
     fetch_start = start_dt - timedelta(days=50)
-    all_obs = load_observations(available_syms, fetch_start, end_dt, api_fallback=True)
+    all_obs = load_observations(available_syms, fetch_start, end_dt, api_fallback=api_fallback)
     if not all_obs:
         logger.error("[REPLAY] No observations loaded — nothing to replay.")
         sys.exit(1)
@@ -1284,7 +1325,9 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
                 speed,
                 src_path,
                 strategy,
-                start_dt)
+                start_dt,
+                end_dt,
+                strategy_kwargs or {})
             ): sym
             for sym in all_obs
         }
@@ -1314,7 +1357,7 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
         all_trades.extend(res["trades"])
     all_trades.sort(key=lambda t: t.get("closed_at") or "")
 
-    total_pnl  = sum(r["total_pnl"] for r in all_results)
+    total_pnl  = sum(t["pnl_usd"] for t in all_trades)
     tick_count = sum(r["ticks"] for r in all_results)
 
     wins   = [t for t in all_trades if t["is_win"]]
@@ -1440,6 +1483,119 @@ def main():
     )
     parser.add_argument("--strategy", type=str, default=None,
                         help="Strategy to force override")
+    # Strategy parameter overrides for optimization
+    parser.add_argument("--trend-stop-atr-mult", type=float, default=None)
+    parser.add_argument("--trend-stop-floor", type=float, default=None)
+    parser.add_argument("--range-stop-atr-mult", type=float, default=None)
+    parser.add_argument("--range-stop-floor", type=float, default=None)
+    parser.add_argument("--trend-target-r", type=float, default=None)
+    parser.add_argument("--range-target-r", type=float, default=None)
+    parser.add_argument("--bb-period", type=int, default=None)
+    parser.add_argument("--bb-std", type=float, default=None)
+    parser.add_argument("--rsi-period", type=int, default=None)
+    parser.add_argument("--rsi-overbought", type=float, default=None)
+    parser.add_argument("--rsi-oversold", type=float, default=None)
+    parser.add_argument("--score-threshold", type=float, default=None)
+    parser.add_argument("--trend-adx-min", type=float, default=None)
+    parser.add_argument("--breakout-distance-pct", type=float, default=None,
+                        help="Breakout distance as percent of price (0=disabled)")
+    parser.add_argument("--trend-entry-bb-percentile", type=float, default=None,
+                        help="Max distance from outer BB as a fraction of the half-band (default: 0.33)")
+    parser.add_argument("--trend-floor-touch", action="store_true", default=True,
+                        help="Require a recent floor touch for trend entries (default: on)")
+    parser.add_argument("--no-trend-floor-touch", action="store_true",
+                        help="Disable the trend-mode floor-touch requirement")
+    parser.add_argument("--no-trend-htf-ltf-align", action="store_true",
+                        help="Disable the HTF/LTF alignment requirement for trend entries")
+    parser.add_argument("--no-price-hook", action="store_true",
+                        help="Disable the price-hook confirmation for entries")
+    parser.add_argument("--no-rsi-hook", action="store_true",
+                        help="Disable the RSI-hook confirmation for entries")
+    parser.add_argument("--no-range-mode", action="store_true",
+                        help="Disable range-mode (mean-reversion) entries entirely")
+    parser.add_argument("--no-trend-limit-order", action="store_true",
+                        help="Disable simulated limit-order entries for trend mode")
+    parser.add_argument("--trend-limit-order-expiry-bars", type=int, default=None,
+                        help="Bars before a pending trend limit order expires (default: 3)")
+    parser.add_argument("--trend-limit-order-offset-pct", type=float, default=None,
+                        help="Offset from outer BB for limit price, as fraction of price (default: 0.0)")
+    parser.add_argument("--trend-htf-min-bars", type=int, default=None,
+                        help="Minimum consecutive bars HTF direction must persist (default: 2)")
+    parser.add_argument("--invert-trend-bias", action="store_true",
+                        help="Invert trend-mode entry direction (counter-trend test)")
+    # ── ForexMomentumRider overrides ────────────────────────────────────────
+    parser.add_argument("--mr-target-r", type=float, default=None,
+                        help="MomentumRider target R (default: 2.5)")
+    parser.add_argument("--mr-fast-ema-period", type=int, default=None,
+                        help="MomentumRider fast EMA period (default: 8)")
+    parser.add_argument("--mr-slow-ema-period", type=int, default=None,
+                        help="MomentumRider slow EMA period (default: 21)")
+    parser.add_argument("--mr-pullback-ema-period", type=int, default=None,
+                        help="MomentumRider pullback EMA period (default: 21)")
+    parser.add_argument("--mr-rsi-period", type=int, default=None,
+                        help="MomentumRider RSI period (default: 7)")
+    parser.add_argument("--mr-rsi-long-min", type=float, default=None)
+    parser.add_argument("--mr-rsi-long-max", type=float, default=None)
+    parser.add_argument("--mr-rsi-short-min", type=float, default=None)
+    parser.add_argument("--mr-rsi-short-max", type=float, default=None)
+    parser.add_argument("--mr-stop-atr-mult", type=float, default=None,
+                        help="MomentumRider stop = ATR * mult (default: 1.5)")
+    parser.add_argument("--mr-stop-floor-pct", type=float, default=None,
+                        help="MomentumRider min stop as price fraction (default: 0.0005)")
+    parser.add_argument("--mr-score-threshold", type=float, default=None,
+                        help="MomentumRider min score to enter (default: 60)")
+    parser.add_argument("--mr-no-htf-ltf-align", action="store_true",
+                        help="Disable HTF/LTF alignment requirement")
+    parser.add_argument("--mr-trend-htf-min-bars", type=int, default=None,
+                        help="MomentumRider HTF stability bars (default: 2)")
+    parser.add_argument("--mr-swing-lookback", type=int, default=None,
+                        help="MomentumRider swing structure lookback in HTF bars (default: 5)")
+    parser.add_argument("--mr-bounce-threshold", type=float, default=None,
+                        help="MomentumRider bounce-candle threshold (default: 0.5)")
+    parser.add_argument("--mr-atr-compression-threshold", type=float, default=None,
+                        help="MomentumRider ATR compression gate (default: 0.5)")
+    # ── ForexMeanReversion overrides ────────────────────────────────────────
+    parser.add_argument("--mrev-rsi-period", type=int, default=None,
+                        help="MeanReversion RSI period (default: 2)")
+    parser.add_argument("--mrev-rsi-oversold", type=float, default=None,
+                        help="MeanReversion RSI oversold threshold (default: 15)")
+    parser.add_argument("--mrev-rsi-overbought", type=float, default=None,
+                        help="MeanReversion RSI overbought threshold (default: 85)")
+    parser.add_argument("--mrev-rsi-neutral", type=float, default=None,
+                        help="MeanReversion RSI neutral exit level (default: 50)")
+    parser.add_argument("--mrev-bb-period", type=int, default=None,
+                        help="MeanReversion Bollinger period (default: 20)")
+    parser.add_argument("--mrev-bb-std", type=float, default=None,
+                        help="MeanReversion Bollinger std dev (default: 2.0)")
+    parser.add_argument("--mrev-no-bb-touch", action="store_true",
+                        help="Disable Bollinger band touch requirement")
+    parser.add_argument("--mrev-adx-max", type=float, default=None,
+                        help="MeanReversion max HTF ADX to fade (default: 25)")
+    parser.add_argument("--mrev-stop-atr-mult", type=float, default=None,
+                        help="MeanReversion stop = ATR * mult (default: 1.5)")
+    parser.add_argument("--mrev-target-atr-mult", type=float, default=None,
+                        help="MeanReversion target = ATR * mult (default: 1.0)")
+    parser.add_argument("--mrev-stop-floor-pct", type=float, default=None,
+                        help="MeanReversion min stop as price fraction (default: 0.0005)")
+    parser.add_argument("--mrev-max-hold-bars", type=int, default=None,
+                        help="MeanReversion max bars to hold (default: 4)")
+    parser.add_argument("--mrev-rejection-threshold", type=float, default=None,
+                        help="MeanReversion rejection candle threshold (default: 0.5)")
+    parser.add_argument("--mrev-score-threshold", type=float, default=None,
+                        help="MeanReversion min score to enter (default: 60)")
+    # ── ForexStructureBreakout overrides ────────────────────────────────────
+    parser.add_argument("--sb-target-r", type=float, default=None,
+                        help="StructureBreakout target R (default: 2.5)")
+    parser.add_argument("--sb-breakout-lookback", type=int, default=None,
+                        help="StructureBreakout swing lookback bars (default: 5)")
+    parser.add_argument("--sb-adx-min", type=float, default=None,
+                        help="StructureBreakout min ADX (default: 25)")
+    parser.add_argument("--sb-volume-min-ratio", type=float, default=None,
+                        help="StructureBreakout volume ratio (default: 1.5)")
+    parser.add_argument("--sb-stop-floor-pct", type=float, default=None,
+                        help="StructureBreakout stop floor pct (default: 0.0015)")
+    parser.add_argument("--sb-score-threshold", type=float, default=None,
+                        help="StructureBreakout min score (default: 65)")
     parser.add_argument("--max-workers", type=int, default=None,
                         help="Limit the number of CPU cores used. Defaults to 4 to prevent resource exhaustion.")
     parser.add_argument("--data-dir", type=str, default=None,
@@ -1470,6 +1626,76 @@ def main():
         start_dt = end_dt - timedelta(days=args.days)
 
     syms = [s.strip().upper() for s in args.symbols.split(",")] if args.symbols else None
+
+    # Collect strategy parameter overrides from CLI
+    strat_param_map = {
+        "trend_stop_atr_mult": args.trend_stop_atr_mult,
+        "trend_stop_floor": args.trend_stop_floor,
+        "range_stop_atr_mult": args.range_stop_atr_mult,
+        "range_stop_floor": args.range_stop_floor,
+        "trend_target_r": args.trend_target_r,
+        "range_target_r": args.range_target_r,
+        "bb_period": args.bb_period,
+        "bb_std": args.bb_std,
+        "rsi_period": args.rsi_period,
+        "rsi_overbought": args.rsi_overbought,
+        "rsi_oversold": args.rsi_oversold,
+        "score_threshold": args.score_threshold,
+        "trend_adx_min": args.trend_adx_min,
+        "breakout_distance_pct": args.breakout_distance_pct,
+        "trend_entry_bb_percentile": args.trend_entry_bb_percentile,
+        "trend_require_floor_touch": False if args.no_trend_floor_touch else args.trend_floor_touch,
+        "trend_require_htf_ltf_align": False if args.no_trend_htf_ltf_align else True,
+        "price_hook_required": False if args.no_price_hook else True,
+        "rsi_hook_required": False if args.no_rsi_hook else True,
+        "enable_range_mode": False if args.no_range_mode else True,
+        "trend_limit_order_enabled": False if args.no_trend_limit_order else True,
+        "trend_limit_order_expiry_bars": args.trend_limit_order_expiry_bars,
+        "trend_limit_order_offset_pct": args.trend_limit_order_offset_pct,
+        "trend_htf_min_bars": args.trend_htf_min_bars,
+        "invert_trend_bias": args.invert_trend_bias,
+        # MomentumRider overrides
+        "target_r": args.mr_target_r,
+        "fast_ema_period": args.mr_fast_ema_period,
+        "slow_ema_period": args.mr_slow_ema_period,
+        "pullback_ema_period": args.mr_pullback_ema_period,
+        "rsi_period": args.mr_rsi_period,
+        "rsi_long_min": args.mr_rsi_long_min,
+        "rsi_long_max": args.mr_rsi_long_max,
+        "rsi_short_min": args.mr_rsi_short_min,
+        "rsi_short_max": args.mr_rsi_short_max,
+        "stop_atr_mult": args.mr_stop_atr_mult,
+        "stop_floor_pct": args.mr_stop_floor_pct,
+        "score_threshold": args.mr_score_threshold,
+        "require_htf_ltf_align": False if args.mr_no_htf_ltf_align else True,
+        "trend_htf_min_bars": args.mr_trend_htf_min_bars,
+        "swing_lookback": args.mr_swing_lookback,
+        "bounce_threshold": args.mr_bounce_threshold,
+        "atr_compression_threshold": args.mr_atr_compression_threshold,
+        # MeanReversion overrides
+        "mrev_rsi_period": args.mrev_rsi_period,
+        "mrev_rsi_oversold": args.mrev_rsi_oversold,
+        "mrev_rsi_overbought": args.mrev_rsi_overbought,
+        "mrev_rsi_neutral": args.mrev_rsi_neutral,
+        "mrev_bb_period": args.mrev_bb_period,
+        "mrev_bb_std": args.mrev_bb_std,
+        "mrev_require_bb_touch": False if args.mrev_no_bb_touch else True,
+        "mrev_adx_max": args.mrev_adx_max,
+        "mrev_stop_atr_mult": args.mrev_stop_atr_mult,
+        "mrev_target_atr_mult": args.mrev_target_atr_mult,
+        "mrev_stop_floor_pct": args.mrev_stop_floor_pct,
+        "mrev_max_hold_bars": args.mrev_max_hold_bars,
+        "mrev_rejection_threshold": args.mrev_rejection_threshold,
+        "mrev_score_threshold": args.mrev_score_threshold,
+        # StructureBreakout overrides
+        "target_r": args.sb_target_r,
+        "breakout_lookback": args.sb_breakout_lookback,
+        "adx_min": args.sb_adx_min,
+        "volume_min_ratio": args.sb_volume_min_ratio,
+        "stop_floor_pct": args.sb_stop_floor_pct,
+        "score_threshold": args.sb_score_threshold,
+    }
+    strat_param_map = {k: v for k, v in strat_param_map.items() if v is not None}
     
     # Run the replay in an infinite loop so it continues as new days pass
     while True:
@@ -1515,7 +1741,9 @@ def main():
         result = run_replay(start_dt, end_dt, speed=args.speed,
                             initial_balance=args.balance, symbols_filter=syms,
                             max_workers=args.max_workers,
-                            strategy=args.strategy)
+                            strategy=args.strategy,
+                            strategy_kwargs=strat_param_map,
+                            api_fallback=args.api_fallback)
 
         # ── Emit JSON summary for UI consumption ─────────────────────────────
         if args.json_output and result:

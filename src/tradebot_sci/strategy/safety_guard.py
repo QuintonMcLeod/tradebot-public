@@ -15,7 +15,7 @@ from tradebot_sci.strategy.decisions import (
     hold_decision,
     scale_out_decision,
 )
-from tradebot_sci.strategy.icc_signals import calculate_atr, detect_structure_invalidation
+from tradebot_sci.strategy.icc_signals import calculate_atr, detect_structure_invalidation, calculate_adx
 from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
 from tradebot_sci.config.models import UserConfig
 from tradebot_sci.config.loader import get_settings
@@ -77,6 +77,9 @@ class SafetyGuard:
 
     # All mutable state consolidated into an injectable dataclass.
     _state: SafetyState = SafetyState()
+    # ADX regime tracking (fallback if SafetyState doesn't have it)
+    _adx_flat_bars: dict[str, int] = {}  # symbol -> count of consecutive flat bars
+
 
     @classmethod
     def reset_state(cls) -> None:
@@ -168,6 +171,40 @@ class SafetyGuard:
         rejection_journal.log(symbol, timeframe, gate_name, reason)
         return stand_aside_decision(symbol, timeframe, reason)
 
+
+    @classmethod
+    def evaluate_adx_regime(cls, symbol: str, candles: list, profile: Any = None) -> dict:
+        """
+        Evaluate ADX regime and return gate dict with regime_mode and size_multiplier.
+        """
+        if not candles or len(candles) < 28:
+            return {"regime_mode": "unknown", "size_multiplier": 1.0, "adx_ok": True}
+
+        adx_value = calculate_adx(candles, period=14)
+
+        # Get thresholds from profile regime_config if available
+        flat_threshold = 15.0
+        trend_threshold = 20.0
+        probe_size = 0.25
+        if profile and hasattr(profile, "regime_config") and profile.regime_config:
+            flat_threshold = getattr(profile.regime_config, "adx_flat_threshold", 15.0)
+            trend_threshold = getattr(profile.regime_config, "adx_trend_threshold", 20.0)
+            probe_size = getattr(profile.regime_config, "probe_size_pct", 0.25)
+
+        # Track consecutive flat bars
+        flat_key = f"{symbol}_flat"
+        if adx_value < flat_threshold:
+            cls._adx_flat_bars[flat_key] = cls._adx_flat_bars.get(flat_key, 0) + 1
+        else:
+            cls._adx_flat_bars[flat_key] = 0
+
+        if adx_value < flat_threshold and cls._adx_flat_bars.get(flat_key, 0) >= 20:
+            return {"regime_mode": "flat", "size_multiplier": 0.0, "adx_ok": False, "adx_value": adx_value}
+        elif adx_value >= flat_threshold and adx_value < trend_threshold:
+            return {"regime_mode": "probe", "size_multiplier": probe_size, "adx_ok": True, "adx_value": adx_value}
+        else:  # adx >= trend_threshold
+            return {"regime_mode": "trend", "size_multiplier": 1.0, "adx_ok": True, "adx_value": adx_value}
+
     @classmethod
     def check_entry_safety(cls, symbol: str, timeframe: str, current_capital: float, snapshot: MarketSnapshot, ai_client: Optional[Any] = None, settings: Optional[Any] = None, trade_results: Optional[Any] = None, open_symbols: Optional[list[str]] = None) -> Optional[AITradeDecision]:
         """
@@ -209,6 +246,17 @@ class SafetyGuard:
                 deposit_just_detected = True
             cls._state.hwm_capital[asset_class] = current_capital
         cls._update_daily_stats(current_capital, asset_class, now=now)
+
+        # -------------------------------------------------------------
+        # 0.4 ADX REGIME GATE (trend vs range detection)
+        # -------------------------------------------------------------
+        adx_gate = {}
+        if snapshot and snapshot.candles:
+            adx_gate = cls.evaluate_adx_regime(symbol, snapshot.candles, profile=settings)
+            # Store ADX regime info in the state for engine/exit logic to read
+            cls._state._adx_regime = adx_gate  # type: ignore[attr-defined]
+            if not adx_gate.get("adx_ok", True):
+                return cls._reject(symbol, timeframe, "ADX Flat", f"ADX flat for {cls._adx_flat_bars.get(f'{symbol}_flat', 0)} bars (<{adx_gate.get('adx_value', 0):.1f})")
 
         # -------------------------------------------------------------
         # 0.5 EXIT COOLDOWN (per-symbol, prevents death spiral re-entry)

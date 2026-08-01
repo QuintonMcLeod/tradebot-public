@@ -1,0 +1,562 @@
+"""
+ForexStructureBreakout — Structure Breakout Strategy
+
+Core logic:
+- Trade breakouts of swing structure in the direction of HTF trend
+- Uses ADX + volume to filter out chop
+- Adaptive exits: breakeven floor + chandelier trailing stop
+
+Author: Tradebot SCI
+"""
+from __future__ import annotations
+import logging
+from typing import Dict, List, Optional, Tuple
+import numpy as np
+from tradebot_sci.market.models import MarketSnapshot
+from tradebot_sci.strategy.decisions import AITradeDecision, hold_decision, scale_out_decision
+from tradebot_sci.strategy.variants.base import BaseStrategy
+
+logger = logging.getLogger(__name__)
+
+
+class ForexStructureBreakout(BaseStrategy):
+    """
+    A breakout strategy that trades structure breaks in the direction of the trend.
+
+    - Uses HTF trend alignment (daily/4h bias)
+    - Enters on LTF structure breakouts (1h/5m)
+    - Requires ADX > threshold to avoid chop
+    - Uses volume confirmation
+    - Adaptive exits: breakeven floor + chandelier trailing stop
+    """
+
+    def __init__(self, target_r: float = 2.0, **kwargs):
+        super().__init__("ForexStructureBreakout")
+        logger.info(f"[SB_INIT] kwargs={kwargs}")
+        logger.info(f"[SB_INIT] lookback={kwargs.get('breakout_lookback', 'NOTSET')}, adx={kwargs.get('adx_min', 'NOTSET')}, vol={kwargs.get('volume_min_ratio', 'NOTSET')}, stop={kwargs.get('stop_floor_pct', 'NOTSET')}")
+
+        # Profit target in R multiples.
+        # Lowered from 2.5R to 2.0R: breakout follow-through in forex is often
+        # limited, so a closer target raises the probability of capture.
+        self.target_r = float(kwargs.get("target_r", target_r))
+
+        # How many bars back to look for structure
+        self.breakout_lookback = int(kwargs.get("breakout_lookback", 5))
+
+        # Minimum ADX to trade (avoid chop)
+        self.adx_min = float(kwargs.get("adx_min", 25.0))
+
+        # Minimum volume ratio vs average
+        self.volume_min_ratio = float(kwargs.get("volume_min_ratio", 1.5))
+
+        # Stop floor: minimum stop distance as % of price
+        self.stop_floor_pct = float(kwargs.get("stop_floor_pct", 0.0015))
+
+        # ATR multiplier for stop placement.
+        # Tightened from 1.5 to 1.0: structure breakouts should not need a wide
+        # buffer; a tighter stop improves R-multiple and lets the trailing stop
+        # take over once price moves favorably.
+        self.stop_atr_mult = float(kwargs.get("stop_atr_mult", 1.0))
+
+        # Score threshold for entry
+        self.score_threshold = float(kwargs.get("score_threshold", 75.0))
+
+        # ------------------------------------------------------------------
+        # Exit-management parameters (improve_exits iteration)
+        # ------------------------------------------------------------------
+        # R-level at which the stop is moved to the fee-adjusted breakeven price.
+        self.breakeven_arm_r = float(kwargs.get("breakeven_arm_r", 0.5))
+
+        # R-level at which a chandelier trailing stop is activated.
+        # Kept above the breakeven arm so we first eliminate downside risk.
+        self.trailing_arm_r = float(kwargs.get("trailing_arm_r", 1.0))
+
+        # ATR multiplier for the chandelier trail (stop below/above recent swing
+        # extremes by this multiple of ATR).
+        self.trailing_atr_mult = float(kwargs.get("trailing_atr_mult", 1.5))
+
+        # Lookback for the chandelier swing window.
+        self.trailing_lookback = int(kwargs.get("trailing_lookback", 5))
+
+        # Partial scale-out: fraction of the position closed at +1R to lock in
+        # profit and reduce risk on the runner.
+        self.scale_out_fraction = float(kwargs.get("scale_out_fraction", 0.5))
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _find_swing_high(self, candles: List) -> float:
+        """Find highest high over lookback period."""
+        lookback = min(self.breakout_lookback, len(candles) - 1)
+        return max(c.high for c in candles[-lookback - 1 : -1])
+
+    def _find_swing_low(self, candles: List) -> float:
+        """Find lowest low over lookback period."""
+        lookback = min(self.breakout_lookback, len(candles) - 1)
+        return min(c.low for c in candles[-lookback - 1 : -1])
+
+    def _current_atr(self, candles: List) -> float:
+        """Simple ATR estimate from recent candles."""
+        if len(candles) < 2:
+            return 0.0005
+        recent = candles[-20:]
+        trs = []
+        for i in range(1, len(recent)):
+            c = recent[i]
+            p = recent[i - 1]
+            tr = max(c.high - c.low, abs(c.high - p.close), abs(c.low - p.close))
+            trs.append(tr)
+        return np.mean(trs) if trs else 0.0005
+
+    def _volume_ratio(self, candles: List) -> float:
+        """Current volume vs average of lookback."""
+        if len(candles) < 3:
+            return 1.0
+        lookback = min(self.breakout_lookback * 2, len(candles) - 1)
+        recent = candles[-lookback - 1 : -1]
+        if not recent:
+            return 1.0
+        vols = [getattr(c, "volume", 0) or 0.0 for c in recent]
+        if not vols or all(v == 0 for v in vols):
+            return 1.0
+        avg = sum(vols) / len(vols)
+        current = getattr(candles[-1], "volume", 0) or 0.0
+        return current / avg if avg > 0 else 1.0
+
+    def _pip_size(self, symbol: str) -> float:
+        """Return pip size for symbol (handles JPY pairs)."""
+        s = symbol.upper()
+        if "JPY" in s:
+            return 0.01
+        return 0.0001
+
+    def _min_stop_distance(self, price: float, symbol: str) -> float:
+        """Minimum stop distance in price terms."""
+        return price * self.stop_floor_pct
+
+    def _recent_swing_high(self, candles: List, lookback: Optional[int] = None) -> float:
+        """Highest high over the trailing lookback window (for chandelier trail)."""
+        n = lookback or self.trailing_lookback
+        n = min(n, len(candles) - 1)
+        return max(c.high for c in candles[-n:])
+
+    def _recent_swing_low(self, candles: List, lookback: Optional[int] = None) -> float:
+        """Lowest low over the trailing lookback window (for chandelier trail)."""
+        n = lookback or self.trailing_lookback
+        n = min(n, len(candles) - 1)
+        return min(c.low for c in candles[-n:])
+
+    def _r_multiple(self, entry_price: float, current_price: float, direction: str, initial_risk: float) -> float:
+        """Current profit expressed in initial-risk multiples."""
+        if initial_risk <= 0:
+            return 0.0
+        if direction == "long":
+            return (current_price - entry_price) / initial_risk
+        return (entry_price - current_price) / initial_risk
+
+    def _chandelier_stop(self, candles: List, direction: str) -> float:
+        """
+        Compute a chandelier-style trailing stop.
+        Long:  recent swing low  + ATR * mult
+        Short: recent swing high - ATR * mult
+        """
+        if len(candles) < self.trailing_lookback + 1:
+            return 0.0
+        atr = self._current_atr(candles)
+        if direction == "long":
+            return self._recent_swing_low(candles) + (atr * self.trailing_atr_mult)
+        return self._recent_swing_high(candles) - (atr * self.trailing_atr_mult)
+
+    # ------------------------------------------------------------------
+    # Scoring
+    # ------------------------------------------------------------------
+
+    def score_signal(self, snapshot: MarketSnapshot, gates: dict) -> Tuple[float, str, str]:
+        """
+        Score the setup from 0-100.
+
+        Returns: (score, grade, summary)
+        """
+        candles = snapshot.candles
+        if len(candles) < self.breakout_lookback + 2:
+            return 0.0, "-", "StructureBreakout: insufficient data"
+
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        ltf_dir = str(gates.get("ltf_dir", "neutral")).lower()
+        adx = float(gates.get("htf_adx", 0) or 0)
+        vol_ratio = self._volume_ratio(candles)
+
+        last_close = candles[-1].close
+        swing_high = self._find_swing_high(candles)
+        swing_low = self._find_swing_low(candles)
+
+        score = 0.0
+        details = []
+
+        # 1. HTF alignment (20 pts) — must be directional
+        if htf_dir in ("long", "short"):
+            score += 20.0
+            details.append(f"HTF={htf_dir}(+20)")
+        else:
+            details.append("HTF=neutral(0)")
+            return score, self.grade_from_score_100(score), f"StructureBreakout: {', '.join(details)}"
+
+        # 2. Breakout quality (0-35 pts) — distance matters
+        is_long_breakout = last_close > swing_high
+        is_short_breakout = last_close < swing_low
+
+        if htf_dir == "long" and is_long_breakout:
+            # Score based on breakout distance above structure
+            breakout_dist = last_close - swing_high
+            atr = self._current_atr(candles)
+            if atr and atr > 0:
+                dist_in_atr = breakout_dist / atr
+                if dist_in_atr >= 1.5:
+                    score += 35.0
+                    details.append(f"BreakoutStrong(+35)")
+                elif dist_in_atr >= 0.5:
+                    partial = 20.0 + 15.0 * ((dist_in_atr - 0.5) / 1.0)
+                    score += partial
+                    details.append(f"BreakoutModerate(+{partial:.0f})")
+                else:
+                    score += 10.0
+                    details.append(f"BreakoutWeak(+10)")
+            else:
+                score += 20.0
+                details.append(f"BreakoutHigh(+20)")
+        elif htf_dir == "short" and is_short_breakout:
+            breakout_dist = swing_low - last_close
+            atr = self._current_atr(candles)
+            if atr and atr > 0:
+                dist_in_atr = breakout_dist / atr
+                if dist_in_atr >= 1.5:
+                    score += 35.0
+                    details.append(f"BreakoutStrong(+35)")
+                elif dist_in_atr >= 0.5:
+                    partial = 20.0 + 15.0 * ((dist_in_atr - 0.5) / 1.0)
+                    score += partial
+                    details.append(f"BreakoutModerate(+{partial:.0f})")
+                else:
+                    score += 10.0
+                    details.append(f"BreakoutWeak(+10)")
+            else:
+                score += 20.0
+                details.append(f"BreakoutLow(+20)")
+        else:
+            details.append("NoBreakout(0)")
+            return score, self.grade_from_score_100(score), f"StructureBreakout: {', '.join(details)}"
+
+        # 3. ADX strength (0-25 pts) — gate at minimum, bonus above
+        if adx >= self.adx_min:
+            # Base 15 for meeting minimum, up to 25 for strong trend
+            adx_score = 15.0 + min(10.0, (adx - self.adx_min) / 2.0)
+            score += adx_score
+            details.append(f"ADX={adx:.0f}(+{adx_score:.0f})")
+        else:
+            # Below minimum = no trade
+            details.append(f"ADX={adx:.0f}(0-BELOW_MIN)")
+            return score, self.grade_from_score_100(score), f"StructureBreakout: {', '.join(details)}"
+
+        # 4. Volume confirmation (0-15 pts) — must meet minimum
+        if vol_ratio >= self.volume_min_ratio:
+            vol_score = min(15.0, 10.0 + 5.0 * (vol_ratio - self.volume_min_ratio))
+            score += vol_score
+            details.append(f"Vol={vol_ratio:.1f}x(+{vol_score:.0f})")
+        else:
+            details.append(f"Vol={vol_ratio:.1f}x(0-BELOW_MIN)")
+            return score, self.grade_from_score_100(score), f"StructureBreakout: {', '.join(details)}"
+
+        # 5. LTF alignment (5 pts)
+        if ltf_dir == htf_dir:
+            score += 5.0
+            details.append("LTF-align(+5)")
+        else:
+            details.append("LTF-misalign(0)")
+            # Don't reject for LTF misalignment but score lower
+
+        grade = self.grade_from_score_100(score)
+        summary = f"StructureBreakout: {', '.join(details)} = {score:.0f}"
+        return score, grade, summary
+
+    # ------------------------------------------------------------------
+    # Entry Signal
+    # ------------------------------------------------------------------
+
+    def check_entry_signal(
+        self,
+        snapshot: MarketSnapshot,
+        gates: dict,
+        open_position: Optional[dict] = None,
+        current_capital: Optional[float] = None,
+        trade_history: Optional[list] = None,
+    ) -> Optional[AITradeDecision]:
+        """
+        Check for a new trade entry.
+
+        Returns AITradeDecision if entry criteria met, None otherwise.
+        """
+        # Don't enter if already in a position
+        if open_position:
+            return None
+
+        # Don't enter on synthetic overrides
+        if gates.get("is_synthetic_override") is True:
+            return None
+
+        candles = snapshot.candles
+        if len(candles) < self.breakout_lookback + 2:
+            return None
+
+        # Score the setup
+        score, grade, summary = self.score_signal(snapshot, gates)
+
+        # Gate: score must meet threshold
+        if score < self.score_threshold:
+            return None
+
+        htf_dir = str(gates.get("htf_dir", "neutral")).lower()
+        if htf_dir not in ("long", "short"):
+            return None
+
+        # Regime check: ADX must confirm trending
+        adx = float(gates.get("htf_adx", 0) or 0)
+        if adx < self.adx_min:
+            logger.debug(f"{snapshot.symbol}: ADX {adx:.1f} below minimum {self.adx_min}")
+            return None
+
+        # Volume check
+        vol_ratio = self._volume_ratio(candles)
+        if vol_ratio < self.volume_min_ratio:
+            logger.debug(f"{snapshot.symbol}: Volume {vol_ratio:.1f}x below minimum")
+            return None
+
+        # Get structure levels
+        swing_high = self._find_swing_high(candles)
+        swing_low = self._find_swing_low(candles)
+        atr = self._current_atr(candles)
+        last_close = candles[-1].close
+        last_high = candles[-1].high
+        last_low = candles[-1].low
+
+        # Calculate stop and target
+        min_stop = self._min_stop_distance(last_close, snapshot.symbol)
+
+        if htf_dir == "long":
+            # Confirm breakout
+            if last_high <= swing_high:
+                return None
+
+            # Stop: below swing low, buffered by ATR
+            stop_loss = swing_low - (atr * self.stop_atr_mult)
+            # Enforce minimum stop distance
+            if (last_close - stop_loss) < min_stop:
+                stop_loss = last_close - min_stop
+
+            # Risk distance
+            risk = last_close - stop_loss
+            if risk <= 0:
+                return None
+
+            # Target: use strategy's target_r
+            target = last_close + (risk * self.target_r)
+
+            return AITradeDecision(
+                symbol=snapshot.symbol,
+                timeframe=snapshot.timeframe,
+                bias="long",
+                phase="breakout",
+                action="enter_long",
+                entry_price=last_close,
+                stop_loss=stop_loss,
+                take_profit=target,
+                risk_per_trade_pct=self.get_risk_pct(),
+                structure_summary=f"Breakout Long: high={swing_high:.5f}, low={swing_low:.5f}, ADX={adx:.0f}",
+                invalidation_conditions=f"Close below {stop_loss:.5f} (structure low + ATR)",
+                management_instructions=(
+                    f"Exit plan: BE at +{self.breakeven_arm_r}R, "
+                    f"scale out {self.scale_out_fraction:.0%} at +1.0R, "
+                    f"trail with {self.trailing_atr_mult}x ATR chandelier from +{self.trailing_arm_r}R, "
+                    f"hard TP at {self.target_r}R."
+                ),
+                urgency="high",
+                strategy_name=self.name,
+                regime="trend",
+            )
+
+        else:  # htf_dir == "short"
+            # Confirm breakout
+            if last_low >= swing_low:
+                return None
+
+            # Stop: above swing high, buffered by ATR
+            stop_loss = swing_high + (atr * self.stop_atr_mult)
+            # Enforce minimum stop distance
+            if (stop_loss - last_close) < min_stop:
+                stop_loss = last_close + min_stop
+
+            # Risk distance
+            risk = stop_loss - last_close
+            if risk <= 0:
+                return None
+
+            # Target: use strategy's target_r
+            target = last_close - (risk * self.target_r)
+
+            return AITradeDecision(
+                symbol=snapshot.symbol,
+                timeframe=snapshot.timeframe,
+                bias="short",
+                phase="breakout",
+                action="enter_short",
+                entry_price=last_close,
+                stop_loss=stop_loss,
+                take_profit=target,
+                risk_per_trade_pct=self.get_risk_pct(),
+                structure_summary=f"Breakout Short: high={swing_high:.5f}, low={swing_low:.5f}, ADX={adx:.0f}",
+                invalidation_conditions=f"Close above {stop_loss:.5f} (structure high + ATR)",
+                management_instructions=(
+                    f"Exit plan: BE at +{self.breakeven_arm_r}R, "
+                    f"scale out {self.scale_out_fraction:.0%} at +1.0R, "
+                    f"trail with {self.trailing_atr_mult}x ATR chandelier from +{self.trailing_arm_r}R, "
+                    f"hard TP at {self.target_r}R."
+                ),
+                urgency="high",
+                strategy_name=self.name,
+                regime="trend",
+            )
+
+    # ------------------------------------------------------------------
+    # Exit Management (improve_exits iteration)
+    # ------------------------------------------------------------------
+
+    def check_exit_signal(
+        self,
+        snapshot: MarketSnapshot,
+        open_position: dict,
+        gates: dict,
+        current_capital: Optional[float] = None,
+        trade_history: Optional[list] = None,
+    ) -> Optional[AITradeDecision]:
+        """
+        Manage an open position with a structured exit plan.
+
+        The goal is to turn trades that move in our favor into guaranteed
+        winners or runners, rather than letting them reverse into full losses.
+
+        Exit sequence:
+          1. At +breakeven_arm_r: move stop to fee-adjusted breakeven.
+          2. At +1.0R: scale out a portion of the position and lock BE on the rest.
+          3. Above +trailing_arm_r: trail a chandelier stop under recent swing lows/highs.
+          4. Hard take-profit at target_r is handled by the broker bracket order.
+        """
+        if not open_position:
+            return None
+
+        candles = snapshot.candles
+        if len(candles) < self.trailing_lookback + 2:
+            return None
+
+        direction = open_position.get("direction") or open_position.get("side", "long")
+        direction = str(direction).lower()
+        if direction not in ("long", "short"):
+            return None
+
+        entry_price = float(open_position.get("entry_price", 0) or 0)
+        current_price = candles[-1].close
+        if entry_price <= 0:
+            return None
+
+        current_stop = float(open_position.get("stop_loss") or open_position.get("stop_price") or 0)
+        initial_risk = float(open_position.get("initial_risk") or 0)
+        if initial_risk <= 0 and current_stop > 0:
+            initial_risk = abs(entry_price - current_stop)
+        if initial_risk <= 0:
+            initial_risk = self._current_atr(candles)
+
+        r = self._r_multiple(entry_price, current_price, direction, initial_risk)
+
+        # Phase 1: Breakeven guard — eliminate downside once we have a modest gain.
+        if r >= self.breakeven_arm_r:
+            be_price = self.calculate_fee_adjusted_break_even(entry_price, direction, snapshot.symbol)
+
+            if direction == "long":
+                new_stop = max(current_stop, be_price) if current_stop > 0 else be_price
+                # Only move the stop if it improves our position and is below current price.
+                if new_stop > current_stop and new_stop < current_price:
+                    logger.info(
+                        f"[SB_EXIT] {snapshot.symbol} LONG BE stop: {current_stop:.5f} -> {new_stop:.5f} "
+                        f"(R={r:.2f})"
+                    )
+                    return hold_decision(
+                        snapshot.symbol,
+                        snapshot.timeframe,
+                        reason=f"StructureBreakout BE stop at {r:.2f}R",
+                        stop_loss=new_stop,
+                    )
+            else:
+                new_stop = min(current_stop, be_price) if current_stop > 0 else be_price
+                if new_stop < current_stop and new_stop > current_price:
+                    logger.info(
+                        f"[SB_EXIT] {snapshot.symbol} SHORT BE stop: {current_stop:.5f} -> {new_stop:.5f} "
+                        f"(R={r:.2f})"
+                    )
+                    return hold_decision(
+                        snapshot.symbol,
+                        snapshot.timeframe,
+                        reason=f"StructureBreakout BE stop at {r:.2f}R",
+                        stop_loss=new_stop,
+                    )
+
+        # Phase 2: Scale out at +1.0R to lock in profit on part of the position.
+        # We only scale out once; the open_position flag prevents repetition.
+        if r >= 1.0 and not open_position.get("scale_out_done"):
+            logger.info(
+                f"[SB_EXIT] {snapshot.symbol} scaling out {self.scale_out_fraction:.0%} at {r:.2f}R"
+            )
+            scale_decision = scale_out_decision(
+                snapshot.symbol,
+                snapshot.timeframe,
+                reason=f"StructureBreakout scale-out at {r:.2f}R",
+            )
+            # Tell the broker what fraction to close and mark the position so we
+            # do not scale out again on the next bar.
+            scale_decision.scale_out_fraction = self.scale_out_fraction
+            scale_decision.notes = f"scale_frac={self.scale_out_fraction}|r={r:.2f}"
+            return scale_decision
+
+        # Phase 3: Chandelier trailing stop once we have a meaningful profit.
+        if r >= self.trailing_arm_r:
+            trail_stop = self._chandelier_stop(candles, direction)
+            if trail_stop <= 0:
+                return None
+
+            if direction == "long":
+                # Trail stop only moves up; never widen it.
+                new_stop = max(current_stop, trail_stop) if current_stop > 0 else trail_stop
+                if new_stop > current_stop and new_stop < current_price:
+                    logger.info(
+                        f"[SB_EXIT] {snapshot.symbol} LONG trail: {current_stop:.5f} -> {new_stop:.5f} "
+                        f"(R={r:.2f})"
+                    )
+                    return hold_decision(
+                        snapshot.symbol,
+                        snapshot.timeframe,
+                        reason=f"StructureBreakout chandelier trail at {r:.2f}R",
+                        stop_loss=new_stop,
+                    )
+            else:
+                new_stop = min(current_stop, trail_stop) if current_stop > 0 else trail_stop
+                if new_stop < current_stop and new_stop > current_price:
+                    logger.info(
+                        f"[SB_EXIT] {snapshot.symbol} SHORT trail: {current_stop:.5f} -> {new_stop:.5f} "
+                        f"(R={r:.2f})"
+                    )
+                    return hold_decision(
+                        snapshot.symbol,
+                        snapshot.timeframe,
+                        reason=f"StructureBreakout chandelier trail at {r:.2f}R",
+                        stop_loss=new_stop,
+                    )
+
+        return None
