@@ -11,7 +11,7 @@ from tradebot_sci.strategy.icc_signals import calculate_atr
 logger = logging.getLogger(__name__)
 
 class ForexHybridReaperStrategy(BaseStrategy):
-    score_threshold = 60.0
+    score_threshold = 72.0
     SESSION_PROFILE = ["forex_hybrid_scalper:hybrid_overlap", "forex_hybrid_scalper:london_open", "forex_hybrid_scalper:asian_open"]
     """
     Forex Hybrid Reaper — regime-router.

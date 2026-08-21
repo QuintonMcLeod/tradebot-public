@@ -1021,6 +1021,8 @@ def _worker_replay_symbol(args: tuple) -> dict:
 
     # In-memory trade store — no disk I/O between workers
     trade_store = TradeResultStore(path=f"/tmp/_replay_{sym}.json", skip_save=False)
+    # Clear any stale persisted results so each replay starts fresh.
+    trade_store.clear()
 
     # ── Replay-specific profile: disable SAR/CR ──────────────────────────
     # The engine's SAR cooldown uses wall-clock datetime.now() — but replay
@@ -1034,6 +1036,8 @@ def _worker_replay_symbol(args: tuple) -> dict:
     update_args = {
         "stop_and_reverse_enabled": False,
         "counter_reversal_enabled": False,
+        "session_gate_enabled": False,
+        "adx_gate_threshold": 0.0,
     }
     if args_strategy:
         update_args["strategy_variant"] = args_strategy
@@ -1601,6 +1605,8 @@ def main():
     parser.add_argument("--data-dir", type=str, default=None,
                         help="Override default data directory (e.g. crypto_backtest)")
     parser.add_argument("--json-output", action="store_true", help="Output results as JSON")
+    parser.add_argument("--strategy-kwargs-json", type=str, default=None,
+                        help="JSON dict of arbitrary strategy kwargs to pass to the strategy constructor")
     args = parser.parse_args()
 
     if args.data_dir:
@@ -1696,6 +1702,16 @@ def main():
         "score_threshold": args.sb_score_threshold,
     }
     strat_param_map = {k: v for k, v in strat_param_map.items() if v is not None}
+
+    # Merge arbitrary strategy kwargs from JSON
+    if args.strategy_kwargs_json:
+        import json
+        try:
+            extra_kwargs = json.loads(args.strategy_kwargs_json)
+            if isinstance(extra_kwargs, dict):
+                strat_param_map.update(extra_kwargs)
+        except json.JSONDecodeError:
+            logger.warning(f"[REPLAY] Invalid --strategy-kwargs-json: {args.strategy_kwargs_json}")
     
     # Run the replay in an infinite loop so it continues as new days pass
     while True:

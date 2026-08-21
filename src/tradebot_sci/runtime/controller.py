@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional
 from tradebot_sci.config.models import Settings, TradingProfileSettings
 from tradebot_sci.server.ws_server import WebSocketServer
 from tradebot_sci.runtime.sabbath import SabbathContext
-from tradebot_sci.runtime.scheduling import get_schedule_status
+from tradebot_sci.runtime.scheduling import get_schedule_status, resolve_active_strategy_keys
 from tradebot_sci.runtime.health_monitor import HealthMonitor, health_monitor
 from tradebot_sci.market.models import Candle
 
@@ -112,7 +112,10 @@ class RuntimeController:
                 pass
 
             # Evaluate scheduling status to pass active sessions to GUI
-            _, _, active_sessions = get_schedule_status(self.profile_name, datetime.now(timezone.utc), self.settings)
+            strategy_keys = resolve_active_strategy_keys(self.profile_settings)
+            _, _, active_sessions = get_schedule_status(
+                self.profile_name, datetime.now(timezone.utc), self.settings, strategy_key=strategy_keys
+            )
 
             state_data = {
                 "equity": total_equity,

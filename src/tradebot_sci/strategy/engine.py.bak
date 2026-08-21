@@ -270,6 +270,7 @@ class StrategyEngine:
         current_capital: float | None = None,
         trade_history: list | None = None,
     ) -> AITradeDecision:
+        print(f"[DECIDE_CALLED] {self.symbol}")
         """
         The Main Entry Point.
         Ask the strategy for a decision and return it with minimal validation.
@@ -514,20 +515,16 @@ class StrategyEngine:
         session_id = getattr(self._strategy, "SESSION_PROFILE", None)
         session_ok = True
         session_gate_enabled = False
-        # [REPLAY BYPASS] PaperBroker (backtest/replay) should never be blocked by
-        # session gates — the replay data may fall outside current wall-clock windows.
-        is_paper = getattr(self._broker, "is_paper", False)
-        if not is_paper and self.settings and hasattr(self.settings, "risk"):
+        if self.settings and hasattr(self.settings, "risk"):
             session_gate_enabled = getattr(self.settings.risk, "session_gate_enabled", False)
 
         if session_gate_enabled and session_id:
             if isinstance(session_id, list):
                 cleaned_ids = [sid.split(":")[-1] if ":" in sid else sid for sid in session_id]
-                suffixes = [a.split(":")[-1] for a in gates["active_sessions"] if ":" in a]
-                session_ok = any(sid in gates["active_sessions"] or sid in suffixes for sid in cleaned_ids)
+                session_ok = any(sid in gates["active_sessions"] for sid in cleaned_ids)
             else:
                 cleaned_id = session_id.split(":")[-1] if isinstance(session_id, str) and ":" in session_id else session_id
-                session_ok = cleaned_id in gates["active_sessions"] or cleaned_id in [a.split(":")[-1] for a in gates["active_sessions"] if ":" in a]
+                session_ok = cleaned_id in gates["active_sessions"]
                 
             # [SABBATH REPLAY OVERRIDE]
             # If we failed the gate but Sabbath is enabled, we are in PaperBroker, AND paper off-hours is enabled, force True!

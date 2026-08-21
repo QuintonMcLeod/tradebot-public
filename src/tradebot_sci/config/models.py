@@ -1306,7 +1306,7 @@ class AppSettings(BaseModel):
 
 
 class ScheduleSession(BaseModel):
-    id: Optional[str] = Field(default=None, description="Unique identifier for the session (e.g. 'london_open')")
+    id: Optional[str] = Field(default=None, description="Unique identifier for the session (e.g. 'forex_structure_breakout:london_open')")
     profile_name: str
     active: bool = Field(default=True, description="Whether this session is currently enabled for gating")
     mode: Literal["24/7", "business_hours", "custom", "one_time", "continuous"] = Field(default="business_hours")
@@ -1316,6 +1316,7 @@ class ScheduleSession(BaseModel):
     start_time: str = Field(default="09:30")  # "HH:MM"
     end_time: str = Field(default="16:00")    # "HH:MM"
     paper_trade_off_hours: bool = Field(default=False)
+    strategy: Optional[str] = Field(default=None, description="Strategy registry key this session applies to. If omitted, inferred from 'strategy:session_type' id.")
 
     @field_validator("start_time", "end_time", mode="before")
     @classmethod

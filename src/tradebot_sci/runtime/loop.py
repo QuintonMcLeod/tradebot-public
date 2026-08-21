@@ -46,6 +46,7 @@ from tradebot_sci.runtime.scheduling import (
     get_current_session,
     get_next_session_start,
     get_schedule_status,
+    resolve_active_strategy_keys,
 )
 from tradebot_sci.runtime.controller import RuntimeController
 from tradebot_sci.runtime.cycle import (
@@ -1664,7 +1665,10 @@ def run_bot(
 
             # ── 1. Base Schedule & Sabbath Evaluation ──
             now = datetime.now(ZoneInfo("UTC"))
-            is_scheduled, paper_trade_off_hours, sessions = get_schedule_status(profile_name, now, settings)
+            strategy_keys = resolve_active_strategy_keys(profile_settings)
+            is_scheduled, paper_trade_off_hours, sessions = get_schedule_status(
+                profile_name, now, settings, strategy_key=strategy_keys
+            )
             sabbath_active, _, _ = sabbath_context.evaluate(now)
             force_paper_broker = False
 

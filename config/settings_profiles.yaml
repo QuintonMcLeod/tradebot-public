@@ -100,14 +100,15 @@ profiles:
   forex_continuous: 
     strategies: 
       etf: meta_sci 
-      forex: forex_structure_breakout 
+      forex: forex_hybrid_reaper_breakout 
       futures: silver_vwap 
-      metals: forex_hybrid_scalper 
+      metals: forex_hybrid_reaper_breakout 
       stocks: robocop 
-      crypto: forex_hybrid_scalper 
-    strategy_variant: forex_hybrid_scalper 
-    target_r: 1.0
+      crypto: forex_hybrid_reaper_breakout 
+    strategy_variant: forex_hybrid_reaper_breakout 
+    target_r: 2.0
     time_decay_bars: 24
+    enable_negative_hold_guard: false
     symbols: 
     - EURUSD 
     - GBPUSD 

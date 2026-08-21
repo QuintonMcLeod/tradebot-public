@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from typing import List, Optional, Dict, Any
 
 from tradebot_sci.market.symbols import MARKET_HOURS, MarketType, SYMBOL_METADATA, is_crypto
+from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
 from tradebot_sci.config.loader import get_settings
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,51 @@ def _is_forex_open(now: datetime) -> bool:
     return True
 
 
-def get_schedule_status(profile_name: str, now: datetime, settings: Any, session_id: Optional[str] = None) -> tuple[bool, bool, List[Any]]:
+def _session_strategy_key(sess: Any) -> Optional[str]:
+    """Return the strategy registry key a session belongs to, if any."""
+    explicit = getattr(sess, "strategy", None)
+    if explicit:
+        return explicit
+    sid = getattr(sess, "id", None) or ""
+    if ":" in sid:
+        return sid.split(":", 1)[0]
+    return None
+
+
+def resolve_active_strategy_keys(profile_settings: Any) -> list[str] | None:
+    """Return the strategy registry key(s) currently used by a profile.
+
+    If the profile uses per-asset strategies, only the strategies for asset classes
+    actually traded by the profile's symbol universe are returned. This prevents,
+    for example, a forex-only profile from being gated by a crypto strategy's schedule.
+    If it uses the legacy single strategy_variant, returns that.
+    Returns None when no strategy can be determined, falling back to profile-wide scheduling.
+    """
+    strategies = getattr(profile_settings, "strategies", None)
+    if strategies:
+        symbols = getattr(profile_settings, "symbols", None) or []
+        asset_to_key = {
+            AssetClass.CRYPTO: getattr(strategies, "crypto", None),
+            AssetClass.FOREX: getattr(strategies, "forex", None),
+            AssetClass.STOCKS: getattr(strategies, "stocks", None),
+            AssetClass.ETF: getattr(strategies, "etf", None),
+            AssetClass.METALS: getattr(strategies, "metals", None),
+            AssetClass.FUTURES: getattr(strategies, "futures", None),
+        }
+        if symbols:
+            active_asset_classes = {classify_symbol(s) for s in symbols}
+            keys = [asset_to_key[ac] for ac in active_asset_classes if asset_to_key.get(ac)]
+        else:
+            keys = [v for v in asset_to_key.values() if v]
+        if keys:
+            return list(dict.fromkeys(keys))  # preserve order, remove duplicates
+    variant = getattr(profile_settings, "strategy_variant", None)
+    if variant:
+        return [variant]
+    return None
+
+
+def get_schedule_status(profile_name: str, now: datetime, settings: Any, session_id: Optional[str] = None, strategy_key: str | list[str] | None = None) -> tuple[bool, bool, List[Any]]:
     """
     Evaluates the ScheduleSettings for a given profile_name (or specific session_id) at the current time.
     Returns:
@@ -113,32 +158,48 @@ def get_schedule_status(profile_name: str, now: datetime, settings: Any, session
         - paper_trade_off_hours: True if there is a session for this profile, but we are outside its
           active window AND it allows paper trading during off-hours.
         - active_sessions: List of session objects that are currently active.
-          
-    If NO sessions exist for the profile, default to fully scheduled (True, False, []).
+
+    If strategy_key is provided (a single key or a list of keys), only sessions tagged for one of
+    those strategies (via the 'strategy' field or a 'strategy:session_type' id) are considered.
+    Sessions for other strategies are ignored, preventing stale schedules from one strategy from
+    gating another.
+
+    If NO matching sessions exist, default to fully scheduled (True, False, []).
     """
     if not hasattr(settings, "schedule") or not settings.schedule.sessions:
         return True, False, []
-        
-    # Filter sessions: if session_id is provided, match by ID. 
+
+    # Filter sessions: if session_id is provided, match by ID.
     # Otherwise, match by profile_name (legacy behavior).
     profile_sessions = []
     for s in settings.schedule.sessions:
         # Strictly respect the 'active' flag
         if not getattr(s, "active", True):
             continue
-            
+
         if session_id:
             if getattr(s, "id", None) == session_id:
                 profile_sessions.append(s)
         elif s.profile_name == profile_name:
             profile_sessions.append(s)
-            
+
     if not profile_sessions:
         # If a specific session was requested but not found (or inactive), block execution.
         if session_id:
             return False, False, []
         # If no profile-wide sessions defined, default to 24/7.
         return True, False, []
+
+    # Strategy-aware filtering: ignore sessions that belong to a different strategy.
+    if strategy_key is not None:
+        allowed_keys = {strategy_key} if isinstance(strategy_key, str) else set(strategy_key)
+        profile_sessions = [
+            s for s in profile_sessions
+            if _session_strategy_key(s) in allowed_keys
+        ]
+        if not profile_sessions:
+            # The active strategy has no schedule entries for this profile, so default to 24/7.
+            return True, False, []
         
     tz = ZoneInfo(settings.schedule.timezone)
     local_now = now.astimezone(tz)
