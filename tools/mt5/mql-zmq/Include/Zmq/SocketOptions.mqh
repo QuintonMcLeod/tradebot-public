@@ -332,7 +332,7 @@ public:
 //+------------------------------------------------------------------+
 bool SocketOptions::getStringOption(int option,string &value,size_t length)
   {
-   uchar buf[];
+   char buf[];
    ArrayResize(buf,(int)length);
    bool res=getOption(option,buf,length);
    if(res)
@@ -348,7 +348,7 @@ bool SocketOptions::getStringOption(int option,string &value,size_t length)
 //+------------------------------------------------------------------+
 bool SocketOptions::setStringOption(int option,const string value,bool ending)
   {
-   uchar buf[];
+   char buf[];
    StringToUtf8(value,buf,ending);
    int len = ArraySize(buf);
    bool res=setOption(option,buf,len);

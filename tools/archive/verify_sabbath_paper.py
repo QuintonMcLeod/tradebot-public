@@ -8,7 +8,11 @@ from unittest.mock import MagicMock
 # Add src to path
 sys.path.append(os.path.join(os.getcwd(), "src"))
 
-from tradebot_sci.config.models import Settings, TradingProfileSettings
+from tradebot_sci.config.models import (
+    AppSettings, AISettings, LoggingSettings, MarketSettings,
+    PerformanceSettings, RiskSettings, RuntimeSettings, SafetySettings,
+    ScheduleSettings, Settings, TradingProfileSettings, RoboCopSettings,
+)
 from tradebot_sci.runtime.sabbath import SabbathContext
 from tradebot_sci.broker.paper_broker import PaperBroker
 
@@ -17,16 +21,30 @@ logger = logging.getLogger(__name__)
 
 def test_sabbath_swap():
     # Mock settings with required fields
-    profile = TradingProfileSettings(
-        sabbath_enabled=True,
-        sabbath_timezone="America/New_York",
-        sabbath_start_local="18:00",
-        sabbath_end_local="18:00",
-        sabbath_astronomical=False,
-        candle_timeframe="1h",
-        market_poll_interval_seconds=60,
-        ai_decision_interval_seconds=300
+    profile = TradingProfileSettings(candle_timeframe="1h")
+    settings = Settings(
+        app=AppSettings(profile_name="SabbathPaper"),
+        logging=LoggingSettings(),
+        ai=AISettings(),
+        market=MarketSettings(),
+        runtime=RuntimeSettings(
+            market_poll_interval_seconds=60,
+            ai_decision_interval_seconds=300,
+        ),
+        risk=RiskSettings(),
+        safety=SafetySettings(
+            sabbath_enabled=True,
+            sabbath_timezone="America/New_York",
+            sabbath_start_local="18:00",
+            sabbath_end_local="18:00",
+            sabbath_astronomical=False,
+        ),
+        performance=PerformanceSettings(),
+        robocop=RoboCopSettings(),
+        schedule=ScheduleSettings(),
+        profiles={"SabbathPaper": profile},
     )
+    profile._settings = settings
     
     # 1. Simulate NON-Sabbath (Friday 12:00 PM)
     non_sabbath_time = datetime(2026, 2, 6, 12, 0, 0, tzinfo=ZoneInfo("America/New_York"))

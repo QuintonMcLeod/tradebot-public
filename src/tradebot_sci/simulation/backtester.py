@@ -681,19 +681,17 @@ class Backtester:
         # It now handles the file_path override natively.
         self.market_provider = HistoricalMarketDataProvider(ib, settings)
         self._is_crypto_backtest = False
-        
-        # Check profile crypto_only flag
-        profile = settings.get_active_profile()
-        if getattr(profile, "crypto_only", False):
+
+        # Check crypto_only flag from canonical runtime settings
+        if getattr(settings.runtime, "crypto_only", False):
             self._is_crypto_backtest = True
             if ib is None:
                 # Fallback to CCXT for crypto if no files provided (legacy behavior)
                 # But typically we want the file-capable provider if files are present.
-                pass 
+                pass
 
-        # Also check profile crypto_only flag
-        profile = settings.get_active_profile()
-        if getattr(profile, "crypto_only", False):
+        # Also check crypto_only flag from canonical runtime settings
+        if getattr(settings.runtime, "crypto_only", False):
             self._is_crypto_backtest = True
 
     def _is_market_hours_utc(self, ts: datetime) -> bool:
@@ -769,11 +767,9 @@ class Backtester:
             f"symbols={symbols}"
         )
 
-        # Get active profile
-        profile = self.settings.get_active_profile()
-        # Apply risk override if set (from CLI --risk-rate or GUI input)
+        # Apply risk override to canonical risk settings if set (from CLI --risk-rate or GUI input)
         if self.risk_override_pct is not None:
-            profile.risk_per_trade_pct = self.risk_override_pct
+            self.settings.risk.risk_per_trade_pct = self.risk_override_pct
             logger.info(f"[BACKTEST] Risk override active: {self.risk_override_pct*100:.2f}%")
 
         # Per-symbol SAR chain counter — tracks how many consecutive SAR-on-SAR

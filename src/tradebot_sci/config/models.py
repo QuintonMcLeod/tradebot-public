@@ -233,6 +233,129 @@ class CoinbaseFuturesSettings(BaseModel):
 
 class TradingProfileSettings(BaseModel):
     """
+    Identity and symbol/strategy/timeframe selection for a trading profile.
+
+    Operational settings (risk, safety, performance, runtime) live in their
+    canonical top-level sections.  For backward compatibility, legacy
+    operational attribute lookups on a profile fall back to the canonical
+    sections, but the canonical sections are the single source of truth.
+
+    Extra fields are ignored (not stored) so legacy ad-hoc scripts that still
+    pass operational kwargs do not crash during the deprecation window.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    name: Optional[str] = Field(
+        default=None,
+        description="Internal name for the profile.",
+    )
+    strategy_variant: str = Field(
+        default="rubberband_reaper",
+        description="Legacy single strategy fallback for the profile.",
+    )
+    strategies: Optional[PerAssetStrategies] = Field(
+        default=None,
+        description="Per-asset-class strategy overrides.",
+    )
+    symbols: Optional[list[str]] = Field(
+        default=None,
+        description="Optional override of the symbol universe for this profile.",
+    )
+    candle_timeframe: str = Field(
+        default="5m",
+        description="Candle timeframe for the profile (e.g. 1m, 5m, 15m, 1h).",
+    )
+    htf_timeframe: str = Field(
+        default="4h",
+        description="Higher timeframe used for ICC structure trend.",
+    )
+    mtf_timeframe: str | None = Field(
+        default="1h",
+        description="Medium timeframe used for ICC alignment.",
+    )
+    ltf_timeframe: str | None = Field(
+        default=None,
+        description="Lower timeframe used for ICC execution structure; defaults to candle_timeframe when unset.",
+    )
+    xtf_timeframe: str = Field(
+        default="1m",
+        description="Extra-low timeframe used for Micro-Canary early warning detection.",
+    )
+    continuous_mode: bool = Field(
+        default=False,
+        description="Keep the runtime loop alive indefinitely regardless of iteration limits.",
+    )
+    risk_dynamic_auto: bool = Field(
+        default=False,
+        description="When true, risk is dynamically calculated per trade.",
+    )
+
+    def __getattr__(self, name: str) -> Any:
+        # Backward compatibility: operational fields removed from the profile
+        # model are resolved from the canonical top-level settings sections.
+        if name.startswith("_"):
+            raise AttributeError(name)
+
+        # Tests (or callers) may attach a Settings instance directly to the
+        # profile via `_settings` so that lookups resolve against the attached
+        # canonical sections instead of the global cached settings.
+        attached_settings = getattr(self, "_settings", None)
+        if attached_settings is not None:
+            for section in ("risk", "safety", "performance", "runtime"):
+                sec = getattr(attached_settings, section, None)
+                if sec is not None and hasattr(sec, name):
+                    return getattr(sec, name)
+
+        from tradebot_sci.config.loader import get_settings
+        try:
+            settings = get_settings()
+        except Exception:
+            settings = None
+        if settings is not None:
+            for section in ("risk", "safety", "performance", "runtime"):
+                sec = getattr(settings, section, None)
+                if sec is not None and hasattr(sec, name):
+                    return getattr(sec, name)
+        # Final fallback to the legacy default container for fields not yet
+        # explicitly mirrored in canonical sections.
+        if hasattr(_LegacyProfileDefaults(), name):
+            return getattr(_LegacyProfileDefaults(), name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def get_strategy_for_symbol(self, symbol: str) -> str:
+        """
+        Get the appropriate strategy for a given symbol.
+
+        Priority: per-asset strategy mapping on the profile -> legacy single
+        strategy_variant -> hard-coded asset-class fallback.
+        """
+        from tradebot_sci.utils.symbol_classifier import AssetClass, classify_symbol
+        asset_class = classify_symbol(symbol)
+
+        if self.strategies is not None:
+            strategy_map = {
+                AssetClass.CRYPTO: self.strategies.crypto,
+                AssetClass.FOREX: self.strategies.forex,
+                AssetClass.STOCKS: self.strategies.stocks,
+                AssetClass.ETF: self.strategies.etf,
+                AssetClass.METALS: self.strategies.metals,
+                AssetClass.FUTURES: self.strategies.futures,
+            }
+            res = strategy_map.get(asset_class)
+            if res:
+                return res
+
+        if self.strategy_variant:
+            return self.strategy_variant
+
+        if asset_class == AssetClass.FOREX:
+            return "forex_hybrid_scalper"
+        elif asset_class == AssetClass.CRYPTO:
+            return "meta_sci"
+        return "meta_sci"
+
+class _LegacyProfileDefaults(BaseModel):
+    """
     I designed this class to serve as the unified configuration schema for all Trading Profiles.
     Each profile (saved as a JSON object) maps natively to these fields. 
     
@@ -1143,10 +1266,6 @@ class TradingProfileSettings(BaseModel):
         default=10,
         description="Number of evaluate cycles between synthetic stop integrity checks",
     )
-    runtime_overrides: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Override runtime settings when this profile is active",
-    )
     icc_aggressive_mode: bool = Field(
         default=True,
         description="Enable opt-in aggressive ICC sizing and guardrails (Phase 2 only).",
@@ -1354,27 +1473,12 @@ class RoboCopSettings(BaseModel):
 
 class SafetySettings(BaseModel):
     """
-    ⚠️  DEPRECATED — DO NOT ADD NEW FIELDS HERE ⚠️
+    Canonical safety settings.
 
-    I kept SafetySettings as a VESTIGIAL class from my old dual-config system where
-    safety parameters lived in a separate top-level config.json["safety"] block
-    and were read by my code that called `settings.safety.*`.
-
-    THE NEW CANONICAL APPROACH:
-    ─────────────────────────────────────────────────────────────────────────
-    1. Pick a profile in the GUI (e.g. forex_continuous).
-    2. If "Profile Overrides" is ON, the profile's own values are the globals.
-    3. All safety-related settings now live in TradingProfileSettings (models.py)
-       and are stored in config.json["profiles"][<name>] OR in config.json["global"]
-       (which I auto-promote into the profile by my universal promotion loop
-       in loader.py lines 223-238 when a profile key is absent).
-
-    I keep the fields in this class only for backward compatibility with legacy
-    code that still reads `settings.safety.xyz`. They are NOT authoritative.
-    For the real value, I use: `settings.get_active_profile().xyz`
-
-    DO NOT READ: settings.safety.* for any new code.
-    DO READ:     settings.get_active_profile().*
+    Safety-related operational parameters (emergency stops, drawdown breakers,
+    streak breakers, hold/negative-hold guards, spread/swap guards, Sabbath
+    Protocol, PDT guard, etc.) live here and are read as `settings.safety.*`.
+    Profile objects no longer host these values.
     """
     emergency_stop_pct: float = Field(
         default_factory=lambda: float(os.getenv("EMERGENCY_STOP_PCT", "0.01")),
@@ -1386,7 +1490,7 @@ class SafetySettings(BaseModel):
     friction_risk_cap: float = Field(default=0.02)
     vix_fail_safe: bool = Field(default=False)
     vix_risk_cap: float = Field(default=0.03)
-    sabbath_astronomical: bool = Field(default=True)
+    sabbath_astronomical: bool = Field(default=False)
     sabbath_city: str = Field(default="Atlanta")
     sabbath_enabled: bool = Field(
         default_factory=lambda: os.getenv("SABBATH_ENABLED", "True").lower() == "true"
@@ -1513,6 +1617,70 @@ class SafetySettings(BaseModel):
         description="Estimated round-trip fee as decimal (0.0004 = 0.04% OANDA spread). "
                     "Override via env: Gemini ~0.008, IBKR ~0.002.",
     )
+    block_counter_trend_entries: bool = Field(
+        default=True,
+        description="Block entries that go against the HTF trend direction (e.g., no longs in bearish HTF, no shorts in bullish HTF).",
+    )
+
+    structure_invalidation_enabled: bool = Field(
+        default=False,
+        description="If True, cuts positions 80% if a micro lower-high or higher-low forms against the trade.",
+    )
+
+    stop_after_single_loss_enabled: bool = Field(
+        default=False,
+        description="After the first winning trade of the day, a single losing trade "
+                    "halts ALL new entries until 12:00 AM the next day. "
+                    "Protects daily profits from giving back gains.",
+    )
+
+    spread_gate_max_pct: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Max spread as fraction of stop distance before entry is blocked. "
+                    "E.g. 0.30 = block if spread > 30% of SL distance.",
+    )
+
+    swap_avoidance_enabled: bool = Field(
+        default=False,
+        description="Close marginal trades (< 0.5R) before Wednesday 5PM ET "
+                    "to avoid the 3× overnight swap charge.",
+    )
+
+    swap_avoidance_timezone: str = Field(
+        default="America/New_York",
+        description="Timezone for swap avoidance cutoff (OANDA charges at 5PM ET).",
+    )
+
+    enable_hold_guard: bool = Field(
+        default=True,
+        description="Whether to block non-emergency exits for positions younger than hold_guard_seconds."
+    )
+
+    hold_guard_seconds: int = Field(
+        default=900,
+        ge=0,
+        description="Duration in seconds for the exit hold guard."
+    )
+
+    enable_negative_hold_guard: bool = Field(
+        default=True,
+        description="Whether to block exits for negative trades under negative_hold_seconds."
+    )
+
+    negative_hold_seconds: int = Field(
+        default=2700,
+        ge=0,
+        description="Duration in seconds for the negative trade exit hold guard (default 45 minutes)."
+    )
+
+    htf_neutral_exit_bars: int = Field(
+        default=48,
+        ge=0,
+        description="Exit if HTF neutral for this many bars (48 bars = 4h on 5m chart)",
+    )
+
 
 
 class PerformanceSettings(BaseModel):
@@ -1582,39 +1750,226 @@ class PerformanceSettings(BaseModel):
         le=60.0,
         description="Hard floor for adjusted score threshold."
     )
+    universal_exit_strategies: list[Literal[
+        "fixed_rr", "chandelier", "scale_breakeven", "parabolic_sar", 
+        "ma_crossover", "time_decay", "swing_trailing", "rsi_exhaustion", 
+        "bollinger_snap", "ratchet_milestone", "adx_death", "structure_failure", "trend_invalidation", "winner_giveback", "bollinger_invalidation"
+    ]] = Field(
+        default_factory=lambda: ["fixed_rr", "structure_failure", "trend_invalidation", "bollinger_invalidation", "ratchet_milestone", "scale_breakeven", "chandelier", "time_decay", "winner_giveback"],
+        description="The universal exit methodology that supersedes strategy-specific exits.",
+    )
+
+    winner_giveback_enabled: bool = Field(
+        default=True,
+        description="Enable MFE-based Winner Giveback protection.",
+    )
+
+    winner_giveback_pct: float = Field(
+        default=0.20,
+        ge=0.0,
+        le=1.0,
+        description="Percentage of MFE (peak profit) allowed to be given back before exiting.",
+    )
+
+    winner_giveback_arm_r: float = Field(
+        default=0.25,
+        ge=0.1,
+        le=2.0,
+        description="R-multiple threshold at which winner giveback protection arms.",
+    )
+
+    scale_breakeven_arm_r: float = Field(
+        default=0.35,
+        ge=0.1,
+        le=2.0,
+        description="R-multiple threshold at which breakeven lock arms.",
+    )
+
+    ratchet_arm_r: float = Field(
+        default=0.25,
+        ge=0.1,
+        le=2.0,
+        description="R-multiple threshold at which ratchet trailing stop arms.",
+    )
+
+    chandelier_atr_mult: float = Field(
+        default=1.5,
+        description="The ATR multiplier for the Chandelier trailing stop.",
+    )
+
+    time_decay_bars: int = Field(
+        default=48,
+        description="The number of bars before the Time-Decay exit triggers.",
+    )
+
+    bollinger_invalidation_bars: int = Field(
+        default=3,
+        description="Number of bars a mean-reversion trade can hold without RSI hooking before exiting.",
+    )
+
+    target_r: float = Field(
+        default=1.2,
+        description="Global Risk-to-Reward ratio fallback. Also maps to the specific targets of sub-strategies.",
+    )
+
+    target_risk_multiplier: float = Field(
+        default=3.0,
+        ge=1.0,
+        description="Reward multiplier used for target projection relative to Effective Risk.",
+    )
+
+    tick_scalping_enabled: bool = Field(
+        default=False,
+        description="Instantly close any trade the moment it reaches net profit (covering spread). Does not let the bot ride trades.",
+    )
+
+    tick_scalping_min_usd: float = Field(
+        default=5.0,
+        description="Minimum net profit required before tick scalping triggers.",
+    )
+
+    conductor_pyramid_first_pct: float = Field(
+        default=0.30,
+        ge=0.0,
+        le=1.0,
+        description="Position fraction for first pyramid at 1R (0.30 = 30% of original size).",
+    )
+
+    conductor_pyramid_subsequent_pct: float = Field(
+        default=0.04,
+        ge=0.0,
+        le=1.0,
+        description="Position fraction for subsequent pyramids at start_r+0.5R+ (0.04 = 4%).",
+    )
+
+    conductor_pyramid_max_count: int = Field(
+        default=50,
+        ge=1,
+        description="Maximum number of pyramid entries allowed per trade.",
+    )
+
+    conductor_pyramid_enabled: bool = Field(
+        default=True,
+        description="Enable R-milestone pyramiding in the Forex Conductor.",
+    )
+
+    conductor_pyramid_start_r: float = Field(
+        default=0.2,
+        ge=0.1,
+        le=5.0,
+        description="R-multiple at which the first pyramid fires. "
+                    "Default 1.0 (pyramid at 1R). Set to 0.5 to pyramid "
+                    "earlier on trades that show momentum at ~$50+.",
+    )
+
+    eviction_min_hold_minutes: int = Field(
+        default=30,
+        ge=5,
+        le=240,
+        description="Minimum minutes a position must be held before it can be "
+                    "evicted for a higher-scored signal. Prevents churn.",
+    )
+
+    moon_trailer_enabled: bool = Field(
+        default=False,
+        description="Enable aggressive profit trailing (Moon Trailer).",
+    )
+
+    moon_trailer_tp_trigger_pct: float = Field(
+        default=0.05,
+        ge=0.0,
+        description="Price move % required to trigger Moon Trailer (e.g. 0.05 = 5%).",
+    )
+
+    moon_trailer_trail_pct: float = Field(
+        default=0.025,
+        ge=0.0,
+        description="Trailing distance as % of price (e.g. 0.025 = 2.5%).",
+    )
+
+    enable_pyramiding: bool = Field(
+        default=False,
+        description="Enable multi-tier scaling into winning trades.",
+    )
+
+    max_pyramid_count: int = Field(
+        default=2,
+        ge=0,
+        description="Maximum number of additional entries (pyramids) allowed per trade.",
+    )
+
+    pyramid_risk_multiplier: float = Field(
+        default=2.0,
+        ge=1.0,
+        description="Factor by which to multiply risk for each consecutive pyramid tier.",
+    )
+
+    pyramid_risk_tiers: list[float] = Field(
+        default_factory=list,
+        description="Explicit risk % for each pyramid tier (overrides multiplier if provided). Example: [0.5, 0.8] for 50% and 80%.",
+    )
+
+    pyramid_min_rr_trigger: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Minimum Reward-to-Risk ratio on original trade before allowing first pyramid.",
+    )
+
+    trailing_stop_min_profit_pct: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Minimum profit percent required before trailing stop activates.",
+    )
+
+    pyramid_score_threshold: float = Field(
+        default=70.0,
+        ge=0.0,
+        description="Score needed for pyramid entries (higher than initial entry threshold)",
+    )
+
+    breakeven_trail_after_pyramids: int = Field(
+        default=0,
+        ge=0,
+        description="After this many pyramid entries, move stop to breakeven + trail. 0 disables.",
+    )
+
+    breakeven_trail_pct: float = Field(
+        default=0.01,
+        ge=0.0,
+        description="Trail percentage above breakeven once activated (0.01 = 1%).",
+    )
+
+    eviction_min_hold_minutes: PositiveInt = Field(
+        default=5,
+        description="Minimum hold time in minutes before a position can be evicted. Use 0 for no minimum.",
+    )
+
+    quick_ranging_tp_enabled: bool = Field(
+        default=False,
+        description="Cap profits at 0.7R during choppy/ranging sessions (Forex Conductor).",
+    )
+
+    tick_scalping_enabled: bool = Field(
+        default=False,
+        description="Exit immediately on ANY net profit (Forex Conductor).",
+    )
+
+    tick_scalping_min_usd: float = Field(
+        default=5.0,
+        ge=0.0,
+        description="Minimum net USD before scalping (Forex Conductor).",
+    )
+
 
 
 class RiskSettings(BaseModel):
     """
-    ⚠️  DEPRECATED — DO NOT ADD NEW FIELDS HERE ⚠️
+    Canonical risk settings.
 
-    I kept RiskSettings as a VESTIGIAL class from my old dual-config system where
-    risk parameters lived in a separate top-level config.json["risk"] block
-    and were read as `settings.risk.*`.
-
-    THE NEW CANONICAL APPROACH:
-    ─────────────────────────────────────────────────────────────────────────
-    ALL risk settings now live in TradingProfileSettings (models.py) and are
-    stored in config.json["profiles"][<name>] OR in config.json["global"].
-    My loader auto-promotes global keys into profiles (loader.py:223-238).
-
-    I no longer make a distinction between "profile-level" and "global" settings
-    for risk. The active profile IS the single source of truth:
-
-        profile = settings.get_active_profile()
-        risk_pct = profile.risk_per_trade_pct   ← CORRECT
-        risk_pct = settings.risk.risk_per_trade_pct  ← DEPRECATED (might be stale)
-
-    In particular:
-    - config.json["risk"]["risk_per_trade_pct"] is an OLD field. I ignore it.
-    - config.json["global"]["risk_per_trade_pct"] is the current default.
-    - config.json["profiles"][<name>]["risk_per_trade_pct"] overrides the default.
-
-    The GUI's "Profile Overrides" toggle controls whether the profile's saved
-    values replace the current globals when I switch profiles.
-
-    DO NOT READ: settings.risk.* for any new code.
-    DO READ:     settings.get_active_profile().*
+    Risk-related operational parameters (risk per trade, exposure caps,
+    circuit breakers, ICC, reversal/SAR, nuclear overrides, prop-firm
+    settings, etc.) live here and are read as `settings.risk.*`.
+    Profile objects no longer host these values.
     """
     base_risk_pct: float = Field(
         default_factory=lambda: float(os.getenv("PROFILE_AGGRESSIVE_RISK_PER_TRADE_PCT", "0.20"))
@@ -1722,6 +2077,202 @@ class RiskSettings(BaseModel):
     prop_fn_max_total_loss: float = Field(default=10.0)
     prop_fn_target_leverage: float = Field(default=5.0)
     prop_fn_commission_bps: float = Field(default=3.0)
+    prop_challenge_tier_usd: float = Field(
+        default=0.0,
+        description="The gross buying power of the chosen Prop Firm challenge (0.0 to disable)."
+    )
+
+    prop_challenge_max_loss_pct: float = Field(
+        default=0.0,
+        description="The maximum allowed loss fraction (e.g. 0.04 for 4%)."
+    )
+
+    structure_score_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        description="Threshold above which structure is clean enough to trade",
+    )
+
+    icc_auto_entry_allow_chop: bool = Field(
+        default=True,
+        description="When false, standing aside during identified chop phase.",
+    )
+
+    ratchet_risk_enabled: bool = Field(
+        default=False,
+        description="Enable multi-tier risk ratchet based on account capital.",
+    )
+
+    balance_cap_pct: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Maximum fraction of liquid balance allowed for a single asset's total exposure.",
+    )
+
+    target_leverage: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=100.0,
+        description="Target leverage for the asset class. Forex default 10x (Safe-by-default).",
+    )
+
+    enable_reversal_logic: bool = Field(
+        default=False,
+        description="Enable 'Liquidity Reversal' pattern detection (Robot Logic).",
+    )
+
+    reversal_rsi_threshold: float = Field(
+        default=30.0,
+        ge=0.0,
+        le=100.0,
+        description="RSI threshold for reversal detection (Oversold < X, Overbought > 100-X).",
+    )
+
+    max_volume_ratio: float = Field(
+        default=2.5,
+        ge=1.0,
+        description="Max relative volume allowed to avoid 'Falling Knife' scenarios.",
+    )
+
+    reversal_risk_per_trade: float = Field(
+        default=0.03,
+        ge=0.0,
+        le=1.0,
+        description="Specific risk % for high-confidence reversal setups.",
+    )
+
+    stop_and_reverse_enabled: bool = Field(
+        default=False,
+        description="When a stop fires, immediately open opposite direction with 1R TP. Different from RSI reversal logic.",
+    )
+
+    counter_reversal_enabled: bool = Field(
+        default=False,
+        description="When SAR drops to -0.2R, open a 2× counter-reversal in the opposite direction to capitalize on failed SAR.",
+    )
+
+    sar_keep_open: bool = Field(
+        default=False,
+        description="If True, SAR stays open when CR fires (CR at -0.5R). If False, SAR closes at B/E and CR fires at that point.",
+    )
+
+    cr_risk_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="If >0, CR uses this % of capital for sizing instead of 2× SAR. 0 = use 2× SAR (default).",
+    )
+
+    reversal_tp_r: float = Field(
+        default=0.2,
+        ge=0.1,
+        le=10.0,
+        description="Take profit target in R-multiples for stop-and-reverse entries (0.2 = 0.2R).",
+    )
+
+    reversal_cost_aware_tp: bool = Field(
+        default=True,
+        description="Add estimated spread/fee buffer to reversal TP so net PnL is a true 1:1 after costs.",
+    )
+
+    friction_stop_floor_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Minimum stop-loss % used for Target calculation (to account for fees).",
+    )
+
+    guillotine_r_threshold: float = Field(
+        default=-0.3,
+        description="Legacy single-threshold Guillotine R-multiple (backtester compat).",
+    )
+
+    tier1_r_threshold: float = Field(
+        default=-0.80,
+        description="R-multiple that triggers Tier-1 Guillotine cut.",
+    )
+
+    tier1_cut_fraction: float = Field(
+        default=0.80,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of position to close at Tier-1 Guillotine (1.0 = 100%).",
+    )
+
+    tier2_r_threshold: float = Field(
+        default=-1.20,
+        description="R-multiple that triggers Tier-2 Guillotine cut on residual position.",
+    )
+
+    tier2_cut_fraction: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Fraction of remaining position to close at Tier-2 Guillotine (1.0 = 100%).",
+    )
+
+    max_daily_loss_pct: float = Field(
+        default=0.06,
+        ge=0.0,
+        le=1.0,
+        description="Max daily loss as a fraction of starting equity before blocking new entries (aggressive mode).",
+    )
+
+    limit_loss_weekly_pct: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Maximum loss allowed for the weekly interval (0.15 = 15%).",
+    )
+
+    limit_loss_monthly_pct: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description="Maximum loss allowed for the monthly interval (0.25 = 25%).",
+    )
+
+    target_profit_daily_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Profit target for the daily interval (0.02 = 2%). 0 disables.",
+    )
+
+    target_profit_weekly_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Profit target for the weekly interval (0.05 = 5%). 0 disables.",
+    )
+
+    target_profit_monthly_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Profit target for the monthly interval (0.10 = 10%). 0 disables.",
+    )
+
+    max_consecutive_losses: PositiveInt = Field(
+        default=2,
+        description="Consecutive loss count before blocking entries (aggressive mode).",
+    )
+
+    max_daily_trades: Optional[PositiveInt] = Field(
+        default=None,
+        description="Maximum number of trade entries allowed per day per symbol.",
+    )
+
+    nuclear_overrides_enabled: bool = Field(
+        default=False,
+        description="Bypass all hard-coded safety ceilings. WARNING: HIGH RISK OF LIQUIDATION.",
+    )
+
+    max_risk_cap_override: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="Override the hard 5% risk per trade cap. Only active in Nuclear Mode.",
+    )
+
 
 
 class RuntimeSettings(BaseModel):
@@ -1871,6 +2422,456 @@ class RuntimeSettings(BaseModel):
         ge=1,
         description="Hard limit on AI API calls per day to prevent runaway costs."
     )
+    market_poll_interval_seconds: PositiveInt = Field(
+        default=60,
+        description="Seconds between market data poll cycles.",
+    )
+
+    ai_decision_interval_seconds: PositiveInt = Field(
+        default=300,
+        description="Seconds between AI decision cycles.",
+    )
+
+    trend_window: PositiveInt = Field(
+        default=18,
+        description="Number of candles used for swing-structure trend detection on HTF.",
+    )
+
+    ltf_trend_window: PositiveInt | None = Field(
+        default=None,
+        description="Optional number of candles used for swing-structure trend detection on LTF.",
+    )
+
+    trend_swing_lookback: PositiveInt = Field(
+        default=2,
+        description="Fractal lookback used to detect swing highs/lows.",
+    )
+
+    adx_gate_threshold: float = Field(
+        default=12.0,  # Forex-tuned (was 20 — too high for forex 1H)
+        ge=0.0,
+        le=100.0,
+        description="ADX value below which entries are blocked (no trend). Set to 0 to disable.",
+    )
+
+    trend_chop_threshold: float = Field(
+        default=8.0,  # Forex-tuned (was 15 — too high for forex 1H)
+        ge=0.0,
+        le=100.0,
+        description="ADX value below which the market is considered choppy. Direction is forced neutral. Must be <= adx_gate_threshold.",
+    )
+
+    trend_adx_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_ADX_ENABLED", "true").lower() == "true",
+        description="Enable ADX trend-strength gate.",
+    )
+
+    trend_rsi_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_RSI_ENABLED", "false").lower() == "true",
+        description="Enable RSI overbought/oversold gate.",
+    )
+
+    trend_macd_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_MACD_ENABLED", "false").lower() == "true",
+        description="Enable MACD momentum-crossover gate.",
+    )
+
+    trend_bollinger_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_BOLLINGER_ENABLED", "false").lower() == "true",
+        description="Enable Bollinger squeeze gate.",
+    )
+
+    trend_supertrend_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_SUPERTREND_ENABLED", "false").lower() == "true",
+        description="Enable Supertrend direction gate.",
+    )
+
+    trend_ema_ribbon_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_EMA_RIBBON_ENABLED", "false").lower() == "true",
+        description="Enable EMA Ribbon alignment gate.",
+    )
+
+    trend_ichimoku_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_ICHIMOKU_ENABLED", "false").lower() == "true",
+        description="[LEGACY] Enable Ichimoku Cloud direction gate. This indicator is fully implemented but no active strategy uses it for entry/exit decisions. It votes in trend_consensus but its signal is drowned out by 9 other indicators. Kept for backward compatibility.",
+    )
+
+    trend_parabolic_sar_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_PARABOLIC_SAR_ENABLED", "false").lower() == "true",
+        description="[LEGACY] Enable Parabolic SAR direction gate. The 'Parabolic SAR Exit' in exit_logic.py is actually a 3-bar swing break — it does NOT use this indicator. No active strategy consumes SAR data directly. Kept for backward compatibility.",
+    )
+
+    trend_vwap_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_VWAP_ENABLED", "false").lower() == "true",
+        description="Enable VWAP direction gate.",
+    )
+
+    trend_hull_ma_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_HULL_MA_ENABLED", "false").lower() == "true",
+        description="[LEGACY] Enable Hull Moving Average direction gate. Fully implemented but no active strategy references Hull MA for entry or exit. It votes in trend_consensus but contributes little marginal signal. Kept for backward compatibility.",
+    )
+
+    trend_macd_fast: PositiveInt = Field(
+        default=12,
+        description="Fast EMA period for MACD.",
+    )
+
+    trend_macd_slow: PositiveInt = Field(
+        default=26,
+        description="Slow EMA period for MACD.",
+    )
+
+    trend_macd_signal: PositiveInt = Field(
+        default=9,
+        description="Signal line EMA period for MACD.",
+    )
+
+    trend_min_swings: PositiveInt = Field(
+        default=2,  # Lowered from 3 to allow trend detection in real markets
+        description="Minimum confirmed swings required to classify trend (HH/HL or LH/LL).",
+    )
+
+    trend_strength_floor: float = Field(
+        default=0.3,  # Lowered from 0.5 to detect realistic trends with minor pullbacks
+        ge=0.0,
+        le=1.0,
+        description="Minimum structure strength required to treat a trend as non-neutral.",
+    )
+
+    trend_correlation_stacking_enabled: bool = Field(
+        default_factory=lambda: os.getenv("TREND_CORRELATION_STACKING_ENABLED", "true").lower() == "true",
+        description="When enabled, allows the bot to open multiple highly correlated pairs (e.g. multiple USD pairs) simultaneously.",
+    )
+
+    session_gate_min_candles: PositiveInt = Field(
+        default=15,
+        description="Minimum candles required before enforcing session health gates.",
+    )
+
+    session_range_multiplier: float = Field(
+        default=1.02,
+        ge=0.0,
+        description="Range expansion multiplier required for session health (recent vs prior).",
+    )
+
+    session_volume_multiplier: float = Field(
+        default=1.02,
+        ge=0.0,
+        description="Volume expansion multiplier required for session health (recent vs prior).",
+    )
+
+    session_overlap_start_hour: int = Field(
+        default=12,
+        ge=0,
+        le=23,
+        description="Session bias start hour (local, inclusive) for FX/crypto time-of-day filters.",
+    )
+
+    session_overlap_end_hour: int = Field(
+        default=16,
+        ge=0,
+        le=23,
+        description="Session bias end hour (local, exclusive) for FX/crypto time-of-day filters.",
+    )
+
+    session_overlap_timezone: str = Field(
+        default="UTC",
+        description="Timezone used for session bias hours (IANA name, e.g., UTC, America/New_York).",
+    )
+
+    auto_schedule_enabled: bool = Field(
+        default=False,
+        description="When true, trades equities during US market hours and crypto during off-hours (Sabbath rules still apply).",
+    )
+
+    block_ranging_regime: bool = Field(
+        default=True,
+        description="If True, blocks engine entries during unknown, choppy, or ranging regimes.",
+    )
+
+    trend_ema: int = Field(default=200, description="Macro trend filter period")
+
+    bb_period: int = Field(default=20, description="Bollinger Band period")
+
+    bb_std: float = Field(default=1.5, description="Bollinger Band standard deviation multiplier")
+
+    rsi_period: int = Field(default=7, description="RSI period")
+
+    rsi_overbought: int = Field(default=60, description="RSI overbought threshold")
+
+    rsi_oversold: int = Field(default=40, description="RSI oversold threshold")
+
+    correlation_cap_enabled: bool = Field(
+        default=False,
+        description="Cap exposure to correlated pairs in the same direction "
+                    "(e.g., long EUR/USD + long GBP/USD = double USD short).",
+    )
+
+    correlation_max_same_direction: int = Field(
+        default=2,
+        ge=1,
+        description="Max correlated positions allowed in the same direction before blocking entry.",
+    )
+
+    min_hold_hours: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Minimum hours to hold before allowing non-stop exits (0 disables).",
+    )
+
+    allow_loss_exit_after_hold: bool = Field(
+        default=False,
+        description="When true, exit signals after min_hold_hours can close losing trades.",
+    )
+
+    max_hold_hours: float = Field(
+        default=16.0,
+        ge=0.0,
+        description="Maximum hours to hold before Day Trade Enforcer activates (0 disables). "
+                    "Grace period starts at 70%, emergency exit at 100%, hard kill at 130%.",
+    )
+
+    trend_mode_hold_multiplier: float = Field(
+        default=8.0,
+        ge=1.0,
+        description="Multiplier for max_hold_hours when a position is tagged as trend regime. "
+                    "Allows trend-following positions room to ride the wave. Default 8x gives "
+                    "trend-mode positions a full intraday window even when base max_hold_hours is tight.",
+    )
+
+    backtest_disable_stops: bool = Field(
+        default=False,
+        description="When true, backtests ignore stop-loss exits.",
+    )
+
+    profit_exit_after_hold: bool = Field(
+        default=False,
+        description="When true, exit on first profitable bar after min_hold_hours.",
+    )
+
+    max_pyramid_entries: int = Field(
+        default=3,
+        ge=1,
+        description="Max number of entries per position (1 = no pyramid, 3 = initial + 2 adds)",
+    )
+
+    auto_flatten_on_close: bool = Field(
+        default=False,  # Default OFF - perpetual futures have no EOD settlement
+        description="When true, sessions auto-flatten/cancel at every scheduled window. "
+                    "WARNING: Keep OFF for Coinbase Nano futures (perpetual-style contracts).",
+    )
+
+    max_open_positions: Optional[PositiveInt] = Field(
+        default=None,
+        description="Alias for max_concurrent_positions; used in many existing YAML configs.",
+    )
+
+    stop_atr_multiplier: float = Field(
+        default=1.5,
+        ge=0.5,
+        le=5.0,
+        description="Standard stop distance as a multiple of ATR.",
+    )
+
+    stability_mode_active: bool = Field(
+        default=False,
+        description="When true, enforces ultra-conservative risk and entry filters.",
+    )
+
+    pdt_guard_enabled: bool = Field(
+        default=False,
+        description="Enable lightweight PDT roundtrip guarding for equities",
+    )
+
+    flip_actions_enabled: bool = Field(
+        default=False,
+        description="Allow flip_to_long/flip_to_short actions when reversing an existing position.",
+    )
+
+    flip_cooldown_seconds: PositiveInt = Field(
+        default=600,
+        description="Minimum seconds between flip actions when PDT guard is active.",
+    )
+
+    max_equity_roundtrips_per_day: PositiveInt = Field(
+        default=2,
+        description="Maximum equity roundtrips allowed per day when PDT guard is active",
+    )
+
+    crypto_only: bool = Field(
+        default=False,
+        description="Treat the profile as crypto-only for flatten/confirmation logic",
+    )
+
+    cooldown_enabled: bool = Field(
+        default=True,
+        description="Enable profile-level cooldowns after guard blocks or successes",
+    )
+
+    cooldown_cycles_after_block: PositiveInt = Field(
+        default=3,
+        description="Cycles to skip a symbol following a blocked attempt",
+    )
+
+    cooldown_cycles_after_success: NonNegativeInt = Field(
+        default=0,
+        description="Cycles to skip a symbol after a successful entry",
+    )
+
+    cooldown_scope: str = Field(
+        default="symbol",
+        description="Apply cooldown per symbol ('symbol') or globally ('global')",
+    )
+
+    stick_to_active_symbol_until: str = Field(
+        default="cycle_end",
+        description="How long to avoid rotating away from the active symbol",
+    )
+
+    crypto_fractional_enabled: bool = Field(
+        default=True,
+        description="Allow fractional crypto sizing when the profile supports it",
+    )
+
+    crypto_min_notional_usd: float = Field(
+        default=20.0,
+        description="Minimum notional for fractional crypto trades",
+    )
+
+    crypto_max_notional_usd: Optional[float] = Field(
+        default=None,
+        description="Optional cap on crypto notional exposures (None = no cap)",
+    )
+
+    crypto_qty_steps: Dict[str, float] = Field(
+        default_factory=lambda: {
+            "BTCUSD": 0.0001,
+            "ETHUSD": 0.001,
+            "SOLUSD": 0.01,
+            "XRPUSD": 0.01,
+            "LINKUSD": 0.01,
+            "LTCUSD": 0.001,
+            "DOGEUSD": 1.0,
+            "ZECUSD": 0.001,
+            "BCHUSD": 0.001,
+            "AAVEUSD": 0.001,
+            "COMPUSD": 0.001,
+            "MATICUSD": 0.1,
+        },
+        description="Per-crypto symbol quantity steps for fractional orders",
+    )
+
+    crypto_order_type: Literal["LIMIT", "MARKET"] = Field(
+        default="LIMIT",
+        description="Order type for crypto entries (LIMIT=safer but risk rejection, MARKET=guaranteed fill but accepts slippage).",
+    )
+
+    pair_selector_enabled: bool = Field(
+        default=False,
+        description="When true (typically crypto profiles), dynamically selects a tradable crypto basket using liquidity gates.",
+    )
+
+    pair_selector_refresh_seconds: PositiveInt = Field(
+        default=300,
+        description="How often to refresh pair selection when enabled.",
+    )
+
+    pair_selector_min_volume_usd_24h: float = Field(
+        default=1_000_000.0,
+        ge=0.0,
+        description="Minimum estimated 24h quote volume (USD) for a crypto pair to be considered.",
+    )
+
+    pair_selector_max_spread_bps: float = Field(
+        default=25.0,
+        ge=0.0,
+        description="Maximum bid/ask spread in basis points for a crypto pair to be considered.",
+    )
+
+    pair_selector_min_depth_usd: float = Field(
+        default=50_000.0,
+        ge=0.0,
+        description="Minimum estimated top-of-book depth (USD) for a crypto pair to be considered.",
+    )
+
+    pair_selector_max_pairs: PositiveInt = Field(
+        default=5,
+        description="Maximum number of pairs to return when pair selector is enabled.",
+    )
+
+    maker_first_enabled: bool = Field(
+        default=True,
+        description="Prefer maker (post-only limit) entries when urgency is low and structure allows.",
+    )
+
+    maker_first_offset_bps: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Optional price offset in bps from best bid/ask for post-only maker orders.",
+    )
+
+    taker_max_slippage_bps: float = Field(
+        default=30.0,
+        ge=0.0,
+        description="Max slippage (bps) tolerated for taker-style market entries (best-effort).",
+    )
+
+    order_timeout_seconds: PositiveInt = Field(
+        default=30,
+        description="Timeout before cancelling a resting entry order (alternative/mock broker).",
+    )
+
+    # NOTE: Sabbath fields (sabbath_enabled, sabbath_timezone, etc.) were
+    # removed from RuntimeSettings because they are canonical to SafetySettings.
+    # The TradingProfileSettings __getattr__ shim resolves profile.sabbath_*
+    # lookups to settings.safety.*, so existing callers keep working.
+
+    synthetic_stop_persistence_enabled: bool = Field(
+        default=True,
+        description="Persist synthetic stop state to disk for ZEROHASH crypto",
+    )
+
+    synthetic_stop_store_path: str = Field(
+        default="",
+        description="Path to the JSON file that stores synthetic stop records (auto-resolved if empty)",
+    )
+
+    startup_crypto_unprotected_policy: Literal["FLATTEN", "REARM"] = Field(
+        default="FLATTEN",
+        description="What to do on startup when a crypto position lacks a persisted stop",
+    )
+
+    rearm_stop_distance_pct: float = Field(
+        default=0.02,
+        description="Percentage distance from entry to place rearmed stops (when REARM policy active)",
+    )
+
+    synthetic_stop_integrity_interval: PositiveInt = Field(
+        default=10,
+        description="Number of evaluate cycles between synthetic stop integrity checks",
+    )
+
+    enable_correlation_filter: bool = Field(
+        default=False,
+        description="Block overlapping base/quote currency trades.",
+    )
+
+    meta_sci_enabled: bool = Field(
+        default=False,
+        description="Master toggle for Meta-SCI Auto Strategy logic within this profile.",
+    )
+
+    meta_sci_min_consensus: int = Field(
+        default=1,
+        ge=1,
+        description="Minimum number of strategies that must agree on direction (consensus) for a Meta-SCI entry.",
+    )
+
+    meta_sci_exclude_list: list[str] = Field(
+        default_factory=list,
+        description="Strategies to exclude from the Meta-SCI ensemble (e.g., ['evolution']).",
+    )
+
 
 
 class Settings(BaseModel):
@@ -1893,20 +2894,23 @@ class Settings(BaseModel):
     def get_active_profile(self) -> TradingProfileSettings:
         profile_name = self.app.profile_name
         profile = self.profiles.get(profile_name)
-        if profile:
-            return profile
+        if not profile:
+            # Fallback to first available profile if requested one is missing
+            if self.profiles:
+                first_profile_name = next(iter(self.profiles))
+                logger.warning(
+                    f"[CONFIG] Profile '{profile_name}' not found. Falling back to '{first_profile_name}'. "
+                    f"Available profiles: {list(self.profiles.keys())}"
+                )
+                profile = self.profiles[first_profile_name]
+            else:
+                logger.error(f"[CONFIG] Profiles dictionary is EMPTY. Settings object: {self}")
+                raise KeyError(f"Profile '{profile_name}' not found and no other profiles available.")
 
-        # Fallback to first available profile if requested one is missing
-        if self.profiles:
-            first_profile_name = next(iter(self.profiles))
-            logger.warning(
-                f"[CONFIG] Profile '{profile_name}' not found. Falling back to '{first_profile_name}'. "
-                f"Available profiles: {list(self.profiles.keys())}"
-            )
-            return self.profiles[first_profile_name]
-
-        logger.error(f"[CONFIG] Profiles dictionary is EMPTY. Settings object: {self}")
-        raise KeyError(f"Profile '{profile_name}' not found and no other profiles available.")
+        # Ensure the backward-compat shim resolves operational fields from this
+        # Settings instance instead of relying on the global loader cache.
+        profile._settings = self
+        return profile
 
 
 @lru_cache
@@ -1914,92 +2918,37 @@ def get_cached_settings(settings: Settings) -> Settings:
     return settings
 
 
-class UserConfig:
-    def _settings(self):
+class _UserConfigProxy:
+    """
+    Backward-compatibility shim for legacy code that reads UserConfig.*.
+
+    All operational values are now resolved from the canonical top-level
+    settings sections (risk, safety, performance, runtime, robocop).  Profile
+    objects no longer host these settings.
+    """
+
+    def __getattr__(self, name: str) -> Any:
         from tradebot_sci.config.loader import get_settings
-        return get_settings()
+        settings = get_settings()
 
-    @property
-    def STRATEGY_VARIANT(self): 
-        s = self._settings()
-        return s.profiles.get(s.app.profile_name).strategy_variant
-    @property
-    def BASE_RISK_PCT(self):
-        # I deprecated this: reads from settings.risk (old dual-config). Use get_active_profile().risk_per_trade_pct
-        s = self._settings(); return s.risk.base_risk_pct
-    @property
-    def COMPOUND_PROFITS(self):
-        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
-        return self._settings().risk.compound_profits
-    @property
-    def INFINITE_PYRAMIDING(self):
-        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
-        return self._settings().risk.infinite_pyramiding
-    @property
-    def MAX_PYRAMID_ENTRIES(self):
-        # I deprecated this: reads from settings.risk. Use get_active_profile().max_pyramid_entries
-        return self._settings().risk.max_pyramid_entries
-    @property
-    def PYRAMID_TRIGGER_PCT(self):
-        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
-        return self._settings().risk.pyramid_trigger_pct
-    @property
-    def PYRAMID_RISK_LOAD(self):
-        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
-        return self._settings().risk.pyramid_risk_load
-    @property
-    def PYRAMID_RISK_SCALE(self):
-        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
-        return self._settings().risk.pyramid_risk_scale
-    @property
-    def STAGNATION_EXIT_ENABLED(self):
-        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
-        return self._settings().risk.stagnation_exit_enabled
-    @property
-    def STAGNATION_EXIT_MINUTES(self):
-        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
-        return self._settings().risk.stagnation_exit_minutes
-    @property
-    def CHOP_SCALP_TARGET_USD(self):
-        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
-        return self._settings().risk.chop_scalp_target_usd
-    @property
-    def CHOP_STRENGTH_THRESHOLD(self):
-        # I deprecated this: reads from settings.risk. Use get_active_profile().* equivalent
-        return self._settings().risk.chop_strength_threshold
-    @property
-    def COMBAT_MODE_ENABLED(self): return self._settings().robocop.combat_mode_enabled
-    @property
-    def ROBO_FAST_EXIT_ENABLED(self): return self._settings().robocop.fast_exit_enabled
-    @property
-    def CHOP_TP_EXIT_ENABLED(self): return self._settings().robocop.fast_exit_enabled # alias for now
-    @property
-    def CHOP_MAX_BARS(self): return 10
-    @property
-    def ROBO_CHOP_SCALP_ENABLED(self): return self._settings().robocop.chop_scalp_enabled
-    @property
-    def RUNNER_GRACE_ENABLED(self): return self._settings().robocop.runner_grace_enabled
-    @property
-    def ROBO_ENTRY_SCORE_THRESHOLD(self): return self._settings().robocop.entry_score_threshold
-    @property
-    def SMART_POSITIONS_ENABLED(self): return self._settings().risk.smart_positions_enabled
-    @property
-    def FRIDAY_FADE_ENABLED(self): return self._settings().runtime.friday_fade_enabled
-    @property
-    def STOP_ATR_MULTIPLIER(self) -> float:
-        # I use my config.json globals as the SSOT; I intentionally DO NOT
-        # check env vars here to prevent stale values from overriding.
-        s = self._settings()
-        profile = s.profiles.get(s.app.profile_name)
-        return getattr(profile, "stop_atr_multiplier", 1.5)
+        if name == "STRATEGY_VARIANT":
+            profile = settings.get_active_profile()
+            return getattr(profile, "strategy_variant", "evolution")
+        if name == "STOP_ATR_MULTIPLIER":
+            return getattr(settings.safety, "stop_atr_multiplier", 1.5)
+        if name == "STABILITY_MODE_ACTIVE":
+            return getattr(settings.runtime, "stability_mode_active", False)
+        if name == "CHOP_MAX_BARS":
+            return 10
+        if name == "COMBAT_MODE_ENABLED":
+            return getattr(settings.robocop, "combat_mode_enabled", False)
 
-    @property
-    def STABILITY_MODE_ACTIVE(self) -> bool:
-        # I use my config.json globals as the SSOT; I intentionally DO NOT
-        # check env vars here to prevent stale values from overriding.
-        s = self._settings()
-        profile = s.profiles.get(s.app.profile_name)
-        return getattr(profile, "stability_mode_active", False)
+        for section in ("risk", "safety", "performance", "runtime", "robocop"):
+            sec = getattr(settings, section, None)
+            if sec is not None and hasattr(sec, name):
+                return getattr(sec, name)
 
-# I created a singleton instance to keep my legacy code working
-UserConfig = UserConfig()
+        raise AttributeError(f"Legacy UserConfig.{name} not found in canonical settings")
+
+
+UserConfig = _UserConfigProxy()

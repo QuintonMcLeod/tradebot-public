@@ -69,11 +69,7 @@ def validate_decision(
     if decision.action in {"flip_to_long", "flip_to_short"}:
         flip_allowed = False
         if settings is not None:
-            try:
-                profile = settings.get_active_profile()
-                flip_allowed = bool(getattr(profile, "flip_actions_enabled", False))
-            except Exception:
-                flip_allowed = False
+            flip_allowed = bool(getattr(settings.runtime, "flip_actions_enabled", False))
         if not flip_allowed:
             flip_allowed = bool(caps.get("flip_allowed"))
         if not flip_allowed:

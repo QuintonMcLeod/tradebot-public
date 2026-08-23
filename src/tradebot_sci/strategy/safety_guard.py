@@ -17,7 +17,6 @@ from tradebot_sci.strategy.decisions import (
 )
 from tradebot_sci.strategy.icc_signals import calculate_atr, detect_structure_invalidation, calculate_adx
 from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
-from tradebot_sci.config.models import UserConfig
 from tradebot_sci.config.loader import get_settings
 from tradebot_sci.runtime.scheduling import is_market_open
 from tradebot_sci.runtime.rejection_journal import rejection_journal
@@ -293,14 +292,18 @@ class SafetyGuard:
         # -------------------------------------------------------------
         PNL_LIMIT_MIN_CAPITAL = 250.0
         if settings and trade_results and current_capital >= PNL_LIMIT_MIN_CAPITAL:
+            # Daily/weekly/monthly loss and profit limits live in the canonical
+            # risk settings section.
+            risk = getattr(settings, "risk", None)
+
             # Check Daily, Weekly, Monthly P&L
             for tf_code, interval_name in [('24h', 'Daily'), ('week', 'Weekly'), ('month', 'Monthly')]:
                 stats = trade_results.get_stats_for_timeframe(tf_code)
                 realized_pnl = stats.get('pnl_usd', 0.0)
-                
+
                 # Check Limits (Losses)
                 limit_attr = f"limit_loss_{tf_code if tf_code != '24h' else 'daily'}_pct"
-                limit_pct = getattr(settings, limit_attr, 0.0)
+                limit_pct = getattr(risk, limit_attr, 0.0) if risk else 0.0
                 if limit_pct > 0:
                     start_cap = current_capital - realized_pnl # Approximation of start capital for interval
                     if start_cap > 0:
@@ -310,7 +313,7 @@ class SafetyGuard:
 
                 # Check Targets (Profits)
                 target_attr = f"target_profit_{tf_code if tf_code != '24h' else 'daily'}_pct"
-                target_pct = getattr(settings, target_attr, 0.0)
+                target_pct = getattr(risk, target_attr, 0.0) if risk else 0.0
                 if target_pct > 0:
                     start_cap = current_capital - realized_pnl
                     if start_cap > 0:
@@ -353,7 +356,7 @@ class SafetyGuard:
 
                     # 2. Daily Loss Circuit Breaker (Safety Shield)
                     # Prevents "death by a thousand cuts" in choppy regimes.
-                    daily_limit = getattr(settings.risk, "limit_loss_daily_pct", 0.03)
+                    daily_limit = getattr(settings.risk, "limit_loss_daily_pct", 0.03) if settings.risk else 0.03
                     realized_pnl = cls._state.daily_pnl.get(asset_class, 0.0)
                     daily_loss_pct = abs(realized_pnl) / current_capital if realized_pnl < 0 else 0.0
                     
@@ -1168,8 +1171,7 @@ class SafetyGuard:
                     modes.append(m_clean)
 
         # [STABILITY] Force stability mode if active in config
-        prof = settings.get_active_profile() if hasattr(settings, "get_active_profile") else None
-        is_stability_active = getattr(prof, "stability_mode_active", False) or getattr(UserConfig, "STABILITY_MODE_ACTIVE", False)
+        is_stability_active = getattr(settings.runtime, "stability_mode_active", False) if settings else False
         
         if is_stability_active:
             if "stability" not in modes:

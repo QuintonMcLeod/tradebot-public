@@ -94,23 +94,23 @@ class IbkrExecutor:
         
         # Initialize modular components
         self.bracket_manager = BracketManager(self.ib, self.runtime, self.profile_settings)
-        self.pdt_guard = PDTGuard(self.profile_settings)
+        self.pdt_guard = PDTGuard(self.runtime)
         self.stop_manager = SyntheticStopManager()
-        
+
         # Legacy attributes for test compatibility
         self._local_stop_info: dict[str, dict] = {}
         self._native_stop_supported: dict[str, bool] = {}
         self._synthetic_stops = self.stop_manager.stops
-        self._pdt_guard_enabled = bool(getattr(profile_settings, "pdt_guard_enabled", False))
+        self._pdt_guard_enabled = bool(getattr(self.runtime, "pdt_guard_enabled", False))
         self._pdt_roundtrip_limit = int(getattr(profile_settings, "pdt_roundtrip_limit", 3))
-        
+
         self._last_bracket_orders: list[Any] = []
-        store_path = os.getenv("SYNTH_STOP_STORE_PATH") or (
-            profile_settings.synthetic_stop_store_path if profile_settings else "state/synthetic_stops.json"
+        store_path = os.getenv("SYNTH_STOP_STORE_PATH") or getattr(
+            self.runtime, "synthetic_stop_store_path", "state/synthetic_stops.json"
         )
         self._stop_store = (
             SyntheticStopStore(store_path)
-            if profile_settings and profile_settings.synthetic_stop_persistence_enabled
+            if getattr(self.runtime, "synthetic_stop_persistence_enabled", False)
             else None
         )
         self._paused_symbols: set[str] = set()

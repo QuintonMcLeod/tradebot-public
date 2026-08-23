@@ -2341,12 +2341,12 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
 
     profile_settings = settings.get_active_profile()
     profile_name = settings.app.profile_name
-    auto_schedule_enabled = bool(getattr(profile_settings, "auto_schedule_enabled", False))
+    auto_schedule_enabled = bool(getattr(settings.runtime, "auto_schedule_enabled", False))
     sabbath_context = SabbathContext(profile_settings, sabbath_override)
     sabbath_context.log_startup()
     tz = ZoneInfo(settings.schedule.timezone)
     symbols = _resolve_symbol_universe(settings, profile_settings, profile_name)
-    pair_selector = PairSelector(profile_settings) if getattr(profile_settings, "pair_selector_enabled", False) else None
+    pair_selector = PairSelector(profile_settings) if getattr(settings.runtime, "pair_selector_enabled", False) else None
     crypto_only_profile = profile_settings.crypto_only
     scheduled_strike_tracker = StrikeTracker(
         settings.runtime.strike_max_consecutive,
@@ -2629,7 +2629,8 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
 
                 # ── [MASTER FAIL-SAFE] ──
                 # Hard-coded gating to ensure Paper Broker is exclusive when live trading is disabled or Sabbath is active.
-                execute_trades = getattr(settings.runtime, "execute_trades", True)
+                # Default to False so a missing/None execute_trades can never turn live execution on.
+                execute_trades = getattr(settings.runtime, "execute_trades", False)
                 if not execute_trades or sabbath_active:
                     if not executor_paper:
                         logger.info("[PAPER] Initializing Paper Broker dynamically for scheduled simulation.")
@@ -2718,8 +2719,11 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
                         _log_holdings_snapshot(executor, reason="heartbeat", strategy_variant=getattr(profile_settings, 'strategy_variant', None))
                         last_holdings_log_ts = now_ts
 
-                # During Sabbath, we allow entries because they will be paper-traded.
-                allow_entries = execute_trades
+                # Allow entries when live execution is enabled OR when the paper broker
+                # is the active executor. Paper/Sabbath sessions are gated to the paper
+                # broker by the master fail-safe above, so this keeps them trading
+                # while never allowing live entries when execute_trades is False.
+                allow_entries = execute_trades or (executor == executor_paper)
                 # Replay mode: block entries during warmup, throttle after warmup
                 if replay_provider is not None:
                     if replay_provider.in_warmup:

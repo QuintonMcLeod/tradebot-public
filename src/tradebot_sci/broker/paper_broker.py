@@ -187,16 +187,34 @@ class PaperBroker:
 
         return spread_cost_usd
 
+    def _compute_pnl_pct_usd(self, pnl_usd: float, entry_price: float, size: float, symbol: str) -> float:
+        """Return PnL as a percentage of USD entry notional.
+
+        The old formula used quote-currency notional (entry_price * |size|), which
+        is wrong for non-USD-quote pairs such as USDJPY or EURCHF. This helper
+        converts the entry notional to USD before computing the percent.
+        """
+        if entry_price <= 0 or abs(size) < 1e-12:
+            return 0.0
+        entry_notional_quote = entry_price * abs(size)
+        entry_notional_usd = convert_quote_to_usd(
+            entry_notional_quote, symbol, entry_price, self.market_provider
+        )
+        if entry_notional_usd <= 0:
+            return 0.0
+        return (pnl_usd / entry_notional_usd) * 100.0
+
     # Hard leverage cap for paper trading.
     # Profile target_leverage (e.g. 50x) is for OANDA forex — way too high for
     # crypto paper trading.  Cap at 3x to prevent catastrophic position sizing.
     PAPER_MAX_LEVERAGE = float(os.getenv("PAPER_MAX_LEVERAGE", "50.0"))
     
-    def __init__(self, profile_settings, market_provider=None, trade_results=None, initial_balance=10000.0, controller=None):
+    def __init__(self, profile_settings, market_provider=None, trade_results=None, initial_balance=10000.0, controller=None, simulate_rejection: bool = True):
         self.profile = profile_settings
         self.market_provider = market_provider
         self.trade_results = trade_results
         self.controller = controller
+        self.simulate_rejection = simulate_rejection
         self.positions = {} # symbol -> position_dict
         self.history = []
         self._exit_cooldowns = {}  # symbol -> timestamp of last exit
@@ -543,11 +561,13 @@ class PaperBroker:
         price = self._get_current_price(symbol)
         
         if action in {"enter_long", "enter_short"}:
-            # [NEW] Weekend filter: Mimic Forex hours (Friday 5PM EST to Sunday 5PM EST)
+            # [NEW] Weekend filter: Mimic Forex/Metals hours (Friday 5PM EST to Sunday 5PM EST).
+            # Crypto, stocks, ETFs and most futures trade through the weekend; do not block them.
             mp_class = getattr(self.market_provider, "__class__", None).__name__ if hasattr(self, "market_provider") else ""
             is_replay = os.getenv("IS_REPLAY_MODE", "0") == "1" or mp_class == "ReplayMarketProvider"
             is_synthetic = os.getenv("SYNTHETIC_FIRE", "0") == "1" or mp_class == "SyntheticMarketProvider"
-            if not is_replay and not is_synthetic:
+            asset_class = classify_symbol(symbol)
+            if not is_replay and not is_synthetic and asset_class in (AssetClass.FOREX, AssetClass.METALS):
                 try:
                     import zoneinfo
                     est_tz = zoneinfo.ZoneInfo("America/New_York")
@@ -559,15 +579,16 @@ class PaperBroker:
                         is_weekend_block = True
                     elif now_est.weekday() == 6 and now_est.hour < 17:
                         is_weekend_block = True
-                        
+
                     if is_weekend_block:
-                        logger.info(f"[PAPER] [WEEKEND BLOCK] Rejecting trade for {symbol}. Forex market is closed (5PM Friday - 5PM Sunday EST).")
-                        self._update_status("warning", "Forex market is closed (weekend)")
+                        logger.info(f"[PAPER] [WEEKEND BLOCK] Rejecting trade for {symbol}. Forex/Metals market is closed (5PM Friday - 5PM Sunday EST).")
+                        self._update_status("warning", "Forex/Metals market is closed (weekend)")
                         return (
-                            ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: Forex market closed"),
-                            ExecutionOutcome(ExecutionOutcomeType.REJECTED, symbol, "Paper: Forex market closed", price=0.0)
+                            ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: Forex/Metals market closed"),
+                            ExecutionOutcome(ExecutionOutcomeType.REJECTED, symbol, "Paper: Forex/Metals market closed", price=0.0)
                         )
                 except Exception as e:
+                    logger.warning(f"[PAPER] [WEEKEND BLOCK] {symbol} weekend check failed: {e}; allowing trade")
                     pass
 
             # [NEW] Bankruptcy Check — block entries if equity is zero or negative
@@ -699,12 +720,7 @@ class PaperBroker:
                 )
 
             # ── FLOOR SIZING PROTECTION ──
-            is_crypto = False
-            try:
-                from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass
-                is_crypto = classify_symbol(symbol) == AssetClass.CRYPTO
-            except Exception:
-                is_crypto = any(c in symbol.upper() for c in ["BTC", "ETH", "SOL", "ADA", "LTC"])
+            is_crypto = classify_symbol(symbol) == AssetClass.CRYPTO
 
             min_unit = 0.0001 if is_crypto else 1.0
             matched = False
@@ -786,14 +802,15 @@ class PaperBroker:
             )
 
             # [PHASE 2.3] Simulated Order Rejection (1% chance)
-            import random
-            if random.random() < 0.01:
-                logger.warning(f"[PAPER] [REJECTED] {symbol}: simulated broker rejection (1% chance)")
-                self._update_status("warning", "Simulated broker rejection")
-                return (
-                    ExecutionResult(ExecutionStatus.ERROR, symbol, "Simulated broker rejection"),
-                    ExecutionOutcome(ExecutionOutcomeType.FAILED_OTHER, symbol, "Simulated broker rejection")
-                )
+            if self.simulate_rejection:
+                import random
+                if random.random() < 0.01:
+                    logger.warning(f"[PAPER] [REJECTED] {symbol}: simulated broker rejection (1% chance)")
+                    self._update_status("warning", "Simulated broker rejection")
+                    return (
+                        ExecutionResult(ExecutionStatus.ERROR, symbol, "Simulated broker rejection"),
+                        ExecutionOutcome(ExecutionOutcomeType.FAILED_OTHER, symbol, "Simulated broker rejection")
+                    )
 
             # Affordability guard: cap qty if notional exceeds leveraged REAL balance
             notional = qty * price
@@ -944,7 +961,7 @@ class PaperBroker:
                 duration_secs, duration_str = self._compute_duration(pos)
                 pnl_sign = "+" if pnl_usd >= 0 else "-"
                 pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
-                pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if pos["size"] else 0.0
+                pnl_pct = self._compute_pnl_pct_usd(pnl_usd, entry_p, pos["size"], symbol)
                 spread_cost = self._compute_spread_cost(pos, exit_p)
                 exit_reason = decision.notes or "paper_close"
 
@@ -964,7 +981,7 @@ class PaperBroker:
                     self.trade_results.add_result(TradeResult(
                         symbol=symbol,
                         closed_at=self._wall_clock().isoformat(),
-                        pnl_pct=(pnl_usd / (entry_p * abs(pos["size"]))) * 100 if pos["size"] else 0,
+                        pnl_pct=self._compute_pnl_pct_usd(pnl_usd, entry_p, pos["size"], symbol),
                         pnl_usd=pnl_usd,
                         is_win=pnl_usd > 0,
                         tier="100%",
@@ -1266,7 +1283,7 @@ class PaperBroker:
             else:
                 pos["mae_usd"] = min(pos.get("mae_usd", 0.0), pnl_usd)
 
-            pnl_pct = (pnl_usd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 and pos["size"] != 0 else 0.0
+            pnl_pct = self._compute_pnl_pct_usd(pnl_usd, entry_p, pos["size"], symbol)
             pnl_sign = "+" if pnl_usd >= 0 else "-"
             pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
             spread_cost = self._compute_spread_cost(pos, exit_p)
@@ -1383,12 +1400,12 @@ class PaperBroker:
                         fee_raw = abs(qty * price) * self._get_taker_fee(symbol)
                     else:
                         exit_p = price * (1 - friction) if side == "long" else price * (1 + friction)
-                        fee_raw = abs(qty * exit_p) * fee_pct
+                        fee_raw = abs(qty * exit_p) * (fee_pct / 2.0)
                     pnl_gross_raw = (exit_p - entry_p) * position_size
                     pnl_usd_raw = pnl_gross_raw - fee_raw
-                    pnl_pct = (pnl_usd_raw / (entry_p * abs(position_size))) * 100 if entry_p > 0 else 0.0
                     pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, price, self.market_provider)
                     fee_usd = convert_quote_to_usd(fee_raw, symbol, price, self.market_provider)
+                    pnl_pct = self._compute_pnl_pct_usd(pnl_usd, entry_p, position_size, symbol)
                     try:
                         spread_cost = self._compute_spread_cost(pos, price)
                     except Exception as sc_err:
@@ -1891,9 +1908,9 @@ class PaperBroker:
                                     pnl_gross_raw = (_exit_price - entry_p) * pos["size"]
                                     fee_raw = abs(pos.get("qty", abs(pos["size"])) * _exit_price) * self._get_taker_fee(symbol)
                                     pnl_usd_raw = pnl_gross_raw - fee_raw
-                                    pnl_pct = (pnl_usd_raw / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                                     pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, _exit_price, self.market_provider)
                                     fee_usd = convert_quote_to_usd(fee_raw, symbol, _exit_price, self.market_provider)
+                                    pnl_pct = self._compute_pnl_pct_usd(pnl_usd, entry_p, pos["size"], symbol)
                                     # PANIC GUARD: universal exit router must not wipe out the account
                                     if abs(pnl_usd) > self.balance * 0.5 and self.balance > 0:
                                         logger.error(
@@ -2075,9 +2092,9 @@ class PaperBroker:
                 else:
                     fee_raw = abs(pos.get("qty", abs(pos["size"])) * exit_price) * (fee_pct / 2.0)
                 pnl_usd_raw = pnl_gross_raw - fee_raw
-                pnl_pct = (pnl_usd_raw / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                 pnl_usd = convert_quote_to_usd(pnl_usd_raw, symbol, exit_price, self.market_provider)
                 fee_usd = convert_quote_to_usd(fee_raw, symbol, exit_price, self.market_provider)
+                pnl_pct = self._compute_pnl_pct_usd(pnl_usd, entry_p, pos["size"], symbol)
                 
                 # PANIC GUARD: mechanical SL/TP must not wipe out the account
                 if abs(pnl_usd) > self.balance * 0.5 and self.balance > 0:

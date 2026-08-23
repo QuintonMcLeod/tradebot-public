@@ -45,10 +45,10 @@ SECRETS_FILE = _paths.SECRETS_FILE
 # Legacy paths (for fallback if config.json doesn't exist yet)
 # DEPRECATED: YAML profiles are deprecated. All settings live in config.json
 # and are managed via the GUI.  Profile-specific YAML overrides are no longer
-# supported.  Global settings are auto-promoted into profiles by the universal
-# promotion loop (see _load_from_json).  If you need a setting to be per-profile,
-# just add the field to TradingProfileSettings in models.py — the loader will
-# pick it up from config.json["global"] automatically.
+# supported.  Operational settings belong in canonical top-level sections
+# (risk, safety, performance, runtime); profile objects are identity/selection
+# only.  If you need a setting to be per-profile, add it to
+# TradingProfileSettings in models.py.
 CONFIG_DIR = _paths.CONFIG_DIR
 LEGACY_BASE_SETTINGS_FILE = CONFIG_DIR / "settings_base.yaml"
 LEGACY_PROFILE_SETTINGS_FILE = CONFIG_DIR / "settings_profiles.yaml"
@@ -100,39 +100,49 @@ def _resolve_path(path_str: str | None) -> str | None:
 
 
 def _enforce_profile_guardrails(settings: Settings) -> None:
-    """Enforce domain-specific safety rules across settings components."""
+    """Enforce domain-specific safety rules across settings components.
+
+    Canonical top-level sections are authoritative. Profile objects are only
+    consulted for identity/selection fields such as continuous_mode.
+    """
     profile_name = settings.app.profile_name
     profile = settings.profiles.get(profile_name)
     if not profile:
         return
 
+    runtime = settings.runtime
+    risk = settings.risk
+    safety = settings.safety
+
     # 1. PDT Guard vs Auto-Flatten
-    if getattr(profile, "pdt_guard_enabled", False) and getattr(profile, "auto_flatten_on_close", False):
+    pdt_enabled = getattr(runtime, "pdt_guard_enabled", False)
+    auto_flatten = getattr(runtime, "auto_flatten_on_close", False)
+    if pdt_enabled and auto_flatten:
         _log_once(
             logging.WARNING,
             "PDT guard enabled; forcing auto_flatten_on_close=false for profile '%s'",
             profile_name,
         )
-        profile.auto_flatten_on_close = False
+        runtime.auto_flatten_on_close = False
 
     # 2. Crypto Mode Detection & Auto-Correction
-    is_crypto = getattr(profile, "crypto_only", False)
+    is_crypto = getattr(runtime, "crypto_only", False)
     provider = settings.market.broker_mode
     if provider in ("alternative", "coinbase_futures") or "ccxt" in provider:
         is_crypto = True
 
     if is_crypto:
-        if getattr(profile, "pdt_guard_enabled", False):
-            profile.pdt_guard_enabled = False
+        if pdt_enabled:
+            runtime.pdt_guard_enabled = False
             _log_once(logging.WARNING, "Crypto profile '%s': disabling PDT guard (not applicable).", profile_name)
-        
-        if getattr(profile, "min_hold_hours", 0.0) > 0:
-            profile.min_hold_hours = 0.0
+
+        if getattr(runtime, "min_hold_hours", 0.0) > 0:
+            runtime.min_hold_hours = 0.0
             _log_once(logging.WARNING, "Crypto profile '%s': zeroing min_hold_hours.", profile_name)
 
     # 3. Continuous Mode vs Intraday Flatten
-    if getattr(profile, "continuous_mode", False) and settings.runtime.intraday_flatten:
-        settings.runtime.intraday_flatten = False
+    if getattr(profile, "continuous_mode", False) and runtime.intraday_flatten:
+        runtime.intraday_flatten = False
         _log_once(logging.WARNING, "intraday_flatten disabled for continuous_mode profile '%s'", profile_name)
 
 def _load_from_json(config: Dict[str, Any]) -> Settings:
@@ -238,37 +248,9 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
     risk_model_cfg = config.get("risk", {})
     schedule_cfg = config.get("schedule", {})
 
-    # ── Inject global risk/ICC values into profiles as defaults ──
-    # DEPRECATED: These explicit allow-lists are superseded by the
-    # universal promotion loop below (line ~224).  They are kept only
-    # for documentation / reference.  Any TradingProfileSettings field
-    # found in config.json["global"] or config.json["risk"] is auto-
-    # promoted into every profile where it isn't already set.
-    _PROMOTED_RISK_KEYS = [
-        "risk_per_trade_pct", "risk_per_trade_dollars",
-        "aggressive_risk_per_trade_pct", "max_exposure_pct", "limit_loss_daily_pct",
-        "icc_auto_entry_enabled", "icc_aggressive_mode", "icc_entry_score_threshold",
-        "icc_auto_entry_require_sweep", "icc_auto_entry_min_htf_strength",
-        "icc_two_signal_override_enabled", "icc_auto_entry_cooldown_minutes",
-        "icc_score_continuation_points", "icc_score_sweep_points",
-        "icc_score_htf_ltf_align_points", "icc_score_strong_htf_points",
-        "icc_score_phase_points", "icc_score_indication_points",
-        "icc_score_htf_strength_threshold",
-    ]
-
-    # DEPRECATED: Same as above — kept for reference only.
-    _PROMOTED_SABBATH_KEYS = [
-        "sabbath_enabled", "sabbath_timezone", "sabbath_start_local",
-        "sabbath_end_local", "sabbath_astronomical", "sabbath_lat", "sabbath_lon",
-    ]
-
-    _profile_fields = set(
-        list(TradingProfileSettings.model_fields.keys()) +
-        list(SafetySettings.model_fields.keys()) +
-        list(PerformanceSettings.model_fields.keys()) +
-        list(RiskSettings.model_fields.keys())
-    )
-
+    # Profile objects are identity/selection only. Operational settings live in
+    # canonical top-level sections (risk, safety, performance, runtime).  The
+    # loader rejects any operational keys that appear inside a profile block.
     _REAL_PROFILE_KEYS = {
         "name", "strategy_variant", "strategies", "symbols",
         "candle_timeframe", "htf_timeframe", "mtf_timeframe", "ltf_timeframe", "xtf_timeframe",
@@ -288,39 +270,13 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
                 f"Found invalid profile-specific overrides: {invalid_keys} in profile '{name}'.\n"
                 f"Profile-level overrides are DEPRECATED and ignored by the loader.\n"
                 f"All strategy variants, risk settings, leverage caps, and behavioral parameters MUST "
-                f"be placed in the 'global' or 'risk' configuration blocks instead.\n"
+                f"be placed in the 'global', 'risk', 'safety', 'performance', or 'runtime' configuration blocks instead.\n"
                 f"The ONLY allowed keys inside a profile block are: {list(_REAL_PROFILE_KEYS)}.\n"
-                f"Please move your '{name}' settings into the global block."
+                f"Please move your '{name}' settings into the appropriate top-level block."
             )
 
         # Only keep genuine profile fields from the JSON to eliminate legacy overrides
         merged = {k: v for k, v in p_data.items() if k in _REAL_PROFILE_KEYS}
-
-        # ── Universal global → profile promotion ─────────────────────
-        # Promote ALL config.json "global" keys that match a
-        # TradingProfileSettings field.  Profile-level values win;
-        # globals only fill gaps.  This replaces the old fragile
-        # allow-lists (_PROMOTED_RISK_KEYS, _PROMOTED_TREND_KEYS, etc.)
-        # that silently dropped settings when a new key was added to
-        # config.json but not to the promotion list.
-        for key in g_cfg:
-            if key not in merged and key in _profile_fields:
-                merged[key] = g_cfg[key]
-
-        # Risk-section keys are stored separately in config.json;
-        # promote them the same way.
-        for key in risk_model_cfg:
-            if key not in merged and key in _profile_fields:
-                merged[key] = risk_model_cfg[key]
-
-        # Safety-section keys (including Sabbath Protocol) are also stored separately;
-        # promote them to ensure UI payload propagation.
-        safety_model_cfg = config.get("safety", {})
-        if isinstance(safety_model_cfg, dict):
-            for key in safety_model_cfg:
-                if key not in merged and key in _profile_fields:
-                    merged[key] = safety_model_cfg[key]
-
 
         # ── Inject global per-asset strategies into profiles ──
         # AI Optimize writes strategy_crypto, strategy_forex, etc.
@@ -830,12 +786,11 @@ def load_settings() -> Settings:
         settings.runtime.position_hold_store_path = str(_paths.DATA_DIR / "position_holds.json")
     else:
         settings.runtime.position_hold_store_path = _resolve_path(settings.runtime.position_hold_store_path) or settings.runtime.position_hold_store_path
-    
-    for p in settings.profiles.values():
-        if not p.synthetic_stop_store_path:
-            p.synthetic_stop_store_path = str(_paths.DATA_DIR / "synthetic_stops.json")
-        else:
-            p.synthetic_stop_store_path = _resolve_path(p.synthetic_stop_store_path) or p.synthetic_stop_store_path
+
+    if not settings.runtime.synthetic_stop_store_path:
+        settings.runtime.synthetic_stop_store_path = str(_paths.DATA_DIR / "synthetic_stops.json")
+    else:
+        settings.runtime.synthetic_stop_store_path = _resolve_path(settings.runtime.synthetic_stop_store_path) or settings.runtime.synthetic_stop_store_path
 
     # 5. Final safety audit
     configure_crypto_routing(settings.market.crypto_routing)

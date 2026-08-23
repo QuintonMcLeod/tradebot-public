@@ -65,12 +65,12 @@ class StrategyEngine:
         
         # Load the Strategy Variant using the purely isolated & masked profile
         self._strategy = self._load_strategy_variant()
-        
-        # Propagate profile risk to the strategy
-        risk_pct = getattr(self.profile, 'risk_per_trade_pct', None)
+
+        # Propagate canonical risk setting to the strategy
+        risk_pct = getattr(self.settings.risk, 'risk_per_trade_pct', None) if self.settings else None
         if risk_pct and hasattr(self._strategy, 'profile_risk_pct'):
             self._strategy.profile_risk_pct = float(risk_pct)
-        
+
         logger.info(f" [ENGINE] === ENGINE LOADED === Symbol: {symbol} | Variant: {self._strategy.name.upper()} ")
 
     def sync_profile(self, profile: BaseProfile, settings: Optional[Any] = None) -> None:
@@ -78,14 +78,14 @@ class StrategyEngine:
         self.profile = profile
         if settings is not None:
             self.settings = settings
-            
+
         self._variant_key = self._resolve_variant_key()
         self._strategy = self._load_strategy_variant()
-        
-        risk_pct = getattr(self.profile, 'risk_per_trade_pct', None)
+
+        risk_pct = getattr(self.settings.risk, 'risk_per_trade_pct', None) if self.settings else None
         if risk_pct and hasattr(self._strategy, 'profile_risk_pct'):
             self._strategy.profile_risk_pct = float(risk_pct)
-            
+
         logger.info(f"[ENGINE {self.symbol}] Hot-reloaded profile settings into {self._strategy.name.upper()}")
 
     # ── SAR (Stop-and-Reverse) — Engine-Level ────────────────────────
@@ -407,12 +407,13 @@ class StrategyEngine:
             
             # Record Indicators for Nurse's Station
             from tradebot_sci.runtime.health_monitor import health_monitor
+            runtime = self.settings.runtime if self.settings else self.profile
             ind_to_record = {}
-            if getattr(self.profile, 'trend_rsi_enabled', False):
+            if getattr(runtime, 'trend_rsi_enabled', False):
                 ind_to_record["rsi"] = float(consensus_rsi) if consensus_rsi else 0.0
-            if getattr(self.profile, 'trend_adx_enabled', True):
+            if getattr(runtime, 'trend_adx_enabled', True):
                 ind_to_record["adx"] = float(htf_adx) if htf_adx else 0.0
-            if getattr(self.profile, 'trend_macd_enabled', False):
+            if getattr(runtime, 'trend_macd_enabled', False):
                 ind_to_record["macd"] = float(consensus_macd.get("histogram", 0.0)) if isinstance(consensus_macd, dict) else 1.0
             
             if ind_to_record:
@@ -748,8 +749,9 @@ class StrategyEngine:
                     open_position["est_spread_usd"] = est_spread_usd
 
             # ── NEGATIVE HOLD GUARD ───────────────────────────────────────
-            enable_negative_hold_guard = getattr(self.profile, "enable_negative_hold_guard", True)
-            negative_hold_seconds = int(getattr(self.profile, "negative_hold_seconds", 2700))
+            safety = self.settings.safety if self.settings else self.profile
+            enable_negative_hold_guard = getattr(safety, "enable_negative_hold_guard", True)
+            negative_hold_seconds = int(getattr(safety, "negative_hold_seconds", 2700))
             is_negative = False
             if enable_negative_hold_guard and open_position:
                 # Trade is negative if net profit (gross PnL minus spread) is underwater
@@ -784,10 +786,8 @@ class StrategyEngine:
 
 
             # ── SPREAD PROFIT GUARD ───────────────────────────────────────
-            if self.settings and hasattr(self.settings, 'safety'):
-                enable_spread_profit_guard = getattr(self.settings.safety, "enable_spread_profit_guard", True)
-            else:
-                enable_spread_profit_guard = getattr(self.profile, "enable_spread_profit_guard", True)
+            safety = self.settings.safety if self.settings else self.profile
+            enable_spread_profit_guard = getattr(safety, "enable_spread_profit_guard", True)
             spread_profit_blocked = False
             
             if enable_spread_profit_guard and open_position and current_price:
@@ -919,41 +919,71 @@ class StrategyEngine:
                 safety_exit.grade = grade
                 return safety_exit
 
-            # ── NEG HOLD GUARD: Widen native broker SL to 1%-capital-risk floor ──────
+            # ── NEG HOLD GUARD: Widen native broker SL to the risk floor ──────
             # When the negative hold guard is active, the broker's native stop-loss
             # (placed as a bracket order at entry) can still fire server-side and bypass
             # the engine entirely. For OANDA/MT5, cycle.py propagates any hold decision
             # that carries a stop_loss to modify_stop_loss() on the broker.
-            # We use that path to push the SL to the 1%-capital-risk floor so it
-            # physically cannot be hit until the hold guard expires or the loss
-            # reaches the max risk threshold (whichever comes first).
+            # We push the SL to the configured risk-per-trade floor (min 1% of capital)
+            # so it physically cannot be hit by noise until the hold guard expires or the
+            # loss reaches the max-risk threshold, whichever comes first. We NEVER remove
+            # the stop entirely.
             if neg_hold_blocked and open_position and current_price:
                 try:
                     existing_sl = open_position.get("stop_loss")
-                    
-                    # If there's an existing physical stop loss, we want to actively remove it.
-                    # We pass 0.0 to cycle.py, which translates it to `{"stopLoss": None}` for OANDA.
-                    # This completely nullifies any physical stop loss on the server, enforcing the 45-minute virtual hold.
-                    if existing_sl is not None and float(existing_sl) != 0.0:
+                    if existing_sl is None:
+                        existing_sl = open_position.get("stop_price")
+                    existing_sl = float(existing_sl) if existing_sl is not None else None
+
+                    entry_p = float(open_position.get("entry_price") or open_position.get("avg_price") or 0.0)
+                    size = float(open_position.get("size") or 0.0)
+                    side = (
+                        open_position.get("side") or open_position.get("direction") or
+                        ("long" if size >= 0 else "short")
+                    ).lower()
+
+                    if entry_p > 0 and abs(size) > 1e-12 and current_capital > 0:
+                        risk_floor_pct = max(
+                            float(getattr(self.settings.risk if self.settings else self.profile, "risk_per_trade_pct", 0.0) or 0.0),
+                            0.01,
+                        )
+                        max_loss_usd = current_capital * risk_floor_pct
+                        notional = entry_p * abs(size)
+                        price_pct = min(max_loss_usd / notional, 0.10) if notional > 0 else 0.10
+
+                        if side == "short":
+                            floor_sl = entry_p * (1.0 + price_pct)
+                            if existing_sl is None or existing_sl < floor_sl:
+                                new_sl = floor_sl
+                            else:
+                                new_sl = existing_sl
+                        else:  # long
+                            floor_sl = entry_p * (1.0 - price_pct)
+                            if existing_sl is None or existing_sl > floor_sl:
+                                new_sl = floor_sl
+                            else:
+                                new_sl = existing_sl
+
                         from tradebot_sci.strategy.decisions import stand_aside_decision
                         hold_with_sl = stand_aside_decision(
                             self.symbol, timeframe,
-                            f"[NEG HOLD GUARD] SL explicitly cancelled "
+                            f"[NEG HOLD GUARD] SL widened to risk floor "
                             f"(age {position_age:.0f}s < {negative_hold_seconds}s, "
                             f"PnL ${floating_pnl_usd:.2f})"
                         )
                         hold_with_sl.action = "hold"
-                        hold_with_sl.stop_loss = 0.0
+                        hold_with_sl.stop_loss = new_sl
                         hold_with_sl.score = score
                         hold_with_sl.grade = grade
                         logger.info(
-                            f"[HOLD GUARD] {self.symbol} explicitly cancelling native SL → 0.0 "
+                            f"[HOLD GUARD] {self.symbol} widened native SL {existing_sl} → {new_sl} "
+                            f"side={side} floor_pct={price_pct*100:.2f}% "
                             f"(age {position_age:.0f}s/{negative_hold_seconds}s, "
                             f"PnL ${floating_pnl_usd:.2f})"
                         )
                         return hold_with_sl
                 except Exception as _hg_err:
-                    logger.warning(f"[HOLD GUARD] SL cancellation failed for {self.symbol}: {_hg_err}")
+                    logger.warning(f"[HOLD GUARD] SL widening failed for {self.symbol}: {_hg_err}")
 
             from tradebot_sci.strategy.decisions import stand_aside_decision
             hold = stand_aside_decision(self.symbol, timeframe, "[POSITION LOCK] Holding — position managed by SL/TP")
@@ -986,7 +1016,8 @@ class StrategyEngine:
             total_equity = current_capital_val + caps.get("total_unrealized_pnl", 0.0)
             
         # [WAIT FOR BAR CLOSE GUARD]
-        wait_for_close = getattr(self.profile, "wait_for_bar_close_enabled", False)
+        safety = self.settings.safety if self.settings else self.profile
+        wait_for_close = getattr(safety, "wait_for_bar_close_enabled", False)
         if wait_for_close and snapshot.candles:
             _now = current_bar_time or datetime.now(timezone.utc)
             if _now.tzinfo is None:
@@ -1041,11 +1072,12 @@ class StrategyEngine:
             trade_results=self.trade_results,
             open_symbols=open_symbols
         )
+        risk = self.settings.risk if self.settings else self.profile
         if safety_decision:
             # SAR bypasses exit cooldown — reversals are time-critical.
             # Check whether engine SAR is pending for this symbol.
             is_exit_cooldown = "Exit Cooldown" in (safety_decision.notes or "")
-            sar_pre = bool(getattr(self.profile, "stop_and_reverse_enabled", False))
+            sar_pre = bool(getattr(risk, "stop_and_reverse_enabled", False))
             has_sar_pending = sar_pre and (self.symbol in self._sar_pending or self.symbol in self._cr_pending)
             if is_exit_cooldown and has_sar_pending:
                 logger.info(f"[SAFETY] SAR bypass: skipping exit cooldown for {self.symbol}")
@@ -1059,9 +1091,9 @@ class StrategyEngine:
         # Detect recent stop exits and set reversal direction.
         # Excluded for tournament strategies that handle SAR internally.
         sar_dir = None  # Will be "long" or "short" if SAR should fire
-        sar_enabled = bool(getattr(self.profile, "stop_and_reverse_enabled", False))
-        cr_enabled  = bool(getattr(self.profile, "counter_reversal_enabled", False))
-        max_consec  = int(getattr(self.profile, "max_consecutive_sar", 1))
+        sar_enabled = bool(getattr(risk, "stop_and_reverse_enabled", False))
+        cr_enabled  = bool(getattr(risk, "counter_reversal_enabled", False))
+        max_consec  = int(getattr(risk, "max_consecutive_sar", 1))
         if sar_enabled and self._variant_key not in self._SAR_EXCLUDED:
             _nothing_pending = (
                 self.symbol not in self._sar_pending and
@@ -1252,12 +1284,14 @@ class StrategyEngine:
             if decision is None or decision.action in ("stand_aside", "hold"):
                 # Strategy (e.g. conductor) didn't produce a valid entry.
                 # Fall back to engine-level forced SAR, calculating ATR for SL.
-                _explicit_sar_risk = float(getattr(self.profile, "reversal_risk_per_trade", 0) or 0)
+                risk = self.settings.risk if self.settings else self.profile
+                runtime = self.settings.runtime if self.settings else self.profile
+                _explicit_sar_risk = float(getattr(risk, "reversal_risk_per_trade", 0) or 0)
                 if _explicit_sar_risk > 0:
                     rev_risk = _explicit_sar_risk
                 else:
-                    _scale_out = float(getattr(self.profile, "scale_out_fraction", 0.95))
-                    _base_risk = float(getattr(self.profile, "risk_per_trade_pct", 0.01))
+                    _scale_out = float(getattr(runtime, "scale_out_fraction", 0.95))
+                    _base_risk = float(getattr(risk, "risk_per_trade_pct", 0.01))
                     rev_risk = (1.0 - _scale_out) * _base_risk
                     if rev_risk <= 0:
                         rev_risk = 0.01
@@ -1276,7 +1310,8 @@ class StrategyEngine:
                             is_jpy = "JPY" in self.symbol.upper()
                             min_sl_dist = 15 * (0.01 if is_jpy else 0.0001)
                             stop_dist = max(atr * 1.5, min_sl_dist)
-                            tp_r = float(getattr(self.profile, "reversal_tp_r", 1.0))
+                            risk = self.settings.risk if self.settings else self.profile
+                            tp_r = float(getattr(risk, "reversal_tp_r", 1.0))
                             tp_dist = stop_dist * tp_r
                             
                             if sar_dir == "long":
@@ -1358,7 +1393,8 @@ class StrategyEngine:
 
             # [DURATION FILTER] Minimum Hold Time Enforcement
             if decision.action in ("close_position", "flatten", "scale_out") and open_position:
-                min_hold_hours = float(getattr(self.profile, "min_hold_hours", 0.0))
+                runtime = self.settings.runtime if self.settings else self.profile
+                min_hold_hours = float(getattr(runtime, "min_hold_hours", 0.0))
                 if min_hold_hours > 0:
                     entry_time_str = open_position.get("entry_time", open_position.get("opened_at", ""))
                     if entry_time_str:
@@ -1396,7 +1432,8 @@ class StrategyEngine:
             )
             is_counter_trend_strat = any(tag.lower() in (decision.strategy_name or "").lower() for tag in counter_tags)
             
-            if getattr(self.profile, "block_counter_trend_entries", True) and decision.action in ("enter_long", "enter_short", "scale_in") and not is_sar_reversal and not is_counter_trend_strat:
+            safety = self.settings.safety if self.settings else self.profile
+            if getattr(safety, "block_counter_trend_entries", True) and decision.action in ("enter_long", "enter_short", "scale_in") and not is_sar_reversal and not is_counter_trend_strat:
                 # Determine effective direction for scale_in from existing position
                 effective_action = decision.action
                 if decision.action == "scale_in" and open_position:

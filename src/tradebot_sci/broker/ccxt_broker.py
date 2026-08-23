@@ -1126,9 +1126,6 @@ class CCXTExchangeBroker:
         # Min order guard
         if pos_size_usd < min_order_val:
             self.capital_exhausted = True
-            if self._attempt_auto_liquidation_usdt(min_order_val):
-                logger.info(f"[CCXT] Auto-liquidation successful. Retrying entry for {decision.symbol}...")
-                return self.execute_decision(decision)
             logger.warning(
                 f"[CCXT] Skipping entry for {decision.symbol}: "
                 f"Calculated size ${pos_size_usd:.2f} < Min ${min_order_val} (Capital=${liq_cap:.2f})"
@@ -2032,41 +2029,6 @@ class CCXTExchangeBroker:
             raise
 
         return ex
-
-    def _attempt_auto_liquidation_usdt(self, required_usd: float) -> bool:
-        """Attempts to sell USDT for USD if capital is critical."""
-        try:
-            # 1. Check USDT Balance
-            bal = self._exchange.fetch_balance()
-            free_usdt = float(bal.get("free", {}).get("USDT", 0.0) or 0.0)
-            
-            # 2. Check minimal viable conversion (e.g. $5)
-            MIN_CONVERSION = 5.0
-            if free_usdt < MIN_CONVERSION:
-                logger.debug(f"[CCXT] Auto-Liq: Insufficient USDT (${free_usdt}) to convert.")
-                return False
-                
-            logger.info(f"[CCXT] Auto-Liq: Found ${free_usdt} USDT. converting to USD...")
-            
-            # 3. Execute Market Sell USDT/USD
-            # Coinbase symbol: USDT/USD
-            symbol = "USDT/USD"
-            
-            # Sell it all (or up to a safe chunk, e.g. 50? No, user wants capital).
-            # Let's sell max available for now.
-            qty = free_usdt
-            
-            # Sanity check symbol existence logic or just try
-            order = self._ccxt_create_order(symbol, "market", "sell", qty)
-            logger.info(f"[CCXT] Auto-Liq: Converted {qty} USDT to USD. Order: {order.get('id')}")
-            
-            # Sleep briefly to allow balance update propagation?
-            time.sleep(1.0)
-            return True
-            
-        except Exception as e:
-            logger.error(f"[CCXT] Auto-Liq Failed: {e}")
-            return False
 
     def _recover_entry_price_from_trades(self, symbol: str) -> float | None:
         """Attempts to recover entry price from recent trades (last 10)."""

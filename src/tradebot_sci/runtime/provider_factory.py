@@ -294,23 +294,21 @@ class NoOpMarketDataProvider(MarketDataProvider):
 
 
 def _get_effective_setting(key: str, settings: Settings, profile_settings: TradingProfileSettings | None) -> str:
-    """Resolves a setting key looking at Profile Overrides -> Env -> Global Settings."""
-    # 1. Profile Override
-    if profile_settings and profile_settings.runtime_overrides:
-        val = profile_settings.runtime_overrides.get(key)
-        if val:
-            return str(val).lower()
-    
-    # 2. Environment Variable
+    """Resolves a setting key looking at Env -> Global Settings.
+
+    Profile-level operational overrides are no longer supported; canonical
+    top-level settings sections are authoritative.
+    """
+    # 1. Environment Variable
     env_val = os.getenv(key.upper())
     if env_val:
         return env_val.lower()
-        
-    # 3. Global Settings Object
+
+    # 2. Global Settings Object
     # Check market_data_mode, broker_mode etc.
     if hasattr(settings.market, key):
         return str(getattr(settings.market, key)).lower()
-        
+
     return ""
 
 def _create_single_broker(name: str, settings: Settings, profile_settings, shared_ib, allowed_symbols, trade_results=None):

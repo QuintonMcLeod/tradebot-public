@@ -10,15 +10,15 @@ logger = logging.getLogger(__name__)
 
 class PDTGuard:
     """Enforces regulatory guardrails and Pattern Day Trader (PDT) compliance."""
-    
-    def __init__(self, profile_settings: Any):
-        self.enabled = bool(getattr(profile_settings, "pdt_guard_enabled", False))
-        self.roundtrip_limit = int(getattr(profile_settings, "max_equity_roundtrips_per_day", 3))
+
+    def __init__(self, runtime_settings: Any):
+        self.enabled = bool(getattr(runtime_settings, "pdt_guard_enabled", False))
+        self.roundtrip_limit = int(getattr(runtime_settings, "max_equity_roundtrips_per_day", 3))
         self.roundtrips_today = 0
         self.current_date: Optional[date] = None
         self.entry_dates: Dict[str, date] = {}
         self.flip_last_ts: Dict[str, float] = {}
-        self.flip_cooldown_seconds = int(getattr(profile_settings, "flip_cooldown_seconds", 600))
+        self.flip_cooldown_seconds = int(getattr(runtime_settings, "flip_cooldown_seconds", 600))
 
     def check_pdt_guard(self, symbol: str, metadata: SymbolMetadata) -> bool:
         """True if we can safely enter a position without violating PDT limits."""

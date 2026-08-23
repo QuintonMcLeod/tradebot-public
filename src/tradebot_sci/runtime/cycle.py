@@ -291,6 +291,12 @@ def build_candidate_list(
                 except Exception:
                     continue
 
+    if not allow_entries:
+        # When entries are blocked (warmup, Sabbath, safety halt, etc.) we still
+        # evaluate existing positions for exits, but we MUST NOT scan for new
+        # entries or eviction swaps.
+        return position_candidates, True
+
     if position_candidates:
         multi_enabled = getattr(profile_settings, "multi_position_enabled", False)
         max_concurrent = _get_dynamic_max_concurrent(profile_settings, now or datetime.now())
@@ -308,9 +314,6 @@ def build_candidate_list(
                 except Exception:
                     continue
             return position_candidates, True
-
-    if not allow_entries:
-        return position_candidates, True
 
     # 3. Scan for new setups
     # NOTE: No ICC pre-filter here. engine.decide() handles scoring,

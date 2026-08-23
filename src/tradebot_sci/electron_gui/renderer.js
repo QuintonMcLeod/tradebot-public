@@ -2684,7 +2684,7 @@ async function init() {
         try {
             window.api?.invoke('get-app-version')?.then(ver => {
                 const badge = document.getElementById('version-badge');
-                if (badge && ver) badge.textContent = `β ${ver}`;
+                if (badge && ver) badge.textContent = `v${ver}`;
             }).catch(() => { });
         } catch (_) { }
 

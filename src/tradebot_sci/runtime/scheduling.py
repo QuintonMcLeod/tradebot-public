@@ -44,15 +44,8 @@ def is_market_open(symbol: str, now: datetime, settings: Optional[Any] = None) -
         market_data_mode = getattr(settings.market, "market_data_mode", "primary")
         alt_market_data = getattr(settings.market, "alternative_market_data", "mock")
     
-    # Check overrides if settings is a TradingProfileSettings-like object
-    if hasattr(settings, "runtime_overrides"):
-        ovr = settings.runtime_overrides
-        if hasattr(ovr, "get"):
-             market_data_mode = ovr.get("market_data_mode", market_data_mode)
-             alt_market_data = ovr.get("alternative_market_data", alt_market_data)
-        else:
-             market_data_mode = getattr(ovr, "market_data_mode", market_data_mode)
-             alt_market_data = getattr(ovr, "alternative_market_data", alt_market_data)
+    # Profile-level runtime overrides are no longer supported; canonical
+    # market settings are authoritative.
 
     is_ccxt_data = market_data_mode in ("alternative", "hybrid")
 
