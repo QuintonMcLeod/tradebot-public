@@ -289,6 +289,10 @@ class TradingProfileSettings(BaseModel):
         default=False,
         description="When true, risk is dynamically calculated per trade.",
     )
+    breakout_distance_pct: float = Field(
+        default=0.01,
+        description="Breakout distance percentage for breakout strategies.",
+    )
 
     def __getattr__(self, name: str) -> Any:
         # Backward compatibility: operational fields removed from the profile
@@ -1545,7 +1549,7 @@ class SafetySettings(BaseModel):
         default_factory=lambda: os.getenv("WEALTH_EXIT_MOONSHOT_ENABLED", "False").lower() == "true"
     )
     safety_regime_flip_enabled: bool = Field(
-        default_factory=lambda: os.getenv("SAFETY_REGIME_FLIP_ENABLED", "False").lower() == "true"
+        default_factory=lambda: os.getenv("SAFETY_REGIME_FLIP_ENABLED", "True").lower() == "true"  # default True: our own gate sweep showed REGIME_FLIP cuts losses ~10x
     )
     greedy_exit_max_hold_hours: float = Field(
         default_factory=lambda: float(os.getenv("GREEDY_EXIT_MAX_HOLD_HOURS", "24.0")),
@@ -2945,8 +2949,11 @@ class _UserConfigProxy:
 
         for section in ("risk", "safety", "performance", "runtime", "robocop"):
             sec = getattr(settings, section, None)
-            if sec is not None and hasattr(sec, name):
-                return getattr(sec, name)
+            if sec is not None:
+                if hasattr(sec, name):
+                    return getattr(sec, name)
+                if hasattr(sec, name.lower()):
+                    return getattr(sec, name.lower())
 
         raise AttributeError(f"Legacy UserConfig.{name} not found in canonical settings")
 

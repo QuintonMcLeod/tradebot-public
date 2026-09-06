@@ -16,7 +16,7 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-REPO = Path("/run/media/qchan/Steam Games/Scripts/Trade by SCI/tradebot-sci-debug")
+REPO = Path(__file__).resolve().parent.parent  # repo root = parent of tools/ (path-derived, was hardcoded to an unmounted drive)
 sys.path.insert(0, str(REPO / "src"))
 
 VENV_PYTHON = REPO / ".venv" / "bin" / "python"
@@ -131,6 +131,7 @@ def run_paper_replay(strategy_name: str, params: dict) -> dict:
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(REPO / "src")
+    env["PYTHONHASHSEED"] = env.get("PYTHONHASHSEED", "0")  # deterministic replay iteration
 
     # Clear stale replay stores
     for stale in Path("/tmp").glob("_replay_*.json"):
@@ -209,19 +210,38 @@ def improve_strategy(strategy_name: str, max_samples: int = 32) -> dict:
     print(f"  Parameters: {list(param_grids.keys())}")
     print(f"  Grid size: {math.prod(len(v) for v in param_grids.values())} (capped to {max_samples})")
 
+    MIN_TRADES = 1  # a config that never trades is NOT a result; raise this as you refine
     combos = grid_search(strategy_name, param_grids, max_samples)
     results = []
-    best = {"total_pnl": -999999}
+    best = None
 
     for i, combo in enumerate(combos, 1):
         print(f"  [{i}/{len(combos)}] Testing {combo} ...", end=" ", flush=True)
-        pnl = evaluate_strategy_combo(strategy_name, combo)
-        print(f"=> PnL: ${pnl:.2f}")
-        results.append({"params": combo, "total_pnl": pnl})
-        if pnl > best["total_pnl"]:
-            best = {"params": combo, "total_pnl": pnl}
+        summary = run_paper_replay(strategy_name, combo)
+        pnl = summary.get("total_pnl", -999999)
+        trades = int(summary.get("total_trades", 0) or 0)
+        win_rate = summary.get("win_rate", 0.0)
+        max_dd = summary.get("max_dd", 0.0)
+        print(f"=> PnL: ${pnl:.2f}  trades: {trades}  win: {win_rate:.1f}%")
+        row = {"params": combo, "total_pnl": pnl, "total_trades": trades, "win_rate": win_rate, "max_dd": max_dd}
+        results.append(row)
+        # FIX: never rank a zero-trade/errored run as "best". Zero exposure earns nothing
+        # and -999999 is a sentinel, not a score.
+        if "error" in summary:
+            print(f"     (skipped: {summary.get('error')})")
+            continue
+        if trades < MIN_TRADES:
+            print(f"     (skipped: {trades} trades < MIN_TRADES={MIN_TRADES})")
+            continue
+        if best is None or pnl > best["total_pnl"]:
+            best = {"params": combo, "total_pnl": pnl, "total_trades": trades, "win_rate": win_rate, "max_dd": max_dd}
 
-    print(f"\n  BEST for {strategy_name}: {best['params']} → PnL: ${best['total_pnl']:.2f}")
+    if best is None:
+        print(f"\n  NO VALID RESULT for {strategy_name}: no combo produced >= {MIN_TRADES} trade(s). "
+              f"Entry gating is too strict or data window is bad - do not tune on this.")
+    else:
+        print(f"\n  BEST for {strategy_name}: {best['params']} → PnL: ${best['total_pnl']:.2f} "
+              f"({best['total_trades']} trades, win {best['win_rate']:.1f}%)")
     return best, results
 
 

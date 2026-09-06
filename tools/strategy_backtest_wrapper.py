@@ -15,7 +15,7 @@ import argparse
 from pathlib import Path
 from datetime import datetime, timezone
 
-REPO = Path("/run/media/qchan/Steam Games/Scripts/Trade by SCI/tradebot-sci-debug")
+REPO = Path("/home/qchan/Scripts/Trade by SCI/tradebot-sci-debug")
 sys.path.insert(0, str(REPO / "src"))
 
 from tradebot_sci.market.models import Candle

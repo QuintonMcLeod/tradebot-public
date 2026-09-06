@@ -142,7 +142,7 @@ def ensure_dirs() -> None:
             elif src.is_dir() and not dst.exists():
                 if fname == "local" or fname.startswith("remote-") or fname.startswith("instance_"):
                     continue
-                try: shutil.copytree(src, dst)
+                try: shutil.copytree(src, dst, dirs_exist_ok=True)
                 except Exception: pass
 
     legacy_logs = legacy_root / "logs"
@@ -207,7 +207,7 @@ def migrate_if_needed() -> None:
                     if str(dst.resolve()).startswith(str(src.resolve())):
                         continue
 
-                shutil.copytree(src, dst)
+                shutil.copytree(src, dst, dirs_exist_ok=True)
                 migrated.append(f"data/{fname}/ -> {dst}")
 
     # ── Migrate logs/ ───────────────────────────────────────────────

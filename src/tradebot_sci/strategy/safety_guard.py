@@ -349,7 +349,7 @@ class SafetyGuard:
                     drawdown_limit = max(configured_limit, adaptive_limit)
                     
                     if drawdown > drawdown_limit:
-                         _pause_base = datetime.now(timezone.utc) if _is_replay else now
+                         _pause_base = now  # sim time in replay (deterministic; wall-clock never expires in backtest)
                          cls._state.drawdown_pause_until[asset_class] = _pause_base + timedelta(hours=24)
                          logger.critical(f"[SAFETY] Drawdown Breaker Triggered for {asset_class.value} ({drawdown*100:.1f}% > {drawdown_limit*100:.1f}% limit, adaptive={adaptive_limit*100:.0f}%). Pausing 24h.")
                          return cls._reject(symbol, timeframe, "Drawdown Breaker", f"Drawdown Breaker Triggered ({drawdown*100:.1f}%)")
@@ -361,7 +361,7 @@ class SafetyGuard:
                     daily_loss_pct = abs(realized_pnl) / current_capital if realized_pnl < 0 else 0.0
                     
                     if daily_loss_pct > daily_limit:
-                         _pause_base = datetime.now(timezone.utc) if _is_replay else now
+                         _pause_base = now  # sim time in replay (deterministic; wall-clock never expires in backtest)
                          cls._state.drawdown_pause_until[asset_class] = _pause_base + timedelta(hours=24)
                          logger.critical(f"[SAFETY] DAILY LOSS BREAKER: {asset_class.value} lost {daily_loss_pct*100:.1f}% today (Limit {daily_limit*100:.1f}%). Pausing 24h.")
                          return cls._reject(symbol, timeframe, "Daily Loss Breaker", f"Daily Loss Limit Reached ({daily_loss_pct*100:.1f}%)")
@@ -452,7 +452,7 @@ class SafetyGuard:
             if cls._state.symbol_loss_streaks.get(symbol, 0) >= streak_limit:
                 # In replay mode, pause relative to wall-clock so the pause
                 # doesn't bleed across chained replay days.
-                _pause_base = datetime.now(timezone.utc) if _is_replay else now
+                _pause_base = now  # sim time in replay (deterministic; wall-clock never expires in backtest)
                 cls._state.symbol_pause_until[symbol] = _pause_base + timedelta(hours=4)
                 cls._state.symbol_loss_streaks[symbol] = 0 # Reset count after triggering
                 logger.warning(f"[SAFETY] Streak Breaker triggered for {symbol} ({streak_limit} losses). Pausing 4h.")

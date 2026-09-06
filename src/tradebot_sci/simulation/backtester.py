@@ -622,7 +622,23 @@ class HistoricalMarketDataProvider:
         )
 
         # Neutral defaults — engine.py's Trend Detection sets direction
-        _neutral = TrendState(direction="neutral", strength=0.0)
+        def _calc_trend(candles_list, fast=10, slow=30):
+            if len(candles_list) < slow:
+                return TrendState(direction="neutral", strength=0.0)
+            closes = [c.close for c in candles_list]
+            fast_sma = sum(closes[-fast:]) / fast
+            slow_sma = sum(closes[-slow:]) / slow
+            diff = (fast_sma - slow_sma) / slow_sma if slow_sma != 0 else 0
+            strength = min(abs(diff) * 100, 1.0)
+            if diff > 0.00001:
+                return TrendState(direction="bullish", strength=strength)
+            elif diff < -0.00001:
+                return TrendState(direction="bearish", strength=strength)
+            return TrendState(direction="neutral", strength=strength)
+
+        _trend_htf = _calc_trend(htf_candles, 10, 30)
+        _trend_ltf = _calc_trend(ltf_candles, 5, 15)
+        _trend_mtf = _calc_trend(mtf_candles, 8, 20)
         
         xtf_timeframe = getattr(profile, "xtf_timeframe", "1m")
         try:
@@ -634,9 +650,9 @@ class HistoricalMarketDataProvider:
             symbol=symbol,
             timeframe=timeframe,
             candles=candles,
-            trend_htf=_neutral,
-            trend_ltf=_neutral,
-            trend_mtf=_neutral,
+            trend_htf=_trend_htf,
+            trend_ltf=_trend_ltf,
+            trend_mtf=_trend_mtf,
             htf_candles=htf_candles[-htf_indicator_window:] if len(htf_candles) >= htf_indicator_window else htf_candles,
             mtf_candles=mtf_candles[-mtf_indicator_window:] if len(mtf_candles) >= mtf_indicator_window else mtf_candles,
             ltf_candles=ltf_candles[-ltf_indicator_window:] if len(ltf_candles) >= ltf_indicator_window else ltf_candles,
@@ -783,6 +799,7 @@ class Backtester:
         _cr_consecutive: dict[str, int] = {}
 
         # Fetch all historical data upfront
+        profile = self.settings.get_active_profile()
         # Need to fetch extra data BEFORE start_date to have enough candles for first decision
         # Strategy needs 200 candles minimum for trend analysis
         timeframe = profile.candle_timeframe
@@ -1982,7 +1999,8 @@ class Backtester:
                                 market_provider=self.market_provider,
                                 profile=profile,
                                 symbol=symbol,
-                                trade_results=trade_results_store
+                                trade_results=trade_results_store,
+                                settings=self.settings
                             )
                             _engine_cache[symbol] = engine
 

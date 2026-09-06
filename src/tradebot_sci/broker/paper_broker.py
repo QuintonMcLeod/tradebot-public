@@ -13,6 +13,39 @@ from tradebot_sci.utils.symbol_classifier import classify_symbol, AssetClass, co
 from tradebot_sci.strategy.safety_guard import SafetyGuard
 
 logger = logging.getLogger(__name__)
+
+# -- TRADE AUDIT CAPTURE (opt-in, default off) -------------------------------
+# When TRADE_SCI_TRADES_JSONL is set to a path, every "[PAPER] [EXIT] ..."
+# order_closed log record is appended as one JSON line, so per-trade outcomes
+# (reason/symbol/pnl via the same [EXIT] format LedgerDaemon parses) can be
+# audited without changing any exit code. Env var name keeps it inert unless on.
+_TRADES_JSONL = os.getenv("TRADE_SCI_TRADES_JSONL", "").strip()
+
+
+class _PaperExitJsonlHandler(logging.Handler):
+    def emit(self, record):
+        if not _TRADES_JSONL:
+            return
+        if getattr(record, "event", None) != "order_closed":
+            return
+        msg = record.getMessage()
+        if "[EXIT]" not in msg:
+            return
+        try:
+            line = json.dumps({"ts": __import__("datetime").datetime.now().isoformat(),
+                               "symbol": getattr(record, "symbol", None),
+                               "line": msg}, ensure_ascii=False)
+            with open(_TRADES_JSONL, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except Exception:
+            pass
+
+
+if _TRADES_JSONL:
+    _paper_exit_handler = _PaperExitJsonlHandler()
+    _paper_exit_handler.setLevel(logging.INFO)
+    logger.addHandler(_paper_exit_handler)
+# ----------------------------------------------------------------------------
 logger.critical("[PAPER_BROKER_V2] Loaded defensive close_all_positions build")
 
 PAPER_STATE_FILE = str(_paths.DATA_DIR / "paper_state.json")

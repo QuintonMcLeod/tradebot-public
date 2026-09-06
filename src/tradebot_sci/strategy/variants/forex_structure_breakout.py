@@ -43,13 +43,13 @@ class ForexStructureBreakout(BaseStrategy):
         self.target_r = float(kwargs.get("target_r", target_r))
 
         # How many bars back to look for structure
-        self.breakout_lookback = int(kwargs.get("breakout_lookback", 5))
+        self.breakout_lookback = int(kwargs.get("breakout_lookback", 10))
 
         # Minimum ADX to trade (avoid chop)
-        self.adx_min = float(kwargs.get("adx_min", 25.0))
+        self.adx_min = float(kwargs.get("adx_min", 20.0))
 
         # Minimum volume ratio vs average
-        self.volume_min_ratio = float(kwargs.get("volume_min_ratio", 1.5))
+        self.volume_min_ratio = float(kwargs.get("volume_min_ratio", 1.2))
 
         # Stop floor: minimum stop distance as % of price
         self.stop_floor_pct = float(kwargs.get("stop_floor_pct", 0.0015))
@@ -61,7 +61,7 @@ class ForexStructureBreakout(BaseStrategy):
         self.stop_atr_mult = float(kwargs.get("stop_atr_mult", 1.0))
 
         # Score threshold for entry
-        self.score_threshold = float(kwargs.get("score_threshold", 75.0))
+        self.score_threshold = float(kwargs.get("score_threshold", 60.0))
 
         # ------------------------------------------------------------------
         # Exit-management parameters (improve_exits iteration)
