@@ -6,11 +6,10 @@
         "start": "electron ."
     },
     "dependencies": {
-        "date-fns": "^2.30.0",
-        "js-yaml": "^4.1.0",
         "chart.js": "^4.4.0",
         "chartjs-plugin-datalabels": "^2.2.0",
-        "electron": "^25.3.0"
-    },
-    "devDependencies": {}
+        "date-fns": "^2.30.0",
+        "electron": "^44.2.0",
+        "js-yaml": "^4.1.0"
+    }
 }
