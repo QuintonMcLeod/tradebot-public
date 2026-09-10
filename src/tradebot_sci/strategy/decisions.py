@@ -37,6 +37,11 @@ class AITradeDecision(BaseModel):
     risk_per_trade_dollars: Optional[float] = Field(default=None, ge=0.0)
     max_position_size_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     time_in_force_sec: Optional[int] = None
+    # Maximum holding period in bars. Enforced by the broker on every tick, because
+    # the portfolio cycle only revisits a symbol when it is a candidate — a strategy
+    # that trades one hour a day would otherwise have its time stop checked about
+    # once a day, no matter what the strategy asks for.
+    max_hold_bars: Optional[int] = None
     urgency: Literal["low", "medium", "high"] = "medium"
     structure_summary: str = ""
     invalidation_conditions: str = ""

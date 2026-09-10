@@ -101,7 +101,7 @@ def build_signal(s, kind: str):
 
 
 def bracket(s, tp_pips, sl_pips, hold, direction, long_mask, short_mask,
-            cost_pips=None, be_trigger=0.0):
+            cost_pips=None, be_trigger=0.0, entry_delay=0):
     """Brackets with an optional break-even stop, vectorised over entry bars."""
     n = s.c.size
     pip = s.pip
@@ -118,7 +118,10 @@ def bracket(s, tp_pips, sl_pips, hold, direction, long_mask, short_mask,
         return None
 
     m = idx.size
-    entry = s.c[idx]
+    # entry_delay=0 fills at the signal bar's close, which is only knowable once
+    # that bar has ended. entry_delay=1 fills at the next bar's open, which is what
+    # a bot can actually get.
+    entry = s.c[idx] if entry_delay == 0 else s.o[idx + entry_delay]
     undecided = np.ones(m, dtype=bool)
     gross = np.zeros(m)
     armed = np.zeros(m, dtype=bool)
@@ -185,6 +188,9 @@ def main() -> int:
     ap.add_argument("--be-trigger", type=float, default=0.0,
                     help="Pips in profit at which the stop moves to break even (0 = off)")
     ap.add_argument("--cost-pips", type=float, default=None)
+    ap.add_argument("--entry-delay", type=int, default=0,
+                    help="0 = fill at the signal bar close (not tradeable in reality), "
+                         "1 = fill at the next bar open (what a bot actually gets)")
     ap.add_argument("--by-hour", action="store_true")
     ap.add_argument("--exclude-hours", default=None, help="Comma list of UTC hours to skip")
     ap.add_argument("--only-hours", default=None, help="Comma list of UTC hours to KEEP")
@@ -216,7 +222,7 @@ def main() -> int:
             lm, sm_ = build_signal(s, kind)
             for direction in ("long", "short"):
                 r = bracket(s, args.tp, args.sl, args.hold, direction, lm, sm_,
-                            args.cost_pips, args.be_trigger)
+                            args.cost_pips, args.be_trigger, args.entry_delay)
                 if r is None or r["net"].size == 0:
                     continue
                 keep = np.ones(r["net"].size, bool)

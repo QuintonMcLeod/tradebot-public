@@ -47,14 +47,30 @@ def run_universal_exit_logic(
     pnl = current_price - entry_price if direction == "long" else entry_price - current_price
     r_multiple = pnl / initial_risk if initial_risk > 0 else 0
     
+    # ── Strategies that own their own risk management ──
+    # The router exists to give every strategy a safety floor. A strategy whose own
+    # exits have been measured and validated should not have a second, conflicting
+    # rule set layered on top: the giveback guard in particular truncates winners at
+    # a fraction of their target, which destroys a rule that depends on reaching it.
+    _SELF_MANAGED_EXITS = {
+        "forexscrapefade": ["fixed_rr"],
+    }
+    _self_managed = _SELF_MANAGED_EXITS.get(
+        str(strategy_name or "").replace("_", "").lower()
+    )
+    if _self_managed is not None:
+        active_strategies = list(_self_managed)
+
     # ── Universal Exit Router ──
-    active_strategies = getattr(profile, "universal_exit_strategies", ["fixed_rr"])
+    if _self_managed is None:
+        active_strategies = getattr(profile, "universal_exit_strategies", ["fixed_rr"])
     if isinstance(active_strategies, str):
         active_strategies = [s.strip() for s in active_strategies.split(",") if s.strip()]
     elif isinstance(active_strategies, list):
         active_strategies = active_strategies.copy()
         
-    if getattr(profile, "winner_giveback_enabled", False) and "winner_giveback" not in active_strategies:
+    if _self_managed is None and getattr(profile, "winner_giveback_enabled", False) \
+            and "winner_giveback" not in active_strategies:
         active_strategies.append("winner_giveback")
     
     # ════════════════════════════════════════════════════════════════════

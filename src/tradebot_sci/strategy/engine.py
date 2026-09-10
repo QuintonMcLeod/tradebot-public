@@ -153,6 +153,7 @@ class StrategyEngine:
         "forex_hybrid_breakout": ("tradebot_sci.strategy.variants.forex_hybrid_breakout", "ForexHybridBreakout"),
         "forex_structure_breakout": ("tradebot_sci.strategy.variants.forex_structure_breakout", "ForexStructureBreakout"),
         "forex_structure_breakout_best": ("tradebot_sci.strategy.variants.forex_structure_breakout_best", "ForexStructureBreakoutBest"),
+        "forex_scrape_fade": ("tradebot_sci.strategy.variants.forex_scrape_fade", "ForexScrapeFade"),
         "qs_sma_filter":        ("tradebot_sci.strategy.variants.qs_sma_filter",        "QS_SMAFilterStrategy"),
         "qs_golden_cross":      ("tradebot_sci.strategy.variants.qs_golden_cross",      "QS_GoldenCrossStrategy"),
         "qs_rsi_mean_reversion":("tradebot_sci.strategy.variants.qs_rsi_mean_reversion","QS_RSIMeanReversionStrategy"),

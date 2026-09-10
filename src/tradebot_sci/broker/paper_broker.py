@@ -941,6 +941,7 @@ class PaperBroker:
                 "entry_fee": fee_usd,
                 "strategy": getattr(decision, "strategy_name", None) or "unknown",
                 "risk_usd": risk_usd,
+                "max_hold_bars": getattr(decision, "max_hold_bars", None),
                 "mfe_usd": 0.0,
                 "mae_usd": 0.0,
                 "regime": getattr(decision, "regime", "") or "",

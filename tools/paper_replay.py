@@ -464,6 +464,26 @@ class ReplayPaperBroker(PaperBroker):
             except Exception:
                 continue
 
+            # ── Declared maximum holding period ──────────────────────────────
+            # Enforced here because this runs once per bar, while a strategy's own
+            # exit hook only runs when the portfolio cycle revisits the symbol — a
+            # strategy that trades one hour a day would otherwise have its time stop
+            # checked roughly once a day. Bars are counted directly rather than
+            # derived from the entry timestamp, because the position clock and the
+            # snapshot clock do not always agree in replay.
+            _max_hold = pos.get("max_hold_bars")
+            if _max_hold:
+                pos["bars_open"] = int(pos.get("bars_open") or 0) + 1
+                if pos["bars_open"] > int(_max_hold):
+                    logger.info(
+                        f"[REPLAY] [TIME STOP] {symbol}: {pos['bars_open']} bars held "
+                        f"> {int(_max_hold)} — closing at market"
+                    )
+                    self._record_exit(symbol, pos, current_close, "TIME_STOP", results,
+                                      candle_open=current_close, candle_high=candle_high,
+                                      candle_low=candle_low)
+                    continue
+
             sl   = pos.get("stop_loss")
             tp   = pos.get("take_profit")
             side = pos.get("side", "long")
@@ -735,6 +755,28 @@ class ReplayPaperBroker(PaperBroker):
 # ─────────────────────────────────────────────────────────────────────────────
 # Observation Loader
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _expand_daily_records(obs_list: list[dict], window: int = 60) -> list[dict]:
+    """Turn a day-per-record store into one observation per bar with a rolling window.
+
+    The compact backfill writes a single record holding a whole day of candles. The
+    replay advances one tick per record, so feeding it day records makes it evaluate
+    stops against daily ranges — roughly 250 decisions a year instead of 73,000,
+    which is not the same strategy at all. Expanding here keeps the stored files
+    small while giving the engine the per-bar cadence it expects.
+    """
+    out: list[dict] = []
+    for rec in obs_list:
+        ltf = rec.get("ltf") or []
+        if len(ltf) <= 1:
+            out.append(rec)
+            continue
+        base = {k: v for k, v in rec.items() if k not in ("ltf", "htf")}
+        for i in range(len(ltf)):
+            lo = max(0, i - window + 1)
+            out.append({**base, "ltf": ltf[lo:i + 1], "htf": rec.get("htf") or []})
+    return out
+
 
 def load_observations(symbols: list[str], start_dt: datetime, end_dt: datetime, api_fallback: bool = False) -> dict[str, list[dict]]:
     """Load recorded observations for each symbol for the given date range.
@@ -1277,6 +1319,8 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
     # ── Load observations ──────────────────────────────────────────────
     fetch_start = start_dt - timedelta(days=50)
     all_obs = load_observations(available_syms, fetch_start, end_dt, api_fallback=api_fallback)
+    # One tick per bar, not one tick per day-file.
+    all_obs = {sym: _expand_daily_records(v) for sym, v in all_obs.items()}
     if not all_obs:
         logger.error("[REPLAY] No observations loaded — nothing to replay.")
         sys.exit(1)
