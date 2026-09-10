@@ -202,9 +202,11 @@ def main() -> int:
     # ── 1. Calendar drift: hold long through each weekday ────────────────────
     dow = np.array([datetime.fromisoformat(d).weekday() for d in dates])
     for name, day in (("Mon", 0), ("Tue", 1), ("Wed", 2), ("Thu", 3), ("Fri", 4)):
-        w = np.zeros_like(closes)
-        w[dow == day] = 1.0
-        evaluate(w / max(len(syms), 1), f"drift: long {name} (1d hold)", net_cost=False)
+        # The forward return at row i realises on the session at row i+1, so the
+        # weight belongs one row earlier for the label to name the right session.
+        mask = np.zeros_like(closes)
+        mask[:-1][dow[1:] == day] = 1.0
+        evaluate(mask / max(len(syms), 1), f"drift: long all {name} (1d hold)", net_cost=True)
 
     # ── 2. Turn of month: last session and first two of the month ────────────
     months = np.array([d[:7] for d in dates])

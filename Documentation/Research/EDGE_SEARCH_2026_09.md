@@ -133,13 +133,160 @@ That reframes the work in three ways:
    both halves, and positive after cost. Under that bar, nothing tested so far
    qualifies.
 
-## 5. Next steps, in order of expected value
+## 4b. Round two: carry, execution, and payoff asymmetry
 
-1. **Real carry data.** Carry is the best-documented FX factor and the crude
-   proxy here was not a fair test. Needs interest-rate or forward-point history.
-2. **Maker-vs-taker simulation.** Quantify the cost reduction from limit entry and
-   whether the measured 0.5-pip intraday edge survives at maker costs.
-3. **Extend the daily sample** so the 4σ reversal and weekday effects reach a few
-   hundred independent events instead of a few dozen.
+### Carry, with real interest rates
+
+`tools/fetch_rates.py` pulls OECD three-month interbank rates for all eight
+currencies from FRED (no key needed, history back to the 1950s). Carry is then the
+rate differential between the two legs, lagged a month so nothing uses an
+unpublished figure. `tools/edge_carry.py`:
+
+| portfolio (monthly rebalance, net of spread) | bps/mo | t | annualised | pre-2020 | 2020+ |
+|---|---|---|---|---|---|
+| cross-sectional carry, with accrual | +2.5 | 0.21 | +0.4% | +3.8 | +1.3 |
+| cross-sectional carry, spot only | −10.3 | −0.84 | −1.7% | −9.5 | −10.9 |
+| time-series carry, with accrual | +1.2 | 0.16 | +0.2% | −4.8 | +7.0 |
+
+The quintile ladder — the test that separates factors from accidents — is **not
+monotonic**: 0.5, 7.8, 7.0, 3.3, 7.0 bps from the lowest-carry quintile to the
+highest. There is no monotone relationship between carry and return here, so this
+is not a factor result. Worth noting what the split shows: the high-yielders
+appreciated *less* than the low-yielders on spot over this sample, and the accrual
+merely offset that. Carry is not a free lunch; it is compensation for exactly that
+risk, and in 2013–2026 the compensation was roughly break-even.
+
+### Maker execution: does a better entry price rescue the real pattern?
+
+The best-measured intraday effect was fading a 2σ stretch in low volatility
+(+0.52 pips, t=5.7, positive on 100% of pairs). `tools/edge_maker.py` rests a limit
+order D pips better than the signal close and measures what actually happens:
+
+| limit offset | fill rate | net pips per signal | net pips per fill |
+|---|---|---|---|
+| 0.00 (market) | 99% | −0.46 | −0.47 |
+| 0.50 | 89% | −0.41 | −0.46 |
+| 1.00 | 81% | −0.32 | −0.40 |
+| 2.00 | 65% | −0.23 | −0.35 |
+| 3.00 | 52% | −0.16 | −0.30 |
+
+A three-pip better entry improves the outcome by only 0.30 pips. **Adverse
+selection consumes about 94% of the price improvement**: the limit fills when
+price keeps coming, which is the case where the signal was wrong. This is the
+quantitative death of the "just use limit orders" fix — the edge was smaller than
+the spread to begin with, and the maker route cannot recover it.
+
+### Payoff asymmetry: does a winner keep running?
+
+`tools/edge_asymmetry.py` buckets every bar by how far price has already travelled
+(in ATR) and measures the next move in the same direction, net of cost:
+
+| travel bucket | n | net pips | t | reading |
+|---|---|---|---|---|
+| −3 ATR or worse | 54,688 | −2.02 | −25.97 | gives it back |
+| −1 to −2 ATR | 92,028 | −2.08 | −21.97 | gives it back |
+| +0.5 to +1 ATR | 57,900 | −1.88 | −20.26 | gives it back |
+| +2 to +3 ATR | 65,572 | −2.09 | −24.74 | gives it back |
+
+Every bucket lands at roughly minus the spread, which means the **gross forward
+move is zero in both directions at every level of unrealised profit**. There is no
+asymmetry to exploit: being up does not make the position more likely to continue,
+and being down does not make it more likely to revert. "Cut losers, let winners
+run" is not supported by this data at the hourly horizon — the only thing the test
+detects is the cost of acting.
+
+*(An earlier version of this test reported t-statistics of ±60 with a perfect
+split between winners and losers. That was a bug: `copysign(fwd, n)` keeps the
+forward move's magnitude and takes the *bucket's* sign, so the result was trivially
+nonzero by construction. The fix is `sign(n) * fwd`. Recorded because a spectacular
+result is exactly when to look for the error.)*
+
+### Calendar effects, with enough power to judge them
+
+Thirteen years gives ~676 independent observations per weekday. Earlier, a
+mis-labelled weekday mask (marking the bar whose forward return realises on the
+*next* session) plus an uncharged round trip produced a fake "Thursday drift"
+candidate. With the label corrected and the spread charged, every weekday is
+negative — Wednesday −4.63 bps (t=−4.79), Thursday −4.40 (t=−4.97), Monday
+−1.00 — which is what holding a zero-drift asset while paying two basis points of
+spread per day looks like. Turn-of-month is −0.55 bps. The best month of the year
+is October at +1.98 bps (t=1.70), which is noise.
+
+---
+
+## 4c. The reversal candidate, tested on 23 years
+
+The one family with a persistent positive sign was short-term reversal (+2.2 to
++3.2%/yr net on 2013–2026, t≈2.4–2.7). It was the only thing worth a second look,
+so the sample was extended back to 2003 — 6,703 sessions per pair, 26 pairs:
+
+| rule (2003–2026, net of spread) | hold 5 | hold 20 |
+|---|---|---|
+| reversal: fade past 5d | −1.46 bps (t=−0.86) | −3.96 (t=−0.63) |
+| reversal: fade past 1d | +0.45 bps (t=0.27) | −3.64 (t=−0.63) |
+| XSMOM: reversed 20d | −1.89 bps (t=−0.73) | +0.51 (t=0.06) |
+| trend: follow past 60d | −3.57 bps (t=−1.99) | −4.84 (t=−0.70) |
+
+**It disappears.** At a 20-day hold the two halves of the extended sample have
+opposite signs (−23.70 bps then +16.42), which is what a sample-specific artifact
+looks like. Trend following also stops being significant once the sample is not
+the specific 2013–2026 window.
+
+This is the most useful lesson in the whole exercise: an effect that looked
+credible on thirteen years, with a consistent sign in both halves *of that
+thirteen years*, evaporated on twenty-three. Had the bar been "t>2 on the data I
+happened to have", it would have been shipped, and it would have lost money. The
+multiple-testing bar is not bureaucracy; it is the difference between a strategy
+and a story.
+
+
+
+Every rule named in the research plan, tested with cost accounting, clustering and
+a held-out era check:
+
+| hypothesis | data | verdict |
+|---|---|---|
+| Intraday mean reversion | 26 pairs × 12m M5, 257k events | **real** (+0.25 to +0.52 pips, t 3.4–5.7, 89–100% of pairs) but 3–6× smaller than the spread |
+| Trend following / momentum | 26 pairs × 13y daily, +4h | **negative** (−5 to −7 bps per period, t −2.5 to −6.9), both halves |
+| Cross-sectional momentum | same | **negative** |
+| Carry | 26 pairs × 13y, real rates | flat (+2.5 bps/mo, t=0.21) and non-monotonic |
+| Calendar (weekday, turn-of-month, month) | 13y daily, ~676 obs per weekday | all negative once the round trip is charged |
+| Session effects | 12m M5 | real but 0.07–0.36 pips vs a 1.6-pip spread |
+| Level effects (round numbers, prior-day extremes) | 12m M5 | insignificant |
+| Payoff asymmetry | 12m M5, hourly | **no asymmetry at all** — gross forward move is zero in every bucket |
+| Maker execution instead of taker | 12m M5, six offsets | adverse selection eats 94% of the improvement; still negative |
+| Short-term reversal | 13y daily + 4h, then 23y | positive on 13y (t≈2.4–2.7) but **evaporates on 23 years** — the 13-year result was sample-specific |
+
+**Nothing clears the pre-registered bar** (|t|>3 on independent clusters, same sign
+out of sample, positive after cost), and the one thread that came closest —
+short-term reversal — dissolved when the sample was extended to 23 years. On the
+evidence available, **price history alone does not contain an edge, for this
+instrument set, at these costs.**
+
+The one result that is not ambiguous is the cost structure: the account pays
+1.6–2.25 pips per round trip, and the measurable patterns are worth a fraction of
+that. Any strategy that trades frequently on this account is donating the spread,
+which is precisely what the live variant has been doing.
+
+## 6. Next steps, in order of expected value
+
+Items 1 and 2 from the previous list are now done and are reported above. What
+remains:
+
+1. **Re-examine the cost assumption, because it decides everything.** The spreads
+   measured here (1.6–2.25 pips round trip) are retail quotes with a markup.
+   The one genuinely real effect found — mean reversion after a 2σ stretch, t=5.7,
+   positive on 100% of pairs — is worth +0.52 pips. It is unprofitable at 1.6 pips
+   and profitable at institutional costs (~0.2–0.3 pips). So the honest question
+   for the account is not "which pattern" but "what spread can this account
+   actually achieve", and the answer determines whether the real edge is
+   reachable at all.
+2. **Positioning data.** Speculative positioning (COT reports) is the one major
+   input not yet in the panel, and it is genuinely orthogonal to price history.
+   It is public, weekly, and goes back decades.
+3. **Accept the cost conclusion for the current bot.** With a 1.6–2.25 pip round
+   trip and patterns worth a fraction of a pip, no entry parameter can fix the
+   live variant. Either trade a horizon where the move dwarfs the cost, or stop
+   trading this instrument on this account.
 4. **Do not tune the current variants further.** Entry parameters cannot create an
    edge larger than the spread that the data does not contain.
