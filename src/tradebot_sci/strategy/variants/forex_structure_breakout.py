@@ -60,6 +60,7 @@ class ForexStructureBreakout(BaseStrategy):
         # take over once price moves favorably.
         self.stop_atr_mult = float(kwargs.get("stop_atr_mult", 1.0))
 
+
         # Score threshold for entry
         self.score_threshold = float(kwargs.get("score_threshold", 60.0))
 
@@ -281,6 +282,49 @@ class ForexStructureBreakout(BaseStrategy):
         summary = f"StructureBreakout: {', '.join(details)} = {score:.0f}"
         return score, grade, summary
 
+
+    def _trace_entry(self, snapshot, side, score, adx, vol_ratio, swing_high,
+                     swing_low, atr, entry, stop_loss, risk) -> None:
+        """Append one JSON line per accepted entry when TRADE_SCI_ENTRY_TRACE is set.
+
+        Used to relate entry-time conditions (how extended the break already is,
+        the shape of the breakout bar) to how the trade actually turned out.
+        """
+        import json as _json
+        import os as _os
+        path = _os.environ.get("TRADE_SCI_ENTRY_TRACE")
+        if not path:
+            return
+        try:
+            bar = snapshot.candles[-1]
+            rng = float(bar.high) - float(bar.low)
+            if side == "long":
+                breakout_atr = (entry - swing_high) / atr if atr else 0.0
+                wick_frac = ((float(bar.high) - entry) / rng) if rng > 0 else 0.0
+            else:
+                breakout_atr = (swing_low - entry) / atr if atr else 0.0
+                wick_frac = ((entry - float(bar.low)) / rng) if rng > 0 else 0.0
+            rec = {
+                "symbol": snapshot.symbol,
+                "time": str(getattr(bar, "timestamp", "")),
+                "side": side,
+                "score": round(float(score), 1),
+                "adx": round(float(adx), 1),
+                "vol_ratio": round(float(vol_ratio), 2),
+                "atr": round(float(atr), 6),
+                "breakout_atr": round(float(breakout_atr), 3),
+                "wick_frac": round(float(wick_frac), 3),
+                "range_atr": round(rng / atr, 3) if atr else 0.0,
+                "entry": round(float(entry), 6),
+                "stop": round(float(stop_loss), 6),
+                "risk_pips": round(float(risk) / self._pip_size(snapshot.symbol), 1),
+                "risk_atr": round(float(risk) / atr, 2) if atr else 0.0,
+            }
+            with open(path, "a") as fh:
+                fh.write(_json.dumps(rec) + "\n")
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Entry Signal
     # ------------------------------------------------------------------
@@ -351,7 +395,7 @@ class ForexStructureBreakout(BaseStrategy):
 
             # Stop: below swing low, buffered by ATR
             stop_loss = swing_low - (atr * self.stop_atr_mult)
-            # Enforce minimum stop distance
+            # Enforce minimum stop distance (noise floor wins if tighter)
             if (last_close - stop_loss) < min_stop:
                 stop_loss = last_close - min_stop
 
@@ -362,6 +406,9 @@ class ForexStructureBreakout(BaseStrategy):
 
             # Target: use strategy's target_r
             target = last_close + (risk * self.target_r)
+
+            self._trace_entry(snapshot, "long", score, adx, vol_ratio, swing_high,
+                              swing_low, atr, last_close, stop_loss, risk)
 
             return AITradeDecision(
                 symbol=snapshot.symbol,
@@ -393,7 +440,7 @@ class ForexStructureBreakout(BaseStrategy):
 
             # Stop: above swing high, buffered by ATR
             stop_loss = swing_high + (atr * self.stop_atr_mult)
-            # Enforce minimum stop distance
+            # Enforce minimum stop distance (noise floor wins if tighter)
             if (stop_loss - last_close) < min_stop:
                 stop_loss = last_close + min_stop
 
@@ -404,6 +451,9 @@ class ForexStructureBreakout(BaseStrategy):
 
             # Target: use strategy's target_r
             target = last_close - (risk * self.target_r)
+
+            self._trace_entry(snapshot, "short", score, adx, vol_ratio, swing_high,
+                              swing_low, atr, last_close, stop_loss, risk)
 
             return AITradeDecision(
                 symbol=snapshot.symbol,

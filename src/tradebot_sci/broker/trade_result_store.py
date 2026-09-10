@@ -31,6 +31,10 @@ class TradeResult:
     size: float | None = None            # Position size/units
     entry_price: float | None = None     # Average entry price
     exit_price: float | None = None      # Average exit price
+    initial_stop: float | None = None    # Stop at entry, for R-multiple analysis
+    risk_usd: float | None = None        # Initial risk in USD (entry to stop)
+    mfe_r: float | None = None           # Peak favorable excursion in R
+    pnl_r: float | None = None           # Realised result in R
 
     def to_dict(self) -> dict:
         d = {k: v for k, v in self.__dict__.items()}

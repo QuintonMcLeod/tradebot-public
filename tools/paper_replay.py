@@ -667,6 +667,14 @@ class ReplayPaperBroker(PaperBroker):
             f"| pnl=${self._total_pnl:+.2f} bal=${running_balance:.2f}"
         )
 
+        # Entry geometry, expressed in R so entry quality can be compared
+        # across symbols with different pip sizes and position sizes.
+        initial_stop = float(pos.get("original_stop_loss") or pos.get("stop_loss") or 0.0)
+        pos_size = float(pos.get("size") or 0.0)
+        risk_usd = abs(entry_p - initial_stop) * abs(pos_size) if initial_stop else 0.0
+        mfe_r = (mfe_usd / risk_usd) if risk_usd else 0.0
+        pnl_r = (pnl_usd / risk_usd) if risk_usd else 0.0
+
         if self.trade_results:
             opened_at = pos.get("opened_at", "")
             self.trade_results.add_result(TradeResult(
@@ -687,6 +695,10 @@ class ReplayPaperBroker(PaperBroker):
                 entry_price=entry_p,
                 exit_price=fill_p,
                 size=pos.get("size"),
+                initial_stop=initial_stop,
+                risk_usd=round(risk_usd, 2),
+                mfe_r=round(mfe_r, 3),
+                pnl_r=round(pnl_r, 3),
             ))
 
         del self.positions[symbol]
@@ -1194,9 +1206,12 @@ def _worker_replay_symbol(args: tuple) -> dict:
 
     trades = []
     for r in trade_store.results:
+        entry_p = float(getattr(r, "entry_price", 0.0) or 0.0)
+        size = float(getattr(r, "size", 0.0) or 0.0)
         trades.append({
             "symbol":      r.symbol,
             "closed_at":   getattr(r, "closed_at", None),
+            "opened_at":   getattr(r, "opened_at", None),
             "pnl_usd":     float(r.pnl_usd),
             "is_win":      bool(r.is_win),
             "side":        getattr(r, "side", "?"),
@@ -1204,6 +1219,12 @@ def _worker_replay_symbol(args: tuple) -> dict:
             "strategy":    getattr(r, "strategy", ""),
             "mfe_usd":     float(getattr(r, "mfe_usd", 0.0) or 0.0),
             "mae_usd":     float(getattr(r, "mae_usd", 0.0) or 0.0),
+            "entry_price": entry_p,
+            "size":        size,
+            "initial_stop": float(getattr(r, "initial_stop", 0.0) or 0.0),
+            "risk_usd":    float(getattr(r, "risk_usd", 0.0) or 0.0),
+            "mfe_r":       float(getattr(r, "mfe_r", 0.0) or 0.0),
+            "pnl_r":       float(getattr(r, "pnl_r", 0.0) or 0.0),
         })
 
     return {
@@ -1444,6 +1465,7 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
         "trades": [
             {
                 "time":   t.get("closed_at"),
+                "opened_at": t.get("opened_at"),
                 "symbol": t["symbol"],
                 "side":   t["side"],
                 "pnl":    round(t["pnl_usd"], 2),
@@ -1451,6 +1473,11 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
                 "strategy": t.get("strategy", ""),
                 "mfe_usd": round(t.get("mfe_usd", 0.0), 2),
                 "mae_usd": round(t.get("mae_usd", 0.0), 2),
+                "entry_price": round(t.get("entry_price", 0.0), 6),
+                "initial_stop": round(t.get("initial_stop", 0.0), 6),
+                "risk_usd": round(t.get("risk_usd", 0.0), 2),
+                "mfe_r": round(t.get("mfe_r", 0.0), 2),
+                "pnl_r": round(t.get("pnl_r", 0.0), 2),
             }
             for t in all_trades
         ],

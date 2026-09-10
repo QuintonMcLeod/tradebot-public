@@ -181,8 +181,30 @@ class StrategyEngine:
         kwargs = {}
         if hasattr(self.profile, "model_dump"):
             kwargs.update(self.profile.model_dump())
-        elif hasattr(self.profile, "__dict__"):
+        if hasattr(self.profile, "__dict__"):
+            # model_dump() drops keys that are not declared fields, but strategies
+            # read most of their tuning via **kwargs. Those values (set by the CLI
+            # overrides, the GUI or an A/B experiment) live only in __dict__, so
+            # without this merge they never reached the strategy.
             kwargs.update(self.profile.__dict__)
+
+        # Operational tuning (target_r, adx_min, stop_floor_pct, ...) is not part
+        # of the profile model any more — it lives in the canonical sections and
+        # is resolved on demand by the profile's attribute shim. model_dump()
+        # only returns declared fields, so those values never reached the
+        # strategy constructor and every tunable parameter silently fell back to
+        # the default written in the strategy. Fill in whatever the strategy
+        # actually declares, resolving each name through the shim.
+        try:
+            import inspect
+            for _name in inspect.signature(cls.__init__).parameters:
+                if _name in ("self", "args", "kwargs", "profile_settings") or _name in kwargs:
+                    continue
+                _val = getattr(self.profile, _name, None)
+                if _val is not None:
+                    kwargs[_name] = _val
+        except (TypeError, ValueError):
+            pass
 
         # MetaSCIStrategy and ForexConductor require profile_settings kwarg
         if variant == "meta_sci":
