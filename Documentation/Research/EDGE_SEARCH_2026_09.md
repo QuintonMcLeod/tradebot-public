@@ -19,6 +19,11 @@ Tooling produced for this work:
 
 ---
 
+> **Consolidated verdict:** the conclusions of this document, together with the
+> live account's own record, are summarised in
+> [`FINAL_VERDICT_2026_09.md`](FINAL_VERDICT_2026_09.md).
+
+
 ## 1. The cost floor
 
 Measured from live account quotes, median round-trip cost across the 26 pairs:

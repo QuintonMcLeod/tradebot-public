@@ -15,6 +15,11 @@ benchmark).
 
 ---
 
+> **Consolidated verdict:** the conclusions of this document, together with the
+> live account's own record, are summarised in
+> [`FINAL_VERDICT_2026_09.md`](FINAL_VERDICT_2026_09.md).
+
+
 ## The rule tested
 
 The most-documented systematic strategy in existence: hold markets that have risen
