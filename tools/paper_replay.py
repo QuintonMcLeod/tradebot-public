@@ -1319,8 +1319,6 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
     # ── Load observations ──────────────────────────────────────────────
     fetch_start = start_dt - timedelta(days=50)
     all_obs = load_observations(available_syms, fetch_start, end_dt, api_fallback=api_fallback)
-    # One tick per bar, not one tick per day-file.
-    all_obs = {sym: _expand_daily_records(v) for sym, v in all_obs.items()}
     if not all_obs:
         logger.error("[REPLAY] No observations loaded — nothing to replay.")
         sys.exit(1)
@@ -1366,6 +1364,28 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
         logger.info(f"[REPLAY] {sym}: {len(ltf_raw_by_sym[sym])} LTF + "
                     f"{len(htf_raw_by_sym[sym])} HTF  | {len(obs_list)} obs")
         total_ticks += len(obs_list)
+
+    # ── Rebuild one observation per bar, with a rolling window ────────────
+    # The loop above strips the candle arrays from every record before pickling to
+    # keep IPC cheap, which left each worker with a day's worth of windowless
+    # observations and therefore only a handful of usable ticks. Rebuild the
+    # per-bar stream from the deduplicated timeline instead, so the replay advances
+    # one bar at a time — the cadence every time-based rule depends on.
+    for sym in list(all_obs.keys()):
+        timeline = ltf_raw_by_sym.get(sym) or []
+        if not timeline:
+            continue
+        base = {k: v for k, v in (all_obs[sym][0] or {}).items()
+                if k not in ("ltf", "htf")} if all_obs[sym] else {"sym": sym, "tf": "5m"}
+        per_bar = []
+        window = 60
+        for i, c in enumerate(timeline):
+            lo = max(0, i - window + 1)
+            per_bar.append({**base, "ltf": timeline[lo:i + 1], "htf": [],
+                            "ts": c.get("t")})
+        all_obs[sym] = per_bar
+    logger.info("[REPLAY] Rebuilt per-bar observations: %s",
+                ", ".join(f"{sym}:{len(v)}" for sym, v in list(all_obs.items())[:4]))
 
     n_workers = min(len(all_obs), multiprocessing.cpu_count())
     if max_workers:

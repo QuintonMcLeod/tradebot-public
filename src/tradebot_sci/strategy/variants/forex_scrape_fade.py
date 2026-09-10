@@ -80,6 +80,8 @@ class ForexScrapeFade(BaseStrategy):
         self.stop_pips = float(kwargs.get("scrape_stop_pips", 20.0))
         self.target_pips = float(kwargs.get("scrape_target_pips", 10.0))
         self.max_hold_bars = int(kwargs.get("scrape_max_hold_bars", 48))
+        # symbol -> timestamp of the last entry, for the spacing rule above
+        self._last_entry_bar: dict = {}
 
         logger.info(
             f"[SCRAPE_INIT] window={self.entry_hour_start:02d}:00-{self.entry_hour_end:02d}:00 UTC, "
@@ -135,25 +137,38 @@ class ForexScrapeFade(BaseStrategy):
         if not self._in_window(snapshot):
             return None
 
-        # Range measured over the bars BEFORE the last two, so that a break can be
-        # identified as *fresh*: the previous bar still closed inside the range and
-        # the current one closed outside. Without this test the strategy re-signals
-        # the same persisting break on every bar, and the engine correctly refuses
-        # the duplicates.
-        if len(candles) < self.range_lookback + 3:
+        # Range over the prior N bars, including the one just closed — exactly the
+        # rule that was validated on three years of data. An earlier version moved
+        # the window back two bars to make breaks "fresh", which made entries about
+        # forty times rarer than the rule being tested; the de-duplication that the
+        # research applied is handled below by a spacing rule instead, so the
+        # strategy and the validation measure the same thing.
+        if len(candles) < self.range_lookback + 2:
             return None
-        prior = candles[-self.range_lookback - 2:-2]
+        prior = candles[-self.range_lookback - 1:-1]
         range_high = max(c.high for c in prior)
         range_low = min(c.low for c in prior)
 
         last = candles[-1]
-        prev = candles[-2]
         entry = float(last.close)
         pip = self._pip_size(snapshot.symbol)
 
-        if last.close < range_low and prev.close >= range_low:
+        # Do not re-enter while a break episode is still live: one entry per
+        # holding period per symbol, which is how the research de-clustered its
+        # events instead of counting every bar of a persisting break.
+        last_entry = self._last_entry_bar.get(snapshot.symbol)
+        if last_entry is not None:
+            try:
+                elapsed_bars = int((last.timestamp - last_entry).total_seconds() // 300)
+                if elapsed_bars < self.max_hold_bars:
+                    return None
+            except Exception:
+                pass
+
+        if last.close < range_low:
             stop = entry - (self.stop_pips * pip)      # 20 pips against
             target = entry + (self.target_pips * pip)  # 10 pips for
+            self._last_entry_bar[snapshot.symbol] = last.timestamp
             logger.info(
                 f"[SCRAPE] {snapshot.symbol} LONG fade: close {entry:.5f} broke below "
                 f"{self.range_lookback}-bar low {range_low:.5f} "
@@ -184,9 +199,10 @@ class ForexScrapeFade(BaseStrategy):
                 regime="range",
             )
 
-        if last.close > range_high and prev.close <= range_high:
+        if last.close > range_high:
             stop = entry + (self.stop_pips * pip)
             target = entry - (self.target_pips * pip)
+            self._last_entry_bar[snapshot.symbol] = last.timestamp
             logger.info(
                 f"[SCRAPE] {snapshot.symbol} SHORT fade: close {entry:.5f} broke above "
                 f"{self.range_lookback}-bar high {range_high:.5f} "
