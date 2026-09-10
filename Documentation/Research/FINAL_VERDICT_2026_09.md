@@ -42,6 +42,7 @@ daily bars across 34 markets.
 | Maker entry instead of taker | 6 limit offsets | adverse selection eats 94% of the price improvement; still negative |
 | Speculative positioning (CFTC) | 20 years, 8 currencies, 54 cells | right sign (fade the crowd +2%/yr, follow it −2%) but t 1.0–1.3; not established |
 | Multi-asset trend following | 14 markets, then 34, 1986–2026 | promising on the narrow basket (Sharpe 0.89/0.82 vs 0.67/0.43), **collapses to a tie on the wider one** (0.52 vs 0.52); paired difference +1.3–1.6%/yr, t 1.1–1.3 |
+| **Scrape: brackets, all hours, all pairs** | 2.2m simulated brackets per grid, 12m M5, 15 pairs | direction-less brackets have **zero gross expectancy in all 48 geometries** — an 88% win rate still nets −2.19 pips. Adding a fade entry produces a real gross edge (**+0.24 pips, t=5.56, 15/15 pairs**) but the account's ~2.2 pips round trip is ~9× the break-even cost of 0.24. See `SCRAPE_HYPOTHESIS_2026_09.md`. |
 
 ## 3. The live bot corroborates the finding
 
