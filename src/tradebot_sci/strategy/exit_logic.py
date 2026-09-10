@@ -139,6 +139,8 @@ def run_universal_exit_logic(
             strat_decision = _exit_adx_death(snapshot, open_position, current_price, direction, gates)
         elif exit_strategy == "winner_giveback":
             strat_decision = _exit_winner_giveback(snapshot, open_position, current_price, direction, profile)
+        elif exit_strategy == "floor_ratchet":
+            strat_decision = _exit_floor_ratchet(snapshot, open_position, current_price, direction, stop_price, entry_price)
         else:
             # Default: fixed_rr
             strat_decision = _exit_fixed_rr(snapshot, open_position, current_price, direction, target_price)
@@ -1072,4 +1074,41 @@ def _exit_bollinger_invalidation(snapshot, pos, current_price, direction, profil
         if decision:
             return decision
                 
+    return None
+
+
+def _exit_floor_ratchet(snapshot, pos, current_price, direction, current_stop, entry_price):
+    """Peak-based MFE Floor Lock: after ~1R favorable, ratchet the stop to keep at
+    least 50% of the best favorable excursion (uses bar peaks, unlike the R-based
+    ratchet which reads bar CLOSE - that lags intra-bar moves and gives back MFE)."""
+    if entry_price is None or entry_price <= 0:
+        return None
+    try:
+        current_stop = float(current_stop or 0)
+    except (TypeError, ValueError):
+        current_stop = 0.0
+    bars_held = _calc_bars_held(pos, snapshot)
+    if bars_held < 2 or not snapshot.candles:
+        return None
+    lookback = max(1, min(bars_held + 1, len(snapshot.candles), 50))
+    candles_since = snapshot.candles[-lookback:]
+    entry_price = float(entry_price)
+    sl = float(pos.get("stop_loss") or pos.get("stop_price") or 0)
+    init_risk = abs(entry_price - sl) if sl else (calculate_atr(snapshot.candles) or entry_price * 0.001)
+    if init_risk <= 0:
+        init_risk = calculate_atr(snapshot.candles) or entry_price * 0.001
+    if direction == "long":
+        peak = max([entry_price] + [c.high for c in candles_since])
+        excursion = peak - entry_price
+        locked = entry_price + 0.5 * excursion
+        if locked > current_stop and locked < current_price - (current_price * 1e-6):
+            if excursion >= init_risk:  # only arm after ~1R of favorable move
+                return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Floor Lock (50% of peak +{excursion:.5f})", stop_loss=locked)
+    else:
+        peak = min([entry_price] + [c.low for c in candles_since])
+        excursion = entry_price - peak
+        locked = entry_price - 0.5 * excursion
+        if (locked < current_stop or current_stop == 0) and locked > current_price:
+            if excursion >= init_risk:
+                return hold_decision(snapshot.symbol, snapshot.timeframe, reason=f"Floor Lock (50% of peak +{excursion:.5f})", stop_loss=locked)
     return None

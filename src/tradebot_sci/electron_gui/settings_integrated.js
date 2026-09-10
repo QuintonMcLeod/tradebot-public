@@ -1049,6 +1049,18 @@ const STRATEGIES = {
         stats: { timeframe: "5m", sessions: "London/NY Overlap", indicators: "EMA200, BB(20,2.5), RSI(7)"},
         sessionProfile: ["hybrid_overlap", "london_open"]
     },
+    forex_structure_breakout_best: {
+        name: 'Forex Structure Breakout (Best)',
+        icon: 'trending_up',
+        shortDesc: 'Tuned structure breakout (best parameters)',
+        assetClass: "forex",
+        description: "The tuned build of the structure-breakout strategy: same swing-break logic, with the best-performing parameters baked in. This is a distinct strategy from the plain Structure Breakout - it has its own entry thresholds and stop sizing.",
+        style: "Trend Breakout (Tuned)",
+        risk: "Medium",
+        bestFor: "Forex: trending pairs, London/NY sessions",
+        stats: { target: "2.0R", stop: "Structure + ATR" },
+        sessionProfile: ["london_open", "us_open"]
+    },
     forex_structure_breakout: {
         name: 'Forex Structure Breakout',
         icon: 'trending_up',
@@ -5781,6 +5793,9 @@ function updateValue(key, value, strategyNamespace = null) {
                 if (!configData.profiles[active]) configData.profiles[active] = {};
                 if (!configData.profiles[active].strategies) configData.profiles[active].strategies = {};
                 configData.profiles[active].strategies[assetClass] = val;
+                // Keep the headline variant in sync, otherwise the toolbox/UI keeps
+                // showing the previously selected strategy while the engine runs the new one.
+                configData.profiles[active].strategy_variant = val;
             }
         }
 
@@ -6080,6 +6095,7 @@ function renderStrategyToolbox(container) {
         { id: 'forex_conductor', label: 'Forex Conductor', icon: 'route', color: '#f59e0b' },
         { id: 'forex_hybrid_reaper', label: 'Forex Hybrid Scalper', icon: 'ssid_chart', color: '#f97316' },
         { id: 'forex_structure_breakout', label: 'Structure Breakout', icon: 'trending_up', color: '#10b981' },
+        { id: 'forex_structure_breakout_best', label: 'Structure Breakout (Best)', icon: 'trending_up', color: '#059669' },
         { id: 'trend_rider', label: 'Trend Rider', icon: 'trending_up', color: '#10b981' },
         { id: 'session_momentum', label: 'Session Momentum', icon: 'schedule_send', color: '#f43f5e' },
         { id: 'bearish_engulfing', label: 'Engulfing Reversal', icon: 'candlestick_chart', color: '#d946ef' },

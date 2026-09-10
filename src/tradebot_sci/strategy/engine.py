@@ -591,7 +591,9 @@ class StrategyEngine:
 
         # Per-strategy scoring (gives each strategy its own grade)
         strat_score, strat_grade, strat_summary = self._strategy.score_signal(snapshot, gates)
-        strat_name = self._strategy.name
+        # Report the registry variant key (e.g. forex_hybrid_reaper_breakout) instead
+        # of the shared class name (Reaper vs Reaper+Breakout are both "ForexHybridReaperStrategy").
+        strat_name = self._variant_key or self._strategy.name
         # Store for cycle.py to read (can't attach to Pydantic decision objects)
         self.last_strat_name = strat_name
         self.last_strat_score = strat_score

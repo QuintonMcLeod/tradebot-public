@@ -100,12 +100,12 @@ profiles:
   forex_continuous: 
     strategies: 
       etf: meta_sci 
-      forex: forex_structure_breakout_best 
+      forex: forex_structure_breakout_best
       futures: silver_vwap 
-      metals: forex_structure_breakout_best 
+      metals: forex_structure_breakout_best
       stocks: robocop 
-      crypto: forex_structure_breakout_best 
-    strategy_variant: forex_structure_breakout_best 
+      crypto: forex_structure_breakout_best
+    strategy_variant: forex_structure_breakout_best
     target_r: 2.0
     time_decay_bars: 24
     enable_negative_hold_guard: false

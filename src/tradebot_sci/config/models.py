@@ -390,7 +390,7 @@ class _LegacyProfileDefaults(BaseModel):
         "ma_crossover", "time_decay", "swing_trailing", "rsi_exhaustion", 
         "bollinger_snap", "ratchet_milestone", "adx_death", "structure_failure", "trend_invalidation", "winner_giveback", "bollinger_invalidation"
     ]] = Field(
-        default_factory=lambda: ["fixed_rr", "structure_failure", "trend_invalidation", "bollinger_invalidation", "ratchet_milestone", "scale_breakeven", "chandelier", "time_decay", "winner_giveback"],
+        default_factory=lambda: ["fixed_rr", "structure_failure", "trend_invalidation", "bollinger_invalidation", "ratchet_milestone", "scale_breakeven", "chandelier", "time_decay", "winner_giveback", "micro_canary", "floor_ratchet"],
         description="The universal exit methodology that supersedes strategy-specific exits.",
     )
     winner_giveback_enabled: bool = Field(
@@ -1759,7 +1759,7 @@ class PerformanceSettings(BaseModel):
         "ma_crossover", "time_decay", "swing_trailing", "rsi_exhaustion", 
         "bollinger_snap", "ratchet_milestone", "adx_death", "structure_failure", "trend_invalidation", "winner_giveback", "bollinger_invalidation"
     ]] = Field(
-        default_factory=lambda: ["fixed_rr", "structure_failure", "trend_invalidation", "bollinger_invalidation", "ratchet_milestone", "scale_breakeven", "chandelier", "time_decay", "winner_giveback"],
+        default_factory=lambda: ["fixed_rr", "structure_failure", "trend_invalidation", "bollinger_invalidation", "ratchet_milestone", "scale_breakeven", "chandelier", "time_decay", "winner_giveback", "micro_canary", "floor_ratchet"],
         description="The universal exit methodology that supersedes strategy-specific exits.",
     )
 
