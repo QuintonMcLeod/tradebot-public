@@ -1494,6 +1494,15 @@ def main():
     parser.add_argument("--range-stop-floor", type=float, default=None)
     parser.add_argument("--trend-target-r", type=float, default=None)
     parser.add_argument("--range-target-r", type=float, default=None)
+    parser.add_argument("--time-decay-bars", type=int, default=None,
+                        help="Override the profile's time_decay_bars (bars before the "
+                             "time-decay exit closes an unresolved trade).")
+    parser.add_argument("--winner-giveback-pct", type=float, default=None,
+                        help="Fraction of peak MFE a winner may surrender before the "
+                             "giveback exit fires (model default 0.20).")
+    parser.add_argument("--winner-giveback-arm-r", type=float, default=None,
+                        help="R-multiple at which winner giveback protection arms "
+                             "(model default 0.25).")
     parser.add_argument("--bb-period", type=int, default=None)
     parser.add_argument("--bb-std", type=float, default=None)
     parser.add_argument("--rsi-period", type=int, default=None)
@@ -1700,6 +1709,10 @@ def main():
         "volume_min_ratio": args.sb_volume_min_ratio,
         "stop_floor_pct": args.sb_stop_floor_pct,
         "score_threshold": args.sb_score_threshold,
+        # Profile-level exit tuning
+        "time_decay_bars": args.time_decay_bars,
+        "winner_giveback_pct": args.winner_giveback_pct,
+        "winner_giveback_arm_r": args.winner_giveback_arm_r,
     }
     strat_param_map = {k: v for k, v in strat_param_map.items() if v is not None}
 

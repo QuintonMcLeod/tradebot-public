@@ -355,6 +355,22 @@ function setupIpcHandlers() {
 
     ipcMain.handle('save-config', async (event, config) => {
         try {
+            // Keep the active profile's per-asset strategies in lockstep with the global
+            // strategy keys the UI cards write; the engine reads profiles[active].strategies,
+            // so without this mirror the UI and the running bot drift apart.
+            try {
+                if (config && config.global && config.profiles) {
+                    const _active = config.active_profile || 'auto_schedule';
+                    const _profile = config.profiles[_active] || (config.profiles[_active] = {});
+                    _profile.strategies = _profile.strategies || {};
+                    ['crypto', 'forex', 'stocks', 'etf', 'metals', 'futures'].forEach((_asset) => {
+                        const _v = config.global['strategy_' + _asset];
+                        if (_v) _profile.strategies[_asset] = _v;
+                    });
+                    if (_profile.strategies.forex) _profile.strategy_variant = _profile.strategies.forex;
+                }
+            } catch (_e) { console.error('[MAIN] strategy sync failed:', _e.message); }
+
             const content = JSON.stringify(config, null, 2);
             fs.writeFileSync(CONFIG_JSON_PATH, content);
             console.log("[MAIN] Saved config.json");

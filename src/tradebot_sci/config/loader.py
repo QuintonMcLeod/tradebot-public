@@ -59,6 +59,17 @@ logger = logging.getLogger(__name__)
 
 _LOGGED_MESSAGES = set()
 
+# Exit-tuning keys that the settings GUI writes to the top-level `global` block
+# but the exit router reads from the profile object. They must be promoted into
+# the profile or the model defaults are used instead and the UI values are inert.
+_GLOBAL_EXIT_TUNING_KEYS = (
+    "time_decay_bars",
+    "winner_giveback_enabled",
+    "winner_giveback_pct",
+    "winner_giveback_arm_r",
+    "chandelier_atr_mult",
+)
+
 
 def _log_once(level: int, msg: str, *args: Any) -> None:
     key = msg
@@ -365,6 +376,17 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
 
 
 
+    # Exit-tuning values are resolved off the profile via its attribute shim,
+    # which reads the risk/safety/performance/runtime sections — not `global`.
+    # The settings GUI writes them to `global`, so without this they were
+    # silently replaced by the PerformanceSettings defaults and the values shown
+    # in the UI had no effect on live trading.  An explicit `performance` value
+    # still wins.
+    performance_cfg = dict(config.get("performance", {}) or {})
+    for _tuning_key in _GLOBAL_EXIT_TUNING_KEYS:
+        if _tuning_key not in performance_cfg and g_cfg.get(_tuning_key) is not None:
+            performance_cfg[_tuning_key] = g_cfg[_tuning_key]
+
     settings = Settings(
         app=AppSettings(**app_cfg),
         logging=LoggingSettings(**log_cfg),
@@ -373,7 +395,7 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         runtime=RuntimeSettings(**runtime_cfg),
         risk=RiskSettings(**risk_model_cfg),
         safety=SafetySettings(**config.get("safety", {})),
-        performance=PerformanceSettings(**config.get("performance", {})),
+        performance=PerformanceSettings(**performance_cfg),
         robocop=RoboCopSettings(),  # Use defaults
         schedule=ScheduleSettings(**schedule_cfg),
         profiles=profiles,
