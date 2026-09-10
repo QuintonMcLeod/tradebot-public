@@ -1,5 +1,12 @@
 # Final verdict: the edge search
 
+> **Superseded in part.** A later round, acting on coaching from the operator about
+> *when* to trade, found the first configuration that survives out of sample: a
+> price-action fade traded only in the 20:00-21:00 UTC window. The negative verdict
+> below still stands for every rule it tested — but all of those pooled the trading
+> day, and the effect they missed is a function of the hour. See
+> [`TIME_OF_DAY_EDGE_2026_09.md`](TIME_OF_DAY_EDGE_2026_09.md).
+
 Research programme covering foreign exchange spot, interest-rate carry, speculative
 positioning, execution mechanics and multi-asset trend following. Roughly fifty
 rules tested against up to a century of data, with cost accounting, clustered

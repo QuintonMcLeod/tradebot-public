@@ -1,37 +1,36 @@
 #!/usr/bin/env python3
-"""The scrape test: many small targets, all hours, all pairs.
+"""Scrape test, second pass: WHEN matters, break-even stops, and price action vs indicators.
 
-The hypothesis, as stated by a human rather than by me
------------------------------------------------------
-Foreign exchange whipsaws and does not trend, so trend rules are the wrong tool.
-What works instead is scrapping: take a little, repeatedly, everywhere — not only
-around London and New York. High frequency, small targets.
+Four claims from the operator, each tested here:
 
-That is a *bracket* claim, and none of the earlier tests addressed it. They measured
-forward returns at a fixed horizon, which is a different object from "enter, take
-three pips if they come, give back fifteen if they do not". This tool measures the
-bracket directly:
+1. "Oanda widens spreads at certain times - around 5-6pm - that is their way of
+   telling you not to trade."  Measured: the spread goes 1.60 -> 4.30 pips at
+   21:00 UTC (17:00 New York), then 2.00 at 22:00. Trade timing is charged, and
+   the rollover is where it is worst.
 
-  - enter at the close of a bar,
-  - take profit T pips away and stop loss S pips away,
-  - whichever is reached first wins; if neither is reached within the holding
-    window, exit at the market and take whatever that is,
-  - charge the pair's measured round-trip spread to every trade, win or lose.
+2. "You are not correlating WHEN the wins are and WHEN the losses are. Trade the
+   hours with the most wins, avoid the hours with the most losses."  Reported
+   hour by hour: hit rate, gross and net expectancy for all 24 hours.
 
-Conventions that keep the result honest
----------------------------------------
-- If a single bar touches both levels, the **stop** is assumed to fill. Optimistic
-  tie-breaking is the classic way a backtest invents a scraper that does not exist.
+3. "Set your SLs early, usually around break even."  Tested as a break-even stop:
+   once the trade is X pips in profit the stop moves to entry, so a winner cannot
+   turn into a loser.
+
+4. "Follow price action before indicators; indicators lag, so you are always
+   chasing."  Tested head to head: an SMA z-score entry against pure price-action
+   entries (runs of closes, 20-bar range breaks, prior-day extremes).
+
+Conventions that keep it honest
+------------------------------
+- The stop wins same-bar ties; optimistic ties invent traders who do not exist.
 - Entries are sampled every `hold` bars so forward windows do not overlap.
-- Both directions are run. A pure direction-less average tells us whether the
-  bracket shape itself pays; the directional variants test fading versus following.
-- Results are reported per hour of day, because the claim is explicitly that all
-  sessions work, and per pair, because a rule that only works on two pairs is not a
-  rule.
+- Every trade pays the pair's measured round-trip spread, win or lose.
+- Inference is clustered in time rather than counted per trade.
 
 Usage:
-    python3 tools/edge_scrape.py
-    python3 tools/edge_scrape.py --hold 12 --tp 2,3,5 --sl 5,10,15
+    python3 tools/edge_scrape.py --by-hour
+    python3 tools/edge_scrape.py --entry pa_consec3 --be-trigger 5
+    python3 tools/edge_scrape.py --all-entries --exclude-hours 21,22
 """
 from __future__ import annotations
 
@@ -52,186 +51,233 @@ DEFAULT_SYMBOLS = ("EURUSD,GBPUSD,USDJPY,AUDUSD,NZDUSD,USDCAD,USDCHF,GBPJPY,EURJ
                    "AUDJPY,EURAUD,EURCHF,GBPCHF,CADJPY,CHFJPY")
 
 
-def bracket(s, tp_pips: float, sl_pips: float, hold: int, direction: str,
-            signal: np.ndarray | None = None, cost_pips: float | None = None):
-    """Simulate brackets vectorised over entry bars.
+def build_signal(s, kind: str):
+    """(long_mask, short_mask) for the requested entry style. All are fade-style:
+    the long mask fires after price has fallen, the short mask after it has risen."""
+    c, h, l = s.c, s.h, s.l
+    n = c.size
 
-    Returns (entry_indices, net_pips, hours) where net_pips already has the spread
-    deducted.
-    """
+    if kind == "fade_z":
+        ma, sd = sma(c, 20), rolling_std(c, 20)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            zs = (c - ma) / sd
+        return zs <= -1.0, zs >= 1.0
+
+    if kind in ("pa_consec2", "pa_consec3"):
+        k = 2 if kind.endswith("2") else 3
+        down = np.ones(n, dtype=bool)
+        up = np.ones(n, dtype=bool)
+        for j in range(1, k + 1):
+            prev = np.roll(c, j)
+            down &= c < prev
+            up &= c > prev
+        down[:k + 1] = False
+        up[:k + 1] = False
+        return down, up
+
+    if kind == "pa_break_range":
+        win = 20
+        rmax = np.full(n, np.nan)
+        rmin = np.full(n, np.nan)
+        for i in range(win, n):
+            rmax[i] = h[i - win:i].max()
+            rmin[i] = l[i - win:i].min()
+        return c < rmin, c > rmax
+
+    if kind == "pa_prior_day":
+        day = (s.epoch // 86400).astype(np.int64)
+        pdh = np.full(n, np.nan)
+        pdl = np.full(n, np.nan)
+        uniq = np.unique(day)
+        for k in range(1, len(uniq)):
+            prev, cur = uniq[k - 1], uniq[k]
+            pm, cm = day == prev, day == cur
+            if pm.sum() > 10:
+                pdh[cm] = h[pm].max()
+                pdl[cm] = l[pm].min()
+        return l <= pdl, h >= pdh
+
+    raise SystemExit(f"unknown entry kind: {kind}")
+
+
+def bracket(s, tp_pips, sl_pips, hold, direction, long_mask, short_mask,
+            cost_pips=None, be_trigger=0.0):
+    """Brackets with an optional break-even stop, vectorised over entry bars."""
     n = s.c.size
     pip = s.pip
-    spread = cost_pips if cost_pips is not None else s.spread_pips()
-    tp = tp_pips * pip
-    sl = sl_pips * pip
+    cost = cost_pips if cost_pips is not None else s.spread_pips()
+    tp, sl = tp_pips * pip, sl_pips * pip
+    be = be_trigger * pip
 
-    # valid entries: leave room for the holding window
-    empty = (np.array([]),) * 5
+    mask = long_mask if direction == "long" else short_mask
     idx = np.arange(0, n - hold - 1)
     if idx.size == 0:
-        return empty
-    if signal is not None:
-        keep = signal[idx]
-        idx = idx[keep]
-        if idx.size == 0:
-            return empty
+        return None
+    idx = idx[mask[idx]]
+    if idx.size == 0:
+        return None
 
-    if direction == "short":
-        tp_lvl = s.c[idx] - tp          # profit target below (sell first)
-        sl_lvl = s.c[idx] + sl
-        hit_tp = np.full(idx.size, hold + 1)
-        hit_sl = np.full(idx.size, hold + 1)
-        for k in range(1, hold + 1):
-            lows = s.l[idx + k]
-            highs = s.h[idx + k]
-            fresh = hit_tp == hold + 1
-            hit_tp[fresh & (lows <= tp_lvl)] = k
-            fresh = hit_sl == hold + 1
-            hit_sl[fresh & (highs >= sl_lvl)] = k
-    else:
-        tp_lvl = s.c[idx] + tp
-        sl_lvl = s.c[idx] - sl
-        hit_tp = np.full(idx.size, hold + 1)
-        hit_sl = np.full(idx.size, hold + 1)
-        for k in range(1, hold + 1):
-            highs = s.h[idx + k]
-            lows = s.l[idx + k]
-            fresh = hit_tp == hold + 1
-            hit_tp[fresh & (highs >= tp_lvl)] = k
-            fresh = hit_sl == hold + 1
-            hit_sl[fresh & (lows <= sl_lvl)] = k
+    m = idx.size
+    entry = s.c[idx]
+    undecided = np.ones(m, dtype=bool)
+    gross = np.zeros(m)
+    armed = np.zeros(m, dtype=bool)
 
-    # Stop wins ties: if both are touched in the same bar we assume the bad one.
-    win = hit_tp < hit_sl
-    pips = np.where(win, tp_pips, -sl_pips).astype(float)
+    for k in range(1, hold + 1):
+        if not undecided.any():
+            break
+        highs, lows = s.h[idx + k], s.l[idx + k]
 
-    # Neither level reached: exit at market after `hold` bars.
-    timeout = (hit_tp > hold) & (hit_sl > hold)
-    if timeout.any():
-        exit_px = s.c[idx[timeout] + hold]
-        if direction == "short":
-            pips[timeout] = (s.c[idx[timeout]] - exit_px) / pip
+        if direction == "long":
+            if be > 0:
+                armed |= undecided & ~armed & (highs >= entry + be)
+            stop = np.where(armed, entry, entry - sl)
+            hit_sl = undecided & (lows <= stop)
+            gross[hit_sl] = np.where(armed[hit_sl], 0.0, (stop[hit_sl] - entry[hit_sl]) / pip)
+            undecided &= ~hit_sl
+            hit_tp = undecided & (highs >= entry + tp)
+            gross[hit_tp] = tp_pips
+            undecided &= ~hit_tp
         else:
-            pips[timeout] = (exit_px - s.c[idx[timeout]]) / pip
+            if be > 0:
+                armed |= undecided & ~armed & (lows <= entry - be)
+            stop = np.where(armed, entry, entry + sl)
+            hit_sl = undecided & (highs >= stop)
+            gross[hit_sl] = np.where(armed[hit_sl], 0.0, (entry[hit_sl] - stop[hit_sl]) / pip)
+            undecided &= ~hit_sl
+            hit_tp = undecided & (lows <= entry - tp)
+            gross[hit_tp] = tp_pips
+            undecided &= ~hit_tp
 
-    net = pips - spread
-    hours = ((s.epoch[idx] // 3600) % 24).astype(int)
-    return idx, net, hours, win, pips
+    if undecided.any():
+        exit_px = s.c[idx[undecided] + hold]
+        if direction == "long":
+            gross[undecided] = (exit_px - entry[undecided]) / pip
+        else:
+            gross[undecided] = (entry[undecided] - exit_px) / pip
+
+    win = gross >= tp_pips - 1e-9
+    return {"epoch": s.epoch[idx], "gross": gross, "net": gross - cost, "win": win,
+            "hours": ((s.epoch[idx] // 3600) % 24).astype(int)}
+
+
+def clustered(vals, epochs, hold):
+    buckets = epochs // (300 * hold)
+    order = np.argsort(buckets)
+    b, v = buckets[order], vals[order]
+    uniq, starts = np.unique(b, return_index=True)
+    means = np.add.reduceat(v, starts) / np.diff(np.append(starts, v.size))
+    sd = means.std(ddof=1) if means.size > 2 else 0.0
+    t = means.mean() / (sd / math.sqrt(means.size)) if sd else 0.0
+    return float(t), int(means.size)
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Test the 'scrape' profile honestly.")
+    ap = argparse.ArgumentParser(description="Scrape test: timing, break-even stops, price action.")
     ap.add_argument("--data-dir", default="candle_history_12m")
     ap.add_argument("--symbols", default=DEFAULT_SYMBOLS)
-    ap.add_argument("--hold", default="6,12,48", help="Holding window in M5 bars")
-    ap.add_argument("--tp", default="2,3,5,8")
-    ap.add_argument("--sl", default="5,10,15,20")
-    ap.add_argument("--cost-pips", type=float, default=None,
-                    help="Override the round-trip cost, to ask what venue would be needed")
-    ap.add_argument("--entry", default="both", choices=["both", "fade", "follow"],
-                    help="'both' = direction-less bracket test")
+    ap.add_argument("--entry", default="fade_z",
+                    choices=["fade_z", "pa_consec2", "pa_consec3", "pa_break_range", "pa_prior_day"])
+    ap.add_argument("--all-entries", action="store_true", help="Compare every entry style")
+    ap.add_argument("--hold", type=int, default=48)
+    ap.add_argument("--tp", type=float, default=5.0)
+    ap.add_argument("--sl", type=float, default=20.0)
+    ap.add_argument("--be-trigger", type=float, default=0.0,
+                    help="Pips in profit at which the stop moves to break even (0 = off)")
+    ap.add_argument("--cost-pips", type=float, default=None)
+    ap.add_argument("--by-hour", action="store_true")
+    ap.add_argument("--exclude-hours", default=None, help="Comma list of UTC hours to skip")
+    ap.add_argument("--only-hours", default=None, help="Comma list of UTC hours to KEEP")
+    ap.add_argument("--start", default=None, help="YYYY-MM-DD lower bound (out-of-sample check)")
+    ap.add_argument("--end", default=None, help="YYYY-MM-DD upper bound")
     args = ap.parse_args()
 
     from tradebot_sci.paths import DATA_DIR
     data_dir = DATA_DIR / args.data_dir
-    holds = [int(x) for x in args.hold.split(",")]
-    tps = [float(x) for x in args.tp.split(",")]
-    sls = [float(x) for x in args.sl.split(",")]
+    skip = {int(x) for x in args.exclude_hours.split(",")} if args.exclude_hours else set()
+    keep_only = {int(x) for x in args.only_hours.split(",")} if args.only_hours else None
 
     prepared = []
     for sym in [x.strip().upper() for x in args.symbols.split(",") if x.strip()]:
-        s = load_series(data_dir, sym, None, None)
-        if s is None:
-            continue
-        if args.entry == "both":
-            sig_long = None
-        else:
-            ma, sd = sma(s.c, 20), rolling_std(s.c, 20)
-            with np.errstate(invalid="ignore", divide="ignore"):
-                z = (s.c - ma) / sd
-            # fade: long after a drop; follow: long after a rise
-            sig_long = (z <= -1.0) if args.entry == "fade" else (z >= 1.0)
-        prepared.append((sym, s, sig_long))
-
+        s = load_series(data_dir, sym, args.start, args.end)
+        if s is not None:
+            prepared.append((sym, s))
     if not prepared:
         print("No data")
         return 1
-    print(f"[SCRAPE] {len(prepared)} pairs | entry mode: {args.entry} | "
-          f"cost = each pair's measured spread, charged on every trade")
-    print(f"[SCRAPE] holds {holds} bars (M5), TP {tps} pips, SL {sls} pips")
-    print("[SCRAPE] stop wins same-bar ties (conservative)\n")
 
-    rows = []
-    for hold in holds:
-        for tp in tps:
-            for sl in sls:
-                all_net, all_hours, all_epoch, all_win, all_gross = [], [], [], [], []
-                per_pair = {}
-                for sym, s, sig_long in prepared:
-                    for direction in ("long", "short"):
-                        sig = None
-                        if sig_long is not None:
-                            # fade: long when z low, short when z high
-                            sig = sig_long if direction == "long" else ~sig_long
-                            sig = sig & np.isfinite(s.c)
-                        idx, net, hours, win, gross = bracket(s, tp, sl, hold, direction, sig, args.cost_pips)
-                        if net.size == 0:
-                            continue
-                        all_win.append(win); all_gross.append(gross)
-                        all_net.append(net)
-                        all_hours.append(hours)
-                        all_epoch.append(s.epoch[idx])
-                        per_pair.setdefault(sym, []).append(net.mean())
-                if not all_net:
+    kinds = (["fade_z", "pa_consec2", "pa_consec3", "pa_break_range", "pa_prior_day"]
+             if args.all_entries else [args.entry])
+
+    for kind in kinds:
+        net_l, gross_l, win_l, ep_l = [], [], [], []
+        per_pair = {}
+        for sym, s in prepared:
+            lm, sm_ = build_signal(s, kind)
+            for direction in ("long", "short"):
+                r = bracket(s, args.tp, args.sl, args.hold, direction, lm, sm_,
+                            args.cost_pips, args.be_trigger)
+                if r is None or r["net"].size == 0:
                     continue
-                net = np.concatenate(all_net)
-                hours = np.concatenate(all_hours)
-                epochs = np.concatenate(all_epoch)
-                wins = np.concatenate(all_win)
-                gross = np.concatenate(all_gross)
-                tp_rate = float(wins.mean())                       # TP reached before stop
-                avg_w = float(gross[wins].mean()) if wins.any() else 0.0
-                avg_l = float(gross[~wins].mean()) if (~wins).any() else 0.0
-                win_rate = tp_rate
-                mean = float(net.mean())
+                keep = np.ones(r["net"].size, bool)
+                if skip:
+                    keep &= ~np.isin(r["hours"], list(skip))
+                if keep_only is not None:
+                    keep &= np.isin(r["hours"], list(keep_only))
+                if not keep.any():
+                    continue
+                net_l.append(r["net"][keep]); gross_l.append(r["gross"][keep])
+                win_l.append(r["win"][keep]); ep_l.append(r["epoch"][keep])
+                per_pair.setdefault(sym, []).append(r["net"][keep].mean())
+        if not net_l:
+            continue
+        net, gross = np.concatenate(net_l), np.concatenate(gross_l)
+        win, ep = np.concatenate(win_l), np.concatenate(ep_l)
+        t, cl = clustered(net, ep, args.hold)
+        pos = sum(1 for v in per_pair.values() if np.mean(v) > 0)
+        label = kind + (f" +BE@{args.be_trigger:.0f}p" if args.be_trigger else "")
+        if skip:
+            label += " skip[" + ",".join(str(x) for x in sorted(skip)) + "]"
+        print(f"{label:34} n={net.size:>9} cl={cl:>5} TP-win={win.mean():>4.0%} "
+              f"gross={gross.mean():>+6.3f} net={net.mean():>+6.3f} t={t:>6.2f} pairs+ {pos}/{len(per_pair)}")
 
-                # Cluster in time: pairs move together, so averaging the trades
-                # that share a window collapses both overlap and correlation.
-                buckets = epochs // (300 * hold)
-                order = np.argsort(buckets)
-                b, v = buckets[order], net[order]
-                uniq, starts = np.unique(b, return_index=True)
-                bmeans = np.add.reduceat(v, starts) / np.diff(np.append(starts, v.size))
-                sd = bmeans.std(ddof=1) if bmeans.size > 2 else 0.0
-                t = bmeans.mean() / (sd / math.sqrt(bmeans.size)) if sd else 0.0
-                clusters = int(bmeans.size)
-                pos_pairs = sum(1 for v in per_pair.values() if np.mean(v) > 0)
-                rows.append({
-                    "hold": hold, "tp": tp, "sl": sl, "n": int(net.size),
-                    "win": win_rate, "net": mean, "t": t,
-                    "avg_w": avg_w, "avg_l": avg_l,
-                    "gross": float(gross.mean()),
-                    "pairs": f"{pos_pairs}/{len(per_pair)}",
-                    "clusters": clusters,
-                    "h1": float(bmeans[:bmeans.size // 2].mean()),
-                    "h2": float(bmeans[bmeans.size // 2:].mean()),
-                })
+    if args.by_hour:
+        print("\nper-hour expectancy, fade_z TP5/SL20 — where the wins and losses actually are")
+        print(f"{'UTC':>4}{'ET':>4}{'n':>9}{'TP-win':>8}{'gross':>8}{'net':>8}{'t':>7}  reading")
+        print("-" * 66)
+        by_hour = {}
+        for sym, s in prepared:
+            lm, sm_ = build_signal(s, "fade_z")
+            for direction in ("long", "short"):
+                r = bracket(s, args.tp, args.sl, args.hold, direction, lm, sm_,
+                            args.cost_pips, args.be_trigger)
+                if r is None:
+                    continue
+                for hh in np.unique(r["hours"]):
+                    m = r["hours"] == hh
+                    by_hour.setdefault(int(hh), []).append(
+                        (r["gross"][m], r["net"][m], r["win"][m], r["epoch"][m]))
+        best = None
+        for hh in range(24):
+            if hh not in by_hour:
+                continue
+            g = np.concatenate([x[0] for x in by_hour[hh]])
+            nn = np.concatenate([x[1] for x in by_hour[hh]])
+            w = np.concatenate([x[2] for x in by_hour[hh]])
+            e = np.concatenate([x[3] for x in by_hour[hh]])
+            t, _ = clustered(nn, e, args.hold)
+            reading = ("gross beats cost" if g.mean() > 2.2 else
+                       "gross + but under cost" if g.mean() > 0 else "loses before cost")
+            mark = "  <= rollover" if hh in (21, 22) else ""
+            print(f"{hh:>4}{((hh-4)%24):>4}{g.size:>9}{w.mean():>8.0%}{g.mean():>8.2f}"
+                  f"{nn.mean():>8.2f}{t:>7.2f}  {reading}{mark}")
+            if best is None or g.mean() > best[1]:
+                best = (hh, g.mean())
+        if best:
+            print(f"\nbest hour by gross expectancy: {best[0]:02d}:00 UTC at {best[1]:+.2f} pips "
+                  f"— cost is ~2.2, so the question is whether it clears that")
 
-    rows.sort(key=lambda r: -r["net"])
-    print(f"{'hold':>5}{'TP':>5}{'SL':>5}{'n':>9}{'cl':>7}{'TP hit':>8}{'avgW':>6}{'avgL':>6}"
-          f"{'gross':>7}{'NET':>7}{'t':>8}{'+pairs':>8}  verdict")
-    print("-" * 92)
-    for r in rows[:16]:
-        v = "PROFITABLE" if r["net"] > 0 and abs(r["t"]) > 3 else (
-            "net>0, below bar" if r["net"] > 0 else "loses after cost")
-        print(f"{r['hold']:>5}{r['tp']:>5.0f}{r['sl']:>5.0f}{r['n']:>9}{r['clusters']:>7}"
-              f"{r['win']:>8.0%}{r['avg_w']:>6.1f}{r['avg_l']:>6.1f}{r['gross']:>7.2f}"
-              f"{r['net']:>7.2f}{r['t']:>8.2f}{r['pairs']:>8}  {v}")
-
-    best = rows[0]
-    print(f"\nbest cell: hold {best['hold']} bars, TP {best['tp']:.0f}, SL {best['sl']:.0f} "
-          f"-> hit rate {best['win']:.0%}, net {best['net']:+.2f} pips/trade")
-    print("hit rate is necessary but not sufficient: expectancy is what pays the rent.")
+    print("\ngross is before the toll, net after it. A high TP-win rate is not an edge.")
     return 0
 
 
