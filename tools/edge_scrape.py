@@ -75,14 +75,20 @@ def build_signal(s, kind: str):
         up[:k + 1] = False
         return down, up
 
-    if kind == "pa_break_range":
+    if kind in ("pa_break_range", "pa_break_fresh"):
         win = 20
         rmax = np.full(n, np.nan)
         rmin = np.full(n, np.nan)
         for i in range(win, n):
             rmax[i] = h[i - win:i].max()
             rmin[i] = l[i - win:i].min()
-        return c < rmin, c > rmax
+        if kind == "pa_break_range":
+            return c < rmin, c > rmax
+        # Fresh variant: the previous bar still closed inside the range, matching
+        # what the engine strategy now requires so it does not re-signal a
+        # persisting break on every bar.
+        prev = np.roll(c, 1)
+        return (c < rmin) & (prev >= rmin), (c > rmax) & (prev <= rmax)
 
     if kind == "pa_prior_day":
         day = (s.epoch // 86400).astype(np.int64)
@@ -180,7 +186,8 @@ def main() -> int:
     ap.add_argument("--data-dir", default="candle_history_12m")
     ap.add_argument("--symbols", default=DEFAULT_SYMBOLS)
     ap.add_argument("--entry", default="fade_z",
-                    choices=["fade_z", "pa_consec2", "pa_consec3", "pa_break_range", "pa_prior_day"])
+                    choices=["fade_z", "pa_consec2", "pa_consec3", "pa_break_range",
+                             "pa_break_fresh", "pa_prior_day"])
     ap.add_argument("--all-entries", action="store_true", help="Compare every entry style")
     ap.add_argument("--hold", type=int, default=48)
     ap.add_argument("--tp", type=float, default=5.0)
@@ -212,7 +219,8 @@ def main() -> int:
         print("No data")
         return 1
 
-    kinds = (["fade_z", "pa_consec2", "pa_consec3", "pa_break_range", "pa_prior_day"]
+    kinds = (["fade_z", "pa_consec2", "pa_consec3", "pa_break_range",
+              "pa_break_fresh", "pa_prior_day"]
              if args.all_entries else [args.entry])
 
     for kind in kinds:
