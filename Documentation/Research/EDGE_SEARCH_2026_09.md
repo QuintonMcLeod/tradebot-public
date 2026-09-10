@@ -108,7 +108,13 @@ trade on these legs was a loser), monthly seasonality (best: April +9.09, Octobe
 
 ---
 
-## 4. What this means
+## 4. What this means (round one conclusions, revised in 4b-4d)
+
+*Read this section as the state of thinking after round one. Two of its proposals —
+that maker entries could rescue the edge, and that institutional spreads would —
+were tested in rounds two and three and did not hold. The corrections are in 4b and
+4d. This is left in place rather than rewritten so the reasoning that led to the
+tests stays visible.*
 
 **Why the bot loses is not a missing pattern.** Mean reversion after a stretch is
 real, broad and stable; the robot detects it without difficulty. It is worth
@@ -238,8 +244,82 @@ thirteen years*, evaporated on twenty-three. Had the bar been "t>2 on the data I
 happened to have", it would have been shipped, and it would have lost money. The
 multiple-testing bar is not bureaucracy; it is the difference between a strategy
 and a story.
+---
 
+## 4d. Reachability: is the real edge tradable at any price that exists?
 
+Round two ended with a hopeful sentence — that the real intraday effect would be
+profitable at institutional spreads. That was based on pooled figures. Testing it
+properly, with each pair charged its *own* spread, shows the hope was wrong.
+
+### Session filtering buys nothing
+
+The plan was to trade only the hours with tight quotes. On this account there are
+none: the spread is essentially flat all day.
+
+| pair | 00-05 | 06-11 | 12-17 | 18-23 | median |
+|---|---|---|---|---|---|
+| EURUSD | 1.60 | 1.60 | 1.60 | 1.70 | 1.60 |
+| USDJPY | 1.60 | 1.60 | 1.60 | 1.80 | 1.60 |
+| GBPUSD | 2.00 | 1.90 | 1.90 | 2.10 | 1.90 |
+| GBPCHF | 2.70 | 2.40 | 2.30 | 3.00 | 2.50 |
+
+Only the 21:00-23:00 rollover widens. So the 86-cell grid in `tools/edge_reach.py`
+(stretch threshold x session x volatility regime x horizon) has no cheap corner to
+exploit: the best cell lands at -0.45 pips net, and all 86 are negative.
+
+### Matched per pair, nothing is even close
+
+The grid's apparent best cell was an artifact of pooling: it drew its gross edge
+from wide-spread exotics while being charged an average cost. Matching each pair's
+edge to its own spread removes the illusion. At a 3-sigma stretch, one-hour hold:
+
+| pair | gross pips | cost pips | net | t |
+|---|---|---|---|---|
+| EURUSD | 0.24 | 1.60 | -1.36 | -2.71 |
+| USDJPY | 0.23 | 1.60 | -1.37 | -1.41 |
+| GBPUSD | 0.03 | 1.90 | -1.87 | -2.97 |
+| GBPNZD | 2.90 | 8.50 | -5.60 | -5.48 |
+| EURNZD | 3.37 | 6.50 | -3.13 | -3.56 |
+
+**Zero of 26 pairs** show a positive net edge at 3-sigma/1h. At a four-hour hold,
+3 of 26 are positive (EURCHF +0.51, NZDCHF +0.44, CADJPY +0.12) — all with |t| below
+1 and inconsistent halves, which is what a coin looks like.
+
+The decisive tell is the relationship between the columns: gross edge *tracks the
+spread* almost exactly. The large "edges" are simply the volatile, wide-spread pairs
+(EURNZD 3.37 gross against 6.50 cost), while the tight pairs have almost no gross
+edge at all (EURUSD 0.24). The gross-to-cost ratio sits between 0.1 and 0.5 for
+essentially every pair. A real edge would show a high ratio on the tight pairs.
+There is nothing there.
+
+**Correction to round two:** the claim that this effect "would be profitable at
+institutional spreads of 0.2-0.3 pips" does not survive per-pair matching. The
+tightest pairs carry the smallest edges, so a lower spread closes only a fraction of
+a gap that is made mostly of absent edge, not of cost.
+
+### The last orthogonal input: positioning
+
+`tools/fetch_cot.py` pulls weekly CFTC Traders-in-Financial-Futures positioning for
+all eight currencies back to 2006 — twenty years, 1,056 weeks. Crowding is net
+leveraged-money position over open interest, standardised against its own trailing
+three years and lagged to the Monday after publication. `tools/edge_flow.py` tests
+the oldest retail claim there is: the crowd is wrong at extremes.
+
+| cell (20 years, net of spread) | bps per period | t | annualised | pairs positive |
+|---|---|---|---|---|
+| fade crowd, \|z\|>1.0, 10d, 2006-2019 | +8.10 | 1.26 | +2.0% | 62% |
+| fade crowd, \|z\|>1.0, 20d, 2006-2019 | +14.45 | 1.07 | +1.7% | 73% |
+| follow crowd, \|z\|>1.0, 10d, all | -9.05 | -1.92 | -2.3% | 23% |
+
+The **sign is right** — fading the crowd is positive and following it is negative on
+almost every cell, which is more than can be said for most folklore. The magnitude
+is not: about +2%/yr with t between 1.0 and 1.3 over twenty years, against a bar of
+4.7 for 54 tested cells. Directionally interesting, statistically worthless.
+
+---
+
+## 5. Verdict after testing the full hypothesis list
 
 Every rule named in the research plan, tested with cost accounting, clustering and
 a held-out era check:
@@ -256,12 +336,15 @@ a held-out era check:
 | Payoff asymmetry | 12m M5, hourly | **no asymmetry at all** — gross forward move is zero in every bucket |
 | Maker execution instead of taker | 12m M5, six offsets | adverse selection eats 94% of the improvement; still negative |
 | Short-term reversal | 13y daily + 4h, then 23y | positive on 13y (t≈2.4–2.7) but **evaporates on 23 years** — the 13-year result was sample-specific |
+| Reachability at any session/geometry | 86 cells x per-pair matched costs | **unreachable** — 0 of 26 pairs positive at 3σ/1h; gross edge tracks the spread, ratio 0.1–0.5 |
+| Positioning (CFTC, 20 years) | 8 currencies, 1,056 weeks, 54 cells | right sign (fade the crowd +2%/yr) but t≈1.0–1.3; not established |
 
 **Nothing clears the pre-registered bar** (|t|>3 on independent clusters, same sign
-out of sample, positive after cost), and the one thread that came closest —
-short-term reversal — dissolved when the sample was extended to 23 years. On the
-evidence available, **price history alone does not contain an edge, for this
-instrument set, at these costs.**
+out of sample, positive after cost). The two threads that came closest — short-term
+reversal and positioning — dissolved on more data: the first when the sample was
+extended from 13 to 23 years, the second never reaching significance at all. On the
+evidence available, **neither price history nor positioning contains a tradable
+edge for this instrument set on this account.**
 
 The one result that is not ambiguous is the cost structure: the account pays
 1.6–2.25 pips per round trip, and the measurable patterns are worth a fraction of
@@ -273,14 +356,13 @@ which is precisely what the live variant has been doing.
 Items 1 and 2 from the previous list are now done and are reported above. What
 remains:
 
-1. **Re-examine the cost assumption, because it decides everything.** The spreads
-   measured here (1.6–2.25 pips round trip) are retail quotes with a markup.
-   The one genuinely real effect found — mean reversion after a 2σ stretch, t=5.7,
-   positive on 100% of pairs — is worth +0.52 pips. It is unprofitable at 1.6 pips
-   and profitable at institutional costs (~0.2–0.3 pips). So the honest question
-   for the account is not "which pattern" but "what spread can this account
-   actually achieve", and the answer determines whether the real edge is
-   reachable at all.
+1. **Stop looking for an edge in FX spot on this account.** The hypothesis space
+   that a retail FX bot can reach — trend, momentum, carry, reversal, calendar,
+   session, levels, asymmetry, positioning, and every cost-aware configuration of
+   them — has now been tested on up to 23 years across 26 pairs, with clustered
+   inference and era splits. Nothing survives. The one real effect (intraday mean
+   reversion) is 3-6x smaller than the spread, and per-pair matching shows it is
+   not a cost problem that a better venue would fix.
 2. **Positioning data.** Speculative positioning (COT reports) is the one major
    input not yet in the panel, and it is genuinely orthogonal to price history.
    It is public, weekly, and goes back decades.
