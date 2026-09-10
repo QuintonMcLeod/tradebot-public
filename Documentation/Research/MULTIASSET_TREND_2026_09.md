@@ -23,7 +23,11 @@ each position to a volatility target, rebalance monthly, spread across many
 markets. Canonical parameters — 250-day lookback, 21-day rebalance, 10% volatility
 target — chosen from the literature before any results were seen.
 
-## Results
+## Results (14-market basket — superseded below)
+
+**Superseded:** the test was later repeated on 34 markets and the advantage largely
+disappeared. Read the "Round two of this test" section before drawing conclusions
+from the tables in this section.
 
 14 markets, 1986–2026, 5 basis points cost per unit turnover, sample split in half
 so the second half is genuinely out of sample.
@@ -80,24 +84,73 @@ drawdown is the product.
 | Non-overlapping significance | t computed on 21-day periods, not daily returns (233–248 independent periods per half) |
 | Leverage | average gross exposure 1.3–1.6×, capped at 2× |
 
+## Round two of this test: the result does not survive a broader basket
+
+The table above was produced on a 14-market basket. That basket was itself a choice,
+and choices of that kind are exactly what this investigation has been punishing
+elsewhere, so the test was repeated on 34 markets — adding the Dow, Russell, CAC,
+Euro Stoxx, Hang Seng, ASX, TSX, two more Treasury contracts, two bond ETFs,
+platinum, natural gas, corn, wheat, sugar, coffee, three FX pairs and bitcoin. The
+S&P series now reaches back to 1927.
+
+The advantage largely disappears.
+
+| strategy | era | CAGR | Sharpe | max DD | benchmark Sharpe | benchmark DD |
+|---|---|---|---|---|---|---|
+| trend long-only | 1986–2006 | 7.1% | 0.59 | −42.7% | 0.54 | −27.0% |
+| trend long-only | 2006–2026 | 6.7% | 0.78 | −42.7% | 0.75 | −73.6% |
+| trend long/short | 1986–2006 | 4.7% | 0.44 | −44.6% | 0.54 | −27.0% |
+| trend long/short | 2006–2026 | 6.9% | 0.69 | −38.9% | 0.75 | −73.6% |
+
+Long-only now merely matches the benchmark on Sharpe (0.59 vs 0.54, then 0.78 vs
+0.75). Long/short is **worse** than the benchmark in the first half and worse in the
+second. The drawdown advantage also shrinks to nothing in the first half (−42.7%
+against the benchmark's −27.0%).
+
+Measured the same way across four different baskets, the paired difference is
+consistent in sign but never close to significant:
+
+| basket | long-only Sharpe | benchmark | difference | t (difference) |
+|---|---|---|---|---|
+| all 34 markets | 0.52 | 0.52 | +1.4%/yr | 1.22 |
+| excluding bitcoin | 0.49 | 0.46 | +1.5%/yr | 1.30 |
+| excluding crypto and the FX legs | 0.54 | 0.51 | +1.6%/yr | 1.34 |
+| the 14-market basket above | 0.59 | 0.54 | +1.3%/yr | 1.11 |
+
+Long/short is negative on every basket (−1.1% to −1.4%/yr, t ≈ −0.7 to −0.8).
+
+Costs also bite much harder once the universe widens: 34 markets means more
+positions to turn over, and the long/short Sharpe falls from 0.36 at zero cost to
+0.28 at 5 bps and 0.06 at 20 bps, against 0.52 at 5 bps on the narrower basket.
+
+**Correction to the section above.** The +2.7%/yr with t=1.77 reported earlier was
+measured on the 14-market basket over a particular effective date window. Computed
+consistently across baskets and windows, the advantage is +1.3% to +1.6%/yr with t
+between 1.1 and 1.3, and the Sharpe advantage is between nothing and +0.05. The
+earlier figure was an artifact of the choice of universe, which is the same failure
+mode this study has documented in every other candidate.
+
 ## Verdict
 
-**This is not a fix for the current bot.** It requires a multi-asset, low-cost,
-margin-capable account. The bot trades 26 FX pairs on a retail spot account where
-the spread is flat all day and equal to the average daily move, and no
-configuration of any tested signal overcame that.
+**Nothing here is a fix for the current bot, and the multi-asset trend lead does not
+survive scrutiny either.** Trend following across a diversified basket does not
+deliver a statistically established improvement over simply owning the basket. What
+it reliably does is change the shape of the ride — on the wide basket it halved the
+drawdown in the second half (−38.9% against −73.6%) — which is a risk-preference
+choice, not an edge, and it costs turnover to maintain.
 
-What the evidence now supports, after three rounds and roughly forty tested rules:
+Across three rounds and roughly fifty tested rules, the evidence says:
 
 1. Foreign exchange spot, at retail cost, contains no edge this harness can find —
-   in price history, in interest-rate carry, or in speculative positioning.
-2. Systematic trend following across a diversified basket does improve risk-adjusted
-   returns out of sample, mainly by halving drawdowns, but its added return does not
-   clear the statistical bar on forty years of data.
-3. Therefore the honest answer to "make the bot win" is not a better signal. It is a
-   different instrument universe and a different objective — a portfolio that
-   compounds with smaller drawdowns, rather than a bot that wins individual trades.
+   not in price history, not in interest-rate carry, not in speculative positioning.
+2. Multi-asset trend following does not beat buy-and-hold by a margin that survives
+   changes of basket, era, or cost assumption.
+3. The recurring pattern is that every candidate looks real on the sample that
+   suggested it and dissolves on a wider one. That is the single most important
+   result of this work, and it is the reason the bar was set where it was.
 
-Next, if pursued: extend the multi-asset sample backwards (S&P from 1927 is
-available) and add markets, to give the paired difference enough power to be
-judged properly rather than merely noted.
+If there is an honest path to a bot that wins, it is not a better pattern. It is a
+different objective: accept market returns, minimise cost and turnover, and manage
+drawdown — because every attempt to add return beyond that, tested here, has failed
+to survive out of sample.
+

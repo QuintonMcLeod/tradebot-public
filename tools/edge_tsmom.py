@@ -177,6 +177,9 @@ def main() -> int:
     ap.add_argument("--cost-bps", type=float, default=5.0)
     ap.add_argument("--sensitivity", action="store_true", help="Run the lookback x hold grid")
     ap.add_argument("--exclude", default=None, help="Comma list of markets to drop")
+    ap.add_argument("--start", default=None, help="YYYY-MM-DD; drop earlier bars "
+                                                  "(breadth grows over time, so the "
+                                                  "first decades hold few markets)")
     args = ap.parse_args()
 
     from tradebot_sci.paths import DATA_DIR
@@ -186,6 +189,10 @@ def main() -> int:
         print("No data — run tools/fetch_multi.py")
         return 1
     dates, labels, m = loaded
+    if args.start:
+        keep_rows = [i for i, d in enumerate(dates) if d >= args.start]
+        dates = [dates[i] for i in keep_rows]
+        m = m[keep_rows]
     if args.exclude:
         drop = {x.strip().upper() for x in args.exclude.split(",")}
         keep = [j for j, lab in enumerate(labels) if lab not in drop]

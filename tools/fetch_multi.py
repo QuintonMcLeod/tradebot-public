@@ -33,20 +33,44 @@ sys.path.insert(0, str(REPO / "src"))
 # Label -> Yahoo symbol. Chosen for long history and for covering the main
 # documented premia: equity risk, commodity carry/trend, and bond duration.
 DEFAULT = {
-    "SPX": "^GSPC",       # S&P 500, 1927+
-    "NDX": "^NDX",        # Nasdaq 100, 1985+
-    "DAX": "^GDAXI",      # DAX
-    "NIKKEI": "^N225",    # Nikkei 225
-    "FTSE": "^FTSE",      # FTSE 100
-    "GOLD": "GC=F",       # gold futures
-    "SILVER": "SI=F",     # silver futures
-    "WTI": "CL=F",        # crude oil futures
-    "COPPER": "HG=F",     # copper futures
-    "UST10": "ZN=F",      # 10-year note futures
-    "UST30": "ZB=F",      # 30-year bond futures
-    "DXY": "DX-Y.NYB",    # dollar index
-    "TLT": "TLT",         # long bond ETF
-    "GLD": "GLD",         # gold ETF
+    # Equity indices
+    "SPX": "^GSPC",        # S&P 500, 1927+
+    "DJI": "^DJI",         # Dow Jones, 1992+
+    "NDX": "^NDX",         # Nasdaq 100, 1985+
+    "RUT": "^RUT",         # Russell 2000
+    "DAX": "^GDAXI",
+    "NIKKEI": "^N225",
+    "FTSE": "^FTSE",
+    "CAC": "^FCHI",
+    "STOXX": "^STOXX50E",
+    "HSI": "^HSI",
+    "ASX": "^AXJO",
+    "TSX": "^GSPTSE",
+    # Bonds / rates
+    "UST2": "ZT=F",
+    "UST5": "ZF=F",
+    "UST10": "ZN=F",
+    "UST30": "ZB=F",
+    "TLT": "TLT",
+    "IEF": "IEF",
+    # Commodities
+    "GOLD": "GC=F",
+    "SILVER": "SI=F",
+    "PLATINUM": "PL=F",
+    "COPPER": "HG=F",
+    "WTI": "CL=F",
+    "NATGAS": "NG=F",
+    "CORN": "ZC=F",
+    "WHEAT": "ZW=F",
+    "SUGAR": "SB=F",
+    "COFFEE": "KC=F",
+    # Currencies and crypto
+    "DXY": "DX-Y.NYB",
+    "AUDUSD": "AUDUSD=X",
+    "EURUSD": "EURUSD=X",
+    "USDJPY": "USDJPY=X",
+    "BTC": "BTC-USD",
+    "GLD": "GLD",
 }
 URL = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
 HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
@@ -99,7 +123,7 @@ def fetch(symbol: str, start: datetime, session: requests.Session) -> list[dict]
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbols", default=None, help="Comma list of Yahoo symbols")
-    ap.add_argument("--years", type=int, default=40)
+    ap.add_argument("--years", type=int, default=100)
     args = ap.parse_args()
 
     from tradebot_sci.paths import DATA_DIR
