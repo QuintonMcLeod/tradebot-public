@@ -449,6 +449,8 @@ class ReplayPaperBroker(PaperBroker):
         results = []
         for symbol in list(self.positions.keys()):
             pos = self.positions[symbol]
+            # Price this pair with its own measured spread.
+            self._friction_symbol = symbol
 
             # ── Get OHLC of the most recent candle ───────────────────────
             snap = self._provider._snapshot
@@ -536,6 +538,10 @@ class ReplayPaperBroker(PaperBroker):
             unrealized_pnl_usd_sl = convert_quote_to_usd(unrealized_pnl_raw_sl, symbol, _worst_price, self.market_provider)
             est_spread_usd_sl = abs(pos.get("qty", abs(pos["size"])) * _worst_price) * (fee_pct / 2.0 if not is_parity else self._get_taker_fee(symbol))
             is_negative_sl = (unrealized_pnl_usd_sl - est_spread_usd_sl) < 0
+            # A strategy that owns its risk management gets its stop honoured from
+            # the first tick; the guard exists to stop churn on unproven exits.
+            if pos.get("self_managed_risk"):
+                enable_negative_hold_guard = False
             is_under_neg_hold = (enable_negative_hold_guard and is_negative_sl and _router_held_s < negative_hold_seconds)
 
             if side == "long":

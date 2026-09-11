@@ -600,6 +600,13 @@ class SafetyGuard:
         # 0. INITIALIZATION & DATA GATHERING
         entry_price = float(open_position.get("entry_price") or open_position.get("avg_price") or 0.0)
         if entry_price == 0: return decision
+
+        # A strategy that manages its own risk keeps its own schedule. The Day
+        # Enforcer takes profits after a few hours and force-closes losers, which in
+        # measurement closed 48% of one validated rule's trades and cost 1,377
+        # dollars over a year while the rule's own exits made 7,075.
+        if open_position.get("self_managed_risk"):
+            return decision
         
         if not snapshot.candles:
             return decision

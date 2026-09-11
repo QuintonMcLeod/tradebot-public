@@ -42,6 +42,12 @@ class AITradeDecision(BaseModel):
     # that trades one hour a day would otherwise have its time stop checked about
     # once a day, no matter what the strategy asks for.
     max_hold_bars: Optional[int] = None
+    # When true, the strategy has validated its own stop/target/time-stop and the
+    # platform's anti-churn guards must not override them. The negative-hold guard
+    # ignores a mechanical stop for the first 45 minutes and the Day Enforcer closes
+    # positions on its own schedule; both are sensible defaults for strategies whose
+    # exits are unproven, and both corrupt a rule whose stop is meant to be exact.
+    self_managed_risk: bool = False
     urgency: Literal["low", "medium", "high"] = "medium"
     structure_summary: str = ""
     invalidation_conditions: str = ""

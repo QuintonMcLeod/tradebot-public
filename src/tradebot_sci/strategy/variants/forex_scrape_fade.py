@@ -195,6 +195,7 @@ class ForexScrapeFade(BaseStrategy):
                 ),
                 urgency="high",
                 max_hold_bars=self.max_hold_bars,
+                self_managed_risk=True,
                 strategy_name=self.name,
                 regime="range",
             )
@@ -229,6 +230,7 @@ class ForexScrapeFade(BaseStrategy):
                 ),
                 urgency="high",
                 max_hold_bars=self.max_hold_bars,
+                self_managed_risk=True,
                 strategy_name=self.name,
                 regime="range",
             )
