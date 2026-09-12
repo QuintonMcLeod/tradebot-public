@@ -25,6 +25,9 @@ from tradebot_sci.broker.trade_result_store import TradeResultStore
 
 logger = logging.getLogger(__name__)
 
+# Per-symbol timestamp of the last "entry blocked" notice.
+_BLOCKED_LOG_TS: dict = {}
+
 class StrategyEngine:
     """
     Lean Strategy Orchestrator.
@@ -1112,7 +1115,16 @@ class StrategyEngine:
             else:
                 from tradebot_sci.runtime.rejection_journal import rejection_journal
                 rejection_journal.log(self.symbol, timeframe, "SafetyGuard", safety_decision.notes or "Entry blocked")
-                logger.info(f"[SAFETY] Entry Blocked for {self.symbol}: {safety_decision.notes}")
+                # Per-symbol and per-attempt: throttle to one a minute per symbol,
+                # otherwise an active daily limit emits this for every symbol on
+                # every cycle.
+                import time as _time
+                _now_mono = _time.monotonic()
+                if _now_mono - _BLOCKED_LOG_TS.get(self.symbol, 0.0) >= 60.0:
+                    _BLOCKED_LOG_TS[self.symbol] = _now_mono
+                    logger.info(f"[SAFETY] Entry Blocked for {self.symbol}: {safety_decision.notes}")
+                else:
+                    logger.debug(f"[SAFETY] Entry Blocked for {self.symbol}: {safety_decision.notes}")
                 return safety_decision
 
         # ── ENGINE-LEVEL SAR + CR (Stop-and-Reverse / Counter-Reversal) ──

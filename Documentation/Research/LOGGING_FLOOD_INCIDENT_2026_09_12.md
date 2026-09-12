@@ -84,3 +84,45 @@ The bot remained `active` and continued evaluating all 26 symbols throughout.
 4. **Guardrails kept.** `/etc/rsyslog.d/10-drop-tradebot-noise.conf`, the journald size/rate limits and logrotate remain in place as defence in depth. With the flood fixed the rsyslog drop rule is no longer *necessary* for this unit, but it is cheap insurance against exactly this class of failure and should stay.
 
 Patch: `Documentation/patches/logging-flood-2026-09-12.patch`
+
+---
+
+## 6. Second flood, 2026-09-12 evening: the daily loss breaker
+
+After the fixes above, log volume sat at ~240–335 lines/min. Then the operator
+reported "daily loss limit reached" spamming. Measured: **33,582 lines in five
+minutes (~112/second)**, from two sites:
+
+```
+[REJECTION] NZDJPY 5m | Gate=SafetyGuard | Daily Loss Limit Reached (-440 < -427)
+[SAFETY] Entry Blocked for NZDJPY: Daily Loss Limit Reached (-440 < -427)
+```
+
+**The breaker itself was correct.** `risk.limit_loss_daily_pct = 0.05`, so the
+threshold is 5 % of capital (~$427) and the day's realised loss was ~$440. Blocking
+new entries is exactly what it is for. The defect was that *every blocked attempt,
+for every symbol, on every cycle* was logged:
+
+- `runtime/rejection_journal.py` — recorded the rejection for the GUI and then logged
+  it at INFO on every call
+- `strategy/engine.py:1115` — `[SAFETY] Entry Blocked for <symbol>` on every attempt
+
+Both are now rate-limited to one INFO line per symbol per minute, with repeats at
+DEBUG. The rejection journal still stores every rejection in its buffer and gate
+counters, so the GUI is unaffected — proven deterministically:
+
+```
+1000 rejections logged -> 1 INFO line(s) emitted
+buffer still holds: 1000 entries | gate counts: {'Daily Loss Limit': 1000}
+```
+
+Live result: **9,750 lines/min → 335 lines/min**, of which ~104/min is the bounded
+rejection notices (26 symbols × the active gates), and the bot stayed `active`.
+
+### Why it surfaced now
+
+Registering the 16 crosses (§2) took the profile from 10 evaluated symbols to 26.
+Combined with Sabbath replay fast-forward and a strategy already known to be
+unprofitable at this account's costs, the 5 % daily breaker tripped quickly, and
+every subsequent entry attempt was logged. Two independent defects had to line up:
+a *state* (breaker active for the rest of the simulated day) and a *per-attempt log*.
