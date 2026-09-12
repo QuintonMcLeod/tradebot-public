@@ -689,7 +689,8 @@ class ReplayPaperBroker(PaperBroker):
         logger.info(
             f"[REPLAY] [EXIT] {symbol} {hit}: {pnl_str} "
             f"| side={side} entry={entry_p:.5f} exit={fill_p:.5f} "
-            f"| MFE=${mfe_usd:+.2f} MAE=${mae_usd:+.2f}"
+            f"| MFE=${mfe_usd:+.2f} (net ${mfe_usd - self._compute_spread_cost(pos, fill_p):+.2f}) "
+            f"MAE=${mae_usd:+.2f} (net ${mae_usd - self._compute_spread_cost(pos, fill_p):+.2f})"
             f"| pnl=${self._total_pnl:+.2f} bal=${running_balance:.2f}"
         )
 
@@ -725,6 +726,9 @@ class ReplayPaperBroker(PaperBroker):
                 risk_usd=round(risk_usd, 2),
                 mfe_r=round(mfe_r, 3),
                 pnl_r=round(pnl_r, 3),
+                # Round-trip cost, so MFE/MAE can be reported net of what the exit
+                # itself costs (see TradeResult.__post_init__).
+                spread_cost=round(self._compute_spread_cost(pos, fill_p), 2),
             ))
 
         del self.positions[symbol]
@@ -1273,6 +1277,9 @@ def _worker_replay_symbol(args: tuple) -> dict:
             "risk_usd":    float(getattr(r, "risk_usd", 0.0) or 0.0),
             "mfe_r":       float(getattr(r, "mfe_r", 0.0) or 0.0),
             "pnl_r":       float(getattr(r, "pnl_r", 0.0) or 0.0),
+            "spread_cost": float(getattr(r, "spread_cost", 0.0) or 0.0),
+            "mfe_net_usd": float(getattr(r, "mfe_net_usd", 0.0) or 0.0),
+            "mae_net_usd": float(getattr(r, "mae_net_usd", 0.0) or 0.0),
         })
 
     return {
@@ -1548,6 +1555,9 @@ def run_replay(start_dt: datetime, end_dt: datetime, speed: float, initial_balan
                 "risk_usd": round(t.get("risk_usd", 0.0), 2),
                 "mfe_r": round(t.get("mfe_r", 0.0), 2),
                 "pnl_r": round(t.get("pnl_r", 0.0), 2),
+                "spread_cost": round(t.get("spread_cost", 0.0), 2),
+                "mfe_net_usd": round(t.get("mfe_net_usd", 0.0), 2),
+                "mae_net_usd": round(t.get("mae_net_usd", 0.0), 2),
             }
             for t in all_trades
         ],

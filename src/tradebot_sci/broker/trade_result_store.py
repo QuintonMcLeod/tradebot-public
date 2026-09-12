@@ -35,6 +35,34 @@ class TradeResult:
     risk_usd: float | None = None        # Initial risk in USD (entry to stop)
     mfe_r: float | None = None           # Peak favorable excursion in R
     pnl_r: float | None = None           # Realised result in R
+    # Excursions measured NET of the modelled round trip. MFE/MAE are mid-price
+    # excursions taken from the entry fill and do not include the cost of getting
+    # out, which made the dashboard flatter trades: 43% of live paper trades went
+    # positive and closed negative, with a median MFE of $10.99 against a realised
+    # -$6.90 and $14.36 of round-trip cost. These fields answer "what could this
+    # trade actually have captured", which is the number worth showing.
+    mfe_net_usd: float | None = None     # MFE less the round-trip cost
+    mae_net_usd: float | None = None     # MAE less the round-trip cost
+    mfe_net_r: float | None = None       # MFE net, in R
+    mae_net_r: float | None = None       # MAE net, in R
+
+    def __post_init__(self):
+        """Derive the net-of-cost excursions from the raw ones.
+
+        Centralised here rather than at each of the seven places a TradeResult is
+        constructed, so no path can record a flattering MFE by omission.
+        """
+        cost = self.spread_cost or 0.0
+        if self.mfe_usd is not None:
+            if self.mfe_net_usd is None:
+                self.mfe_net_usd = self.mfe_usd - cost
+            if self.risk_usd and self.mfe_net_r is None:
+                self.mfe_net_r = self.mfe_net_usd / self.risk_usd
+        if self.mae_usd is not None:
+            if self.mae_net_usd is None:
+                self.mae_net_usd = self.mae_usd - cost
+            if self.risk_usd and self.mae_net_r is None:
+                self.mae_net_r = self.mae_net_usd / self.risk_usd
 
     def to_dict(self) -> dict:
         d = {k: v for k, v in self.__dict__.items()}
@@ -71,7 +99,11 @@ class TradeResult:
             trade_id=data.get("trade_id"),
             size=float(data["size"]) if data.get("size") is not None else None,
             entry_price=float(data["entry_price"]) if data.get("entry_price") is not None else None,
-            exit_price=float(data["exit_price"]) if data.get("exit_price") is not None else None
+            exit_price=float(data["exit_price"]) if data.get("exit_price") is not None else None,
+            initial_stop=float(data["initial_stop"]) if data.get("initial_stop") is not None else None,
+            risk_usd=float(data["risk_usd"]) if data.get("risk_usd") is not None else None,
+            mfe_net_usd=float(data["mfe_net_usd"]) if data.get("mfe_net_usd") is not None else None,
+            mae_net_usd=float(data["mae_net_usd"]) if data.get("mae_net_usd") is not None else None,
         )
 
 class TradeResultStore:

@@ -1050,7 +1050,7 @@ function _sortValue(trade, key) {
         }
         case 'strategy': return (trade.strategy || '').toLowerCase();
         case 'reason': return (trade.reason || '').toLowerCase();
-        case 'mfe_mae': return parseFloat(trade.mfe_usd || 0); // Sort by MFE
+        case 'mfe_mae': return parseFloat(trade.mfe_net_usd !== undefined && trade.mfe_net_usd !== null ? trade.mfe_net_usd : (trade.mfe_usd || 0)); // Sort by net MFE
         default: return 0;
     }
 }
@@ -1176,6 +1176,17 @@ function updateTradeHistory(trades) {
             const hasMae = trade.mae_usd !== null && trade.mae_usd !== undefined;
             const mfe = hasMfe ? parseFloat(trade.mfe_usd) : null;
             const mae = hasMae ? parseFloat(trade.mae_usd) : null;
+            // MFE/MAE are mid-price excursions from the entry fill and exclude the
+            // cost of getting out, which flattered trades: 43% of paper trades showed
+            // a positive MFE and closed negative. Show what was actually capturable.
+            const tripCost = parseFloat(trade.spread_cost || trade.spread) || 0;
+            const mfeNet = (trade.mfe_net_usd !== null && trade.mfe_net_usd !== undefined)
+                ? parseFloat(trade.mfe_net_usd) : (mfe === null ? null : mfe - tripCost);
+            const maeNet = (trade.mae_net_usd !== null && trade.mae_net_usd !== undefined)
+                ? parseFloat(trade.mae_net_usd) : (mae === null ? null : mae - tripCost);
+            const exTitle = `net of $${tripCost.toFixed(2)} round-trip cost`
+                + (mfe === null ? '' : ` | raw MFE $${mfe.toFixed(2)}`)
+                + (mae === null ? '' : ` | raw MAE $${mae.toFixed(2)}`);
 
             // Unique button ID
             const sym = trade.symbol || 'UNK';
@@ -1189,9 +1200,9 @@ function updateTradeHistory(trades) {
                 <td style="text-align:right; font-weight:700; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
                 <td style="text-align:right; font-size:11px; color:${pnlPct >= 0 ? '#34d399' : '#f87171'};">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
                 <td style="text-align:center; font-size:10px; font-weight:600;">
-                    <span style="color:#34d399;">${hasMfe ? (mfe >= 0 ? '+' : '') + mfe.toFixed(2) : '--'}</span>
+                    <span style="color:#34d399;" title="${exTitle}">${mfeNet !== null ? (mfeNet >= 0 ? '+' : '') + mfeNet.toFixed(2) : '--'}</span>
                     <span style="color:#475569; margin:0 2px;">/</span>
-                    <span style="color:#f87171;">${hasMae ? mae.toFixed(2) : '--'}</span>
+                    <span style="color:#f87171;" title="${exTitle}">${maeNet !== null ? maeNet.toFixed(2) : '--'}</span>
                 </td>
                 <td style="text-align:right; font-size:11px; color:#475569;">--</td>
                 <td style="color:#34d399; font-size:11px; font-weight:600;">⏱ ${duration}</td>
@@ -1313,6 +1324,17 @@ function updateTradeHistory(trades) {
             const hasMae = trade.mae_usd !== null && trade.mae_usd !== undefined;
             const mfe = hasMfe ? parseFloat(trade.mfe_usd) : null;
             const mae = hasMae ? parseFloat(trade.mae_usd) : null;
+            // MFE/MAE are mid-price excursions from the entry fill and exclude the
+            // cost of getting out, which flattered trades: 43% of paper trades showed
+            // a positive MFE and closed negative. Show what was actually capturable.
+            const tripCost = parseFloat(trade.spread_cost || trade.spread) || 0;
+            const mfeNet = (trade.mfe_net_usd !== null && trade.mfe_net_usd !== undefined)
+                ? parseFloat(trade.mfe_net_usd) : (mfe === null ? null : mfe - tripCost);
+            const maeNet = (trade.mae_net_usd !== null && trade.mae_net_usd !== undefined)
+                ? parseFloat(trade.mae_net_usd) : (mae === null ? null : mae - tripCost);
+            const exTitle = `net of $${tripCost.toFixed(2)} round-trip cost`
+                + (mfe === null ? '' : ` | raw MFE $${mfe.toFixed(2)}`)
+                + (mae === null ? '' : ` | raw MAE $${mae.toFixed(2)}`);
 
             // Result badge
             let resultBadge;
@@ -1332,9 +1354,9 @@ function updateTradeHistory(trades) {
                 <td style="text-align:right; font-weight:700; color:${pnlColor};">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
                 <td style="text-align:right; font-size:11px; color:${pnlPct >= 0 ? '#34d399' : '#f87171'};">${pnlPct !== 0 ? (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%' : '--'}</td>
                 <td style="text-align:center; font-size:10px; font-weight:600;">
-                    <span style="color:#34d399;">${hasMfe ? (mfe >= 0 ? '+' : '') + mfe.toFixed(2) : '--'}</span>
+                    <span style="color:#34d399;" title="${exTitle}">${mfeNet !== null ? (mfeNet >= 0 ? '+' : '') + mfeNet.toFixed(2) : '--'}</span>
                     <span style="color:#475569; margin:0 2px;">/</span>
-                    <span style="color:#f87171;">${hasMae ? mae.toFixed(2) : '--'}</span>
+                    <span style="color:#f87171;" title="${exTitle}">${maeNet !== null ? maeNet.toFixed(2) : '--'}</span>
                 </td>
                 <td style="text-align:right; font-size:11px; color:#475569;">${spread > 0 ? '$' + spread.toFixed(2) : '--'}</td>
                 <td style="color:#34d399; font-size:11px; font-weight:600;">${(() => { const d = formatClosedDuration(trade); return d ? '⏱ ' + d : '--'; })()}</td>
