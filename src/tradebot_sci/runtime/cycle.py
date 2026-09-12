@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+# Per-symbol timestamps for routine HOLD logging (see the throttle below).
+_HOLD_LOG_TS: dict = {}
+
 # ── First-run warmup ──
 # Tracks which symbols have had their initial warmup fetch.
 # On first fetch, we request extra candles to stabilize indicators
@@ -211,7 +215,7 @@ def fetch_snapshot(
                 _log.getLogger(__name__).debug(f"[RECORDER] Recording failed: {e}")
 
     # DEBUG
-    logger.info(f"[CYCLE-DEBUG] Returning snapshot for {symbol} with trend_htf={cache[key].trend_htf}")
+    logger.debug(f"[CYCLE-DEBUG] Returning snapshot for {symbol} with trend_htf={cache[key].trend_htf}")
 
     return cache[key]
 
@@ -241,7 +245,7 @@ def build_candidate_list(
     allow_entries: bool = True,
 ) -> Tuple[List[Tuple[str, MarketSnapshot, float, str]], bool]:
     """Scans the universe and identifies positions to manage or new setups to trade."""
-    logger.info(f"[CYCLE] Building candidate list for {len(symbols)} symbols")
+    logger.debug(f"[CYCLE] Building candidate list for {len(symbols)} symbols")
     
     # Evict stale entries from the module-level snapshot cache so we don't
     # serve ancient data. The cache key includes timeframes, so this mainly
@@ -579,7 +583,22 @@ def process_candidate_cycle(
                         gates_str = json.dumps(_safe, default=str)
                     except Exception:
                         pass
-                logger.info(f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} grade={d_grade} strategy={d_strat_name} strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} reason={reason_log}")
+                # A HOLD is emitted for every symbol on every cycle, so at a fast
+                # poll this is a per-symbol per-iteration log (measured ~44 lines a
+                # second during Sabbath replay). Keep one a minute per symbol at
+                # INFO for visibility; the rest go to DEBUG. Entries and exits are
+                # always logged at INFO by the branch below.
+                _hold_line = (f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} "
+                              f"grade={d_grade} strategy={d_strat_name} "
+                              f"strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} "
+                              f"reason={reason_log}")
+                import time as _time
+                _now_mono = _time.monotonic()
+                if _now_mono - _HOLD_LOG_TS.get(symbol, 0.0) >= 60.0:
+                    _HOLD_LOG_TS[symbol] = _now_mono
+                    logger.info(_hold_line)
+                else:
+                    logger.debug(_hold_line)
                 
                 # ── Propagate stop modifications from hold decisions ──
                 _d_sl = getattr(decision, "stop_loss", None) if decision else None

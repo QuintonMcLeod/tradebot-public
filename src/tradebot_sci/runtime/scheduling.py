@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 from datetime import datetime, timedelta, time as datetime_time
 from zoneinfo import ZoneInfo
 from typing import List, Optional, Dict, Any
@@ -11,8 +13,77 @@ from tradebot_sci.config.loader import get_settings
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Missing-metadata logging guard
+#
+# A symbol with no registry entry is a *static* configuration condition: it is
+# missing on every call, forever. Warning on every call produced roughly 90 lines
+# a second here (5,301 in 60 s), which contributed to filling a 94 GB root
+# filesystem with a 29 GB syslog on 2026-09-11. Warn once per symbol, keep
+# repeats at DEBUG, and report the whole set once at startup.
+# ---------------------------------------------------------------------------
+_warned_missing_metadata: set[str] = set()
+_summary_logged: dict = {"done": False}
+
+
+def warn_missing_metadata(symbols) -> list[str]:
+    """Report every symbol the scheduler cannot classify — once, at startup.
+
+    Returns the offending symbols so the caller can decide whether to drop them
+    from the profile. Safe to call repeatedly: each symbol warns at most once and
+    the summary line is emitted once per call with the full list.
+    """
+    missing = sorted({str(s).strip().upper() for s in (symbols or [])
+                      if str(s).strip().upper() not in SYMBOL_METADATA})
+    if not missing:
+        return []
+    for sym in missing:
+        if sym not in _warned_missing_metadata:
+            _warned_missing_metadata.add(sym)
+            logger.warning(
+                "[SCHEDULE] No metadata for %s — treated as closed until the symbol "
+                "registry or the profile is corrected", sym
+            )
+    if not _summary_logged["done"]:
+        _summary_logged["done"] = True
+        logger.warning(
+            "[SCHEDULE] %d symbols missing metadata: %s", len(missing), ", ".join(missing)
+        )
+    return missing
+
+
+# Set TRADE_SCI_SCHED_TRACE=1 to log how often this module is called and from where.
+# Used to diagnose call frequency; off by default so it cannot itself flood.
+_TRACE = os.environ.get("TRADE_SCI_SCHED_TRACE") == "1"
+_trace_counts = {"calls": 0, "missing": 0}
+_trace_last = {"ts": 0.0, "stack_logged": False}
+
+
+def _trace_call(symbol: str, missing: bool = False) -> None:
+    if not _TRACE:
+        return
+    _trace_counts["calls"] += 1
+    if missing:
+        _trace_counts["missing"] += 1
+    if not _trace_last["stack_logged"]:
+        _trace_last["stack_logged"] = True
+        import traceback
+        caller = "".join(traceback.format_stack()[-8:-1])
+        logger.warning("[SCHEDULE][TRACE] call stack:\n%s", caller)
+    now = time.monotonic()
+    if now - _trace_last["ts"] >= 5.0:
+        _trace_last["ts"] = now
+        logger.warning(
+            "[SCHEDULE][TRACE] is_market_open calls=%d missing_metadata_calls=%d "
+            "distinct_missing=%d window=5s",
+            _trace_counts["calls"], _trace_counts["missing"],
+            len(_warned_missing_metadata),
+        )
+
+
 def is_market_open(symbol: str, now: datetime, settings: Optional[Any] = None) -> bool:
     """Determine if the market for a given symbol is currently open."""
+    _trace_call(symbol)
     if is_crypto(symbol):
         # Crypto has data-driven trading hours (Morning Kill Zone avoidance)
         hours = MARKET_HOURS.get(MarketType.CRYPTO)
@@ -31,7 +102,16 @@ def is_market_open(symbol: str, now: datetime, settings: Optional[Any] = None) -
 
     metadata = SYMBOL_METADATA.get(symbol.strip().upper())
     if not metadata:
-        logger.warning(f"[SCHEDULE] No metadata for {symbol}")
+        # Static condition: warn once per symbol, DEBUG thereafter.
+        _sym = symbol.strip().upper()
+        if _sym not in _warned_missing_metadata:
+            _warned_missing_metadata.add(_sym)
+            logger.warning(
+                "[SCHEDULE] No metadata for %s — treated as closed until the symbol "
+                "registry or the profile is corrected", _sym
+            )
+        else:
+            logger.debug("[SCHEDULE] No metadata for %s", _sym)
         return False
     
     if settings is None:

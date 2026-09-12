@@ -491,9 +491,19 @@ class PaperBroker:
         return self.get_total_balance_value()
 
     def refresh_account_summary(self) -> None:
-        # Prefixed with [PAPER] so ledger daemon skips these lines
-        logger.info(f"[PAPER] [TOTAL] Liquidity available: ${self.balance:.2f}")
-        logger.info(f"[PAPER] [CASH] Buying Power: ${self.balance:.2f}")
+        # Prefixed with [PAPER] so ledger daemon skips these lines.
+        # This is called from every sizing and fill path, so logging at INFO each
+        # time produced ~23 lines a second per message (14,005 in ten minutes).
+        # Keep periodic visibility, bound the volume.
+        import time as _time
+        now = _time.monotonic()
+        if now - getattr(self, "_last_summary_log_ts", 0.0) >= 60.0:
+            self._last_summary_log_ts = now
+            logger.info(f"[PAPER] [TOTAL] Liquidity available: ${self.balance:.2f}")
+            logger.info(f"[PAPER] [CASH] Buying Power: ${self.balance:.2f}")
+        else:
+            logger.debug(f"[PAPER] [TOTAL] Liquidity available: ${self.balance:.2f}")
+            logger.debug(f"[PAPER] [CASH] Buying Power: ${self.balance:.2f}")
 
     def _apply_high_net_worth_restrictions(self, symbol: str, action: str, price: float, sizing_capital: float, qty: float, decision: Any, existing_notional: float = 0.0) -> tuple[float, float, bool, str]:
         """

@@ -76,6 +76,8 @@ class SafetyGuard:
 
     # All mutable state consolidated into an injectable dataclass.
     _state: SafetyState = SafetyState()
+    # Throttle stamps for the "new day" reset line (see _update_daily_stats).
+    _new_day_log_ts: dict = {}
     # ADX regime tracking (fallback if SafetyState doesn't have it)
     _adx_flat_bars: dict[str, int] = {}  # symbol -> count of consecutive flat bars
 
@@ -121,7 +123,21 @@ class SafetyGuard:
             # at session open (e.g., Sunday 6 PM) when no trades have occurred.
             cls._state.hwm_capital[asset_class] = current_capital
             cls._state.drawdown_pause_until.pop(asset_class, None)
-            logger.info(f"[SAFETY] New Day Detected for {asset_class.value}. Resetting Daily PnL + HWM. Start Capital: ${current_capital:.2f}")
+            # Bounded logging: under Sabbath replay the date this compares against
+            # alternates between replay time and wall clock (they differ by months),
+            # so the guard re-fires on every flip and this line reached ~8 a second.
+            # The reset itself is left exactly as it was; only the logging is bounded.
+            import time as _time
+            _now_mono = _time.monotonic()
+            _log_key = (asset_class, today)
+            _last_ts = cls._new_day_log_ts.get(_log_key, 0.0)
+            _line = (f"[SAFETY] New Day Detected for {asset_class.value}. "
+                     f"Resetting Daily PnL + HWM. Start Capital: ${current_capital:.2f}")
+            if _now_mono - _last_ts >= 60.0:
+                cls._new_day_log_ts[_log_key] = _now_mono
+                logger.info(_line)
+            else:
+                logger.debug(_line)
         else:
             start_cap = cls._state.daily_start_capital.get(asset_class)
             if start_cap:

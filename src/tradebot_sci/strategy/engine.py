@@ -444,9 +444,12 @@ class StrategyEngine:
         except Exception:
             pass
 
-        # Log consensus result
+        # Log consensus result.
+        # Diagnostic detail: the full indicator vote dump, emitted once per symbol
+        # per evaluation. At a fast poll that measured 512 lines per symbol per
+        # minute (about 13,000 a minute across the profile), so it is DEBUG.
         if not is_synthetic_override and vote_sources:
-            logger.info(
+            logger.debug(
                 f"[TREND-DETECT] {self.symbol} dir={htf_dir} "
                 f"(consensus={indicator_dir}, strength={indicator_strength:.0%}) "
                 f"| Votes: {', '.join(vote_sources)}"

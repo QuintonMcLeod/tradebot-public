@@ -223,7 +223,8 @@ class ReplayMarketProvider:
                     1 for c in self._candles[sym][tf]
                     if c.timestamp.date() == self.replay_date.date()
                 )
-                logger.info(
+                # Per-symbol diagnostic detail (26 symbols x 2 timeframes per load).
+                logger.debug(
                     "[REPLAY] Loaded %s %s: %d total (%d on replay day)",
                     sym, tf, len(self._candles[sym][tf]), day_count,
                 )
@@ -262,7 +263,7 @@ class ReplayMarketProvider:
             self._time_offset = today - self.replay_date
         
         self.original_replay_date = self.replay_date  # preserve for day chaining
-        logger.info("[REPLAY] Time shift: %s (offset %s)",
+        logger.info("[REPLAY] Time shift: replay %s -> today %s (offset %s)",
                    self.replay_date.strftime("%Y-%m-%d"),
                    today.strftime("%Y-%m-%d"),
                    self._time_offset)
@@ -303,7 +304,9 @@ class ReplayMarketProvider:
         if self._cursor < self._total_day_candles:
             self._cursor += 1
             self._entries_this_cycle = 0  # Reset entry throttle
-            if self._cursor % 12 == 0 or self._cursor == 1:
+            _pct = int(self._cursor / self._total_day_candles * 100) if self._total_day_candles else 0
+            if _pct >= getattr(self, "_last_progress_pct", -1) + 10 or self._cursor == 1:
+                self._last_progress_pct = _pct
                 logger.info(
                     "[REPLAY] Advanced to candle %d / %d (%.0f%%)%s",
                     self._cursor, self._total_day_candles,

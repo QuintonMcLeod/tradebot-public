@@ -140,7 +140,12 @@ class SabbathContext:
             logger.warning("[SABBATH] astral_unavailable=true; falling back to fixed window")
             self._astral_fallback_logged = True
         self._log_counter += 1
-        if self._last_active is None or self._last_active != active or self._log_counter >= self._log_rate:
+        import time as _time
+        _now = _time.monotonic()
+        _state_changed = self._last_active is None or self._last_active != active
+        _due = (_now - getattr(self, "_last_log_ts", 0.0)) >= 60.0
+        if _state_changed or _due:
+            self._last_log_ts = _now
             logger.info(
                 "[SABBATH] sabbath_active=%s time_now_local=%s window_start_local=%s window_end_local=%s remaining_block_duration=%.1f",
                 active,

@@ -43,6 +43,7 @@ from tradebot_sci.broker.paper_broker import PaperBroker
 from tradebot_sci.market.replay_provider import ReplayMarketProvider
 from tradebot_sci.runtime.scheduling import (
     is_market_open,
+    warn_missing_metadata,
     get_current_session,
     get_next_session_start,
     get_schedule_status,
@@ -703,7 +704,7 @@ def _resolve_active_symbols(
         if selection.selected:
             active_symbols = selection.selected
     else:
-        logger.info("[LOOP_DEBUG] pair_selector is disabled or None; skipping extra selection")
+        logger.debug("[LOOP_DEBUG] pair_selector is disabled or None; skipping extra selection")
 
     # Include symbols with open positions
     if executor and hasattr(executor, "list_open_position_symbols"):
@@ -1492,6 +1493,18 @@ def run_bot(
     controller.health_monitor.record_config(True, profile_name)
     if executor:
         controller.health_monitor.record_broker(True, broker_name=getattr(executor, 'name', 'OANDA'))
+
+    # Report unclassifiable symbols once at startup, rather than on every tick.
+    try:
+        _missing_meta = warn_missing_metadata(symbols)
+        if _missing_meta:
+            logger.warning(
+                "[SCHEDULE] %d of %d profile symbols have no symbol metadata and will "
+                "never trade until the registry or the profile is corrected.",
+                len(_missing_meta), len(symbols),
+            )
+    except NameError:
+        pass
 
     try:
         for _ in loop_iter:
@@ -2542,6 +2555,14 @@ def run_scheduled_bot(sabbath_override: bool | None = None) -> None:
         consecutive_error_iterations = 0
 
         # ── Health Monitor: Boot events ──
+        # Report unclassifiable symbols once, rather than on every scheduler tick.
+        _missing_meta = warn_missing_metadata(symbols)
+        if _missing_meta:
+            logger.warning(
+                "[SCHEDULE] %d of %d profile symbols have no symbol metadata and will "
+                "never trade until the registry or the profile is corrected.",
+                len(_missing_meta), len(symbols),
+            )
         controller.health_monitor.add_event(f"Scheduled bot started — profile: {profile_name}", "info")
         controller.health_monitor.record_config(True, profile_name)
         if executor:
