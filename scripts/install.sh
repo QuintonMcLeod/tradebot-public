@@ -174,6 +174,13 @@ install_sys_deps() {
             run_with_spinner "Installing Arch packages" sudo pacman -Syu --noconfirm tmux git rsync curl wget base-devel python nss at-spi2-atk libxss alsa-lib mesa
             ;;
         darwin)
+            # install_mac.sh does the same job without Homebrew, without the Xcode
+            # Command Line Tools, and without sudo. Point at it, but carry on with
+            # the Homebrew path so this script keeps working for anyone relying on it.
+            if [ -x "$ROOT_DIR/scripts/install_mac.sh" ]; then
+                info "Tip: scripts/install_mac.sh installs the same thing with no Homebrew and no sudo."
+            fi
+            info "Continuing with the Homebrew install path."
             if ! command -v brew >/dev/null 2>&1; then
                 if [ -x /opt/homebrew/bin/brew ]; then
                     eval "$(/opt/homebrew/bin/brew shellenv)"

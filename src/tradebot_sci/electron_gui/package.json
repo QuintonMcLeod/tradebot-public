@@ -1,15 +1,66 @@
 {
     "name": "tradebot-sci-gui",
-    "version": "1.0.0",
+    "version": "3.0.24",
+    "description": "Tradebot SCI - AI-assisted trading simulator with a live Electron dashboard.",
+    "author": "Tradebot SCI",
     "main": "main.js",
     "scripts": {
-        "start": "electron ."
+        "start": "electron .",
+        "dist:linux": "electron-builder --linux AppImage",
+        "dist:win": "electron-builder --win nsis"
     },
     "dependencies": {
         "chart.js": "^4.4.0",
         "chartjs-plugin-datalabels": "^2.2.0",
         "date-fns": "^2.30.0",
-        "electron": "^44.2.0",
         "js-yaml": "^4.1.0"
+    },
+    "devDependencies": {
+        "electron": "^44.2.0",
+        "electron-builder": "^26.15.3"
+    },
+    "build": {
+        "appId": "com.tradebot.sci",
+        "productName": "Tradebot SCI",
+        "copyright": "Tradebot SCI",
+        "artifactName": "Tradebot-SCI-${version}-${arch}.${ext}",
+        "directories": {
+            "output": "../../../dist",
+            "buildResources": "assets"
+        },
+        "extraResources": [
+            {
+                "from": "../../../",
+                "to": "app",
+                "filter": [
+                    "**/*",
+                    "!node_modules/**",
+                    "!**/node_modules/**",
+                    "!.git/**",
+                    "!.venv/**",
+                    "!__pycache__/**",
+                    "!**/__pycache__/**",
+                    "!*.pyc",
+                    "!**/*.pyc",
+                    "!results/**",
+                    "!scratch/**",
+                    "!public_mirror/**",
+                    "!data/**",
+                    "!logs/**",
+                    "!dist/**",
+                    "!*.log",
+                    "!src/tradebot_sci/electron_gui/**"
+                ]
+            }
+        ],
+        "linux": {
+            "target": [
+                "AppImage"
+            ],
+            "category": "Office;Finance",
+            "icon": "assets/icon.png",
+            "synopsis": "AI-assisted trading simulator",
+            "description": "Tradebot SCI - AI-assisted trading simulator with a live Electron dashboard."
+        }
     }
 }

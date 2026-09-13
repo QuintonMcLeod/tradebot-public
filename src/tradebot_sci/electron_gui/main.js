@@ -23,9 +23,19 @@ let botRunning = false;
 // Helper to determine OS
 const isWindows = () => process.platform === 'win32';
 
+// Repository root, resolved for both a git checkout and a packaged build.
+//
+// In development this file lives at <repo>/src/tradebot_sci/electron_gui/main.js,
+// so three directories up is the repository. A packaged build mounts the app
+// read-only and copies the repository to resources/app (see the extraResources
+// entry in package.json), so the resource path is the repository instead.
+const REPO_ROOT = app.isPackaged
+    ? path.join(process.resourcesPath, 'app')
+    : path.join(__dirname, '../../../');
+
 // Helper to find repo root reliably
-const LEGACY_DOTENV_PATH = path.join(__dirname, '../../../.env');
-const PROFILES_PATH = path.join(__dirname, '../../../config/settings_profiles.yaml');
+const LEGACY_DOTENV_PATH = path.join(REPO_ROOT, '.env');
+const PROFILES_PATH = path.join(REPO_ROOT, 'config/settings_profiles.yaml');
 
 // Root Configuration Path
 const ROOT_CONFIG_DIR = process.platform === 'darwin'
@@ -33,8 +43,8 @@ const ROOT_CONFIG_DIR = process.platform === 'darwin'
     : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'tradebot-sci-gui');
 
 const ACTIVE_INSTANCE_FILE = path.join(ROOT_CONFIG_DIR, 'active_instance.txt');
-const LEGACY_CONFIG_JSON_PATH = path.join(__dirname, '../../../config.json');
-const LEGACY_SECRETS_PATH = path.join(__dirname, '../../../.env.secrets');
+const LEGACY_CONFIG_JSON_PATH = path.join(REPO_ROOT, 'config.json');
+const LEGACY_SECRETS_PATH = path.join(REPO_ROOT, '.env.secrets');
 
 function getActiveInstanceName(wsUrl) {
     if (!wsUrl) return 'local';
@@ -785,7 +795,7 @@ function setupIpcHandlers() {
     // =============================================
     // Help Documentation
     // =============================================
-    const DOCS_DIR = path.join(__dirname, '../../../Documentation');
+    const DOCS_DIR = path.join(REPO_ROOT, 'Documentation');
     const RTFM_DIR = path.join(DOCS_DIR, 'RTFM');
 
     // Dynamically build HELP_CATALOG from markdown frontmatter
@@ -849,7 +859,7 @@ function setupIpcHandlers() {
     try {
         // ── App Version ──
         ipcMain.handle('get-app-version', async () => {
-            const versionFile = path.join(__dirname, '../../../VERSION');
+            const versionFile = path.join(REPO_ROOT, 'VERSION');
             try {
                 return fs.readFileSync(versionFile, 'utf8').trim();
             } catch (_) {
@@ -1066,8 +1076,8 @@ function setupIpcHandlers() {
             // Truncate ghost logs so log_analytics.js doesn't pull old trades into the UI
             const stdoutLog1 = path.join(LOGS_DIR, 'bot_stdout.log');
             const tradebotLog1 = path.join(LOGS_DIR, 'tradebot.log');
-            const stdoutLog2 = path.join(__dirname, '../../../logs/bot_stdout.log');
-            const tradebotLog2 = path.join(__dirname, '../../../logs/tradebot.log');
+            const stdoutLog2 = path.join(REPO_ROOT, 'logs/bot_stdout.log');
+            const tradebotLog2 = path.join(REPO_ROOT, 'logs/tradebot.log');
             if (fs.existsSync(stdoutLog1)) fs.writeFileSync(stdoutLog1, '');
             if (fs.existsSync(tradebotLog1)) fs.writeFileSync(tradebotLog1, '');
             if (fs.existsSync(stdoutLog2)) fs.writeFileSync(stdoutLog2, '');
@@ -1158,8 +1168,8 @@ function setupIpcHandlers() {
             const { spawn } = require('child_process');
 
             // ── Resolve engine_replay.py path (Minovsky Engine) ───────────────
-            const minovskyPath = path.join(__dirname, '../../../tools/engine/engine_replay.py');
-            const replayPath = path.join(__dirname, '../../../tools/paper_replay.py');
+            const minovskyPath = path.join(REPO_ROOT, 'tools/engine/engine_replay.py');
+            const replayPath = path.join(REPO_ROOT, 'tools/paper_replay.py');
             const enginePath = fs.existsSync(minovskyPath) ? minovskyPath : replayPath;
             if (!fs.existsSync(enginePath)) {
                 return { error: 'Minovsky Engine (engine_replay.py) not found.' };
@@ -2372,7 +2382,6 @@ RULES:
     // =============================================
     // Self-Update via Git Pull
     // =============================================
-    const REPO_ROOT = path.join(__dirname, '../../../');
 
     ipcMain.handle('check-for-updates', async () => {
         return new Promise((resolve) => {
@@ -2784,7 +2793,7 @@ function createWindow() {
     });
 
     ipcMain.handle('get-motd', async (event) => {
-        const motdPath = path.join(__dirname, '../../../Documentation/motd.txt');
+        const motdPath = path.join(REPO_ROOT, 'Documentation/motd.txt');
         try {
             if (fs.existsSync(motdPath)) {
                 return fs.readFileSync(motdPath, 'utf-8');
@@ -2924,8 +2933,8 @@ function createWindow() {
         }
 
         let spawnCmd = isWindows()
-            ? `cd /d "${path.join(__dirname, '../../../')}" && ".venv/Scripts/python.exe" scripts/run_dev_bot.py`
-            : `TRADEBOT_INSTANCE_ID=${INSTANCE_ID} TRADING_CONFIRMATION=${isConfirmed ? 'YES' : 'NO'} ${linuxWrapper}bash "${path.join(__dirname, '../../../scripts/tradebot.sh')}" --daemon${extraArgs}`;
+            ? `cd /d "${path.join(REPO_ROOT, '')}" && ".venv/Scripts/python.exe" scripts/run_dev_bot.py`
+            : `TRADEBOT_INSTANCE_ID=${INSTANCE_ID} TRADING_CONFIRMATION=${isConfirmed ? 'YES' : 'NO'} ${linuxWrapper}bash "${path.join(REPO_ROOT, 'scripts/tradebot.sh')}" --daemon${extraArgs}`;
 
         console.log(`[MAIN] Executing: ${spawnCmd}`);
         fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
@@ -3143,8 +3152,8 @@ function createWindow() {
             const isWin = os.platform() === 'win32';
             
             let spawnCmd = isWin
-                ? `"${path.join(__dirname, '../../../scripts/start_mt5.bat')}"`
-                : `bash "${path.join(__dirname, '../../../scripts/start_mt5.sh')}"`;
+                ? `"${path.join(REPO_ROOT, 'scripts/start_mt5.bat')}"`
+                : `bash "${path.join(REPO_ROOT, 'scripts/start_mt5.sh')}"`;
 
             console.log(`[MAIN] Launching MT5 Bridge via: ${spawnCmd}`);
             

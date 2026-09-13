@@ -1,0 +1,111 @@
+# ──────────────────────────────────────────────────────────────
+# TradeBot SCI — GitLab CI Pipeline
+# ──────────────────────────────────────────────────────────────
+# Runs lint + type-check + test on every push and merge request.
+# Uses Poetry for dependency management, Ruff for linting,
+# mypy for type checking, and pytest for testing.
+#
+# The build stage packages the Linux AppImage so releases are produced by CI
+# rather than by hand. See scripts/build_appimage.sh for what it runs.
+#
+# NOTE: GitLab only reads the .gitlab-ci.yml at the repository root. This file
+# lives at the root of the public mirror (gitlab.com/ultraedge/tradebot-public)
+# and is published there by scripts/publish_mirror.sh. In the private monorepo it
+# sits in a subdirectory and is not used.
+
+stages:
+  - lint
+  - test
+  - build
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+  POETRY_VIRTUALENVS_IN_PROJECT: "true"
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - .pip-cache/
+    - .venv/
+
+# ── Lint (ruff check + format) ───────────────────────────────
+# NOTE: allow_failure is set because ~3,000 pre-existing lint errors
+# exist across the codebase. Remove this once the lint debt is cleared.
+lint:
+  stage: lint
+  image: python:3.13-slim
+  before_script:
+    - pip install --quiet ruff
+  script:
+    - ruff check src/ tests/
+    - ruff format --check src/
+  allow_failure: true
+
+# ── Type Check (mypy --strict) ───────────────────────────────
+typecheck:
+  stage: lint
+  image: python:3.13-slim
+  before_script:
+    - pip install --quiet poetry
+    - poetry install --no-interaction --no-root
+  script:
+    - poetry run mypy src/tradebot_sci --strict --no-error-summary
+  allow_failure: false
+
+# ── Unit, Integration, Property & Degradation Tests ──────────
+test:
+  stage: test
+  image: python:3.13-slim
+  before_script:
+    - pip install --quiet poetry
+    - poetry install --no-interaction --no-root
+  script:
+    - poetry run pytest tests/ -x -q --tb=short
+    - poetry run pytest tests/ --cov=tradebot_sci --cov-fail-under=80
+  artifacts:
+    when: on_failure
+    paths:
+      - .pytest_cache/
+    expire_in: 7 days
+
+# ── Build the Linux AppImage ─────────────────────────────────
+# Runs on every branch and tag. The build logic lives in
+# scripts/build_appimage.sh so it can be reproduced locally with the same
+# command; nothing here should need editing when the build changes.
+build:appimage:
+  stage: build
+  image: node:22-bookworm
+  # Start immediately: lint is advisory (allow_failure) and the test job is slow,
+  # so there is no reason to gate the artifact behind them.
+  needs: []
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq --no-install-recommends libarchive-tools zsync ca-certificates
+  script:
+    - bash scripts/build_appimage.sh
+  artifacts:
+    name: "tradebot-sci-appimage-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - dist/*.AppImage
+    expire_in: 30 days
+
+# ── Attach the AppImage to a GitLab Release on tag ───────────
+# Pushing a tag such as v3.0.25 produces a permanent download link, which is
+# what should be handed to users instead of a CI artifact URL that expires.
+release:appimage:
+  stage: build
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs: ["build:appimage"]
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - echo "Creating release $CI_COMMIT_TAG with the AppImage attached"
+  release:
+    tag_name: "$CI_COMMIT_TAG"
+    name: "Tradebot SCI $CI_COMMIT_TAG"
+    description: "Automated release built by the pipeline for $CI_COMMIT_TAG."
+    assets:
+      links:
+        - name: "Linux AppImage (x86_64)"
+          url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/dist/Tradebot-SCI-${CI_COMMIT_TAG#v}-x86_64.AppImage?job=build:appimage"
+          link_type: package

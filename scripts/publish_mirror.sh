@@ -75,8 +75,13 @@ fi
 
 # 3. Sync Safe Files (RSYNC)
 # We exclude hidden files, configs, logs, and sensitive data
+#
+# Rules are first-match-wins, so the .gitlab-ci.yml include must come BEFORE the
+# '.git*' exclude below — otherwise '.git*' swallows it and the public mirror gets
+# no CI configuration at all.
 echo "Syncing files..."
 rsync -av --delete \
+    --include='.gitlab-ci.yml' \
     --exclude='.git*' \
     --exclude='__pycache__' \
     --exclude='.venv' \

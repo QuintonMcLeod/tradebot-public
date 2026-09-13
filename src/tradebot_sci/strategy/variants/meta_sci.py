@@ -34,12 +34,20 @@ class MetaSCIStrategy(BaseStrategy):
     ║  5. Optionally add to self.STRATEGY_WEIGHTS for tournament     ║
     ║     bonus (higher number = more weight in scoring)             ║
     ║                                                                ║
-    ║  ALSO UPDATE THESE OTHER FILES (full checklist in engine.py):  ║
-    ║  - src/tradebot_sci/strategy/engine.py (_load_strategy_variant)║
-    ║  - src/tradebot_sci/electron_gui/renderer.js (STRATEGY_OPTIONS)║
-    ║  - src/tradebot_sci/electron_gui/settings.js (dropdown)        ║
-    ║  - src/tradebot_sci/electron_gui/settings_integrated.js        ║
-    ║    (STRATEGIES object + System Tab dropdown + Toolbox grid)     ║
+    ║  ALSO REGISTER IN THE ENGINE AND THE GUI — the full procedure  ║
+    ║  is authoritative in ONE place, read that rather than this:    ║
+    ║      Documentation/ADDING_A_STRATEGY.md                        ║
+    ║                                                                ║
+    ║  Briefly, outside this file:                                   ║
+    ║  - strategy/engine.py — STRATEGY_REGISTRY entry                ║
+    ║  - electron_gui/settings_integrated.js — const STRATEGIES      ║
+    ║  - electron_gui/settings_integrated.js — Toolbox strategies[]  ║
+    ║  - electron_gui/profiles_module.js — STRATEGY_OPTIONS          ║
+    ║  - electron_gui/index.html — #bt-strategy-select <option>      ║
+    ║                                                                ║
+    ║  This block used to name renderer.js (STRATEGY_OPTIONS) and    ║
+    ║  settings.js. Neither holds a strategy list: STRATEGY_OPTIONS  ║
+    ║  lives in profiles_module.js and settings.js does not exist.   ║
     ║                                                                ║
     ╚══════════════════════════════════════════════════════════════════╝
     """

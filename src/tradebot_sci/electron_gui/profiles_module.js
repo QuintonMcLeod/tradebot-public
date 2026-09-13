@@ -47,11 +47,19 @@ window.profilesModule = (function () {
 
     // ──────────────────────────────────────────────────────────────
     // STRATEGY_OPTIONS — master list for Profile Editor dropdowns.
-    // HOW TO ADD A NEW STRATEGY:
-    //   1. Add { value: 'your_key', label: 'Display Name' } below
-    //   2. Also add to: settings_integrated.js (System Tab + Strategy Toolbox + STRATEGIES object)
-    //   4. Register in: src/tradebot_sci/strategy/engine.py STRATEGY_MAP
-    //   5. Add to Meta-SCI regime groups if applicable: strategy/variants/meta_sci.py
+    //
+    // ADDING A STRATEGY? The authoritative checklist lives in
+    //     Documentation/ADDING_A_STRATEGY.md
+    // This is registration 3 of 4 on the GUI side.
+    //
+    //   1. Add { value: 'your_key', label: 'Display Name' } below.
+    //   2. settings_integrated.js — the STRATEGIES object, plus the
+    //      strategies array in renderStrategyToolbox().
+    //   3. index.html — an <option> in #bt-strategy-select.
+    //   4. strategy/engine.py — STRATEGY_REGISTRY.
+    //   5. Meta-SCI regime groups only if it belongs in a per-bar regime
+    //      selector: strategy/variants/meta_sci.py. Most do not.
+    //   6. VALIDATE: python3 -m pytest tests/test_strategy_engine.py -q
     // ──────────────────────────────────────────────────────────────
     const STRATEGY_OPTIONS = [
         { value: 'rubberband_reaper', label: 'Rubberband Reaper' },
@@ -94,7 +102,8 @@ window.profilesModule = (function () {
         { value: 'qs_tqqq_btal', label: 'QS TQQQ/BTAL Rebalancer' },
         { value: 'qs_choppiness', label: 'QS Choppiness Index' },
         { value: 'qs_first_day_month', label: 'QS Seasonal First DOM' },
-        { value: 'forex_structure_breakout', label: 'Forex Structure Breakout' }
+        { value: 'forex_structure_breakout', label: 'Forex Structure Breakout' },
+        { value: 'forex_scrape_fade', label: 'Forex Scrape Fade (Range Fade)' }
     ];
 
     const TIMEFRAME_OPTIONS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];

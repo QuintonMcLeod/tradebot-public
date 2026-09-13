@@ -678,11 +678,10 @@ class PaperBroker:
                         self._update_status("warning", "Forex/Metals market is closed (weekend)")
                         return (
                             ExecutionResult(ExecutionStatus.RISK_SUPPRESSED, symbol, "Paper: Forex/Metals market closed"),
-                            ExecutionOutcome(ExecutionOutcomeType.REJECTED, symbol, "Paper: Forex/Metals market closed", price=0.0)
+                            ExecutionOutcome(ExecutionOutcomeType.BLOCKED_GUARD, symbol, "Paper: Forex/Metals market closed")
                         )
                 except Exception as e:
-                    logger.warning(f"[PAPER] [WEEKEND BLOCK] {symbol} weekend check failed: {e}; allowing trade")
-                    pass
+                    logger.error(f"[PAPER] [WEEKEND BLOCK] {symbol} weekend check failed: {e}; allowing trade")
 
             # [NEW] Bankruptcy Check — block entries if equity is zero or negative
             current_equity = self.get_total_equity()

@@ -34,7 +34,9 @@ class ForexStructureBreakout(BaseStrategy):
 
     def __init__(self, target_r: float = 2.0, **kwargs):
         super().__init__("ForexStructureBreakout")
-        logger.info(f"[SB_INIT] kwargs={kwargs}")
+        # Log the kwarg names only. kwargs carries _settings, which holds broker API
+        # keys, so logging the dict wholesale writes live credentials to the journal.
+        logger.info(f"[SB_INIT] kwargs keys={sorted(k for k in kwargs if k != '_settings')}")
         logger.info(f"[SB_INIT] lookback={kwargs.get('breakout_lookback', 'NOTSET')}, adx={kwargs.get('adx_min', 'NOTSET')}, vol={kwargs.get('volume_min_ratio', 'NOTSET')}, stop={kwargs.get('stop_floor_pct', 'NOTSET')}")
 
         # Profit target in R multiples.

@@ -17,10 +17,12 @@ The rule
    what the SMA z-score version did, because an indicator lags the break it is
    meant to catch.
 
-3. **Stop 20 pips, target 10 pips, time stop after 4 hours.** The asymmetry is
-   deliberate and load-bearing: a 50% win rate against a 2:1 reward-to-risk in the
-   wrong direction would lose money, so the target sits closer than the stop and the
-   measured hit rate of about 52% carries it.
+3. **Stop 20 pips, target 15 pips, time stop after 24 hours.** The hold is the
+   load-bearing parameter, and it was originally set too short. Measured on fifteen
+   pairs over three years, net of each trade's own quoted spread: -3.19 pips per
+   trade at a four-hour hold, against +1.15 at 288 bars with the 15-pip target. At
+   288 bars the whole target/stop grid is profitable rather than a single cell. The
+   fade needs roughly a day for the overextension to revert.
 
 4. **No break-even stop.** Measured and rejected: moving the stop to break-even
    after +5 pips cut the win rate from 49% to 23% and turned gross expectancy from
@@ -32,14 +34,27 @@ The rule
    edge of the entire day, +4.34 pips, and OANDA's spread there is 4.30 pips. The
    markup takes back the whole opportunity, so the window ends before it.
 
-Validated result: +0.32 pips per trade net of each pair's measured spread, t=4.17,
-positive on 7 of 15 pairs over three years, and — the part that matters — reproduced
-on 24 months of data that had never been examined (+0.41 pips, t=3.42) at the same
-magnitude as the year the rule was chosen on.
+Validated result: +1.15 pips per trade net of each trade's quoted spread, over 2,052
+trades on fifteen pairs and three years (t=3.17, 67% win rate), and +1.31 on a
+26-pair set covering the most recent twelve months (t=2.64). Both datasets show the
+entire target/stop grid profitable at the 288-bar hold, which is a stronger signal
+than any single bracket. The effect lives in the recent eighteen months and is flat
+to negative before that, so treat it as a forward paper test, not a settled edge.
+
+Method, and the corrections that produced these numbers:
+Documentation/Research/SCRAPE_ENTRY_2026_09_13.md
 
 Pair selection matters: break-even sits at roughly 2.5 pips of round-trip cost, so
 this belongs on pairs whose spread is below that. On the tightest majors alone it is
 worth approximately nothing, and on the widest crosses the spread eats it.
+
+Not part of the Meta-SCI ensemble
+--------------------------------
+Deliberately absent from meta_sci.py. The ensemble picks among regime-matched
+strategies on every bar, whereas this rule is defined by one fixed hour of the day;
+handing it to a per-bar regime selector would fire it outside the only window it was
+measured in. It is selected directly by profile config instead, and registering it
+would need the hour gate to travel with it.
 """
 from __future__ import annotations
 
@@ -78,14 +93,21 @@ class ForexScrapeFade(BaseStrategy):
 
         self.range_lookback = int(kwargs.get("scrape_range_lookback", 20))
         self.stop_pips = float(kwargs.get("scrape_stop_pips", 20.0))
-        self.target_pips = float(kwargs.get("scrape_target_pips", 10.0))
-        self.max_hold_bars = int(kwargs.get("scrape_max_hold_bars", 48))
+        self.target_pips = float(kwargs.get("scrape_target_pips", 15.0))
 
-        # Only fade a *deep* break. Measured over three years on fifteen pairs, a
-        # shallow break is a losing fade and a deep one is a winning one:
-        # break depth >= 4 pips returned +0.71 pips per trade in the year the rule
-        # was tuned on and +0.54 in a separately validated subset, against -0.25 for
-        # taking every break.
+        # The 48-bar hold was the losing setting. Measured on fifteen pairs over three
+        # years, net of each trade's quoted spread: -3.19 pips per trade at 48 bars
+        # against +1.15 at 288 bars with a 15-pip target, and the whole target/stop
+        # grid profitable at 288. The entry is unchanged; the fade needs a day for the
+        # overextension to revert instead of four hours.
+        self.max_hold_bars = int(kwargs.get("scrape_max_hold_bars", 288))
+
+        # Only fade a *deep* break. This is the single filter that makes the fade
+        # work. Fading every fresh break at the 20:00 UTC hour measured -5.21 pips
+        # gross per trade over three years on fifteen pairs; restricting to breaks of
+        # 1 pip or more gives -2.62, 2 pips or more -0.75, and 3 pips or more +0.48.
+        # The relationship is monotonic, so the threshold is the strategy: a marginal
+        # break is noise and a deep one is an overextension that reverts.
         self.min_break_pips = float(kwargs.get("scrape_min_break_pips", 2.0))
 
         # Skip pairs whose measured round trip is too wide for the edge to survive:
@@ -207,7 +229,7 @@ class ForexScrapeFade(BaseStrategy):
 
         if long_break:
             stop = entry - (self.stop_pips * pip)      # 20 pips against
-            target = entry + (self.target_pips * pip)  # 10 pips for
+            target = entry + (self.target_pips * pip)  # 15 pips for
             self._last_entry_bar[snapshot.symbol] = last.timestamp
             logger.info(
                 f"[SCRAPE] {snapshot.symbol} LONG fade: close {entry:.5f} broke below "
