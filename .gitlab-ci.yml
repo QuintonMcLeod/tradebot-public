@@ -128,29 +128,39 @@ build:windows-sfx:
     expire_in: 30 days
 
 # ── Publish a Release with both installers attached ──────────
-# Runs on tags such as v3.0.30 and produces a permanent download page. The download
-# URLs come from the build jobs as dotenv reports, so the release never has to
-# guess a filename or a job id.
+# Runs on tags such as v3.0.31 and produces a permanent download page.
+#
+# `artifacts: true` on both needs entries is required, not optional: setting it to
+# false suppresses the dotenv report as well as the artifact, which leaves the URLs
+# empty and fails release creation with "Links url can't be blank". The cost is
+# downloading the artifacts into this job, which is acceptable for a tag-only job.
+#
+# The URLs themselves are job-artifact download links because GitLab's path-based
+# routes (/-/jobs/artifacts/<ref>/raw/... and /browse) return 404 on this project.
 release:
   stage: build
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   needs:
     - job: build:appimage
-      artifacts: false
+      artifacts: true
     - job: build:windows-sfx
-      artifacts: false
+      artifacts: true
   rules:
     - if: $CI_COMMIT_TAG
   script:
-    - VERSION="$(cat VERSION | tr -d '[:space:]')"
-    - echo "Publishing release $CI_COMMIT_TAG for version $VERSION"
+    - echo "Publishing release $CI_COMMIT_TAG"
     - echo "  AppImage -> $APPIMAGE_URL"
     - echo "  Windows  -> $WINDOWS_URL"
-    - |
-      release-cli create \
-        --name "Tradebot SCI $CI_COMMIT_TAG" \
-        --tag-name "$CI_COMMIT_TAG" \
-        --description "Automated release for $CI_COMMIT_TAG (v$VERSION). Both downloads are ZIP archives containing the installer." \
-        --assets-link "{\"name\":\"Linux AppImage (x86_64, .zip)\",\"url\":\"$APPIMAGE_URL\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Windows Setup (x86_64, .zip)\",\"url\":\"$WINDOWS_URL\",\"link_type\":\"package\"}"
+  release:
+    tag_name: "$CI_COMMIT_TAG"
+    name: "Tradebot SCI $CI_COMMIT_TAG"
+    description: "Automated release built by the pipeline. Each download is a ZIP archive containing the installer."
+    assets:
+      links:
+        - name: "Linux AppImage (x86_64, .zip)"
+          url: "$APPIMAGE_URL"
+          link_type: package
+        - name: "Windows Setup (x86_64, .zip)"
+          url: "$WINDOWS_URL"
+          link_type: package
 
