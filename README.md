@@ -13,8 +13,8 @@
 
 ## 🪟 Windows
 
-1. **[Download the installer](https://gitlab.com/ultraedge/tradebot-public/-/releases)** — the file named `Tradebot-SCI-Setup-....exe`
-2. **Double-click it.** A black window opens and sets everything up. Give it a few minutes.
+1. **[Download the installer](https://gitlab.com/ultraedge/tradebot-public/-/releases)** — click **Windows Setup**. It arrives as a `.zip`.
+2. **Unzip it**, then **double-click `Tradebot-SCI-Setup-....exe`.** A black window opens and sets everything up. Give it a few minutes.
 3. **Double-click "Tradebot SCI" on your Desktop** when it says it's done.
 
 You do **not** need to install Python, Node.js, or Git first. The setup program handles all of that.
@@ -49,7 +49,8 @@ It will ask for your password once, to install system packages.
 <details>
 <summary><b>Prefer a single file instead? (AppImage)</b></summary>
 
-Download the AppImage from the [Releases page](https://gitlab.com/ultraedge/tradebot-public/-/releases), then:
+Download the AppImage from the [Releases page](https://gitlab.com/ultraedge/tradebot-public/-/releases) —
+click **Linux AppImage**. It arrives as a `.zip`, so unzip it first, then:
 
 ```bash
 chmod +x Tradebot-SCI-*.AppImage
