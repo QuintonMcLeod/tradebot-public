@@ -58,9 +58,15 @@ typecheck:
   allow_failure: true
 
 # ── Unit, Integration, Property & Degradation Tests ──────────
+# PYTHONPATH is set because installs use `poetry install --no-root`, so the
+# tradebot_sci package itself is never installed into the environment and tests
+# fail with ModuleNotFoundError. This mirrors scripts/tradebot.sh, which also
+# runs the bot with PYTHONPATH=src rather than an installed package.
 test:
   stage: test
   image: python:3.13-slim
+  variables:
+    PYTHONPATH: "src"
   before_script:
     - pip install --quiet poetry
     - poetry install --no-interaction --no-root
