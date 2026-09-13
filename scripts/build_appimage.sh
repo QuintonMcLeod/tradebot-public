@@ -17,6 +17,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+VERSION="$(cat "$ROOT_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
+[ -n "$VERSION" ] || VERSION="0.0.0"
+
 GUI_DIR="$ROOT_DIR/src/tradebot_sci/electron_gui"
 DIST_DIR="$ROOT_DIR/dist"
 
@@ -46,7 +49,10 @@ else
 fi
 
 info "Running electron-builder..."
-npx electron-builder --linux AppImage
+# package.json carries its own version field, which drifts from the VERSION file the
+# release process bumps. Pass VERSION through extraMetadata so the artifact is named
+# for the actual release rather than a stale number baked into package.json.
+npx electron-builder --linux AppImage -c.extraMetadata.version="$VERSION"
 
 # electron-builder writes into the repository root, not into the GUI directory.
 [[ -d "$DIST_DIR" ]] || fail "Expected build output at $DIST_DIR, but it does not exist."
