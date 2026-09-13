@@ -100,23 +100,42 @@ build:appimage:
       - dist/*.AppImage
     expire_in: 30 days
 
-# ── Attach the AppImage to a GitLab Release on tag ───────────
-# Pushing a tag such as v3.0.25 produces a permanent download link, which is
-# what should be handed to users instead of a CI artifact URL that expires.
-release:appimage:
+# ── Build the Windows self-extracting setup ──────────────────
+# A self-extracting archive is a stub with a 7-Zip payload appended, so it builds
+# on Linux and needs no Windows toolchain. That is why this job can exist at all.
+build:windows-sfx:
+  stage: build
+  image: node:22-bookworm
+  needs: []
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq --no-install-recommends p7zip-full rsync
+  script:
+    - bash scripts/build_windows_sfx.sh
+  artifacts:
+    name: "tradebot-sci-windows-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - dist/*.exe
+    expire_in: 30 days
+
+# ── Publish a Release with both installers attached ──────────
+# Runs on tags such as v3.0.28 and produces a permanent download page. The asset
+# URLs are built here rather than declared statically because the filenames carry
+# the VERSION file's value, which does not have to match the tag.
+release:
   stage: build
   image: registry.gitlab.com/gitlab-org/release-cli:latest
-  needs: ["build:appimage"]
+  needs: ["build:appimage", "build:windows-sfx"]
   rules:
     - if: $CI_COMMIT_TAG
   script:
-    - echo "Creating release $CI_COMMIT_TAG with the AppImage attached"
-  release:
-    tag_name: "$CI_COMMIT_TAG"
-    name: "Tradebot SCI $CI_COMMIT_TAG"
-    description: "Automated release built by the pipeline for $CI_COMMIT_TAG."
-    assets:
-      links:
-        - name: "Linux AppImage (x86_64)"
-          url: "$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/dist/Tradebot-SCI-${CI_COMMIT_TAG#v}-x86_64.AppImage?job=build:appimage"
-          link_type: package
+    - VERSION="$(cat VERSION | tr -d '[:space:]')"
+    - echo "Publishing release $CI_COMMIT_TAG for version $VERSION"
+    - |
+      release-cli create \
+        --name "Tradebot SCI $CI_COMMIT_TAG" \
+        --tag-name "$CI_COMMIT_TAG" \
+        --description "Automated release built by the pipeline for $CI_COMMIT_TAG. Download an installer below." \
+        --assets-link "{\"name\":\"Linux AppImage (x86_64)\",\"url\":\"$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/dist/Tradebot-SCI-${VERSION}-x86_64.AppImage?job=build:appimage\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"Windows Setup (x86_64)\",\"url\":\"$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/dist/Tradebot-SCI-Setup-${VERSION}.exe?job=build:windows-sfx\",\"link_type\":\"package\"}"
+
