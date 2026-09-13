@@ -120,6 +120,7 @@ rsync -av --delete \
     --include='Documentation/***' \
     --include='scripts/***' \
     --include='tools/***' \
+    --include='tests/***' \
     --include='config/' \
     --include='config/settings_*.yaml' \
     --include='config.json' \
