@@ -94,10 +94,16 @@ build:appimage:
     - apt-get install -y -qq --no-install-recommends libarchive-tools zsync ca-certificates
   script:
     - bash scripts/build_appimage.sh
+    # Hand the download URL to the release job. GitLab's /-/jobs/artifacts/<ref>/raw/
+    # route 404s on this project, so the release links to the job artifact download
+    # (verified 200 anonymously) rather than a path-based URL.
+    - echo "APPIMAGE_URL=$CI_PROJECT_URL/-/jobs/$CI_JOB_ID/artifacts/download" > build.env
   artifacts:
     name: "tradebot-sci-appimage-$CI_COMMIT_SHORT_SHA"
     paths:
       - dist/*.AppImage
+    reports:
+      dotenv: build.env
     expire_in: 30 days
 
 # ── Build the Windows self-extracting setup ──────────────────
@@ -112,30 +118,39 @@ build:windows-sfx:
     - apt-get install -y -qq --no-install-recommends p7zip-full rsync
   script:
     - bash scripts/build_windows_sfx.sh
+    - echo "WINDOWS_URL=$CI_PROJECT_URL/-/jobs/$CI_JOB_ID/artifacts/download" > build.env
   artifacts:
     name: "tradebot-sci-windows-$CI_COMMIT_SHORT_SHA"
     paths:
       - dist/*.exe
+    reports:
+      dotenv: build.env
     expire_in: 30 days
 
 # ── Publish a Release with both installers attached ──────────
-# Runs on tags such as v3.0.28 and produces a permanent download page. The asset
-# URLs are built here rather than declared statically because the filenames carry
-# the VERSION file's value, which does not have to match the tag.
+# Runs on tags such as v3.0.30 and produces a permanent download page. The download
+# URLs come from the build jobs as dotenv reports, so the release never has to
+# guess a filename or a job id.
 release:
   stage: build
   image: registry.gitlab.com/gitlab-org/release-cli:latest
-  needs: ["build:appimage", "build:windows-sfx"]
+  needs:
+    - job: build:appimage
+      artifacts: false
+    - job: build:windows-sfx
+      artifacts: false
   rules:
     - if: $CI_COMMIT_TAG
   script:
     - VERSION="$(cat VERSION | tr -d '[:space:]')"
     - echo "Publishing release $CI_COMMIT_TAG for version $VERSION"
+    - echo "  AppImage: $APPIMAGE_URL"
+    - echo "  Windows : $WINDOWS_URL"
     - |
       release-cli create \
         --name "Tradebot SCI $CI_COMMIT_TAG" \
         --tag-name "$CI_COMMIT_TAG" \
-        --description "Automated release built by the pipeline for $CI_COMMIT_TAG. Download an installer below." \
-        --assets-link "{\"name\":\"Linux AppImage (x86_64)\",\"url\":\"$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/dist/Tradebot-SCI-${VERSION}-x86_64.AppImage?job=build:appimage\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Windows Setup (x86_64)\",\"url\":\"$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/raw/dist/Tradebot-SCI-Setup-${VERSION}.exe?job=build:windows-sfx\",\"link_type\":\"package\"}"
+        --description "Automated release for $CI_COMMIT_TAG (v$VERSION). Both downloads are ZIP archives containing the installer." \
+        --assets-link "{\"name\":\"Linux AppImage (x86_64, .zip)\",\"url\":\"$APPIMAGE_URL\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"Windows Setup (x86_64, .zip)\",\"url\":\"$WINDOWS_URL\",\"link_type\":\"package\"}"
 
