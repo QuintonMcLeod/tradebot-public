@@ -48,7 +48,12 @@ else
     REMOTE_URL="$RAW_URL"
 fi
 
-echo "--- Syncing Code + Docs to '$EXPORT_DIR' and pushing to '$REMOTE_URL' ---"
+# REMOTE_URL now contains the GitLab token. Never print it directly: terminal
+# scrollback, deploy logs and CI traces all retain their output, so echoing the
+# credentialed URL leaks the token on every single deploy. Print this instead.
+SAFE_URL="$(echo "$REMOTE_URL" | sed -E 's#//[^@]*@#//<credentials redacted>@#')"
+
+echo "--- Syncing Code + Docs to '$EXPORT_DIR' and pushing to '$SAFE_URL' ---"
 
 # 2. Prepare Export Directory
 # We treat this as a persistent git repo so we can push updates
@@ -151,4 +156,4 @@ else
     git push origin "$BRANCH"
 fi
 
-echo "✅ Success! Public mirror updated at $REMOTE_URL"
+echo "✅ Success! Public mirror updated at $SAFE_URL"
