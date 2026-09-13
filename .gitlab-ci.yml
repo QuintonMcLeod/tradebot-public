@@ -144,8 +144,8 @@ release:
   script:
     - VERSION="$(cat VERSION | tr -d '[:space:]')"
     - echo "Publishing release $CI_COMMIT_TAG for version $VERSION"
-    - echo "  AppImage: $APPIMAGE_URL"
-    - echo "  Windows : $WINDOWS_URL"
+    - echo "  AppImage -> $APPIMAGE_URL"
+    - echo "  Windows  -> $WINDOWS_URL"
     - |
       release-cli create \
         --name "Tradebot SCI $CI_COMMIT_TAG" \
