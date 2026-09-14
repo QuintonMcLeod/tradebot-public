@@ -25,8 +25,7 @@
         "copyright": "Tradebot SCI",
         "artifactName": "Tradebot-SCI-${version}-${arch}.${ext}",
         "directories": {
-            "output": "../../../dist",
-            "buildResources": "assets"
+            "output": "../../../dist"
         },
         "extraResources": [
             {
