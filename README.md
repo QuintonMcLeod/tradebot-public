@@ -36,7 +36,23 @@ cd tradebot-public
 
 ## 🐧 Linux
 
-Same idea — two lines:
+1. **[Download the AppImage](https://gitlab.com/ultraedge/tradebot-public/-/releases)** — click
+   **Linux AppImage**. It arrives as a `.zip`.
+2. **Unzip it**, then run these two lines:
+
+```bash
+chmod +x Tradebot-SCI-*.AppImage
+./Tradebot-SCI-*.AppImage
+```
+
+3. The dashboard opens. **The first time you press "Start Bot" it sets Python up for you** — a few
+   minutes, once. After that it starts instantly, every time.
+
+That's the whole thing. No git, no Node.js, no system packages, no password prompt. Nothing is
+installed outside your home folder.
+
+<details>
+<summary><b>Prefer to install from source?</b> — headless servers, or if you want to hack on the code</summary>
 
 ```bash
 git clone https://gitlab.com/ultraedge/tradebot-public.git
@@ -44,22 +60,8 @@ cd tradebot-public
 ./scripts/install.sh
 ```
 
-It will ask for your password once, to install system packages.
-
-<details>
-<summary><b>Prefer a single file instead? (AppImage)</b></summary>
-
-Download the AppImage from the [Releases page](https://gitlab.com/ultraedge/tradebot-public/-/releases) —
-click **Linux AppImage**. It arrives as a `.zip`, so unzip it first, then:
-
-```bash
-chmod +x Tradebot-SCI-*.AppImage
-./Tradebot-SCI-*.AppImage
-```
-
-It bundles the dashboard, so **Node.js is not needed**. It still uses Python, so run the
-installer above **once** first — after that the AppImage is a portable way to launch the bot
-from anywhere.
+This asks for your password once, to install system packages. Choose it if you want the bot running
+headless, want to modify the code, or would rather manage the Python environment yourself.
 </details>
 
 ---

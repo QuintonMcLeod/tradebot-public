@@ -93,6 +93,8 @@ rsync -av --delete \
     --include='.env.example' \
     --exclude='.env*' \
     --exclude='node_modules/' \
+    --exclude='vendor/' \
+    --exclude='**/vendor/' \
     --exclude='config/broker_*.yaml' \
     --exclude='logs/' \
     --exclude='data/' \

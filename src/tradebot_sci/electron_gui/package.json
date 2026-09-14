@@ -50,6 +50,13 @@
                     "!*.log",
                     "!src/tradebot_sci/electron_gui/**"
                 ]
+            },
+            {
+                "from": "vendor/uv",
+                "to": "uv",
+                "filter": [
+                    "uv"
+                ]
             }
         ],
         "linux": {

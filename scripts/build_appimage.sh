@@ -48,6 +48,37 @@ else
     npm install --no-audit --no-fund
 fi
 
+# ── Bundle uv ────────────────────────────────────────────────────────────────
+# An AppImage is a read-only squashfs mount, so the virtual environment cannot live
+# inside it. The app provisions one on first launch instead, and needs a package
+# manager to do that. uv is a single self-contained binary that can also download
+# its own CPython, so the app does not depend on whatever interpreter the
+# distribution happens to ship.
+UV_VERSION="${UV_VERSION:-0.12.13}"
+case "$(uname -m)" in
+    x86_64)         UV_TARGET="x86_64-unknown-linux-gnu" ;;
+    aarch64|arm64)  UV_TARGET="aarch64-unknown-linux-gnu" ;;
+    *) fail "No uv build for architecture $(uname -m)" ;;
+esac
+UV_VENDOR="$GUI_DIR/vendor/uv"
+if [[ -x "$UV_VENDOR/uv" ]]; then
+    info "uv already vendored: $("$UV_VENDOR/uv" --version)"
+else
+    info "Fetching uv $UV_VERSION ($UV_TARGET)..."
+    UV_TMP="$(mktemp -d)"
+    curl -fsSL -o "$UV_TMP/uv.tar.gz" \
+        "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_TARGET}.tar.gz" \
+        || fail "Could not download uv ${UV_VERSION} for ${UV_TARGET}"
+    tar -xzf "$UV_TMP/uv.tar.gz" -C "$UV_TMP"
+    FOUND="$(find "$UV_TMP" -type f -name uv -perm -u+x | head -1)"
+    [[ -n "$FOUND" ]] || fail "uv binary not found inside the downloaded archive"
+    mkdir -p "$UV_VENDOR"
+    cp "$FOUND" "$UV_VENDOR/uv"
+    chmod 755 "$UV_VENDOR/uv"
+    rm -rf "$UV_TMP"
+    info "uv vendored: $("$UV_VENDOR/uv" --version)"
+fi
+
 info "Running electron-builder..."
 # package.json carries its own version field, which drifts from the VERSION file the
 # release process bumps. Pass VERSION through extraMetadata so the artifact is named

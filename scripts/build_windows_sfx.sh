@@ -53,6 +53,7 @@ info "Staging payload..."
 rsync -a \
     --exclude='.git/' --exclude='.git*' \
     --exclude='node_modules/' --exclude='**/node_modules/' \
+    --exclude='vendor/' --exclude='**/vendor/' \
     --exclude='__pycache__/' --exclude='**/__pycache__/' \
     --exclude='*.pyc' --exclude='**/*.pyc' \
     --exclude='results/' --exclude='scratch/' --exclude='public_mirror/' \

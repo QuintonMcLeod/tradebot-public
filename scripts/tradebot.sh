@@ -113,10 +113,14 @@ set -a
 [ -f "$USER_DATA_DIR/.env.secrets" ] && source "$USER_DATA_DIR/.env.secrets" > /dev/null 2>&1 || true
 set +a
 
-# Robustly find Python executable
+# Robustly find Python executable.
+# A packaged build mounts the application read-only, so the virtual environment
+# cannot live inside the repo. TRADEBOT_VENV points at a writable location in that
+# case; a normal git checkout keeps using .venv beside the repo exactly as before.
+VENV_DIR="${TRADEBOT_VENV:-$ROOT_DIR/.venv}"
 PYTHON_EXE="python"
-if [[ -f "$ROOT_DIR/.venv/bin/python" ]]; then
-  PYTHON_EXE="\"$ROOT_DIR/.venv/bin/python\""
+if [[ -f "$VENV_DIR/bin/python" ]]; then
+  PYTHON_EXE="\"$VENV_DIR/bin/python\""
 elif command -v poetry > /dev/null 2>&1; then
   PYTHON_EXE="poetry run python"
 fi

@@ -33,6 +33,77 @@ const REPO_ROOT = app.isPackaged
     ? path.join(process.resourcesPath, 'app')
     : path.join(__dirname, '../../../');
 
+// ── Packaged builds: provision the Python runtime on first launch ─────────────
+//
+// A packaged application is mounted read-only, so scripts/tradebot.sh cannot use a
+// .venv inside the repository. TRADEBOT_VENV points it at a writable directory, and
+// this creates that environment the first time the bot is started.
+//
+// uv is bundled with the app and can download its own CPython, so provisioning does
+// not depend on which interpreter the distribution happens to ship. The dependency
+// list mirrors [tool.poetry.dependencies] in pyproject.toml; numpy, requests and
+// aiohttp are imported by src/ but not declared there, so they are named explicitly.
+const PACKAGED_VENV_DIR = path.join(
+    process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'),
+    'tradebot-sci', 'venv');
+
+const PACKAGED_DEPS = [
+    'pydantic>=2.4.2', 'httpx>=0.25.2', 'python-dotenv>=1.0.0', 'PyYAML>=6.0.1',
+    'tenacity>=8.2.3', 'ib-insync>=0.9.86', 'ccxt>=4.5.27', 'rich==13.9.4',
+    'astral>=3.2', 'oandapyV20>=0.7.2', 'six>=1.16.0', 'pyzmq>=27.1.0',
+    'numpy', 'requests', 'aiohttp',
+];
+
+function packagedVenvPython() {
+    return path.join(PACKAGED_VENV_DIR, 'bin', 'python');
+}
+
+function ensurePackagedRuntime() {
+    // Only packaged, non-Windows builds need this. A git checkout uses .venv in the
+    // repo, and Windows resolves its own interpreter path at the call site.
+    if (!app.isPackaged || isWindows()) return null;
+    if (fs.existsSync(packagedVenvPython())) return PACKAGED_VENV_DIR;
+
+    const uv = path.join(process.resourcesPath || '', 'uv', 'uv');
+    if (!fs.existsSync(uv)) {
+        console.error('[MAIN] [SETUP] bundled uv is missing; cannot provision Python');
+        return null;
+    }
+
+    const { spawnSync } = require('child_process');
+    const run = (args, label) => {
+        console.log(`[MAIN] [SETUP] ${label}`);
+        const r = spawnSync(uv, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+        if (r.status !== 0) {
+            console.error(`[MAIN] [SETUP] ${label} failed: ${(r.stderr || r.stdout || '').slice(-2000)}`);
+            return false;
+        }
+        return true;
+    };
+
+    try {
+        mainWindow?.webContents.send('fromMain', {
+            type: 'gui-notice',
+            message: 'Setting up Python (first launch only)',
+            detail: 'Downloading Python and the project packages. This takes a few minutes and happens once.',
+            color: 'amber'
+        });
+    } catch (_) { /* the window may not be up yet; provisioning still matters */ }
+
+    try {
+        fs.mkdirSync(path.dirname(PACKAGED_VENV_DIR), { recursive: true });
+    } catch (e) {
+        console.error('[MAIN] [SETUP] could not create', PACKAGED_VENV_DIR, e.message);
+        return null;
+    }
+
+    if (!run(['venv', PACKAGED_VENV_DIR, '--python', '3.12'], 'Creating the virtual environment')) return null;
+    if (!run(['pip', 'install', '--python', packagedVenvPython(), ...PACKAGED_DEPS], 'Installing dependencies')) return null;
+
+    console.log('[MAIN] [SETUP] Python runtime ready at', PACKAGED_VENV_DIR);
+    return PACKAGED_VENV_DIR;
+}
+
 // Helper to find repo root reliably
 const LEGACY_DOTENV_PATH = path.join(REPO_ROOT, '.env');
 const PROFILES_PATH = path.join(REPO_ROOT, 'config/settings_profiles.yaml');
@@ -2919,6 +2990,10 @@ function createWindow() {
 
         let extraArgs = isWindows() ? '' : ' --env TRADING_CONFIRMATION=YES';
 
+        // A packaged build is mounted read-only, so the Python environment has to be
+        // provisioned somewhere writable before the bot can start.
+        const packagedVenv = ensurePackagedRuntime();
+
         let linuxWrapper = '';
         if (process.platform === 'linux') {
             const os = require('os');
@@ -2940,6 +3015,12 @@ function createWindow() {
         fs.appendFileSync(debugLogPath, `[${timestamp}] EXEC: ${spawnCmd}\n`);
 
         const envOpts = { ...process.env, PYTHONPATH: 'src', TRADEBOT_INSTANCE_ID: INSTANCE_ID };
+        // Tell scripts/tradebot.sh where the virtual environment lives. Without this
+        // it looks for .venv inside the read-only mount and falls back to the system
+        // interpreter, which will not have the project's packages installed.
+        if (packagedVenv) {
+            envOpts.TRADEBOT_VENV = packagedVenv;
+        }
         if (isConfirmed) {
             envOpts.TRADING_CONFIRMATION = 'YES';
         }
