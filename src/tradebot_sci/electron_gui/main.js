@@ -6,7 +6,7 @@ const { app, BrowserWindow, ipcMain, Menu, MenuItem } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 
 // Suppress EPIPE errors on stdout/stderr — these are non-fatal pipe breaks
 // when the parent process (terminal/launcher) closes before Electron finishes writing.
@@ -37,7 +37,12 @@ const REPO_ROOT = app.isPackaged
 //
 // A packaged application is mounted read-only, so scripts/tradebot.sh cannot use a
 // .venv inside the repository. TRADEBOT_VENV points it at a writable directory, and
-// this creates that environment the first time the bot is started.
+// this creates that environment the first time the application starts.
+//
+// This begins as soon as the window is up rather than waiting for the user to press
+// Start Bot. Setup takes minutes on a first run, and making someone wait for it after
+// they clicked something reads as a hang. It runs asynchronously so the interface
+// stays responsive while it works.
 //
 // uv is bundled with the app and can download its own CPython, so provisioning does
 // not depend on which interpreter the distribution happens to ship. The dependency
@@ -58,7 +63,42 @@ function packagedVenvPython() {
     return path.join(PACKAGED_VENV_DIR, 'bin', 'python');
 }
 
-function ensurePackagedRuntime() {
+function setupNotice(message, detail, color) {
+    try {
+        mainWindow?.webContents.send('fromMain', {
+            type: 'gui-notice', message, detail, color
+        });
+    } catch (_) { /* the window may not exist yet; setup still proceeds */ }
+}
+
+// Run one command, streaming its output to the log, and resolve with success.
+function runSetupStep(uv, args, label) {
+    return new Promise((resolve) => {
+        console.log(`[MAIN] [SETUP] ${label}`);
+        const child = spawn(uv, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        let tail = '';
+        const collect = (chunk) => {
+            tail = (tail + chunk.toString()).slice(-4000);
+        };
+        child.stdout.on('data', collect);
+        child.stderr.on('data', collect);
+        child.on('error', (e) => {
+            console.error(`[MAIN] [SETUP] ${label} could not start: ${e.message}`);
+            resolve(false);
+        });
+        child.on('close', (code) => {
+            if (code === 0) {
+                console.log(`[MAIN] [SETUP] ${label} done`);
+                resolve(true);
+            } else {
+                console.error(`[MAIN] [SETUP] ${label} failed (exit ${code}): ${tail}`);
+                resolve(false);
+            }
+        });
+    });
+}
+
+async function provisionPackagedRuntime() {
     // Only packaged, non-Windows builds need this. A git checkout uses .venv in the
     // repo, and Windows resolves its own interpreter path at the call site.
     if (!app.isPackaged || isWindows()) return null;
@@ -70,25 +110,10 @@ function ensurePackagedRuntime() {
         return null;
     }
 
-    const { spawnSync } = require('child_process');
-    const run = (args, label) => {
-        console.log(`[MAIN] [SETUP] ${label}`);
-        const r = spawnSync(uv, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-        if (r.status !== 0) {
-            console.error(`[MAIN] [SETUP] ${label} failed: ${(r.stderr || r.stdout || '').slice(-2000)}`);
-            return false;
-        }
-        return true;
-    };
-
-    try {
-        mainWindow?.webContents.send('fromMain', {
-            type: 'gui-notice',
-            message: 'Setting up Python (first launch only)',
-            detail: 'Downloading Python and the project packages. This takes a few minutes and happens once.',
-            color: 'amber'
-        });
-    } catch (_) { /* the window may not be up yet; provisioning still matters */ }
+    setupNotice(
+        'Setting up Python — first launch only',
+        'Downloading Python and the project packages. This takes a few minutes and happens once.',
+        'amber');
 
     try {
         fs.mkdirSync(path.dirname(PACKAGED_VENV_DIR), { recursive: true });
@@ -97,11 +122,34 @@ function ensurePackagedRuntime() {
         return null;
     }
 
-    if (!run(['venv', PACKAGED_VENV_DIR, '--python', '3.12'], 'Creating the virtual environment')) return null;
-    if (!run(['pip', 'install', '--python', packagedVenvPython(), ...PACKAGED_DEPS], 'Installing dependencies')) return null;
+    if (!await runSetupStep(uv, ['venv', PACKAGED_VENV_DIR, '--python', '3.12'],
+                           'Creating the virtual environment')) return null;
+
+    setupNotice(
+        'Installing packages — first launch only',
+        'This is the slow part. It happens once.',
+        'amber');
+
+    if (!await runSetupStep(uv, ['pip', 'install', '--python', packagedVenvPython(), ...PACKAGED_DEPS],
+                            'Installing dependencies')) return null;
 
     console.log('[MAIN] [SETUP] Python runtime ready at', PACKAGED_VENV_DIR);
+    setupNotice('Python is ready', 'Setup complete. The bot can start now.', 'teal');
     return PACKAGED_VENV_DIR;
+}
+
+// Provisioning must happen at most once per run, and any caller that needs Python
+// waits on the same promise rather than starting a second download.
+let packagedRuntimePromise = null;
+
+function ensurePackagedRuntime() {
+    if (!packagedRuntimePromise) {
+        packagedRuntimePromise = provisionPackagedRuntime().catch((e) => {
+            console.error('[MAIN] [SETUP] provisioning threw:', e.message);
+            return null;
+        });
+    }
+    return packagedRuntimePromise;
 }
 
 // Helper to find repo root reliably
@@ -2992,7 +3040,7 @@ function createWindow() {
 
         // A packaged build is mounted read-only, so the Python environment has to be
         // provisioned somewhere writable before the bot can start.
-        const packagedVenv = ensurePackagedRuntime();
+        const packagedVenv = await ensurePackagedRuntime();
 
         let linuxWrapper = '';
         if (process.platform === 'linux') {
@@ -3332,6 +3380,11 @@ app.whenReady().then(() => {
     setupIpcHandlers();
     createWindow();
     startProfilesWatcher(null); // Will be attached in createWindow
+
+    // Begin provisioning immediately so the download happens while the user is
+    // looking at the dashboard, rather than after they press Start Bot. The promise
+    // is memoised, so pressing Start Bot later simply awaits whatever is in flight.
+    ensurePackagedRuntime();
 });
 
 app.on('window-all-closed', () => {
