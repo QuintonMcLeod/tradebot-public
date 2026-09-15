@@ -45,11 +45,11 @@ chmod +x Tradebot-SCI-*.AppImage
 ./Tradebot-SCI-*.AppImage
 ```
 
-3. The dashboard opens. **The first time you press "Start Bot" it sets Python up for you** — a few
-   minutes, once. After that it starts instantly, every time.
+3. That's it. The dashboard opens and **sets Python up by itself on that first launch** — a few
+   minutes, once, in the background while you look around. Every launch after that is instant.
 
-That's the whole thing. No git, no Node.js, no system packages, no password prompt. Nothing is
-installed outside your home folder.
+That's the whole thing. No git, no Node.js, no system packages, no password prompt, and nothing
+to click. Nothing is installed outside your home folder.
 
 <details>
 <summary><b>Prefer to install from source?</b> — headless servers, or if you want to hack on the code</summary>
