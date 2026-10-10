@@ -40,6 +40,30 @@ _WARMUP_HTF_CANDLES = 200  # 200 four-hour candles ≈ 33 days
 _snapshot_cache: Dict[tuple, MarketSnapshot] = {}
 _snapshot_cache_ts: Dict[tuple, float] = {}
 _SNAPSHOT_CACHE_TTL_SECONDS = 30.0
+# The provider revision the cache above was filled from. A replay provider
+# reveals a new bar on every advance(), so its snapshots go stale the moment the
+# cursor moves, and a wall-clock TTL cannot see that.
+_snapshot_data_revision: object = "__nothing_yet__"
+
+
+def _drop_cache_if_provider_moved(provider: Any) -> None:
+    """Clear the snapshot cache when the provider has revealed new data.
+
+    A wall-clock TTL cannot pace a replay. A replay day is 288 candles and runs
+    in roughly ten seconds, so a thirty second cache handed every symbol the same
+    bar for about three replay days: measured 2026-10-10, the strategy never once
+    found itself inside its 20:00-21:00 UTC entry hour in 6,864 symbol
+    evaluations a day, because the bar it was shown was almost never the bar the
+    cursor had reached. Live providers expose no revision, so their caching
+    behaviour is unchanged.
+    """
+    global _snapshot_data_revision
+    revision = getattr(provider, "data_revision", None)
+    if revision is None or revision == _snapshot_data_revision:
+        return
+    _snapshot_data_revision = revision
+    _snapshot_cache.clear()
+    _snapshot_cache_ts.clear()
 
 # ── Bar-Close Confirmation Gate ──
 # When enabled, strips incomplete (still-forming) candles before strategy
@@ -256,6 +280,9 @@ def build_candidate_list(
         if _now_ts - _snapshot_cache_ts.get(_key, 0) > _SNAPSHOT_CACHE_TTL_SECONDS:
             del _snapshot_cache[_key]
             _snapshot_cache_ts.pop(_key, None)
+    # A replayed cursor move invalidates every snapshot at once, which the
+    # per-key wall-clock check above cannot notice.
+    _drop_cache_if_provider_moved(provider)
     
     symbols = [symbol for symbol in symbols if symbol in engines]
     
@@ -575,6 +602,12 @@ def process_candidate_cycle(
                 d_strat_name = engines[symbol].last_strat_name
                 d_strat_grade = engines[symbol].last_strat_grade
                 d_strat_score = engines[symbol].last_strat_score
+                # The strategy's own reason for declining. Computed on every cycle
+                # and previously discarded, which is why no HOLD line could tell
+                # "outside its entry hour" apart from "evaluated the setup and
+                # refused it". Measured 2026-10-10: all 19,265 HOLD lines in the
+                # journal carried only the engine's generic fallback text.
+                d_strat_note = getattr(engines[symbol], "last_strat_summary", "") or ""
                 import json
                 gates_str = "{}"
                 if decision and getattr(decision, "gates", None):
@@ -591,6 +624,7 @@ def process_candidate_cycle(
                 _hold_line = (f"[DECISION] symbol={symbol} action=HOLD score={d_score:.1f} "
                               f"grade={d_grade} strategy={d_strat_name} "
                               f"strat_score={d_strat_score:.1f} strat_grade={d_strat_grade} "
+                              f"strat_note={d_strat_note} "
                               f"reason={reason_log}")
                 import time as _time
                 _now_mono = _time.monotonic()

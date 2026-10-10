@@ -133,11 +133,11 @@ The Universal Exit Router runs multiple exit strategies simultaneously:
   ✅ SAFE (via adjust_settings):
     - RISK_PER_TRADE_PCT, risk_per_trade_dollars
     - SAFETY_FEE_SHIELD_ENABLED, SAFETY_FEE_RT_PCT
-    - SAFETY_VOLATILITY_VETO_ENABLED, volatility_veto_min/max
-    - SAFETY_GREED_GUARD_ENABLED, greed_guard_target_pct
-    - SAFETY_DRAWDOWN_BREAKER_ENABLED, drawdown_max_pct
+    - SAFETY_VOLATILITY_VETO_ENABLED, safety_volatility_min_pct/safety_volatility_max_pct
+    - SAFETY_GREED_GUARD_ENABLED, safety_greed_guard_target
+    - SAFETY_DRAWDOWN_BREAKER_ENABLED, safety_drawdown_max_pct
     - SAFETY_ROLLOVER_DEADZONE_ENABLED
-    - SAFETY_LEVERAGE_SENTRY_ENABLED, leverage_max
+    - SAFETY_LEVERAGE_SENTRY_ENABLED, safety_max_total_leverage
     - risk_dynamic_auto (enables dynamic risk sizing)
     - max_concurrent_positions
     - target_r (risk:reward target ratio)
@@ -151,10 +151,10 @@ The Universal Exit Router runs multiple exit strategies simultaneously:
 
   ⛔ NEVER MODIFY (will break the pipeline):
     - htf_timeframe, mtf_timeframe, ltf_timeframe
-    - execution_timeframe, timeframe
+    - candle_timeframe
     - Any key prefixed with "trend_" (indicator calibration)
     - adx_gate_threshold, trend_chop_threshold
-    - mtf_strength_floor
+    - trend_strength_floor
     These are architecturally load-bearing. If you change them, you will
     silently break the trend detection → regime classification → entry
     pipeline, resulting in zero trades with no error messages.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import List, Optional
 
 import httpx
@@ -12,7 +13,7 @@ from tradebot_sci.ai.schemas import (
     ParsedDecisionPayload,
     parse_decision_payload,
 )
-from tradebot_sci.config.models import AISettings
+from tradebot_sci.config.models import AISettings, Settings
 from tradebot_sci.runtime.rate_limit import with_retry
 from tradebot_sci.runtime.safety import validate_decision
 from tradebot_sci.strategy.decisions import AITradeDecision, stand_aside_decision
@@ -20,12 +21,45 @@ from tradebot_sci.strategy.decisions import AITradeDecision, stand_aside_decisio
 logger = logging.getLogger(__name__)
 
 
+def _as_fraction(value: Optional[float]) -> Optional[float]:
+    """Normalizes a percentage field the model may send as 12 instead of 0.12.
+
+    The payload schema accepts 0-100; AITradeDecision only accepts 0-1, so anything
+    above 1 is treated as a percentage and scaled down, then clamped.
+
+    Anything that is not a finite number is dropped rather than coerced. A JSON
+    `true` is not 1.0: treating it as one would let a boolean in the model's reply
+    set risk to the whole account. NaN survived the old clamp untouched, because
+    every comparison against NaN is False, and a non-numeric string raised here
+    instead of being handled. A value we cannot read is better absent than maximal.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        fraction = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(fraction):
+        return None
+    if fraction > 1.0:
+        fraction /= 100.0
+    return min(max(fraction, 0.0), 1.0)
+
+
 class TradeSciAIClient:
     """Talks to the big brain in the cloud so you don’t have to."""
 
-    def __init__(self, settings: AISettings, http_client: Optional[httpx.Client] = None) -> None:
+    def __init__(
+        self,
+        settings: AISettings,
+        http_client: Optional[httpx.Client] = None,
+        root_settings: Optional[Settings] = None,
+    ) -> None:
         """Initializes HTTP machinery before the AI starts barking orders."""
         self.settings = settings
+        # Root Settings object (carries .runtime), used to reach the runtime guards
+        # in validate_decision. AISettings alone has no runtime section.
+        self.root_settings = root_settings
         self.base_url = self._resolve_base_url()
         self.http_client = http_client or httpx.Client(
             base_url=str(self.base_url), timeout=settings.timeout_seconds
@@ -56,11 +90,14 @@ class TradeSciAIClient:
         """Sends polite JSON to the AI and hopes for polite JSON back."""
         provider = self.settings.provider
         
-        # Guard against remote API calls when no key is provided (prevents 401 crashes on startup)
-        if provider != "local" and not getattr(self.settings, "api_key", None):
-            logger.info(f"[AI] Skipping AI request: No API key configured for provider '{provider}'.")
-            return "{}" if expect_json else ""
-            
+        # Refuse remote calls without a key. Returning "{}"/"" here made "no key
+        # configured" indistinguishable from "the model returned nothing".
+        # A self-hosted "custom" endpoint may legitimately need no key.
+        if provider not in {"local", "custom"} and not getattr(self.settings, "api_key", None):
+            raise RuntimeError(
+                f"No API key configured for provider '{provider}'; refusing to send an unauthenticated request."
+            )
+
         if provider in {"openai", "openrouter", "deepseek", "custom", "local"}:
             return self._chat_openai(messages, expect_json=expect_json)
         if provider == "claude":
@@ -69,7 +106,7 @@ class TradeSciAIClient:
             return self._chat_gemini(messages, expect_json=expect_json)
         return self._chat_openai(messages, expect_json=expect_json)
 
-    def generate_decision(self, market_context) -> AITradeDecision:
+    def generate_decision(self, market_context, settings: Optional[Settings] = None) -> AITradeDecision:
         """Builds context, chats with the AI, and translates JSON into marching orders."""
         original_messages = build_decision_messages(market_context.to_dict(), model_name=self.settings.model_name)
         conversation = original_messages.copy()
@@ -100,7 +137,17 @@ class TradeSciAIClient:
             logger.info("[DEBUG] Decision object created. Validating...")
             
             caps = getattr(market_context, "execution_capabilities", None)
-            validated = validate_decision(decision, execution_capabilities=caps)
+            # Pass the settings object through so the runtime guards
+            # (simulation_risk_cap, flip_actions_enabled) can actually veto a decision.
+            # Fall back to this client's own settings when the caller has no root object.
+            active_settings = settings if settings is not None else self.root_settings
+            if active_settings is None:
+                active_settings = self.settings
+            validated = validate_decision(
+                decision,
+                settings=active_settings,
+                execution_capabilities=caps,
+            )
             logger.info("[DEBUG] Decision validated. Returning.")
             return validated
         return stand_aside_decision(
@@ -153,19 +200,29 @@ class TradeSciAIClient:
 
     def _chat_claude(self, messages: List[ChatMessage], *, expect_json: bool) -> str:
         system_text = self._extract_system(messages)
-        claude_messages = []
+        claude_messages: List[dict] = []
         for msg in messages:
-            if msg.get("role") == "system":
+            role = msg.get("role", "user")
+            if role == "system":
                 continue
             content = str(msg.get("content", ""))
-            if expect_json:
-                content = content + "\n\nReturn a single JSON object only."
+            if claude_messages and claude_messages[-1]["role"] == role:
+                # Anthropic rejects consecutive same-role turns, so merge them into one.
+                claude_messages[-1]["content"][0]["text"] += "\n\n" + content
+                continue
             claude_messages.append(
                 {
-                    "role": msg.get("role", "user"),
+                    "role": role,
                     "content": [{"type": "text", "text": content}],
                 }
             )
+        if expect_json:
+            # Append the JSON contract once, to the final user turn, instead of repeating
+            # it on every message.
+            for entry in reversed(claude_messages):
+                if entry["role"] == "user":
+                    entry["content"][0]["text"] += "\n\nReturn a single JSON object only."
+                    break
         payload = {
             "model": self.settings.model_name,
             "max_tokens": self.settings.max_tokens,
@@ -196,8 +253,12 @@ class TradeSciAIClient:
 
     def _chat_gemini(self, messages: List[ChatMessage], *, expect_json: bool) -> str:
         system_text = self._extract_system(messages)
+        # System messages are sent as systemInstruction below, so exclude them here or
+        # the system prompt arrives twice.
         prompt = "\n\n".join(
-            f"{msg.get('role', 'user').upper()}: {msg.get('content', '')}" for msg in messages if msg
+            f"{msg.get('role', 'user').upper()}: {msg.get('content', '')}"
+            for msg in messages
+            if msg and msg.get("role") != "system"
         )
         response_mime = "application/json" if expect_json else "text/plain"
         payload = {
@@ -206,16 +267,19 @@ class TradeSciAIClient:
                 "temperature": self.settings.temperature,
                 "maxOutputTokens": self.settings.max_tokens,
                 "responseMimeType": response_mime,
+                # Gemini 2.5 Flash charges its internal thinking against maxOutputTokens,
+                # which truncates the visible answer; disable thinking so the whole
+                # budget goes to the reply.
+                "thinkingConfig": {"thinkingBudget": 0},
             },
         }
         if system_text:
             payload["systemInstruction"] = {"parts": [{"text": system_text}]}
         self.last_request_payload = payload
-        api_key = self.settings.api_key or ""
         response = self.http_client.post(
             url=f"/v1beta/models/{self.settings.model_name}:generateContent",
-            params={"key": api_key},
             json=payload,
+            headers=self._headers_gemini(),
         )
         try:
             data = response.json()
@@ -226,6 +290,16 @@ class TradeSciAIClient:
         if response.status_code == 429:
             raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
         response.raise_for_status()
+        candidates = data.get("candidates") if isinstance(data, dict) else None
+        finish_reason = None
+        if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
+            finish_reason = candidates[0].get("finishReason")
+        if finish_reason and finish_reason != "STOP":
+            logger.warning(
+                "[AI] Gemini response did not finish normally (finishReason=%s); discarding the reply.",
+                finish_reason,
+            )
+            return ""
         try:
             return str(data["candidates"][0]["content"]["parts"][0]["text"])
         except Exception as e:
@@ -277,8 +351,8 @@ class TradeSciAIClient:
             entry_zone=tuple(parsed.entry_zone) if parsed.entry_zone else None,
             stop_loss=parsed.stop_loss,
             take_profit=parsed.take_profit,
-            risk_per_trade_pct=parsed.risk_per_trade_pct,
-            max_position_size_pct=parsed.max_position_size_pct,
+            risk_per_trade_pct=_as_fraction(parsed.risk_per_trade_pct),
+            max_position_size_pct=_as_fraction(parsed.max_position_size_pct),
             time_in_force_sec=parsed.time_in_force_sec,
             urgency=parsed.urgency,
             structure_summary=parsed.structure_summary,
@@ -301,4 +375,12 @@ class TradeSciAIClient:
         headers = {"Content-Type": "application/json", "anthropic-version": "2023-06-01"}
         if self.settings.api_key:
             headers["x-api-key"] = self.settings.api_key
+        return headers
+
+    def _headers_gemini(self) -> dict:
+        # Sent as a header, not a query parameter: a key in the URL ends up in the
+        # httpx INFO request log and in raise_for_status() exception text.
+        headers = {"Content-Type": "application/json"}
+        if self.settings.api_key:
+            headers["x-goog-api-key"] = self.settings.api_key
         return headers

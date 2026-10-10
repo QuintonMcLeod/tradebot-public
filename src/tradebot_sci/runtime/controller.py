@@ -218,6 +218,25 @@ class RuntimeController:
     def is_halted(self) -> bool:
         return self.ws_server.is_halted() if self.ws_server else False
 
+    def halt(self, reason: str = "") -> bool:
+        """Pause trading. Returns True when the halt is in effect.
+
+        runtime/loop.py already calls this for the prop-firm evaluation
+        fail-safe; it did not exist, so the AttributeError was swallowed by that
+        call site's except and the fail-safe never actually halted anything.
+        """
+        if not self.ws_server:
+            logger.error(f"[CONTROLLER] Cannot halt: no WebSocket server (reason: {reason})")
+            return False
+        return self.ws_server.set_halted(True, reason or "halt requested")
+
+    def resume(self) -> bool:
+        """Clear the pause flag. Returns True when trading is no longer paused."""
+        if not self.ws_server:
+            logger.error("[CONTROLLER] Cannot resume: no WebSocket server")
+            return False
+        return not self.ws_server.set_halted(False, "resume requested")
+
     # --- AI Commentary Integration ---
     _last_commentary_ts: float = 0.0
     _last_commentary_content: str = ""

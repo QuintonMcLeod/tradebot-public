@@ -52,12 +52,30 @@ class ReplayMarketProvider:
         self._cursor: int = 0
         # Total number of 5m candles on the replay day (for progress %)
         self._total_day_candles: int = 0
-        # Warmup candle count (candles before the replay day)
+        # Warmup candle count of the symbol that defines the cursor and the
+        # simulated clock (candles before the replay day)
         self._warmup_count: int = 0
+        # Warmup candle count per symbol.  Stores differ in length, so the
+        # boundary where the replay day starts is a property of each symbol's
+        # own file and cannot be shared.
+        self._warmup_by_sym: Dict[str, int] = {}
+        # The symbol the cursor and the simulated clock are read from
+        self._ref_sym: Optional[str] = None
 
         # Replay warmup: skip first N candles of the day before allowing entries.
         # This gives indicators time to stabilise on the new day's context.
         self.REPLAY_WARMUP_CANDLES = 24  # 24 × 5m = 2 hours
+        # Throughput counters for the replayed day.  How much forward-test
+        # evidence a replay day is worth depends on how many times the strategy
+        # actually saw a candle, and how many of those looks fell inside its own
+        # entry hour.  The decision log cannot answer that: HOLD lines are
+        # throttled to one per symbol per minute, so counting them measures the
+        # throttle, not the evaluations.
+        self.cursor_moves: int = 0
+        self.decision_cycles: int = 0
+        self.symbol_evaluations: int = 0
+        self.in_window_evaluations: int = 0
+        self.undeclared_evaluations: int = 0
         # Entry throttle: only one entry per advance() cycle
         self._entries_this_cycle: int = 0
         self._max_entries_per_cycle: int = 1
@@ -229,7 +247,13 @@ class ReplayMarketProvider:
                     sym, tf, len(self._candles[sym][tf]), day_count,
                 )
 
-        # Determine warmup boundary = number of 5m candles BEFORE the replay day
+        # Determine warmup boundary = number of 5m candles BEFORE the replay day.
+        # Per symbol, because the candle stores are not the same length: the
+        # files here run from 7,203 candles (EURUSD, from 2026-01-30) down to
+        # 3,999 (the other 24, from 2026-02-16).  A single reference count used
+        # for every symbol slices past the end of the shorter stores, which
+        # hands that symbol the whole replay day at cursor 0 and freezes it at
+        # the 23:55 candle for the rest of the day.
         ref_all = self._candles.get(ref_sym, {}).get("5m", [])
         self._warmup_count = sum(
             1 for c in ref_all
@@ -239,13 +263,22 @@ class ReplayMarketProvider:
             1 for c in ref_all
             if c.timestamp.date() == self.replay_date.date()
         )
+        self._ref_sym = ref_sym
+        self._warmup_by_sym = {}
+        for sym in self.symbols:
+            sym_all = self._candles.get(sym, {}).get("5m", [])
+            self._warmup_by_sym[sym] = sum(
+                1 for c in sym_all
+                if c.timestamp.date() < self.replay_date.date()
+            )
 
         # Start with cursor = 0 (only warmup candles visible)
         self._cursor = 0
 
         logger.info(
-            "[REPLAY] Warmup candles: %d | Replay day candles: %d | Cursor starts at 0",
-            self._warmup_count, self._total_day_candles,
+            "[REPLAY] Warmup candles: %d (reference %s) | Replay day candles: %d "
+            "| Cursor starts at 0",
+            self._warmup_count, ref_sym, self._total_day_candles,
         )
 
         # ── Shift candle timestamps to today ────────────────────────────
@@ -303,6 +336,7 @@ class ReplayMarketProvider:
         """Reveal the next 5-minute candle.  Called once per decision cycle."""
         if self._cursor < self._total_day_candles:
             self._cursor += 1
+            self.cursor_moves += 1
             self._entries_this_cycle = 0  # Reset entry throttle
             _pct = int(self._cursor / self._total_day_candles * 100) if self._total_day_candles else 0
             if _pct >= getattr(self, "_last_progress_pct", -1) + 10 or self._cursor == 1:
@@ -319,6 +353,46 @@ class ReplayMarketProvider:
     def in_warmup(self) -> bool:
         """True if the replay is still in the warmup phase (no entries allowed)."""
         return self._cursor <= self.REPLAY_WARMUP_CANDLES
+
+    @property
+    def data_revision(self) -> int:
+        """Which bar the provider is currently revealing.
+
+        Read by the runtime's snapshot cache: a snapshot taken at one cursor is
+        wrong at the next one, and the cache's wall-clock expiry is far too slow
+        to notice in a replay that covers a day in ten seconds.
+        """
+        return self._cursor
+
+    def note_cycle(self, evaluations: int, in_window: int, undeclared: int = 0) -> None:
+        """Record one completed decision cycle.
+
+        ``evaluations`` is the number of symbols the strategy looked at on this
+        candle and ``in_window`` how many of those the strategy itself judged to
+        be inside its entry hour.  Called by the runtime loop after the cycle
+        has run, so the count is of decisions actually taken and not of candles
+        the cursor happened to pass.
+
+        ``undeclared`` counts symbols whose strategy reported no entry window at
+        all.  It is kept separate so a zero of ``in_window`` can be told apart
+        from "the value never arrived", which is the failure that would make
+        this counter quietly useless.
+        """
+        self.decision_cycles += 1
+        self.symbol_evaluations += evaluations
+        self.in_window_evaluations += in_window
+        self.undeclared_evaluations += undeclared
+
+    def throughput(self) -> dict:
+        """Counters for the day that has just finished, and the per-day ratios."""
+        return {
+            "candles": self._total_day_candles,
+            "cursor_moves": self.cursor_moves,
+            "cycles": self.decision_cycles,
+            "symbol_evaluations": self.symbol_evaluations,
+            "in_window_evaluations": self.in_window_evaluations,
+            "undeclared_evaluations": self.undeclared_evaluations,
+        }
 
     def can_enter(self) -> bool:
         """Check if an entry is allowed this cycle (throttle + warmup)."""
@@ -380,7 +454,11 @@ class ReplayMarketProvider:
             # only 5m exists), use cursor-based slicing.  This ensures the
             # stop evaluator sees the same candle revelation rate as native 5m,
             # preventing 5m H/L ranges from causing premature stop hits.
-            end_idx = self._warmup_count + self._cursor
+            # The warmup boundary is this symbol's own, so every symbol reveals
+            # exactly one replay-day candle per advance() regardless of how much
+            # history its file happens to hold.
+            warmup = self._warmup_by_sym.get(sym, self._warmup_count)
+            end_idx = warmup + self._cursor
             return candles[:end_idx]
 
         # For higher TFs: determine the sim timestamp of the current cursor
@@ -398,7 +476,7 @@ class ReplayMarketProvider:
         """The simulated timestamp of the current cursor position."""
         if self._cursor <= 0:
             return None
-        ref_sym = next(iter(self._candles), None)
+        ref_sym = self._ref_sym or next(iter(self._candles), None)
         if not ref_sym:
             return None
         five_m = self._candles[ref_sym].get("5m", [])
@@ -417,18 +495,35 @@ class ReplayMarketProvider:
         return visible[-limit:] if len(visible) > limit else visible
 
     def get_ticker(self, symbol: str) -> Ticker | None:
-        """Return a ticker from the most recent replayed candle."""
+        """Return a ticker from the most recent replayed candle, with NO invented spread.
+
+        Until 2026-10-10 this returned a fixed synthetic quote for every symbol on
+        every bar: ``spread = mid * 0.00003``, three basis points of price. The engine
+        hands that difference to the strategy as ``gates["current_spread"]``, and the
+        strategy reads it as the toll this entry will pay. The replay's own data files
+        carry no spread field at all, so the number was never a quote: it worked out at
+        0.17 to 0.63 pips where the measured round trip for the same pairs is 1.3 to 9.8
+        pips, and it was below the 1.9-pip entry ceiling for every symbol in the profile.
+        The ceiling shipped on 2026-10-10 (decision 28) was therefore inert in the only
+        place the bot actually runs, and the entry-toll readout printed the fabricated
+        number as though it were the cost.
+
+        With bid equal to ask the spread reads as zero, and the strategy takes a
+        non-positive reading as "no live quote", which is the truth here. It then falls
+        back to the per-pair measured table, the same number the research charged, and a
+        pair that is in neither is refused as unpriced instead of admitted as cheap.
+        ``last`` is unchanged, so prices and fills are unaffected: the paper broker and
+        the strategy both read ``last`` for price, not the quote.
+        """
         candles = self.get_latest_candles(symbol, "5m", limit=1)
         if not candles:
             return None
 
-        c = candles[-1]
-        mid = c.close
-        spread = mid * 0.00003  # ~0.5 pip spread for majors
+        mid = candles[-1].close
         return Ticker(
             symbol=symbol,
-            bid=mid - spread / 2,
-            ask=mid + spread / 2,
+            bid=mid,
+            ask=mid,
             last=mid,
             volume_24h_quote_usd=None,
         )

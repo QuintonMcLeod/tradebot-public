@@ -24,6 +24,25 @@ The rule
    288 bars the whole target/stop grid is profitable rather than a single cell. The
    fade needs roughly a day for the overextension to revert.
 
+3b. **The 24-hour time stop is a decision, not a wall** (Steven's order, 2026-10-10).
+   The live desk held its winners eighteen to nineteen hours and one trade
+   forty-three, so the bot was given the same call on each trade: at the written
+   horizon, a position still open and standing in profit is carried for up to one
+   further horizon, re-decided every bar, and everything else closes as before. The
+   measurement behind it, scratch/overnight_carry.py, is de-clustered at the deployed
+   288 bars so these are the trades the bot actually takes: the trades still open at
+   the horizon are 12 of 1,983 on the fifteen-pair set (0.61 percent) and 11 of 1,028
+   on the twenty-six-pair set (1.07 percent). Carrying those trades one more day is
+   worth +3.68 pips a trade on the first set (paired t +1.11) and +2.47 on the second
+   (t +0.72); carrying only the ones already in profit is +2.97 (t +2.07) and +1.61
+   (t +1.92). Eleven trades is not a sample, so the honest description is that this
+   is not measured to lose and the trades it carries are the ones the desk would have
+   held; the gain is a candidate, not a verdict. Financing is far below the
+   break-even: carrying stops paying above +5.78 and +6.48 pips a night, and a night
+   of financing on a 6-percent risk unit at retail rates is well under one pip. The
+   paper broker charges no financing at all, so the paper record is optimistic by
+   that same fraction of a pip on the roughly one trade in a hundred this affects.
+
 4. **No break-even stop.** Measured and rejected: moving the stop to break-even
    after +5 pips cut the win rate from 49% to 23% and turned gross expectancy from
    +0.378 to -0.808 per trade. In a whipsawing market the break-even level sits
@@ -34,12 +53,34 @@ The rule
    edge of the entire day, +4.34 pips, and OANDA's spread there is 4.30 pips. The
    markup takes back the whole opportunity, so the window ends before it.
 
-Validated result: +1.15 pips per trade net of each trade's quoted spread, over 2,052
-trades on fifteen pairs and three years (t=3.17, 67% win rate), and +1.31 on a
-26-pair set covering the most recent twelve months (t=2.64). Both datasets show the
-entire target/stop grid profitable at the 288-bar hold, which is a stronger signal
-than any single bracket. The effect lives in the recent eighteen months and is flat
-to negative before that, so treat it as a forward paper test, not a settled edge.
+Validated result: +1.15 pips per trade over 2,052 trades on fifteen pairs and
+three years (t=3.17, 67% win rate), and +1.31 on a 26-pair set covering the most
+recent twelve months (t=2.64). Both datasets show the entire target/stop grid
+profitable at the 288-bar hold, which is a stronger signal than any single
+bracket. The effect lives in the recent eighteen months and is flat to negative
+before that, so treat it as a forward paper test, not a settled edge.
+
+CORRECTION 2026-09-16: those two net figures are too optimistic. They charge a
+single flat cost per trade - 2.30 pips on the fifteen-pair set and 3.10 on the
+twenty-six-pair set, which are the medians of the respective event subsets -
+while claiming to be net of each trade's own quoted spread. The spread
+distribution across these pairs is strongly right-skewed, so the mean cost per
+trade is well above the median, and the mean is what a per-trade charge has to
+use. Re-costed on each trade's own quoted spread with tools/edge_cost_check.py,
+which reproduces the gross figures exactly:
+
+  fifteen pairs, target 15 / stop 20:    gross +3.53, net +0.51 (t=+1.38)
+  twenty-six pairs, target 15 / stop 25: gross +4.62, net -0.22 (t=-0.38)
+  twenty-six pairs, target 15 / stop 20: gross +4.46, net -0.38 (t=-0.73)
+
+The subset mean spread is 3.02 pips for the fifteen-pair set and 4.84 for the
+twenty-six-pair set. Trimming the top percentile leaves 2.82 and 4.55, so this
+is a shifted distribution rather than a few outliers; in the twenty-six-pair
+set 28.2% of trades were quoted above 5 pips and they account for 60.6% of the
+total cost. The twenty-six-pair set was the independent cross-sectional
+confirmation, and it is negative at both brackets. Nothing here clears the
+pre-registered bar of |t|>3. The gross edge is real and reproduces; the net was
+overstated by the cost assumption.
 
 Method, and the corrections that produced these numbers:
 Documentation/Research/SCRAPE_ENTRY_2026_09_13.md
@@ -47,6 +88,40 @@ Documentation/Research/SCRAPE_ENTRY_2026_09_13.md
 Pair selection matters: break-even sits at roughly 2.5 pips of round-trip cost, so
 this belongs on pairs whose spread is below that. On the tightest majors alone it is
 worth approximately nothing, and on the widest crosses the spread eats it.
+
+The cost ceiling, re-measured 2026-10-10
+----------------------------------------
+`scrape_max_spread_pips` (1.9) has always been enforced against `measured_spreads.json`,
+which holds ONE number per pair and 15 pairs in total. That is an average, and the cost
+this trade pays is the quote at its own entry bar. Measured over the same pools: of the
+entries the table admits, 25.0 percent on the fifteen-pair set and 26.8 on the
+twenty-six-pair set are quoted above the ceiling at their own entry bar, and those
+entries carry 40.8 and 44.0 percent of the admitted cost. Worse, a pair absent from the
+table returns None, the guard only refuses when the value is not None, and so every
+entry on an uncovered pair passed unchecked: 11 of the 26 pairs are uncovered, they are
+40.5 percent of the entries, and their mean quoted cost is 6.74 pips a round trip
+against a 15-pip target.
+
+The engine already fetches the live bid/ask each cycle and hands it over as
+`gates["current_spread"]`; until now nothing read it. It is read on every candidate that
+reaches the guard and reported at INFO as the entry toll in pips and as the share of the
+risk unit, before any refusal, and `scrape_live_spread_gate` (default True) ENFORCES the
+same ceiling on that quote. Enforcing it measures +2.32 pips per trade at t=+3.80 on the
+fifteen-pair set and +3.90 at t=+3.49 on the twenty-six-pair set, holding in both
+halves, against +0.62 and -0.20 as deployed, at the cost of 65 percent of the trades.
+
+The ceiling refuses the trade; it does not only report it. Asked on 2026-10-10 which of
+the two this should be, this lane answered the question rather than handing it back
+(decision 28). The short form: the ceiling is the strategy's own declaration and it was
+being checked against a per-pair average rather than the price this trade pays; the
+filter reads only the quote at the moment of the decision and never the outcome, so it
+cannot select on the result; and the alternative is taking the entries already measured
+as the expensive ones while writing down that they were expensive. An entry whose cost is
+neither quoted nor in the table is refused too, because a ceiling cannot be claimed over
+a number that does not exist. The caveat travels with it: the filtered pool has not had
+the walk-forward split the project's acceptance bar asks for, and the two pools disagree
+on the level, so the forward paper record is the test of this and one flag reverses it.
+Facts 178, 179 and 187; decision 28.
 
 Not part of the Meta-SCI ensemble
 --------------------------------
@@ -114,13 +189,58 @@ class ForexScrapeFade(BaseStrategy):
         # the toll is charged in pips, so a 4-pip spread on a 10-pip target is not a
         # trade worth taking no matter how good the signal looks.
         self.max_spread_pips = float(kwargs.get("scrape_max_spread_pips", 1.9))
+
+        # Whether the ceiling above is enforced on the LIVE bid/ask as well as on the
+        # per-pair table. Default True since 2026-10-10: the readout-or-gate question was
+        # answered by this lane instead of being handed back, and the answer is the
+        # refusal (decision 28). THE MEASURED CASE. The live quote is the number the
+        # trade pays, and the table is an average it may not resemble: of the entries the
+        # table admits, 25 to 27 percent are quoted above the ceiling at their own entry
+        # bar, and those carry 41 to 44 percent of the admitted cost. Enforcing the
+        # ceiling on the entry bar's own quote measures +2.32 pips per trade at t=+3.80
+        # on 15 pairs over 3 years and +3.90 pips at t=+3.49 on 26 pairs over 12 months,
+        # holding in both halves of both windows, against +0.62 and -0.20 as deployed. It
+        # also costs 65 percent of the trades. NOT YET PROVEN, and written here so it is
+        # not lost: the filtered pool has not had the walk-forward train/validate split
+        # the acceptance bar asks for, and the two pools disagree on the level, so the
+        # forward paper record is the test and this flag is the way to reverse it.
+        self.live_spread_gate = bool(kwargs.get("scrape_live_spread_gate", True))
+
+        # ── THE OVERNIGHT CARRY DECISION ─────────────────────────────────────────
+        # Steven's order, 2026-10-10: the bot decides per trade whether to hold past
+        # its written 24-hour horizon, the way the live desk did, instead of being
+        # walled off at it. The decision is taken at the horizon and not guessed at
+        # entry, because the fact that decides it is how the trade stands by then.
+        # Carried only while it is in profit, only once, and re-decided every bar, so
+        # a carried trade that stops working is closed on the next bar rather than
+        # being given a second 24 hours to fail. Default on, per the order; one flag
+        # reverses it. The measurement and its (thin) sample are in the module
+        # docstring at 3b and in scratch/overnight_carry.py.
+        self.carry_enabled = bool(kwargs.get("scrape_carry_enabled", True))
+        self.carry_bars = int(kwargs.get("scrape_carry_bars", 288))
+        self.carry_min_profit_r = float(kwargs.get("scrape_carry_min_profit_r", 0.05))
         # symbol -> timestamp of the last entry, for the spacing rule above
         self._last_entry_bar: dict = {}
+        # Set by score_signal on every evaluation: whether the bar the strategy
+        # was looking at fell inside its own entry hour.  Structured rather than
+        # parsed back out of the summary string, because the replay throughput
+        # count depends on it and a count built by string matching would break
+        # silently.
+        self.last_in_entry_window: Optional[bool] = None
 
         logger.info(
             f"[SCRAPE_INIT] window={self.entry_hour_start:02d}:00-{self.entry_hour_end:02d}:00 UTC, "
             f"lookback={self.range_lookback}, stop={self.stop_pips}p, "
-            f"target={self.target_pips}p, max_hold={self.max_hold_bars} bars"
+            f"target={self.target_pips}p, max_hold={self.max_hold_bars} bars, "
+            # Printed so the journal says which mode the bot is in. A ceiling that
+            # refuses and a ceiling that only reports leave the same trace otherwise.
+            f"spread_ceiling={self.max_spread_pips}p "
+            f"({'enforced' if self.live_spread_gate else 'reported only'}), "
+            # Printed for the same reason: a carry rule that is on and one that is off
+            # would otherwise leave the same journal behind.
+            f"overnight_carry={'on' if self.carry_enabled else 'off'} "
+            f"(to {self.max_hold_bars + self.carry_bars} bars, "
+            f"from {self.carry_min_profit_r:+.2f}R)"
         )
 
     # ── helpers ──────────────────────────────────────────────────────────────
@@ -140,6 +260,34 @@ class ForexScrapeFade(BaseStrategy):
             return pip / price
         return pip  # cross: treated at par, sizing is normalised by risk anyway
 
+    def _entry_toll(self, symbol: str, gates: dict, pip: float, reference_price):
+        """What this entry costs to get into, in pips, and where the number came from.
+
+        Preference order matters. gates["current_spread"] is the live bid/ask the engine
+        has already fetched for this cycle, so it is the toll this entry would actually
+        pay. The measured table is one number per pair and is only a fallback for paths
+        with no live quote (replay and backtest). When neither is available the cost is
+        unknown, and the caller says so rather than treating unknown as cheap.
+
+        Returns (pips, source) with pips None when unmeasured.
+        """
+        live = gates.get("current_spread") if isinstance(gates, dict) else None
+        try:
+            if live:
+                live_pips = float(live) / pip
+                if live_pips > 0:
+                    return live_pips, "live bid/ask"
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+        try:
+            from tradebot_sci.broker.paper_broker import _measured_spread_bps
+            bps = _measured_spread_bps(symbol)
+            if bps is not None and reference_price:
+                return (float(bps) / 10000.0) * float(reference_price) / pip, "measured table"
+        except Exception:
+            pass
+        return None, None
+
     def _in_window(self, snapshot: MarketSnapshot) -> bool:
         if not snapshot.candles:
             return False
@@ -151,9 +299,32 @@ class ForexScrapeFade(BaseStrategy):
 
     # ── scoring (for logging only; this strategy is not score-gated) ─────────
     def score_signal(self, snapshot: MarketSnapshot, gates: dict):
-        if not self._in_window(snapshot):
+        inside = self._in_window(snapshot)
+        self.last_in_entry_window = inside
+        if not inside:
             return 0.0, "-", "ScrapeFade: outside entry window"
         return 60.0, "C", "ScrapeFade: inside entry window"
+
+    # ── skip reporting ───────────────────────────────────────────────────────
+    def _decline(self, snapshot: MarketSnapshot, reason: str):
+        """Log why a candidate was refused, and return None for the caller.
+
+        The silent declines were the reason a HOLD line could not explain itself:
+        measured 2026-10-10, 5 of the 7 ways this strategy declines left no trace
+        at all, and the other 2 logged at DEBUG, which the journal does not keep.
+
+        Logged at INFO only while the strategy is inside its own entry hour, which
+        is when the information is worth having. Outside the hour every symbol
+        declines on every cycle, so logging there would add about 300 lines a day
+        saying nothing but "wrong hour". The journal already holds a separate
+        flood incident, so the throttle is deliberate rather than an oversight.
+        """
+        try:
+            if self._in_window(snapshot):
+                logger.info(f"[SCRAPE] {snapshot.symbol}: declined, {reason}")
+        except Exception:
+            pass
+        return None
 
     # ── entry ────────────────────────────────────────────────────────────────
     def check_entry_signal(self, snapshot: MarketSnapshot, gates: dict,
@@ -163,11 +334,12 @@ class ForexScrapeFade(BaseStrategy):
         if open_position:
             return None
         if gates.get("is_synthetic_override") is True:
-            return None
+            return self._decline(snapshot, "synthetic override is set")
 
         candles = snapshot.candles
         if len(candles) < self.range_lookback + 2:
-            return None
+            return self._decline(
+                snapshot, f"only {len(candles)} candles, needs {self.range_lookback + 2}")
         if not self._in_window(snapshot):
             return None
 
@@ -195,7 +367,10 @@ class ForexScrapeFade(BaseStrategy):
             try:
                 elapsed_bars = int((last.timestamp - last_entry).total_seconds() // 300)
                 if elapsed_bars < self.max_hold_bars:
-                    return None
+                    return self._decline(
+                        snapshot,
+                        f"still inside the spacing rule, {elapsed_bars} of "
+                        f"{self.max_hold_bars} bars since the last entry")
             except Exception:
                 pass
 
@@ -203,29 +378,71 @@ class ForexScrapeFade(BaseStrategy):
         long_break = last.close < range_low
         short_break = last.close > range_high
         if not (long_break or short_break):
-            return None
+            return self._decline(snapshot, "no fresh break of the prior range")
         depth_pips = (range_low - last.close) / pip if long_break else (last.close - range_high) / pip
         if depth_pips < self.min_break_pips:
-            logger.debug(
-                f"[SCRAPE] {snapshot.symbol}: break depth {depth_pips:.1f}p below the "
-                f"{self.min_break_pips:.1f}p minimum — skipping"
-            )
-            return None
+            return self._decline(
+                snapshot,
+                f"break depth {depth_pips:.1f}p below the {self.min_break_pips:.1f}p minimum")
 
-        # Spread guard: measured round trip for this pair, if the table exists.
+        # ── Entry toll: what this entry actually costs, in pips and in R ──────
+        # The engine already fetches the live bid/ask every cycle and hands it over as
+        # gates["current_spread"], and until now nothing read it. The ceiling below was
+        # tested against a per-pair AVERAGE from a table instead, which is a different
+        # number from the one this trade will pay: measured 2026-10-10, 25 to 27 percent
+        # of the entries the table admits are quoted above the ceiling at their own entry
+        # bar, and those entries carry 41 to 44 percent of the admitted cost. Pairs the
+        # table does not cover at all passed unchecked, and on the 26-pair universe that
+        # was 40.5 percent of trades at a mean 6.74 pips a round trip. Facts 178 and 179.
+        toll_pips, toll_source = self._entry_toll(snapshot.symbol, gates, pip, last.close)
+        toll_r = (toll_pips / self.stop_pips) if toll_pips else None
+
+        # The readout Steven asked for in commitment 15: the toll at the moment of the
+        # decision, in pips and as the share of the risk unit it eats. Logged before any
+        # refusal below, so the journal carries the number for every candidate rather
+        # than only for the ones that got through.
+        if toll_pips is not None:
+            _over = " ABOVE CEILING" if toll_pips > self.max_spread_pips else ""
+            logger.info(
+                f"[SCRAPE] {snapshot.symbol}: entry toll {toll_pips:.2f}p "
+                f"({100.0 * (toll_r or 0.0):.1f}% of the {self.stop_pips:.0f}p risk unit) "
+                f"from {toll_source}, ceiling {self.max_spread_pips:.1f}p{_over}"
+            )
+
+        # Spread guard: the per-pair measured round trip, on the same ceiling.
+        _table_known = False
         try:
             from tradebot_sci.broker.paper_broker import _measured_spread_bps
             _bps = _measured_spread_bps(snapshot.symbol)
             if _bps is not None and last.close:
+                _table_known = True
                 _spread_pips = (_bps / 10000.0) * last.close / pip
                 if _spread_pips > self.max_spread_pips:
-                    logger.debug(
-                        f"[SCRAPE] {snapshot.symbol}: spread {_spread_pips:.2f}p above the "
-                        f"{self.max_spread_pips:.1f}p ceiling — skipping"
-                    )
-                    return None
+                    return self._decline(
+                        snapshot,
+                        f"spread {_spread_pips:.2f}p above the {self.max_spread_pips:.1f}p ceiling")
         except Exception:
             pass
+
+        # Neither the table nor a live quote can price this entry, so the ceiling cannot
+        # be tested against anything. Refused rather than admitted: the uncovered pairs
+        # are 40.5 percent of the twenty-six-pair pool at a mean 6.74 pips a round trip,
+        # and "not measured" was reading as "cheap". Refusing costs the trade and says
+        # why; admitting it spends up to 45 percent of a 15-pip target on the toll blind.
+        if toll_pips is None and not _table_known:
+            return self._decline(
+                snapshot,
+                f"entry cost unknown: {snapshot.symbol} is absent from the measured "
+                f"spread table and no live quote is available, so the "
+                f"{self.max_spread_pips:.1f}p ceiling cannot be checked")
+
+        # The gate: the same ceiling, on the quote this trade actually pays rather than
+        # on the pair's average. On by default since 2026-10-10 (decision 28).
+        if self.live_spread_gate and toll_pips is not None and toll_pips > self.max_spread_pips:
+            return self._decline(
+                snapshot,
+                f"live spread {toll_pips:.2f}p above the {self.max_spread_pips:.1f}p "
+                f"ceiling (from {toll_source})")
 
         if long_break:
             stop = entry - (self.stop_pips * pip)      # 20 pips against
@@ -299,11 +516,84 @@ class ForexScrapeFade(BaseStrategy):
 
         return None
 
+    # ── the overnight carry decision ─────────────────────────────────────────
+    def _position_r(self, open_position: dict, snapshot: MarketSnapshot) -> Optional[float]:
+        """How the open trade stands, in risk units, at the current close.
+
+        Preferred source is the broker's own floating P&L against the risk the trade
+        was sized to, because that is already in one currency and needs no pip maths.
+        The fallback reads the price against the stop the position carries, and the
+        configured stop only if the position does not carry one. Returns None rather
+        than a guess when neither is available: a carry decision made on a number the
+        code invented is worse than closing the trade.
+        """
+        pnl = open_position.get("unrealized_pnl")
+        risk = open_position.get("risk_usd") or open_position.get("initial_risk")
+        if pnl is not None and risk:
+            try:
+                if float(risk) > 0:
+                    return float(pnl) / float(risk)
+            except (TypeError, ValueError):
+                pass
+
+        entry = open_position.get("entry_price") or open_position.get("avg_price")
+        if entry is None or not snapshot.candles:
+            return None
+        stop = open_position.get("stop_price") or open_position.get("stop_loss")
+        if stop:
+            risk_px = abs(float(entry) - float(stop))
+        else:
+            risk_px = self.stop_pips * self._pip_size(snapshot.symbol)
+        if risk_px <= 0:
+            return None
+        move = float(snapshot.candles[-1].close) - float(entry)
+        direction = str(open_position.get("direction") or open_position.get("side") or "").lower()
+        if direction in ("short", "sell", "enter_short"):
+            move = -move
+        return move / risk_px
+
+    def _carry_decision(self, open_position: dict, snapshot: MarketSnapshot,
+                        bars_held: int) -> Optional[float]:
+        """Whether to carry this trade past the written horizon, and its standing in R.
+
+        Returns the position's R when the trade is carried, None when it is not. Every
+        branch logs, including the refusals, because "held past 24 hours" and "closed
+        at the horizon" have to be distinguishable in the journal afterwards.
+        """
+        if not self.carry_enabled:
+            return None
+        limit = self.max_hold_bars + self.carry_bars
+        if bars_held >= limit:
+            logger.info(
+                f"[SCRAPE] {snapshot.symbol} carry declined: {bars_held} bars is the "
+                f"second horizon (limit {limit})"
+            )
+            return None
+        r = self._position_r(open_position, snapshot)
+        if r is None:
+            logger.info(
+                f"[SCRAPE] {snapshot.symbol} carry declined: the trade's standing in "
+                f"risk units cannot be read"
+            )
+            return None
+        if r < self.carry_min_profit_r:
+            logger.info(
+                f"[SCRAPE] {snapshot.symbol} carry declined at the {bars_held}-bar "
+                f"horizon: {r:+.2f}R is below the {self.carry_min_profit_r:+.2f}R the "
+                f"carry asks for"
+            )
+            return None
+        return r
+
     # ── exit ─────────────────────────────────────────────────────────────────
     def check_exit_signal(self, snapshot: MarketSnapshot, open_position: dict,
                           gates: dict, current_capital: Optional[float] = None,
                           trade_history: Optional[list] = None):
-        """Only the time stop. Stop and target are held by the broker."""
+        """Only the time stop, and the overnight carry decision at it.
+
+        Stop and target are held by the broker. The time stop is the written horizon
+        unless the carry asks for, and gets, one more horizon.
+        """
         if not open_position or not snapshot.candles:
             return None
 
@@ -327,6 +617,14 @@ class ForexScrapeFade(BaseStrategy):
                     bars_held = 0
 
         if bars_held >= self.max_hold_bars:
+            carried_r = self._carry_decision(open_position, snapshot, bars_held)
+            if carried_r is not None:
+                logger.info(
+                    f"[SCRAPE] {snapshot.symbol} OVERNIGHT CARRY at {bars_held} bars: "
+                    f"{carried_r:+.2f}R, held to at most "
+                    f"{self.max_hold_bars + self.carry_bars} bars, re-decided every bar"
+                )
+                return None
             logger.info(
                 f"[SCRAPE] {snapshot.symbol} time stop at {bars_held} bars "
                 f"(limit {self.max_hold_bars})"

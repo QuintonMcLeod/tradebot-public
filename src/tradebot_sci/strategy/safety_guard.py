@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from typing import Dict, Optional, Tuple, Any # Modified: Added Dict, Tuple, kept Any
 
 from tradebot_sci.ai.client import TradeSciAIClient # Added
-from tradebot_sci.ai.rss_feed import get_latest_news # Added
+from tradebot_sci.ai.rss_feed import get_latest_news, NO_NEWS_PLACEHOLDER # Added
 from tradebot_sci.market.models import MarketSnapshot # Kept, assuming MarketContextSnapshotn was a typo or partial snippet
 from tradebot_sci.strategy.decisions import (
     AITradeDecision,
@@ -23,6 +23,53 @@ from tradebot_sci.runtime.rejection_journal import rejection_journal
 from tradebot_sci.strategy.safety_state import SafetyState
 
 logger = logging.getLogger(__name__)
+
+# Tokens accepted as a real verdict from a model reply. Anything outside these
+# sets is treated as neutral so an unparseable or truncated answer changes nothing.
+_SAFE_VERDICT_TOKENS = frozenset({"SAFE", "DANGEROUS"})
+_SENTIMENT_TOKENS = frozenset({"BULLISH", "BEARISH"})
+
+
+# Emphasis, quoting and bracket characters that models wrap a one-word answer in.
+# "**DANGEROUS**" and "`DANGEROUS`" are the same verdict as "DANGEROUS".
+_TOKEN_MARKUP = str.maketrans("", "", "*`_\"'“”‘’[](){}")
+# A one-word answer is often labelled. Keep the text after the last label separator
+# so "Answer: DANGEROUS" and "Verdict - SAFE" are still read as verdicts.
+_TOKEN_LABELS = (":", " - ", " – ", " — ")
+
+
+def normalise_ai_token(raw: Any) -> str:
+    """Reduce a free-text model reply to a single upper-case token.
+
+    Model replies arrive with wrapping, labelling and punctuation ("BULLISH.",
+    "SAFE\\n", "**DANGEROUS**", "Answer: DANGEROUS"). All of those are the same
+    verdict, so the wrapper is stripped before matching. Only an exact token match
+    is actionable afterwards; callers must treat anything else as neutral rather
+    than guessing at the intent, which is what keeps "NOT DANGEROUS" from vetoing.
+    """
+    if raw is None:
+        return ""
+    text = str(raw).translate(_TOKEN_MARKUP).strip()
+    for separator in _TOKEN_LABELS:
+        if separator in text:
+            text = text.rsplit(separator, 1)[-1]
+    return text.strip().strip(".!:;,–—-").strip().upper()
+
+
+def has_usable_news(news_context: Optional[str]) -> bool:
+    """True only when the news context actually carries headlines.
+
+    The feed returns a fixed placeholder sentence when every source failed.
+    Feeding that placeholder into a SAFE/DANGEROUS prompt asks the model to make
+    a trade-veto decision with no information, so callers skip instead.
+    """
+    if not news_context:
+        return False
+    text = news_context.strip()
+    if not text or text == NO_NEWS_PLACEHOLDER:
+        return False
+    return True
+
 
 # New Helpers for Safety Guard
 def calculate_r_multiple(entry: float, stop: float, current: float, direction: str) -> float:
@@ -529,35 +576,52 @@ class SafetyGuard:
                      if not cache_valid:
                          # Fetch real-time news headlines
                          news_context = get_latest_news(limit=5)
-                         sentiment_prompt = (
-                             f"You are a risk analyst evaluating whether {symbol} is safe to trade RIGHT NOW.\n"
-                             f"HTF trend: {snapshot.trend_htf}.\n"
-                             f"Recent headlines:\n{news_context}\n\n"
-                             f"IMPORTANT: General geopolitical tension, trade wars, or macro uncertainty are NORMAL "
-                             f"market conditions — they do NOT make a market DANGEROUS. Markets trade through uncertainty every day.\n\n"
-                             f"Only answer DANGEROUS if there is a SPECIFIC, IMMINENT threat to {symbol} such as:\n"
-                             f"- Central bank emergency intervention happening RIGHT NOW\n"
-                             f"- A flash crash or circuit breaker event in progress\n"
-                             f"- A currency peg breaking or sovereign default announcement\n"
-                             f"- An exchange or liquidity provider outage\n\n"
-                             f"If conditions are normal (even if volatile or uncertain), answer SAFE.\n"
-                             f"Answer with ONE word: SAFE or DANGEROUS."
-                         )
-                         sentiment = ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]).upper()
-                         # Update Cache — store per asset class
-                         class_cache[asset_class] = (now, sentiment)
-                         cls._state.sentiment_cache[asset_class] = class_cache
-                         logger.info(f"[SAFETY] AI Shield Refreshed for {asset_class}: {sentiment}")
+                         if not has_usable_news(news_context):
+                             # No headlines is not evidence of safety. Asking the model
+                             # to choose SAFE/DANGEROUS from a placeholder would be a
+                             # guess, so skip the shield entirely for this cycle.
+                             sentiment = None
+                             logger.info(f"[SAFETY] AI Sentiment Shield skipped for {symbol}: no usable news headlines.")
+                         else:
+                             sentiment_prompt = (
+                                 f"You are a risk analyst evaluating whether {symbol} is safe to trade RIGHT NOW.\n"
+                                 f"HTF trend: {snapshot.trend_htf}.\n"
+                                 f"Recent headlines:\n{news_context}\n\n"
+                                 f"IMPORTANT: General geopolitical tension, trade wars, or macro uncertainty are NORMAL "
+                                 f"market conditions — they do NOT make a market DANGEROUS. Markets trade through uncertainty every day.\n\n"
+                                 f"Only answer DANGEROUS if there is a SPECIFIC, IMMINENT threat to {symbol} such as:\n"
+                                 f"- Central bank emergency intervention happening RIGHT NOW\n"
+                                 f"- A flash crash or circuit breaker event in progress\n"
+                                 f"- A currency peg breaking or sovereign default announcement\n"
+                                 f"- An exchange or liquidity provider outage\n\n"
+                                 f"If conditions are normal (even if volatile or uncertain), answer SAFE.\n"
+                                 f"Answer with ONE word: SAFE or DANGEROUS."
+                             )
+                             # Only an exact SAFE/DANGEROUS token counts as a verdict.
+                             # A substring test would veto on "NOT DANGEROUS", and any
+                             # other prose ("I CANNOT ANALYZE THIS") is not a verdict.
+                             sentiment = normalise_ai_token(ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]))
+                             if sentiment not in _SAFE_VERDICT_TOKENS:
+                                 logger.info(f"[SAFETY] AI Shield reply '{sentiment}' is not a verdict — treated as neutral (no veto).")
+                                 sentiment = None
+                             # Update Cache — store per asset class
+                             class_cache[asset_class] = (now, sentiment)
+                             cls._state.sentiment_cache[asset_class] = class_cache
+                             logger.info(f"[SAFETY] AI Shield Refreshed for {asset_class}: {sentiment}")
                      
-                     if "DANGEROUS" in sentiment:
+                     if sentiment == "DANGEROUS":
                           if not cache_valid: logger.warning(f"[SAFETY] AI Sentiment Shield blocked {symbol}: {sentiment}")
                           return cls._reject(symbol, timeframe, "AI Sentiment Shield", f"AI Sentiment Shield: {sentiment}")
                            
                  except Exception as e:
-                     logger.warning(f"[SAFETY] AI Shield failed request: {e}")
-                     # Cache a default 'SAFE' response to back off and prevent API spam loop
+                     # Explicit error policy: a failed request is an ABSTENTION, never a
+                     # favourable verdict. We log it, do not veto, and cache the
+                     # abstention for the normal window so a broken client cannot turn
+                     # into an API-call loop. A feed error must never be recorded as
+                     # "SAFE"; missing news is handled above by skipping the shield.
+                     logger.warning(f"[SAFETY] AI Shield request failed (abstaining, no veto): {e}")
                      class_cache = cls._state.sentiment_cache.get(asset_class, {})
-                     class_cache[asset_class] = (now, "SAFE")
+                     class_cache[asset_class] = (now, None)
                      cls._state.sentiment_cache[asset_class] = class_cache
 
         # -------------------------------------------------------------
@@ -1274,6 +1338,12 @@ class SafetyGuard:
         profile_risk = decision.risk_per_trade_pct or getattr(profile, 'risk_per_trade_pct', 0.01)
         auto_risk = getattr(profile, 'risk_dynamic_auto', False) if profile else False
 
+        # Operator-configured risk percentage from the active profile. The AI may
+        # lower risk but must never raise it above the value the operator set.
+        configured_risk_pct = getattr(profile, 'risk_per_trade_pct', None) if profile is not None else None
+        if not configured_risk_pct or configured_risk_pct <= 0:
+            configured_risk_pct = None
+
         if auto_risk:
             # Dynamic Auto Risk Logic
             dyn_risk = 0.015  # Default Base 1.5%
@@ -1418,19 +1488,47 @@ class SafetyGuard:
                     f"{news_context}\n"
                     f"Based on price action and news, what is the short-term sentiment: BULLISH or BEARISH? One word."
                 )
-                sentiment = ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]).upper()
+                # Exact token match only: an unrecognised reply ("BULLISH.",
+                # "UNCERTAIN", "I CANNOT ANALYZE THIS") must leave risk untouched
+                # instead of being treated as a contradiction.
+                sentiment = normalise_ai_token(ai_client.generate_text([{"role": "user", "content": sentiment_prompt}]))
                 is_bull = "long" in decision.action
-                if (sentiment == "BULLISH" and is_bull) or (sentiment == "BEARISH" and not is_bull):
-                    decision.risk_per_trade_pct *= 1.5
-                    decision.notes = (decision.notes or "") + f" | AI Sentiment Boost ({sentiment})"
-                elif sentiment != "NEUTRAL":
-                    # If sentiment contradicts, we might VETO entirely (Safety Shield style)
-                    # For performance mode, we simply don't boost, OR we dampen.
-                    # Let's dampen to be safe.
+                if sentiment not in _SENTIMENT_TOKENS:
+                    logger.info(f"[SAFETY] AI sentiment confirmation reply '{sentiment}' is not actionable — risk unchanged.")
+                elif (sentiment == "BULLISH") == is_bull:
+                    boosted = decision.risk_per_trade_pct * 1.5
+                    boost_label = f"AI Sentiment Boost ({sentiment})"
+                    # The AI can never raise risk above the operator's configured
+                    # percentage. When dynamic sizing has already placed risk above
+                    # that value, the pre-boost risk is the ceiling instead, so a
+                    # boost cannot silently cut the dynamic sizing either.
+                    original_risk = decision.risk_per_trade_pct
+                    ceiling = configured_risk_pct
+                    if ceiling is not None and original_risk > ceiling:
+                        ceiling = original_risk
+                    if ceiling is not None and boosted > ceiling:
+                        boosted = ceiling
+                    if boosted > original_risk:
+                        decision.risk_per_trade_pct = boosted
+                        if boosted < original_risk * 1.5:
+                            boost_label += f" [capped @ {boosted*100:.2f}%]"
+                    else:
+                        # Dynamic sizing is already at or above the ceiling, so the
+                        # boost raises nothing. Recording it anyway would tell the
+                        # ledger and the GUI that risk went up when it did not, and
+                        # would quote the pre-boost value as the cap.
+                        boost_label = (
+                            f"AI Sentiment Boost ({sentiment}) declined — risk already "
+                            f"{original_risk*100:.2f}%, at or above the "
+                            f"{(configured_risk_pct or 0)*100:.2f}% configured ceiling"
+                        )
+                    decision.notes = (decision.notes or "") + f" | {boost_label}"
+                else:
+                    # Recognised but contradicting: dampen only, never boost.
                     decision.risk_per_trade_pct *= 0.5
                     decision.notes = (decision.notes or "") + f" | AI Sentiment Drag ({sentiment})"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[SAFETY] AI sentiment confirmation failed (risk unchanged): {e}")
 
         # I. THE WHALE WATCHER (Volume Profile)
         if "whale" in modes and snapshot.candles:

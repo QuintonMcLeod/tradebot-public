@@ -1,0 +1,10 @@
+[Unit]
+Description=Every 15 minutes, record whether the Tradebot SCI paper runner is alive and how fast its memory is growing
+
+[Timer]
+OnCalendar=*:0/15
+AccuracySec=30s
+Unit=tradebot-health.service
+
+[Install]
+WantedBy=timers.target

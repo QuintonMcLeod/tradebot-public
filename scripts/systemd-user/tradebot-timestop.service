@@ -1,0 +1,10 @@
+[Unit]
+Description=Close live OANDA trades whose written horizon has expired
+Documentation=file:///home/qchan/Scripts/Trade%20by%20SCI/tradebot-sci-debug/tools/oanda_trade.py
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/qchan/Scripts/Trade by SCI/tradebot-sci-debug
+ExecStart=/bin/bash "/home/qchan/Scripts/Trade by SCI/tradebot-sci-debug/scripts/agent_time_stop.sh"
+TimeoutStartSec=120

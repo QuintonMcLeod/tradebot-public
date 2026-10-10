@@ -59,6 +59,16 @@ class StrategyEngine:
         self.last_strat_name: str = "Unknown"
         self.last_strat_score: float = 0.0
         self.last_strat_grade: str = "N/A"
+        # The strategy's own one-line explanation of its last decision. It was
+        # computed on every cycle and dropped, which is why a HOLD line could not
+        # say whether the strategy had declined ("outside entry window") or simply
+        # had nothing to say. See the gate census of 2026-10-10.
+        self.last_strat_summary: str = ""
+        # Whether the bar the strategy last looked at fell inside its own entry
+        # hour, as the strategy itself decided it. None when the strategy does
+        # not declare one. Read by the replay throughput count, which cannot use
+        # the summary string above because that is a log line, not a value.
+        self.last_strat_in_window: Optional[bool] = None
         self.last_gates: dict[str, Any] = {}
         
         # Determine which strategy this engine instance will run
@@ -157,6 +167,7 @@ class StrategyEngine:
         "forex_structure_breakout": ("tradebot_sci.strategy.variants.forex_structure_breakout", "ForexStructureBreakout"),
         "forex_structure_breakout_best": ("tradebot_sci.strategy.variants.forex_structure_breakout_best", "ForexStructureBreakoutBest"),
         "forex_scrape_fade": ("tradebot_sci.strategy.variants.forex_scrape_fade", "ForexScrapeFade"),
+        "forex_retracement_fade": ("tradebot_sci.strategy.variants.forex_retracement_fade", "ForexRetracementFade"),
         "qs_sma_filter":        ("tradebot_sci.strategy.variants.qs_sma_filter",        "QS_SMAFilterStrategy"),
         "qs_golden_cross":      ("tradebot_sci.strategy.variants.qs_golden_cross",      "QS_GoldenCrossStrategy"),
         "qs_rsi_mean_reversion":("tradebot_sci.strategy.variants.qs_rsi_mean_reversion","QS_RSIMeanReversionStrategy"),
@@ -624,6 +635,8 @@ class StrategyEngine:
         self.last_strat_name = strat_name
         self.last_strat_score = strat_score
         self.last_strat_grade = strat_grade
+        self.last_strat_summary = strat_summary or ""
+        self.last_strat_in_window = getattr(self._strategy, "last_in_entry_window", None)
         self.last_gates = gates
 
         # Pre-compute candle_now since both exit, entry, and SAR cooldown checks need it
@@ -1575,6 +1588,59 @@ class StrategyEngine:
 
             # Note: Churn Burner notification moved to cycle.py (after confirmed execution)
             # Previously here, it counted every entry SIGNAL as a trade, causing false churn blocks.
+
+            # [ENTRY COST] The toll of this entry, on the quote it would actually pay,
+            # for every strategy rather than only for the one that declares a ceiling.
+            # Before this, cost was tested three different ways in three places: the
+            # strategy against a per-pair AVERAGE, the paper broker against an estimate
+            # with a 1-basis-point fallback for the pairs nobody measured, and the live
+            # broker against the one-way spread while its own comment said round trip.
+            # A share of the risk unit is the number that decides whether a trade can
+            # clear its own budget, and that share travels with the stop: 1.9 pips is
+            # 9.5 percent of R behind a 20-pip stop and 19 percent behind a 10-pip stop.
+            # The gate reads only the quote at the moment of the decision and never the
+            # outcome, so it cannot be fitted to results. Facts 178, 179 and 182;
+            # decision 28; ADR-002.
+            _cost_safety = getattr(self.settings, "safety", None) if self.settings is not None else None
+            if _cost_safety is None:
+                _cost_safety = getattr(getattr(self.profile, "_settings", None), "safety", None)
+            if _cost_safety is None:
+                # The engine is built without a Settings object in tests and in some
+                # replay paths; the profile shim resolves the same safety fields.
+                _cost_safety = self.profile
+            if getattr(_cost_safety, 'safety_entry_cost_gate_enabled', True):
+                from tradebot_sci.strategy.entry_cost import check_entry_cost
+                _ref_price = decision.entry_price
+                if not _ref_price and getattr(snapshot, "candles", None):
+                    _ref_price = snapshot.candles[-1].close
+                _cost_verdict = check_entry_cost(
+                    symbol=self.symbol,
+                    gates=gates,
+                    entry_price=decision.entry_price,
+                    stop_loss=decision.stop_loss,
+                    reference_price=_ref_price,
+                    ceiling=float(getattr(_cost_safety, 'spread_gate_max_pct', 0.30)),
+                    refuse_unknown=bool(
+                        getattr(_cost_safety, 'safety_entry_cost_refuse_unknown', True)),
+                )
+                # The readout is logged for every entry decision, refused or not, so the
+                # journal carries the toll itself and not only the verdict.
+                logger.info(
+                    f"[ENTRY COST] {self.symbol} {decision.action}: {_cost_verdict.readout()}"
+                )
+                if not _cost_verdict.allowed:
+                    from tradebot_sci.strategy.decisions import stand_aside_decision
+                    from tradebot_sci.runtime.rejection_journal import rejection_journal
+                    logger.warning(
+                        f"[ENTRY COST] {self.symbol} entry refused: {_cost_verdict.reason}")
+                    rejection_journal.log(
+                        self.symbol, timeframe, "EntryCost", _cost_verdict.reason)
+                    _cost_blocked = stand_aside_decision(
+                        snapshot.symbol, snapshot.timeframe,
+                        f"Entry Cost: {_cost_verdict.reason}")
+                    _cost_blocked.score = score
+                    _cost_blocked.grade = grade
+                    return _cost_blocked
 
             # [FEE SHIELD] Capital Bleed Prevention (moved from safety_guard.py where it was dead code)
             # Validates that the trade has enough reward to cover broker fees before execution.

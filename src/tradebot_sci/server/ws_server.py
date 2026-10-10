@@ -17,6 +17,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Deep enough to absorb a burst, shallow enough to be a real bound.
+_QUEUE_MAXSIZE = 5000
+
 
 class WebSocketServer:
     def __init__(self, host: str = '0.0.0.0', port: int = 8080) -> None:
@@ -45,7 +48,13 @@ class WebSocketServer:
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, self.host, self.port)
         await self.site.start()
-        self.broadcast_queue = asyncio.PriorityQueue()
+        # Bounded on purpose. The worker caps low-priority drains at ~200/sec,
+        # so an unbounded queue grows without limit whenever production exceeds
+        # that. Dropping is the correct failure mode: the trading loop must
+        # never block on a slow UI consumer.
+        self.broadcast_queue = asyncio.PriorityQueue(maxsize=_QUEUE_MAXSIZE)
+        self._dropped_messages = 0
+        self._last_drop_log = 0.0
         self.broadcast_task = asyncio.create_task(self._broadcast_worker())
         logger.info(f"WebSocket Server started at ws://{self.host}:{self.port}/ws")
 
@@ -363,9 +372,43 @@ class WebSocketServer:
             
             import time
             item = (priority, time.time_ns(), self._get_next_counter(), message)
-            self.loop.call_soon_threadsafe(self.broadcast_queue.put_nowait, item)
+            self.loop.call_soon_threadsafe(self._enqueue, item, priority)
         elif self.loop:
             asyncio.run_coroutine_threadsafe(self.broadcast(message), self.loop)
+
+    def _enqueue(self, item, priority: int) -> None:
+        """Put on the queue without ever blocking the trading loop.
+
+        Runs on the event loop thread. If the queue is full the message is
+        DROPPED rather than queued or blocked: a consumer that cannot keep up
+        must not be able to stall the bot or exhaust memory. Drops are counted
+        and reported so the condition is visible rather than silent.
+        """
+        q = self.broadcast_queue
+        if q is None:
+            return
+        try:
+            q.put_nowait(item)
+            return
+        except asyncio.QueueFull:
+            pass
+        self._dropped_messages += 1
+        import time as _t
+        now = _t.time()
+        if now - self._last_drop_log > 60:
+            self._last_drop_log = now
+            logger.warning(
+                f"[WS-QUEUE] full at {q.maxsize}; dropped {self._dropped_messages} "
+                f"message(s) so far. The UI consumer is slower than the producers; "
+                f"the trading loop is deliberately not blocked."
+            )
+
+    def queue_stats(self) -> dict:
+        """Queue depth and drop count, for the memory watchdog."""
+        q = self.broadcast_queue
+        return {"depth": q.qsize() if q else 0,
+                "maxsize": q.maxsize if q else 0,
+                "dropped": self._dropped_messages}
 
     def broadcast_candle_sync(
         self, symbol: str, timeframe: str, candle: dict[str, Any], provider: str | None = None
@@ -474,4 +517,25 @@ class WebSocketServer:
 
     def is_halted(self) -> bool:
         """Returns True if the bot should be paused."""
+        return self._halted
+
+    def set_halted(self, halted: bool, reason: str = "") -> bool:
+        """Set the pause flag the trading loop reads, and log the transition.
+
+        Single entry point for programmatic halts (the AI kill switch, the
+        prop-firm fail-safe) so they take the same path as the GUI's halt/resume
+        messages instead of each caller poking at _halted.
+        """
+        halted = bool(halted)
+        if halted == self._halted:
+            logger.info(
+                f"[WS] Halt state already {'HALTED' if halted else 'RUNNING'}"
+                + (f" ({reason})" if reason else "")
+            )
+            return self._halted
+        self._halted = halted
+        if halted:
+            logger.warning(f"[WS] Bot HALTED{f' — {reason}' if reason else ''}")
+        else:
+            logger.info(f"[WS] Bot RESUMED{f' — {reason}' if reason else ''}")
         return self._halted

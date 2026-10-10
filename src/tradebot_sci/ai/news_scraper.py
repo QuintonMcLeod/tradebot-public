@@ -32,8 +32,18 @@ class RSSNewsScraper:
         if os.path.exists(self.cache_file):
             try:
                 with open(self.cache_file, 'r') as f:
-                    return json.load(f)
-            except Exception:
+                    loaded = json.load(f)
+                # The cache is consumed with .get(), so a file holding a list or a
+                # scalar would raise AttributeError at the first lookup. Reject the
+                # wrong shape here and fall back to an empty cache.
+                if not isinstance(loaded, dict):
+                    logger.warning(
+                        f"[RSS Scraper] Ignoring cache at {self.cache_file}: expected a JSON object, got {type(loaded).__name__}."
+                    )
+                    return {}
+                return loaded
+            except Exception as e:
+                logger.warning(f"[RSS Scraper] Could not read cache at {self.cache_file}: {e}")
                 return {}
         return {}
 
@@ -61,7 +71,14 @@ class RSSNewsScraper:
                 namespace = {'atom': 'http://www.w3.org/2005/Atom'}
                 for entry in root.findall('atom:entry', namespace)[:10]:
                     title = entry.find('atom:title', namespace)
-                    content_node = entry.find('atom:content', namespace) or entry.find('atom:summary', namespace)
+                    # An Element with text but no children is falsy, so `or` would skip
+                    # <content> and always fall through to <summary>. Compare with None
+                    # to make the choice, but still fall back when <content> carries no
+                    # usable text: a legal but empty <content/> would otherwise discard
+                    # the summary and lose the body of the headline entirely.
+                    content_node = entry.find('atom:content', namespace)
+                    if content_node is None or not (content_node.text or "").strip():
+                        content_node = entry.find('atom:summary', namespace)
                     if title is not None:
                         clean_content = re.sub('<[^<]+>', '', content_node.text) if content_node is not None and content_node.text else ""
                         items.append(f"{title.text} - {clean_content[:200]}")

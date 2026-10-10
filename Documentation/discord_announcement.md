@@ -1,3 +1,31 @@
+> **CORRECTION, 2026-09-16 — the pips-per-trade figures in this announcement are too optimistic and should not be relied on.**
+>
+> The two net figures below (+1.15 and +1.31 pips/trade) charge a single flat
+> cost per trade rather than each trade's own quoted spread. The flat values used
+> were the *medians* of the two event subsets (2.30 and 3.10 pips). The spread
+> distribution is strongly right-skewed, so the *mean* cost per trade is higher,
+> and a per-trade charge has to use the mean.
+>
+> Re-costed on each trade's own quoted spread with `tools/edge_cost_check.py`:
+>
+> | set | gross | net as announced | **net @ own spread** |
+> |---|---|---|---|
+> | 15 pairs, 3 years, T15/S20 | +3.53 | +1.23 (t=3.34) | **+0.51 (t=1.38)** |
+> | 26 pairs, 12 months, T15/S25 | +4.62 | +1.52 (t=2.78) | **−0.22 (t=−0.38)** |
+> | 26 pairs, 12 months, T15/S20 | +4.46 | +1.36 (t=2.71) | **−0.38 (t=−0.73)** |
+>
+> The subset mean spread is 3.02 pips (15 pairs) and 4.84 (26 pairs). This is a
+> shifted distribution rather than a few outliers: trimming the top percentile
+> leaves 2.82 and 4.55.
+>
+> What still stands: the horizon effect is real (4-hour holds lose, 24-hour holds
+> do not), the 32-configuration breakout result is unaffected, and both bug fixes
+> are unaffected. What does not stand: the claim that the 26-pair set confirms
+> the edge. Re-costed, that set is negative at both brackets, and the 15-pair
+> result falls below the |t|>3 bar the programme set for itself.
+>
+> The announcement below is left as published.
+
 **Tradebot SCI — Update (Sept 8–13)**
 
 Hey everyone — the wider-universe work from last week is done, and it produced a real answer.

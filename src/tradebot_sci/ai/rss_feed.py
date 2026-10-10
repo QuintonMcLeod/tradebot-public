@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 RSS_URL = "https://investinglive.com/feed/news"
 CACHE_TTL_SECONDS = 900  # 15 minutes
 
+# Returned when every feed failed and no cached headlines exist. Callers that
+# feed this text to a model must treat it as "no news" — it is not evidence.
+NO_NEWS_PLACEHOLDER = "No recent market news available."
+
 # Global Cache State
 _news_cache: str | None = None
 _last_fetch_time: float = 0.0
@@ -73,4 +77,4 @@ def get_latest_news(limit: int = 5) -> str:
         logger.debug("[RSS] Using stale cache due to fetch failure.")
         return _news_cache
         
-    return "No recent market news available."
+    return NO_NEWS_PLACEHOLDER

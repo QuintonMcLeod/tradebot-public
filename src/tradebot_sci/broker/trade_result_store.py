@@ -10,6 +10,24 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# The epoch stamped on every result row this code writes.  It is bumped by hand
+# when a defect that poisoned the forward paper record is repaired, so a reader
+# can separate rows written by the repaired code from rows written by the broken
+# one.  A row found on disk with no epoch at all was written before the first
+# stamp existed, which is what LEGACY_RECORD_EPOCH records.
+RECORD_EPOCH = "post-replay-fix"
+LEGACY_RECORD_EPOCH = "pre-replay-fix"
+
+
+def _parse_iso(value: str) -> datetime:
+    """Parse an ISO timestamp, treating a missing offset as UTC."""
+    text = value.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(text)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 @dataclass
 class TradeResult:
     symbol: str
@@ -45,9 +63,21 @@ class TradeResult:
     mae_net_usd: float | None = None     # MAE less the round-trip cost
     mfe_net_r: float | None = None       # MFE net, in R
     mae_net_r: float | None = None       # MAE net, in R
+    # How long the trade really took, measured from the wall clock, as against
+    # duration_seconds, which is the hold the strategy itself saw.  In replay the
+    # two diverge by orders of magnitude: the cursor is advanced one candle per
+    # decision cycle, so a 48-bar hold can elapse inside 20 milliseconds of real
+    # time.  Recording only the simulated figure hid that, and a position
+    # force-closed in the same real second books no price change and therefore a
+    # loss equal to its costs.
+    wall_duration_seconds: float | None = None
+    # Which build wrote this row.  Rows recovered from before the stamp exist
+    # are read back as LEGACY_RECORD_EPOCH rather than being silently adopted
+    # into the clean record.
+    record_epoch: str = RECORD_EPOCH
 
     def __post_init__(self):
-        """Derive the net-of-cost excursions from the raw ones.
+        """Derive the net-of-cost excursions and the real hold.
 
         Centralised here rather than at each of the seven places a TradeResult is
         constructed, so no path can record a flattering MFE by omission.
@@ -63,6 +93,13 @@ class TradeResult:
                 self.mae_net_usd = self.mae_usd - cost
             if self.risk_usd and self.mae_net_r is None:
                 self.mae_net_r = self.mae_net_usd / self.risk_usd
+        if self.wall_duration_seconds is None and self.opened_at and self.closed_at:
+            try:
+                elapsed = (_parse_iso(self.closed_at) - _parse_iso(self.opened_at)).total_seconds()
+                if elapsed >= 0:
+                    self.wall_duration_seconds = elapsed
+            except (ValueError, TypeError):
+                pass
 
     def to_dict(self) -> dict:
         d = {k: v for k, v in self.__dict__.items()}
@@ -104,6 +141,8 @@ class TradeResult:
             risk_usd=float(data["risk_usd"]) if data.get("risk_usd") is not None else None,
             mfe_net_usd=float(data["mfe_net_usd"]) if data.get("mfe_net_usd") is not None else None,
             mae_net_usd=float(data["mae_net_usd"]) if data.get("mae_net_usd") is not None else None,
+            wall_duration_seconds=float(data["wall_duration_seconds"]) if data.get("wall_duration_seconds") is not None else None,
+            record_epoch=data.get("record_epoch", LEGACY_RECORD_EPOCH),
         )
 
 class TradeResultStore:

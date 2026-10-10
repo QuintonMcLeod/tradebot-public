@@ -1643,7 +1643,27 @@ class SafetySettings(BaseModel):
         ge=0.0,
         le=1.0,
         description="Max spread as fraction of stop distance before entry is blocked. "
-                    "E.g. 0.30 = block if spread > 30% of SL distance.",
+                    "E.g. 0.30 = block if spread > 30% of SL distance. The engine's "
+                    "entry-cost gate enforces this on every strategy's own quoted round "
+                    "trip, in pips and as a share of the risk unit.",
+    )
+
+    safety_entry_cost_gate_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_ENTRY_COST_GATE_ENABLED", "True").lower() == "true",
+        description="Guard 9. Judge every strategy's entry against spread_gate_max_pct on "
+                    "the quote at the decision bar, falling back to the per-pair measured "
+                    "table only where there is no live quote. ON by default, in line with "
+                    "ADR-002. The toll is logged in pips and as a share of R on every entry "
+                    "decision, refused or not.",
+    )
+
+    safety_entry_cost_refuse_unknown: bool = Field(
+        default_factory=lambda: os.getenv("SAFETY_ENTRY_COST_REFUSE_UNKNOWN", "True").lower() == "true",
+        description="Refuse an entry whose cost is neither quoted nor in the measured "
+                    "table, because a ceiling cannot be tested against a number that does "
+                    "not exist. The eleven uncovered pairs in the 26-symbol profile were "
+                    "40.5 percent of entries at a mean 6.74 pips a round trip. Set False to "
+                    "admit them and log the cost as unknown.",
     )
 
     swap_avoidance_enabled: bool = Field(

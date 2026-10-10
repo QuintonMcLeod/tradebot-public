@@ -182,10 +182,29 @@ cd "Trade by SCI/tradebot-sci-debug"
 python3 -m pytest tests/test_strategy_engine.py tests/test_integration.py -q
 ```
 
-`test_strategy_engine.py` walks every `STRATEGY_REGISTRY` entry and instantiates it,
-which is the documented guard against a typo'd module or class path (see
-`Documentation/adr/001-strategy-registry.md`). `test_integration.py` imports every
-registered class. **Run this before claiming the registration works.**
+`test_integration.py` (class `TestStrategyRegistry`, test
+`test_strategy_registry_complete`) walks every `StrategyEngine.STRATEGY_REGISTRY`
+entry, imports the module, fetches the class and instantiates it. That is the
+documented guard against a typo'd module or class path (see
+`Documentation/adr/001-strategy-registry.md`). **Run this before claiming the
+registration works.**
+
+Three corrections to what this file used to say here, all verified 2026-10-07:
+
+- The walk lives in `test_integration.py`, not `test_strategy_engine.py`. The latter
+  holds engine behaviour tests (`decide`, emergency exit, session gating) and never
+  touches the registry.
+- The instantiation step was missing. The test fetched the class with `getattr` and
+  stopped, so a strategy whose `__init__` raised still passed. The assertion is now
+  present. This matters because the registry resolves each module path lazily, so a
+  broken constructor is otherwise invisible until something selects that strategy.
+- `STRATEGY_REGISTRY` is a class attribute on `StrategyEngine`, not a module level
+  name, so `from tradebot_sci.strategy.engine import STRATEGY_REGISTRY` fails with
+  ImportError. Import `StrategyEngine` and read `StrategyEngine.STRATEGY_REGISTRY`.
+- The package is not installed and there is no `conftest.py`, so this command used to
+  die at collection with `ModuleNotFoundError: No module named 'tradebot_sci'`.
+  `pytest.ini` now declares `pythonpath = src`; if you copy the command into another
+  checkout, carry that setting with it or export `PYTHONPATH=src` yourself.
 
 Then run the wider suite and compare against a baseline:
 

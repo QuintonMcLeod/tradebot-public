@@ -324,6 +324,21 @@ class PaperBroker:
         # Immediate reporting on startup for UI visibility
         self.summarize_pnl()
         self.refresh_account_summary()
+
+        # Say the sizing rails out loud once, at startup. The risk per trade and the
+        # leverage cap decide the size together, and a cap below what the risk needs
+        # shrinks every order in silence while every other line still quotes the risk
+        # figure: at a 20-pip stop on EURUSD, risking 6 percent needs 34.8 times the
+        # balance in notional, so a 10x cap delivered 1.7 percent. Printed so a config
+        # change is visible in the journal instead of being inferred from a fill.
+        _risk_pct = float(getattr(self.profile, "risk_per_trade_pct", 0.0) or 0.0)
+        _lev = float(getattr(self.profile, "target_leverage", 1.0) or 1.0)
+        logger.info(
+            f"[PAPER] [SIZING] risk_per_trade={100.0 * _risk_pct:.2f}% of balance, "
+            f"leverage cap={_lev:.0f}x (notional), affordability cap="
+            f"${self.balance * _lev:,.0f}"
+        )
+
         self.last_status: str = "healthy"
         self.last_error: str = ""
         self._update_status("healthy", "")
@@ -462,6 +477,28 @@ class PaperBroker:
                 duration_str = f"{secs}s"
 
         return duration_secs, duration_str
+
+    def _wall_hold_seconds(self, pos: dict) -> Optional[float]:
+        """Real seconds the position has been open, measured on the wall clock.
+
+        Recorded alongside the simulated hold because the two are not the same
+        number in replay: the cursor advances one candle per decision cycle, so a
+        position held 48 bars can be closed 20 milliseconds after it opened.  The
+        simulated hold is what the strategy acted on; this is what actually
+        happened, and only this one exposes a position closed inside the same
+        real second it was entered.
+        """
+        opened_at_str = pos.get("opened_at")
+        if not opened_at_str:
+            return None
+        try:
+            opened_at_dt = datetime.fromisoformat(opened_at_str)
+            if opened_at_dt.tzinfo is None:
+                opened_at_dt = opened_at_dt.replace(tzinfo=timezone.utc)
+            elapsed = (self._wall_clock() - opened_at_dt).total_seconds()
+            return elapsed if elapsed >= 0 else None
+        except (TypeError, ValueError):
+            return None
 
     def _audit_balance_change(self, delta: float, reason: str, symbol: str = "") -> None:
         """Raw file audit that bypasses Python logging (currently broken on deleted inodes).
@@ -1059,13 +1096,16 @@ class PaperBroker:
                 spread_cost = self._compute_spread_cost(pos, exit_p)
                 exit_reason = decision.notes or "paper_close"
 
+                # The excursion text is interpolated rather than passed as a
+                # logging argument: a literal '%)' in the message would be read
+                # as a format spec by logging's %-formatting and raise
+                # ValueError, dropping the whole [EXIT] record.
                 logger.info(
                     f"[PAPER] [EXIT] Paper {exit_reason}: {symbol} {pnl_str} "
                     f"(Pct={pnl_pct:.2f}%) position={pos_side.upper()} | "
                     f"Entry={entry_p:.5f} Exit={exit_p:.5f} | "
                     f"Duration={duration_str} | "
-                    f"Est. Spread Cost: ${spread_cost:.2f} | ",
-                    self._excursion_str(pos),
+                    f"Est. Spread Cost: ${spread_cost:.2f} | {self._excursion_str(pos)}",
                     extra={"broker": "paper", "symbol": symbol, "event": "order_closed",
                            "exit_price": exit_p, "pnl_usd": pnl_usd, "fee_usd": fee_usd}
                 )
@@ -1149,13 +1189,16 @@ class PaperBroker:
                 spread_cost = self._compute_spread_cost(pos, exit_p, close_qty)
                 exit_reason = decision.notes or "paper_scale_out"
 
+                # The excursion text is interpolated rather than passed as a
+                # logging argument: a literal '%)' in the message would be read
+                # as a format spec by logging's %-formatting and raise
+                # ValueError, dropping the whole [EXIT] record.
                 logger.info(
                     f"[PAPER] [EXIT] Paper {exit_reason}: {symbol} {pnl_str} "
                     f"(Pct={pnl_pct:.2f}%) position={pos_side.upper()} | "
                     f"Entry={entry_p:.5f} Exit={exit_p:.5f} | "
                     f"Duration={duration_str} | "
-                    f"Est. Spread Cost: ${spread_cost:.2f} | ",
-                    self._excursion_str(pos),
+                    f"Est. Spread Cost: ${spread_cost:.2f} | {self._excursion_str(pos)}",
                     extra={"broker": "paper", "symbol": symbol, "event": "scale_out",
                            "exit_price": exit_p, "pnl_usd": pnl_usd, "fee_usd": fee_usd,
                            "scale_frac": scale_frac, "remain_qty": remain_qty}
@@ -1382,13 +1425,16 @@ class PaperBroker:
             pnl_str = f"{pnl_sign}${abs(pnl_usd):.2f}"
             spread_cost = self._compute_spread_cost(pos, exit_p)
 
+            # The excursion text is interpolated rather than passed as a logging
+            # argument: a literal '%)' in the message would be read as a format
+            # spec by logging's %-formatting and raise ValueError, dropping the
+            # whole [EXIT] record.
             logger.info(
                 f"[PAPER] [EXIT] Paper Manual Cash-Out: {symbol} {pnl_str} "
                 f"(Pct={pnl_pct:.2f}%) position={pos_side.upper()} | "
                 f"Entry={entry_p:.5f} Exit={exit_p:.5f} | "
                 f"Duration={duration_str} | "
-                f"Est. Spread Cost: ${spread_cost:.2f} | ",
-                self._excursion_str(pos)
+                f"Est. Spread Cost: ${spread_cost:.2f} | {self._excursion_str(pos)}"
             )
 
             # Record in trade results
@@ -1798,12 +1844,16 @@ class PaperBroker:
                                     duration_secs_sd, duration_str_sd = self._compute_duration(pos)
                                     pnl_pct_sd = (pnl_usd_raw_sd / (entry_p * abs(pos["size"]))) * 100 if entry_p > 0 else 0.0
                                     spread_cost_sd = self._compute_spread_cost(pos, _exit_p)
+                                    # The excursion text is interpolated rather than
+                                    # passed as a logging argument: a literal '%)' in
+                                    # the message would be read as a format spec by
+                                    # logging's %-formatting and raise ValueError,
+                                    # dropping the whole [EXIT] record.
                                     logger.info(
                                         f"[PAPER] [EXIT] Paper STALL: {symbol} {pnl_usd_sd:+.2f} "
                                         f"(Pct={pnl_pct_sd:.2f}%) position={side.upper()} | "
                                         f"Entry={entry_p:.5f} Exit={_exit_p:.5f} | "
-                                        f"Duration={duration_str_sd} | ",
-                                        self._excursion_str(pos)
+                                        f"Duration={duration_str_sd} | {self._excursion_str(pos)}"
                                     )
                                     if self.trade_results:
                                         self.trade_results.add_result(TradeResult(
@@ -2259,13 +2309,16 @@ class PaperBroker:
                         else:
                             duration_str = f"{mins}m {secs}s"
 
+                # The excursion text is interpolated rather than passed as a
+                # logging argument: a literal '%)' in the message would be read
+                # as a format spec by logging's %-formatting and raise
+                # ValueError, dropping the whole [EXIT] record.
                 logger.info(
                     f"[PAPER] [EXIT] Paper {hit}: {symbol} {pnl_str} "
                     f"(Pct={pnl_pct:.2f}%) position={side.upper()} | "
                     f"Entry={entry_p:.5f} Exit={exit_price:.5f} | "
                     f"Duration={duration_str} | "
-                    f"Est. Spread Cost: ${spread_cost:.2f} | ",
-                    self._excursion_str(pos)
+                    f"Est. Spread Cost: ${spread_cost:.2f} | {self._excursion_str(pos)}"
                 )
 
                 # Record in paper-specific TradeResultStore (not the live one).
@@ -2291,6 +2344,10 @@ class PaperBroker:
                         size=pos.get("size"),
                         entry_price=pos.get("entry_price"),
                         exit_price=exit_price,
+                        # closed_at above is interpolated from the simulated hold
+                        # for the SL/TP path, so the real hold has to be passed in
+                        # rather than read back off the row.
+                        wall_duration_seconds=self._wall_hold_seconds(pos),
                     ))
 
                 del self.positions[symbol]

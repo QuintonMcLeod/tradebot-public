@@ -71,11 +71,17 @@ window.profilesModule = (function () {
         { value: 'london_breakout', label: 'London Breakout' },
         { value: 'orb_breakout', label: 'ORB' },
         { value: 'volatility_breakout', label: 'Volatility Breakout' },
-        { value: 'silver_vwap', label: 'Silver VWAP (Apex)' },
+        { value: 'silver_vwap', label: 'Apex Silver-VWAP' },
         { value: 'aggregator', label: 'Singularity Aggregator' },
         { value: 'meta_sci', label: 'Meta-SCI (AI Ensemble)' },
         { value: 'forex_conductor', label: 'Forex Conductor (Session Scheduler)' },
-        { value: 'forex_hybrid_scalper', label: 'Forex Hybrid Scalper' },
+        // forex_hybrid_scalper is a LEGACY key and is NOT in STRATEGY_REGISTRY.
+        // It has to stay selectable because config/models.py still returns it as
+        // the FOREX fallback and the hybrid_scalper_ny profile stores it. The
+        // registry key for the same strategy is forex_hybrid_reaper, which is
+        // what new profiles should use.
+        { value: 'forex_hybrid_scalper', label: 'Forex Hybrid Scalper (legacy key)' },
+        { value: 'forex_hybrid_reaper', label: 'Forex Hybrid Scalper' },
         { value: 'icc_core_standalone', label: 'ICC Core (ICT Methodology)' },
         { value: 'supply_demand', label: 'Supply & Demand' },
         { value: 'trend_rider', label: 'Trend Rider (EMA Pullback)' },
@@ -84,10 +90,8 @@ window.profilesModule = (function () {
         { value: 'london_sweep', label: 'London Sweep (Banker\'s Trap)' },
         { value: 'new_york_drive', label: 'New York Drive (Momentum Continuation)' },
         { value: 'wind_down_truffle', label: 'Wind-Down Truffle (Friday Fade)' },
-        { value: 'silver_vwap', label: 'Apex Silver-VWAP' },
         { value: 'yoyo', label: 'Yo-Yo (Momentum Reversal)' },
         { value: 'golden_pocket', label: 'Golden Pocket (Value Pullback)' },
-        { value: 'volatility_breakout', label: 'Volatility Breakout' },
         // 🪙 Crypto-Specific Strategies
         { value: 'crypto_rsi_macd', label: '🪙 RSI + MACD (Crypto)' },
         { value: 'crypto_vwap_reversion', label: '🪙 VWAP Reversion (Crypto)' },
@@ -103,7 +107,8 @@ window.profilesModule = (function () {
         { value: 'qs_choppiness', label: 'QS Choppiness Index' },
         { value: 'qs_first_day_month', label: 'QS Seasonal First DOM' },
         { value: 'forex_structure_breakout', label: 'Forex Structure Breakout' },
-        { value: 'forex_scrape_fade', label: 'Forex Scrape Fade (Range Fade)' }
+        { value: 'forex_scrape_fade', label: 'Forex Scrape Fade (Range Fade)' },
+        { value: 'forex_retracement_fade', label: 'Forex Retracement Fade' }
     ];
 
     const TIMEFRAME_OPTIONS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];

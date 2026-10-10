@@ -1,5 +1,44 @@
 # Improving the scrape entry
 
+> **CORRECTION, 2026-09-16 — the net figures below are too optimistic.**
+>
+> Results 2 and 3 charge a single flat cost per trade and describe it as "net of
+> each trade's own quoted spread". Those are not the same thing, and the
+> difference is large. `tools/edge_entry.py` takes one `--cost` value; the flat
+> values used here were 2.30 pips (15 pairs) and 3.10 (26 pairs), which are the
+> *medians* of the respective event subsets. The spread distribution across
+> these pairs is strongly right-skewed, so the *mean* cost per trade is well
+> above the median, and the mean is what a per-trade charge must use.
+>
+> Re-costed on each trade's own quoted spread with `tools/edge_cost_check.py`,
+> which reproduces the gross figures and the flat-cost net figures below almost
+> exactly (n=1984 against 2052, and n=1029 against 1051; the small count
+> differences are data vintage):
+>
+> | set | bracket | gross | net @ flat (as below) | **net @ own spread** |
+> |---|---|---|---|---|
+> | 15 pairs, 3 years | T15/S20 | +3.53 | +1.23 (t=+3.34) | **+0.51 (t=+1.38)** |
+> | 26 pairs, 12 months | T15/S25 | +4.62 | +1.52 (t=+2.78) | **−0.22 (t=−0.38)** |
+> | 26 pairs, 12 months | T15/S20 | +4.46 | +1.36 (t=+2.71) | **−0.38 (t=−0.73)** |
+>
+> The subset mean spread is 3.02 pips for the 15-pair set (median 2.30) and 4.84
+> for the 26-pair set (median 3.10). This is not a few outliers: trimming at the
+> 99th percentile leaves mean costs of 2.82 and 4.55, and in the 26-pair set
+> 28.2% of trades were quoted above 5 pips, accounting for 60.6% of total cost.
+>
+> The consequences are material. The 15-pair headline falls from +1.15 (t=3.17)
+> to +0.51 (t=1.38), which is below the pre-registered bar of |t|>3. The
+> 26-pair set, which was the independent cross-sectional confirmation that made
+> this the only surviving strategy, goes **negative** at both brackets.
+>
+> The gross edge is real and reproduces. What does not survive is the cost
+> assumption. The recommendation to move from a 4-hour to a 24-hour hold still
+> stands — the horizon effect is genuine — but the resulting expectancy does not
+> clear the bar, and the forward paper test should be read with that in mind.
+>
+> The text below is left as written so the reasoning that led to these runs
+> stays visible.
+
 Date: 2026-09-13
 Data: `candle_history_36m` (15 pairs, 2023-09-26 to 2026-09-10, M5) and
 `candle_history_12m` (26 pairs, last 12 months, 11 of them not in the 36m set).

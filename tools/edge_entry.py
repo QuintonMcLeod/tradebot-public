@@ -201,7 +201,23 @@ def collect(data_dir, symbols, win, kind, horizon, spacing):
 
 
 def outcomes(mfe, mae, fin, T_, S_, cost):
-    """Gross and net expectancy for one bracket."""
+    """Gross and net expectancy for one bracket.
+
+    Three outcomes, not two. A trade that reaches neither barrier inside the horizon
+    exits at the market when the horizon ends, and `fin` holds exactly that price: the
+    signed close of the last bar in the window. It is neither a win nor a full loss.
+
+    This used to fold that case into the stop, because `lost = fs <= ft` is true when
+    both barriers are absent and both indexes sit at the 10**6 sentinel. The `open_`
+    category was computed and never used, so `fin` was dead code and every trade that
+    timed out was charged the whole stop. That is harmless only where nearly every
+    trade does reach a barrier. At a four-hour horizon on this venue roughly 35 percent
+    of them do not, which made the recorded loss several times too large. See facts 176
+    and 177 in the tradebot_sci schema.
+
+    A genuine same-bar tie between the two barriers still counts as a loss: the stop
+    wins ties.
+    """
     climb = np.maximum.accumulate(mfe, axis=1)
     fall = np.maximum.accumulate(-mae, axis=1)
     it = climb >= T_
@@ -209,7 +225,10 @@ def outcomes(mfe, mae, fin, T_, S_, cost):
     ft = np.where(it.any(axis=1), it.argmax(axis=1), 10 ** 6)
     fs = np.where(is_.any(axis=1), is_.argmax(axis=1), 10 ** 6)
     won = ft < fs
-    lost = fs <= ft
+    # A barrier actually filled. Without this, two untouched sentinels read as a
+    # touched stop, which is the defect this replaces.
+    touched_stop = fs < 10 ** 6
+    lost = ~won & touched_stop
     open_ = ~(won | lost)
     gross = np.where(won, T_, np.where(lost, -S_, fin))
     net = gross - cost
@@ -217,7 +236,8 @@ def outcomes(mfe, mae, fin, T_, S_, cost):
     sd = net.std(ddof=1) if n > 1 else 0.0
     return {
         "n": n, "gross": float(gross.mean()), "net": float(net.mean()),
-        "hit": float(won.mean() * 100), "t": float(net.mean() / (sd / math.sqrt(n))) if sd > 0 else 0.0,
+        "hit": float(won.mean() * 100), "open": float(open_.mean() * 100),
+        "t": float(net.mean() / (sd / math.sqrt(n))) if sd > 0 else 0.0,
     }
 
 
@@ -299,7 +319,15 @@ def main():
         print(f"[ENTRY] kind={kind}  events={base['n']}  "
               f"median spread={np.nanmedian(d['sp']):.2f} pips")
         print(f"[ENTRY] unfiltered: gross={base['gross']:+.2f}p hit={base['hit']:.1f}% "
-              f"net={base['net']:+.2f}p t={base['t']:+.2f}")
+              f"open={base['open']:.1f}% net={base['net']:+.2f}p t={base['t']:+.2f}")
+        if base["open"] >= 5.0:
+            print(f"[ENTRY] WARNING: {base['open']:.1f}% of these trades reach neither "
+                  f"barrier inside the {args.horizon}-bar horizon and exit at the market. "
+                  f"A horizon this short is not pricing the bracket you are reading: at a "
+                  f"4-hour horizon on this venue the same cell measures -7.4 pips if those "
+                  f"trades are charged the stop and -0.3 pips if they are charged their own "
+                  f"close. Raise --horizon until this share is small before believing the "
+                  f"bracket comparison.")
         print(f"{'=' * 74}")
 
         for name, edges in (("hour", HOUR_EDGES), ("dow", DOW_EDGES), *CONT.items()):

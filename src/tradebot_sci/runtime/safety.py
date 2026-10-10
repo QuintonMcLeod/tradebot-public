@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Optional
 
 from tradebot_sci.config.models import Settings
@@ -9,7 +10,13 @@ from tradebot_sci.strategy.decisions import AITradeDecision, stand_aside_decisio
 logger = logging.getLogger(__name__)
 
 ALLOWED_BIAS = {"long", "short", "neutral"}
-ALLOWED_PHASE = {"trend", "correction", "continuation", "chop"}
+# Mirrors AITradeDecision's Phase literal, which is the contract the response schema
+# and the prompt's JSON contract both narrow to the same ICC labels. The old set
+# dropped "indication" (and the internal "range"/"management" labels mechanical
+# strategies emit), so a correctly labelled decision was silently downgraded to
+# stand_aside. Anything outside this set is not a phase the model can represent and
+# is still rejected.
+ALLOWED_PHASE = {"trend", "indication", "correction", "continuation", "chop", "range", "management"}
 ALLOWED_ACTION = {
     "enter_long",
     "enter_short",
@@ -42,6 +49,23 @@ def validate_decision(
     if decision.action not in ALLOWED_ACTION:
         return _downgrade(decision, "Action invalid")
 
+    # Non-finite numbers must be caught before any comparison below: every check
+    # against NaN is False, so a NaN stop or target slips through the long/short
+    # pricing tests and the risk caps untouched and reaches the executor.
+    for value, label in [
+        (decision.entry_price, "Entry price"),
+        (decision.stop_loss, "Stop loss"),
+        (decision.take_profit, "Take profit"),
+        (decision.risk_per_trade_pct, "Risk per trade"),
+        (decision.max_position_size_pct, "Max position size"),
+    ]:
+        if value is not None and not math.isfinite(value):
+            return _downgrade(decision, f"{label} not finite")
+
+    if decision.entry_zone:
+        if not all(math.isfinite(level) for level in decision.entry_zone):
+            return _downgrade(decision, "Entry zone not finite")
+
     if decision.action in {"enter_long", "enter_short", "scale_in", "add_to_position", "flip_to_long", "flip_to_short"}:
         if decision.entry_price is None or decision.stop_loss is None:
             return _downgrade(decision, "Missing required entry/stop fields")
@@ -68,7 +92,10 @@ def validate_decision(
     caps = execution_capabilities or {}
     if decision.action in {"flip_to_long", "flip_to_short"}:
         flip_allowed = False
-        if settings is not None:
+        # hasattr, not just a None check: a caller may hand us an AI-only settings
+        # object with no `.runtime` section, and reaching through it would raise
+        # AttributeError instead of returning a verdict. Same guard as max_sim_risk above.
+        if settings is not None and hasattr(settings, "runtime"):
             flip_allowed = bool(getattr(settings.runtime, "flip_actions_enabled", False))
         if not flip_allowed:
             flip_allowed = bool(caps.get("flip_allowed"))

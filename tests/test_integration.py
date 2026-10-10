@@ -249,6 +249,15 @@ class TestConfigMigration:
             mod = importlib.import_module(module_path)
             cls = getattr(mod, class_name)
             assert cls is not None, f"Strategy {name} class not found: {module_path}.{class_name}"
+            # The docstring above, the checklist in Documentation/ADDING_A_STRATEGY.md
+            # and the engine's own comment all promise instantiation, but this test
+            # used to stop at getattr, so a constructor that raised on import passed.
+            # The registry resolves the module path lazily, which means a broken
+            # __init__ is otherwise invisible until something selects the strategy.
+            instance = cls()
+            assert instance is not None, (
+                f"Strategy {name} did not instantiate: {module_path}.{class_name}"
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -1,0 +1,10 @@
+[Unit]
+Description=Push the live desk's daily PnL to Steven, through the secretary's notifier
+Documentation=file:///home/qchan/Scripts/Trade%20by%20SCI/tradebot-sci-debug/tools/daily_pnl_push.py
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/qchan/Scripts/Trade by SCI/tradebot-sci-debug
+ExecStart=/bin/bash "/home/qchan/Scripts/Trade by SCI/tradebot-sci-debug/scripts/agent_daily_pnl_push.sh"
+TimeoutStartSec=180

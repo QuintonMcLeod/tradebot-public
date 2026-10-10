@@ -1,0 +1,10 @@
+[Unit]
+Description=Every 10 minutes, check the live desk for trades past their written horizon
+
+[Timer]
+OnCalendar=*:0/10
+AccuracySec=30s
+Unit=tradebot-timestop.service
+
+[Install]
+WantedBy=timers.target

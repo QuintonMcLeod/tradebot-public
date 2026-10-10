@@ -1,0 +1,9 @@
+[Unit]
+Description=Record a health line for the Tradebot SCI paper runner and warn on a change of condition
+Documentation=file:///home/qchan/Scripts/Trade%20by%20SCI/tradebot-sci-debug/scripts/paper_runner_health.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/qchan/Scripts/Trade by SCI/tradebot-sci-debug
+ExecStart=/bin/bash "/home/qchan/Scripts/Trade by SCI/tradebot-sci-debug/scripts/paper_runner_health.sh"
+TimeoutStartSec=60

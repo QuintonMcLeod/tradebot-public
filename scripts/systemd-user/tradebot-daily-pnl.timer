@@ -1,0 +1,15 @@
+[Unit]
+Description=Every trading day at 21:15Z, push the day's PnL to Steven's phone
+
+# 21:15 UTC is after the desk's last window (18:00Z, and 20:00Z on Friday for
+# management only) and after the 21:00Z daily rollover, so the day's realized result
+# is complete. Fixed UTC on purpose: the trading windows are UTC, so a local-time
+# timer would fire at a different point in the desk's day twice a year.
+[Timer]
+OnCalendar=Mon..Fri *-*-* 21:15:00 UTC
+AccuracySec=1min
+Persistent=true
+Unit=tradebot-daily-pnl.service
+
+[Install]
+WantedBy=timers.target

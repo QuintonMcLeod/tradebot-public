@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal, Optional, Tuple, TypedDict
+from typing import Any, Literal, Optional, Tuple, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 RoleLiteral = Literal["system", "user", "assistant"]
 
@@ -45,6 +45,11 @@ class RawCompletionResponse(BaseModel):
 class ParsedDecisionPayload(BaseModel):
     """Structured ICC trade idea—because JSON beats interpretive dance."""
 
+    # Every price/size comparison downstream is False for NaN, so a payload with
+    # entry_price=nan (or inf from an overflowing literal like 1e400) would slip
+    # through validation and reach the executor. Reject non-finite numbers here.
+    model_config = ConfigDict(allow_inf_nan=False)
+
     symbol: str
     timeframe: str  # execution timeframe like 1m/5m/15m
     bias: Literal["long", "short", "neutral"]
@@ -67,7 +72,9 @@ class ParsedDecisionPayload(BaseModel):
     # Accepts fractional percentages 0-1; higher values (e.g., 12) will be normalized in safety.
     risk_per_trade_pct: Optional[float] = Field(default=None, ge=0.0, le=100.0)
     max_position_size_pct: Optional[float] = Field(default=None, ge=0.0, le=100.0)
-    time_in_force_sec: Optional[int] = None
+    # 7 days. A hallucinated lifetime (or an overflowing one) must not pass, and no
+    # strategy in this bot holds an order open longer than a week.
+    time_in_force_sec: Optional[int] = Field(default=None, gt=0, le=604800)
     urgency: Literal["low", "medium", "high"] = "medium"
     structure_summary: str
     invalidation_conditions: str
@@ -87,6 +94,13 @@ class MarketContext(BaseModel):
     timeframe: str
     trend_htf: str
     trend_ltf: str
+    # Callers populate these as well (see StrategyEngine.build_market_context); they
+    # were previously dropped silently because the model did not declare them.
+    # timestamp is whatever the candle carries — a datetime or an epoch number.
+    timestamp: Optional[Any] = None
+    price: Optional[float] = None
+    signals: Optional[dict] = None
+    metadata: Optional[dict] = None
     htf_align: Optional[bool] = None
     htf_timeframe: Optional[str] = None
     ltf_timeframe: Optional[str] = None
@@ -98,7 +112,7 @@ class MarketContext(BaseModel):
     sweep_confirmed: Optional[bool] = None
     continuation_confirmed: Optional[bool] = None
     confluence: Optional[dict] = None
-    recent_continuation_detection_rate: Optional[str] = None
+    recent_continuation_detection_rate: Optional[float] = None
     continuation_blocking_reason: Optional[str] = None
     htf_candles: Optional[list[dict]] = None
     ltf_candles: Optional[list[dict]] = None

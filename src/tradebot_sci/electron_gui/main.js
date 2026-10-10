@@ -1457,6 +1457,122 @@ function setupIpcHandlers() {
     // =============================================
     // AI Recommend — Profile Optimization
     // =============================================
+
+// ── Live market context for the AI assistant ────────────────────────────────
+// The built-in assistant used to see only profile config and account history,
+// so it could not tell whether EURUSD was at a range high or mid-range, and
+// any advice it gave about levels or timing was guesswork. It now reads the
+// market through tools/oanda_trade.py — the SAME tool the scheduled trading
+// agent uses — so both surfaces see identical data.
+//
+// If the tool cannot run, this returns an explicit UNAVAILABLE marker rather
+// than omitting the section. The model must be able to tell the difference
+// between "the market is quiet" and "I cannot see the market".
+function toOandaSymbol(sym) {
+    const s = String(sym || '').toUpperCase().replace(/[^A-Z]/g, '');
+    return s.length === 6 ? `${s.slice(0, 3)}_${s.slice(3)}` : s;
+}
+
+function gatherMarketContext(symbols, envData) {
+    const tool = path.join(REPO_ROOT, 'tools', 'oanda_trade.py');
+    if (!fs.existsSync(tool)) {
+        return 'MARKET DATA: UNAVAILABLE (tool missing). Do NOT state or imply current prices, levels or spreads.';
+    }
+    const env = { ...process.env };
+    if (envData && envData.OANDA_API_KEY) env.OANDA_API_KEY = envData.OANDA_API_KEY;
+    if (!env.OANDA_API_KEY) {
+        return 'MARKET DATA: UNAVAILABLE (no OANDA_API_KEY configured). Do NOT state or imply current prices, levels or spreads.';
+    }
+    const run = (args) => {
+        try {
+            const out = require('child_process').execFileSync('python3', [tool, ...args],
+                { timeout: 20000, encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'ignore'] });
+            // The tool emits one JSON object per line for multi-symbol calls
+            // (e.g. `quote EUR_USD GBP_USD`), so a single JSON.parse fails on
+            // anything but a one-symbol call. Accept both shapes.
+            try { return JSON.parse(out); } catch (_) { /* fall through */ }
+            const lines = out.split('\n').map(l => l.trim()).filter(Boolean);
+            const parsed = lines.map(l => { try { return JSON.parse(l); } catch (_) { return null; } })
+                                 .filter(v => v !== null);
+            return parsed.length ? parsed : null;
+        } catch (e) { return null; }
+    };
+
+    const pairs = [...new Set(symbols.map(toOandaSymbol))].slice(0, 8);
+    const quotes = run(['quote', ...pairs]);
+    if (!quotes || !Array.isArray(quotes) || !quotes.length) {
+        return 'MARKET DATA: UNAVAILABLE (OANDA quote call failed — market may be closed, or the account/key is unreachable). Do NOT state or imply current prices, levels or spreads.';
+    }
+
+    const lines = quotes.map(q =>
+        `  ${q.instrument}: bid ${q.bid} ask ${q.ask} spread ${q.spread_pips} pips` +
+        `${q.tradeable ? '' : ' (NOT tradeable)'}`);
+    let block = 'MARKET DATA (live, read from OANDA by the same tool the trading agent uses)\n' +
+                'Live quotes:\n' + lines.join('\n');
+
+    // Recent price action for the first pair, so levels are grounded in fact.
+    const primary = pairs[0];
+    const candles = run(['candles', primary, 'H1', '48']);
+    if (Array.isArray(candles) && candles.length > 4) {
+        const highs = candles.map(c => parseFloat(c.h));
+        const lows = candles.map(c => parseFloat(c.l));
+        const closes = candles.map(c => parseFloat(c.c));
+        const hi = Math.max(...highs), lo = Math.min(...lows), last = closes[closes.length - 1];
+        const range = hi - lo;
+        const pos = range > 0 ? ((last - lo) / range) * 100 : 50;
+        block += `\n\n${primary} last 48 H1 candles:\n` +
+                 `  48h high ${hi}  48h low ${lo}  last close ${last}\n` +
+                 `  Position in that range: ${pos.toFixed(0)}% (0% = at the low, 100% = at the high)`;
+    }
+
+    const st = run(['state']);
+    if (st) {
+        block += `\n\nAccount: NAV $${st.NAV}  day P/L ${st.day_pl} (${st.day_pl_pct}%)  ` +
+                 `open positions ${st.open_positions}  trades today ${st.trades_today}` +
+                 `${st.day_pl_halt_triggered ? '  [DAILY LOSS HALT ACTIVE]' : ''}`;
+    }
+    block += '\n\nGround every recommendation in the numbers above. If they contradict your default ' +
+             'assumptions, the numbers win.';
+    return block;
+}
+
+
+// ── Durable knowledge for the AI assistant ─────────────────────────────────
+// The scheduled agent reads the tradebot_sci database before it acts, so it
+// never recommends something already proven dead. The built-in assistant had
+// no access to that record, so it could cheerfully suggest a strategy family
+// that has already been measured and rejected. This closes that gap.
+function gatherKnowledgeContext(envData) {
+    const mysql = require('child_process');
+    const need = ['TRADEBOT_DB_HOST', 'TRADEBOT_DB_USER', 'TRADEBOT_DB_PASSWORD', 'TRADEBOT_DB_SCHEMA'];
+    if (!need.every(k => envData && envData[k])) {
+        return 'PRIOR RESEARCH: UNAVAILABLE (database credentials not configured).';
+    }
+    const q = (sql) => {
+        try {
+            return mysql.execFileSync('mysql',
+                ['-h', envData.TRADEBOT_DB_HOST, '-u', envData.TRADEBOT_DB_USER,
+                 `-p${envData.TRADEBOT_DB_PASSWORD}`, envData.TRADEBOT_DB_SCHEMA, '-N', '-B', '-e', sql],
+                { timeout: 15000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+        } catch (e) { return null; }
+    };
+    const verdict = q("SELECT v FROM run_state WHERE k='current_strategy_verdict';");
+    const bar = q("SELECT rule FROM policies WHERE name='edge-acceptance-bar';");
+    const noEdge = q("SELECT topic FROM facts WHERE topic LIKE 'strategy/no-edge%' ORDER BY topic;");
+    if (verdict === null && noEdge === null) {
+        return 'PRIOR RESEARCH: UNAVAILABLE (database unreachable).';
+    }
+    let out = 'PRIOR RESEARCH (from the tradebot_sci database — what has already been tested and rejected)\n';
+    if (verdict) out += 'Current verdict: ' + verdict.trim() + '\n';
+    if (bar) out += 'Acceptance bar: ' + bar.trim() + '\n';
+    if (noEdge) {
+        out += 'Families ALREADY tested and rejected — do NOT recommend these as if they were new:\n';
+        out += noEdge.split('\n').filter(Boolean).map(t => '  ' + t).join('\n') + '\n';
+    }
+    out += '\nIf a recommendation duplicates anything above, say so explicitly and propose something else.';
+    return out;
+}
+
     ipcMain.handle('ai-recommend', async (_event, profileName, goal = 'balanced') => {
         console.log(`[MAIN] AI Recommend requested for profile: ${profileName} with goal: ${goal}`);
         try {
@@ -1710,13 +1826,21 @@ function setupIpcHandlers() {
             const posLines = activePositions.map(p => `  ${p.symbol} ${p.side} ${p.size}@${p.entry} | PnL: $${(p.pnl || 0).toFixed(2)} | Strategy: ${p.strategy || '?'}`).join('\n');
             const winRate = recentPnl.trades > 0 ? ((recentPnl.wins / recentPnl.trades) * 100).toFixed(0) : 'N/A';
 
-            // 5. Build the comprehensive prompt
+            // 5. Read the market before advising on it.
+            const marketBlock = gatherMarketContext(symbols, envData);
+            const knowledgeBlock = gatherKnowledgeContext(envData);
+
+            // 6. Build the comprehensive prompt
             const prompt = `You are a trading bot configuration expert. A user has a profile called "${profileName}" with these symbols:
 
 ${symbols.join(', ')}
 
 Asset classes detected: ${[...assetClasses].join(', ')}
 Strategies configured: ${JSON.stringify(profile.strategies || {})}
+
+${knowledgeBlock}
+
+${marketBlock}
 
 ═══════════════════════════════════════════════════
 ACCOUNT CONTEXT (use this to calibrate risk, sizing, and strategy aggressiveness)

@@ -853,6 +853,27 @@ def run_bot(
         default_strategy=getattr(profile_settings, "strategy_variant", ""),
     )
     ledger.start()
+
+    # Sample memory so a slow leak names its own cause instead of being
+    # diagnosed after an OOM kill (see runtime/memory_watch.py).
+    try:
+        from tradebot_sci.runtime import memory_watch
+
+        def _ws_queue_stats():
+            # Resolved lazily: the controller is constructed further down this
+            # function, so it does not exist yet at this point.
+            c = globals().get("controller")
+            ws = getattr(c, "ws_server", None) if c is not None else None
+            if ws is not None:
+                try:
+                    return ws.queue_stats()
+                except Exception:
+                    pass
+            return {"depth": 0, "maxsize": 0, "dropped": 0}
+
+        memory_watch.start(queue_stats=_ws_queue_stats)
+    except Exception as _mw_err:
+        logger.warning(f"[MEMWATCH] not started: {_mw_err}")
     engines = {
         symbol: StrategyEngine(
             ai_client=ai_client,
@@ -1384,13 +1405,21 @@ def run_bot(
                     return
 
                 if enabled:
+                    # The GUI writes these keys in lowercase inside the profile or the
+                    # "ai" section; the uppercase spellings are kept as a fallback so
+                    # hand-edited configs keep working. Reading only the uppercase
+                    # spelling made these values constant, which left the
+                    # "Configuration changed!" branch below permanently dead.
                     autopilot_cfg = {
                         "AI_MONETARY_PATH": _prof.get("ai_monetary_path",
-                            _ai.get("AI_MONETARY_PATH", "balanced")),
+                            _ai.get("ai_monetary_path",
+                            _ai.get("AI_MONETARY_PATH", "balanced"))),
                         "AI_PERSONALITY": _prof.get("ai_personality",
-                            _ai.get("AI_PERSONALITY", "veteran")),
+                            _ai.get("ai_personality",
+                            _ai.get("AI_PERSONALITY", "veteran"))),
                         "AI_AUTOPILOT_INTERVAL_MINS": _prof.get("ai_autopilot_interval_mins",
-                            _ai.get("AI_AUTOPILOT_INTERVAL_MINS", 30)),
+                            _ai.get("ai_autopilot_interval_mins",
+                            _ai.get("AI_AUTOPILOT_INTERVAL_MINS", 30))),
                     }
                     
                     if seasoned_daemon and seasoned_daemon.running:
@@ -1514,7 +1543,6 @@ def run_bot(
                 if config_path.exists():
                     current_mtime = config_path.stat().st_mtime
                     if current_mtime > last_config_mtime:
-                        last_config_mtime = current_mtime
                         logger.info("[HOT-RELOAD] Detected configuration change. Reloading...")
                         controller.health_monitor.add_event("Config hot-reloaded", "info")
                         
@@ -1522,6 +1550,13 @@ def run_bot(
                         
                         # 1. Reload Settings
                         settings = reload_settings()
+
+                        # Mark this revision as handled only once the reload succeeded.
+                        # Advancing the mtime before the attempt swallows a malformed
+                        # config forever: the operator's saved change would never be
+                        # retried and the previous settings would keep trading. Leaving
+                        # the stamp behind keeps the retry on the normal loop cadence.
+                        last_config_mtime = current_mtime
                         
                         # Fetch pure UI variables that aren't in Pydantic models
                         _update_paper_settings()
@@ -1535,6 +1570,15 @@ def run_bot(
                                 eval_state_path.unlink(missing_ok=True)
                             except:
                                 pass
+
+                        # Refresh the Live Trading master toggle BEFORE the autopilot
+                        # check: the daemon guard reads this variable, so refreshing it
+                        # afterwards left the guard testing the previous cycle's value
+                        # (daemon kept running when live trading was switched OFF, never
+                        # started when switched ON).
+                        old_execute = execute_trades
+                        execute_trades = settings.runtime.execute_trades
+                        execute_trades_changed = execute_trades != old_execute
 
                         # Check Autopilot toggle on hot-reload
                         _maybe_start_seasoned_daemon()
@@ -1579,10 +1623,9 @@ def run_bot(
                         
                         logger.info(f"[HOT-RELOAD] Environment Synced: {synced_count} safety/performance keys + {len(profile_env_keys)} profile keys")
 
-                        # 2b. Re-read Execute Trades toggle (master ON/OFF)
-                        old_execute = execute_trades
-                        execute_trades = settings.runtime.execute_trades
-                        if execute_trades != old_execute:
+                        # 2b. Execute Trades toggle (master ON/OFF) — the new value was
+                        # read above, before the autopilot check; react to the change here.
+                        if execute_trades_changed:
                             logger.info(
                                 "[HOT-RELOAD] 🔄 EXECUTE_TRADES changed: %s → %s",
                                 old_execute, execute_trades,
@@ -1987,6 +2030,25 @@ def run_bot(
                             _next += timedelta(days=1)
                         logger.info("[REPLAY] Day complete! Chaining to next day: %s (%s)",
                                     _next.strftime('%Y-%m-%d'), _next.strftime('%A'))
+                        # What this replay day was actually worth as forward-test
+                        # evidence: candles revealed, completed decision cycles,
+                        # symbol evaluations, and how many of those the strategy
+                        # judged to be inside its own entry hour. Printed here
+                        # rather than inferred from the decision log, which is
+                        # throttled per symbol and cannot report it.
+                        try:
+                            _tp = replay_provider.throughput()
+                            logger.info(
+                                "[REPLAY] Day %s throughput: candles=%d cursor_moves=%d "
+                                "cycles=%d symbol_evaluations=%d inside_entry_hour=%d "
+                                "strategy_never_reported=%d",
+                                (replay_provider.original_replay_date or _prev_day).strftime('%Y-%m-%d'),
+                                _tp["candles"], _tp["cursor_moves"], _tp["cycles"],
+                                _tp["symbol_evaluations"], _tp["in_window_evaluations"],
+                                _tp["undeclared_evaluations"],
+                            )
+                        except Exception as _e:
+                            logger.debug("[REPLAY] Throughput report failed: %s", _e)
                         try:
                             # ── Carry open positions into next day ──
                             # Force-closing at day boundaries produced negative PnL
@@ -2125,6 +2187,21 @@ def run_bot(
                     candidates,
                     stop_after_submit=False,
                 )
+                # Replay throughput: one completed cycle over these symbols on
+                # this candle. The count is of decisions taken, not of candles
+                # the cursor passed, which is the difference the cursor/cycle
+                # pacing question turns on.
+                if replay_provider is not None and candidates:
+                    _in_window = 0
+                    _undeclared = 0
+                    for _cand in candidates:
+                        # A candidate is (symbol, snapshot, score, reason)
+                        _flag = getattr(engines.get(_cand[0]), "last_strat_in_window", None)
+                        if _flag is True:
+                            _in_window += 1
+                        elif _flag is None:
+                            _undeclared += 1
+                    replay_provider.note_cycle(len(candidates), _in_window, _undeclared)
                 if success_symbol:
                     logger.info(
                         "[CYCLE] success=%s attempts=%s blocked=%s skipped=%s",
@@ -2136,7 +2213,7 @@ def run_bot(
                     # Record entry in replay throttle
                     if replay_provider is not None:
                         replay_provider.record_entry()
-                
+
                 # AI Commentary: Update the UI with market insights
                 try:
                     # Identify active strategy for context

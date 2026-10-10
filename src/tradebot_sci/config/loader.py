@@ -59,6 +59,19 @@ logger = logging.getLogger(__name__)
 
 _LOGGED_MESSAGES = set()
 
+# Profile objects are identity/selection only. Operational settings live in
+# canonical top-level sections (risk, safety, performance, runtime).  The
+# loader rejects any operational keys that appear inside a profile block.
+# Module level so writers that create or patch profiles can enforce exactly
+# the same whitelist as the loader instead of keeping a second copy in sync.
+_REAL_PROFILE_KEYS = {
+    "name", "strategy_variant", "strategies", "symbols",
+    "candle_timeframe", "htf_timeframe", "mtf_timeframe", "ltf_timeframe", "xtf_timeframe",
+    "risk_dynamic_auto",
+    # Profile-level behavioral flags (set by GUI profile editor)
+    "continuous_mode",
+}
+
 # Exit-tuning keys that the settings GUI writes to the top-level `global` block
 # but the exit router reads from the profile object. They must be promoted into
 # the profile or the model defaults are used instead and the UI values are inert.
@@ -258,17 +271,6 @@ def _load_from_json(config: Dict[str, Any]) -> Settings:
         runtime_cfg["execute_trades"] = config.get("global", {})["execute_trades"]
     risk_model_cfg = config.get("risk", {})
     schedule_cfg = config.get("schedule", {})
-
-    # Profile objects are identity/selection only. Operational settings live in
-    # canonical top-level sections (risk, safety, performance, runtime).  The
-    # loader rejects any operational keys that appear inside a profile block.
-    _REAL_PROFILE_KEYS = {
-        "name", "strategy_variant", "strategies", "symbols",
-        "candle_timeframe", "htf_timeframe", "mtf_timeframe", "ltf_timeframe", "xtf_timeframe",
-        "risk_dynamic_auto",
-        # Profile-level behavioral flags (set by GUI profile editor)
-        "continuous_mode",
-    }
 
     profiles = {}
     for name, p_data in config.get("profiles", {}).items():

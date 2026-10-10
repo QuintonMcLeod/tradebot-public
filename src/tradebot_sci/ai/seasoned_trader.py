@@ -148,22 +148,23 @@ SENTINEL_TOOLTIP_REFERENCE = {
 }
 
 # ── Profile-specific tooltips (for AI understanding of profile fields) ──
+# Every key advertised here must be inside config/loader.py's profile
+# whitelist. Nested keys under "strategies" are the one exception: the loader
+# merges that sub-dict as a whole. Advertising a key outside the whitelist
+# invites the AI to write a profile that the loader then rejects fatally.
 SENTINEL_PROFILE_REFERENCE = {
     "strategy_variant": "Default trading algorithm for this profile.",
     "htf_timeframe": "Higher timeframe — big-picture market direction chart.",
     "ltf_timeframe": "Lower timeframe — zoomed-in entry timing chart.",
     "symbols": "List of ticker symbols this profile actively monitors and trades.",
-    "session_gate_enabled": "Only trade during active market hours.",
     "continuous_mode": "Run 24/7 without session breaks.",
-    "crypto_only": "Restrict to cryptocurrency symbols only.",
+    "risk_dynamic_auto": "Size each trade from live market conditions instead of a fixed percentage.",
     "strategies.crypto": "Strategy override for crypto trades.",
     "strategies.forex": "Strategy override for forex trades.",
     "strategies.stocks": "Strategy override for stock trades.",
     "strategies.etf": "Strategy override for ETF trades.",
     "strategies.metals": "Strategy override for metals trades.",
     "strategies.futures": "Strategy override for futures trades.",
-    "winner_giveback_enabled": "Enable MFE-based Winner Giveback protection.",
-    "winner_giveback_pct": "Percentage of MFE profit surrender allowed (0.10 to 0.90).",
 }
 
 
@@ -224,15 +225,31 @@ class SeasonedTraderDaemon:
             logger.error(f"[Sentinel] Failed to read profiles: {e}")
             return {}
 
-    def _write_profiles(self, profiles: dict):
-        """Write profiles back to settings_profiles.yaml."""
+    def _write_profiles(self, profiles: dict) -> bool:
+        """Write profiles back to settings_profiles.yaml atomically.
+
+        Same temp-file-plus-replace discipline as _write_config: a failed
+        dump must not leave a half-written YAML behind.
+        """
         path = self._get_profiles_path()
+        tmp_file = path.with_name(path.name + ".tmp")
         try:
-            with open(path, 'w') as f:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(tmp_file, 'w', encoding="utf-8") as f:
                 yaml.dump({"profiles": profiles}, f, default_flow_style=False, width=1000)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_file, path)
             logger.info(f"[Sentinel] Profiles YAML saved to {path}")
+            return True
         except Exception as e:
             logger.error(f"[Sentinel] Failed to write profiles: {e}")
+            try:
+                if tmp_file.exists():
+                    tmp_file.unlink()
+            except Exception:
+                pass
+            return False
 
     # ── HARD BLOCKLIST: Keys the AI must NEVER modify ──────────────────
     # These are architecturally load-bearing settings that break the
@@ -244,30 +261,69 @@ class SeasonedTraderDaemon:
         "execute_trades", # [SAFETY] AI must NEVER toggle live trading
     }
 
+    def _allowed_profile_keys(self) -> set:
+        """The loader's profile whitelist.
+
+        Imported lazily from the loader rather than duplicated here so the two
+        cannot drift apart. Imported at call time because the loader pulls in
+        the full settings model graph at import time.
+        """
+        from tradebot_sci.config.loader import _REAL_PROFILE_KEYS
+        return _REAL_PROFILE_KEYS
+
+    def _screen_profile_updates(self, name: str, updates: dict) -> dict:
+        """Return only the profile keys an AI-supplied payload is allowed to set.
+
+        Applied to create as well as modify. A profile holding any key outside
+        the loader's whitelist makes load_settings() raise a fatal error, which
+        stops the bot from starting until a human edits config.json by hand.
+        """
+        allowed = self._allowed_profile_keys()
+        screened = {}
+        for key, val in (updates or {}).items():
+            if not isinstance(key, str):
+                logger.warning(f"[Sentinel] BLOCKED: non-string profile key {key!r} on profile '{name}'.")
+                continue
+            if key in self._PROFILE_MODIFY_BLOCKLIST:
+                logger.warning(f"[Sentinel] BLOCKED: AI attempted to modify '{key}' on profile '{name}' — this key is architecturally protected.")
+                continue
+            if key not in allowed:
+                logger.warning(
+                    f"[Sentinel] BLOCKED: '{key}' is not a valid profile key on profile '{name}'. "
+                    f"Allowed keys are: {sorted(allowed)}."
+                )
+                continue
+            screened[key] = val
+        return screened
+
     def _modify_profile(self, name: str, updates: dict):
         """Patch fields on an existing profile in config.json (authoritative source)."""
-        config = self._read_config()
+        config = self._read_config_for_write()
+        if config is None:
+            logger.error(f"[Sentinel] Aborting modification of profile '{name}': config.json is unreadable.")
+            return False
         profiles = config.get("profiles", {})
         if name not in profiles or not isinstance(profiles[name], dict):
             logger.warning(f"[Sentinel] Cannot modify profile '{name}' — not found in config.json.")
             return False
-        # Strip blocked keys before applying
-        blocked_keys = [k for k in updates if k in self._PROFILE_MODIFY_BLOCKLIST]
-        for bk in blocked_keys:
-            logger.warning(f"[Sentinel] BLOCKED: AI attempted to modify '{bk}' on profile '{name}' — this key is architecturally protected.")
-            del updates[bk]
+        # Strip blocked and non-whitelisted keys before applying
+        updates = self._screen_profile_updates(name, updates)
         if not updates:
             logger.info(f"[Sentinel] All requested profile modifications for '{name}' were blocked.")
             return False
+        profiles[name] = dict(profiles[name])
         for key, val in updates.items():
             if key == "strategies" and isinstance(val, dict):
-                if "strategies" not in profiles[name]:
-                    profiles[name]["strategies"] = {}
-                profiles[name]["strategies"].update(val)
+                existing = profiles[name].get("strategies")
+                merged = dict(existing) if isinstance(existing, dict) else {}
+                merged.update(val)
+                profiles[name]["strategies"] = merged
             else:
                 profiles[name][key] = val
         config["profiles"] = profiles
-        self._write_config(config)
+        if not self._write_config(config):
+            logger.error(f"[Sentinel] Failed to write profile '{name}' to config.json.")
+            return False
         # Mirror to YAML for backwards compatibility
         try:
             yaml_profiles = self._read_profiles()
@@ -282,24 +338,30 @@ class SeasonedTraderDaemon:
 
     def _create_profile(self, name: str, new_config: dict):
         """Create a new profile entry in config.json (authoritative source)."""
-        config = self._read_config()
+        config = self._read_config_for_write()
+        if config is None:
+            logger.error(f"[Sentinel] Aborting creation of profile '{name}': config.json is unreadable.")
+            return False
         profiles = config.get("profiles", {})
         if name in profiles:
             logger.warning(f"[Sentinel] Profile '{name}' already exists in config.json — skipping create.")
             return False
-        # Merge with sensible defaults
+        # Merge with sensible defaults. Every key here is inside the loader's
+        # profile whitelist — a default outside it would make load_settings()
+        # reject the whole config.
         defaults = {
             "strategy_variant": "meta_sci",
             "htf_timeframe": "1h",
             "ltf_timeframe": "5m",
             "symbols": [],
-            "session_gate_enabled": True,
             "strategies": {},
         }
-        defaults.update(new_config)
+        defaults.update(self._screen_profile_updates(name, new_config))
         profiles[name] = defaults
         config["profiles"] = profiles
-        self._write_config(config)
+        if not self._write_config(config):
+            logger.error(f"[Sentinel] Failed to write profile '{name}' to config.json.")
+            return False
         # Mirror to YAML for backwards compatibility
         try:
             yaml_profiles = self._read_profiles()
@@ -314,42 +376,112 @@ class SeasonedTraderDaemon:
     # ── Config I/O (for schedule management) ────────────────────────────────
 
     def _read_config(self) -> dict:
-        """Read config.json."""
+        """Read config.json for read-only consumers.
+
+        Degrades to an empty mapping when the file is missing or unreadable,
+        which is safe for callers that only build a status report.
+        Read-modify-write cycles must use _read_config_for_write() instead.
+        """
+        data = self._read_config_for_write()
+        return {} if data is None else data
+
+    def _read_config_for_write(self):
+        """Read config.json for a read-modify-write cycle.
+
+        Returns an empty dict when the file does not exist — creating it is
+        then the correct outcome. Returns None when the file exists but could
+        not be parsed or does not contain a JSON object.
+
+        Callers MUST abort the mutation on None. Falling back to an empty
+        dict here would let a transient parse failure replace the whole file
+        with a stub containing only the adjusted section, destroying
+        everything the mutation did not touch (API keys, brokers, profiles,
+        schedule).
+        """
         if not CONFIG_FILE.exists():
             return {}
         try:
-            with open(CONFIG_FILE, 'r') as f:
-                return json.load(f)
+            with open(CONFIG_FILE, 'r', encoding="utf-8") as f:
+                data = json.load(f)
         except Exception as e:
-            logger.error(f"[Sentinel] Failed to read config: {e}")
-            return {}
+            logger.error(
+                f"[Sentinel] Refusing to modify config: {CONFIG_FILE} could not be parsed ({e}). "
+                "No changes were written."
+            )
+            return None
+        if not isinstance(data, dict):
+            logger.error(
+                f"[Sentinel] Refusing to modify config: {CONFIG_FILE} does not contain a JSON object "
+                f"(found {type(data).__name__}). No changes were written."
+            )
+            return None
+        return data
 
-    def _write_config(self, config: dict):
-        """Write config.json."""
+    def _write_config(self, config: dict) -> bool:
+        """Write config.json atomically. Returns True when the write succeeded.
+
+        The new content goes to a temporary file in the same directory and is
+        then moved over the target with os.replace, so a serialisation or I/O
+        failure leaves the previous config untouched instead of a truncated
+        file. Opening the real path with 'w' truncates it before json.dump
+        runs, which is exactly the failure this avoids.
+        """
+        if not isinstance(config, dict):
+            logger.error(
+                f"[Sentinel] Refusing to write config: expected a dict, got {type(config).__name__}."
+            )
+            return False
+        tmp_file = CONFIG_FILE.with_name(CONFIG_FILE.name + ".tmp")
         try:
-            with open(CONFIG_FILE, 'w') as f:
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(tmp_file, 'w', encoding="utf-8") as f:
                 json.dump(config, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_file, CONFIG_FILE)
             logger.info("[Sentinel] config.json saved.")
+            return True
         except Exception as e:
             logger.error(f"[Sentinel] Failed to write config: {e}")
+            try:
+                if tmp_file.exists():
+                    tmp_file.unlink()
+            except Exception:
+                pass
+            return False
 
     # ── Sabbath Awareness ───────────────────────────────────────────────────
 
     def _get_sabbath_status(self, config: dict) -> dict:
         """Evaluate current Sabbath state from config."""
         try:
-            # Build a minimal profile-like object for SabbathContext
-            sabbath_cfg = config.get("schedule", {})
-            global_cfg = config.get("global", {})
+            # Sabbath settings live in the `safety` section of config.json;
+            # `schedule` and `global` are only legacy fallbacks. Reading the
+            # wrong section made every caller see sabbath_active=False while
+            # the trading loop was actually observing Sabbath.
+            def _section(name: str) -> dict:
+                value = config.get(name, {})
+                return value if isinstance(value, dict) else {}
 
+            safety_cfg = _section("safety")
+            schedule_cfg = _section("schedule")
+            global_cfg = _section("global")
+
+            def _lookup(key: str, default):
+                for source in (safety_cfg, schedule_cfg, global_cfg):
+                    if key in source:
+                        return source[key]
+                return default
+
+            # Build a minimal profile-like object for SabbathContext
             class _SabbathProfile:
-                sabbath_enabled = sabbath_cfg.get("sabbath_enabled", global_cfg.get("sabbath_enabled", False))
-                sabbath_astronomical = sabbath_cfg.get("sabbath_astronomical", global_cfg.get("sabbath_astronomical", False))
-                sabbath_timezone = sabbath_cfg.get("sabbath_timezone", global_cfg.get("sabbath_timezone", "America/New_York"))
-                sabbath_start_local = sabbath_cfg.get("sabbath_start_local", global_cfg.get("sabbath_start_local", "18:00"))
-                sabbath_end_local = sabbath_cfg.get("sabbath_end_local", global_cfg.get("sabbath_end_local", "18:00"))
-                sabbath_lat = sabbath_cfg.get("sabbath_lat", global_cfg.get("sabbath_lat", None))
-                sabbath_lon = sabbath_cfg.get("sabbath_lon", global_cfg.get("sabbath_lon", None))
+                sabbath_enabled = _lookup("sabbath_enabled", False)
+                sabbath_astronomical = _lookup("sabbath_astronomical", False)
+                sabbath_timezone = _lookup("sabbath_timezone", "America/New_York")
+                sabbath_start_local = _lookup("sabbath_start_local", "18:00")
+                sabbath_end_local = _lookup("sabbath_end_local", "18:00")
+                sabbath_lat = _lookup("sabbath_lat", None)
+                sabbath_lon = _lookup("sabbath_lon", None)
 
             from datetime import timezone
             ctx = SabbathContext(_SabbathProfile())
@@ -434,6 +566,78 @@ class SeasonedTraderDaemon:
 
     # ── System State Payload Builder ────────────────────────────────────────
 
+    @staticmethod
+    def _ledger_trade_entries(ldata) -> list:
+        """Flatten a ledger file into a list of closed-trade dicts.
+
+        The SCI 2.0 ledger keeps trades under days[].trade_log, with the day in
+        progress under current_day.trade_log. Reading a top-level "trades" or
+        "history" key (neither of which exists in that schema) always yielded an
+        empty list, so the prompt reported "0 Wins / 0 Losses | Net PnL: $0.00"
+        no matter what the bot had actually done. Top-level list/trades/history
+        shapes are still accepted for older ledgers.
+        """
+        if isinstance(ldata, list):
+            return [t for t in ldata if isinstance(t, dict)]
+        if not isinstance(ldata, dict):
+            return []
+
+        entries = []
+        days = ldata.get("days")
+        for day in [ldata.get("current_day")] + (list(days) if isinstance(days, list) else []):
+            if not isinstance(day, dict):
+                continue
+            trade_log = day.get("trade_log")
+            if isinstance(trade_log, list):
+                entries.extend(t for t in trade_log if isinstance(t, dict))
+        if entries:
+            return entries
+
+        for legacy_key in ("trades", "history", "closed_trades"):
+            legacy = ldata.get(legacy_key)
+            if isinstance(legacy, list):
+                return [t for t in legacy if isinstance(t, dict)]
+        return entries
+
+    def _summarise_24h_performance(self, ledger_file) -> tuple:
+        """Return (wins, losses, net_pnl) over trades closed in the last 24h.
+
+        Never raises: a missing, empty or malformed ledger reports a flat zero,
+        and a bad timestamp or PnL skips only the entry it belongs to.
+        """
+        try:
+            if not ledger_file.exists():
+                return 0, 0, 0.0
+            with open(ledger_file, 'r', encoding="utf-8") as f:
+                ldata = json.load(f)
+        except Exception as e:
+            logger.warning(f"[Sentinel] Failed to read ledger {ledger_file}: {e}")
+            return 0, 0, 0.0
+
+        wins, losses, pnl_24h = 0, 0, 0.0
+        for trade in self._ledger_trade_entries(ldata):
+            stamp = trade.get("closed_at") or trade.get("exit_time") or trade.get("time")
+            if not stamp:
+                continue
+            try:
+                closed_at = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                continue
+            # Compare like with like: a tz-aware timestamp needs a tz-aware "now".
+            reference = datetime.now(closed_at.tzinfo) if closed_at.tzinfo else datetime.now()
+            if reference - closed_at > timedelta(hours=24):
+                continue
+            try:
+                pnl = float(trade.get("pnl", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            pnl_24h += pnl
+            if pnl > 0:
+                wins += 1
+            else:
+                losses += 1
+        return wins, losses, pnl_24h
+
     def _build_system_state_payload(self) -> str:
         """Aggregates all bot state, profiles, Sabbath, schedule, and tooltips into one context block."""
         from tradebot_sci.paths import DATA_DIR
@@ -477,34 +681,24 @@ class SeasonedTraderDaemon:
         if current_capital is None:
             current_capital = 0.0
 
-        history = []
-        if ledger_file.exists():
-            try:
-                with open(ledger_file, 'r') as f:
-                    ldata = json.load(f)
-                if isinstance(ldata, dict):
-                    history = ldata.get("trades", ldata.get("history", []))
-                elif isinstance(ldata, list):
-                    history = ldata
-            except Exception: pass
-
         now = datetime.now()
-        wins, losses, pnl_24h = 0, 0, 0.0
-        for trade in history:
-            exit_time_str = trade.get("exit_time")
-            if exit_time_str:
-                try:
-                    exit_time = datetime.fromisoformat(exit_time_str)
-                    if now - exit_time <= timedelta(hours=24):
-                        pnl = float(trade.get("pnl", 0))
-                        pnl_24h += pnl
-                        if pnl > 0: wins += 1
-                        else: losses += 1
-                except ValueError:
-                    continue
-        
-        prop_tier = getattr(prof_settings, "prop_challenge_tier_usd", 0.0)
-        prop_max_loss = getattr(prof_settings, "prop_challenge_max_loss_pct", 0.0)
+        wins, losses, pnl_24h = self._summarise_24h_performance(ledger_file)
+
+        # Prop-firm evaluation parameters live in the `risk` section; the
+        # active profile is a plain dict, so reading them off it always
+        # produced 0.0 and made the prop-firm branch unreachable.
+        risk_cfg = config.get("risk", {})
+        if not isinstance(risk_cfg, dict):
+            risk_cfg = {}
+
+        def _float_or_zero(value) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+
+        prop_tier = _float_or_zero(risk_cfg.get("prop_challenge_tier_usd", 0.0))
+        prop_max_loss = _float_or_zero(risk_cfg.get("prop_challenge_max_loss_pct", 0.0))
         
         if trading_mode == "PAPER TRADING" and prop_tier > 0:
             target = 8.0  # Generic default target, prop-specific if available
@@ -543,16 +737,32 @@ class SeasonedTraderDaemon:
         ]
 
         # ── Broker / Exchange Availability ──
-        broker_cfg = config.get("broker", {})
+        # Credentials live in the `brokers` section, one nested sub-dict per
+        # venue (brokers.oanda.environment). `broker` is not a key anything
+        # writes, so reading it always fell through to the assumed default.
+        broker_cfg = config.get("brokers", {})
+        if not isinstance(broker_cfg, dict):
+            broker_cfg = {}
+
+        def _broker_section(name: str) -> dict:
+            value = broker_cfg.get(name, {})
+            return value if isinstance(value, dict) else {}
+
+        oanda_cfg = _broker_section("oanda")
+        ibkr_cfg = _broker_section("ibkr")
+        ccxt_cfg = _broker_section("ccxt")
+        gemini_cfg = _broker_section("gemini")
+
         available_exchanges = []
-        if broker_cfg.get("oanda_account_id") or broker_cfg.get("oanda_environment"):
+        if oanda_cfg.get("account_id") or oanda_cfg.get("environment") or broker_cfg.get("oanda_account_id"):
             available_exchanges.append("OANDA (Forex/Metals/Indices)")
-        if broker_cfg.get("ibkr_host") or broker_cfg.get("ibkr_port"):
+        if ibkr_cfg.get("host") or ibkr_cfg.get("port") or broker_cfg.get("ibkr_host") or broker_cfg.get("ibkr_port"):
             available_exchanges.append("IBKR (Stocks/ETFs/Futures/Options)")
-        if broker_cfg.get("coinbase_api_key"):
+        if broker_cfg.get("coinbase_api_key") or gemini_cfg.get("api_key"):
             available_exchanges.append("Coinbase (Crypto)")
-        if broker_cfg.get("ccxt_exchange"):
-            available_exchanges.append(f"CCXT:{broker_cfg['ccxt_exchange']} (Crypto)")
+        ccxt_exchange = ccxt_cfg.get("exchange") or broker_cfg.get("ccxt_exchange")
+        if ccxt_exchange:
+            available_exchanges.append(f"CCXT:{ccxt_exchange} (Crypto)")
 
         # Check secrets file for credentials too (ONLY read key names, never values)
         try:
@@ -707,7 +917,10 @@ class SeasonedTraderDaemon:
             return "\n".join(lines)
 
         # ── Open Positions ──
-        positions = self._read_open_positions()
+        execute_trades = config.get("global", {}).get(
+            "execute_trades", config.get("runtime", {}).get("execute_trades", False)
+        )
+        positions = self._read_open_positions(execute_trades)
         if positions:
             lines.append("\n--- OPEN POSITIONS ---")
             for pos in positions:
@@ -849,7 +1062,14 @@ class SeasonedTraderDaemon:
                                 elif k == "OANDA_API_KEY" and not api_key:
                                     api_key = v
 
-            environment = config.get("broker", {}).get("oanda_environment",
+            # The venue settings live under brokers.oanda. Reading the
+            # non-existent `broker` key left this empty, and the account-ID
+            # prefix guess below then handed a live account whose ID does not
+            # start with "001-" a practice data provider.
+            oanda_cfg = config.get("brokers", {}).get("oanda", {}) if isinstance(config.get("brokers"), dict) else {}
+            if not isinstance(oanda_cfg, dict):
+                oanda_cfg = {}
+            environment = oanda_cfg.get("environment",
                                     config.get("global", {}).get("oanda_environment", ""))
             # Auto-detect environment from account ID if not set
             if not environment:
@@ -869,26 +1089,78 @@ class SeasonedTraderDaemon:
             logger.warning(f"[Sentinel] Failed to create market data provider: {e}")
             return None
 
-    def _read_open_positions(self) -> list:
-        """Read current open positions from paper_state.json or broker."""
+    def _read_open_positions(self, execute_trades=None) -> list:
+        """Read current open positions from the live or paper state store.
+
+        The source has to follow execute_trades, exactly like the capital read
+        in _build_system_state_payload: in live mode the paper store holds
+        stale simulations and handing them to the model misrepresents the
+        account. Prefers the controller's executor snapshot when one is
+        available, since that is the state the trading loop is acting on.
+        """
+        if execute_trades is None:
+            config = self._read_config()
+            execute_trades = config.get("global", {}).get(
+                "execute_trades", config.get("runtime", {}).get("execute_trades", False)
+            )
+
+        snapshot_positions = self._read_controller_positions()
+        if execute_trades and snapshot_positions is not None:
+            return snapshot_positions
+
         positions = []
-        paper_file = DATA_DIR / "paper_state.json"
-        if paper_file.exists():
+        state_file = DATA_DIR / ("state.json" if execute_trades else "paper_state.json")
+        if state_file.exists():
             try:
-                with open(paper_file, 'r') as f:
+                with open(state_file, 'r', encoding="utf-8") as f:
                     state = json.load(f)
-                raw_positions = state.get("positions", {})
+                raw_positions = state.get("positions", {}) if isinstance(state, dict) else {}
                 if isinstance(raw_positions, dict):
-                    # paper_state stores positions as {symbol: {...}}
+                    # state stores positions as {symbol: {...}}
                     for sym, pos_data in raw_positions.items():
                         if isinstance(pos_data, dict):
+                            pos_data = dict(pos_data)
                             pos_data["symbol"] = sym
                             positions.append(pos_data)
                 elif isinstance(raw_positions, list):
-                    positions = raw_positions
+                    positions = [p for p in raw_positions if isinstance(p, dict)]
             except Exception as e:
-                logger.warning(f"[Sentinel] Failed to read positions: {e}")
+                logger.warning(f"[Sentinel] Failed to read positions from {state_file}: {e}")
         return positions
+
+    def _read_controller_positions(self):
+        """Snapshot open positions from the controller's executors, or None.
+
+        Returns None when no executor is reachable so the caller can fall back
+        to the state file rather than reporting an empty book.
+        """
+        if self.controller is None:
+            return None
+        snapshots = []
+        for attr in ("executor_real", "executor", "paper_executor"):
+            executor = getattr(self.controller, attr, None)
+            if executor is None or not hasattr(executor, "get_open_position_snapshot"):
+                continue
+            try:
+                symbols = []
+                if hasattr(executor, "list_open_position_symbols"):
+                    symbols = list(executor.list_open_position_symbols() or [])
+                if not symbols:
+                    holdings = getattr(executor, "positions", None)
+                    if isinstance(holdings, dict):
+                        symbols = list(holdings.keys())
+                for sym in symbols:
+                    snap = executor.get_open_position_snapshot(sym)
+                    if isinstance(snap, dict):
+                        snap = dict(snap)
+                        snap.setdefault("symbol", sym)
+                        if not snap.get("is_dust", False):
+                            snapshots.append(snap)
+                return snapshots
+            except Exception as e:
+                logger.warning(f"[Sentinel] Failed to snapshot positions from {attr}: {e}")
+                return None
+        return None
 
     def _build_analytics_payload(self) -> str:
         """
@@ -1064,21 +1336,307 @@ class SeasonedTraderDaemon:
 
         return "\n".join(lines)
 
+    # ── SETTINGS ADJUSTMENT GUARD ───────────────────────────────────────────
+    # Keys the AI must never write, whatever section they map to.
+    # NUCLEAR_OVERRIDES_ENABLED together with MAX_RISK_CAP_OVERRIDE is the
+    # dangerous pair: strategy/safety_guard.py raises the per-trade risk cap to
+    # whatever MAX_RISK_CAP_OVERRIDE says once Nuclear Mode is on, so both keys
+    # being writable puts 100% of the account on a single trade.
+    _SETTINGS_HARD_DENYLIST = {
+        "nuclear_overrides_enabled",
+        "max_risk_cap_override",
+        "execute_trades",
+    }
+    # Sections whose *_enabled toggles turn a safety mechanism off.
+    _SAFETY_GATED_SECTIONS = {"safety", "risk"}
+
+    def _settings_section_classes(self) -> list:
+        """(model class, config section) pairs used to map and validate keys."""
+        from tradebot_sci.config.models import (
+            Settings, RiskSettings, SafetySettings,
+            PerformanceSettings, TradingProfileSettings,
+            RuntimeSettings, AppSettings
+        )
+        # Ordered most general to most specific so that a field name appearing
+        # in more than one model resolves to the most specific section.
+        return [
+            (Settings, "global"),
+            (TradingProfileSettings, "global"),
+            (AppSettings, "global"),
+            (RuntimeSettings, "runtime"),
+            (PerformanceSettings, "performance"),
+            (SafetySettings, "safety"),
+            (RiskSettings, "risk"),
+        ]
+
+    def _build_settings_section_map(self) -> dict:
+        """Map UPPER_CASE setting name -> (section, field_name, model class)."""
+        section_map = {}
+        for cls, section_name in self._settings_section_classes():
+            for field_name in cls.model_fields.keys():
+                section_map[field_name.upper()] = (section_name, field_name, cls)
+        return section_map
+
+    @classmethod
+    def _settings_key_denied_reason(cls, section: str, field: str):
+        """Return why this section/field pair may not be written, or None."""
+        if field in cls._SETTINGS_HARD_DENYLIST:
+            return "this key is safety-critical and may never be changed by the AI"
+        if field.startswith("safety_"):
+            return "safety_* keys are safety-critical and may never be changed by the AI"
+        if field.endswith("_enabled") and section in cls._SAFETY_GATED_SECTIONS:
+            return (
+                f"'{field}' is an enable/disable flag in the {section} section "
+                "and may never be changed by the AI"
+            )
+        return None
+
+    @staticmethod
+    def _coerce_adjustment_value(val):
+        """Coerce an AI-supplied scalar to bool/number, leaving anything else alone."""
+        if isinstance(val, str):
+            if val.lower() in ("true", "false"):
+                return val.lower() == "true"
+            try:
+                number = float(val)
+            except ValueError:
+                return val
+            return int(number) if number == int(number) else number
+        return val
+
+    def _screen_settings_adjustments(self, adjustments: dict) -> tuple:
+        """Map, screen and type-coerce AI-supplied settings keys.
+
+        Returns (candidates, rejected) where candidates maps the UPPER_CASE key
+        to (section, field, model class, coerced value) and rejected is a list of
+        {"key", "reason"} for everything refused.
+        """
+        section_map = self._build_settings_section_map()
+        candidates = {}
+        rejected = []
+        for key, val in adjustments.items():
+            if not isinstance(key, str) or not key.strip():
+                rejected.append({"key": str(key), "reason": "setting name must be a non-empty string"})
+                continue
+            # Look the key up case-insensitively: the map is keyed by the model's
+            # upper-cased field name, and a lowercase key was previously dropped.
+            lookup = key.strip().upper()
+            mapping = section_map.get(lookup)
+            if mapping is None:
+                logger.warning(f"[Sentinel] No config mapping for key '{key}' — skipping.")
+                rejected.append({"key": key, "reason": "no such setting"})
+                continue
+            section, field, cls = mapping
+            denied = self._settings_key_denied_reason(section, field)
+            if denied:
+                logger.warning(f"[Sentinel] REFUSED: AI attempted to change '{key}' — {denied}.")
+                rejected.append({"key": key, "reason": denied})
+                continue
+            candidates[lookup] = (section, field, cls, self._coerce_adjustment_value(val))
+        return candidates, rejected
+
+    def _build_candidate_models(self, candidates: dict, config: dict = None) -> tuple:
+        """Construct the Pydantic section models for a proposed change set.
+
+        Returns (models, reason). models maps the section model class to the
+        instance built from the proposal, and reason names the first failure.
+        Construction is what enforces the declared field bounds (for example
+        RiskSettings.risk_per_trade_pct is Ge(0.0) Le(1.0)), so a value outside
+        its bounds surfaces here as a ValidationError rather than in the config.
+        """
+        by_class = {}
+        for section, field, cls, value in candidates.values():
+            by_class.setdefault(cls, {})[field] = value
+        # Existing values are folded in as the base so cross-field invariants
+        # are checked against the real configuration. If the stored section
+        # itself cannot be constructed, the proposal is validated on its own —
+        # the proposed values are checked against the model either way.
+        stored_by_class = {}
+        if isinstance(config, dict):
+            for section, _field, cls, _value in candidates.values():
+                section_data = config.get(section)
+                if not isinstance(section_data, dict):
+                    continue
+                stored_by_class.setdefault(cls, {}).update(
+                    {k: v for k, v in section_data.items() if k in cls.model_fields}
+                )
+        models = {}
+        reason = None
+        for cls, fields in by_class.items():
+            merged = dict(stored_by_class.get(cls, {}))
+            merged.update(fields)
+            try:
+                models[cls] = cls(**merged)
+                continue
+            except Exception as e:
+                reason = f"invalid value(s) for {sorted(fields)}: {e}"
+            try:
+                models[cls] = cls(**fields)
+                reason = None
+            except Exception as e:
+                reason = f"invalid value(s) for {sorted(fields)}: {e}"
+                break
+        return models, reason
+
+    def _check_risk_invariants(self, models: dict):
+        """Return a reason string when the candidate breaks a risk invariant.
+
+        Only checks that a single field's own bounds cannot express: the field
+        level type/range validation already ran during model construction.
+        """
+        from tradebot_sci.config.models import RiskSettings, SafetySettings
+
+        risk = models.get(RiskSettings)
+        if risk is not None:
+            if getattr(risk, "nuclear_overrides_enabled", False):
+                return "nuclear_overrides_enabled cannot be enabled"
+            risk_pct = float(getattr(risk, "risk_per_trade_pct", 0.0) or 0.0)
+            exposure_cap = float(getattr(risk, "max_exposure_pct", 0.0) or 0.0)
+            if exposure_cap > 0 and risk_pct > exposure_cap:
+                return (
+                    f"risk_per_trade_pct {risk_pct} exceeds the portfolio "
+                    f"max_exposure_pct {exposure_cap}"
+                )
+            daily_cap = float(getattr(risk, "limit_loss_daily_pct", 0.0) or 0.0)
+            if daily_cap > 0 and risk_pct > daily_cap:
+                return (
+                    f"risk_per_trade_pct {risk_pct} exceeds the daily loss "
+                    f"limit {daily_cap}"
+                )
+
+        safety = models.get(SafetySettings)
+        if safety is not None:
+            if float(getattr(safety, "emergency_stop_pct", 0.0) or 0.0) <= 0.0:
+                return "emergency_stop_pct must be greater than zero"
+        return None
+
     def _execute_synthetic_preflight(self, proposed_changes: dict) -> bool:
         """
         Requirement 8.2: Synthetic Pre-Flight Tests
-        Spawns a background evaluation to verify structural config safety.
-        Returns True if the config survives seamlessly without immediate drawdowns.
+        Validates a proposed settings change before anything is written.
+
+        This is a cheap structural check, not a simulation: the keys are run
+        through the adjustment guard, the candidate values are built into their
+        real Pydantic section models (which enforces the declared field bounds),
+        and the risk-critical invariants that no single field's bounds can
+        express are verified. Returns False with a logged reason when the
+        candidate is not structurally safe.
         """
+        if not isinstance(proposed_changes, dict) or not proposed_changes:
+            return True
+
         logger.info("[Sentinel] Executing Synthetic Pre-Flight Test on proposed config.")
-        time.sleep(1) # Simulation
+        candidates, rejected = self._screen_settings_adjustments(proposed_changes)
+        if rejected:
+            blockers = "; ".join(f"{r['key']} ({r['reason']})" for r in rejected)
+            logger.warning(f"[Sentinel] Synthetic Pre-Flight failed: {blockers}")
+            return False
+        if not candidates:
+            logger.warning("[Sentinel] Synthetic Pre-Flight failed: no valid setting to apply.")
+            return False
+
+        models, reason = self._build_candidate_models(candidates)
+        if reason is None:
+            reason = self._check_risk_invariants(models)
+        if reason:
+            logger.warning(f"[Sentinel] Synthetic Pre-Flight failed: {reason}")
+            return False
+
         logger.info("[Sentinel] Synthetic Pre-Flight passed safely.")
+        return True
+
+    @staticmethod
+    def _describe_settings_outcome(applied: dict, rejected: list, explanation: str) -> str:
+        """Describe a settings change using what was actually written."""
+        lines = []
+        if applied:
+            lines.append("Applied settings: " + ", ".join(f"{k}={applied[k]}" for k in sorted(applied)))
+        else:
+            lines.append("No settings were changed.")
+        if rejected:
+            lines.append("Refused: " + "; ".join(f"{r['key']} ({r['reason']})" for r in rejected))
+        if explanation and explanation.strip():
+            # Never present the model's claim of a change as fact when part or
+            # all of it was refused.
+            if rejected:
+                lines.append(f"Model's stated intent (not applied as written): {explanation.strip()}")
+            else:
+                lines.append(explanation.strip())
+        return "\n".join(lines)
+
+    def _apply_schedule_actions(self, cfg: dict, schedule_actions: list):
+        """Apply AI schedule actions to an already-read config dict and save it."""
+        if not isinstance(cfg.get("schedule"), dict):
+            cfg["schedule"] = {}
+        if not isinstance(cfg["schedule"].get("sessions"), list):
+            cfg["schedule"]["sessions"] = []
+
+        schedule_changed = False
+        for action in schedule_actions:
+            if not isinstance(action, dict):
+                continue
+            act_type = action.get("action", "")
+            if act_type == "create_session":
+                new_session = {
+                    "profile_name": action.get("profile_name", "default"),
+                    "start_time": action.get("start_time", "09:00"),
+                    "end_time": action.get("end_time", "17:00"),
+                    "days_of_week": action.get("days_of_week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]),
+                    "mode": action.get("mode", "custom"),
+                    "weeks_of_month": action.get("weeks_of_month", [1, 2, 3, 4, 5]),
+                    "paper_trade_off_hours": action.get("paper_trade_off_hours", False),
+                }
+                cfg["schedule"]["sessions"].append(new_session)
+                schedule_changed = True
+                self.memory.record_action("SCHEDULE_CREATE", new_session)
+                logger.info(f"[Sentinel] Created schedule session for '{new_session['profile_name']}'")
+            elif act_type == "delete_session":
+                # Coerce the index rather than trusting its type: a string index
+                # made the range comparison raise TypeError, which aborted the
+                # whole cycle after earlier mutations had already been applied.
+                raw_index = action.get("index", None)
+                if raw_index is None or isinstance(raw_index, bool):
+                    logger.warning(f"[Sentinel] Ignoring delete_session with invalid index {raw_index!r}.")
+                    continue
+                try:
+                    idx = int(raw_index)
+                except (TypeError, ValueError):
+                    logger.warning(f"[Sentinel] Ignoring delete_session with non-integer index {raw_index!r}.")
+                    continue
+                if 0 <= idx < len(cfg["schedule"]["sessions"]):
+                    removed = cfg["schedule"]["sessions"].pop(idx)
+                    schedule_changed = True
+                    self.memory.record_action("SCHEDULE_DELETE", {"index": idx, "removed": removed})
+                    logger.info(f"[Sentinel] Deleted schedule session at index {idx}")
+
+        if schedule_changed:
+            self._write_config(cfg)
+
+    def _engage_kill_switch(self, reason: str) -> bool:
+        """Halt trading via the controller. Returns True when the halt took effect.
+
+        controller.is_halted() reads ws_server._halted and is what the trading
+        loop consults, so the kill switch has to go through the controller.
+        Logging and broadcasting alone left the bot trading while the operator
+        was told it had stopped.
+        """
+        if self.controller is None or not hasattr(self.controller, "halt"):
+            logger.error("[Sentinel] Kill switch requested but no halt mechanism is reachable.")
+            return False
+        try:
+            self.controller.halt(f"AI kill switch: {str(reason)[:200]}")
+        except Exception as e:
+            logger.error(f"[Sentinel] Kill switch halt call failed: {e}", exc_info=True)
+            return False
+        if hasattr(self.controller, "is_halted"):
+            try:
+                return bool(self.controller.is_halted())
+            except Exception:
+                return True
         return True
 
     def _evaluate_and_adjust(self):
         """Core AI Autonomous Evaluation Sequence."""
-        state_payload = self._build_system_state_payload()
-
         # ── Feature 2: Sabbath Guard ──
         # Check if Sabbath is active BEFORE calling the AI
         config = self._read_config()
@@ -1207,13 +1765,17 @@ class SeasonedTraderDaemon:
             '- Be conversational and confident — you\'re a veteran talking to your client.\n'
         )
         
-        # Format expects ChatMessage schema natively
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": state_payload}
-        ]
-        
         try:
+            # Built inside the try: assembling the payload touches the ledger,
+            # market data and news feeds, and a failure there used to escape the
+            # handler entirely and kill the daemon thread silently.
+            state_payload = self._build_system_state_payload()
+            # Format expects ChatMessage schema natively
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": state_payload}
+            ]
+
             logger.info("[Sentinel] Requesting autonomous evaluation from cognitive backend...")
             response_json_str = self.ai.raw_chat(messages, expect_json=True)
             
@@ -1247,8 +1809,20 @@ class SeasonedTraderDaemon:
                     change_explanation = "Sabbath is active. No changes were made. Observing only."
 
             # 1. Self-Adjusting Intervals (Req #7)
-            if hasattr(next_interval, '__int__') and 1 <= int(next_interval) <= 1440:
+            # bool is an int subclass, so testing __int__ accepted
+            # "proposed_interval_mins": true and set a 1-minute interval.
+            if isinstance(next_interval, bool):
+                logger.warning(
+                    f"[Sentinel] Rejecting proposed interval {next_interval!r} — a boolean is not "
+                    "a valid interval."
+                )
+            elif isinstance(next_interval, (int, float)) and 1 <= float(next_interval) <= 1440:
                 self.interval_mins = int(next_interval)
+            elif next_interval is not None:
+                logger.warning(
+                    f"[Sentinel] Rejecting proposed interval {next_interval!r} — expected a number "
+                    "between 1 and 1440."
+                )
                 
             # 2. Add structural memory
             if note:
@@ -1256,9 +1830,22 @@ class SeasonedTraderDaemon:
                 
             # 3. Execution Kill Switch (Req #8.5)
             if kill_switch:
-                logger.critical("[Sentinel] KILL SWITCH AUTHORIZED BY AI. Halting logic matrix.")
-                self.memory.record_action("KILL_SWITCH", {"reason": analysis})
-                self._broadcast_change_commentary(change_explanation or f"🚨 KILL SWITCH ACTIVATED: {analysis[:300]}")
+                halted = self._engage_kill_switch(analysis)
+                if halted:
+                    logger.critical("[Sentinel] KILL SWITCH AUTHORIZED BY AI. Halting logic matrix.")
+                    self.memory.record_action("KILL_SWITCH", {"reason": analysis})
+                    self._broadcast_change_commentary(
+                        change_explanation or f"🚨 KILL SWITCH ACTIVATED: {analysis[:300]}"
+                    )
+                else:
+                    # Never tell the operator trading stopped when nothing did.
+                    reason = (
+                        "🚨 KILL SWITCH REQUESTED BUT UNAVAILABLE: no halt mechanism is reachable, "
+                        "so trading is still running. Stop the bot manually.\n\n"
+                        f"Stated reason: {analysis[:300]}"
+                    )
+                    self.memory.record_action("KILL_SWITCH_FAILED", {"reason": analysis})
+                    self._broadcast_change_commentary(reason)
                 return
                 
             # 4. Strategy Bypass Override (Req #8.4)
@@ -1269,13 +1856,28 @@ class SeasonedTraderDaemon:
             # 5. Iterative Pre-Flight Overrides (Req #8.1 & 8.2)
             if adjustments and isinstance(adjustments, dict):
                 if self._execute_synthetic_preflight(adjustments):
-                    logger.info(f"[Sentinel] Applying secure metric adjustments: {adjustments}")
-                    self.memory.record_action("SETTINGS_UPDATE", adjustments)
-                    # Apply adjustments to config.json
-                    self._apply_settings_adjustments(adjustments)
+                    logger.info(f"[Sentinel] Applying secure metric adjustments: {sorted(adjustments)}")
+                    outcome = self._apply_settings_adjustments(adjustments)
+                    applied = outcome.get("applied", {})
+                    declined = outcome.get("rejected", [])
+                    # Record and report the outcome, not the request: a key that
+                    # was refused must not be stored or announced as applied.
+                    if applied:
+                        self.memory.record_action("SETTINGS_UPDATE", applied)
+                    if declined:
+                        self.memory.record_action("SETTINGS_REJECT", {"rejected": declined})
+                    if applied or declined:
+                        change_explanation = self._describe_settings_outcome(
+                            applied, declined, change_explanation
+                        )
                 else:
                     logger.warning("[Sentinel] Pre-flight failed. Rejecting parameter update.")
                     self.memory.record_action("PRE_FLIGHT_REJECT", adjustments)
+                    change_explanation = self._describe_settings_outcome(
+                        {},
+                        [{"key": key, "reason": "failed the structural pre-flight check"} for key in adjustments],
+                        change_explanation,
+                    )
 
             # 6. Feature 1: Profile Actions
             if profile_actions and isinstance(profile_actions, list):
@@ -1287,18 +1889,21 @@ class SeasonedTraderDaemon:
                         pname = action.get("profile", "")
                         updates = action.get("updates", {})
                         if pname and updates:
-                            self._modify_profile(pname, updates)
-                            logger.info(f"[Sentinel] Modified profile '{pname}': {list(updates.keys())}")
+                            if self._modify_profile(pname, updates):
+                                logger.info(f"[Sentinel] Modified profile '{pname}': {list(updates.keys())}")
                     elif act_type == "create":
                         pname = action.get("profile", "")
                         pconfig = action.get("config", {})
                         if pname:
-                            self._create_profile(pname, pconfig)
-                            logger.info(f"[Sentinel] Created profile '{pname}'")
+                            if self._create_profile(pname, pconfig):
+                                logger.info(f"[Sentinel] Created profile '{pname}'")
                     elif act_type == "delete":
                         pname = action.get("profile", "")
                         if pname:
-                            cfg = self._read_config()
+                            cfg = self._read_config_for_write()
+                            if cfg is None:
+                                logger.error(f"[Sentinel] Aborting deletion of profile '{pname}': config.json is unreadable.")
+                                continue
                             cfg_profiles = cfg.get("profiles", {})
                             if pname in cfg_profiles:
                                 del cfg_profiles[pname]
@@ -1317,41 +1922,11 @@ class SeasonedTraderDaemon:
 
             # 7. Feature 3: Schedule Actions
             if schedule_actions and isinstance(schedule_actions, list):
-                cfg = self._read_config()
-                if "schedule" not in cfg:
-                    cfg["schedule"] = {}
-                if "sessions" not in cfg["schedule"]:
-                    cfg["schedule"]["sessions"] = []
-                
-                schedule_changed = False
-                for action in schedule_actions:
-                    if not isinstance(action, dict):
-                        continue
-                    act_type = action.get("action", "")
-                    if act_type == "create_session":
-                        new_session = {
-                            "profile_name": action.get("profile_name", "default"),
-                            "start_time": action.get("start_time", "09:00"),
-                            "end_time": action.get("end_time", "17:00"),
-                            "days_of_week": action.get("days_of_week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]),
-                            "mode": action.get("mode", "custom"),
-                            "weeks_of_month": action.get("weeks_of_month", [1, 2, 3, 4, 5]),
-                            "paper_trade_off_hours": action.get("paper_trade_off_hours", False),
-                        }
-                        cfg["schedule"]["sessions"].append(new_session)
-                        schedule_changed = True
-                        self.memory.record_action("SCHEDULE_CREATE", new_session)
-                        logger.info(f"[Sentinel] Created schedule session for '{new_session['profile_name']}'")
-                    elif act_type == "delete_session":
-                        idx = action.get("index", -1)
-                        if 0 <= idx < len(cfg["schedule"]["sessions"]):
-                            removed = cfg["schedule"]["sessions"].pop(idx)
-                            schedule_changed = True
-                            self.memory.record_action("SCHEDULE_DELETE", {"index": idx, "removed": removed})
-                            logger.info(f"[Sentinel] Deleted schedule session at index {idx}")
-                
-                if schedule_changed:
-                    self._write_config(cfg)
+                cfg = self._read_config_for_write()
+                if cfg is None:
+                    logger.error("[Sentinel] Aborting schedule actions: config.json is unreadable.")
+                else:
+                    self._apply_schedule_actions(cfg, schedule_actions)
 
             # 8. Feature 5: Broadcast Insight Commentary (ALWAYS — every cycle)
             # Priority: change_explanation (if changes were made) > insight_commentary (ongoing)
@@ -1370,55 +1945,104 @@ class SeasonedTraderDaemon:
                 self.memory.add_note(f"[INSIGHT] {broadcast_text[:300]}")
             
         except Exception as e:
-            logger.error(f"[Sentinel] Cognitive evaluation error: {e}")
-            error_msg = f"⚠️ AUTOPILOT API ERROR\n\nThe cognitive backend rejected the request:\n{str(e)}\n\nPlease verify your API Keys, Model Name, and Network Connection."
+            logger.error(f"[Sentinel] Cognitive evaluation error: {e}", exc_info=True)
+            headline, detail = self._classify_evaluation_error(e)
+            error_msg = f"⚠️ {headline}\n\n{detail}"
             self._broadcast_change_commentary(error_msg)
 
-    def _apply_settings_adjustments(self, adjustments: dict):
-        """Apply settings adjustments to config.json, mapping to the correct sections."""
-        from tradebot_sci.config.models import (
-            Settings, RiskSettings, SafetySettings, 
-            PerformanceSettings, TradingProfileSettings, 
-            RuntimeSettings, AppSettings
-        )
-        
-        CONFIG_SECTION_MAP = {}
-        # We order these from most general to most specific, 
-        # so specific section mappings overwrite global ones if duplicated.
-        for cls, section_name in [
-            (Settings, "global"),
-            (TradingProfileSettings, "global"),
-            (AppSettings, "global"),
-            (RuntimeSettings, "runtime"),
-            (PerformanceSettings, "performance"),
-            (SafetySettings, "safety"),
-            (RiskSettings, "risk")
-        ]:
-            for field_name in cls.model_fields.keys():
-                CONFIG_SECTION_MAP[field_name.upper()] = (section_name, field_name)
+    @staticmethod
+    def _classify_evaluation_error(error: Exception) -> tuple:
+        """Return (headline, detail) describing why an evaluation cycle failed.
 
-        cfg = self._read_config()
-        for key, val in adjustments.items():
-            mapping = CONFIG_SECTION_MAP.get(key)
-            if mapping:
-                section, field = mapping
-                if section not in cfg:
-                    cfg[section] = {}
-                # Parse value types
-                if isinstance(val, str):
-                    if val.lower() in ("true", "false"):
-                        val = val.lower() == "true"
-                    else:
-                        try:
-                            val = float(val)
-                            if val == int(val):
-                                val = int(val)
-                        except ValueError:
-                            pass
-                cfg[section][field] = val
-            else:
-                logger.debug(f"[Sentinel] No config mapping for key '{key}' — skipping.")
-        self._write_config(cfg)
+        The catch-all here used to report every failure — including a malformed
+        JSON response and internal errors — as "the cognitive backend rejected
+        the request ... verify your API Keys", which sent the operator after
+        credentials that were never the problem.
+        """
+        text = str(error).lower()
+        if isinstance(error, json.JSONDecodeError) or ("json" in text and "decode" in text):
+            return (
+                "AUTOPILOT RESPONSE PARSE ERROR",
+                "The cognitive backend replied, but the response was not valid JSON, so no "
+                f"decision could be read and nothing was changed.\n{error}",
+            )
+        if any(token in text for token in (
+            "401", "403", "unauthor", "invalid api key", "invalid_api_key", "api key",
+            "authentication", "permission denied", "forbidden",
+        )):
+            return (
+                "AUTOPILOT AUTH ERROR",
+                "The cognitive backend rejected the request as unauthorised.\n"
+                f"{error}\n\nPlease verify your API Keys, Model Name, and Network Connection.",
+            )
+        if any(token in text for token in (
+            "timeout", "timed out", "connection", "network", "unreachable", "dns",
+            "ssl", "temporarily unavailable", "reset by peer",
+        )):
+            return (
+                "AUTOPILOT NETWORK ERROR",
+                f"The cognitive backend could not be reached.\n{error}\n\n"
+                "Check your network connection and the backend endpoint.",
+            )
+        if any(token in text for token in ("rate limit", "429", "quota", "overloaded", "too many requests")):
+            return (
+                "AUTOPILOT RATE LIMITED",
+                f"The cognitive backend is throttling requests.\n{error}\n\n"
+                "Reduce the check-in frequency or wait for the quota to reset.",
+            )
+        return (
+            "AUTOPILOT INTERNAL ERROR",
+            f"The evaluation cycle failed inside the bot ({type(error).__name__}).\n{error}\n\n"
+            "This is not an API credential problem. See the log for the traceback.",
+        )
+
+    def _apply_settings_adjustments(self, adjustments: dict) -> dict:
+        """Apply settings adjustments to config.json, mapping to the correct sections.
+
+        Returns {"applied": {key: written value}, "rejected": [{"key", "reason"}]}
+        so the caller records and broadcasts what actually happened rather than
+        what the model intended.
+        """
+        result = {"applied": {}, "rejected": []}
+        if not isinstance(adjustments, dict) or not adjustments:
+            return result
+
+        cfg = self._read_config_for_write()
+        if cfg is None:
+            logger.error("[Sentinel] Rejecting all settings adjustments: config.json is unreadable.")
+            result["rejected"] = [
+                {"key": key, "reason": "config.json could not be read; nothing was written"}
+                for key in adjustments
+            ]
+            return result
+
+        candidates, rejected = self._screen_settings_adjustments(adjustments)
+        result["rejected"].extend(rejected)
+        if not candidates:
+            return result
+
+        # Reject the whole set when any proposed value fails its model: writing
+        # the subset that happens to validate would apply half of an adjustment
+        # the AI reasoned about as a unit.
+        _models, reason = self._build_candidate_models(candidates, cfg)
+        if reason:
+            logger.error(f"[Sentinel] Rejecting all settings adjustments: {reason}")
+            result["rejected"].extend({"key": key, "reason": reason} for key in candidates)
+            return result
+
+        for key, (section, field, _cls, value) in candidates.items():
+            section_data = cfg.get(section)
+            if not isinstance(section_data, dict):
+                section_data = {}
+            section_data[field] = value
+            cfg[section] = section_data
+            result["applied"][key] = value
+
+        if not self._write_config(cfg):
+            failed = list(result["applied"])
+            result["applied"] = {}
+            result["rejected"].extend({"key": key, "reason": "config.json write failed"} for key in failed)
+        return result
 
     def loop(self):
         logger.info("[Sentinel] Seasoned Trader Daemon initiated.")
@@ -1445,56 +2069,101 @@ class SeasonedTraderDaemon:
         while self.running:
             # Wake up frequently to tick the simulation time delta
             time.sleep(5)
-            
-            # 1. Fetch current simulated or real time
-            latest_time = None
-            is_replay = False
-            if self.controller and getattr(self.controller, "replay_provider", None):
-                # We are in Replay mode! Sync to simulated market time
-                sim_time = getattr(self.controller.replay_provider, "sim_time", None)
-                if sim_time:
-                    latest_time = sim_time
-                    is_replay = True
-            
-            if not latest_time:
-                # Default to real wall-clock time if not replaying
-                from datetime import datetime
-                latest_time = datetime.now()
 
-            # 2. Bootstrap first interval
-            if last_eval_time is None:
-                last_eval_time = latest_time
-                last_real_eval_time = time.time()
-                self._evaluate_and_adjust()
-                logger.info(f"[Sentinel] First evaluation passed. Synchronizing next cycle to {self.interval_mins} mins.")
-                continue
+            try:
+                # 1. Fetch current simulated or real time
+                latest_time = None
+                is_replay = False
+                if self.controller and getattr(self.controller, "replay_provider", None):
+                    # We are in Replay mode! Sync to simulated market time
+                    sim_time = getattr(self.controller.replay_provider, "sim_time", None)
+                    if sim_time:
+                        latest_time = sim_time
+                        is_replay = True
 
-            # 3. Check time delta (handles both 1:1 real-time and x300 Replay-time)
-            delta = latest_time - last_eval_time
-            if delta.total_seconds() >= (self.interval_mins * 60):
-                # Apply a strict wall-clock throttling guard for Replay Mode.
-                # If we are rapidly fast-forwarding an entire week in 3 minutes,
-                # we do NOT want the AI to make an API call for every 30-min candle.
-                # Restrict it to the user's configured interval in REAL-WORLD minutes
-                # so it behaves exactly like a live 24/7 session.
-                real_now = time.time()
-                real_delta = real_now - last_real_eval_time
-                
-                if is_replay and real_delta < (self.interval_mins * 60):
-                    # Sync the sim cursor forward without firing the expensive LLM.
-                    # We skip the execution to avoid spamming the UI.
+                if not latest_time:
+                    # Default to real wall-clock time if not replaying
+                    from datetime import datetime
+                    latest_time = datetime.now()
+
+                # 2. Bootstrap first interval
+                if last_eval_time is None:
                     last_eval_time = latest_time
+                    last_real_eval_time = time.time()
+                    self._evaluate_and_adjust()
+                    logger.info(f"[Sentinel] First evaluation passed. Synchronizing next cycle to {self.interval_mins} mins.")
                     continue
 
-                self._evaluate_and_adjust()
-                last_eval_time = latest_time
-                last_real_eval_time = time.time()
-                logger.debug(f"[Sentinel] Cycle sync boundary met. (SimDelta={delta.total_seconds()}s, RealDelta={real_delta:.1f}s)")
+                # 3. Check time delta (handles both 1:1 real-time and x300 Replay-time)
+                delta = latest_time - last_eval_time
+                if delta.total_seconds() >= (self.interval_mins * 60):
+                    # Apply a strict wall-clock throttling guard for Replay Mode.
+                    # If we are rapidly fast-forwarding an entire week in 3 minutes,
+                    # we do NOT want the AI to make an API call for every 30-min candle.
+                    # Restrict it to the user's configured interval in REAL-WORLD minutes
+                    # so it behaves exactly like a live 24/7 session.
+                    real_now = time.time()
+                    real_delta = real_now - last_real_eval_time
+
+                    if is_replay and real_delta < (self.interval_mins * 60):
+                        # Sync the sim cursor forward without firing the expensive LLM.
+                        # We skip the execution to avoid spamming the UI.
+                        last_eval_time = latest_time
+                        continue
+
+                    self._evaluate_and_adjust()
+                    last_eval_time = latest_time
+                    last_real_eval_time = time.time()
+                    logger.debug(f"[Sentinel] Cycle sync boundary met. (SimDelta={delta.total_seconds()}s, RealDelta={real_delta:.1f}s)")
+            except Exception as e:
+                # One bad cycle must not kill the daemon: log the traceback so the
+                # failure is visible and keep the schedule running.
+                logger.error(f"[Sentinel] Evaluation cycle failed: {e}", exc_info=True)
+                time.sleep(5)
+
+    def _thread_main(self):
+        """Thread entry point that keeps the daemon alive across unexpected failures.
+
+        Without this, an exception escaping loop() terminated the daemon thread
+        silently: no traceback, no restart, autopilot simply gone.
+        """
+        while self.running:
+            try:
+                self.loop()
+                return
+            except Exception as e:
+                logger.error(f"[Sentinel] Seasoned Trader loop crashed: {e}", exc_info=True)
+                if not self.running:
+                    return
+                logger.warning("[Sentinel] Restarting Seasoned Trader loop in 5s.")
+                time.sleep(5)
 
     def start(self):
         if not self._thread or not self._thread.is_alive():
-            self._thread = threading.Thread(target=self.loop, daemon=True)
+            self.running = True
+            self._thread = threading.Thread(
+                target=self._thread_main, name="seasoned-trader", daemon=True
+            )
             self._thread.start()
-            
-    def stop(self):
+
+    def stop(self, timeout: float = 10.0):
+        """Stop the daemon and wait for the cycle in flight to finish.
+
+        Joining matters: runtime/loop.py stops the daemon and immediately builds
+        a replacement, so returning while the old thread is still mid-cycle
+        leaves two daemons doing read-modify-write on the same config and memory
+        files. Safe to call when the daemon was never started.
+        """
         self.running = False
+        thread = self._thread
+        if thread is None:
+            return
+        if thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=timeout)
+            if thread.is_alive():
+                logger.warning(
+                    f"[Sentinel] Daemon thread still running after {timeout}s; "
+                    "not waiting any longer."
+                )
+        if not thread.is_alive():
+            self._thread = None

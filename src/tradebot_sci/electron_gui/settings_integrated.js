@@ -85,6 +85,8 @@ const CONFIG_MAP = {
     'SAFETY_FEE_SHIELD_ENABLED': ['safety', 'safety_fee_shield_enabled'],
     'SAFETY_FEE_RT_PCT': ['safety', 'safety_fee_rt_pct'],
     'SAFETY_SPREAD_PROFIT_GUARD_ENABLED': ['safety', 'enable_spread_profit_guard'],
+    'SAFETY_ENTRY_COST_GATE_ENABLED': ['safety', 'safety_entry_cost_gate_enabled'],
+    'SAFETY_ENTRY_COST_REFUSE_UNKNOWN': ['safety', 'safety_entry_cost_refuse_unknown'],
     'SAFETY_SENTIMENT_SHIELD_ENABLED': ['safety', 'safety_sentiment_shield_enabled'],
     'SAFETY_VOLATILITY_VETO_ENABLED': ['safety', 'safety_volatility_veto_enabled'],
     'WEALTH_EXIT_GAMMA_ENABLED': ['safety', 'wealth_exit_gamma_enabled'],
@@ -1071,6 +1073,18 @@ const STRATEGIES = {
         risk: "Medium",
         bestFor: "Forex: 20:00 UTC hour, breaks of 2+ pips",
         stats: { target: "15 pips", stop: "20 pips", minBreak: "2 pips", maxHold: "288 bars (24h)" },
+        sessionProfile: []
+    },
+    forex_retracement_fade: {
+        name: 'Forex Retracement Fade',
+        icon: 'account_tree',
+        shortDesc: 'Fades a deep retracement of a fresh impulse, at a level',
+        assetClass: "forex",
+        description: "Waits for a fresh directional impulse of at least 2.5 ATR, then waits for price to give back between half and three quarters of that impulse. The give-back has to land on something the market can see, either a swing high or low confirmed by five bars either side or the edge of a broken consolidation, and the last closed candle has to close back out of that zone in the impulse direction. Then it trades with the impulse. The stop sits BEYOND the far edge of the zone plus 0.25 ATR, never on the level, because the first live trade was stopped out at the consolidation high and price then ran the expected way. The target is the far end of the impulse, the extreme the give-back started from, and the setup is rejected unless the realised R is 1.5 or better. Finally the round trip cost, 2.45 pips plus 0.9 pips per expected day of holding, must stay under 15 percent of the target distance. The rule comes from seven real live trades, so it is a hint rather than a proven edge. Time stop after 24 hours.",
+        style: "Trend Continuation (Retracement Fade)",
+        risk: "Medium",
+        bestFor: "Forex: any session, needs an impulse large enough to clear the cost gate",
+        stats: { target: "far end of the impulse", stop: "zone edge + 0.25 ATR", minR: "1.5", impulse: "2.5 ATR", costCeiling: "15% of target", maxHold: "24h" },
         sessionProfile: []
     },
     forex_structure_breakout: {
@@ -5464,6 +5478,11 @@ function renderSafetyTab(container) {
         tooltip: "What percentage is the broker charging you for the 'round-trip' (both buying and selling)?<br><br>Set this slightly higher than what they actually charge just to be extremely safe against unpredictable spikes during wild market moments."
     }));
     section.appendChild(createCard('Spread Profit Guard', 'Block exits if net profit is less than spread cost', 'SAFETY_SPREAD_PROFIT_GUARD_ENABLED', 'toggle', { default: 'true' }));
+    section.appendChild(createCard('Entry Cost Gate', 'Refuse any entry whose spread is too big a slice of the risk', 'SAFETY_ENTRY_COST_GATE_ENABLED', 'toggle', {
+        default: 'true',
+        tooltip: "<strong>The Toll Booth.</strong> Every trade pays a spread to get in and again to get out. If that round trip costs a big slice of what you are risking, the trade is already behind before it starts.<br><br>This gate prices the toll at the moment of the decision, on the live quote, for <em>every</em> strategy, and states it in pips and as a percentage of the risk. Anything above the ceiling in 'Spread Gate' below is refused, and so is anything whose cost cannot be priced at all, because an unmeasurable cost is not the same as a cheap one.",
+    }));
+    section.appendChild(createCard('Refuse Unpriced Entries', 'Refuse when the spread cannot be priced at all', 'SAFETY_ENTRY_COST_REFUSE_UNKNOWN', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Drawdown Breaker', 'Account Circuit Breaker — Adaptive (25% small → 5% large accounts)', 'SAFETY_DRAWDOWN_BREAKER_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Session Lockout', 'Stops new entries after cutoff time', 'SAFETY_SESSION_LOCKOUT_ENABLED', 'toggle', { default: 'true' }));
     section.appendChild(createCard('Lockout Time (EST)', 'No new entries after this time', 'SAFETY_SESSION_LOCKOUT_HOUR', 'time', { default: '16', tooltip: "Forces the bot to totally stop looking for new trades at this hour. If you set it to 16 (4:00 PM EST), the bot goes to sleep before the wild end-of-day volatility and spread widening kicks in." }));
@@ -6123,6 +6142,7 @@ function renderStrategyToolbox(container) {
         { id: 'forex_structure_breakout', label: 'Structure Breakout', icon: 'trending_up', color: '#10b981' },
         { id: 'forex_structure_breakout_best', label: 'Structure Breakout (Best)', icon: 'trending_up', color: '#059669' },
         { id: 'forex_scrape_fade', label: 'Scrape Fade', icon: 'compress', color: '#0ea5e9' },
+        { id: 'forex_retracement_fade', label: 'Retracement Fade', icon: 'account_tree', color: '#0284c7' },
         { id: 'trend_rider', label: 'Trend Rider', icon: 'trending_up', color: '#10b981' },
         { id: 'session_momentum', label: 'Session Momentum', icon: 'schedule_send', color: '#f43f5e' },
         { id: 'bearish_engulfing', label: 'Engulfing Reversal', icon: 'candlestick_chart', color: '#d946ef' },
