@@ -93,6 +93,10 @@ TRADE_META = [
          source="session_notes 105, run_state.live_trading_record"),
     dict(n=8, opened="2026-10-08T18:13:01", stop=1.41980, target=1.42900,
          source="run_state.live_trading_record"),
+    dict(n=9, opened="2026-10-12T13:07:00", stop=1.11550, target=1.12330,
+         source="session_notes 173, logs/agent_session_20261012T130439Z.out"),
+    dict(n=10, opened="2026-10-12T18:06:21", stop=1.11850, target=1.11090,
+         source="session_notes 174, logs/agent_session_20261012T180434Z.out"),
 ]
 
 # Measured round-trip cost where the record holds a measurement. Where it does not,
@@ -102,6 +106,8 @@ MEASURED_COST = {
     6: "1.7 pips (half spread 0.85 pips, measured on the fill)",
     7: "1.7 pips (half spread 0.85 pips, measured on the fill)",
     8: "1.6 pips (round trip, measured on the fill)",
+    9: "1.6 pips (round trip, measured on the fill)",
+    10: "1.5 pips (round trip, measured on the fill)",
 }
 DEFAULT_COST = "1.5 to 1.7 pips (recorded range for these pairs in this period)"
 

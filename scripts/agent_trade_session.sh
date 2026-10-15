@@ -14,7 +14,6 @@
 set -uo pipefail
 
 REPO="/home/qchan/Scripts/Trade by SCI/tradebot-sci-debug"
-SECRETS="$HOME/.config/secrets/.env.secrets"
 LOGDIR="$REPO/logs"
 LOCK="/tmp/tradebot-agent-session.lock"
 HALT="$LOGDIR/AGENT_TRADING_HALT"
@@ -57,19 +56,21 @@ if ! flock -n 9; then say "SKIP already-running"; exit 0; fi
 # ── Gate 2: kill switch ─────────────────────────────────────────────────
 if [ -f "$HALT" ]; then say "SKIP halted (remove $HALT to resume)"; exit 0; fi
 
-# ── Gate 3: secrets. This file is NOT valid shell (it has a bare word and an
-#    unquoted <email>), so extract only the keys we need rather than sourcing it.
-if [ ! -f "$SECRETS" ]; then say "ABORT no secrets file"; exit 1; fi
-load_secret() {
-  local key="$1" line
-  line=$(grep -m1 "^${key}=" "$SECRETS" 2>/dev/null) || return 1
-  line=${line#*=}; line=${line%\"}; line=${line#\"}; line=${line%\'}; line=${line#\'}
-  printf '%s' "$line"
-}
-for k in OANDA_API_KEY TRADEBOT_DB_HOST TRADEBOT_DB_USER TRADEBOT_DB_PASSWORD TRADEBOT_DB_SCHEMA; do
-  v=$(load_secret "$k") && export "$k=$v"
-done
-[ -z "${OANDA_API_KEY:-}" ] && { say "ABORT OANDA_API_KEY not set"; exit 1; }
+# ── Gate 3: secrets. Rule 206: nothing is read from a file. The OANDA key and the
+#    database password come out of secretary.vault into the environment through the
+#    accessor, which re-runs this same script with both set. The banned file
+#    ~/.config/secrets/.env.secrets is never read.
+VAULT="$HOME/Scripts/Secretary/vault_crypto.py"
+if [ -z "${TRADEBOT_SECRETS_ENV:-}" ]; then
+  export TRADEBOT_SECRETS_ENV=1
+  export TRADEBOT_DB_HOST="${TRADEBOT_DB_HOST:-192.168.133.206}"
+  export TRADEBOT_DB_USER="${TRADEBOT_DB_USER:-tradebot_sci}"
+  export TRADEBOT_DB_SCHEMA="${TRADEBOT_DB_SCHEMA:-tradebot_sci}"
+  exec python3 "$VAULT" exec tradebot-sci-db --as TRADEBOT_DB_PASSWORD -- \
+       python3 "$VAULT" exec tradebot-oanda-key --as OANDA_API_KEY -- \
+       /bin/bash "$0" "$@"
+fi
+[ -z "${OANDA_API_KEY:-}" ] && { say "ABORT OANDA_API_KEY not set by the accessor"; exit 1; }
 
 dbq() { MYSQL_PWD="$TRADEBOT_DB_PASSWORD" mysql -h "$TRADEBOT_DB_HOST" -u"$TRADEBOT_DB_USER" \
         "$TRADEBOT_DB_SCHEMA" -N -B -e "$1" 2>/dev/null; }
@@ -144,6 +145,23 @@ if [ -f "$REPO/tools/shadow_book.py" ]; then
   say "SHADOW scored=$(grep -c . "$REPO/logs/shadow_results.jsonl" 2>/dev/null || echo 0) waiting=$PENDING"
 fi
 
+# ── Take home: the money that leaves the desk before it can be risked again ──
+# Steven's order 2026-10-12: on a win, calculate what he takes home before the rest
+# goes back out on the market. He chose the shielded version the same day: per win,
+# 50 percent of it (75 when the win is 2.5 percent or more of the account), and nothing
+# while a position is open or while the account sits below its own peak. tools/take_home.py
+# does the arithmetic from the ledger and records it in tradebot_sci.payouts, once per
+# closing fill. It places no orders and moves no money, and a failure here must not cost
+# the window.
+TAKEHOME=""
+if [ -f "$REPO/tools/take_home.py" ]; then
+  if ! TAKEHOME=$(python3 "$REPO/tools/take_home.py" 2>&1); then
+    say "TAKE HOME calculation failed"
+    TAKEHOME=""
+  fi
+  TAKEHOME=$(head -c 1200 <<<"$TAKEHOME")
+fi
+
 # ── Read the agent bus and hand the messages to the agent ────────────────
 # Steven had to tell an agent to do this, and it cost him work. Making it part
 # of the prompt means a session cannot forget it. `peek` does not consume.
@@ -182,8 +200,29 @@ if [ -n "$SHADOW" ]; then
 $SHADOW
 ===== END SHADOW BOOK ====="
 fi
-timeout "$MAX_SECONDS" dsh --profile headless "$PROMPT" >"$OUT" 2>"$ERR"
-RC=$?
+
+if [ -n "$TAKEHOME" ]; then
+  PROMPT="$PROMPT
+
+===== TAKE HOME: WHAT A WIN PAYS STEVEN BEFORE IT GOES BACK OUT =====
+$TAKEHOME
+===== END TAKE HOME ====="
+fi
+# Spend governor: enforce the house daily cap and this lane's start cap before paying for a session.
+# A refusal is written to stderr so the no-report path below records why the window produced nothing
+# instead of leaving it looking like a deliberate stand-aside. An unreadable governor answer is
+# treated as allowed, because a fault in the cap must not stop the desk.
+GOV_REASON="$(timeout 60 python3 "/home/qchan/Scripts/Agent Core/agent_budget.py" allow \
+                --peer tradebot_sci --kind ask --why "trade session ${KIND} ${HOUR}Z" 2>/dev/null)"
+GOV_RC=$?
+if [ "$GOV_RC" = "3" ]; then
+  RC=3
+  printf '%s\n' "not started by the spend governor: ${GOV_REASON}" >"$ERR"
+  say "NOT STARTED (spend governor): ${GOV_REASON}"
+else
+  timeout "$MAX_SECONDS" dsh --profile headless "$PROMPT" >"$OUT" 2>"$ERR"
+  RC=$?
+fi
 say "END rc=$RC elapsed=$(( $(date +%s) - START ))s out=$OUT"
 
 # ── Record the report. The agent is told NOT to write a session row itself,

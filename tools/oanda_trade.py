@@ -191,24 +191,21 @@ def realized_pl_today(now: dt.datetime | None = None) -> float:
 
 
 def _db_secret(name: str) -> str:
-    """Read one TRADEBOT_DB_* value, preferring the environment.
+    """Read one TRADEBOT_DB_* value from the environment.
 
-    The env file is not valid shell (it carries a bare word and an unquoted
-    address), so it is parsed key by key rather than sourced. Nothing here is
+    House rule 206: no agent reads Steven's ~/.config/secrets/.env.secrets. The value
+    must arrive in the environment, put there by the vault accessor; a caller that has
+    not done that fails loudly rather than falling back to the file. Nothing here is
     ever printed: a secret echoed for debugging is a secret in the transcript.
     """
     val = os.environ.get(name, "")
     if val:
         return val
-    try:
-        with DB_ENV_FILE.open(encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if line.startswith(name + "="):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except OSError:
-        pass
-    return ""
+    raise RuntimeError(
+        f"{name} is not set in the environment. House rule 206 forbids reading "
+        f"{DB_ENV_FILE}; run the tool through the vault accessor instead, e.g. "
+        f"python3 ~/Scripts/Secretary/vault_crypto.py exec tradebot-sci-db "
+        f"--as TRADEBOT_DB_PASSWORD -- python3 tools/oanda_trade.py ...")
 
 
 def db_query(sql: str) -> str:

@@ -23,17 +23,25 @@
 set -uo pipefail
 
 REPO="/home/qchan/Scripts/Trade by SCI/tradebot-sci-debug"
-SECRETS="$HOME/.config/secrets/.env.secrets"
 LOG="$REPO/logs/daily_pnl_push.log"
 
 mkdir -p "$REPO/logs"
 say() { printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >>"$LOG"; }
 
-[ -f "$SECRETS" ] || { say "ABORT no secrets file"; exit 1; }
-
-OANDA_API_KEY=$(sed -n 's/^OANDA_API_KEY=//p' "$SECRETS" | head -1 | sed 's/^"//; s/"$//')
-[ -n "$OANDA_API_KEY" ] || { say "ABORT OANDA_API_KEY not found in $SECRETS"; exit 1; }
-export OANDA_API_KEY
+# Rule 206: no secret comes out of a file. The OANDA key and the database password come
+# out of secretary.vault into the environment through the accessor, which re-runs this
+# same script with both set. Steven's ~/.config/secrets/.env.secrets is never read.
+VAULT="$HOME/Scripts/Secretary/vault_crypto.py"
+if [ -z "${TRADEBOT_SECRETS_ENV:-}" ]; then
+  export TRADEBOT_SECRETS_ENV=1
+  export TRADEBOT_DB_HOST="${TRADEBOT_DB_HOST:-192.168.133.206}"
+  export TRADEBOT_DB_USER="${TRADEBOT_DB_USER:-tradebot_sci}"
+  export TRADEBOT_DB_SCHEMA="${TRADEBOT_DB_SCHEMA:-tradebot_sci}"
+  exec python3 "$VAULT" exec tradebot-sci-db --as TRADEBOT_DB_PASSWORD -- \
+       python3 "$VAULT" exec tradebot-oanda-key --as OANDA_API_KEY -- \
+       /bin/bash "$0" "$@"
+fi
+[ -n "${OANDA_API_KEY:-}" ] || { say "ABORT OANDA_API_KEY not set by the accessor"; exit 1; }
 
 OUT=$(cd "$REPO" && timeout 120 python3 tools/daily_pnl_push.py "$@" 2>&1)
 RC=$?

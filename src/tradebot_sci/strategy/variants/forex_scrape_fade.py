@@ -15,7 +15,12 @@ The rule
    lowest low of the prior 20 bars; short when it closes above the highest high.
    No indicators: at the working window the price-action version earned three times
    what the SMA z-score version did, because an indicator lags the break it is
-   meant to catch.
+   meant to catch. IT IS A CLOSE AND NOT A POKE, and the live engine hands over the
+   bar still being formed, so the strategy drops that bar itself before testing the
+   rule (see _closed_candles). Measured 2026-10-12: the running bot reported EURNZD
+   at a 1.2-pip break depth mid-bar, and that bar went on to close 2.60 pips beyond
+   its prior range, which is an entry by the rule as written and one the live path
+   could not see.
 
 3. **Stop 20 pips, target 15 pips, time stop after 24 hours.** The hold is the
    load-bearing parameter, and it was originally set too short. Measured on fifteen
@@ -134,7 +139,8 @@ would need the hour gate to travel with it.
 from __future__ import annotations
 
 import logging
-from datetime import timezone
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from tradebot_sci.market.models import MarketSnapshot
@@ -288,10 +294,63 @@ class ForexScrapeFade(BaseStrategy):
             pass
         return None, None
 
+    def _closed_candles(self, candles: list, timeframe: str) -> list:
+        """Drop the still-forming bar, so the signal is a bar CLOSE and not a poke.
+
+        The rule this strategy validates is a close beyond the prior range, and the
+        backtest and the replay both feed it closed bars only. The live engine does not:
+        runtime/cycle.py builds the snapshot from the raw provider list on purpose, so
+        that the engine's own trend cache sees tick-by-tick movement, which means
+        `candles[-1]` at decision time is the bar still being formed and `last.close`
+        is the price right now rather than a close.
+
+        What that cost, measured rather than reasoned about: at 2026-10-12 20:48:55Z the
+        running bot reported EURNZD "break depth 1.2p below the 2.0p minimum" — the
+        20:45Z bar, part formed. That bar closed at 20:50Z 2.60 pips beyond its prior
+        twenty-bar range, which is an entry by the rule as written, and the next poll at
+        20:55:07Z said "no fresh break of the prior range" because by then the 20:50Z bar
+        was newest and the qualifying close had moved into the range window. The live
+        path could therefore only ever see breaks that happened to be at least at the
+        minimum depth at the instant of a poll; over the two entry windows since the
+        runner restarted, the deepest break it ever saw was 1.8 pips while the closed
+        bars of those same windows contain a 2.6-pip one it never evaluated.
+
+        Replay and backtest are unaffected: their bars are historical, so the last one
+        has long since closed and nothing is dropped.
+        """
+        if not candles:
+            return candles
+        bar_secs = self._bar_seconds(timeframe)
+        last = candles[-1]
+        ts = last.timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        closes_at = ts + timedelta(seconds=bar_secs)
+        now = datetime.now(timezone.utc)
+        if (now - closes_at).total_seconds() > 86400:
+            return candles          # replay: every bar here is already closed history
+        if closes_at > now:
+            return candles[:-1]     # the bar that has not closed yet is not a signal
+        return candles
+
+    @staticmethod
+    def _bar_seconds(timeframe: str) -> int:
+        m = re.match(r"^\s*(\d+)\s*(m|min|mins|h|hour|hours|d|day|days)\s*$",
+                     str(timeframe or "5m").lower())
+        if not m:
+            return 300
+        value, unit = int(m.group(1)), m.group(2)
+        if unit.startswith("m"):
+            return value * 60
+        if unit.startswith("h"):
+            return value * 3600
+        return value * 86400
+
     def _in_window(self, snapshot: MarketSnapshot) -> bool:
-        if not snapshot.candles:
+        candles = self._closed_candles(snapshot.candles, snapshot.timeframe)
+        if not candles:
             return False
-        ts = snapshot.candles[-1].timestamp
+        ts = candles[-1].timestamp
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
         hour = ts.astimezone(timezone.utc).hour
@@ -336,12 +395,18 @@ class ForexScrapeFade(BaseStrategy):
         if gates.get("is_synthetic_override") is True:
             return self._decline(snapshot, "synthetic override is set")
 
-        candles = snapshot.candles
-        if len(candles) < self.range_lookback + 2:
+        raw = snapshot.candles
+        if len(raw) < self.range_lookback + 2:
             return self._decline(
-                snapshot, f"only {len(candles)} candles, needs {self.range_lookback + 2}")
+                snapshot, f"only {len(raw)} candles, needs {self.range_lookback + 2}")
         if not self._in_window(snapshot):
             return None
+
+        # A bar CLOSE is the signal, so the bar still being formed is not one: it is
+        # the price right now, and a poke that happens to be deep at the instant of a
+        # poll is not a close beyond the range. See _closed_candles for what the
+        # difference cost the live path.
+        candles = self._closed_candles(raw, snapshot.timeframe)
 
         # Range over the prior N bars, including the one just closed — exactly the
         # rule that was validated on three years of data. An earlier version moved
@@ -349,8 +414,6 @@ class ForexScrapeFade(BaseStrategy):
         # forty times rarer than the rule being tested; the de-duplication that the
         # research applied is handled below by a spacing rule instead, so the
         # strategy and the validation measure the same thing.
-        if len(candles) < self.range_lookback + 2:
-            return None
         prior = candles[-self.range_lookback - 1:-1]
         range_high = max(c.high for c in prior)
         range_low = min(c.low for c in prior)

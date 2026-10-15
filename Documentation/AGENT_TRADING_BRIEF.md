@@ -350,6 +350,55 @@ otherwise drag the 1R level down and flatter the trade. **It is a report, not an
 instruction to act.** A session that sees `at_1r` true has nothing it is obliged to
 do about it.
 
+## Take home: the money that leaves before it can be risked again
+
+Steven's order, 2026-10-12: calculate a take-home profit on wins, so he profits before
+the winnings go back out on the market. He chose the rule the same day: **per win, and
+only once the account is back at its own peak.** The arithmetic is Tradebot SCI's own
+Payout Mentor, not a new idea — 50 percent of the win, 75 percent when the win is 2.5
+percent or more of the account, nothing while the period is negative.
+
+    python3 tools/take_home.py          # the state, and what a win pays
+    python3 tools/take_home.py --due    # only the amount owed and not yet withdrawn
+    python3 tools/take_home.py --withdrawn "fxTrade portal 2026-10-13"   # record that it left
+
+It reads the live ledger, decides the state, and records one row per closing fill in
+`tradebot_sci.payouts`, so the same win can never be paid twice. It places no orders and
+moves no money. The three states:
+
+- **LOCKED** — a position is open. The desk never pulls capital while a trade is live:
+  the withdrawal cuts the margin holding that position up. This is the mentor's own rule.
+- **SHIELDED** — the account is below its own peak. The win is rebuilding a drawdown, so
+  it is recorded and nothing is paid. The peak is the highest balance since the last
+  payout: after a payout the account is re-based, so the next one comes out of new ground
+  rather than out of capital already paid from.
+- **PAYDAY** — a winner closed at or above the peak and the desk is flat. The row says
+  what he takes and what stays to compound, and the amount is what he withdraws.
+
+**The withdrawal itself is his, not yours.** OANDA's v20 API exposes no funding or
+withdrawal endpoint (checked on the installed `oandapyV20` 2026-10-12: no transfer,
+withdrawal or deposit path exists), so the money leaves through the fxTrade portal, by
+him or on his word. What you owe him is the exact figure, the balance it leaves behind,
+and the state. When it has actually left, write it with
+`tools/take_home.py --withdrawn "<his reference>"`, which stamps the day on every
+un-withdrawn PAYDAY row. Until that stamp exists the money is still in the account and
+the desk still counts it as capital it can risk.
+
+**A withdrawal is added back in the arithmetic, and the peak re-bases down.** The ledger
+holds fills, and a transfer is not one, so a balance reconstructed backwards from the
+balance today is short by whatever has left since. Two things follow, and both are the
+difference between paying him and paying him once: an earlier balance has to have later
+withdrawals added back before it is compared with the peak, and the peak has to be
+written when a payout takes it *down* as well as up. A peak that could only rise would
+shield the desk from ever paying again, because after a transfer the account can never
+climb back through the money it no longer holds.
+
+**Taking money home does not make money.** It moves it. What changes is how much stays
+exposed and how fast the account compounds: on the real record, the unshielded version
+would have paid 36.26 USD across three winners and left the account at 223.99 instead of
+260.25, so the 6 percent risk unit would have been 13.44 USD instead of 15.62. Never
+present a payout as a gain.
+
 ## What has already been tried — read before you invent
 
 Query the database. You are repeating nobody's work if you read this first.

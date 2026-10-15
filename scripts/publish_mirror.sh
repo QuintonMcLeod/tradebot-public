@@ -99,6 +99,7 @@ rsync -av --delete \
     --exclude='logs/' \
     --exclude='data/' \
     --exclude='scripts/deploy.sh' \
+    --exclude='*.bak*' \
     --exclude='Trash/' \
     --exclude='**/GUI.bak/' \
     --exclude='**/gui.bak/' \
